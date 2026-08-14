@@ -179,7 +179,8 @@ enum {
 };
 
 enum {
-    PROGPU_NATIVE_SCENE_STATE_CLIP_RECT = 1U << 0U
+    PROGPU_NATIVE_SCENE_STATE_CLIP_RECT = 1U << 0U,
+    PROGPU_NATIVE_SCENE_STATE_MASK = 1U << 1U
 };
 
 enum {
@@ -501,7 +502,11 @@ typedef struct progpu_native_image_rect {
  * until its matching RESTORE, while a draw command carrying it overrides the
  * current state for that draw only. The clip rectangle is expressed in
  * logical target coordinates and is enabled by
- * PROGPU_NATIVE_SCENE_STATE_CLIP_RECT. Reserved fields must remain zero.
+ * PROGPU_NATIVE_SCENE_STATE_CLIP_RECT. When
+ * PROGPU_NATIVE_SCENE_STATE_MASK is set, mask_resource_index references a
+ * preceding LAYER_MASK resource and coverage is applied independently to each
+ * draw. The index must be zero when the flag is absent. Reserved fields must
+ * remain zero.
  */
 typedef struct progpu_native_scene_state {
     uint32_t struct_size;
@@ -510,7 +515,7 @@ typedef struct progpu_native_scene_state {
     float opacity;
     uint32_t reserved;
     progpu_native_image_rect clip_rect;
-    uint32_t reserved0;
+    uint32_t mask_resource_index;
     uint32_t reserved1;
 } progpu_native_scene_state;
 

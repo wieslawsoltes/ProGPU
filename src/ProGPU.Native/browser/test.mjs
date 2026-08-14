@@ -47,6 +47,7 @@ try {
       document.body.dataset.progpuNativeExplicitTimeline,
     coverageMasks: document.body.dataset.progpuNativeCoverageMasks,
     roundedMasks: document.body.dataset.progpuNativeRoundedMasks,
+    stateMasks: document.body.dataset.progpuNativeStateMasks,
     semanticGeometry:
       document.body.dataset.progpuNativeSemanticGeometry,
     deviceRecovery: document.body.dataset.progpuNativeDeviceRecovery,
@@ -55,14 +56,15 @@ try {
   assert.deepEqual(contract, {
     status: "passed",
     semanticCommands: "3",
-    semanticResources: "2",
-    semanticDraws: "2",
+    semanticResources: "3",
+    semanticDraws: "1",
     rendererSubmissions: "1",
     evidenceTarget: "offscreen-texture-readback",
     backendAbi: "3",
     explicitTimeline: "0",
     coverageMasks: "passed",
     roundedMasks: "passed",
+    stateMasks: "passed",
     semanticGeometry: "passed",
     deviceRecovery: "passed",
     error: ""
@@ -89,10 +91,10 @@ try {
     const sample = (x, y) =>
       Array.from(context.getImageData(x, y, 1, 1).data);
     return {
-      leftStem: sample(230, 113),
-      counter: sample(330, 120),
-      bridge: sample(340, 180),
-      outside: sample(100, 180)
+      leftOnly: sample(150, 180),
+      overlap: sample(300, 180),
+      rightOnly: sample(480, 180),
+      outside: sample(60, 180)
     };
   }, screenshot.toString("base64"));
   const near = (actual, expected, tolerance = 20) =>
@@ -106,24 +108,28 @@ try {
     : errors.join(" | ");
   const diagnostics = `${browserDiagnostics}; pixels=${JSON.stringify(pixels)}`;
   const opaque = (pixel) => pixel[3] >= 240;
-  const cyan = (pixel) => near(pixel[0], 0) &&
-    near(pixel[1], 217, 24) && near(pixel[2], 255) && opaque(pixel);
+  const cyan = (pixel) => pixel[0] <= 16 && pixel[1] >= 90 &&
+    pixel[2] >= 110 && opaque(pixel);
+  const magenta = (pixel) => pixel[0] >= 110 && pixel[1] <= 50 &&
+    pixel[2] >= 55 && opaque(pixel);
+  const perDrawOverlap = (pixel) => near(pixel[0], 133, 18) &&
+    near(pixel[1], 78, 14) && near(pixel[2], 138, 18) && opaque(pixel);
   const clear = (pixel) => pixel[0] <= 16 && pixel[1] <= 16 &&
     pixel[2] <= 16 && opaque(pixel);
-  assert.ok(cyan(pixels.leftStem),
-    `Browser coverage mask lost the left H stem: ${diagnostics}`);
-  assert.ok(clear(pixels.counter),
-    `Browser coverage mask did not remove the H counter: ${diagnostics}`);
-  assert.ok(cyan(pixels.bridge),
-    `Browser coverage mask lost the H bridge: ${diagnostics}`);
+  assert.ok(cyan(pixels.leftOnly),
+    `Browser per-draw mask lost the cyan source: ${diagnostics}`);
+  assert.ok(perDrawOverlap(pixels.overlap),
+    `Browser mask was not applied independently before overlap blending: ${diagnostics}`);
+  assert.ok(magenta(pixels.rightOnly),
+    `Browser per-draw mask lost the magenta source: ${diagnostics}`);
   assert.ok(clear(pixels.outside),
-    `Browser coverage mask escaped its transformed bounds: ${diagnostics}`);
+    `Browser per-draw mask escaped its transformed bounds: ${diagnostics}`);
   assert.deepEqual(errors, []);
   process.stdout.write(
     `ProGPU native browser contract ${contract.status}: ` +
     `${contract.semanticCommands} semantic commands, ` +
-    `${contract.semanticDraws} GPU draws, retained analytic rounded and ` +
-    `coverage masks verified.\n`);
+    `${contract.semanticDraws} GPU draw, exact per-draw vector masks, ` +
+    `retained rounded masks, and coverage masks verified.\n`);
 } finally {
   await browser.close();
 }

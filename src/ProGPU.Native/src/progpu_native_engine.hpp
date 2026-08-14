@@ -46,6 +46,7 @@ struct progpu_native_engine {
     WGPUShaderModule shader = nullptr;
     WGPURenderPipeline pipeline = nullptr;
     WGPURenderPipeline analytic_pipeline = nullptr;
+    WGPURenderPipeline analytic_masked_pipeline = nullptr;
     WGPUBindGroupLayout uniform_layout = nullptr;
     WGPUBindGroupLayout analytic_uniform_layout = nullptr;
     WGPUBindGroupLayout analytic_atlas_layout = nullptr;
@@ -1315,6 +1316,9 @@ struct progpu_native_engine {
         }
         if (analytic_pipeline != nullptr) {
             wgpuRenderPipelineRelease(analytic_pipeline);
+        }
+        if (analytic_masked_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(analytic_masked_pipeline);
         }
         if (pipeline != nullptr) {
             wgpuRenderPipelineRelease(pipeline);

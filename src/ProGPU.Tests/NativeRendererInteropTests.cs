@@ -1402,6 +1402,98 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void SemanticSceneBuilderValidatesTypedPerDrawMaskState()
+    {
+        Span<byte> destination = stackalloc byte[4096];
+        var mask = new NativeSceneLayerMask(
+            new NativeImageRect(2f, 3f, 20f, 12f),
+            Matrix3x2.CreateTranslation(4f, 5f),
+            new Vector4(3f),
+            new Vector4(2f),
+            opacity: 0.75f);
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 81U,
+            generation: 1U,
+            commandCapacity: 0,
+            resourceCapacity: 2);
+        Assert.True(builder.TryAddLayerMaskResource(
+            1U,
+            1U,
+            in mask,
+            out uint maskIndex));
+        var maskedState = new NativeSceneState(
+            Matrix3x2.Identity,
+            flags: NativeSceneStateFlags.Mask,
+            maskResourceIndex: maskIndex);
+        Assert.True(builder.TryAddStateResource(
+            2U,
+            1U,
+            in maskedState,
+            out uint stateIndex));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var stateResource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[((int)header.ResourceOffset + 48)..]);
+        var storedState = MemoryMarshal.Read<NativeSceneState>(
+            stream[(int)stateResource.PayloadOffset..]);
+        Assert.Equal(1U, stateIndex);
+        Assert.Equal(NativeSceneResourceKind.State, stateResource.Kind);
+        Assert.Equal(NativeSceneStateFlags.Mask, storedState.Flags);
+        Assert.Equal(maskIndex, storedState.MaskResourceIndex);
+
+        Span<NativeAnalyticPrimitive> analytic =
+            stackalloc NativeAnalyticPrimitive[1];
+        analytic[0] = new NativeAnalyticPrimitive(
+            NativeAnalyticPrimitiveKind.Rectangle,
+            0f,
+            0f,
+            1f,
+            1f,
+            Vector4.One,
+            Matrix3x2.Identity);
+        builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 82U,
+            generation: 1U,
+            commandCapacity: 0,
+            resourceCapacity: 2);
+        Assert.True(builder.TryAddAnalyticResource(
+            1U,
+            1U,
+            analytic,
+            out uint analyticIndex));
+        var wrongKind = new NativeSceneState(
+            Matrix3x2.Identity,
+            flags: NativeSceneStateFlags.Mask,
+            maskResourceIndex: analyticIndex);
+        Assert.False(builder.TryAddStateResource(
+            2U,
+            1U,
+            in wrongKind,
+            out _));
+
+        var missingFlag = new NativeSceneState(
+            Matrix3x2.Identity,
+            maskResourceIndex: 1U);
+        Assert.False(builder.TryAddStateResource(
+            3U,
+            1U,
+            in missingFlag,
+            out _));
+        var missingResource = new NativeSceneState(
+            Matrix3x2.Identity,
+            flags: NativeSceneStateFlags.Mask,
+            maskResourceIndex: NativeMethods.SceneNoIndex);
+        Assert.False(builder.TryAddStateResource(
+            4U,
+            1U,
+            in missingResource,
+            out _));
+    }
+
+    [Fact]
     public void SemanticPerlinBrushTableIsBoundedAndAllocationFree()
     {
         Span<byte> destination = stackalloc byte[24 * 1024];
@@ -2636,9 +2728,15 @@ public class NativeRendererInteropTests
             StringComparison.Ordinal);
         Assert.Contains("offscreen-texture-readback", browserTest,
             StringComparison.Ordinal);
-        Assert.Contains("Browser coverage mask lost the H bridge", browserTest,
+        Assert.Contains(
+            "Browser mask was not applied independently before overlap blending",
+            browserTest,
             StringComparison.Ordinal);
-        Assert.Contains("Browser coverage mask escaped its transformed bounds", browserTest,
+        Assert.Contains(
+            "Browser per-draw mask escaped its transformed bounds",
+            browserTest,
+            StringComparison.Ordinal);
+        Assert.Contains("progpuNativeStateMasks", browserSmoke,
             StringComparison.Ordinal);
         Assert.Contains("locator(\"#progpu-native-evidence\").screenshot", browserTest,
             StringComparison.Ordinal);

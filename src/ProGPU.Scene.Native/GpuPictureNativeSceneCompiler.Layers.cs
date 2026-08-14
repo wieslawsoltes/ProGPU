@@ -6,6 +6,49 @@ namespace ProGPU.Scene.Native;
 
 public static partial class GpuPictureNativeSceneCompiler
 {
+    private static bool TryGetGeometryMaskState(
+        in RenderCommand command,
+        StateSnapshot current,
+        List<NativeSceneLayerMask> stateMasks,
+        out StateSnapshot next,
+        out NativePictureCompileError error)
+    {
+        next = current;
+        error = NativePictureCompileError.None;
+        if (current.MaskIndex >= 0 || command.Picture is not null ||
+            command.Path is null || command.Path.IsCombined ||
+            command.Path.Figures.Count != 1)
+        {
+            error = NativePictureCompileError.UnsupportedCommand;
+            return false;
+        }
+        if (!TryGetAffine(command.Transform, out Matrix3x2 transform))
+        {
+            error = NativePictureCompileError.UnsupportedTransform;
+            return false;
+        }
+        if (!RoundedRectanglePathGeometry.TryReadCanonicalContour(
+                command.Path.Figures[0],
+                out RoundedRectanglePathContour contour))
+        {
+            error = NativePictureCompileError.UnsupportedCommand;
+            return false;
+        }
+
+        int maskIndex = stateMasks.Count;
+        stateMasks.Add(new NativeSceneLayerMask(
+            new NativeImageRect(
+                contour.Left,
+                contour.Top,
+                contour.Width,
+                contour.Height),
+            transform,
+            contour.CornerRadiiX,
+            contour.CornerRadiiY));
+        next = current with { MaskIndex = maskIndex };
+        return true;
+    }
+
     private static bool TryGetSolidOpacityMaskState(
         in RenderCommand command,
         StateSnapshot current,

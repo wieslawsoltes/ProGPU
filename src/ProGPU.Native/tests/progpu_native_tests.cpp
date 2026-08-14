@@ -788,6 +788,35 @@ void semantic_scene_stream_rejects_malformed_updates_transactionally() {
         PROGPU_NATIVE_SCENE_VALIDATION_VALUE);
 
     stream = create_valid_mixed_scene();
+    std::memcpy(
+        &state,
+        stream.data() + state_resource.payload_offset,
+        sizeof(state));
+    state.flags = PROGPU_NATIVE_SCENE_STATE_MASK;
+    state.mask_resource_index = 0U;
+    write_scene_record(stream, state_resource.payload_offset, state);
+    metrics.struct_size = sizeof(metrics);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        stream.data(), stream.size(), &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    PROGPU_REQUIRE(metrics.validation_error ==
+        PROGPU_NATIVE_SCENE_VALIDATION_RECORD);
+
+    stream = create_valid_mixed_scene();
+    std::memcpy(
+        &state,
+        stream.data() + state_resource.payload_offset,
+        sizeof(state));
+    state.mask_resource_index = 1U;
+    write_scene_record(stream, state_resource.payload_offset, state);
+    metrics.struct_size = sizeof(metrics);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        stream.data(), stream.size(), &metrics) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    PROGPU_REQUIRE(metrics.validation_error ==
+        PROGPU_NATIVE_SCENE_VALIDATION_VALUE);
+
+    stream = create_valid_mixed_scene();
     std::memcpy(&command, stream.data() + final_offset, sizeof(command));
     command.state_index = 4U;
     write_scene_record(stream, final_offset, command);

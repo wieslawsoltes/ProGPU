@@ -2281,30 +2281,55 @@ the inspected PNG is retained at
 The exact provider gate uses WebScene revision
 `02823bf8d2e56548b2780d6b92ae7065be1d8605` and Dawn revision
 `710c33013c53ab2700d332c25ff51430251a8cc4`. Direct wgpu-native and packaged
-Dawn produce the same sample hash. The Emscripten/browser integration also
-passes independent analytic rounded-mask and retained coverage-mask scenes;
-each uses three semantic commands and two physical GPU draws, and stable replay
-uploads no rebuilt resources. This proves provider/packaging parity for the
-common C++ ABI; it does not claim that browser .NET has adopted the managed
-picture compiler yet.
+Dawn produce the same retained-picture sample hash. The Emscripten/browser
+integration passes the independent isolated analytic rounded-mask and retained
+coverage-mask scenes, each with three semantic commands and two physical GPU
+draws. It also executes the exact per-draw state-mask fixture: three commands,
+three resources, and one physical analytic draw containing two overlapping
+translucent rectangles. Browser pixels verify clear, single-source, and
+premultiplied overlap equations inside one transformed rounded mask; stable
+replay uploads no rebuilt resources.
 
-The analytic browser fixture validates isolated-layer masking only. Managed
-geometry clips remain excluded because exact clip coverage must be applied per
-draw; an isolated group mask is observably different for overlapping
-translucent content at anti-aliased edges. The next clip substitution phase
-must add typed semantic-state mask references, masked pipelines for analytic,
-path, text, glyph, and image families, and bounded nested-mask composition.
+The provider comparison found one real portability defect before this
+checkpoint: desktop wgpu-native accepted a bind-group layout extracted from an
+auto-layout analytic pipeline and reused by the masked explicit pipeline,
+whereas Chromium/Dawn correctly rejected it. Both analytic variants now use
+the same canonical explicit uniform/atlas layouts. The direct wgpu-native,
+packaged Dawn/WebScene, and browser WebGPU gates therefore exercise one shared
+C++ scene/compiler/WGSL contract rather than provider-specific renderers.
 
-The unchanged mixed-picture benchmark remains the regression
-guard for compiler and stable replay overhead. On Apple M3 Pro/Metal with 100
-warm-up and 1,000 measured frames, one-time compilation took `22.1722 ms` and
-allocated exactly `178,464 bytes`; native update took `0.9143 ms` and 48 bytes.
-Native versus managed submission p50/p95 was `0.0435/0.0765 ms` versus
-`0.2368/0.3371 ms`, and synchronized total p50/p95 was `1.5576/4.5916 ms`
-versus `1.7658/4.9971 ms`. Both paths allocated zero bytes per stable frame;
-native stable replay uploaded zero retained bytes. Pixel parity remained at
-three edge pixels over 3/255, maximum channel delta 58/255, and mean absolute
-channel delta `0.0001630015/255`.
+`ProGPU.Scene.Native` now recognizes one canonical retained rectangle or
+rounded-rectangle geometry clip under any finite invertible affine and lowers
+it to the typed per-draw mask reference. The C++ renderer applies that mask in
+analytic, geometry, point-batch, vertex-mesh, connected-stroke, and retained-
+path fragment execution with no isolated texture or extra composite draw.
+General/nested vector masks, sampled per-draw masks, glyphs, and images remain
+fail-closed pending bounded mask composition and masked text/image pipelines.
+
+The updated mixed-picture benchmark exercises this rounded geometry clip and
+remains the regression guard for compiler and stable replay overhead. On Apple
+M3 Pro/Metal with 100 warm-up and 1,000 measured pairs, the 390 source commands
+compile to 12 semantic commands, 11 resources, six draws, and a 47,504-byte
+stream. One-time compilation took `47.6446 ms` and allocated exactly `179,952
+bytes`; native update took `0.6488 ms` and 48 bytes. Native versus managed
+submission p50/p95 was `0.0386/0.0934 ms` versus `0.2290/0.4863 ms`, and
+synchronized total p50/p95 was `1.2999/2.5378 ms` versus
+`1.4960/2.0758 ms`. Both paths allocated zero bytes per stable frame; native
+stable replay uploaded zero retained bytes. Across 518,400 pixels, maximum
+channel delta was `1/255`, no pixel exceeded `3/255`, and mean absolute channel
+delta was `0.000005787/255`.
+
+The JSON evidence is
+`artifacts/progpu-native/benchmarks/managed-rounded-state-mask-fast-path-1000.json`
+(SHA-256
+`d2b91c4491ca1b39399376dcfab273d5228715a767d1f996e05b9ce4ab53b0df`).
+The native/managed/amplified-difference screenshots remain under
+`artifacts/progpu-native/differential/managed-picture/`. A final-binary Time
+Profiler repeat reported total p50/p95 `1.3255/2.5270 ms` native and
+`1.6029/3.3632 ms` managed; a matched Metal System Trace reported a
+15,777,792-byte peak `currentAllocatedSize` and 7,738 command-buffer submission
+rows. Both instrumented paths remained at zero managed bytes per frame. The
+temporary raw traces consumed 133 MiB and were deleted after correlation.
 
 ### Matched public-picture benchmark
 

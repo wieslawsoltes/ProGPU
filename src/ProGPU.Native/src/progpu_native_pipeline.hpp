@@ -38,6 +38,8 @@ bool ensure_analytic_brush_buffer(
     std::uint64_t required_size);
 
 bool create_analytic_pipeline(progpu_native_engine& engine);
+bool create_analytic_bind_group_layouts(progpu_native_engine& engine);
+bool create_analytic_masked_pipeline(progpu_native_engine& engine);
 bool create_path_resources(progpu_native_engine& engine);
 bool create_glyph_resources(progpu_native_engine& engine);
 bool ensure_text_style_buffer(

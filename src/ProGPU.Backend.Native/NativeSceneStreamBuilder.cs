@@ -599,8 +599,33 @@ public ref struct NativeSceneStreamBuilder
         ulong generation,
         in NativeSceneState state,
         out uint resourceIndex,
-        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required) =>
-        TryAddResource(
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        const NativeSceneStateFlags knownFlags =
+            NativeSceneStateFlags.ClipRect | NativeSceneStateFlags.Mask;
+        bool hasClip = (state.Flags & NativeSceneStateFlags.ClipRect) != 0;
+        bool hasMask = (state.Flags & NativeSceneStateFlags.Mask) != 0;
+        bool canonicalClip = hasClip ||
+            (state.ClipRect.X == 0f && state.ClipRect.Y == 0f &&
+                state.ClipRect.Width == 0f && state.ClipRect.Height == 0f);
+        bool canonicalMask = hasMask
+            ? state.MaskResourceIndex != NativeMethods.SceneNoIndex &&
+                HasOptionalResourceKind(
+                    state.MaskResourceIndex,
+                    NativeSceneResourceKind.LayerMask)
+            : state.MaskResourceIndex == 0U;
+        if (state.StructSize != Unsafe.SizeOf<NativeSceneState>() ||
+            (state.Flags & ~knownFlags) != 0 ||
+            !state.HasCanonicalReservedFields || !IsFinite(state.Transform) ||
+            !float.IsFinite(state.Opacity) ||
+            state.Opacity is < 0f or > 1f ||
+            !IsFiniteBounds(state.ClipRect) ||
+            !canonicalClip || !canonicalMask)
+        {
+            return false;
+        }
+        return TryAddResource(
             NativeSceneResourceKind.State,
             resourceId,
             generation,
@@ -610,6 +635,7 @@ public ref struct NativeSceneStreamBuilder
                     1)),
             out resourceIndex,
             flags: flags);
+    }
 
     public bool TryAddLayerMaskResource(
         ulong resourceId,

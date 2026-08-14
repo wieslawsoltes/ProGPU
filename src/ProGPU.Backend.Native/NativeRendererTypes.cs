@@ -336,7 +336,8 @@ public enum NativeSceneRecordFlags : uint
 public enum NativeSceneStateFlags : uint
 {
     None = 0,
-    ClipRect = 1U << 0
+    ClipRect = 1U << 0,
+    Mask = 1U << 1
 }
 
 [Flags]
@@ -938,7 +939,9 @@ public readonly struct NativeSceneImageColorMatrix
 /// <remarks>
 /// The transform and opacity are absolute. A save command makes its referenced
 /// state current until the matching restore; a draw command uses its state for
-/// that draw only. Clip coordinates are logical target coordinates.
+/// that draw only. Clip coordinates are logical target coordinates. A mask
+/// reference names a preceding typed layer-mask resource and applies coverage
+/// independently to each draw using this state.
 /// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct NativeSceneState
@@ -947,7 +950,8 @@ public readonly struct NativeSceneState
         Matrix3x2 transform,
         float opacity = 1f,
         NativeSceneStateFlags flags = NativeSceneStateFlags.None,
-        NativeImageRect clipRect = default)
+        NativeImageRect clipRect = default,
+        uint maskResourceIndex = 0U)
     {
         StructSize = (uint)Unsafe.SizeOf<NativeSceneState>();
         Flags = flags;
@@ -955,7 +959,7 @@ public readonly struct NativeSceneState
         Opacity = opacity;
         Reserved = 0U;
         ClipRect = clipRect;
-        Reserved0 = 0U;
+        MaskResourceIndex = maskResourceIndex;
         Reserved1 = 0U;
     }
 
@@ -967,8 +971,11 @@ public readonly struct NativeSceneState
     public readonly float Opacity;
     private readonly uint Reserved;
     public readonly NativeImageRect ClipRect;
-    private readonly uint Reserved0;
+    public readonly uint MaskResourceIndex;
     private readonly uint Reserved1;
+
+    internal bool HasCanonicalReservedFields =>
+        Reserved == 0U && Reserved1 == 0U;
 }
 
 /// <summary>

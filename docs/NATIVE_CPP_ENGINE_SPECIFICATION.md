@@ -1369,38 +1369,68 @@ synchronized total p50/p95 is 1.5576/4.5916 ms versus 1.7658/4.9971 ms. The
 three independently rasterized edge pixels above 3/255 and mean absolute
 channel difference of 0.000163/255 remain unchanged.
 
-The browser/Emscripten target now constructs an independent pointer-free
-analytic rounded-mask scene in C++, renders its three semantic commands as two
-physical GPU draws, verifies the rounded-mask layer metrics and first-frame
-uniform upload, then proves stable replay performs no vertex, texture, or
-uniform upload. Its existing retained coverage-mask and device-recovery gates
-continue to pass in the same browser run.
+The browser/Emscripten target now runs two independent mask contracts. The
+isolated-layer rounded-mask and retained coverage-mask fixtures still render
+three semantic commands as two physical GPU draws. The per-draw state-mask
+fixture renders two overlapping translucent vector rectangles through one
+analytic batch and one physical GPU draw, with three typed resources and three
+semantic commands. It verifies independently transformed rounded coverage, the
+exact premultiplied overlap equation, first-frame preparation, zero-upload
+stable replay, and device recovery.
 
-This analytic resource currently retains isolated-layer mask semantics; it is
-not used to lower managed `PushGeometryClip`. A geometry clip multiplies each
-draw's coverage, whereas multiplying an already composited isolated group can
-differ at anti-aliased edges when translucent draws overlap. Exact substitution
-therefore requires a typed per-draw mask reference in semantic state, masked
-pipeline variants for every draw family, and bounded intersection of nested
-clip masks. Until that contract lands, geometry clips remain typed fail-closed
-instead of silently accepting the group approximation.
+The semantic state record now carries an append-compatible `MASK` flag and a
+typed `mask_resource_index` in the former reserved slot. The reference must be
+canonical when absent and must name a preceding `LAYER_MASK` resource when
+present. The C++ preflight resolves the mask before encoding, retains its
+uniform and bind group with the render-bundle span, and splits a batch only
+when mask identity changes. Analytic, geometry, point-batch, vertex-mesh,
+connected-stroke, and retained-path families bind the same transformed rounded
+mask at fragment group 2. Coverage is multiplied per draw before destination
+blending; no isolated texture or extra composite draw is created. Stable replay
+performs no mask, vertex, index, brush, stop, or coverage upload.
 
-The Apple M3 Pro matched `960x540` mask checkpoint used one Release process,
-100 alternating warm-up pairs, and 1,000 alternating synchronized
-measurements. Its 386-command picture retained the prior 384 mixed draws inside
-one `0.92` solid opacity mask; C++ emitted eight commands, eight resources, and
-six draws in a 46,872-byte stream. Native versus managed submission p50/p95
-was `0.0562/0.1172 ms` versus `0.2716/0.4102 ms`; total p50/p95 was
-`1.5806/4.6105 ms` versus `1.8210/4.8929 ms`. Both paths allocated zero managed
+Normal and masked analytic pipelines use canonical explicit bind-group layouts.
+This is required by WebGPU portability: Chromium/Dawn correctly rejects a bind
+group layout extracted from an auto-layout pipeline when it is reused by a
+different explicit pipeline, even though the desktop wgpu-native Metal provider
+accepted that construction. Direct wgpu-native, packaged Dawn/WebScene, and
+Emscripten/browser gates now execute the same layout and WGSL contract.
+
+`ProGPU.Scene.Native` lowers one canonical affine rectangle or rounded-rectangle
+`PushGeometryClip` scope to this exact state mask. It reads the retained
+canonical contour without flattening, preserves the full finite invertible
+affine and corner radii, and restores the prior state at pop. General vector
+clips, nested geometry masks, sampled per-draw masks, and state masks on glyph
+or image families remain typed fail-closed. Those cases require bounded mask
+intersection plus masked text/image pipelines; they are not approximated with
+an isolated group.
+
+The Apple M3 Pro matched `960x540` state-mask checkpoint used one Release
+process, 100 alternating warm-up pairs, and 1,000 alternating synchronized
+measurements. Its 390-command picture compiles to 12 semantic commands, 11
+resources, six draws, and a 47,504-byte stream. One-time compilation took
+`47.6446 ms` / `179,952 bytes`; the first C++ scene update took `0.6488 ms` /
+`48 bytes`. Native versus managed submission p50/p95 was
+`0.0386/0.0934 ms` versus `0.2290/0.4863 ms`; total p50/p95 was
+`1.2999/2.5378 ms` versus `1.4960/2.0758 ms`. Both paths allocated zero managed
 bytes per stable frame and native replay uploaded zero retained bytes. Across
-518,400 pixels the maximum channel delta was `58/255` at three independent-AA
-edge pixels, only three pixels exceeded `3/255`, and mean absolute channel
-delta was `0.0001630015/255`. The ignored evidence files are
-`managed-picture-mask-1000.json`, `managed-picture-native-masks.png`, and
-`managed-picture-managed-masks.png`; the JSON SHA-256 is
-`36d38338a7db145ab2aaa9e9603e9435fec3f96261ae3cfa50b2f08def21cce0`.
-This is a local Metal checkpoint, not the final cross-platform or Instruments
-qualification.
+518,400 pixels the maximum channel delta was `1/255`, no pixel exceeded
+`3/255`, and mean absolute channel delta was `0.000005787/255`. The ignored
+JSON evidence is
+`artifacts/progpu-native/benchmarks/managed-rounded-state-mask-fast-path-1000.json`
+with SHA-256
+`d2b91c4491ca1b39399376dcfab273d5228715a767d1f996e05b9ce4ab53b0df`;
+native, managed, and amplified-difference screenshots are retained under
+`artifacts/progpu-native/differential/managed-picture/`.
+
+Matched final-binary Time Profiler and Metal System Trace captures used the
+same 384-primitive, 100-warm-up, 1,000-measurement workload. Under tracing,
+native versus managed total p50/p95 was `1.3255/2.5270 ms` versus
+`1.6029/3.3632 ms`; both paths remained at zero managed bytes per frame. Metal
+reported a 15,777,792-byte peak `currentAllocatedSize`, and the trace contained
+7,738 command-buffer submission rows. The raw temporary traces occupied 133 MiB
+and were removed after correlation; the reproducible JSON and screenshots
+remain.
 
 `ProGPU.Scene.Native` is the first reusable .NET substitution adapter. It reads
 the immutable allocation-free command view of a `GpuPicture`, rejects
@@ -1431,13 +1461,16 @@ opacity, sorted
 stop ownership, spread, color-interpolation mode, optional conical outside
 color, and affine coordinate transforms are snapshotted into one deduplicated
 retained brush page. Nested `PushOpacity`/`PopOpacity`, affine axis-aligned
-`PushClip`/`PopClip`, and axis-aligned solid-brush
+`PushClip`/`PopClip`, one canonical affine rectangle/rounded-rectangle
+`PushGeometryClip`/`PopGeometryClip`, and axis-aligned solid-brush
 `PushOpacityMask`/`PopOpacityMask` scopes are lowered in exact display-list order to the
 existing native absolute-state resources and save/restore commands. State
 boundaries terminate draw batches; stable replay does not inspect or rebuild
-the managed state stack. Non-finite, non-invertible, rotated, or sheared
-rectangle clips/masks and mismatched or unterminated scopes fail with typed
-source-command diagnostics. Perlin/hatch brushes, vector clips, general
+the managed state stack. Geometry-mask affine transforms may rotate or shear;
+ordinary rectangular scissors and direct solid opacity masks retain their
+axis-aligned subset. Non-finite or non-invertible transforms, nested/general
+vector masks, and mismatched or unterminated scopes fail with typed
+source-command diagnostics. Perlin/hatch brushes, general
 `DrawPath` strokes/boolean combinations, non-solid/picture/path opacity masks,
 text, images, embedded visuals, isolated layers, effects, remaining extensions,
 and 3D remain
@@ -1445,7 +1478,8 @@ explicit fail-closed continuation slices rather than silent parity claims.
 
 The semantic state payload is a 64-byte fixed-width record: declared size and
 flags, a System.Numerics-compatible 3x2 affine transform, opacity, a logical
-target clip rectangle, and zeroed reserved fields. A save with a state index
+target clip rectangle, an optional typed per-draw mask-resource index, and
+zeroed remaining reserved fields. A save with a state index
 pushes the preceding current state and installs the referenced absolute state;
 restore reinstates the pushed state. A draw state index overrides the current
 state for that draw only. Restore and pop commands cannot carry state indices.
@@ -1453,6 +1487,11 @@ state for that draw only. Restore and pop commands cannot carry state indices.
 must be zero. When present it is intersected with the physical target after DPI
 conversion; an empty result advances its retained family-page cursor but emits
 no draw or invalid zero-size WebGPU scissor.
+`MASK` is also canonical: an absent flag requires `NO_INDEX`, while a present
+flag requires a preceding exact `LAYER_MASK` resource. The current executable
+subset is one analytic rounded mask on vector draw families. Glyph, image,
+sampled coverage, and nested-mask state fail preflight with `UNSUPPORTED`
+before encoder creation.
 
 The isolated-layer payload is another exact 64-byte record stored directly in
 the `PUSH_LAYER` command arena: declared size and flags, optional logical target
@@ -1499,8 +1538,9 @@ radix validation and stack depth D; the canonical resource table needs no
 lookup allocation. No partial snapshot becomes visible on failure.
 
 State-resource validation also checks the exact 64-byte payload, zero
-auxiliary bytes and reserved fields, known and canonical flags, finite
-affine/clip values, non-negative clip extent, and opacity in `[0,1]`. Layer
+auxiliary bytes and remaining reserved fields, known and canonical flags,
+finite affine/clip values, non-negative clip extent, opacity in `[0,1]`, and a
+preceding exact typed mask reference when `MASK` is present. Layer
 validation checks the same exact/canonical contract plus the blend range,
 typed mask/effect references, and at most 16 simultaneously materialized layer
 scopes. Analytic-mask validation requires a positive finite bound, invertible

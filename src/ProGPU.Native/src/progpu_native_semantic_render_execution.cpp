@@ -336,6 +336,7 @@ progpu_native_status render_scene(
     std::uint64_t semantic_color_glyph_pixel_bytes = 0U;
     bool semantic_has_styled_glyphs = false;
     bool semantic_has_image_color_matrices = false;
+    bool semantic_has_state_masks = false;
     semantic_compilation_budget compilation_budget{};
     semantic_state_cursor preflight_state_cursor(bytes, header);
     semantic_layer_target_cursor preflight_target_cursor(
@@ -361,6 +362,31 @@ progpu_native_status render_scene(
         if (command.kind < PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
             command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH) {
             continue;
+        }
+        if ((state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U) {
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN ||
+                command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                    "Per-draw semantic masks currently support vector draw families only.");
+            }
+            const auto mask_resource = read_resource(
+                state.mask_resource_index);
+            std::uint32_t mask_kind = 0U;
+            std::memcpy(
+                &mask_kind,
+                bytes + mask_resource.payload_offset +
+                    sizeof(std::uint32_t),
+                sizeof(mask_kind));
+            if (mask_kind !=
+                PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                    "Per-draw semantic masks currently require an analytic rounded-rectangle resource.");
+            }
+            semantic_has_state_masks = true;
+            semantic_layer_mask_kind =
+                PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE;
         }
         const auto resource = read_resource(command.resource_index);
         bool valid = false;
@@ -1116,6 +1142,12 @@ progpu_native_status render_scene(
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The semantic retained-brush pipeline could not be created.");
+        }
+        if (semantic_has_state_masks &&
+            !create_analytic_masked_pipeline(*engine)) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The per-draw semantic mask pipeline could not be created.");
         }
         if (!ensure_analytic_material_buffers(
                 *engine,
@@ -2554,7 +2586,7 @@ progpu_native_status render_scene(
             semantic_advanced_layer_count * 2U +
             (semantic_destination_sampling_active ? 1U : 0U) +
             semantic_effected_backdrop_layer_count;
-        if (semantic_has_layer_masks &&
+        if ((semantic_has_layer_masks || semantic_has_state_masks) &&
             !create_layer_mask_resources(*engine)) {
             discard_encoder();
             return engine->fail(
@@ -2660,26 +2692,33 @@ progpu_native_status render_scene(
         bool has_active_scissor = false;
         std::uint32_t active_target_layer =
             PROGPU_NATIVE_SCENE_NO_INDEX;
+        std::uint32_t active_mask_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX;
+        semantic_render_bundle_span active_mask{};
+        const auto release_mask_resources = [](
+            semantic_render_bundle_span& span) noexcept {
+            if (span.mask_bind_group != nullptr) {
+                wgpuBindGroupRelease(span.mask_bind_group);
+                span.mask_bind_group = nullptr;
+            }
+            if (span.mask_uniform_buffer != nullptr) {
+                wgpuBufferDestroy(span.mask_uniform_buffer);
+                wgpuBufferRelease(span.mask_uniform_buffer);
+                span.mask_uniform_buffer = nullptr;
+            }
+            if (span.mask_texture_view != nullptr) {
+                wgpuTextureViewRelease(span.mask_texture_view);
+                span.mask_texture_view = nullptr;
+            }
+            if (span.mask_texture != nullptr) {
+                wgpuTextureDestroy(span.mask_texture);
+                wgpuTextureRelease(span.mask_texture);
+                span.mask_texture = nullptr;
+            }
+        };
         const auto release_compiled_spans = [&]() noexcept {
             for (auto& span : compiled_spans) {
-                if (span.mask_bind_group != nullptr) {
-                    wgpuBindGroupRelease(span.mask_bind_group);
-                    span.mask_bind_group = nullptr;
-                }
-                if (span.mask_uniform_buffer != nullptr) {
-                    wgpuBufferDestroy(span.mask_uniform_buffer);
-                    wgpuBufferRelease(span.mask_uniform_buffer);
-                    span.mask_uniform_buffer = nullptr;
-                }
-                if (span.mask_texture_view != nullptr) {
-                    wgpuTextureViewRelease(span.mask_texture_view);
-                    span.mask_texture_view = nullptr;
-                }
-                if (span.mask_texture != nullptr) {
-                    wgpuTextureDestroy(span.mask_texture);
-                    wgpuTextureRelease(span.mask_texture);
-                    span.mask_texture = nullptr;
-                }
+                release_mask_resources(span);
                 if (span.advanced_blend_bind_group != nullptr) {
                     wgpuBindGroupRelease(span.advanced_blend_bind_group);
                     span.advanced_blend_bind_group = nullptr;
@@ -2696,6 +2735,7 @@ progpu_native_status render_scene(
                 wgpuRenderBundleEncoderRelease(bundle_encoder);
                 bundle_encoder = nullptr;
             }
+            release_mask_resources(active_mask);
             release_compiled_spans();
             discard_encoder();
             return status;
@@ -2726,13 +2766,26 @@ progpu_native_status render_scene(
             operation.clip_height = active_scissor.height;
             operation.target_layer = active_target_layer;
             operation.draw_call_count = active_bundle_draw_count;
+            operation.mask_uniform_buffer =
+                active_mask.mask_uniform_buffer;
+            operation.mask_texture = active_mask.mask_texture;
+            operation.mask_texture_view = active_mask.mask_texture_view;
+            operation.mask_bind_group = active_mask.mask_bind_group;
+            active_mask.mask_uniform_buffer = nullptr;
+            active_mask.mask_texture = nullptr;
+            active_mask.mask_texture_view = nullptr;
+            active_mask.mask_bind_group = nullptr;
             compiled_spans.push_back(operation);
             active_bundle_draw_count = 0U;
+            active_mask_resource_index =
+                PROGPU_NATIVE_SCENE_NO_INDEX;
             return PROGPU_NATIVE_STATUS_SUCCESS;
         };
         const auto begin_active_bundle = [&](
             semantic_scissor scissor,
-            std::uint32_t target_layer) {
+            std::uint32_t target_layer,
+            std::uint32_t mask_resource_index,
+            semantic_scissor target_extent) {
             bundle_encoder = wgpuDeviceCreateRenderBundleEncoder(
                 engine->device,
                 &bundle_descriptor);
@@ -2743,8 +2796,31 @@ progpu_native_status render_scene(
             }
             active_scissor = scissor;
             active_target_layer = target_layer;
+            active_mask_resource_index = mask_resource_index;
             active_bundle_draw_count = 0U;
             has_active_scissor = true;
+            if (mask_resource_index !=
+                PROGPU_NATIVE_SCENE_NO_INDEX) {
+                const auto resource = read_resource(mask_resource_index);
+                std::uint64_t mask_texture_upload_bytes = 0U;
+                if (!create_semantic_layer_mask_binding(
+                        *engine,
+                        bytes,
+                        resource,
+                        target_extent,
+                        frame->dpi_scale,
+                        active_mask,
+                        mask_texture_upload_bytes)) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                        "A retained per-draw semantic mask binding could not be prepared.");
+                }
+                texture_upload_bytes += mask_texture_upload_bytes;
+                semantic_layer_mask_uniform_upload_bytes +=
+                    sizeof(gpu_mask_sampling_uniforms);
+                semantic_layer_uniform_upload_bytes +=
+                    sizeof(gpu_mask_sampling_uniforms);
+            }
             return PROGPU_NATIVE_STATUS_SUCCESS;
         };
         const auto append_effect_program = [&](
@@ -3121,16 +3197,23 @@ progpu_native_status render_scene(
                 frame->width,
                 frame->height,
                 frame->dpi_scale);
+            const std::uint32_t mask_resource_index =
+                (state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U
+                ? state.mask_resource_index
+                : PROGPU_NATIVE_SCENE_NO_INDEX;
             if (scissor.drawable &&
                 (!has_active_scissor || scissor != active_scissor ||
-                    current_target_layer != active_target_layer)) {
+                    current_target_layer != active_target_layer ||
+                    mask_resource_index != active_mask_resource_index)) {
                 const auto finish_status = finish_active_bundle();
                 if (finish_status != PROGPU_NATIVE_STATUS_SUCCESS) {
                     return fail_bundle(finish_status);
                 }
                 const auto begin_status = begin_active_bundle(
                     scissor,
-                    current_target_layer);
+                    current_target_layer,
+                    mask_resource_index,
+                    target_extent);
                 if (begin_status != PROGPU_NATIVE_STATUS_SUCCESS) {
                     return fail_bundle(begin_status);
                 }
@@ -3165,7 +3248,8 @@ progpu_native_status render_scene(
                                 *engine,
                                 bundle_encoder,
                                 semantic_analytic_page.draws[draw_index],
-                                current_target_layer);
+                                current_target_layer,
+                                active_mask.mask_bind_group);
                     }
                     break;
                 }
@@ -3183,7 +3267,8 @@ progpu_native_status render_scene(
                                 *engine,
                                 bundle_encoder,
                                 semantic_analytic_page.draws[draw_index],
-                                current_target_layer);
+                                current_target_layer,
+                                active_mask.mask_bind_group);
                     }
                     break;
                 }
@@ -3201,7 +3286,8 @@ progpu_native_status render_scene(
                                 *engine,
                                 bundle_encoder,
                                 semantic_analytic_page.draws[draw_index],
-                                current_target_layer);
+                                current_target_layer,
+                                active_mask.mask_bind_group);
                     }
                     break;
                 }
@@ -3219,7 +3305,8 @@ progpu_native_status render_scene(
                                 *engine,
                                 bundle_encoder,
                                 semantic_analytic_page.draws[draw_index],
-                                current_target_layer);
+                                current_target_layer,
+                                active_mask.mask_bind_group);
                     }
                     break;
                 }
@@ -3237,7 +3324,8 @@ progpu_native_status render_scene(
                                 *engine,
                                 bundle_encoder,
                                 semantic_analytic_page.draws[draw_index],
-                                current_target_layer);
+                                current_target_layer,
+                                active_mask.mask_bind_group);
                     }
                     break;
                 }
@@ -3255,7 +3343,8 @@ progpu_native_status render_scene(
                                 *engine,
                                 bundle_encoder,
                                 semantic_path_page.draws[draw_index],
-                                current_target_layer);
+                                current_target_layer,
+                                active_mask.mask_bind_group);
                     }
                     break;
                 }
@@ -3744,7 +3833,7 @@ progpu_native_status render_scene(
         uniform_upload_bytes += clear_metrics.uniform_upload_bytes;
     }
 
-    if (semantic_has_materialized_layers) {
+    if (semantic_has_materialized_layers || semantic_has_state_masks) {
         engine->last_layer_metrics = {};
         engine->last_layer_metrics.struct_size =
             sizeof(progpu_native_layer_metrics);

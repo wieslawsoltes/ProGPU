@@ -755,6 +755,7 @@ public class NativePictureCompilerTests
     [InlineData(RenderCommandType.PopOpacity)]
     [InlineData(RenderCommandType.PopClip)]
     [InlineData(RenderCommandType.PopOpacityMask)]
+    [InlineData(RenderCommandType.PopGeometryClip)]
     public void CompilerFailsClosedForUnbalancedStatePop(RenderCommandType pop)
     {
         using var picture = new GpuPicture(
@@ -893,6 +894,153 @@ public class NativePictureCompilerTests
         Assert.Equal(11.5f, state.ClipRect.Y, 5);
         Assert.Equal(120f, state.ClipRect.Width, 5);
         Assert.Equal(37.5f, state.ClipRect.Height, 5);
+    }
+
+    [Fact]
+    public void CompilerLowersAffineRoundedGeometryClipToPerDrawMaskState()
+    {
+        PathGeometry clip = PrimitivePathGeometry.CreateRoundedRectangle(
+            3f,
+            4f,
+            40f,
+            24f,
+            7f,
+            5f);
+        Matrix4x4 clipTransform =
+            Matrix4x4.CreateScale(1.25f, 0.8f, 1f) *
+            Matrix4x4.CreateRotationZ(0.18f) *
+            Matrix4x4.CreateTranslation(9f, 6f, 0f);
+        var cyan = new SolidColorBrush(
+            new Vector4(0f, 0.8f, 1f, 0.65f));
+        var magenta = new SolidColorBrush(
+            new Vector4(1f, 0.2f, 0.55f, 0.65f));
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushGeometryClip,
+                    Path = clip,
+                    Transform = clipTransform
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Brush = cyan,
+                    Rect = new Rect(0f, 0f, 30f, 24f),
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Brush = magenta,
+                    Rect = new Rect(16f, 3f, 30f, 24f),
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand { Type = RenderCommandType.PopGeometryClip }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            92U,
+            3U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(3, compiled.NativeCommandCount);
+        Assert.Equal(1, compiled.NativeDrawCount);
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(
+            compiled.Stream);
+        Assert.Equal(4U, header.ResourceCount);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)header.ResourceCount *
+                        Unsafe.SizeOf<NativeMethods.SceneResource>())));
+        Assert.Equal(NativeSceneResourceKind.LayerMask, resources[2].Kind);
+        Assert.Equal(NativeSceneResourceKind.State, resources[3].Kind);
+        var mask = MemoryMarshal.Read<NativeSceneLayerMask>(
+            compiled.Stream.Slice(
+                checked((int)resources[2].PayloadOffset)));
+        var state = MemoryMarshal.Read<NativeSceneState>(
+            compiled.Stream.Slice(
+                checked((int)resources[3].PayloadOffset)));
+        Assert.Equal(NativeSceneLayerMaskKind.RoundedRectangle, mask.Kind);
+        Assert.Equal(3f, mask.Bounds.X);
+        Assert.Equal(4f, mask.Bounds.Y);
+        Assert.Equal(40f, mask.Bounds.Width);
+        Assert.Equal(24f, mask.Bounds.Height);
+        Assert.Equal(new Vector4(7f), mask.CornerRadiiX);
+        Assert.Equal(new Vector4(5f), mask.CornerRadiiY);
+        Assert.Equal(
+            new Matrix3x2(
+                clipTransform.M11,
+                clipTransform.M12,
+                clipTransform.M21,
+                clipTransform.M22,
+                clipTransform.M41,
+                clipTransform.M42),
+            mask.Transform);
+        Assert.Equal(NativeSceneStateFlags.Mask, state.Flags);
+        Assert.Equal(2U, state.MaskResourceIndex);
+
+        ReadOnlySpan<NativeMethods.SceneCommand> commands =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneCommand>(
+                compiled.Stream.Slice(
+                    checked((int)header.CommandOffset),
+                    checked((int)header.CommandCount *
+                        Unsafe.SizeOf<NativeMethods.SceneCommand>())));
+        Assert.Equal(NativeSceneCommandKind.Save, commands[0].Kind);
+        Assert.Equal(3U, commands[0].StateIndex);
+        Assert.Equal(NativeSceneCommandKind.DrawAnalytic, commands[1].Kind);
+        Assert.Equal(NativeSceneCommandKind.Restore, commands[2].Kind);
+    }
+
+    [Fact]
+    public void CompilerFailsClosedForNestedGeometryMasks()
+    {
+        PathGeometry outer = PrimitivePathGeometry.CreateRoundedRectangle(
+            0f, 0f, 40f, 30f, 5f, 5f);
+        PathGeometry inner = PrimitivePathGeometry.CreateRectangle(
+            4f, 4f, 20f, 12f);
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushGeometryClip,
+                    Path = outer,
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushGeometryClip,
+                    Path = inner,
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand { Type = RenderCommandType.PopGeometryClip },
+                new RenderCommand { Type = RenderCommandType.PopGeometryClip }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            1U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Null(compiled);
+        Assert.Equal(NativePictureCompileError.UnsupportedCommand, failure.Error);
+        Assert.Equal(1, failure.CommandIndex);
+        Assert.Equal(RenderCommandType.PushGeometryClip, failure.CommandType);
     }
 
     [Fact]

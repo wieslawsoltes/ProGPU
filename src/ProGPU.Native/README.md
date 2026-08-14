@@ -109,6 +109,12 @@ exercises the canonical uint64 glyph-outline scene ABI through wasm32's checked
 color-glyph fixture validates the decoded-RGBA resource on wasm32, executes the
 production color-atlas branch of `Text.wgsl`, requires the exact 16-byte first
 upload, and requires zero color-atlas/vertex/coverage upload on stable replay.
+Independent mask fixtures then verify both isolated-layer and exact per-draw
+semantics. The state-mask fixture binds one transformed analytic rounded mask
+to two overlapping translucent rectangles in one vector batch: three semantic
+commands, three typed resources, one GPU draw, exact premultiplied overlap
+pixels, and zero-upload replay. It uses the same explicit bind-group layouts
+and production `Vector.wgsl` as direct wgpu-native and packaged Dawn/WebScene.
 The test rejects console and WebGPU
 validation errors, verifies clear, parent, gradient, and composited-layer
 pixels, and saves the exact canvas plus a JSON contract under
@@ -438,6 +444,17 @@ Current native parity:
   parent-local coordinates, and effect chains execute in declared order through
   a bounded depth-indexed GPU pool before mask/opacity composition. Stable
   replay retains every texture/binding and uploads zero effect or mask bytes;
+- append-compatible per-draw semantic mask state with a typed preceding
+  `LAYER_MASK` reference, canonical absence, transactional preflight, and exact
+  analytic rounded coverage in analytic, geometry, point-batch, vertex-mesh,
+  connected-stroke, and retained-path families. Batch spans split only when
+  mask identity changes, keep the retained mask binding alive, and add no
+  isolated texture or composite draw. Glyph/image masks, sampled state masks,
+  and nested mask composition remain explicit continuation work;
+- clean-room managed lowering of one canonical affine rectangle or rounded-
+  rectangle `PushGeometryClip` scope to the exact per-draw mask state, including
+  rotated/sheared finite invertible transforms and typed fail-closed behavior
+  for nested or general vector clips;
 - pointer-free retained semantic solid/linear/radial/two-point-conical/sweep
   brushes with exact production `GpuBrush`/gradient-stop layout, compact
   analytic/path maps, scene-wide referenced-range deduplication, GPU-only

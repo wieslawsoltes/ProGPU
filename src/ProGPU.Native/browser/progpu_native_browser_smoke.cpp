@@ -6,6 +6,7 @@
 #include "progpu_native_semantic_geometry_scene.hpp"
 #include "progpu_native_semantic_image_scene.hpp"
 #include "progpu_native_semantic_rounded_mask_scene.hpp"
+#include "progpu_native_semantic_state_mask_scene.hpp"
 #include "progpu_native_semantic_text_scene.hpp"
 
 #include <emscripten.h>
@@ -60,14 +61,15 @@ bool finish_evidence_frame(double, void*) {
     EM_ASM({
         document.body.dataset.progpuNative = "passed";
         document.body.dataset.progpuNativeSemanticCommands = "3";
-        document.body.dataset.progpuNativeSemanticResources = "2";
-        document.body.dataset.progpuNativeSemanticDraws = "2";
+        document.body.dataset.progpuNativeSemanticResources = "3";
+        document.body.dataset.progpuNativeSemanticDraws = "1";
         document.body.dataset.progpuNativeRendererSubmissions = "1";
         document.body.dataset.progpuNativeRetainedTextStyles = "passed";
         document.body.dataset.progpuNativeColorGlyphAtlas = "passed";
         document.body.dataset.progpuNativeCubicImages = "passed";
         document.body.dataset.progpuNativeCoverageMasks = "passed";
         document.body.dataset.progpuNativeRoundedMasks = "passed";
+        document.body.dataset.progpuNativeStateMasks = "passed";
         document.body.dataset.progpuNativeSemanticGeometry = "passed";
         document.body.dataset.progpuNativeDeviceRecovery = "passed";
         document.body.dataset.progpuNativeEvidenceTarget =
@@ -75,7 +77,7 @@ bool finish_evidence_frame(double, void*) {
         document.body.dataset.progpuNativeBackendAbi = "3";
         document.body.dataset.progpuNativeExplicitTimeline = "0";
         document.getElementById("native-status").textContent =
-            "C++ / WebGPU semantic backend active — retained analytic and coverage masks verified";
+            "C++ / WebGPU semantic backend active — exact per-draw vector masks verified";
     });
     // The test page owns the offscreen texture until navigation releases the
     // WebAssembly instance and its Emdawnwebgpu handle table. The visible
@@ -416,6 +418,64 @@ bool render_browser_frame(double, void*) {
         fail_engine("The stable browser rounded mask was rebuilt.");
     }
 
+    auto state_mask_scene =
+        progpu::native::tests::create_semantic_state_mask_scene_stream(
+            width,
+            height);
+    progpu_native_scene_metrics state_mask_scene_metrics{};
+    state_mask_scene_metrics.struct_size = sizeof(state_mask_scene_metrics);
+    if (progpu_native_engine_update_scene(
+            resources.engine,
+            state_mask_scene.data(),
+            state_mask_scene.size(),
+            &state_mask_scene_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        state_mask_scene_metrics.command_count != 3U ||
+        state_mask_scene_metrics.resource_count != 3U ||
+        state_mask_scene_metrics.draw_count != 1U) {
+        fail_engine("The browser per-draw mask scene update failed.");
+    }
+    semantic_frame.scene_id = 102U;
+    semantic_frame.generation = 1U;
+    progpu_native_scene_frame_metrics state_mask_metrics{};
+    state_mask_metrics.struct_size = sizeof(state_mask_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &state_mask_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        state_mask_metrics.command_count != 3U ||
+        state_mask_metrics.draw_call_count != 1U ||
+        state_mask_metrics.submission_count != 1U ||
+        state_mask_metrics.texture_upload_bytes != 0U ||
+        state_mask_metrics.uniform_upload_bytes <
+            24U * sizeof(float)) {
+        fail_engine("The browser per-draw mask render failed.");
+    }
+    progpu_native_layer_metrics state_mask_layer_metrics{};
+    state_mask_layer_metrics.struct_size =
+        sizeof(state_mask_layer_metrics);
+    if (progpu_native_engine_get_layer_metrics(
+            resources.engine,
+            &state_mask_layer_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        state_mask_layer_metrics.mask_kind !=
+            PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE ||
+        state_mask_layer_metrics.content_pass_count != 0U ||
+        state_mask_layer_metrics.composite_pass_count != 0U ||
+        state_mask_layer_metrics.mask_uniform_upload_bytes !=
+            24U * sizeof(float)) {
+        fail_engine("The browser per-draw mask metrics are invalid.");
+    }
+    state_mask_metrics = {};
+    state_mask_metrics.struct_size = sizeof(state_mask_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &state_mask_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        state_mask_metrics.texture_upload_bytes != 0U ||
+        state_mask_metrics.vertex_upload_bytes != 0U ||
+        state_mask_metrics.uniform_upload_bytes != 0U) {
+        fail_engine("The stable browser per-draw mask was rebuilt.");
+    }
+
     auto coverage_scene =
         progpu::native::tests::create_semantic_coverage_mask_scene_stream(
             width,
@@ -510,6 +570,25 @@ bool render_browser_frame(double, void*) {
         coverage_metrics.vertex_upload_bytes != 0U ||
         coverage_metrics.uniform_upload_bytes != 0U) {
         fail_engine("Stable browser replay after device recovery rebuilt resources.");
+    }
+    if (progpu_native_engine_update_scene(
+            resources.engine,
+            state_mask_scene.data(),
+            state_mask_scene.size(),
+            &state_mask_scene_metrics) != PROGPU_NATIVE_STATUS_SUCCESS) {
+        fail_engine("The browser evidence mask scene could not be restored.");
+    }
+    semantic_frame.scene_id = 102U;
+    semantic_frame.generation = 1U;
+    state_mask_metrics = {};
+    state_mask_metrics.struct_size = sizeof(state_mask_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &state_mask_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        state_mask_metrics.draw_call_count != 1U ||
+        state_mask_metrics.texture_upload_bytes != 0U) {
+        fail_engine("The browser evidence mask scene did not render.");
     }
     resources.render_texture = render_texture;
     resources.render_view = render_view;

@@ -39,7 +39,8 @@ public static partial class GpuPictureNativeSceneCompiler
     {
         Opacity,
         Clip,
-        OpacityMask
+        OpacityMask,
+        GeometryClip
     }
 
     private struct Batch
@@ -64,15 +65,27 @@ public static partial class GpuPictureNativeSceneCompiler
     private readonly record struct StateSnapshot(
         float Opacity,
         bool HasClip,
-        NativeImageRect ClipRect)
+        NativeImageRect ClipRect,
+        int MaskIndex)
     {
-        public static StateSnapshot Identity => new(1f, false, default);
+        public static StateSnapshot Identity => new(1f, false, default, -1);
 
-        public NativeSceneState ToNative() => new(
-            Matrix3x2.Identity,
-            Opacity,
-            HasClip ? NativeSceneStateFlags.ClipRect : NativeSceneStateFlags.None,
-            ClipRect);
+        public NativeSceneState ToNative(uint maskResourceIndex)
+        {
+            NativeSceneStateFlags flags = HasClip
+                ? NativeSceneStateFlags.ClipRect
+                : NativeSceneStateFlags.None;
+            if (MaskIndex >= 0)
+            {
+                flags |= NativeSceneStateFlags.Mask;
+            }
+            return new(
+                Matrix3x2.Identity,
+                Opacity,
+                flags,
+                ClipRect,
+                MaskIndex >= 0 ? maskResourceIndex : 0U);
+        }
     }
 
     private readonly record struct StateScope(
@@ -121,7 +134,8 @@ public static partial class GpuPictureNativeSceneCompiler
         var strokeBrushIndices = new List<uint>();
         var batches = new List<Batch>();
         var operations = new List<Operation>();
-        var states = new List<NativeSceneState>();
+        var states = new List<StateSnapshot>();
+        var stateMasks = new List<NativeSceneLayerMask>();
         var stateScopes = new Stack<StateScope>();
         StateSnapshot currentState = StateSnapshot.Identity;
         var materials = new NativeBrushTableBuilder();
@@ -198,6 +212,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     ref currentState,
                     stateScopes,
                     states,
+                    stateMasks,
                     operations,
                     out bool handled,
                     out NativePictureCompileError stateError))
@@ -285,12 +300,14 @@ public static partial class GpuPictureNativeSceneCompiler
                 materials.GradientStopCount *
                     Unsafe.SizeOf<NativeSceneGradientStop>() +
                 states.Count * Unsafe.SizeOf<NativeSceneState>() +
+                stateMasks.Count * Unsafe.SizeOf<NativeSceneLayerMask>() +
                 operations.Count * 64 +
                 batches.Count * 30 +
                 (analytics.Count + geometry.Count + paths.Count +
                     pointBatches.Count + vertexMeshes.Count + strokes.Count) *
                     sizeof(uint) + 14);
-            int resourceCount = checked(batches.Count + 1 + states.Count);
+            int resourceCount = checked(
+                batches.Count + 1 + stateMasks.Count + states.Count);
             int capacity = NativeSceneStreamBuilder.GetRequiredBufferSize(
                 operations.Count,
                 resourceCount,
@@ -415,14 +432,39 @@ public static partial class GpuPictureNativeSceneCompiler
                     default);
                 return false;
             }
-            var stateResourceIndices = new uint[states.Count];
-            Span<NativeSceneState> stateSpan = CollectionsMarshal.AsSpan(states);
-            for (int index = 0; index < stateSpan.Length; index++)
+            var maskResourceIndices = new uint[stateMasks.Count];
+            Span<NativeSceneLayerMask> maskSpan =
+                CollectionsMarshal.AsSpan(stateMasks);
+            for (int index = 0; index < maskSpan.Length; index++)
             {
-                if (!builder.TryAddStateResource(
+                if (!builder.TryAddLayerMaskResource(
                         checked((ulong)batches.Count + 2U + (uint)index),
                         generation,
-                        stateSpan[index],
+                        in maskSpan[index],
+                        out maskResourceIndices[index]))
+                {
+                    failure = new(
+                        NativePictureCompileError.StreamBuildFailed,
+                        -1,
+                        default);
+                    return false;
+                }
+            }
+            var stateResourceIndices = new uint[states.Count];
+            Span<StateSnapshot> stateSpan = CollectionsMarshal.AsSpan(states);
+            for (int index = 0; index < stateSpan.Length; index++)
+            {
+                StateSnapshot snapshot = stateSpan[index];
+                uint maskResourceIndex = snapshot.MaskIndex >= 0
+                    ? maskResourceIndices[snapshot.MaskIndex]
+                    : 0U;
+                NativeSceneState nativeState =
+                    snapshot.ToNative(maskResourceIndex);
+                if (!builder.TryAddStateResource(
+                        checked((ulong)batches.Count + 2U +
+                            (uint)stateMasks.Count + (uint)index),
+                        generation,
+                        in nativeState,
                         out stateResourceIndices[index]))
                 {
                     failure = new(
@@ -556,7 +598,8 @@ public static partial class GpuPictureNativeSceneCompiler
         int sourceCommandIndex,
         ref StateSnapshot current,
         Stack<StateScope> scopes,
-        List<NativeSceneState> states,
+        List<StateSnapshot> states,
+        List<NativeSceneLayerMask> stateMasks,
         List<Operation> operations,
         out bool handled,
         out NativePictureCompileError error)
@@ -626,6 +669,26 @@ public static partial class GpuPictureNativeSceneCompiler
                     scopes,
                     states,
                     operations);
+            case RenderCommandType.PushGeometryClip:
+                if (!TryGetGeometryMaskState(
+                        command,
+                        current,
+                        stateMasks,
+                        out StateSnapshot geometryMaskState,
+                        out error))
+                {
+                    return false;
+                }
+                return PushState(
+                    StateScopeKind.GeometryClip,
+                    geometryMaskState,
+                    ownerId,
+                    sourceCommandIndex,
+                    command.Type,
+                    ref current,
+                    scopes,
+                    states,
+                    operations);
             case RenderCommandType.PopOpacity:
                 return TryRestoreState(
                     StateScopeKind.Opacity,
@@ -650,6 +713,14 @@ public static partial class GpuPictureNativeSceneCompiler
                     scopes,
                     operations,
                     out error);
+            case RenderCommandType.PopGeometryClip:
+                return TryRestoreState(
+                    StateScopeKind.GeometryClip,
+                    ownerId,
+                    ref current,
+                    scopes,
+                    operations,
+                    out error);
             default:
                 handled = false;
                 return true;
@@ -664,11 +735,11 @@ public static partial class GpuPictureNativeSceneCompiler
         RenderCommandType sourceCommandType,
         ref StateSnapshot current,
         Stack<StateScope> scopes,
-        List<NativeSceneState> states,
+        List<StateSnapshot> states,
         List<Operation> operations)
     {
         int stateIndex = states.Count;
-        states.Add(next.ToNative());
+        states.Add(next);
         operations.Add(new Operation(OperationKind.Save, StateIndex: stateIndex));
         scopes.Push(new(
             kind,

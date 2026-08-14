@@ -364,6 +364,24 @@ bool ensure_analytic_brush_buffer(
 }
 
 bool create_analytic_pipeline(progpu_native_engine& engine) {
+    if (!create_analytic_bind_group_layouts(engine)) {
+        return false;
+    }
+    const std::array<WGPUBindGroupLayout, 2U> layouts{{
+        engine.analytic_uniform_layout,
+        engine.analytic_atlas_layout
+    }};
+    WGPUPipelineLayoutDescriptor layout_descriptor{};
+    layout_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native vector pipeline layout");
+    layout_descriptor.bindGroupLayoutCount = layouts.size();
+    layout_descriptor.bindGroupLayouts = layouts.data();
+    WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(
+        engine.device,
+        &layout_descriptor);
+    if (pipeline_layout == nullptr) {
+        return false;
+    }
     const std::array<WGPUVertexAttribute, 8U> attributes{{
         progpu::native::webgpu::vertex_attribute(
             WGPUVertexFormat_Float32x2, 0U, 0U),
@@ -415,6 +433,7 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
 
     WGPURenderPipelineDescriptor pipeline_descriptor{};
     pipeline_descriptor.label = progpu::native::webgpu::string_view("ProGPU native analytic primitive pipeline");
+    pipeline_descriptor.layout = pipeline_layout;
     pipeline_descriptor.vertex = vertex_state;
     pipeline_descriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
     pipeline_descriptor.primitive.frontFace = WGPUFrontFace_CCW;
@@ -425,18 +444,8 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
     engine.analytic_pipeline = wgpuDeviceCreateRenderPipeline(
         engine.device,
         &pipeline_descriptor);
+    wgpuPipelineLayoutRelease(pipeline_layout);
     if (engine.analytic_pipeline == nullptr) {
-        return false;
-    }
-
-    engine.analytic_uniform_layout = wgpuRenderPipelineGetBindGroupLayout(
-        engine.analytic_pipeline,
-        0U);
-    engine.analytic_atlas_layout = wgpuRenderPipelineGetBindGroupLayout(
-        engine.analytic_pipeline,
-        1U);
-    if (engine.analytic_uniform_layout == nullptr ||
-        engine.analytic_atlas_layout == nullptr) {
         return false;
     }
 

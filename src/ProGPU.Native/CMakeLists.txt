@@ -331,6 +331,7 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_native_texture_execution.cpp
     src/progpu_native_pipeline.cpp
     src/progpu_native_pipeline.hpp
+    src/progpu_native_semantic_masked_vector_pipeline.cpp
     src/progpu_native_replay_execution.hpp
     src/progpu_native_scene.cpp
     src/progpu_native_scene.hpp
@@ -465,10 +466,14 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
                 tests/progpu_native_semantic_color_glyph_scene.hpp
                 tests/progpu_native_semantic_coverage_mask_scene.cpp
                 tests/progpu_native_semantic_coverage_mask_scene.hpp
+                tests/progpu_native_semantic_state_mask_scene.cpp
+                tests/progpu_native_semantic_state_mask_scene.hpp
                 tests/progpu_native_webscene_advanced_blend_fixture.cpp
                 tests/progpu_native_webscene_advanced_blend_fixture.hpp
                 tests/progpu_native_webscene_semantic_effect_fixture.cpp
-                tests/progpu_native_webscene_semantic_effect_fixture.hpp)
+                tests/progpu_native_webscene_semantic_effect_fixture.hpp
+                tests/progpu_native_webscene_state_mask_fixture.cpp
+                tests/progpu_native_webscene_state_mask_fixture.hpp)
             target_compile_features(progpu_native_webscene_provider_tests
                 PRIVATE cxx_std_20)
             target_include_directories(
@@ -518,6 +523,8 @@ if(EMSCRIPTEN)
         tests/progpu_native_semantic_image_scene.hpp
         tests/progpu_native_semantic_rounded_mask_scene.cpp
         tests/progpu_native_semantic_rounded_mask_scene.hpp
+        tests/progpu_native_semantic_state_mask_scene.cpp
+        tests/progpu_native_semantic_state_mask_scene.hpp
         tests/progpu_native_semantic_text_scene.cpp
         tests/progpu_native_semantic_text_scene.hpp
         browser/progpu_native_browser_smoke.cpp)

@@ -103,7 +103,8 @@ progpu_native_status encode_semantic_analytic_draw(
     progpu_native_engine& engine,
     typename Commands::encoder_type encoder,
     const semantic_analytic_draw& draw,
-    std::uint32_t target_layer) {
+    std::uint32_t target_layer,
+    WGPUBindGroup mask_bind_group) {
     auto& page = engine.semantic_analytic_cache;
     WGPUBindGroup uniform_group =
         select_semantic_analytic_uniform_bind_group(
@@ -125,18 +126,26 @@ progpu_native_status encode_semantic_analytic_draw(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The semantic analytic packed page is incomplete.");
     }
-    if (engine.analytic_pipeline == nullptr &&
-        !create_analytic_pipeline(engine)) {
+    const bool masked = mask_bind_group != nullptr;
+    if ((!masked && engine.analytic_pipeline == nullptr &&
+            !create_analytic_pipeline(engine)) ||
+        (masked && engine.analytic_masked_pipeline == nullptr &&
+            !create_analytic_masked_pipeline(engine))) {
         return engine.fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The semantic analytic WebGPU pipeline could not be created.");
     }
 
-    Commands::set_pipeline(encoder, engine.analytic_pipeline);
+    Commands::set_pipeline(
+        encoder,
+        masked ? engine.analytic_masked_pipeline : engine.analytic_pipeline);
     Commands::set_bind_group(
         encoder, 0U, uniform_group);
     Commands::set_bind_group(
         encoder, 1U, engine.analytic_atlas_bind_group);
+    if (masked) {
+        Commands::set_bind_group(encoder, 2U, mask_bind_group);
+    }
     Commands::set_vertex_buffer(
         encoder, page.vertex_buffer, page.vertex_bytes);
     Commands::set_index_buffer(
@@ -155,7 +164,8 @@ progpu_native_status encode_semantic_path_draw(
     progpu_native_engine& engine,
     typename Commands::encoder_type encoder,
     const semantic_path_draw& draw,
-    std::uint32_t target_layer) {
+    std::uint32_t target_layer,
+    WGPUBindGroup mask_bind_group) {
     const std::uint64_t vertex_bytes = engine.path_vertices.size() *
         sizeof(progpu::native::vector_vertex);
     const std::uint64_t index_bytes = engine.path_indices.size() *
@@ -178,11 +188,23 @@ progpu_native_status encode_semantic_path_draw(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The semantic path packed page is incomplete.");
     }
-    Commands::set_pipeline(encoder, engine.analytic_pipeline);
+    const bool masked = mask_bind_group != nullptr;
+    if (masked && engine.analytic_masked_pipeline == nullptr &&
+        !create_analytic_masked_pipeline(engine)) {
+        return engine.fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic masked path pipeline could not be created.");
+    }
+    Commands::set_pipeline(
+        encoder,
+        masked ? engine.analytic_masked_pipeline : engine.analytic_pipeline);
     Commands::set_bind_group(
         encoder, 0U, uniform_group);
     Commands::set_bind_group(
         encoder, 1U, engine.path_atlas_bind_group);
+    if (masked) {
+        Commands::set_bind_group(encoder, 2U, mask_bind_group);
+    }
     Commands::set_vertex_buffer(
         encoder, engine.path_vertex_buffer, vertex_bytes);
     Commands::set_index_buffer(
@@ -287,18 +309,20 @@ progpu_native_status encode_semantic_analytic_bundle_draw(
     progpu_native_engine& engine,
     WGPURenderBundleEncoder encoder,
     const semantic_analytic_draw& draw,
-    std::uint32_t target_layer) {
+    std::uint32_t target_layer,
+    WGPUBindGroup mask_bind_group) {
     return encode_semantic_analytic_draw<semantic_render_bundle_commands>(
-        engine, encoder, draw, target_layer);
+        engine, encoder, draw, target_layer, mask_bind_group);
 }
 
 progpu_native_status encode_semantic_path_bundle_draw(
     progpu_native_engine& engine,
     WGPURenderBundleEncoder encoder,
     const semantic_path_draw& draw,
-    std::uint32_t target_layer) {
+    std::uint32_t target_layer,
+    WGPUBindGroup mask_bind_group) {
     return encode_semantic_path_draw<semantic_render_bundle_commands>(
-        engine, encoder, draw, target_layer);
+        engine, encoder, draw, target_layer, mask_bind_group);
 }
 
 progpu_native_status encode_semantic_glyph_bundle_draw(

@@ -346,10 +346,17 @@ internal static class ManagedPictureBenchmark
 
         var recorder = new GpuPictureRecorder();
         DrawingContext drawing = recorder.BeginRecording(new Rect(0f, 0f, Width, Height));
-        var opacityMask = new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.92f));
-        drawing.PushOpacityMask(
-            opacityMask,
-            new Rect(14f, 10f, Width - 28f, Height - 20f));
+        drawing.PushOpacity(0.92f);
+        drawing.PushClip(new Rect(14f, 10f, Width - 28f, Height - 20f));
+        PathGeometry roundedClip =
+            PrimitivePathGeometry.CreateRoundedRectangle(
+                22f,
+                18f,
+                Width - 44f,
+                Height - 36f,
+                30f,
+                24f);
+        drawing.PushGeometryClip(roundedClip, Matrix4x4.Identity);
         int pointBatchCount = Math.Min(
             primitiveCount - 1,
             Math.Max(1, primitiveCount / 12));
@@ -559,7 +566,9 @@ internal static class ManagedPictureBenchmark
                 (VertexColorBlendMode)(index % 29),
                 isEdgeAliased: (index & 1) != 0);
         }
-        drawing.PopOpacityMask();
+        drawing.PopGeometryClip();
+        drawing.PopClip();
+        drawing.PopOpacity();
         return recorder.EndRecording();
     }
 
