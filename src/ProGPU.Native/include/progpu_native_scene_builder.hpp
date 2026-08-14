@@ -75,6 +75,10 @@ public:
         std::span<const progpu_native_scene_glyph_outline> outlines,
         std::span<const progpu_native_path_segment> segments,
         std::uint32_t& resource_index) noexcept;
+    bool add_color_glyph_bitmaps(
+        std::span<const progpu_native_scene_color_glyph_bitmap> bitmaps,
+        std::span<const std::byte> rgba_pixels,
+        std::uint32_t& resource_index) noexcept;
     bool add_rounded_rectangle_mask(
         const progpu_native_scene_layer_mask& mask,
         std::uint32_t& resource_index) noexcept;

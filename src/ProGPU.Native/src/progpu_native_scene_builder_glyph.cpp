@@ -130,6 +130,50 @@ bool semantic_scene_builder::add_glyph_outlines(
     }
 }
 
+bool semantic_scene_builder::add_color_glyph_bitmaps(
+    std::span<const progpu_native_scene_color_glyph_bitmap> bitmaps,
+    std::span<const std::byte> rgba_pixels,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (bitmaps.empty() || rgba_pixels.empty() ||
+        implementation_->resources.size() >=
+            PROGPU_NATIVE_SCENE_MAX_RESOURCES ||
+        bitmaps.size() > (1U << 20U)) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    for (const auto& bitmap : bitmaps) {
+        if (!semantic::is_valid_semantic_color_glyph_bitmap(
+                bitmap,
+                rgba_pixels.size())) {
+            return implementation_->fail(scene_build_error::invalid_argument);
+        }
+    }
+    try {
+        implementation_->resources.reserve(
+            implementation_->resources.size() + 1U);
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
+            PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload = copy_bytes(bitmaps);
+        resource.auxiliary.assign(rgba_pixels.begin(), rgba_pixels.end());
+        resource.glyph_outline_count = static_cast<std::uint32_t>(
+            bitmaps.size());
+        resource_index = static_cast<std::uint32_t>(
+            implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
 bool semantic_scene_builder::draw_glyph_run(
     std::uint32_t glyph_resource_index,
     std::span<const progpu_native_positioned_glyph> glyphs,

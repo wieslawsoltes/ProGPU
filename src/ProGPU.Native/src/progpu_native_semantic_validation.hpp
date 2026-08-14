@@ -2,6 +2,7 @@
 
 #include "progpu_native.h"
 
+#include <cstddef>
 #include <cstdint>
 
 namespace progpu::native::semantic {
@@ -26,6 +27,9 @@ bool is_valid_semantic_glyph_outline(
 bool is_valid_semantic_positioned_glyph(
     const progpu_native_positioned_glyph& glyph,
     std::uint64_t outline_count) noexcept;
+bool is_valid_semantic_color_glyph_bitmap(
+    const progpu_native_scene_color_glyph_bitmap& bitmap,
+    std::size_t pixel_bytes) noexcept;
 
 bool is_valid_semantic_text_style(
     const progpu_native_scene_text_style& style) noexcept;

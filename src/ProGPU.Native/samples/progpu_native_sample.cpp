@@ -292,7 +292,7 @@ int main(int argc, char** argv) {
     }
 
     progpu::native::semantic_scene_builder scene_builder(501U, 1U);
-    if (!scene_builder.reserve(8U, 10U, 9216U)) {
+    if (!scene_builder.reserve(9U, 11U, 9216U)) {
         std::cerr << "Could not reserve the native retained scene builder.\n";
         return EXIT_FAILURE;
     }
@@ -534,6 +534,37 @@ int main(int argc, char** argv) {
             PROGPU_NATIVE_SCENE_NO_INDEX,
             native_text_style_index)) {
         std::cerr << "Could not record native retained glyph.\n";
+        return EXIT_FAILURE;
+    }
+    const progpu_native_scene_color_glyph_bitmap native_color_bitmap{
+        0U, 2U, 2U, 8U, 0U,
+        0.0F, 0.0F, 36.0F, 40.0F, 0U, 0U};
+    const progpu_native_positioned_glyph native_color_glyph{
+        0U,
+        0U,
+        {378.0F, 104.0F},
+        {1.0F, 0.0F},
+        {0.0F, 1.0F},
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        1.0F,
+        0.0F,
+        0.0F,
+        0.0F};
+    std::uint32_t native_color_glyph_resource =
+        PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!scene_builder.add_color_glyph_bitmaps(
+            std::span<const progpu_native_scene_color_glyph_bitmap>(
+                &native_color_bitmap,
+                1U),
+            native_image_pixels,
+            native_color_glyph_resource) ||
+        !scene_builder.draw_glyph_run(
+            native_color_glyph_resource,
+            std::span<const progpu_native_positioned_glyph>(
+                &native_color_glyph,
+                1U),
+            {378.0F, 104.0F, 36.0F, 40.0F})) {
+        std::cerr << "Could not record native retained color glyph.\n";
         return EXIT_FAILURE;
     }
     if (!scene_builder.pop_layer()) {

@@ -1118,7 +1118,10 @@ ordered semantic layers now own bounded backdrop input.
   pointer-free version-one stream consumed by the native compiler. The
   desktop sample now uses this builder end to end, and the Emscripten gate
   compiles, submits, and stable-replays the same native-owned builder path.
-  Color-bitmap glyph recording and incremental range updates remain. Image
+  Decoded straight-alpha RGBA8 color-bitmap glyph metadata/pixels are now
+  generation-owned by the same builder, validated through the production
+  color-atlas contract, and referenced by positioned runs without a font or
+  decoder dependency. Incremental range updates remain. Image
   pixels are copied once into a generation-owned resource; repeated commands
   reference that resource without duplicating bytes, and unchanged browser
   replay reports zero texture upload.
@@ -1130,7 +1133,7 @@ ordered semantic layers now own bounded backdrop input.
   rejects mismatched save/layer closure without per-scope allocation. This is
   a direct parallel port of the ProGPU-owned
   `NativeSceneStreamBuilder.cs` contract at source checkpoint
-  `2ff9c5e163a2ae6112013503f7f18dbff2a1e966`, with the existing native header
+  `f86e2b96c15aa3b23d6a9f19988106a64f5fc024`, with the existing native header
   remaining the generated wire-layout authority;
 - native implementation code is strict portable C++20. Clang is the primary
   toolchain, with explicit GCC and Visual Studio MSVC compatibility gates.

@@ -5,6 +5,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 namespace progpu::native::semantic {
 
@@ -151,6 +152,29 @@ bool is_valid_semantic_positioned_glyph(
         glyph.atlas_to_logical_scale > 0.0F &&
         std::isfinite(glyph.bold_offset) &&
         std::isfinite(glyph.italic_skew);
+}
+
+bool is_valid_semantic_color_glyph_bitmap(
+    const progpu_native_scene_color_glyph_bitmap& bitmap,
+    std::size_t pixel_bytes) noexcept {
+    if (bitmap.width == 0U || bitmap.height == 0U ||
+        bitmap.width > 16384U || bitmap.height > 16384U ||
+        bitmap.width > std::numeric_limits<std::uint32_t>::max() / 4U ||
+        bitmap.row_bytes < bitmap.width * 4U || bitmap.reserved0 != 0U ||
+        bitmap.reserved1 != 0U || bitmap.reserved2 != 0U ||
+        !std::isfinite(bitmap.bear_x) || !std::isfinite(bitmap.bear_y) ||
+        !std::isfinite(bitmap.render_width) ||
+        !std::isfinite(bitmap.render_height) || bitmap.render_width < 0.0F ||
+        bitmap.render_height < 0.0F) {
+        return false;
+    }
+    const std::uint64_t required =
+        static_cast<std::uint64_t>(bitmap.row_bytes) *
+            (bitmap.height - 1U) +
+        static_cast<std::uint64_t>(bitmap.width) * 4U;
+    return bitmap.pixel_offset <= pixel_bytes &&
+        required <= static_cast<std::uint64_t>(pixel_bytes) -
+            bitmap.pixel_offset;
 }
 
 bool is_valid_semantic_text_style(

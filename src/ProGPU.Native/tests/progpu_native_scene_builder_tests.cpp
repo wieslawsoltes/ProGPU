@@ -446,6 +446,78 @@ bool semantic_scene_builder_records_styled_glyph_runs() {
             sizeof(glyphs);
 }
 
+bool semantic_scene_builder_records_color_bitmap_glyphs() {
+    semantic_scene_builder builder(707U, 8U);
+    constexpr std::array<std::byte, 32U> pixels{
+        std::byte{0xff}, std::byte{0x20}, std::byte{0x40}, std::byte{0xff},
+        std::byte{0x20}, std::byte{0xe0}, std::byte{0x80}, std::byte{0xff},
+        std::byte{0x20}, std::byte{0xe0}, std::byte{0x80}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0x20}, std::byte{0x40}, std::byte{0xff},
+        std::byte{0x20}, std::byte{0x40}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xf0}, std::byte{0xc0}, std::byte{0x20}, std::byte{0xff},
+        std::byte{0xf0}, std::byte{0xc0}, std::byte{0x20}, std::byte{0xff},
+        std::byte{0x20}, std::byte{0x40}, std::byte{0xff}, std::byte{0xff}};
+    const std::array bitmaps{
+        progpu_native_scene_color_glyph_bitmap{
+            0U, 2U, 2U, 8U, 0U,
+            -1.0F, 2.0F, 18.0F, 20.0F, 0U, 0U},
+        progpu_native_scene_color_glyph_bitmap{
+            16U, 2U, 2U, 8U, 0U,
+            1.0F, 1.0F, 16.0F, 18.0F, 0U, 0U}};
+    std::uint32_t resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_color_glyph_bitmaps(
+            bitmaps,
+            pixels,
+            resource_index)) {
+        return false;
+    }
+    const std::array glyphs{
+        progpu_native_positioned_glyph{
+            0U, 0U, {20.0F, 30.0F}, {1.0F, 0.0F}, {0.0F, 1.0F},
+            {1.0F, 1.0F, 1.0F, 1.0F}, 1.0F, 0.0F, 0.0F, 0.0F},
+        progpu_native_positioned_glyph{
+            1U, 0U, {44.0F, 30.0F}, {1.0F, 0.0F}, {0.0F, 1.0F},
+            {1.0F, 1.0F, 1.0F, 0.75F}, 1.0F, 0.0F, 0.0F, 0.0F}};
+    if (!builder.draw_glyph_run(
+            resource_index,
+            glyphs,
+            {18.0F, 10.0F, 44.0F, 22.0F})) {
+        return false;
+    }
+    std::vector<std::byte> stream;
+    if (!builder.build(stream)) {
+        return false;
+    }
+    const auto validated = scene::validate(stream.data(), stream.size());
+    if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        validated.draw_count != 1U) {
+        return false;
+    }
+    const auto resource = read<progpu_native_scene_resource>(
+        stream,
+        validated.header.resource_offset);
+    const auto command = read<progpu_native_scene_command>(
+        stream,
+        validated.header.command_offset);
+    auto invalid_bitmap = bitmaps[1U];
+    invalid_bitmap.pixel_offset = pixels.size();
+    semantic_scene_builder invalid(708U, 1U);
+    std::uint32_t invalid_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    return resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN &&
+        (resource.flags & PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS) != 0U &&
+        resource.payload_size == sizeof(bitmaps) &&
+        resource.auxiliary_size == pixels.size() &&
+        command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN &&
+        command.payload_size == sizeof(glyphs) &&
+        !invalid.add_color_glyph_bitmaps(
+            std::span<const progpu_native_scene_color_glyph_bitmap>(
+                &invalid_bitmap,
+                1U),
+            pixels,
+            invalid_index) &&
+        invalid.last_error() == scene_build_error::invalid_argument;
+}
+
 bool semantic_scene_builder_records_layers_masks_and_effects() {
     semantic_scene_builder builder(706U, 7U);
     if (!builder.reserve(3U, 6U, 2048U)) {

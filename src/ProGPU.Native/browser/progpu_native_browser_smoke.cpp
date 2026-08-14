@@ -243,6 +243,20 @@ bool render_browser_frame(double, void*) {
         0U,
         0U,
         0U};
+    const progpu_native_scene_color_glyph_bitmap builder_color_bitmap{
+        0U, 2U, 2U, 8U, 0U,
+        0.0F, 0.0F, 18.0F, 22.0F, 0U, 0U};
+    const progpu_native_positioned_glyph builder_color_glyph{
+        0U,
+        0U,
+        {214.0F, 60.0F},
+        {1.0F, 0.0F},
+        {0.0F, 1.0F},
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        1.0F,
+        0.0F,
+        0.0F,
+        0.0F};
     progpu_native_scene_layer_mask builder_layer_mask{};
     builder_layer_mask.bounds = {20.0F, 20.0F, 224.0F, 136.0F};
     builder_layer_mask.transform = builder_identity;
@@ -267,8 +281,10 @@ bool render_browser_frame(double, void*) {
     builder_layer.content_revision = 1U;
     builder_layer.composite_revision = 1U;
     std::uint32_t builder_glyph_resource = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t builder_color_glyph_resource =
+        PROGPU_NATIVE_SCENE_NO_INDEX;
     std::uint32_t builder_text_style_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-    if (!native_builder.reserve(10U, 11U, 6144U) ||
+    if (!native_builder.reserve(11U, 12U, 6144U) ||
         !native_builder.add_solid_brush(
             {0.2F, 0.55F, 1.0F, 1.0F}, 0.9F, builder_brush) ||
         !native_builder.add_rounded_rectangle_mask(
@@ -337,6 +353,18 @@ bool render_browser_frame(double, void*) {
             {64.0F, 60.0F, 18.0F, 22.0F},
             PROGPU_NATIVE_SCENE_NO_INDEX,
             builder_text_style_index) ||
+        !native_builder.add_color_glyph_bitmaps(
+            std::span<const progpu_native_scene_color_glyph_bitmap>(
+                &builder_color_bitmap,
+                1U),
+            builder_image_pixels,
+            builder_color_glyph_resource) ||
+        !native_builder.draw_glyph_run(
+            builder_color_glyph_resource,
+            std::span<const progpu_native_positioned_glyph>(
+                &builder_color_glyph,
+                1U),
+            {214.0F, 60.0F, 18.0F, 22.0F}) ||
         !native_builder.restore() ||
         !native_builder.pop_layer()) {
         fail("The browser native C++ scene builder could not record.");
@@ -352,9 +380,9 @@ bool render_browser_frame(double, void*) {
             builder_scene.data(),
             builder_scene.size(),
             &builder_update_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
-        builder_update_metrics.command_count != 10U ||
-        builder_update_metrics.resource_count != 11U ||
-        builder_update_metrics.draw_count != 6U) {
+        builder_update_metrics.command_count != 11U ||
+        builder_update_metrics.resource_count != 12U ||
+        builder_update_metrics.draw_count != 7U) {
         fail_engine("The browser native C++ scene update failed.");
     }
     semantic_frame.scene_id = native_builder.scene_id();
@@ -365,12 +393,13 @@ bool render_browser_frame(double, void*) {
             resources.engine,
             &semantic_frame,
             &builder_frame_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
-        builder_frame_metrics.command_count != 10U ||
-        builder_frame_metrics.draw_call_count != 7U ||
+        builder_frame_metrics.command_count != 11U ||
+        builder_frame_metrics.draw_call_count != 8U ||
         builder_frame_metrics.submission_count != 1U ||
         builder_frame_metrics.brush_upload_bytes == 0U ||
         builder_frame_metrics.vertex_upload_bytes == 0U ||
-        builder_frame_metrics.texture_upload_bytes != 16U ||
+        builder_frame_metrics.texture_upload_bytes != 32U ||
+        builder_frame_metrics.color_glyph_upload_bytes != 16U ||
         builder_frame_metrics.text_style_upload_bytes == 0U ||
         builder_frame_metrics.coverage_staging_bytes == 0U) {
         std::fprintf(
@@ -378,7 +407,8 @@ bool render_browser_frame(double, void*) {
             "C++ builder metrics: commands=%" PRIu32
             " draws=%" PRIu32 " submissions=%" PRIu64
             " brush=%" PRIu64 " vertex=%" PRIu64
-            " texture=%" PRIu64 " text=%" PRIu64
+            " texture=%" PRIu64 " color_glyph=%" PRIu64
+            " text=%" PRIu64
             " coverage=%" PRIu64 "\n",
             builder_frame_metrics.command_count,
             builder_frame_metrics.draw_call_count,
@@ -386,6 +416,7 @@ bool render_browser_frame(double, void*) {
             builder_frame_metrics.brush_upload_bytes,
             builder_frame_metrics.vertex_upload_bytes,
             builder_frame_metrics.texture_upload_bytes,
+            builder_frame_metrics.color_glyph_upload_bytes,
             builder_frame_metrics.text_style_upload_bytes,
             builder_frame_metrics.coverage_staging_bytes);
         fail_engine("The browser native C++ scene render failed.");
@@ -413,6 +444,7 @@ bool render_browser_frame(double, void*) {
         builder_frame_metrics.vertex_upload_bytes != 0U ||
         builder_frame_metrics.index_upload_bytes != 0U ||
         builder_frame_metrics.texture_upload_bytes != 0U ||
+        builder_frame_metrics.color_glyph_upload_bytes != 0U ||
         builder_frame_metrics.text_style_upload_bytes != 0U ||
         builder_frame_metrics.coverage_staging_bytes != 0U) {
         fail_engine("The stable browser native C++ scene was rebuilt.");

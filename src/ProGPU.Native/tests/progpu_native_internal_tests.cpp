@@ -759,6 +759,8 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_builder_records_styled_glyph_runs());
     require(progpu::native::tests::
+        semantic_scene_builder_records_color_bitmap_glyphs());
+    require(progpu::native::tests::
         semantic_scene_builder_records_layers_masks_and_effects());
     semantic_text_style_page_is_validated_deduplicated_and_retained();
     semantic_color_glyph_resource_is_strictly_validated();
