@@ -2,8 +2,10 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using ProGPU.Backend.Native;
+using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
 using ProGPU.Scene.Native;
+using ProGPU.Text;
 using ProGPU.Vector;
 using Xunit;
 
@@ -11,6 +13,192 @@ namespace ProGPU.Tests;
 
 public class NativePictureCompilerTests
 {
+    [Fact]
+    public void CompilerLowersShapedGlyphRunToNativeOutlineAndStyleResources()
+    {
+        var font = InterFontFamily.Regular;
+        ushort[] glyphIndices =
+        [font.GetGlyphIndex('A'), font.GetGlyphIndex('V')];
+        Vector2[] glyphPositions =
+        [new(12.125f, 30.25f), new(35.625f, 30.25f)];
+        var brush = new SolidColorBrush(new Vector4(0.2f, 0.4f, 0.8f, 0.75f))
+        {
+            Opacity = 0.5f
+        };
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawGlyphRun,
+                    GlyphIndices = glyphIndices,
+                    GlyphPositions = glyphPositions,
+                    Font = font,
+                    FontSize = 24f,
+                    Brush = brush,
+                    Position = new Vector2(3f, 4f),
+                    Transform = Matrix4x4.CreateScale(1.5f, 0.8f, 1f),
+                    IsBold = true,
+                    IsItalic = true,
+                    HasFontTransform = true,
+                    FontTransform = new Vector2(1.2f, 0.1f),
+                    TextRenderingMode = TextRenderingMode.ClearType,
+                    PreferGlyphAtlas = true
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            91U,
+            7U,
+            new NativePictureCompileOptions(2f),
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(2f, compiled.TargetDpiScale);
+        Assert.Equal(1, compiled.NativeCommandCount);
+        Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(2, compiled.GlyphOutlineCount);
+        Assert.True(compiled.GlyphSegmentCount > 0);
+        Assert.Equal(4, compiled.PositionedGlyphCount);
+        Assert.Equal(1, compiled.TextStyleCount);
+        Assert.Equal(0, compiled.BrushCount);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        Assert.Equal(1U, header.CommandCount);
+        Assert.Equal(2U, header.ResourceCount);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)header.ResourceCount *
+                        Unsafe.SizeOf<NativeMethods.SceneResource>())));
+        Assert.Equal(NativeSceneResourceKind.GlyphRun, resources[0].Kind);
+        Assert.Equal(
+            NativeSceneResourceKind.TextStyleTable,
+            resources[1].Kind);
+        Assert.Equal(
+            2U * (uint)Unsafe.SizeOf<NativeSceneGlyphOutline>(),
+            resources[0].PayloadSize);
+        ReadOnlySpan<NativeSceneGlyphOutline> outlines =
+            MemoryMarshal.Cast<byte, NativeSceneGlyphOutline>(
+                compiled.Stream.Slice(
+                    checked((int)resources[0].PayloadOffset),
+                    checked((int)resources[0].PayloadSize)));
+        Assert.All(outlines.ToArray(), outline =>
+        {
+            Assert.Equal(72f / font.UnitsPerEm, outline.RasterScale, 5);
+            Assert.Equal(0f, outline.SubpixelX);
+        });
+
+        NativeSceneTextStyle style = MemoryMarshal.Read<NativeSceneTextStyle>(
+            compiled.Stream.Slice(checked((int)resources[1].PayloadOffset)));
+        Assert.Equal(new Vector4(0.2f, 0.4f, 0.8f, 0.375f), style.Color);
+        Assert.Equal(
+            NativeSceneTextRenderingMode.ClearType,
+            style.TextRenderingMode);
+
+        NativeMethods.SceneCommand command =
+            MemoryMarshal.Read<NativeMethods.SceneCommand>(
+                compiled.Stream.Slice(checked((int)header.CommandOffset)));
+        Assert.Equal(NativeSceneCommandKind.DrawGlyphRun, command.Kind);
+        Assert.True((command.Flags & NativeSceneRecordFlags.StyledGlyphs) != 0);
+        Assert.Equal(
+            24U + 4U * (uint)Unsafe.SizeOf<NativePositionedGlyph>(),
+            command.PayloadSize);
+        ReadOnlySpan<NativePositionedGlyph> positioned =
+            MemoryMarshal.Cast<byte, NativePositionedGlyph>(
+                compiled.Stream.Slice(
+                    checked((int)command.PayloadOffset + 24),
+                    4 * Unsafe.SizeOf<NativePositionedGlyph>()));
+        Assert.Equal(1.8f, positioned[0].BasisX.X, 5);
+        Assert.Equal(0f, positioned[0].BasisX.Y);
+        Assert.Equal(0f, positioned[0].BasisY.X);
+        Assert.Equal(0.8f, positioned[0].BasisY.Y, 5);
+        Assert.Equal(0f, positioned[0].BoldOffset);
+        Assert.Equal(24f * 0.035f / 1.2f, positioned[1].BoldOffset, 5);
+        Assert.Equal((0.22f - 0.1f) / 1.2f, positioned[0].ItalicSkew, 5);
+    }
+
+    [Fact]
+    public void CompilerPreservesFourWayPhysicalGlyphPhaseAtTargetDpi()
+    {
+        var font = InterFontFamily.Regular;
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawGlyphRun,
+                    GlyphIndices = [font.GetGlyphIndex('i')],
+                    GlyphPositions = [new Vector2(5.125f, 12.2f)],
+                    Font = font,
+                    FontSize = 11f,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Transform = Matrix4x4.Identity,
+                    TextRenderingMode = TextRenderingMode.Grayscale,
+                    TextHintingMode = TextHintingMode.Fixed,
+                    PreferGlyphAtlas = true
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            92U,
+            8U,
+            new NativePictureCompileOptions(2f),
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        NativeMethods.SceneResource resource =
+            MemoryMarshal.Read<NativeMethods.SceneResource>(
+                compiled.Stream.Slice(checked((int)header.ResourceOffset)));
+        NativeSceneGlyphOutline outline =
+            MemoryMarshal.Read<NativeSceneGlyphOutline>(
+                compiled.Stream.Slice(checked((int)resource.PayloadOffset)));
+        Assert.Equal(0.25f, outline.SubpixelX);
+        NativeMethods.SceneCommand command =
+            MemoryMarshal.Read<NativeMethods.SceneCommand>(
+                compiled.Stream.Slice(checked((int)header.CommandOffset)));
+        NativePositionedGlyph glyph =
+            MemoryMarshal.Read<NativePositionedGlyph>(
+                compiled.Stream.Slice(checked((int)command.PayloadOffset + 24)));
+        Assert.Equal(new Vector2(5f, 12f), glyph.Position);
+    }
+
+    [Fact]
+    public void CompilerRejectsInvalidTargetDpiBeforeReadingPictureCommands()
+    {
+        using var picture = new GpuPicture(
+            [new RenderCommand { Type = RenderCommandType.DrawTexture }],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            1U,
+            1U,
+            new NativePictureCompileOptions(float.NaN),
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Null(compiled);
+        Assert.Equal(NativePictureCompileError.InvalidArgument, failure.Error);
+        Assert.Equal(-1, failure.CommandIndex);
+    }
+
     [Fact]
     public void CompilerLowersAndBatchesSupportedImmutablePictureCommands()
     {

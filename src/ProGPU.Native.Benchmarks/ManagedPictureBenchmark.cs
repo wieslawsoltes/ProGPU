@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using ProGPU.Backend;
 using ProGPU.Backend.Native;
+using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
 using ProGPU.Scene.Native;
 using ProGPU.Vector;
@@ -147,6 +148,9 @@ internal static class ManagedPictureBenchmark
             nativeMetrics.IndexUploadBytes != 0UL ||
             nativeMetrics.BrushUploadBytes != 0UL ||
             nativeMetrics.GradientStopUploadBytes != 0UL ||
+            nativeMetrics.TextStyleUploadBytes != 0UL ||
+            nativeMetrics.ColorGlyphUploadBytes != 0UL ||
+            nativeMetrics.CoverageStagingBytes != 0UL ||
             nativeMetrics.UniformUploadBytes != 0UL ||
             nativeMetrics.SubmissionCount != 1UL)
         {
@@ -207,6 +211,10 @@ internal static class ManagedPictureBenchmark
             StrokeCount: compiled.StrokeCount,
             StrokePointCount: compiled.StrokePointCount,
             StrokeDoubleCount: compiled.StrokeDoubleCount,
+            GlyphOutlineCount: compiled.GlyphOutlineCount,
+            GlyphSegmentCount: compiled.GlyphSegmentCount,
+            PositionedGlyphCount: compiled.PositionedGlyphCount,
+            TextStyleCount: compiled.TextStyleCount,
             BrushCount: compiled.BrushCount,
             GradientStopCount: compiled.GradientStopCount,
             StreamBytes: compiled.Stream.Length,
@@ -566,6 +574,30 @@ internal static class ManagedPictureBenchmark
                 (VertexColorBlendMode)(index % 29),
                 isEdgeAliased: (index & 1) != 0);
         }
+        const string label = "ProGPU C++";
+        const float labelSize = 32f;
+        var labelFont = InterFontFamily.Regular;
+        var labelGlyphs = new ushort[label.Length];
+        var labelPositions = new Vector2[label.Length];
+        float labelCursor = 0f;
+        for (int index = 0; index < label.Length; index++)
+        {
+            ushort glyph = labelFont.GetGlyphIndex(label[index]);
+            labelGlyphs[index] = glyph;
+            labelPositions[index] = new Vector2(labelCursor, 0f);
+            labelCursor += labelFont.GetAdvanceWidth(glyph, labelSize);
+        }
+        drawing.DrawGlyphRun(
+            labelGlyphs,
+            labelPositions,
+            labelFont,
+            labelSize,
+            new SolidColorBrush(new Vector4(0.96f, 0.98f, 1f, 0.96f)),
+            new Vector2((Width - labelCursor) * 0.5f, Height * 0.56f),
+            isBold: true,
+            isItalic: true,
+            textRenderingMode: TextRenderingMode.Grayscale,
+            preferGlyphAtlas: true);
         drawing.PopGeometryClip();
         drawing.PopClip();
         drawing.PopOpacity();
@@ -721,6 +753,10 @@ internal static class ManagedPictureBenchmark
         int StrokeCount,
         int StrokePointCount,
         int StrokeDoubleCount,
+        int GlyphOutlineCount,
+        int GlyphSegmentCount,
+        int PositionedGlyphCount,
+        int TextStyleCount,
         int BrushCount,
         int GradientStopCount,
         int StreamBytes,

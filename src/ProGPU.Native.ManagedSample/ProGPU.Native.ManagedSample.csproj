@@ -11,10 +11,13 @@
     <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
     <ProjectReference Include="..\ProGPU.Backend.Dawn\ProGPU.Backend.Dawn.csproj" />
     <ProjectReference Include="..\ProGPU.Backend.Native\ProGPU.Backend.Native.csproj" />
+    <ProjectReference Include="..\ProGPU.Fonts.Inter\ProGPU.Fonts.Inter.csproj" />
     <ProjectReference Include="..\ProGPU.Scene.Native\ProGPU.Scene.Native.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(ProGpuNativeUseProjectReference)' == 'false'">
     <PackageReference Include="ProGPU.Scene.Native"
+                      VersionOverride="$(ProGpuNativePackageVersion)" />
+    <PackageReference Include="ProGPU.Fonts.Inter"
                       VersionOverride="$(ProGpuNativePackageVersion)" />
   </ItemGroup>
 </Project>

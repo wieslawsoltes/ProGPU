@@ -2,6 +2,7 @@ using System.Numerics;
 using ProGPU.Backend;
 using ProGPU.Backend.Dawn;
 using ProGPU.Backend.Native;
+using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
 using ProGPU.Scene.Native;
 using ProGPU.Vector;
@@ -140,6 +141,38 @@ drawing.DrawPointBatch(
     radius: 0f,
     round: false,
     isEdgeAliased: true);
+var sampleFont = InterFontFamily.Regular;
+ushort[] sampleGlyphs =
+[
+    sampleFont.GetGlyphIndex('G'),
+    sampleFont.GetGlyphIndex('P'),
+    sampleFont.GetGlyphIndex('U')
+];
+drawing.DrawGlyphRun(
+    sampleGlyphs,
+    [new(0f, 0f), new(30f, 0f), new(58f, 0f)],
+    sampleFont,
+    38f,
+    new SolidColorBrush(new Vector4(0.96f, 0.98f, 1f, 1f)),
+    new Vector2(442f, 178f),
+    isBold: true,
+    textRenderingMode: TextRenderingMode.Grayscale,
+    preferGlyphAtlas: true);
+ushort[] secondGlyphs =
+[
+    sampleFont.GetGlyphIndex('C'),
+    sampleFont.GetGlyphIndex('+'),
+    sampleFont.GetGlyphIndex('+')
+];
+drawing.DrawGlyphRun(
+    secondGlyphs,
+    [new(0f, 0f), new(27f, 0f), new(51f, 0f)],
+    sampleFont,
+    30f,
+    new SolidColorBrush(new Vector4(0.96f, 0.98f, 1f, 1f)),
+    new Vector2(82f, 152f),
+    textRenderingMode: TextRenderingMode.Grayscale,
+    preferGlyphAtlas: true);
 using GpuPicture picture = recorder.EndRecording();
 const ulong sceneId = 0x4D414E4147454455UL;
 const ulong sceneGeneration = 1UL;
@@ -155,18 +188,21 @@ if (!GpuPictureNativeSceneCompiler.TryCompile(
         $"The managed picture compiler failed: {failure}.");
 }
 NativeSceneUpdateMetrics updateMetrics = compositor.UpdateScene(compiled.Stream);
-if (updateMetrics.CommandCount != 11U ||
-    updateMetrics.ResourceCount != 10U ||
-    updateMetrics.DrawCount != 7U ||
+if (updateMetrics.CommandCount != 13U ||
+    updateMetrics.ResourceCount != 13U ||
+    updateMetrics.DrawCount != 9U ||
     updateMetrics.MaximumStackDepth != 2U ||
-    compiled.SourceCommandCount != 14 ||
-    compiled.NativeCommandCount != 11 ||
-    compiled.NativeDrawCount != 7 ||
+    compiled.SourceCommandCount != 16 ||
+    compiled.NativeCommandCount != 13 ||
+    compiled.NativeDrawCount != 9 ||
     compiled.PathCount != 1 ||
     compiled.PathSegmentCount != 3 ||
     compiled.StrokeCount != 1 ||
     compiled.StrokePointCount != 4 ||
     compiled.StrokeDoubleCount != 2 ||
+    compiled.GlyphOutlineCount != 5 ||
+    compiled.PositionedGlyphCount != 9 ||
+    compiled.TextStyleCount != 1 ||
     compiled.BrushCount != 9 ||
     compiled.GradientStopCount != 2)
 {
@@ -176,6 +212,9 @@ if (updateMetrics.CommandCount != 11U ||
         $"draws={compiled.NativeDrawCount}, paths={compiled.PathCount}/" +
         $"{compiled.PathSegmentCount}, strokes={compiled.StrokeCount}/" +
         $"{compiled.StrokePointCount}/{compiled.StrokeDoubleCount}, " +
+        $"glyphs={compiled.GlyphOutlineCount}/" +
+        $"{compiled.GlyphSegmentCount}/{compiled.PositionedGlyphCount}, " +
+        $"styles={compiled.TextStyleCount}, " +
         $"brushes={compiled.BrushCount}, stops={compiled.GradientStopCount}.");
 }
 NativeSceneFrameMetrics metrics = compositor.RenderScene(
@@ -193,7 +232,9 @@ metrics = compositor.RenderScene(
 if (metrics.VertexUploadBytes != 0U ||
     metrics.IndexUploadBytes != 0U ||
     metrics.BrushUploadBytes != 0U ||
-    metrics.GradientStopUploadBytes != 0U)
+    metrics.GradientStopUploadBytes != 0U ||
+    metrics.TextStyleUploadBytes != 0U ||
+    metrics.CoverageStagingBytes != 0U)
 {
     throw new InvalidOperationException(
         "Stable managed-picture replay rebuilt retained native resources.");
@@ -281,6 +322,19 @@ static bool HasExpectedColors(byte[] pixels, int width)
     var meshCenter = Pixel(255, 34);
     var pathCenter = Pixel(600, 40);
     var background = Pixel(10, 10);
+    int brightTextPixels = 0;
+    for (int y = 138; y < 184; y++)
+    {
+        for (int x = 438; x < 548; x++)
+        {
+            ReadOnlySpan<byte> textPixel = Pixel(x, y);
+            if (textPixel[0] > 220 && textPixel[1] > 220 &&
+                textPixel[2] > 220)
+            {
+                brightTextPixels++;
+            }
+        }
+    }
     return blue[2] > 180 && blue[0] < 100 &&
         amber[0] > 180 && amber[1] > 90 &&
         gradientStart[1] > gradientStart[0] &&
@@ -292,6 +346,7 @@ static bool HasExpectedColors(byte[] pixels, int width)
         hairlinePoint[0] > 200 && hairlinePoint[2] > 120 &&
         meshCenter[0] + meshCenter[1] + meshCenter[2] > 180 &&
         pathCenter[1] > 180 && pathCenter[2] > 120 &&
+        brightTextPixels > 40 &&
         background[0] < 30 && background[1] < 30;
 }
 

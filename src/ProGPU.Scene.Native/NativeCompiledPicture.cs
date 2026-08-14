@@ -10,6 +10,7 @@ public sealed class NativeCompiledPicture
         int length,
         ulong sceneId,
         ulong generation,
+        float targetDpiScale,
         int sourceCommandCount,
         int nativeCommandCount,
         int nativeDrawCount,
@@ -25,6 +26,10 @@ public sealed class NativeCompiledPicture
         int strokeCount,
         int strokePointCount,
         int strokeDoubleCount,
+        int glyphOutlineCount,
+        int glyphSegmentCount,
+        int positionedGlyphCount,
+        int textStyleCount,
         int brushCount,
         int gradientStopCount)
     {
@@ -32,6 +37,7 @@ public sealed class NativeCompiledPicture
         Length = length;
         SceneId = sceneId;
         Generation = generation;
+        TargetDpiScale = targetDpiScale;
         SourceCommandCount = sourceCommandCount;
         NativeCommandCount = nativeCommandCount;
         NativeDrawCount = nativeDrawCount;
@@ -47,6 +53,10 @@ public sealed class NativeCompiledPicture
         StrokeCount = strokeCount;
         StrokePointCount = strokePointCount;
         StrokeDoubleCount = strokeDoubleCount;
+        GlyphOutlineCount = glyphOutlineCount;
+        GlyphSegmentCount = glyphSegmentCount;
+        PositionedGlyphCount = positionedGlyphCount;
+        TextStyleCount = textStyleCount;
         BrushCount = brushCount;
         GradientStopCount = gradientStopCount;
     }
@@ -58,6 +68,12 @@ public sealed class NativeCompiledPicture
     public ulong SceneId { get; }
 
     public ulong Generation { get; }
+
+    /// <summary>
+    /// Gets the physical target scale used to compile target-sensitive glyph
+    /// raster records.
+    /// </summary>
+    public float TargetDpiScale { get; }
 
     /// <summary>
     /// Gets the total command count across the root picture and every
@@ -92,6 +108,14 @@ public sealed class NativeCompiledPicture
     public int StrokePointCount { get; }
 
     public int StrokeDoubleCount { get; }
+
+    public int GlyphOutlineCount { get; }
+
+    public int GlyphSegmentCount { get; }
+
+    public int PositionedGlyphCount { get; }
+
+    public int TextStyleCount { get; }
 
     public int BrushCount { get; }
 

@@ -126,6 +126,7 @@ managed_package_projects=(
   ProGPU.Text
   ProGPU.Compute
   ProGPU.Scene
+  ProGPU.Fonts.Inter
   ProGPU.Scene.Native
 )
 for project in "${managed_package_projects[@]}"; do

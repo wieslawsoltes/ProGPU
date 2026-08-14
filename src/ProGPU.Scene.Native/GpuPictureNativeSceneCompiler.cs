@@ -18,6 +18,8 @@ namespace ProGPU.Scene.Native;
 /// </remarks>
 public static partial class GpuPictureNativeSceneCompiler
 {
+    private const int NativeSceneGlyphDrawSize = 24;
+
     private enum BatchKind : byte
     {
         Analytic,
@@ -25,7 +27,8 @@ public static partial class GpuPictureNativeSceneCompiler
         Path,
         PointBatch,
         VertexMesh,
-        Stroke
+        Stroke,
+        Glyph
     }
 
     private enum OperationKind : byte
@@ -55,6 +58,7 @@ public static partial class GpuPictureNativeSceneCompiler
         public int SecondaryCount;
         public NativeImageRect Bounds;
         public uint ResourceIndex;
+        public uint StyleIndex;
     }
 
     private readonly record struct Operation(
@@ -137,12 +141,27 @@ public static partial class GpuPictureNativeSceneCompiler
         ulong sceneId,
         ulong generation,
         out NativeCompiledPicture? compiled,
+        out NativePictureCompileFailure failure) =>
+        TryCompile(
+            picture,
+            sceneId,
+            generation,
+            NativePictureCompileOptions.Default,
+            out compiled,
+            out failure);
+
+    public static bool TryCompile(
+        GpuPicture picture,
+        ulong sceneId,
+        ulong generation,
+        NativePictureCompileOptions options,
+        out NativeCompiledPicture? compiled,
         out NativePictureCompileFailure failure)
     {
         ArgumentNullException.ThrowIfNull(picture);
         compiled = null;
         failure = NativePictureCompileFailure.None;
-        if (sceneId == 0U || generation == 0U)
+        if (sceneId == 0U || generation == 0U || !options.IsValid)
         {
             failure = new(
                 NativePictureCompileError.InvalidArgument,
@@ -169,6 +188,10 @@ public static partial class GpuPictureNativeSceneCompiler
         var strokePoints = new List<Vector2>();
         var strokeDoubles = new List<double>();
         var strokeBrushIndices = new List<uint>();
+        var glyphOutlines = new List<NativeSceneGlyphOutline>();
+        var glyphSegments = new List<NativePathSegment>();
+        var positionedGlyphs = new List<NativePositionedGlyph>();
+        var textStyles = new List<NativeSceneTextStyle>();
         var batches = new List<Batch>();
         var operations = new List<Operation>();
         var states = new List<StateSnapshot>();
@@ -286,9 +309,14 @@ public static partial class GpuPictureNativeSceneCompiler
                     strokePoints,
                     strokeDoubles,
                     strokeBrushIndices,
+                    glyphOutlines,
+                    glyphSegments,
+                    positionedGlyphs,
+                    textStyles,
                     batches,
                     operations,
                     materials,
+                    options.DpiScale,
                     out NativePictureCompileError error))
             {
                 failure = new(
@@ -333,18 +361,29 @@ public static partial class GpuPictureNativeSceneCompiler
                 strokes.Count * Unsafe.SizeOf<NativeSceneStroke>() +
                 strokePoints.Count * Unsafe.SizeOf<Vector2>() +
                 strokeDoubles.Count * sizeof(double) +
+                glyphOutlines.Count * Unsafe.SizeOf<NativeSceneGlyphOutline>() +
+                glyphSegments.Count * Unsafe.SizeOf<NativePathSegment>() +
+                positionedGlyphs.Count * Unsafe.SizeOf<NativePositionedGlyph>() +
+                textStyles.Count * Unsafe.SizeOf<NativeSceneTextStyle>() +
                 materials.BrushCount * Unsafe.SizeOf<NativeSceneBrush>() +
                 materials.GradientStopCount *
                     Unsafe.SizeOf<NativeSceneGradientStop>() +
                 states.Count * Unsafe.SizeOf<NativeSceneState>() +
                 stateMasks.Count * Unsafe.SizeOf<NativeSceneLayerMaskChain>() +
                 operations.Count * 64 +
+                positionedGlyphs.Count * Unsafe.SizeOf<NativePositionedGlyph>() +
+                batches.Count(static batch => batch.Kind == BatchKind.Glyph) *
+                    NativeSceneGlyphDrawSize +
                 batches.Count * 30 +
                 (analytics.Count + geometry.Count + paths.Count +
                     pointBatches.Count + vertexMeshes.Count + strokes.Count) *
                     sizeof(uint) + 14);
+            int optionalTableResourceCount =
+                (materials.BrushCount > 0 ? 1 : 0) +
+                (textStyles.Count > 0 ? 1 : 0);
             int resourceCount = checked(
-                batches.Count + 1 + stateMasks.Count + states.Count);
+                batches.Count + optionalTableResourceCount +
+                stateMasks.Count + states.Count);
             int capacity = NativeSceneStreamBuilder.GetRequiredBufferSize(
                 operations.Count,
                 resourceCount,
@@ -378,6 +417,14 @@ public static partial class GpuPictureNativeSceneCompiler
                 CollectionsMarshal.AsSpan(strokePoints);
             Span<double> strokeDoubleSpan =
                 CollectionsMarshal.AsSpan(strokeDoubles);
+            Span<NativeSceneGlyphOutline> glyphOutlineSpan =
+                CollectionsMarshal.AsSpan(glyphOutlines);
+            Span<NativePathSegment> glyphSegmentSpan =
+                CollectionsMarshal.AsSpan(glyphSegments);
+            Span<NativePositionedGlyph> positionedGlyphSpan =
+                CollectionsMarshal.AsSpan(positionedGlyphs);
+            Span<NativeSceneTextStyle> textStyleSpan =
+                CollectionsMarshal.AsSpan(textStyles);
             Span<uint> analyticBrushSpan =
                 CollectionsMarshal.AsSpan(analyticBrushIndices);
             Span<uint> geometryBrushSpan =
@@ -435,7 +482,8 @@ public static partial class GpuPictureNativeSceneCompiler
                             batch.SecondaryStart,
                             batch.SecondaryCount),
                         out batch.ResourceIndex)
-                    : builder.TryAddStrokeResource(
+                    : batch.Kind == BatchKind.Stroke
+                    ? builder.TryAddStrokeResource(
                         checked((ulong)index + 1U),
                         generation,
                         strokeSpan.Slice(batch.Start, batch.Count),
@@ -445,6 +493,14 @@ public static partial class GpuPictureNativeSceneCompiler
                         strokeDoubleSpan.Slice(
                             batch.SecondaryStart,
                             batch.SecondaryCount),
+                        out batch.ResourceIndex)
+                    : builder.TryAddGlyphResource(
+                        checked((ulong)index + 1U),
+                        generation,
+                        glyphOutlineSpan.Slice(batch.Start, batch.Count),
+                        glyphSegmentSpan.Slice(
+                            batch.AuxiliaryStart,
+                            batch.AuxiliaryCount),
                         out batch.ResourceIndex);
                 if (!added)
                 {
@@ -456,12 +512,29 @@ public static partial class GpuPictureNativeSceneCompiler
                 }
                 batches[index] = batch;
             }
-            if (!builder.TryAddBrushTableResource(
-                    checked((ulong)batches.Count + 1U),
+            ulong nextResourceId = checked((ulong)batches.Count + 1U);
+            uint brushResourceIndex = uint.MaxValue;
+            if (materials.BrushCount > 0 &&
+                !builder.TryAddBrushTableResource(
+                    nextResourceId++,
                     generation,
                     materials.Brushes,
                     materials.GradientStops,
-                    out uint brushResourceIndex))
+                    out brushResourceIndex))
+            {
+                failure = new(
+                    NativePictureCompileError.StreamBuildFailed,
+                    -1,
+                    default);
+                return false;
+            }
+            uint textStyleResourceIndex = uint.MaxValue;
+            if (textStyleSpan.Length > 0 &&
+                !builder.TryAddTextStyleResource(
+                    nextResourceId++,
+                    generation,
+                    textStyleSpan,
+                    out textStyleResourceIndex))
             {
                 failure = new(
                     NativePictureCompileError.StreamBuildFailed,
@@ -475,8 +548,7 @@ public static partial class GpuPictureNativeSceneCompiler
             for (int index = 0; index < maskSpan.Length; index++)
             {
                 StateMaskProgram program = maskSpan[index];
-                ulong resourceId = checked(
-                    (ulong)batches.Count + 2U + (uint)index);
+                ulong resourceId = nextResourceId++;
                 bool added;
                 if (program.Count == 1)
                 {
@@ -516,8 +588,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 NativeSceneState nativeState =
                     snapshot.ToNative(maskResourceIndex);
                 if (!builder.TryAddStateResource(
-                        checked((ulong)batches.Count + 2U +
-                            (uint)stateMasks.Count + (uint)index),
+                        nextResourceId++,
                         generation,
                         in nativeState,
                         out stateResourceIndices[index]))
@@ -586,14 +657,24 @@ public static partial class GpuPictureNativeSceneCompiler
                             vertexMeshBrushSpan.Slice(
                                 batch.BrushStart,
                                 batch.Count))
-                        : builder.TryDrawStrokeBatch(
+                        : batch.Kind == BatchKind.Stroke
+                        ? builder.TryDrawStrokeBatch(
                             commandId,
                             batch.ResourceIndex,
                             batch.Bounds,
                             brushResourceIndex,
                             strokeBrushSpan.Slice(
                                 batch.BrushStart,
-                                batch.Count));
+                                batch.Count))
+                        : builder.TryDrawGlyphRun(
+                            commandId,
+                            batch.ResourceIndex,
+                            batch.Bounds,
+                            positionedGlyphSpan.Slice(
+                                batch.SecondaryStart,
+                                batch.SecondaryCount),
+                            textStyleResourceIndex,
+                            batch.StyleIndex);
                 }
                 if (!added)
                 {
@@ -617,6 +698,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 stream.Length,
                 sceneId,
                 generation,
+                options.DpiScale,
                 sourceCommandCount,
                 operations.Count,
                 batches.Count,
@@ -632,6 +714,10 @@ public static partial class GpuPictureNativeSceneCompiler
                 strokes.Count,
                 strokePoints.Count,
                 strokeDoubles.Count,
+                glyphOutlines.Count,
+                glyphSegments.Count,
+                positionedGlyphs.Count,
+                textStyles.Count,
                 materials.BrushCount,
                 materials.GradientStopCount);
             return true;
@@ -849,9 +935,14 @@ public static partial class GpuPictureNativeSceneCompiler
         List<Vector2> strokePoints,
         List<double> strokeDoubles,
         List<uint> strokeBrushIndices,
+        List<NativeSceneGlyphOutline> glyphOutlines,
+        List<NativePathSegment> glyphSegments,
+        List<NativePositionedGlyph> positionedGlyphs,
+        List<NativeSceneTextStyle> textStyles,
         List<Batch> batches,
         List<Operation> operations,
         NativeBrushTableBuilder materials,
+        float targetDpiScale,
         out NativePictureCompileError error)
     {
         error = NativePictureCompileError.None;
@@ -1071,6 +1162,18 @@ public static partial class GpuPictureNativeSceneCompiler
                     batches,
                     operations,
                     materials,
+                    out error);
+            case RenderCommandType.DrawGlyphRun:
+                return TryAppendGlyphRun(
+                    command,
+                    transform,
+                    targetDpiScale,
+                    glyphOutlines,
+                    glyphSegments,
+                    positionedGlyphs,
+                    textStyles,
+                    batches,
+                    operations,
                     out error);
             default:
                 error = NativePictureCompileError.UnsupportedCommand;

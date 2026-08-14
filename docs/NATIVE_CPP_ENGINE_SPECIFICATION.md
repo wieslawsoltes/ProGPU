@@ -1464,8 +1464,10 @@ remain.
 the immutable allocation-free command view of a `GpuPicture`, rejects
 unsupported commands and materials with a typed source-command diagnostic,
 and coalesces consecutive analytic, geometry, path-fill, point, mesh, or
-connected-stroke
-commands into native batches. Compilation is deliberately one-time
+connected-stroke commands into native batches. Already-shaped `DrawGlyphRun`
+records become retained native outline/segment resources, positioned-glyph
+payloads, and a deduplicated solid text-style table without character remapping
+or a second shaping pass. Compilation is deliberately one-time
 `O(C + P)` work with `O(P)` bounded
 managed/native stream storage for `C` source commands. The resulting
 `NativeCompiledPicture` owns one pointer-free stream; unchanged frames call
@@ -1500,9 +1502,22 @@ axis-aligned subset. Non-finite or non-invertible transforms, nested/general
 vector masks, and mismatched or unterminated scopes fail with typed
 source-command diagnostics. Perlin/hatch brushes, general
 `DrawPath` strokes/boolean combinations, non-solid/picture/path opacity masks,
-text, images, embedded visuals, isolated layers, effects, remaining extensions,
-and 3D remain
+color/bitmap/vector-fallback glyphs, text decorations and text masks, images,
+embedded visuals, isolated layers, effects, remaining extensions, and 3D remain
 explicit fail-closed continuation slices rather than silent parity claims.
+
+Glyph compilation is explicitly target-DPI-sensitive. The public
+`NativePictureCompileOptions.DpiScale` selects the physical atlas raster size,
+and `NativeCompiledPicture.TargetDpiScale` records that dependency so the host
+can rebuild the immutable snapshot on DPI changes. The lowering preserves the
+managed maximum-singular-value raster policy, four-way physical subpixel
+placement, transformed affine bases, solid-brush opacity, grayscale/aliased/
+ClearType style mode, and bold/italic/font-stretch presentation. One outline is
+deduplicated per `(glyph id, raster scale, subpixel phase)` inside a source run;
+positioned instances retain the shaped glyph IDs and positions. Compilation is
+`O(G + S)` time and storage for positioned glyphs `G` and emitted outline
+segments `S`; unchanged replay performs zero managed allocation and zero
+outline, coverage, style, vertex, index, or uniform upload.
 
 The semantic state payload is a 64-byte fixed-width record: declared size and
 flags, a System.Numerics-compatible 3x2 affine transform, opacity, a logical
@@ -1518,10 +1533,12 @@ no draw or invalid zero-size WebGPU scissor.
 `MASK` is also canonical: an absent flag requires `NO_INDEX`, while a present
 flag requires a preceding exact `LAYER_MASK` resource. The executable subset
 accepts one analytic rounded or retained R8 coverage mask on vector, glyph,
-plain-image, and color-matrix-image draw families. The mask is retained with
-the render-bundle span and changes split spans by exact resource identity.
-Nested-mask state still fails preflight before encoder creation until the
-version-one resource vocabulary carries a bounded exact composition.
+plain-image, and color-matrix-image draw families. It also accepts an
+append-compatible analytic chain containing two to four canonical rectangle/
+rounded-rectangle masks. The mask is retained with the render-bundle span and
+changes split spans by exact resource identity. A fifth analytic mask, mixed
+sampled/analytic nesting, and general vector-mask composition fail preflight
+before encoder creation until their resource vocabulary is defined.
 
 The isolated-layer payload is another exact 64-byte record stored directly in
 the `PUSH_LAYER` command arena: declared size and flags, optional logical target
@@ -1944,10 +1961,14 @@ save-layer allocation, and flattening group opacity into primitive alpha.
 
 Unicode/OpenType shaping and paragraph layout remain reusable CPU results for
 this tranche, consistent with SkParagraph, DirectWrite, HarfBuzz shaping plans,
-and Parley. The stream transfers positioned glyph ids, advances, clusters, and
-font/resource identity; native rasterization, culling, atlas upload, batching,
-and composition proceed in C++. Native shaping is a later independently gated
-parallel implementation and is not used as a shortcut for scene substitution.
+and Parley. The managed picture compiler now transfers its already-shaped glyph
+IDs and positions directly into the retained native outline/text-style ABI;
+native rasterization, culling, atlas upload, batching, and composition proceed
+in C++. The authoritative ProGPU-owned source provenance and upcoming parallel
+native parser/shaper/layout plan are recorded in
+`NATIVE_CPP_TEXT_PORT_PROVENANCE.md`. Native shaping remains a separately gated
+parallel implementation and is not used as a prerequisite for scene
+substitution.
 
 ### Delivery and evidence gates
 
