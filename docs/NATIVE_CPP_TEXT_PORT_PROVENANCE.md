@@ -167,6 +167,18 @@ graphemes with the same face/state coalesce into reusable runs. Selection is
 `O(G * F * S)` worst case for `G` graphemes, `F` faces, and `S` scalars in a
 grapheme, with `O(1)` internal storage and caller-owned output.
 
+Platform font discovery now has a matching native provider/cache seam. A host
+adapter exposes stable family/face identities and borrowed font bytes from
+CoreText, DirectWrite, Android/iOS platform catalogs, application assets, or a
+browser download cache. The resolver parses candidates only on cache misses,
+matches family/style and scalar coverage, and stores positive and negative
+results in a caller-owned generation-keyed ring. Provider generation changes
+invalidate entries without walking or clearing the cache. A hit is `O(C)` for
+`C` cache slots and performs one bounded provider refresh; a miss is `O(F*T)`
+for `F` faces and SFNT table cost `T`. Discovery, downloading, mapping, and byte
+lifetimes remain outside shaping, so no per-glyph callback, file access,
+allocation, or retained managed pin is introduced.
+
 ## Delivered borrowed SFNT/TTC foundation
 
 The first text-core slice ports the ProGPU-owned `SfntFontFace.cs` contracts at
