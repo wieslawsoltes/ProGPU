@@ -68,6 +68,13 @@ eligibility walk, validate every ordered coverage before dispatch, apply
 sequence lookup records against the current post-mutation buffer, propagate
 unsafe-to-break flags across matched input, and cap nested lookup recursion at
 64 without heap scratch.
+Context formats 1 and 2 add explicit glyph-sequence and ClassDef rule-set
+matching over the same caller buffer. Rule offsets, input counts, class sets,
+and substitution records are fully bounded before dispatch; ignored marks stay
+in place while visible input positions are resolved without temporary arrays.
+Chaining Context formats 1 and 2 use the corresponding glyph and three-ClassDef
+rule layouts for backtrack, input, and lookahead matching. They share the same
+bounded nested-record executor and preserve reverse-order backtrack semantics.
 
 ## Delivered borrowed SFNT/TTC foundation
 

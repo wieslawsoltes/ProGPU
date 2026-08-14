@@ -410,9 +410,8 @@ struct open_type_gsub_apply_options final {
 /*
  * Allocation-free GSUB lookup execution over a caller-owned bulk glyph buffer.
  * The initial executor covers Single, Multiple, Alternate, Ligature, and
- * Extension, Reverse Chaining Single, and coverage-based Context/Chaining
- * Context format 3 substitutions with nested-lookup depth bounds and GDEF
- * filtering. Each individual
+ * Extension, Reverse Chaining Single, and Context/Chaining Context formats
+ * 1–3 with nested-lookup depth bounds and GDEF filtering. Each individual
  * substitution preflights all table and capacity reads before mutation.
  * `glyph_count` must describe the initialized prefix of `glyph_storage`.
  */

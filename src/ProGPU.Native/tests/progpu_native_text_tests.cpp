@@ -790,6 +790,227 @@ void open_type_gsub_context_format3_applies_bounded_nested_lookups() {
     require(try_apply_open_type_gsub_lookup(
         gsub, 0U, glyphs, count, {}, applied, &error));
     require(!applied && glyphs[1U].glyph_id == 5U);
+
+    std::array<std::byte, 116U> class_chaining{};
+    write_u16(class_chaining, 0U, 1U);
+    write_u16(class_chaining, 4U, 10U);
+    write_u16(class_chaining, 6U, 12U);
+    write_u16(class_chaining, 8U, 14U);
+    write_u16(class_chaining, 14U, 2U);
+    write_u16(class_chaining, 16U, 6U);
+    write_u16(class_chaining, 18U, 82U);
+    write_u16(class_chaining, 20U, 6U);
+    write_u16(class_chaining, 24U, 1U);
+    write_u16(class_chaining, 26U, 8U);
+    write_u16(class_chaining, 28U, 2U);
+    write_u16(class_chaining, 30U, 16U);
+    write_u16(class_chaining, 32U, 22U);
+    write_u16(class_chaining, 34U, 30U);
+    write_u16(class_chaining, 36U, 38U);
+    write_u16(class_chaining, 38U, 2U);
+    write_u16(class_chaining, 42U, 46U);
+    write_u16(class_chaining, 44U, 1U);
+    write_u16(class_chaining, 46U, 1U);
+    write_u16(class_chaining, 48U, 5U);
+    write_u16(class_chaining, 50U, 1U);
+    write_u16(class_chaining, 52U, 1U);
+    write_u16(class_chaining, 54U, 1U);
+    write_u16(class_chaining, 56U, 1U);
+    write_u16(class_chaining, 58U, 1U);
+    write_u16(class_chaining, 60U, 5U);
+    write_u16(class_chaining, 62U, 1U);
+    write_u16(class_chaining, 64U, 1U);
+    write_u16(class_chaining, 66U, 1U);
+    write_u16(class_chaining, 68U, 7U);
+    write_u16(class_chaining, 70U, 1U);
+    write_u16(class_chaining, 72U, 1U);
+    write_u16(class_chaining, 74U, 1U);
+    write_u16(class_chaining, 76U, 4U);
+    write_u16(class_chaining, 78U, 1U);
+    write_u16(class_chaining, 80U, 1U);
+    write_u16(class_chaining, 82U, 1U);
+    write_u16(class_chaining, 84U, 1U);
+    write_u16(class_chaining, 86U, 1U);
+    write_u16(class_chaining, 88U, 1U);
+    write_u16(class_chaining, 90U, 0U);
+    write_u16(class_chaining, 92U, 1U);
+    write_u16(class_chaining, 94U, 1U);
+    write_u16(class_chaining, 96U, 1U);
+    write_u16(class_chaining, 100U, 1U);
+    write_u16(class_chaining, 102U, 8U);
+    write_u16(class_chaining, 104U, 1U);
+    write_u16(class_chaining, 106U, 6U);
+    write_u16(class_chaining, 108U, 7U);
+    write_u16(class_chaining, 110U, 1U);
+    write_u16(class_chaining, 112U, 1U);
+    write_u16(class_chaining, 114U, 5U);
+    require(open_type_layout_table_view::try_create(
+        class_chaining, gsub, &error));
+    glyphs = {shaping_glyph{1U}, shaping_glyph{5U}, shaping_glyph{7U}};
+    count = 3U;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(applied && glyphs[1U].glyph_id == 12U);
+}
+
+void open_type_gsub_context_glyph_and_class_rules_are_bounded() {
+    std::array<std::byte, 76U> glyph_rules{};
+    write_u16(glyph_rules, 0U, 1U);
+    write_u16(glyph_rules, 4U, 10U);
+    write_u16(glyph_rules, 6U, 12U);
+    write_u16(glyph_rules, 8U, 14U);
+    write_u16(glyph_rules, 14U, 2U);
+    write_u16(glyph_rules, 16U, 6U);
+    write_u16(glyph_rules, 18U, 42U);
+    write_u16(glyph_rules, 20U, 5U);
+    write_u16(glyph_rules, 24U, 1U);
+    write_u16(glyph_rules, 26U, 8U);
+    write_u16(glyph_rules, 28U, 1U);
+    write_u16(glyph_rules, 30U, 8U);
+    write_u16(glyph_rules, 32U, 1U);
+    write_u16(glyph_rules, 34U, 14U);
+    write_u16(glyph_rules, 36U, 1U);
+    write_u16(glyph_rules, 38U, 1U);
+    write_u16(glyph_rules, 40U, 5U);
+    write_u16(glyph_rules, 42U, 1U);
+    write_u16(glyph_rules, 44U, 4U);
+    write_u16(glyph_rules, 46U, 2U);
+    write_u16(glyph_rules, 48U, 1U);
+    write_u16(glyph_rules, 50U, 6U);
+    write_u16(glyph_rules, 52U, 1U);
+    write_u16(glyph_rules, 54U, 1U);
+    write_u16(glyph_rules, 56U, 1U);
+    write_u16(glyph_rules, 60U, 1U);
+    write_u16(glyph_rules, 62U, 8U);
+    write_u16(glyph_rules, 64U, 1U);
+    write_u16(glyph_rules, 66U, 6U);
+    write_u16(glyph_rules, 68U, 6U);
+    write_u16(glyph_rules, 70U, 1U);
+    write_u16(glyph_rules, 72U, 1U);
+    write_u16(glyph_rules, 74U, 6U);
+
+    open_type_layout_table_view gsub{};
+    font_error error = font_error::invalid_argument;
+    require(open_type_layout_table_view::try_create(
+        glyph_rules, gsub, &error));
+    std::array<shaping_glyph, 4U> glyphs{
+        shaping_glyph{5U}, shaping_glyph{6U}};
+    std::uint32_t count = 2U;
+    bool applied = false;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(applied && glyphs[1U].glyph_id == 12U);
+
+    std::array<std::byte, 90U> class_rules{};
+    write_u16(class_rules, 0U, 1U);
+    write_u16(class_rules, 4U, 10U);
+    write_u16(class_rules, 6U, 12U);
+    write_u16(class_rules, 8U, 14U);
+    write_u16(class_rules, 14U, 2U);
+    write_u16(class_rules, 16U, 6U);
+    write_u16(class_rules, 18U, 56U);
+    write_u16(class_rules, 20U, 5U);
+    write_u16(class_rules, 24U, 1U);
+    write_u16(class_rules, 26U, 8U);
+    write_u16(class_rules, 28U, 2U);
+    write_u16(class_rules, 30U, 12U);
+    write_u16(class_rules, 32U, 18U);
+    write_u16(class_rules, 34U, 2U);
+    write_u16(class_rules, 38U, 28U);
+    write_u16(class_rules, 40U, 1U);
+    write_u16(class_rules, 42U, 1U);
+    write_u16(class_rules, 44U, 5U);
+    write_u16(class_rules, 46U, 1U);
+    write_u16(class_rules, 48U, 5U);
+    write_u16(class_rules, 50U, 2U);
+    write_u16(class_rules, 52U, 1U);
+    write_u16(class_rules, 54U, 2U);
+    write_u16(class_rules, 56U, 1U);
+    write_u16(class_rules, 58U, 4U);
+    write_u16(class_rules, 60U, 2U);
+    write_u16(class_rules, 62U, 1U);
+    write_u16(class_rules, 64U, 2U);
+    write_u16(class_rules, 66U, 1U);
+    write_u16(class_rules, 68U, 1U);
+    write_u16(class_rules, 70U, 1U);
+    write_u16(class_rules, 74U, 1U);
+    write_u16(class_rules, 76U, 8U);
+    write_u16(class_rules, 78U, 1U);
+    write_u16(class_rules, 80U, 6U);
+    write_u16(class_rules, 82U, 6U);
+    write_u16(class_rules, 84U, 1U);
+    write_u16(class_rules, 86U, 1U);
+    write_u16(class_rules, 88U, 6U);
+    require(open_type_layout_table_view::try_create(
+        class_rules, gsub, &error));
+    glyphs = {shaping_glyph{5U}, shaping_glyph{6U}};
+    count = 2U;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(applied && glyphs[1U].glyph_id == 12U);
+
+    glyphs = {shaping_glyph{5U}, shaping_glyph{7U}};
+    count = 2U;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(!applied && glyphs[1U].glyph_id == 7U);
+}
+
+void open_type_gsub_chaining_glyph_rules_apply_nested_lookup() {
+    std::array<std::byte, 82U> chaining{};
+    write_u16(chaining, 0U, 1U);
+    write_u16(chaining, 4U, 10U);
+    write_u16(chaining, 6U, 12U);
+    write_u16(chaining, 8U, 14U);
+    write_u16(chaining, 14U, 2U);
+    write_u16(chaining, 16U, 6U);
+    write_u16(chaining, 18U, 48U);
+    write_u16(chaining, 20U, 6U);
+    write_u16(chaining, 24U, 1U);
+    write_u16(chaining, 26U, 8U);
+    write_u16(chaining, 28U, 1U);
+    write_u16(chaining, 30U, 8U);
+    write_u16(chaining, 32U, 1U);
+    write_u16(chaining, 34U, 14U);
+    write_u16(chaining, 36U, 1U);
+    write_u16(chaining, 38U, 1U);
+    write_u16(chaining, 40U, 5U);
+    write_u16(chaining, 42U, 1U);
+    write_u16(chaining, 44U, 4U);
+    write_u16(chaining, 46U, 1U);
+    write_u16(chaining, 48U, 1U);
+    write_u16(chaining, 50U, 1U);
+    write_u16(chaining, 52U, 1U);
+    write_u16(chaining, 54U, 7U);
+    write_u16(chaining, 56U, 1U);
+    write_u16(chaining, 58U, 0U);
+    write_u16(chaining, 60U, 1U);
+    write_u16(chaining, 62U, 1U);
+    write_u16(chaining, 66U, 1U);
+    write_u16(chaining, 68U, 8U);
+    write_u16(chaining, 70U, 1U);
+    write_u16(chaining, 72U, 6U);
+    write_u16(chaining, 74U, 7U);
+    write_u16(chaining, 76U, 1U);
+    write_u16(chaining, 78U, 1U);
+    write_u16(chaining, 80U, 5U);
+
+    open_type_layout_table_view gsub{};
+    font_error error = font_error::invalid_argument;
+    require(open_type_layout_table_view::try_create(chaining, gsub, &error));
+    std::array<shaping_glyph, 4U> glyphs{
+        shaping_glyph{1U}, shaping_glyph{5U}, shaping_glyph{7U}};
+    std::uint32_t count = 3U;
+    bool applied = false;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(applied && glyphs[1U].glyph_id == 12U);
+
+    glyphs = {shaping_glyph{1U}, shaping_glyph{5U}, shaping_glyph{8U}};
+    count = 3U;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(!applied && glyphs[1U].glyph_id == 5U);
 }
 
 std::uint64_t hash_path_segments(
@@ -3710,6 +3931,8 @@ int main() {
     open_type_gsub_basic_lookups_use_caller_owned_storage();
     open_type_gsub_reverse_chaining_matches_bounded_context();
     open_type_gsub_context_format3_applies_bounded_nested_lookups();
+    open_type_gsub_context_glyph_and_class_rules_are_bounded();
+    open_type_gsub_chaining_glyph_rules_apply_nested_lookup();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();

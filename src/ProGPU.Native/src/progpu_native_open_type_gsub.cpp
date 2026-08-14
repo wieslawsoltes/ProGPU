@@ -398,6 +398,144 @@ apply_result apply_context_format3(
         depth);
 }
 
+apply_result apply_context_format1_or2(
+    const open_type_layout_table_view& gsub,
+    std::span<const std::byte> table,
+    std::size_t subtable,
+    std::uint16_t format,
+    std::span<shaping_glyph> storage,
+    std::uint32_t& count,
+    std::uint32_t position,
+    std::uint16_t lookup_flags,
+    std::uint16_t mark_filtering_set,
+    const open_type_gsub_apply_options& options,
+    std::uint32_t depth) noexcept {
+    const std::size_t header_size = format == 1U ? 6U : 8U;
+    if (!can_read(table, subtable, header_size)) {
+        return apply_result::malformed;
+    }
+    const std::uint16_t coverage_relative = read_u16(table, subtable + 2U);
+    std::size_t coverage_offset = 0U;
+    open_type_coverage_view coverage{};
+    if (coverage_relative == 0U ||
+        !try_add(subtable, coverage_relative, coverage_offset) ||
+        !open_type_coverage_view::try_create(table, coverage_offset, coverage)) {
+        return apply_result::malformed;
+    }
+    const std::int32_t coverage_index = coverage.find(
+        static_cast<std::uint16_t>(storage[position].glyph_id));
+    if (coverage_index < 0) {
+        return apply_result::no_match;
+    }
+
+    open_type_class_definition_view classes{};
+    std::uint32_t set_index = static_cast<std::uint32_t>(coverage_index);
+    std::uint16_t set_count = 0U;
+    std::size_t set_offsets = 0U;
+    if (format == 1U) {
+        set_count = read_u16(table, subtable + 4U);
+        set_offsets = subtable + 6U;
+    } else {
+        const std::uint16_t class_relative = read_u16(table, subtable + 4U);
+        std::size_t class_offset = 0U;
+        if (class_relative == 0U ||
+            !try_add(subtable, class_relative, class_offset) ||
+            !open_type_class_definition_view::try_create(
+                table, class_offset, classes)) {
+            return apply_result::malformed;
+        }
+        set_count = read_u16(table, subtable + 6U);
+        set_offsets = subtable + 8U;
+        set_index = classes.get(
+            static_cast<std::uint16_t>(storage[position].glyph_id));
+    }
+    if (!can_read(table, set_offsets,
+            static_cast<std::size_t>(set_count) * 2U)) {
+        return apply_result::malformed;
+    }
+    if (set_index >= set_count) {
+        return apply_result::no_match;
+    }
+    const std::uint16_t set_relative =
+        read_u16(table, set_offsets + set_index * 2U);
+    if (set_relative == 0U) {
+        return apply_result::no_match;
+    }
+    std::size_t set = 0U;
+    if (!try_add(subtable, set_relative, set) || !can_read(table, set, 2U)) {
+        return apply_result::malformed;
+    }
+    const std::uint16_t rule_count = read_u16(table, set);
+    if (!can_read(table, set + 2U,
+            static_cast<std::size_t>(rule_count) * 2U)) {
+        return apply_result::malformed;
+    }
+    for (std::uint16_t rule_index = 0U;
+         rule_index < rule_count;
+         ++rule_index) {
+        const std::uint16_t rule_relative =
+            read_u16(table, set + 2U + rule_index * 2U);
+        std::size_t rule = 0U;
+        if (rule_relative == 0U || !try_add(set, rule_relative, rule) ||
+            !can_read(table, rule, 4U)) {
+            return apply_result::malformed;
+        }
+        const std::uint16_t input_count = read_u16(table, rule);
+        const std::uint16_t record_count = read_u16(table, rule + 2U);
+        if (input_count == 0U ||
+            !can_read(table, rule + 4U,
+                static_cast<std::size_t>(input_count - 1U) * 2U)) {
+            return apply_result::malformed;
+        }
+        std::uint32_t match = position;
+        bool matches = true;
+        for (std::uint16_t input = 1U; input < input_count; ++input) {
+            match = next_eligible(
+                std::span<const shaping_glyph>{storage.data(), count},
+                match + 1U,
+                lookup_flags,
+                mark_filtering_set,
+                options.gdef);
+            if (match >= count) {
+                matches = false;
+                break;
+            }
+            const std::uint16_t expected =
+                read_u16(table, rule + 4U + (input - 1U) * 2U);
+            const std::uint16_t actual = format == 1U
+                ? static_cast<std::uint16_t>(storage[match].glyph_id)
+                : classes.get(static_cast<std::uint16_t>(storage[match].glyph_id));
+            if (actual != expected) {
+                matches = false;
+                break;
+            }
+        }
+        if (!matches) {
+            continue;
+        }
+        for (std::uint32_t index = position; index <= match; ++index) {
+            storage[index].flags = static_cast<shaping_glyph_flags>(
+                static_cast<std::uint32_t>(storage[index].flags) |
+                static_cast<std::uint32_t>(
+                    shaping_glyph_flags::unsafe_to_break));
+        }
+        return apply_context_records(
+            gsub,
+            table,
+            rule + 4U + static_cast<std::size_t>(input_count - 1U) * 2U,
+            record_count,
+            input_count,
+            storage,
+            count,
+            position,
+            lookup_flags,
+            mark_filtering_set,
+            options,
+            depth);
+    }
+    return apply_result::no_match;
+}
+
 apply_result apply_chain_context_format3(
     const open_type_layout_table_view& gsub,
     std::span<const std::byte> table,
@@ -545,6 +683,241 @@ apply_result apply_chain_context_format3(
         depth);
 }
 
+apply_result apply_chain_context_format1_or2(
+    const open_type_layout_table_view& gsub,
+    std::span<const std::byte> table,
+    std::size_t subtable,
+    std::uint16_t format,
+    std::span<shaping_glyph> storage,
+    std::uint32_t& count,
+    std::uint32_t position,
+    std::uint16_t lookup_flags,
+    std::uint16_t mark_filtering_set,
+    const open_type_gsub_apply_options& options,
+    std::uint32_t depth) noexcept {
+    const std::size_t header_size = format == 1U ? 6U : 12U;
+    if (!can_read(table, subtable, header_size)) {
+        return apply_result::malformed;
+    }
+    const std::uint16_t coverage_relative = read_u16(table, subtable + 2U);
+    std::size_t coverage_offset = 0U;
+    open_type_coverage_view coverage{};
+    if (coverage_relative == 0U ||
+        !try_add(subtable, coverage_relative, coverage_offset) ||
+        !open_type_coverage_view::try_create(table, coverage_offset, coverage)) {
+        return apply_result::malformed;
+    }
+    const std::int32_t coverage_index = coverage.find(
+        static_cast<std::uint16_t>(storage[position].glyph_id));
+    if (coverage_index < 0) {
+        return apply_result::no_match;
+    }
+
+    open_type_class_definition_view backtrack_classes{};
+    open_type_class_definition_view input_classes{};
+    open_type_class_definition_view lookahead_classes{};
+    std::uint32_t set_index = static_cast<std::uint32_t>(coverage_index);
+    std::uint16_t set_count = 0U;
+    std::size_t set_offsets = 0U;
+    if (format == 1U) {
+        set_count = read_u16(table, subtable + 4U);
+        set_offsets = subtable + 6U;
+    } else {
+        std::size_t backtrack_offset = 0U;
+        std::size_t input_offset = 0U;
+        std::size_t lookahead_offset = 0U;
+        const std::uint16_t backtrack_relative = read_u16(table, subtable + 4U);
+        const std::uint16_t input_relative = read_u16(table, subtable + 6U);
+        const std::uint16_t lookahead_relative = read_u16(table, subtable + 8U);
+        if (backtrack_relative == 0U || input_relative == 0U ||
+            lookahead_relative == 0U ||
+            !try_add(subtable, backtrack_relative, backtrack_offset) ||
+            !try_add(subtable, input_relative, input_offset) ||
+            !try_add(subtable, lookahead_relative, lookahead_offset) ||
+            !open_type_class_definition_view::try_create(
+                table, backtrack_offset, backtrack_classes) ||
+            !open_type_class_definition_view::try_create(
+                table, input_offset, input_classes) ||
+            !open_type_class_definition_view::try_create(
+                table, lookahead_offset, lookahead_classes)) {
+            return apply_result::malformed;
+        }
+        set_count = read_u16(table, subtable + 10U);
+        set_offsets = subtable + 12U;
+        set_index = input_classes.get(
+            static_cast<std::uint16_t>(storage[position].glyph_id));
+    }
+    if (!can_read(table, set_offsets,
+            static_cast<std::size_t>(set_count) * 2U)) {
+        return apply_result::malformed;
+    }
+    if (set_index >= set_count) {
+        return apply_result::no_match;
+    }
+    const std::uint16_t set_relative =
+        read_u16(table, set_offsets + set_index * 2U);
+    if (set_relative == 0U) {
+        return apply_result::no_match;
+    }
+    std::size_t set = 0U;
+    if (!try_add(subtable, set_relative, set) || !can_read(table, set, 2U)) {
+        return apply_result::malformed;
+    }
+    const std::uint16_t rule_count = read_u16(table, set);
+    if (!can_read(table, set + 2U,
+            static_cast<std::size_t>(rule_count) * 2U)) {
+        return apply_result::malformed;
+    }
+
+    for (std::uint16_t rule_index = 0U;
+         rule_index < rule_count;
+         ++rule_index) {
+        const std::uint16_t rule_relative =
+            read_u16(table, set + 2U + rule_index * 2U);
+        std::size_t rule = 0U;
+        if (rule_relative == 0U || !try_add(set, rule_relative, rule) ||
+            !can_read(table, rule, 2U)) {
+            return apply_result::malformed;
+        }
+        const std::uint16_t backtrack_count = read_u16(table, rule);
+        std::size_t cursor = rule + 2U;
+        if (!can_read(table, cursor,
+                static_cast<std::size_t>(backtrack_count) * 2U)) {
+            return apply_result::malformed;
+        }
+        const std::size_t backtrack_values = cursor;
+        cursor += static_cast<std::size_t>(backtrack_count) * 2U;
+        if (!can_read(table, cursor, 2U)) {
+            return apply_result::malformed;
+        }
+        const std::uint16_t input_count = read_u16(table, cursor);
+        cursor += 2U;
+        if (input_count == 0U ||
+            !can_read(table, cursor,
+                static_cast<std::size_t>(input_count - 1U) * 2U)) {
+            return apply_result::malformed;
+        }
+        const std::size_t input_values = cursor;
+        cursor += static_cast<std::size_t>(input_count - 1U) * 2U;
+        if (!can_read(table, cursor, 2U)) {
+            return apply_result::malformed;
+        }
+        const std::uint16_t lookahead_count = read_u16(table, cursor);
+        cursor += 2U;
+        if (!can_read(table, cursor,
+                static_cast<std::size_t>(lookahead_count) * 2U)) {
+            return apply_result::malformed;
+        }
+        const std::size_t lookahead_values = cursor;
+        cursor += static_cast<std::size_t>(lookahead_count) * 2U;
+        if (!can_read(table, cursor, 2U)) {
+            return apply_result::malformed;
+        }
+        const std::uint16_t record_count = read_u16(table, cursor);
+        cursor += 2U;
+
+        bool matches = true;
+        std::uint32_t match = position;
+        for (std::uint16_t index = 0U; index < backtrack_count; ++index) {
+            match = previous_eligible(
+                std::span<const shaping_glyph>{storage.data(), count},
+                match,
+                lookup_flags,
+                mark_filtering_set,
+                options.gdef);
+            if (match >= count) {
+                matches = false;
+                break;
+            }
+            const std::uint16_t expected =
+                read_u16(table, backtrack_values + index * 2U);
+            const std::uint16_t actual = format == 1U
+                ? static_cast<std::uint16_t>(storage[match].glyph_id)
+                : backtrack_classes.get(
+                    static_cast<std::uint16_t>(storage[match].glyph_id));
+            if (actual != expected) {
+                matches = false;
+                break;
+            }
+        }
+        if (!matches) {
+            continue;
+        }
+        match = position;
+        for (std::uint16_t index = 1U; index < input_count; ++index) {
+            match = next_eligible(
+                std::span<const shaping_glyph>{storage.data(), count},
+                match + 1U,
+                lookup_flags,
+                mark_filtering_set,
+                options.gdef);
+            if (match >= count) {
+                matches = false;
+                break;
+            }
+            const std::uint16_t expected =
+                read_u16(table, input_values + (index - 1U) * 2U);
+            const std::uint16_t actual = format == 1U
+                ? static_cast<std::uint16_t>(storage[match].glyph_id)
+                : input_classes.get(
+                    static_cast<std::uint16_t>(storage[match].glyph_id));
+            if (actual != expected) {
+                matches = false;
+                break;
+            }
+        }
+        if (!matches) {
+            continue;
+        }
+        const std::uint32_t input_end = match;
+        for (std::uint16_t index = 0U; index < lookahead_count; ++index) {
+            match = next_eligible(
+                std::span<const shaping_glyph>{storage.data(), count},
+                match + 1U,
+                lookup_flags,
+                mark_filtering_set,
+                options.gdef);
+            if (match >= count) {
+                matches = false;
+                break;
+            }
+            const std::uint16_t expected =
+                read_u16(table, lookahead_values + index * 2U);
+            const std::uint16_t actual = format == 1U
+                ? static_cast<std::uint16_t>(storage[match].glyph_id)
+                : lookahead_classes.get(
+                    static_cast<std::uint16_t>(storage[match].glyph_id));
+            if (actual != expected) {
+                matches = false;
+                break;
+            }
+        }
+        if (!matches) {
+            continue;
+        }
+        for (std::uint32_t index = position; index <= input_end; ++index) {
+            storage[index].flags = static_cast<shaping_glyph_flags>(
+                static_cast<std::uint32_t>(storage[index].flags) |
+                static_cast<std::uint32_t>(
+                    shaping_glyph_flags::unsafe_to_break));
+        }
+        return apply_context_records(
+            gsub,
+            table,
+            cursor,
+            record_count,
+            input_count,
+            storage,
+            count,
+            position,
+            lookup_flags,
+            mark_filtering_set,
+            options,
+            depth);
+    }
+    return apply_result::no_match;
+}
+
 apply_result apply_subtable(
     const open_type_layout_table_view& gsub,
     std::span<const std::byte> table,
@@ -583,8 +956,25 @@ apply_result apply_subtable(
             depth);
     }
     if (type == 5U) {
-        return can_read(table, subtable, 2U) && read_u16(table, subtable) == 3U
-            ? apply_context_format3(
+        if (!can_read(table, subtable, 2U)) {
+            return apply_result::malformed;
+        }
+        const std::uint16_t format = read_u16(table, subtable);
+        if (format == 1U || format == 2U) {
+            return apply_context_format1_or2(
+                gsub,
+                table,
+                subtable,
+                format,
+                storage,
+                count,
+                position,
+                lookup_flags,
+                mark_filtering_set,
+                options,
+                depth);
+        }
+        return format == 3U ? apply_context_format3(
                 gsub,
                 table,
                 subtable,
@@ -594,12 +984,28 @@ apply_result apply_subtable(
                 lookup_flags,
                 mark_filtering_set,
                 options,
-                depth)
-            : apply_result::malformed;
+                depth) : apply_result::malformed;
     }
     if (type == 6U) {
-        return can_read(table, subtable, 2U) && read_u16(table, subtable) == 3U
-            ? apply_chain_context_format3(
+        if (!can_read(table, subtable, 2U)) {
+            return apply_result::malformed;
+        }
+        const std::uint16_t format = read_u16(table, subtable);
+        if (format == 1U || format == 2U) {
+            return apply_chain_context_format1_or2(
+                gsub,
+                table,
+                subtable,
+                format,
+                storage,
+                count,
+                position,
+                lookup_flags,
+                mark_filtering_set,
+                options,
+                depth);
+        }
+        return format == 3U ? apply_chain_context_format3(
                 gsub,
                 table,
                 subtable,
@@ -609,8 +1015,7 @@ apply_result apply_subtable(
                 lookup_flags,
                 mark_filtering_set,
                 options,
-                depth)
-            : apply_result::malformed;
+                depth) : apply_result::malformed;
     }
     if (type == 8U) {
         if (!can_read(table, subtable, 6U) ||
