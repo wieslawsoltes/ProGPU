@@ -24,6 +24,19 @@ public static class GpuPictureNativeSceneCompiler
         Geometry
     }
 
+    private enum OperationKind : byte
+    {
+        Draw,
+        Save,
+        Restore
+    }
+
+    private enum StateScopeKind : byte
+    {
+        Opacity,
+        Clip
+    }
+
     private struct Batch
     {
         public BatchKind Kind;
@@ -33,6 +46,31 @@ public static class GpuPictureNativeSceneCompiler
         public NativeImageRect Bounds;
         public uint ResourceIndex;
     }
+
+    private readonly record struct Operation(
+        OperationKind Kind,
+        int BatchIndex = -1,
+        int StateIndex = -1);
+
+    private readonly record struct StateSnapshot(
+        float Opacity,
+        bool HasClip,
+        NativeImageRect ClipRect)
+    {
+        public static StateSnapshot Identity => new(1f, false, default);
+
+        public NativeSceneState ToNative() => new(
+            Matrix3x2.Identity,
+            Opacity,
+            HasClip ? NativeSceneStateFlags.ClipRect : NativeSceneStateFlags.None,
+            ClipRect);
+    }
+
+    private readonly record struct StateScope(
+        StateScopeKind Kind,
+        StateSnapshot Previous,
+        int SourceCommandIndex,
+        RenderCommandType SourceCommandType);
 
     public static bool TryCompile(
         GpuPicture picture,
@@ -58,10 +96,31 @@ public static class GpuPictureNativeSceneCompiler
         var geometry = new List<NativeGeometryPrimitive>();
         var geometryBrushIndices = new List<uint>();
         var batches = new List<Batch>();
+        var operations = new List<Operation>();
+        var states = new List<NativeSceneState>();
+        var stateScopes = new Stack<StateScope>();
+        StateSnapshot currentState = StateSnapshot.Identity;
         var materials = new NativeBrushTableBuilder();
         for (int index = 0; index < picture.CommandCount; index++)
         {
             RenderCommand command = picture.GetCommand(index);
+            if (!TryAppendStateCommand(
+                    command,
+                    index,
+                    ref currentState,
+                    stateScopes,
+                    states,
+                    operations,
+                    out bool handled,
+                    out NativePictureCompileError stateError))
+            {
+                failure = new(stateError, index, command.Type);
+                return false;
+            }
+            if (handled)
+            {
+                continue;
+            }
             if (!TryGetAffine(command.Transform, out Matrix3x2 transform))
             {
                 failure = new(
@@ -78,12 +137,23 @@ public static class GpuPictureNativeSceneCompiler
                     geometry,
                     geometryBrushIndices,
                     batches,
+                    operations,
                     materials,
                     out NativePictureCompileError error))
             {
                 failure = new(error, index, command.Type);
                 return false;
             }
+        }
+
+        if (stateScopes.Count != 0)
+        {
+            StateScope scope = stateScopes.Peek();
+            failure = new(
+                NativePictureCompileError.UnbalancedState,
+                scope.SourceCommandIndex,
+                scope.SourceCommandType);
+            return false;
         }
 
         if (batches.Count == 0)
@@ -103,19 +173,22 @@ public static class GpuPictureNativeSceneCompiler
                 materials.BrushCount * Unsafe.SizeOf<NativeSceneBrush>() +
                 materials.GradientStopCount *
                     Unsafe.SizeOf<NativeSceneGradientStop>() +
+                states.Count * Unsafe.SizeOf<NativeSceneState>() +
+                operations.Count * 64 +
                 batches.Count * 30 +
                 (analytics.Count + geometry.Count) * sizeof(uint) + 14);
+            int resourceCount = checked(batches.Count + 1 + states.Count);
             int capacity = NativeSceneStreamBuilder.GetRequiredBufferSize(
-                batches.Count + 1,
-                batches.Count,
+                resourceCount,
+                operations.Count,
                 arenaCapacity);
             byte[] storage = GC.AllocateUninitializedArray<byte>(capacity);
             var builder = new NativeSceneStreamBuilder(
                 storage,
                 sceneId,
                 generation,
-                batches.Count,
-                batches.Count + 1);
+                operations.Count,
+                resourceCount);
             Span<NativeAnalyticPrimitive> analyticSpan =
                 CollectionsMarshal.AsSpan(analytics);
             Span<NativeGeometryPrimitive> geometrySpan =
@@ -161,22 +234,55 @@ public static class GpuPictureNativeSceneCompiler
                     default);
                 return false;
             }
-            for (int index = 0; index < batches.Count; index++)
+            var stateResourceIndices = new uint[states.Count];
+            Span<NativeSceneState> stateSpan = CollectionsMarshal.AsSpan(states);
+            for (int index = 0; index < stateSpan.Length; index++)
             {
-                Batch batch = batches[index];
-                bool added = batch.Kind == BatchKind.Analytic
-                    ? builder.TryDrawAnalytic(
-                        checked((ulong)index + 1U),
-                        batch.ResourceIndex,
-                        batch.Bounds,
-                        brushResourceIndex,
-                        analyticBrushSpan.Slice(batch.BrushStart, batch.Count))
-                    : builder.TryDrawGeometry(
-                        checked((ulong)index + 1U),
-                        batch.ResourceIndex,
-                        batch.Bounds,
-                        brushResourceIndex,
-                        geometryBrushSpan.Slice(batch.BrushStart, batch.Count));
+                if (!builder.TryAddStateResource(
+                        checked((ulong)batches.Count + 2U + (uint)index),
+                        generation,
+                        stateSpan[index],
+                        out stateResourceIndices[index]))
+                {
+                    failure = new(
+                        NativePictureCompileError.StreamBuildFailed,
+                        -1,
+                        default);
+                    return false;
+                }
+            }
+            for (int index = 0; index < operations.Count; index++)
+            {
+                Operation operation = operations[index];
+                ulong commandId = checked((ulong)index + 1U);
+                bool added;
+                if (operation.Kind == OperationKind.Save)
+                {
+                    added = builder.TrySave(
+                        commandId,
+                        stateResourceIndices[operation.StateIndex]);
+                }
+                else if (operation.Kind == OperationKind.Restore)
+                {
+                    added = builder.TryRestore(commandId);
+                }
+                else
+                {
+                    Batch batch = batches[operation.BatchIndex];
+                    added = batch.Kind == BatchKind.Analytic
+                        ? builder.TryDrawAnalytic(
+                            commandId,
+                            batch.ResourceIndex,
+                            batch.Bounds,
+                            brushResourceIndex,
+                            analyticBrushSpan.Slice(batch.BrushStart, batch.Count))
+                        : builder.TryDrawGeometry(
+                            commandId,
+                            batch.ResourceIndex,
+                            batch.Bounds,
+                            brushResourceIndex,
+                            geometryBrushSpan.Slice(batch.BrushStart, batch.Count));
+                }
                 if (!added)
                 {
                     failure = new(
@@ -200,6 +306,7 @@ public static class GpuPictureNativeSceneCompiler
                 sceneId,
                 generation,
                 picture.CommandCount,
+                operations.Count,
                 batches.Count,
                 analytics.Count,
                 geometry.Count,
@@ -218,6 +325,121 @@ public static class GpuPictureNativeSceneCompiler
         }
     }
 
+    private static bool TryAppendStateCommand(
+        in RenderCommand command,
+        int sourceCommandIndex,
+        ref StateSnapshot current,
+        Stack<StateScope> scopes,
+        List<NativeSceneState> states,
+        List<Operation> operations,
+        out bool handled,
+        out NativePictureCompileError error)
+    {
+        handled = true;
+        error = NativePictureCompileError.None;
+        switch (command.Type)
+        {
+            case RenderCommandType.PushOpacity:
+                if (!float.IsFinite(command.FontSize) ||
+                    command.FontSize is < 0f or > 1f)
+                {
+                    error = NativePictureCompileError.InvalidState;
+                    return false;
+                }
+                return PushState(
+                    StateScopeKind.Opacity,
+                    current with { Opacity = current.Opacity * command.FontSize },
+                    sourceCommandIndex,
+                    command.Type,
+                    ref current,
+                    scopes,
+                    states,
+                    operations);
+            case RenderCommandType.PushClip:
+                if (!IsFiniteRect(command.Rect) ||
+                    command.Rect.Width < 0f ||
+                    command.Rect.Height < 0f ||
+                    !TryGetAffine(command.Transform, out Matrix3x2 clipTransform) ||
+                    !IsAxisAlignedClipTransform(clipTransform))
+                {
+                    error = NativePictureCompileError.InvalidState;
+                    return false;
+                }
+                NativeImageRect clip = TransformBounds(command.Rect, clipTransform);
+                if (current.HasClip)
+                {
+                    clip = Intersect(current.ClipRect, clip);
+                }
+                return PushState(
+                    StateScopeKind.Clip,
+                    current with { HasClip = true, ClipRect = clip },
+                    sourceCommandIndex,
+                    command.Type,
+                    ref current,
+                    scopes,
+                    states,
+                    operations);
+            case RenderCommandType.PopOpacity:
+                return TryRestoreState(
+                    StateScopeKind.Opacity,
+                    ref current,
+                    scopes,
+                    operations,
+                    out error);
+            case RenderCommandType.PopClip:
+                return TryRestoreState(
+                    StateScopeKind.Clip,
+                    ref current,
+                    scopes,
+                    operations,
+                    out error);
+            default:
+                handled = false;
+                return true;
+        }
+    }
+
+    private static bool PushState(
+        StateScopeKind kind,
+        StateSnapshot next,
+        int sourceCommandIndex,
+        RenderCommandType sourceCommandType,
+        ref StateSnapshot current,
+        Stack<StateScope> scopes,
+        List<NativeSceneState> states,
+        List<Operation> operations)
+    {
+        int stateIndex = states.Count;
+        states.Add(next.ToNative());
+        operations.Add(new Operation(OperationKind.Save, StateIndex: stateIndex));
+        scopes.Push(new(
+            kind,
+            current,
+            sourceCommandIndex,
+            sourceCommandType));
+        current = next;
+        return true;
+    }
+
+    private static bool TryRestoreState(
+        StateScopeKind expected,
+        ref StateSnapshot current,
+        Stack<StateScope> scopes,
+        List<Operation> operations,
+        out NativePictureCompileError error)
+    {
+        if (scopes.Count == 0 || scopes.Peek().Kind != expected)
+        {
+            error = NativePictureCompileError.UnbalancedState;
+            return false;
+        }
+        StateScope scope = scopes.Pop();
+        current = scope.Previous;
+        operations.Add(new Operation(OperationKind.Restore));
+        error = NativePictureCompileError.None;
+        return true;
+    }
+
     private static bool TryAppendCommand(
         in RenderCommand command,
         Matrix3x2 transform,
@@ -226,6 +448,7 @@ public static class GpuPictureNativeSceneCompiler
         List<NativeGeometryPrimitive> geometry,
         List<uint> geometryBrushIndices,
         List<Batch> batches,
+        List<Operation> operations,
         NativeBrushTableBuilder materials,
         out NativePictureCompileError error)
     {
@@ -242,6 +465,7 @@ public static class GpuPictureNativeSceneCompiler
                     analytics,
                     analyticBrushIndices,
                     batches,
+                    operations,
                     materials,
                     out error);
             case RenderCommandType.DrawEllipse:
@@ -258,6 +482,7 @@ public static class GpuPictureNativeSceneCompiler
                     analytics,
                     analyticBrushIndices,
                     batches,
+                    operations,
                     materials,
                     out error);
             case RenderCommandType.DrawCircle:
@@ -274,6 +499,7 @@ public static class GpuPictureNativeSceneCompiler
                     analytics,
                     analyticBrushIndices,
                     batches,
+                    operations,
                     materials,
                     out error);
             case RenderCommandType.DrawRoundedRect:
@@ -293,6 +519,7 @@ public static class GpuPictureNativeSceneCompiler
                     analytics,
                     analyticBrushIndices,
                     batches,
+                    operations,
                     materials,
                     out error);
             case RenderCommandType.DrawLine:
@@ -307,6 +534,7 @@ public static class GpuPictureNativeSceneCompiler
                     geometry,
                     geometryBrushIndices,
                     batches,
+                    operations,
                     materials,
                     out error);
             case RenderCommandType.DrawBezier:
@@ -321,6 +549,7 @@ public static class GpuPictureNativeSceneCompiler
                     geometry,
                     geometryBrushIndices,
                     batches,
+                    operations,
                     materials,
                     out error);
             case RenderCommandType.DrawCubicBezier:
@@ -335,6 +564,7 @@ public static class GpuPictureNativeSceneCompiler
                     geometry,
                     geometryBrushIndices,
                     batches,
+                    operations,
                     materials,
                     out error);
             case RenderCommandType.FillTriangle:
@@ -349,6 +579,7 @@ public static class GpuPictureNativeSceneCompiler
                     geometry,
                     geometryBrushIndices,
                     batches,
+                    operations,
                     materials,
                     out error);
             case RenderCommandType.FillQuad:
@@ -363,6 +594,7 @@ public static class GpuPictureNativeSceneCompiler
                     geometry,
                     geometryBrushIndices,
                     batches,
+                    operations,
                     materials,
                     out error);
             default:
@@ -380,6 +612,7 @@ public static class GpuPictureNativeSceneCompiler
         List<NativeAnalyticPrimitive> primitives,
         List<uint> brushIndices,
         List<Batch> batches,
+        List<Operation> operations,
         NativeBrushTableBuilder materials,
         out NativePictureCompileError error)
     {
@@ -444,6 +677,7 @@ public static class GpuPictureNativeSceneCompiler
         }
         AppendBatch(
             batches,
+            operations,
             BatchKind.Analytic,
             start,
             start,
@@ -463,6 +697,7 @@ public static class GpuPictureNativeSceneCompiler
         List<NativeGeometryPrimitive> primitives,
         List<uint> brushIndices,
         List<Batch> batches,
+        List<Operation> operations,
         NativeBrushTableBuilder materials,
         out NativePictureCompileError error)
     {
@@ -508,6 +743,7 @@ public static class GpuPictureNativeSceneCompiler
         });
         AppendBatch(
             batches,
+            operations,
             BatchKind.Geometry,
             start,
             start,
@@ -528,6 +764,7 @@ public static class GpuPictureNativeSceneCompiler
         List<NativeGeometryPrimitive> primitives,
         List<uint> brushIndices,
         List<Batch> batches,
+        List<Operation> operations,
         NativeBrushTableBuilder materials,
         out NativePictureCompileError error)
     {
@@ -552,6 +789,7 @@ public static class GpuPictureNativeSceneCompiler
         brushIndices.Add(brushIndex);
         AppendBatch(
             batches,
+            operations,
             BatchKind.Geometry,
             start,
             start,
@@ -565,13 +803,17 @@ public static class GpuPictureNativeSceneCompiler
 
     private static void AppendBatch(
         List<Batch> batches,
+        List<Operation> operations,
         BatchKind kind,
         int start,
         int brushStart,
         int count,
         NativeImageRect bounds)
     {
-        if (batches.Count > 0)
+        if (batches.Count > 0 &&
+            operations.Count > 0 &&
+            operations[^1].Kind == OperationKind.Draw &&
+            operations[^1].BatchIndex == batches.Count - 1)
         {
             Batch previous = batches[^1];
             if (previous.Kind == kind &&
@@ -592,6 +834,7 @@ public static class GpuPictureNativeSceneCompiler
             Count = count,
             Bounds = bounds
         });
+        operations.Add(new Operation(OperationKind.Draw, batches.Count - 1));
     }
 
     private static bool TryGetAnalyticPen(
@@ -652,6 +895,13 @@ public static class GpuPictureNativeSceneCompiler
         float.IsFinite(value.X) && float.IsFinite(value.Y) &&
         float.IsFinite(value.Width) && float.IsFinite(value.Height);
 
+    private static bool IsAxisAlignedClipTransform(Matrix3x2 transform)
+    {
+        const float epsilon = 0.0001f;
+        return MathF.Abs(transform.M12) <= epsilon &&
+            MathF.Abs(transform.M21) <= epsilon;
+    }
+
     private static Rect BoundsOfPoints(
         Vector2 p0,
         Vector2 p1,
@@ -698,6 +948,25 @@ public static class GpuPictureNativeSceneCompiler
         float rightEdge = MathF.Max(left.X + left.Width, right.X + right.Width);
         float bottom = MathF.Max(left.Y + left.Height, right.Y + right.Height);
         return new(x, y, rightEdge - x, bottom - y);
+    }
+
+    private static NativeImageRect Intersect(
+        NativeImageRect left,
+        NativeImageRect right)
+    {
+        float x = MathF.Max(left.X, right.X);
+        float y = MathF.Max(left.Y, right.Y);
+        float rightEdge = MathF.Min(
+            left.X + left.Width,
+            right.X + right.Width);
+        float bottom = MathF.Min(
+            left.Y + left.Height,
+            right.Y + right.Height);
+        return new(
+            x,
+            y,
+            MathF.Max(0f, rightEdge - x),
+            MathF.Max(0f, bottom - y));
     }
 
     private static float MaxScale(Matrix3x2 transform) => MathF.Max(

@@ -8,6 +8,8 @@ public enum NativePictureCompileError
     UnsupportedBrush,
     UnsupportedStroke,
     UnsupportedTransform,
+    InvalidState,
+    UnbalancedState,
     InvalidGeometry,
     CapacityExceeded,
     StreamBuildFailed

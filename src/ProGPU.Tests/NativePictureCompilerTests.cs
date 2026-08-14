@@ -81,6 +81,7 @@ public class NativePictureCompilerTests
         Assert.Equal(NativePictureCompileFailure.None, failure);
         Assert.NotNull(compiled);
         Assert.Equal(5, compiled.SourceCommandCount);
+        Assert.Equal(3, compiled.NativeCommandCount);
         Assert.Equal(3, compiled.NativeDrawCount);
         Assert.Equal(3, compiled.AnalyticPrimitiveCount);
         Assert.Equal(2, compiled.GeometryPrimitiveCount);
@@ -160,6 +161,7 @@ public class NativePictureCompilerTests
             out NativePictureCompileFailure failure));
         Assert.Equal(NativePictureCompileFailure.None, failure);
         Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.NativeCommandCount);
         Assert.Equal(1, compiled.NativeDrawCount);
         Assert.Equal(4, compiled.BrushCount);
         Assert.Equal(8, compiled.GradientStopCount);
@@ -191,6 +193,194 @@ public class NativePictureCompilerTests
             Brush = brush,
             Transform = Matrix4x4.Identity
         };
+    }
+
+    [Fact]
+    public void CompilerLowersNestedOpacityAndAxisAlignedClipScopes()
+    {
+        var red = new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f));
+        using var picture = new GpuPicture(
+            new RenderCommand[]
+            {
+                new()
+                {
+                    Type = RenderCommandType.PushOpacity,
+                    FontSize = 0.5f
+                },
+                Rectangle(red, 0f),
+                new()
+                {
+                    Type = RenderCommandType.PushClip,
+                    Rect = new Rect(4f, 5f, 20f, 10f),
+                    Transform = Matrix4x4.CreateScale(2f, 3f, 1f) *
+                        Matrix4x4.CreateTranslation(7f, 11f, 0f)
+                },
+                Rectangle(red, 12f),
+                new() { Type = RenderCommandType.PopClip },
+                Rectangle(red, 24f),
+                new() { Type = RenderCommandType.PopOpacity },
+                Rectangle(red, 36f)
+            },
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            91U,
+            3U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(8, compiled.SourceCommandCount);
+        Assert.Equal(8, compiled.NativeCommandCount);
+        Assert.Equal(4, compiled.NativeDrawCount);
+        Assert.Equal(4, compiled.AnalyticPrimitiveCount);
+        Assert.Equal(1, compiled.BrushCount);
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        Assert.Equal(8U, header.CommandCount);
+        Assert.Equal(7U, header.ResourceCount);
+        ReadOnlySpan<NativeMethods.SceneCommand> commands =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneCommand>(
+                compiled.Stream.Slice(
+                    checked((int)header.CommandOffset),
+                    checked((int)header.CommandCount *
+                        Unsafe.SizeOf<NativeMethods.SceneCommand>())));
+        Assert.Equal(
+            [
+                NativeSceneCommandKind.Save,
+                NativeSceneCommandKind.DrawAnalytic,
+                NativeSceneCommandKind.Save,
+                NativeSceneCommandKind.DrawAnalytic,
+                NativeSceneCommandKind.Restore,
+                NativeSceneCommandKind.DrawAnalytic,
+                NativeSceneCommandKind.Restore,
+                NativeSceneCommandKind.DrawAnalytic
+            ],
+            commands.ToArray().Select(static command => command.Kind));
+        Assert.Equal(5U, commands[0].StateIndex);
+        Assert.Equal(6U, commands[2].StateIndex);
+
+        int resourcesStart = checked((int)header.ResourceOffset);
+        int resourceSize = Unsafe.SizeOf<NativeMethods.SceneResource>();
+        var opacityResource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            compiled.Stream.Slice(resourcesStart + 5 * resourceSize));
+        var clipResource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            compiled.Stream.Slice(resourcesStart + 6 * resourceSize));
+        Assert.Equal(NativeSceneResourceKind.State, opacityResource.Kind);
+        Assert.Equal(NativeSceneResourceKind.State, clipResource.Kind);
+        var opacityState = MemoryMarshal.Read<NativeSceneState>(
+            compiled.Stream.Slice(checked((int)opacityResource.PayloadOffset)));
+        var clipState = MemoryMarshal.Read<NativeSceneState>(
+            compiled.Stream.Slice(checked((int)clipResource.PayloadOffset)));
+        Assert.Equal(0.5f, opacityState.Opacity);
+        Assert.Equal(NativeSceneStateFlags.None, opacityState.Flags);
+        Assert.Equal(0.5f, clipState.Opacity);
+        Assert.Equal(NativeSceneStateFlags.ClipRect, clipState.Flags);
+        Assert.Equal(15f, clipState.ClipRect.X);
+        Assert.Equal(26f, clipState.ClipRect.Y);
+        Assert.Equal(40f, clipState.ClipRect.Width);
+        Assert.Equal(30f, clipState.ClipRect.Height);
+
+        static RenderCommand Rectangle(Brush brush, float x) => new()
+        {
+            Type = RenderCommandType.DrawRect,
+            Rect = new Rect(x, 0f, 10f, 10f),
+            Brush = brush,
+            Transform = Matrix4x4.Identity
+        };
+    }
+
+    [Theory]
+    [InlineData(RenderCommandType.PopOpacity)]
+    [InlineData(RenderCommandType.PopClip)]
+    public void CompilerFailsClosedForUnbalancedStatePop(RenderCommandType pop)
+    {
+        using var picture = new GpuPicture(
+            [new RenderCommand { Type = pop }],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            1U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Null(compiled);
+        Assert.Equal(NativePictureCompileError.UnbalancedState, failure.Error);
+        Assert.Equal(0, failure.CommandIndex);
+        Assert.Equal(pop, failure.CommandType);
+    }
+
+    [Theory]
+    [InlineData(RenderCommandType.PushOpacity)]
+    [InlineData(RenderCommandType.PushClip)]
+    public void CompilerFailsClosedForUnterminatedStatePush(RenderCommandType push)
+    {
+        RenderCommand command = push == RenderCommandType.PushOpacity
+            ? new RenderCommand
+            {
+                Type = push,
+                FontSize = 0.5f
+            }
+            : new RenderCommand
+            {
+                Type = push,
+                Rect = new Rect(0f, 0f, 10f, 10f),
+                Transform = Matrix4x4.Identity
+            };
+        using var picture = new GpuPicture(
+            [command],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            1U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Null(compiled);
+        Assert.Equal(NativePictureCompileError.UnbalancedState, failure.Error);
+        Assert.Equal(0, failure.CommandIndex);
+        Assert.Equal(push, failure.CommandType);
+    }
+
+    [Fact]
+    public void CompilerFailsClosedForNonAxisAlignedClip()
+    {
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushClip,
+                    Rect = new Rect(0f, 0f, 10f, 10f),
+                    Transform = Matrix4x4.CreateRotationZ(0.2f)
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            1U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Null(compiled);
+        Assert.Equal(NativePictureCompileError.InvalidState, failure.Error);
+        Assert.Equal(0, failure.CommandIndex);
+        Assert.Equal(RenderCommandType.PushClip, failure.CommandType);
     }
 
     [Fact]

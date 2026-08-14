@@ -11,6 +11,7 @@ public sealed class NativeCompiledPicture
         ulong sceneId,
         ulong generation,
         int sourceCommandCount,
+        int nativeCommandCount,
         int nativeDrawCount,
         int analyticPrimitiveCount,
         int geometryPrimitiveCount,
@@ -22,6 +23,7 @@ public sealed class NativeCompiledPicture
         SceneId = sceneId;
         Generation = generation;
         SourceCommandCount = sourceCommandCount;
+        NativeCommandCount = nativeCommandCount;
         NativeDrawCount = nativeDrawCount;
         AnalyticPrimitiveCount = analyticPrimitiveCount;
         GeometryPrimitiveCount = geometryPrimitiveCount;
@@ -38,6 +40,8 @@ public sealed class NativeCompiledPicture
     public ulong Generation { get; }
 
     public int SourceCommandCount { get; }
+
+    public int NativeCommandCount { get; }
 
     public int NativeDrawCount { get; }
 

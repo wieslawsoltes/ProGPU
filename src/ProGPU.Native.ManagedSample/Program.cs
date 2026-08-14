@@ -57,6 +57,8 @@ drawing.DrawRectangle(
     new SolidColorBrush(new Vector4(0.98f, 0.52f, 0.08f, 1f)),
     null,
     new Rect(280f, 64f, 280f, 132f));
+drawing.PushOpacity(0.75f);
+drawing.PushClip(new Rect(128f, 224f, 256f, 72f));
 drawing.DrawRectangle(
     new LinearGradientBrush(
         new Vector2(128f, 224f),
@@ -67,6 +69,8 @@ drawing.DrawRectangle(
         ]),
     null,
     new Rect(128f, 224f, 384f, 72f));
+drawing.PopClip();
+drawing.PopOpacity();
 using GpuPicture picture = recorder.EndRecording();
 const ulong sceneId = 0x4D414E4147454455UL;
 const ulong sceneGeneration = 1UL;
@@ -82,10 +86,13 @@ if (!GpuPictureNativeSceneCompiler.TryCompile(
         $"The managed picture compiler failed: {failure}.");
 }
 NativeSceneUpdateMetrics updateMetrics = compositor.UpdateScene(compiled.Stream);
-if (updateMetrics.CommandCount != 1U ||
-    updateMetrics.ResourceCount != 2U ||
-    updateMetrics.DrawCount != 1U ||
-    compiled.SourceCommandCount != 3 ||
+if (updateMetrics.CommandCount != 6U ||
+    updateMetrics.ResourceCount != 5U ||
+    updateMetrics.DrawCount != 2U ||
+    updateMetrics.MaximumStackDepth != 2U ||
+    compiled.SourceCommandCount != 7 ||
+    compiled.NativeCommandCount != 6 ||
+    compiled.NativeDrawCount != 2 ||
     compiled.BrushCount != 3 ||
     compiled.GradientStopCount != 2)
 {
@@ -186,12 +193,14 @@ static bool HasExpectedColors(byte[] pixels, int width)
     var blue = Pixel(100, 100);
     var amber = Pixel(360, 130);
     var gradientStart = Pixel(160, 260);
-    var gradientEnd = Pixel(480, 260);
+    var gradientInside = Pixel(352, 260);
+    var clippedGradient = Pixel(480, 260);
     var background = Pixel(10, 10);
     return blue[2] > 180 && blue[0] < 100 &&
         amber[0] > 180 && amber[1] > 90 &&
         gradientStart[1] > gradientStart[0] &&
-        gradientEnd[0] > gradientEnd[1] &&
+        gradientInside[0] > gradientInside[1] &&
+        clippedGradient[0] < 30 && clippedGradient[1] < 30 &&
         background[0] < 30 && background[1] < 30;
 }
 

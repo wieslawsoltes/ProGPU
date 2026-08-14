@@ -2470,6 +2470,16 @@ public class NativeRendererInteropTests
             "GradientStopUploadBytes",
             managedSample,
             StringComparison.Ordinal);
+        Assert.Contains("PushOpacity", managedSample, StringComparison.Ordinal);
+        Assert.Contains("PushClip", managedSample, StringComparison.Ordinal);
+        Assert.Contains(
+            "MaximumStackDepth",
+            managedSample,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "NativeCommandCount",
+            managedSample,
+            StringComparison.Ordinal);
         Assert.Contains("--managed-picture", nativeBuild, StringComparison.Ordinal);
         Assert.Contains("--managed-picture", windowsBuild, StringComparison.Ordinal);
 

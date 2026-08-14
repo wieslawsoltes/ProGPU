@@ -2250,13 +2250,15 @@ not a whole-engine replacement claim.
 
 The source-independent Apple M3 Pro gate now packages the complete transitive
 `ProGPU.Scene.Native` dependency closure, restores the managed sample without
-project references, records a three-command public `GpuPicture`, and compiles
-two solids plus one linear gradient into one native draw, two retained
-resources, three brush records, and two gradient stops. Dawn/Metal renders the
-expected pixels, stable replay uploads zero vertex/index/brush/stop bytes, and
-forced device loss plus replacement-device recreation reproduces the output.
-The PPM SHA-256 is
-`b56487fc89f2d4f12908e0841603dea3ffadc63a16b62a00e343767e35ea3fcf`;
+project references, and records a seven-command public `GpuPicture`. Nested
+opacity and transformed axis-aligned clip scopes lower with two solids plus
+one clipped linear gradient into six ordered native commands, two native
+draws, five retained resources, three brush records, two gradient stops, and a
+maximum native stack depth of two. Dawn/Metal renders the expected pixels,
+including the clipped background region; stable replay uploads zero
+vertex/index/brush/stop bytes, and forced device loss plus replacement-device
+recreation reproduces the output. The PPM SHA-256 is
+`b735cc989f80161b292cc478466d7bf1820a93debe9a311f247a83bc34301d49`;
 the inspected PNG is retained at
 `artifacts/progpu-native/sample/progpu-native-managed-dawn.png`.
 

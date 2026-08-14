@@ -1240,9 +1240,15 @@ narrow: affine analytic primitives and affine geometry with solid, linear,
 radial, two-point conical, or sweep-gradient brushes. Brush opacity, sorted
 stop ownership, spread, color-interpolation mode, optional conical outside
 color, and affine coordinate transforms are snapshotted into one deduplicated
-retained brush page. Perlin/hatch brushes, paths, text, images, nested
-pictures, state stacks, effects, meshes, and 3D remain explicit fail-closed
-continuation slices rather than silent parity claims.
+retained brush page. Nested `PushOpacity`/`PopOpacity` and affine axis-aligned
+`PushClip`/`PopClip` scopes are lowered in exact display-list order to the
+existing native absolute-state resources and save/restore commands. State
+boundaries terminate draw batches; stable replay does not inspect or rebuild
+the managed state stack. Non-finite, non-invertible, rotated, or sheared
+rectangle clips and mismatched or unterminated scopes fail with typed
+source-command diagnostics. Perlin/hatch brushes, vector clips, paths, text,
+images, nested pictures, isolated layers, effects, meshes, and 3D remain
+explicit fail-closed continuation slices rather than silent parity claims.
 
 The semantic state payload is a 64-byte fixed-width record: declared size and
 flags, a System.Numerics-compatible 3x2 affine transform, opacity, a logical

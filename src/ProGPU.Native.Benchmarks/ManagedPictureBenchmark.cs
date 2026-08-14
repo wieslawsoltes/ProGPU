@@ -73,7 +73,7 @@ internal static class ManagedPictureBenchmark
         NativeSceneUpdateMetrics retainedUpdate = native.UpdateScene(compiled.Stream);
         if (update.SnapshotReused || !retainedUpdate.SnapshotReused ||
             update.DrawCount != (uint)compiled.NativeDrawCount ||
-            update.CommandCount != (uint)compiled.NativeDrawCount ||
+            update.CommandCount != (uint)compiled.NativeCommandCount ||
             retainedUpdate.SnapshotBytes != update.SnapshotBytes)
         {
             throw new InvalidOperationException(
@@ -192,7 +192,7 @@ internal static class ManagedPictureBenchmark
             Adapter: context.AdapterName,
             Backend: context.AdapterBackendType.ToString(),
             SourceCommandCount: compiled.SourceCommandCount,
-            NativeCommandCount: compiled.NativeDrawCount,
+            NativeCommandCount: compiled.NativeCommandCount,
             AnalyticPrimitiveCount: compiled.AnalyticPrimitiveCount,
             GeometryPrimitiveCount: compiled.GeometryPrimitiveCount,
             BrushCount: compiled.BrushCount,
