@@ -18,6 +18,7 @@ command -v npm >/dev/null 2>&1 || {
 emcmake cmake \
   -S "${repo_root}/src/ProGPU.Native" \
   -B "${build_dir}" \
+  -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTING=OFF \
   -DPROGPU_NATIVE_BUILD_SAMPLE=OFF

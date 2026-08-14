@@ -75,7 +75,10 @@ bool semantic_scene_builder::reset(
     implementation_->resources.clear();
     implementation_->commands.clear();
     implementation_->brushes.clear();
+    implementation_->text_styles.clear();
     implementation_->brush_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    implementation_->text_style_resource_index =
+        PROGPU_NATIVE_SCENE_NO_INDEX;
     implementation_->stack_depth = 0U;
     implementation_->maximum_stack_depth = 0U;
     implementation_->arena_reserve = 0U;
@@ -402,6 +405,7 @@ bool semantic_scene_builder::build(
             const auto& source = implementation_->resources[index];
             auto resource = source.record;
             std::vector<std::byte> brush_payload{};
+            std::vector<std::byte> text_style_payload{};
             const std::vector<std::byte>* payload = &source.payload;
             if (source.brush_table) {
                 brush_payload = copy_bytes(
@@ -409,6 +413,12 @@ bool semantic_scene_builder::build(
                     implementation_->brushes.data(),
                     implementation_->brushes.size()));
                 payload = &brush_payload;
+            } else if (source.text_style_table) {
+                text_style_payload = copy_bytes(
+                    std::span<const progpu_native_scene_text_style>(
+                    implementation_->text_styles.data(),
+                    implementation_->text_styles.size()));
+                payload = &text_style_payload;
             }
             if (!append(
                     payload->data(),
@@ -480,6 +490,8 @@ bool semantic_scene_builder::build(
             metrics->resource_count = resource_count;
             metrics->brush_count = static_cast<std::uint32_t>(
                 implementation_->brushes.size());
+            metrics->text_style_count = static_cast<std::uint32_t>(
+                implementation_->text_styles.size());
             metrics->maximum_stack_depth =
                 implementation_->maximum_stack_depth;
             metrics->arena_bytes = header.arena_size;

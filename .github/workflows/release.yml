@@ -57,7 +57,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            clang \
+            clang-tools \
             cmake \
+            ninja-build \
             libvulkan1 \
             mesa-vulkan-drivers \
             libx11-xcb1 \
@@ -70,6 +73,10 @@ jobs:
             libxcb-present0 \
             libxkbcommon0
 
+      - name: Install macOS native build tools
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
       - name: Verify generated C# native contract
         if: matrix.rid == 'linux-x64'
         shell: bash
@@ -80,6 +87,7 @@ jobs:
         shell: bash
         env:
           PROGPU_NATIVE_RUN_DAWN_HEADER_CONTRACT: 1
+          PROGPU_NATIVE_ENABLE_CPP_MODULES: ${{ matrix.rid == 'linux-x64' && 'ON' || '' }}
         run: |
           ./eng/build-progpu-native.sh
           ./eng/progpu-stage-native-runtime.sh

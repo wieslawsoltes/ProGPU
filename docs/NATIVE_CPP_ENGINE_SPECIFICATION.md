@@ -1109,12 +1109,15 @@ ordered semantic layers now own bounded backdrop input.
   strokes with canonical point/knot/weight/dash arenas, plus retained path
   fills with exact line/quadratic/cubic/analytic-arc segment streams and
   retained RGBA8 images referenced by one or more nearest/linear/cubic draw
-  commands with optional exact color matrices, then
+  commands with optional exact color matrices, plus retained vector-glyph
+  outline/segment resources, positioned runs, and deduplicated text styles,
+  then
   deterministically emits the same bounded,
   pointer-free version-one stream consumed by the native compiler. The
   desktop sample now uses this builder end to end, and the Emscripten gate
   compiles, submits, and stable-replays the same native-owned builder path.
-  Glyph/layer/effect recording and incremental range updates remain. Image
+  Color-bitmap glyph/layer/effect recording and incremental range updates
+  remain. Image
   pixels are copied once into a generation-owned resource; repeated commands
   reference that resource without duplicating bytes, and unchanged browser
   replay reports zero texture upload.
@@ -1126,6 +1129,13 @@ ordered semantic layers now own bounded backdrop input.
   `NativeSceneStreamBuilder.cs` contract at source checkpoint
   `4450f04561a91597a43de572ca2a5a68634faa8f`, with the existing native header
   remaining the generated wire-layout authority;
+- native implementation code is strict portable C++20. Clang is the primary
+  toolchain, with explicit GCC and Visual Studio MSVC compatibility gates.
+  `progpu.native.scene_builder` provides the first standard C++20 named-module
+  import surface through CMake `CXX_MODULES`; the stable C ABI, Emscripten, and
+  compatibility consumers retain the thin header surface over the same source
+  library. BMIs remain build-tree/compiler-specific artifacts and are never
+  packaged or shared across toolchains;
 - versioned semantic scene updates from .NET;
 - WebScene Dawn-provider adapter and zero-copy canvas composition;
 - native presentation for Metal, D3D12, Vulkan/X11/Wayland, Android, and iOS;

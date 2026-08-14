@@ -1,6 +1,7 @@
 #include "progpu_native_semantic_text_style.hpp"
 
 #include "progpu_native_semantic_state.hpp"
+#include "progpu_native_semantic_validation.hpp"
 
 #include <bit>
 #include <cmath>
@@ -16,16 +17,6 @@ T read_record(const std::byte* bytes, std::size_t offset) noexcept {
     T value{};
     std::memcpy(&value, bytes + offset, sizeof(value));
     return value;
-}
-
-bool valid_style(const progpu_native_scene_text_style& style) noexcept {
-    return std::isfinite(style.color.r) &&
-        std::isfinite(style.color.g) &&
-        std::isfinite(style.color.b) &&
-        std::isfinite(style.color.a) &&
-        style.text_rendering_mode <= PROGPU_NATIVE_SCENE_TEXT_CLEARTYPE &&
-        style.reserved0 == 0U && style.reserved1 == 0U &&
-        style.reserved2 == 0U;
 }
 
 progpu_native_scene_resource read_resource(
@@ -91,7 +82,8 @@ bool validate_text_style_table(
     for (std::uint32_t index = 0U; index < count; ++index) {
         const std::uint32_t offset = resource.payload_offset +
             index * sizeof(progpu_native_scene_text_style);
-        if (!valid_style(read_record<progpu_native_scene_text_style>(
+        if (!is_valid_semantic_text_style(
+                read_record<progpu_native_scene_text_style>(
                 bytes,
                 offset))) {
             error_offset = offset;

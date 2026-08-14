@@ -153,6 +153,14 @@ bool is_valid_semantic_positioned_glyph(
         std::isfinite(glyph.italic_skew);
 }
 
+bool is_valid_semantic_text_style(
+    const progpu_native_scene_text_style& style) noexcept {
+    return is_finite(style.color) &&
+        style.text_rendering_mode <= PROGPU_NATIVE_SCENE_TEXT_CLEARTYPE &&
+        style.reserved0 == 0U && style.reserved1 == 0U &&
+        style.reserved2 == 0U;
+}
+
 bool is_valid_semantic_image(
     const progpu_native_scene_image_draw& image,
     std::uint64_t pixel_bytes) noexcept {

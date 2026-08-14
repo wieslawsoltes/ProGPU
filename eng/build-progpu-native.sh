@@ -11,6 +11,23 @@ dawn_header_source="${PROGPU_NATIVE_DAWN_HEADER_SOURCE:-${repo_root}/artifacts/w
 expected_commit="33133da4ec5a0174cb21539ef2d3346f75200411"
 expected_headers_commit="aef5e428a1fdab2ea770581ae7c95d8779984e0a"
 package_version="2.23.0"
+cxx_compiler="${PROGPU_NATIVE_CXX_COMPILER:-clang++}"
+cmake_generator="${PROGPU_NATIVE_CMAKE_GENERATOR:-Ninja}"
+module_options=()
+if [[ -n "${PROGPU_NATIVE_ENABLE_CPP_MODULES:-}" ]]; then
+  module_options+=(
+    "-DPROGPU_NATIVE_ENABLE_CPP_MODULES=${PROGPU_NATIVE_ENABLE_CPP_MODULES}")
+fi
+
+command -v "${cxx_compiler}" >/dev/null 2>&1 || {
+  echo "${cxx_compiler} is required for the ProGPU native C++20 build." >&2
+  exit 1
+}
+if [[ "${cmake_generator}" == Ninja* ]] &&
+    ! command -v ninja >/dev/null 2>&1; then
+  echo "Ninja is required for the selected ProGPU native generator." >&2
+  exit 1
+fi
 
 dotnet restore \
   "${repo_root}/src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj"
@@ -75,6 +92,8 @@ else
 fi
 
 cmake -S "${repo_root}/src/ProGPU.Native" -B "${build_dir}" \
+  -G "${cmake_generator}" \
+  -DCMAKE_CXX_COMPILER="${cxx_compiler}" \
   -DCMAKE_BUILD_TYPE=Release \
   -DPROGPU_NATIVE_WEBGPU_INCLUDE_DIR="${include_dir}" \
   -DPROGPU_NATIVE_WEBGPU_LIBRARY="${native_library}" \
@@ -82,7 +101,8 @@ cmake -S "${repo_root}/src/ProGPU.Native" -B "${build_dir}" \
   -DPROGPU_NATIVE_WEBSCENE_PROVIDER_INCLUDE_DIR= \
   -DPROGPU_NATIVE_WEBSCENE_PROVIDER_LIBRARY= \
   -DPROGPU_NATIVE_BUILD_SAMPLE=ON \
-  -DBUILD_TESTING=ON
+  -DBUILD_TESTING=ON \
+  "${module_options[@]}"
 cmake --build "${build_dir}" --config Release --parallel
 ctest --test-dir "${build_dir}" -C Release --output-on-failure
 PROGPU_NATIVE_BUILD_DIR="${build_dir}" \
@@ -105,13 +125,16 @@ if [[ "${PROGPU_NATIVE_RUN_SANITIZERS:-0}" == "1" ]]; then
     sanitizer_detect_leaks=0
   fi
   cmake -S "${repo_root}/src/ProGPU.Native" -B "${sanitizer_build_dir}" \
+    -G "${cmake_generator}" \
+    -DCMAKE_CXX_COMPILER="${cxx_compiler}" \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
     -DPROGPU_NATIVE_WEBGPU_INCLUDE_DIR="${include_dir}" \
     -DPROGPU_NATIVE_WEBGPU_LIBRARY="${native_library}" \
     -DPROGPU_NATIVE_BUILD_SAMPLE=OFF \
     -DPROGPU_NATIVE_ENABLE_SANITIZERS=ON \
     -DBUILD_TESTING=ON \
-    "${sanitizer_dawn_options[@]}"
+    "${sanitizer_dawn_options[@]}" \
+    "${module_options[@]}"
   cmake --build "${sanitizer_build_dir}" --config RelWithDebInfo --parallel
   ASAN_OPTIONS="detect_leaks=${sanitizer_detect_leaks}:halt_on_error=1" \
   UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1" \

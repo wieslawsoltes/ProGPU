@@ -31,6 +31,19 @@ builder-only approximation. `progpu_native_scene_builder_image.cpp` owns
 retained RGBA8 resources and nearest/linear/cubic image commands, including
 optional color matrices; multiple draws may reference the same pixels and
 stable replay performs no texture upload.
+`progpu_native_scene_builder_glyph.cpp` owns retained vector-glyph outline
+resources, positioned runs, and deduplicated text styles. It is the direct
+native destination for the planned C++ shaper/layout output and does not add a
+per-glyph managed/native call.
+
+Native code is strict portable C++20. Clang is the primary toolchain; GCC and
+Visual Studio MSVC compile/test the same header compatibility implementation in
+CI. Module-capable LLVM Clang/Ninja builds additionally expose and test
+`import progpu.native.scene_builder;` through a CMake `CXX_MODULES` file set.
+Apple Clang, Emscripten, and other configurations without standard-module
+dependency scanning use the thin installed header over the same library; no
+implementation or semantic fork is maintained, and compiler-specific BMIs are
+never shipped.
 `progpu_native_scene.cpp` owns pointer-free stream validation,
 `progpu_native_effect_plan.cpp` owns the bounded three-texture chain schedule,
 `progpu_native_semantic_budget.hpp` owns checked scene/layer/effect budget

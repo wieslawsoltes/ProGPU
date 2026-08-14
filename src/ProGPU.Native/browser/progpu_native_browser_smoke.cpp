@@ -204,7 +204,48 @@ bool render_browser_frame(double, void*) {
     builder_image.destination_rect = {104.0F, 48.0F, 36.0F, 36.0F};
     builder_image.transform = builder_identity;
     builder_image.opacity = 1.0F;
-    if (!native_builder.reserve(7U, 7U, 3072U) ||
+    const std::array builder_glyph_segments{
+        progpu_native_path_segment{
+            {0.0F, 0.0F}, {18.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {18.0F, 0.0F}, {18.0F, 22.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {18.0F, 22.0F}, {0.0F, 22.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {0.0F, 22.0F}, {0.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const progpu_native_scene_glyph_outline builder_glyph_outline{
+        0U,
+        builder_glyph_segments.size(),
+        0.0F,
+        0.0F,
+        18.0F,
+        22.0F,
+        1.0F,
+        0.25F};
+    const progpu_native_positioned_glyph builder_glyph{
+        0U,
+        0U,
+        {64.0F, 60.0F},
+        {1.0F, 0.0F},
+        {0.0F, 1.0F},
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        1.0F,
+        0.0F,
+        0.0F,
+        0.0F};
+    const progpu_native_scene_text_style builder_text_style{
+        {1.0F, 0.82F, 0.12F, 1.0F},
+        PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE,
+        0U,
+        0U,
+        0U};
+    std::uint32_t builder_glyph_resource = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t builder_text_style_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!native_builder.reserve(8U, 9U, 4096U) ||
         !native_builder.add_solid_brush(
             {0.2F, 0.55F, 1.0F, 1.0F}, 0.9F, builder_brush) ||
         !native_builder.add_state(builder_state, builder_state_index) ||
@@ -244,6 +285,23 @@ bool render_browser_frame(double, void*) {
             builder_image_index,
             builder_image,
             {104.0F, 48.0F, 36.0F, 36.0F}) ||
+        !native_builder.add_glyph_outlines(
+            std::span<const progpu_native_scene_glyph_outline>(
+                &builder_glyph_outline,
+                1U),
+            builder_glyph_segments,
+            builder_glyph_resource) ||
+        !native_builder.add_text_style(
+            builder_text_style,
+            builder_text_style_index) ||
+        !native_builder.draw_glyph_run(
+            builder_glyph_resource,
+            std::span<const progpu_native_positioned_glyph>(
+                &builder_glyph,
+                1U),
+            {64.0F, 60.0F, 18.0F, 22.0F},
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            builder_text_style_index) ||
         !native_builder.restore()) {
         fail("The browser native C++ scene builder could not record.");
     }
@@ -258,9 +316,9 @@ bool render_browser_frame(double, void*) {
             builder_scene.data(),
             builder_scene.size(),
             &builder_update_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
-        builder_update_metrics.command_count != 7U ||
-        builder_update_metrics.resource_count != 7U ||
-        builder_update_metrics.draw_count != 5U) {
+        builder_update_metrics.command_count != 8U ||
+        builder_update_metrics.resource_count != 9U ||
+        builder_update_metrics.draw_count != 6U) {
         fail_engine("The browser native C++ scene update failed.");
     }
     semantic_frame.scene_id = native_builder.scene_id();
@@ -271,12 +329,13 @@ bool render_browser_frame(double, void*) {
             resources.engine,
             &semantic_frame,
             &builder_frame_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
-        builder_frame_metrics.command_count != 7U ||
-        builder_frame_metrics.draw_call_count != 5U ||
+        builder_frame_metrics.command_count != 8U ||
+        builder_frame_metrics.draw_call_count != 6U ||
         builder_frame_metrics.submission_count != 1U ||
         builder_frame_metrics.brush_upload_bytes == 0U ||
         builder_frame_metrics.vertex_upload_bytes == 0U ||
         builder_frame_metrics.texture_upload_bytes != 16U ||
+        builder_frame_metrics.text_style_upload_bytes == 0U ||
         builder_frame_metrics.coverage_staging_bytes == 0U) {
         fail_engine("The browser native C++ scene render failed.");
     }
@@ -290,6 +349,7 @@ bool render_browser_frame(double, void*) {
         builder_frame_metrics.vertex_upload_bytes != 0U ||
         builder_frame_metrics.index_upload_bytes != 0U ||
         builder_frame_metrics.texture_upload_bytes != 0U ||
+        builder_frame_metrics.text_style_upload_bytes != 0U ||
         builder_frame_metrics.coverage_staging_bytes != 0U) {
         fail_engine("The stable browser native C++ scene was rebuilt.");
     }

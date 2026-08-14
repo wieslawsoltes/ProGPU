@@ -1,7 +1,36 @@
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.28)
 project(ProGPUNative LANGUAGES CXX)
 
 include(CTest)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(_progpu_native_modules_default OFF)
+if(NOT EMSCRIPTEN
+    AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
+    AND CMAKE_GENERATOR MATCHES
+        "^(Ninja|Ninja Multi-Config|Visual Studio 17 2022)$"
+    AND (CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS
+        OR CMAKE_GENERATOR STREQUAL "Visual Studio 17 2022"))
+    set(_progpu_native_modules_default ON)
+endif()
+option(PROGPU_NATIVE_ENABLE_CPP_MODULES
+    "Build and test the standard C++20 module import surface"
+    ${_progpu_native_modules_default})
+if(PROGPU_NATIVE_ENABLE_CPP_MODULES
+    AND (EMSCRIPTEN
+        OR NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
+        OR NOT CMAKE_GENERATOR MATCHES
+            "^(Ninja|Ninja Multi-Config|Visual Studio 17 2022)$"
+        OR (CMAKE_GENERATOR MATCHES "^Ninja"
+            AND NOT CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS)))
+    message(FATAL_ERROR
+        "PROGPU_NATIVE_ENABLE_CPP_MODULES requires LLVM Clang and a supported "
+        "Ninja or Visual Studio 17 2022 generator; Emscripten remains on the "
+        "shared header compatibility path until module scanning is available.")
+endif()
 
 set(PROGPU_NATIVE_WEBGPU_INCLUDE_DIR "" CACHE PATH
     "Directory containing the pinned wgpu-native webgpu.h and wgpu.h headers")
@@ -371,6 +400,7 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
 add_library(progpu_native_scene_builder STATIC
     src/progpu_native_scene_builder.cpp
     src/progpu_native_scene_builder_geometry.cpp
+    src/progpu_native_scene_builder_glyph.cpp
     src/progpu_native_scene_builder_image.cpp
     src/progpu_native_scene_builder_path.cpp
     src/progpu_native_scene_builder_internal.hpp
@@ -381,6 +411,12 @@ target_compile_features(progpu_native_scene_builder PUBLIC cxx_std_20)
 target_include_directories(progpu_native_scene_builder
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
+    target_sources(progpu_native_scene_builder
+        PUBLIC
+        FILE_SET CXX_MODULES
+        FILES src/progpu_native_scene_builder.cppm)
+endif()
 progpu_native_enable_warnings(progpu_native_scene_builder)
 progpu_native_enable_sanitizers(progpu_native_scene_builder)
 
@@ -596,6 +632,22 @@ endif()
 endif()
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
+    if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
+        add_executable(progpu_native_scene_builder_module_tests
+            tests/progpu_native_scene_builder_module_tests.cpp)
+        target_link_libraries(
+            progpu_native_scene_builder_module_tests
+            PRIVATE progpu_native_scene_builder)
+        progpu_native_enable_warnings(
+            progpu_native_scene_builder_module_tests)
+        add_test(
+            NAME progpu_native_scene_builder_module_tests
+            COMMAND progpu_native_scene_builder_module_tests)
+        set_tests_properties(
+            progpu_native_scene_builder_module_tests
+            PROPERTIES TIMEOUT 60)
+    endif()
+
     add_executable(progpu_native_internal_tests
         tests/progpu_native_internal_tests.cpp
         tests/progpu_native_scene_builder_tests.cpp
@@ -664,7 +716,9 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/progpu_native_semantic_text_style.cpp
         src/progpu_native_semantic_text_style.hpp
         src/progpu_native_semantic_state.cpp
-        src/progpu_native_semantic_state.hpp)
+        src/progpu_native_semantic_state.hpp
+        src/progpu_native_semantic_validation.cpp
+        src/progpu_native_semantic_validation.hpp)
     target_compile_features(progpu_native_tests PRIVATE cxx_std_20)
     target_include_directories(progpu_native_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"

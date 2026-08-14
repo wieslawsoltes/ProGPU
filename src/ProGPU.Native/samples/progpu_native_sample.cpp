@@ -292,7 +292,7 @@ int main(int argc, char** argv) {
     }
 
     progpu::native::semantic_scene_builder scene_builder(501U, 1U);
-    if (!scene_builder.reserve(5U, 6U, 6144U)) {
+    if (!scene_builder.reserve(6U, 8U, 7168U)) {
         std::cerr << "Could not reserve the native retained scene builder.\n";
         return EXIT_FAILURE;
     }
@@ -431,6 +431,64 @@ int main(int argc, char** argv) {
             native_image,
             {430.0F, 92.0F, 88.0F, 64.0F})) {
         std::cerr << "Could not record native retained image.\n";
+        return EXIT_FAILURE;
+    }
+    const std::array native_glyph_segments{
+        progpu_native_path_segment{
+            {0.0F, 0.0F}, {30.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {30.0F, 0.0F}, {15.0F, 40.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {15.0F, 40.0F}, {0.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const progpu_native_scene_glyph_outline native_glyph_outline{
+        0U,
+        native_glyph_segments.size(),
+        0.0F,
+        0.0F,
+        30.0F,
+        40.0F,
+        1.0F,
+        0.25F};
+    const progpu_native_positioned_glyph native_glyph{
+        0U,
+        0U,
+        {76.0F, 244.0F},
+        {1.0F, 0.0F},
+        {0.0F, 1.0F},
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        1.0F,
+        0.0F,
+        0.0F,
+        0.0F};
+    const progpu_native_scene_text_style native_text_style{
+        {1.0F, 0.84F, 0.10F, 1.0F},
+        PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE,
+        0U,
+        0U,
+        0U};
+    std::uint32_t native_glyph_resource = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t native_text_style_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!scene_builder.add_glyph_outlines(
+            std::span<const progpu_native_scene_glyph_outline>(
+                &native_glyph_outline,
+                1U),
+            native_glyph_segments,
+            native_glyph_resource) ||
+        !scene_builder.add_text_style(
+            native_text_style,
+            native_text_style_index) ||
+        !scene_builder.draw_glyph_run(
+            native_glyph_resource,
+            std::span<const progpu_native_positioned_glyph>(
+                &native_glyph,
+                1U),
+            {76.0F, 204.0F, 30.0F, 40.0F},
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            native_text_style_index)) {
+        std::cerr << "Could not record native retained glyph.\n";
         return EXIT_FAILURE;
     }
     std::vector<std::byte> scene_stream;

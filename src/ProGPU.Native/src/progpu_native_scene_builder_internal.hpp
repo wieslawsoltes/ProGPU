@@ -16,10 +16,12 @@ struct semantic_scene_builder::implementation final {
         std::vector<std::byte> payload{};
         std::vector<std::byte> auxiliary{};
         bool brush_table = false;
+        bool text_style_table = false;
         bool rgba8_image = false;
         std::uint32_t image_width = 0U;
         std::uint32_t image_height = 0U;
         std::uint32_t image_row_bytes = 0U;
+        std::uint32_t glyph_outline_count = 0U;
     };
 
     struct command_entry final {
@@ -32,7 +34,9 @@ struct semantic_scene_builder::implementation final {
     std::vector<resource_entry> resources{};
     std::vector<command_entry> commands{};
     std::vector<progpu_native_scene_brush> brushes{};
+    std::vector<progpu_native_scene_text_style> text_styles{};
     std::uint32_t brush_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t text_style_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
     std::uint32_t stack_depth = 0U;
     std::uint32_t maximum_stack_depth = 0U;
     std::uint64_t arena_reserve = 0U;

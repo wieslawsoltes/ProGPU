@@ -24,6 +24,7 @@ struct scene_build_metrics final {
     std::uint32_t command_count = 0U;
     std::uint32_t resource_count = 0U;
     std::uint32_t brush_count = 0U;
+    std::uint32_t text_style_count = 0U;
     std::uint32_t maximum_stack_depth = 0U;
     std::uint64_t arena_bytes = 0U;
     std::uint64_t stream_bytes = 0U;
@@ -66,6 +67,13 @@ public:
         std::uint32_t height,
         std::uint32_t row_bytes,
         std::span<const std::byte> pixels,
+        std::uint32_t& resource_index) noexcept;
+    bool add_text_style(
+        const progpu_native_scene_text_style& style,
+        std::uint32_t& style_index) noexcept;
+    bool add_glyph_outlines(
+        std::span<const progpu_native_scene_glyph_outline> outlines,
+        std::span<const progpu_native_path_segment> segments,
         std::uint32_t& resource_index) noexcept;
 
     bool save(
@@ -114,6 +122,15 @@ public:
             sampling_options = nullptr,
         const progpu_native_scene_image_color_matrix*
             color_matrix = nullptr) noexcept;
+
+    bool draw_glyph_run(
+        std::uint32_t glyph_resource_index,
+        std::span<const progpu_native_positioned_glyph> glyphs,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+        std::uint32_t text_style_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
 
     bool build(
         std::vector<std::byte>& stream,

@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
-    [string] $Rid = $(if ($env:PROGPU_NATIVE_RID) { $env:PROGPU_NATIVE_RID } else { "win-x64" })
+    [string] $Rid = $(if ($env:PROGPU_NATIVE_RID) { $env:PROGPU_NATIVE_RID } else { "win-x64" }),
+    [ValidateSet("ClangCL", "MSVC")]
+    [string] $Compiler = $(if ($env:PROGPU_NATIVE_WINDOWS_COMPILER) { $env:PROGPU_NATIVE_WINDOWS_COMPILER } else { "ClangCL" })
 )
 
 $ErrorActionPreference = "Stop"
@@ -105,7 +107,10 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $ImportLibrary)) {
     throw "Failed to generate the pinned wgpu-native import library."
 }
 
-cmake -S (Join-Path $RepoRoot "src/ProGPU.Native") -B $BuildDir -A $CMakeArchitecture `
+$ToolsetArguments = if ($Compiler -eq "ClangCL") { @("-T", "ClangCL") } else { @() }
+$ModuleArgument = if ($Compiler -eq "ClangCL") { "ON" } else { "OFF" }
+cmake -S (Join-Path $RepoRoot "src/ProGPU.Native") -B $BuildDir -A $CMakeArchitecture @ToolsetArguments `
+    -DPROGPU_NATIVE_ENABLE_CPP_MODULES="$ModuleArgument" `
     -DPROGPU_NATIVE_WEBGPU_INCLUDE_DIR="$IncludeDir" `
     -DPROGPU_NATIVE_WEBGPU_LIBRARY="$ImportLibrary" `
     -DPROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR="$DawnHeadersDir" `

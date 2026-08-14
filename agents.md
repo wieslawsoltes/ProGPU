@@ -94,6 +94,39 @@ contract suitable for desktop, mobile, NativeAOT, and browser/Wasm hosts.
   final managed/native binaries and investigate statistically repeatable regressions before
   integration.
 
+### A-3. Mandatory Clang, C++20, and Module-First Native Code
+
+All ProGPU-owned native renderer, scene compiler, text, font, shaping, and layout code targets
+portable standard C++20. Clang is the primary/reference toolchain: LLVM Clang on Linux, Apple
+Clang or LLVM Clang on macOS/iOS, clang-cl on Windows, Android NDK Clang, and Emscripten Clang
+in the browser. The header compatibility path must also compile with current GCC and the Visual
+Studio MSVC compiler in strict C++20 mode. Keep compiler extensions disabled, warnings as
+errors, and sanitizer coverage on supported host lanes. Do not add a Clang-only, GCC-only,
+MSVC-only, or newer-language implementation path outside a narrowly feature-detected build
+adapter.
+
+* Prefer standard C++20 named modules and internal module partitions for new ProGPU-owned C++
+  APIs and cohesive implementation domains. Avoid adding broad textual internal headers,
+  transitive include graphs, macro-configured implementation, or umbrella headers when a
+  module interface or partition can express the dependency and ownership boundary.
+* Keep `progpu_native.h` as the stable C ABI authority and retain a thin installed C++ header
+  compatibility surface for C consumers, Emscripten configurations without module dependency
+  scanning, and downstream build systems that cannot yet import named modules. Module and
+  header consumers must compile the same implementation sources and must never become semantic
+  forks.
+* Use CMake `FILE_SET CXX_MODULES` with CMake 3.28 or newer, C++20 dependency scanning, and a
+  supported Ninja or Visual Studio generator. Do not use experimental Clang header modules,
+  header units, `import std`, manually shared compiler-specific BMI files, or checked-in BMI
+  artifacts. BMIs are toolchain/configuration outputs and must remain inside the build tree.
+* Require an import-based native consumer test whenever a public module surface changes. Keep
+  a matching include-based consumer test for the compatibility surface, and run both against
+  the same library. Keep explicit GCC and MSVC compatibility gates in addition to the primary
+  Clang matrix. Browser/Wasm CI must continue compiling the compatibility path until the pinned
+  Emscripten/CMake toolchain provides production-ready standard-module scanning.
+* Record compile-time/toolchain measurements when migrating a substantial header graph. Module
+  adoption must not weaken ABI validation, warnings, sanitizers, packaging, cross-platform
+  builds, or runtime performance and output-quality gates.
+
 ### A0. Reflection-Free WPF Port Support
 When adding ProGPU APIs for the WPF port, keep hot paths typed and source-integrated. Runtime reflection is allowed only for diagnostics, compatibility probes, or transitional adapters with a documented removal path; rendering, text, image upload, clipping, hit testing, shader effects, DirectX shims, cache metadata, and platform services should be implemented as reusable ProGPU/Silk.NET primitives or neutral DTO contracts instead of WPF bridge workarounds.
 

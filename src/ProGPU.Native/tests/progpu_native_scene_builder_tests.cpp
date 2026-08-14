@@ -339,4 +339,111 @@ bool semantic_scene_builder_reuses_retained_images() {
         invalid.last_error() == scene_build_error::invalid_argument;
 }
 
+bool semantic_scene_builder_records_styled_glyph_runs() {
+    semantic_scene_builder builder(705U, 6U);
+    const std::array segments{
+        progpu_native_path_segment{
+            {0.0F, 0.0F}, {16.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {16.0F, 0.0F}, {16.0F, 20.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {16.0F, 20.0F}, {0.0F, 20.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {0.0F, 20.0F}, {0.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const progpu_native_scene_glyph_outline outline{
+        0U,
+        segments.size(),
+        0.0F,
+        0.0F,
+        16.0F,
+        20.0F,
+        1.0F,
+        0.25F};
+    std::uint32_t glyph_resource = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_glyph_outlines(
+            std::span<const progpu_native_scene_glyph_outline>(&outline, 1U),
+            segments,
+            glyph_resource)) {
+        return false;
+    }
+    const progpu_native_scene_text_style style{
+        {0.9F, 0.8F, 0.2F, 1.0F},
+        PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE,
+        0U,
+        0U,
+        0U};
+    std::uint32_t style_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t duplicate_style = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_text_style(style, style_index) ||
+        !builder.add_text_style(style, duplicate_style) ||
+        style_index != duplicate_style) {
+        return false;
+    }
+    const std::array glyphs{
+        progpu_native_positioned_glyph{
+            0U,
+            0U,
+            {24.0F, 32.0F},
+            {1.0F, 0.0F},
+            {0.0F, 1.0F},
+            {1.0F, 1.0F, 1.0F, 1.0F},
+            1.0F,
+            0.0F,
+            0.0F,
+            0.0F},
+        progpu_native_positioned_glyph{
+            0U,
+            0U,
+            {48.0F, 32.0F},
+            {1.0F, 0.0F},
+            {0.0F, 1.0F},
+            {1.0F, 1.0F, 1.0F, 1.0F},
+            1.0F,
+            0.5F,
+            0.1F,
+            0.0F}};
+    if (!builder.draw_glyph_run(
+            glyph_resource,
+            glyphs,
+            {24.0F, 32.0F, 40.0F, 20.0F},
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            style_index)) {
+        return false;
+    }
+    std::vector<std::byte> stream;
+    scene_build_metrics metrics{};
+    if (!builder.build(stream, &metrics) || metrics.command_count != 1U ||
+        metrics.resource_count != 2U || metrics.text_style_count != 1U) {
+        return false;
+    }
+    const auto validated = scene::validate(stream.data(), stream.size());
+    if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        validated.draw_count != 1U) {
+        return false;
+    }
+    const auto glyph_record = read<progpu_native_scene_resource>(
+        stream,
+        validated.header.resource_offset);
+    const auto style_record = read<progpu_native_scene_resource>(
+        stream,
+        validated.header.resource_offset +
+            sizeof(progpu_native_scene_resource));
+    const auto command = read<progpu_native_scene_command>(
+        stream,
+        validated.header.command_offset);
+    return glyph_record.kind == PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN &&
+        glyph_record.payload_size == sizeof(outline) &&
+        glyph_record.auxiliary_size == sizeof(segments) &&
+        style_record.kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_TEXT_STYLE_TABLE &&
+        style_record.payload_size == sizeof(style) &&
+        (command.flags & PROGPU_NATIVE_SCENE_GLYPH_STYLED) != 0U &&
+        command.payload_size == sizeof(progpu_native_scene_glyph_draw) +
+            sizeof(glyphs);
+}
+
 } // namespace progpu::native::tests
