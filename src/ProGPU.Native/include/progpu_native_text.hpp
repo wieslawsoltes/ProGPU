@@ -345,6 +345,9 @@ struct sfnt_bitmap_glyph_data_view final {
     std::uint16_t pixels_per_inch = 0U;
     std::int16_t origin_offset_x = 0;
     std::int16_t origin_offset_y = 0;
+    bool uses_horizontal_metrics = false;
+    std::int16_t bearing_x = 0;
+    std::int16_t bearing_y = 0;
 };
 
 struct sfnt_svg_glyph_document_view final {
@@ -709,6 +712,11 @@ public:
         sfnt_cff1_font_view& result,
         font_error* error = nullptr) const noexcept;
     bool try_get_sbix_glyph(
+        std::uint16_t glyph_index,
+        float target_pixels_per_em,
+        sfnt_bitmap_glyph_data_view& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_cbdt_glyph(
         std::uint16_t glyph_index,
         float target_pixels_per_em,
         sfnt_bitmap_glyph_data_view& result,

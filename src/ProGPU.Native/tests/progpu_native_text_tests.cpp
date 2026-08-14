@@ -329,6 +329,130 @@ std::vector<std::byte> make_svg_glyph_table(bool gzip) {
     return result;
 }
 
+struct cbdt_tables final {
+    std::vector<std::byte> cblc{};
+    std::vector<std::byte> cbdt{};
+};
+
+cbdt_tables make_cbdt_tables(
+    std::uint16_t index_format,
+    std::uint16_t image_format = 0U) {
+    const auto metrics_in_index = index_format == 2U || index_format == 5U;
+    if (image_format == 0U) {
+        image_format = metrics_in_index ? 19U : 17U;
+    }
+    const std::array image{
+        std::byte{0x89U}, std::byte{0x50U}, std::byte{0x4EU}};
+    const auto metrics_size = image_format == 17U
+        ? 5U
+        : image_format == 18U ? 8U : 0U;
+    std::vector<std::byte> cbdt(4U + metrics_size + 4U + image.size());
+    write_u16(cbdt, 0U, 3U);
+    write_u16(cbdt, 2U, 0U);
+    if (metrics_size != 0U) {
+        cbdt[4U] = std::byte{1U};
+        cbdt[5U] = std::byte{1U};
+        cbdt[6U] = std::byte{3U};
+        cbdt[7U] = std::byte{4U};
+        cbdt[8U] = std::byte{5U};
+        if (metrics_size == 8U) {
+            cbdt[9U] = std::byte{0U};
+            cbdt[10U] = std::byte{0U};
+            cbdt[11U] = std::byte{5U};
+        }
+    }
+    const auto length_offset = 4U + metrics_size;
+    write_u32(cbdt, length_offset,
+        static_cast<std::uint32_t>(image.size()));
+    std::copy(
+        image.begin(), image.end(),
+        cbdt.begin() + static_cast<std::ptrdiff_t>(length_offset + 4U));
+
+    const auto bitmap_data_length =
+        static_cast<std::uint32_t>(cbdt.size() - 4U);
+    std::size_t subtable_size = 0U;
+    switch (index_format) {
+    case 1U:
+        subtable_size = 16U;
+        break;
+    case 2U:
+        subtable_size = 20U;
+        break;
+    case 3U:
+        subtable_size = 12U;
+        break;
+    case 4U:
+        subtable_size = 20U;
+        break;
+    case 5U:
+        subtable_size = 28U;
+        break;
+    default:
+        std::abort();
+    }
+    std::vector<std::byte> subtable(subtable_size);
+    write_u16(subtable, 0U, index_format);
+    write_u16(subtable, 2U, image_format);
+    write_u32(subtable, 4U, 4U);
+    switch (index_format) {
+    case 1U:
+        write_u32(subtable, 8U, 0U);
+        write_u32(subtable, 12U, bitmap_data_length);
+        break;
+    case 2U:
+        write_u32(subtable, 8U, bitmap_data_length);
+        break;
+    case 3U:
+        write_u16(subtable, 8U, 0U);
+        write_u16(subtable, 10U,
+            static_cast<std::uint16_t>(bitmap_data_length));
+        break;
+    case 4U:
+        write_u32(subtable, 8U, 1U);
+        write_u16(subtable, 12U, 1U);
+        write_u16(subtable, 14U, 0U);
+        write_u16(subtable, 16U, 0xFFFFU);
+        write_u16(subtable, 18U,
+            static_cast<std::uint16_t>(bitmap_data_length));
+        break;
+    case 5U:
+        write_u32(subtable, 8U, bitmap_data_length);
+        write_u32(subtable, 20U, 1U);
+        write_u16(subtable, 24U, 1U);
+        break;
+    default:
+        std::abort();
+    }
+    if (metrics_in_index) {
+        subtable[12U] = std::byte{1U};
+        subtable[13U] = std::byte{1U};
+        subtable[14U] = std::byte{3U};
+        subtable[15U] = std::byte{4U};
+        subtable[16U] = std::byte{5U};
+        subtable[19U] = std::byte{5U};
+    }
+
+    std::vector<std::byte> cblc(64U + subtable.size());
+    write_u16(cblc, 0U, 3U);
+    write_u16(cblc, 2U, 0U);
+    write_u32(cblc, 4U, 1U);
+    write_u32(cblc, 8U, 56U);
+    write_u32(cblc, 12U,
+        static_cast<std::uint32_t>(8U + subtable.size()));
+    write_u32(cblc, 16U, 1U);
+    write_u16(cblc, 48U, 1U);
+    write_u16(cblc, 50U, 1U);
+    cblc[52U] = std::byte{20U};
+    cblc[53U] = std::byte{20U};
+    cblc[54U] = std::byte{32U};
+    cblc[55U] = std::byte{1U};
+    write_u16(cblc, 56U, 1U);
+    write_u16(cblc, 58U, 1U);
+    write_u32(cblc, 60U, 8U);
+    std::copy(subtable.begin(), subtable.end(), cblc.begin() + 64);
+    return {std::move(cblc), std::move(cbdt)};
+}
+
 std::vector<std::byte> make_font(
     std::size_t face_offset = 0U,
     std::size_t glyph_size = 22U,
@@ -1711,6 +1835,77 @@ void svg_glyph_documents_remain_borrowed_and_bounded() {
     }
 }
 
+void cbdt_index_and_image_formats_remain_borrowed_and_bounded() {
+    for (std::uint16_t index_format = 1U; index_format <= 5U;
+        ++index_format) {
+        auto tables = make_cbdt_tables(index_format);
+        const std::array<table_data, 2U> extra{
+            table_data{
+                open_type_tag::from_chars('C', 'B', 'L', 'C'),
+                std::move(tables.cblc)},
+            table_data{
+                open_type_tag::from_chars('C', 'B', 'D', 'T'),
+                std::move(tables.cbdt)}};
+        const auto data = make_font(
+            0U, 22U, 0U, false, false, false, extra);
+        sfnt_font_view font{};
+        require(sfnt_font_view::try_create(data, 0U, font));
+        sfnt_bitmap_glyph_data_view glyph{};
+        font_error error = font_error::none;
+        require(font.try_get_cbdt_glyph(1U, 30.0F, glyph, &error));
+        require(error == font_error::none);
+        require(glyph.pixels_per_em == 20U &&
+            glyph.pixels_per_inch == 72U);
+        require(glyph.uses_horizontal_metrics &&
+            glyph.bearing_x == 3 && glyph.bearing_y == 4);
+        require(glyph.origin_offset_x == 0 && glyph.origin_offset_y == 0);
+        require(glyph.graphic_type ==
+            open_type_tag::from_chars('p', 'n', 'g', ' '));
+        require(glyph.bytes.size() == 3U &&
+            glyph.bytes[0U] == std::byte{0x89U} &&
+            glyph.bytes[1U] == std::byte{0x50U} &&
+            glyph.bytes[2U] == std::byte{0x4EU});
+    }
+
+    auto format_18 = make_cbdt_tables(1U, 18U);
+    const std::array<table_data, 2U> extra{
+        table_data{
+            open_type_tag::from_chars('C', 'B', 'L', 'C'),
+            std::move(format_18.cblc)},
+        table_data{
+            open_type_tag::from_chars('C', 'B', 'D', 'T'),
+            std::move(format_18.cbdt)}};
+    const auto data = make_font(
+        0U, 22U, 0U, false, false, false, extra);
+    sfnt_font_view font{};
+    require(sfnt_font_view::try_create(data, 0U, font));
+    sfnt_bitmap_glyph_data_view glyph{};
+    font_error error = font_error::none;
+    require(font.try_get_cbdt_glyph(1U, 20.0F, glyph, &error));
+    require(glyph.uses_horizontal_metrics && glyph.bearing_x == 3 &&
+        glyph.bearing_y == 4 && glyph.bytes.size() == 3U);
+    require(!font.try_get_cbdt_glyph(8U, 20.0F, glyph, &error));
+    require(error == font_error::invalid_argument && glyph.bytes.empty());
+
+    auto malformed = make_cbdt_tables(1U);
+    write_u32(malformed.cblc, 68U, 0xFFFFFFF0U);
+    const std::array<table_data, 2U> malformed_extra{
+        table_data{
+            open_type_tag::from_chars('C', 'B', 'L', 'C'),
+            std::move(malformed.cblc)},
+        table_data{
+            open_type_tag::from_chars('C', 'B', 'D', 'T'),
+            std::move(malformed.cbdt)}};
+    const auto malformed_data = make_font(
+        0U, 22U, 0U, false, false, false, malformed_extra);
+    sfnt_font_view malformed_font{};
+    require(sfnt_font_view::try_create(
+        malformed_data, 0U, malformed_font));
+    require(!malformed_font.try_get_cbdt_glyph(
+        1U, 20.0F, glyph, &error));
+    require(error == font_error::invalid_glyph && glyph.bytes.empty());
+}
+
 void production_noto_cff1_container_matches_sfnt_glyph_count() {
     std::ifstream stream(PROGPU_NATIVE_TEST_NOTO_CFF_FONT, std::ios::binary);
     require(stream.good());
@@ -2287,6 +2482,7 @@ int main() {
     cff1_type2_outline_is_transactional_and_closes_figures();
     sbix_strikes_and_duplicates_remain_borrowed();
     svg_glyph_documents_remain_borrowed_and_bounded();
+    cbdt_index_and_image_formats_remain_borrowed_and_bounded();
     production_noto_cff1_container_matches_sfnt_glyph_count();
     production_inter_font_decodes_real_simple_outline();
     production_inter_variable_font_matches_fvar_axes();

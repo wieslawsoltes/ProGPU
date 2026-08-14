@@ -427,6 +427,10 @@ add_library(progpu_native_text STATIC
     src/progpu_native_cff_outline.cpp
     src/progpu_native_cff_type2_internal.hpp
     src/progpu_native_sbix.cpp
+    src/progpu_native_cblc.cpp
+    src/progpu_native_cblc_index.cpp
+    src/progpu_native_cbdt.cpp
+    src/progpu_native_cbdt_internal.hpp
     src/progpu_native_svg_glyph.cpp
     src/progpu_native_sfnt.cpp
     src/progpu_native_true_type_composite.cpp

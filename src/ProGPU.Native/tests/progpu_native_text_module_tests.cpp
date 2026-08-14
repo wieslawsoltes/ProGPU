@@ -55,6 +55,7 @@ int main() {
     if (cff_index.count != 0U || fd_select.range_count != 0U ||
         cff_outline.path_segment_count != 0U ||
         !cff_font.bytes.empty() || !bitmap_glyph.bytes.empty() ||
+        bitmap_glyph.uses_horizontal_metrics ||
         !svg_glyph.bytes.empty()) {
         return 1;
     }
