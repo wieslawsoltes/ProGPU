@@ -24,6 +24,9 @@ using progpu::native::text::sfnt_glyph_decode_requirements;
 using progpu::native::text::sfnt_glyph_kind;
 using progpu::native::text::sfnt_glyph_variation_data_view;
 using progpu::native::text::sfnt_gvar_header;
+using progpu::native::text::sfnt_gvar_tuple_data;
+using progpu::native::text::sfnt_gvar_tuple_header;
+using progpu::native::text::sfnt_gvar_tuple_requirements;
 using progpu::native::text::sfnt_header_metrics;
 using progpu::native::text::sfnt_horizontal_glyph_metrics;
 using progpu::native::text::sfnt_horizontal_header_metrics;
@@ -173,12 +176,43 @@ std::vector<std::byte> make_avar() {
     return result;
 }
 
+std::vector<std::byte> make_gvar() {
+    std::vector<std::byte> result(64U);
+    write_u16(result, 0U, 1U);
+    write_u16(result, 2U, 0U);
+    write_u16(result, 4U, 2U);
+    write_u16(result, 6U, 1U);
+    write_u32(result, 8U, 38U);
+    write_u16(result, 12U, 8U);
+    write_u16(result, 14U, 0U);
+    write_u32(result, 16U, 42U);
+    for (std::size_t index = 1U; index <= 8U; ++index) {
+        write_u16(result, 20U + index * 2U, 11U);
+    }
+    write_i16(result, 38U, -16384);
+    write_i16(result, 40U, 8192);
+    write_u16(result, 42U, 1U);
+    write_u16(result, 44U, 20U);
+    write_u16(result, 46U, 2U);
+    write_u16(result, 48U, 0xE000U);
+    write_i16(result, 50U, 8192);
+    write_i16(result, 52U, -4096);
+    write_i16(result, 54U, 0);
+    write_i16(result, 56U, -8192);
+    write_i16(result, 58U, 16384);
+    write_i16(result, 60U, 0);
+    result[62U] = std::byte{0U};
+    result[63U] = std::byte{0U};
+    return result;
+}
+
 std::vector<std::byte> make_font(
     std::size_t face_offset = 0U,
     std::size_t glyph_size = 22U,
     std::size_t second_glyph_size = 0U,
     bool include_variations = false,
-    bool include_axis_mapping = false) {
+    bool include_axis_mapping = false,
+    bool include_glyph_variations = false) {
     std::vector<table_data> tables{};
     table_data head{open_type_tag::from_chars('h', 'e', 'a', 'd'),
         std::vector<std::byte>(54U)};
@@ -250,6 +284,10 @@ std::vector<std::byte> make_font(
     if (include_axis_mapping) {
         tables.push_back(table_data{
             open_type_tag::from_chars('a', 'v', 'a', 'r'), make_avar()});
+    }
+    if (include_glyph_variations) {
+        tables.push_back(table_data{
+            open_type_tag::from_chars('g', 'v', 'a', 'r'), make_gvar()});
     }
 
     const auto directory_size = 12U + tables.size() * 16U;
@@ -422,6 +460,56 @@ void packed_variation_streams_are_transactional_and_exact() {
     require(!sfnt_packed_variation_data::try_get_delta_requirements(
         invalid_deltas, 2U, delta_requirements, &error));
     require(error == font_error::invalid_glyph);
+}
+
+void glyph_variation_tuple_headers_are_bounded_and_exact() {
+    const auto data = make_font(0U, 22U, 0U, true, true, true);
+    sfnt_font_view font{};
+    require(sfnt_font_view::try_create(data, 0U, font));
+    sfnt_gvar_tuple_requirements requirements{};
+    font_error error = font_error::none;
+    require(font.try_get_glyph_variation_tuple_requirements(
+        0U, requirements, &error));
+    require(error == font_error::none);
+    require(requirements.tuple_count == 1U);
+    require(requirements.region_coordinate_count == 6U);
+    std::array<sfnt_gvar_tuple_header, 1U> headers{};
+    std::array<std::int16_t, 5U> short_coordinates{};
+    std::uint16_t headers_written = 99U;
+    std::uint32_t coordinates_written = 99U;
+    require(!font.try_decode_glyph_variation_tuple_headers(
+        0U,
+        headers,
+        short_coordinates,
+        headers_written,
+        coordinates_written,
+        &error));
+    require(error == font_error::insufficient_buffer);
+    require(headers_written == 0U && coordinates_written == 0U);
+    require(headers[0].flags == 0U && short_coordinates[0] == 0);
+    std::array<std::int16_t, 6U> coordinates{};
+    require(font.try_decode_glyph_variation_tuple_headers(
+        0U,
+        headers,
+        coordinates,
+        headers_written,
+        coordinates_written,
+        &error));
+    require(headers_written == 1U && coordinates_written == 6U);
+    require(headers[0].serialized_data_size == 2U);
+    require(headers[0].flags == 0xE000U);
+    require(headers[0].has_private_point_numbers());
+    require(coordinates ==
+        std::array<std::int16_t, 6U>{0, -8192, 8192, -4096, 16384, 0});
+    const std::array<std::int16_t, 2U> rising{4096, -4096};
+    require(sfnt_gvar_tuple_data::calculate_scalar(rising, coordinates) ==
+        0.5F);
+    const std::array<std::int16_t, 2U> falling{8192, -2048};
+    require(sfnt_gvar_tuple_data::calculate_scalar(falling, coordinates) ==
+        0.5F);
+    const std::array<std::int16_t, 2U> outside{8192, 4096};
+    require(sfnt_gvar_tuple_data::calculate_scalar(outside, coordinates) ==
+        0.0F);
 }
 
 void borrowed_sfnt_view_reads_tables_metrics_and_cmap() {
@@ -1172,6 +1260,51 @@ void production_inter_variable_font_matches_fvar_axes() {
     require(glyph_variation.tuple_count == 5U);
     require(glyph_variation.serialized_data_offset == 24U);
     require(glyph_variation.has_shared_point_numbers);
+    sfnt_gvar_tuple_requirements tuple_requirements{};
+    require(font.try_get_glyph_variation_tuple_requirements(
+        397U, tuple_requirements));
+    require(tuple_requirements.tuple_count == 5U);
+    require(tuple_requirements.region_coordinate_count == 30U);
+    std::array<sfnt_gvar_tuple_header, 4U> short_headers{};
+    std::array<std::int16_t, 30U> tuple_coordinates{};
+    std::uint16_t headers_written = 99U;
+    std::uint32_t coordinates_written = 99U;
+    require(!font.try_decode_glyph_variation_tuple_headers(
+        397U,
+        short_headers,
+        tuple_coordinates,
+        headers_written,
+        coordinates_written));
+    require(headers_written == 0U && coordinates_written == 0U);
+    std::array<sfnt_gvar_tuple_header, 5U> tuple_headers{};
+    require(font.try_decode_glyph_variation_tuple_headers(
+        397U,
+        tuple_headers,
+        tuple_coordinates,
+        headers_written,
+        coordinates_written));
+    require(headers_written == 5U && coordinates_written == 30U);
+    require(tuple_headers[0].serialized_data_size == 108U);
+    require(tuple_headers[0].flags == 0U);
+    require(tuple_headers[0].region_coordinate_offset == 0U);
+    require(!tuple_headers[0].has_private_point_numbers());
+    require(tuple_coordinates[0] == 0 && tuple_coordinates[1] == 0);
+    require(tuple_coordinates[2] == 16384 && tuple_coordinates[3] == 0);
+    require(tuple_coordinates[4] == 16384 && tuple_coordinates[5] == 0);
+    require(tuple_headers[1].serialized_data_size == 111U);
+    require(tuple_headers[1].flags == 4U);
+    require(tuple_headers[4].serialized_data_size == 107U);
+    require(tuple_headers[4].flags == 1U);
+    const std::array<std::int16_t, 2U> half_opsz{8192, 0};
+    require(sfnt_gvar_tuple_data::calculate_scalar(
+        half_opsz,
+        std::span<const std::int16_t>(tuple_coordinates).first(6U)) ==
+        0.5F);
+    const std::array<std::int16_t, 2U> outside_opsz{-8192, 0};
+    require(sfnt_gvar_tuple_data::calculate_scalar(
+        outside_opsz,
+        std::span<const std::int16_t>(tuple_coordinates).first(6U)) ==
+        0.0F);
     sfnt_packed_point_requirements shared_points{};
     require(sfnt_packed_variation_data::try_get_point_requirements(
         glyph_variation.bytes.subspan(
@@ -1191,6 +1324,7 @@ int main() {
     variation_axes_are_borrowed_bounded_and_transactional();
     variation_coordinates_apply_bounded_avar_mapping();
     packed_variation_streams_are_transactional_and_exact();
+    glyph_variation_tuple_headers_are_bounded_and_exact();
     collection_and_failure_paths_are_bounded();
     table_directory_preserves_managed_duplicate_and_bounds_rules();
     simple_glyph_repeat_composite_and_malformed_paths_are_explicit();

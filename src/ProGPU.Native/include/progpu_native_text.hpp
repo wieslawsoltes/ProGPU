@@ -186,6 +186,32 @@ struct sfnt_packed_delta_requirements final {
     std::size_t bytes_consumed = 0U;
 };
 
+struct sfnt_gvar_tuple_requirements final {
+    std::uint16_t tuple_count = 0U;
+    std::uint32_t region_coordinate_count = 0U;
+};
+
+/*
+ * Each header indexes a caller-owned coordinate block laid out as contiguous
+ * start[A], peak[A], end[A] F2Dot14 arrays for A variation axes.
+ */
+struct sfnt_gvar_tuple_header final {
+    std::uint32_t region_coordinate_offset = 0U;
+    std::uint16_t serialized_data_size = 0U;
+    std::uint16_t flags = 0U;
+
+    bool has_private_point_numbers() const noexcept {
+        return (flags & 0x2000U) != 0U;
+    }
+};
+
+class sfnt_gvar_tuple_data final {
+public:
+    static float calculate_scalar(
+        std::span<const std::int16_t> normalized_coordinates,
+        std::span<const std::int16_t> region_coordinates) noexcept;
+};
+
 /*
  * Transactional two-pass decoders for gvar packed point and delta streams.
  * Each pass is O(N) time with O(1) internal storage for N encoded values. The
@@ -340,6 +366,17 @@ public:
         std::uint16_t tuple_index,
         std::span<std::int16_t> coordinates,
         std::uint16_t& written,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_glyph_variation_tuple_requirements(
+        std::uint16_t glyph_index,
+        sfnt_gvar_tuple_requirements& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_decode_glyph_variation_tuple_headers(
+        std::uint16_t glyph_index,
+        std::span<sfnt_gvar_tuple_header> headers,
+        std::span<std::int16_t> region_coordinates,
+        std::uint16_t& headers_written,
+        std::uint32_t& coordinates_written,
         font_error* error = nullptr) const noexcept;
 
     std::span<const std::byte> data() const noexcept;

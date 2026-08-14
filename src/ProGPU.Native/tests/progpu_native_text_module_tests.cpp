@@ -18,6 +18,7 @@ int main() {
     const progpu::native::text::sfnt_expanded_glyph_requirements expanded{};
     const progpu::native::text::sfnt_variation_axis axis{};
     const progpu::native::text::sfnt_gvar_header gvar{};
+    const progpu::native::text::sfnt_gvar_tuple_header gvar_tuple{};
     const progpu::native::text::sfnt_packed_point_requirements packed{};
     if (component.m00 != 1.0F || component.m11 != 1.0F) {
         return 1;
@@ -28,7 +29,8 @@ int main() {
     if (axis.minimum() != 0.0F || axis.hidden()) {
         return 1;
     }
-    if (gvar.axis_count != 0U || packed.point_count != 0U) {
+    if (gvar.axis_count != 0U || gvar_tuple.flags != 0U ||
+        packed.point_count != 0U) {
         return 1;
     }
     unsigned int written = 0U;
