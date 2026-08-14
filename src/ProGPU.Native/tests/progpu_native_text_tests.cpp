@@ -29,6 +29,8 @@ using progpu::native::text::sfnt_cff1_top_dictionary;
 using progpu::native::text::sfnt_bitmap_glyph_data_view;
 using progpu::native::text::sfnt_color_glyph_layer;
 using progpu::native::text::sfnt_svg_glyph_document_view;
+using progpu::native::text::try_decode_svg_glyph_document;
+using progpu::native::text::try_get_svg_glyph_document_size;
 using progpu::native::text::sfnt_expanded_glyph_requirements;
 using progpu::native::text::sfnt_font_view;
 using progpu::native::text::sfnt_glyph_data_view;
@@ -313,10 +315,20 @@ std::vector<std::byte> make_svg_glyph_table(bool gzip) {
     const std::array<std::byte, 6U> plain{
         std::byte{0x3CU}, std::byte{0x73U}, std::byte{0x76U},
         std::byte{0x67U}, std::byte{0x2FU}, std::byte{0x3EU}};
-    const std::array<std::byte, 6U> compressed{
+    const std::array<std::byte, 26U> compressed{
         std::byte{0x1FU}, std::byte{0x8BU}, std::byte{0x08U},
-        std::byte{0x00U}, std::byte{0x01U}, std::byte{0x02U}};
-    std::vector<std::byte> result(24U + plain.size());
+        std::byte{0x00U}, std::byte{0x9CU}, std::byte{0x67U},
+        std::byte{0x7FU}, std::byte{0x6AU}, std::byte{0x00U},
+        std::byte{0x03U}, std::byte{0xB3U}, std::byte{0x29U},
+        std::byte{0x2EU}, std::byte{0x4BU}, std::byte{0xD7U},
+        std::byte{0xB7U}, std::byte{0x03U}, std::byte{0x00U},
+        std::byte{0x49U}, std::byte{0xFBU}, std::byte{0xB9U},
+        std::byte{0xACU}, std::byte{0x06U}, std::byte{0x00U},
+        std::byte{0x00U}, std::byte{0x00U}};
+    const std::span<const std::byte> document = gzip
+        ? std::span<const std::byte>(compressed)
+        : std::span<const std::byte>(plain);
+    std::vector<std::byte> result(24U + document.size());
     write_u16(result, 0U, 0U);
     write_u32(result, 2U, 10U);
     write_u32(result, 6U, 0U);
@@ -324,8 +336,7 @@ std::vector<std::byte> make_svg_glyph_table(bool gzip) {
     write_u16(result, 12U, 1U);
     write_u16(result, 14U, 2U);
     write_u32(result, 16U, 14U);
-    write_u32(result, 20U, static_cast<std::uint32_t>(plain.size()));
-    const auto& document = gzip ? compressed : plain;
+    write_u32(result, 20U, static_cast<std::uint32_t>(document.size()));
     std::copy(document.begin(), document.end(), result.begin() + 24);
     return result;
 }
@@ -1890,9 +1901,26 @@ void svg_glyph_documents_remain_borrowed_and_bounded() {
         sfnt_svg_glyph_document_view document{};
         font_error error = font_error::none;
         require(font.try_get_svg_glyph_document(1U, document, &error));
-        require(error == font_error::none && document.bytes.size() == 6U);
+        require(error == font_error::none &&
+            document.bytes.size() == (gzip ? 26U : 6U));
         require(document.first_glyph == 1U && document.last_glyph == 2U);
         require(document.gzip_compressed == gzip);
+        std::size_t document_size = 0U;
+        require(try_get_svg_glyph_document_size(
+            document, document_size, &error));
+        require(document_size == 6U && error == font_error::none);
+        std::array<std::byte, 6U> decoded{};
+        std::size_t written = 0U;
+        require(try_decode_svg_glyph_document(
+            document, decoded, written, &error));
+        require(written == decoded.size() &&
+            decoded == std::array{
+                std::byte{0x3CU}, std::byte{0x73U}, std::byte{0x76U},
+                std::byte{0x67U}, std::byte{0x2FU}, std::byte{0x3EU}});
+        std::array<std::byte, 5U> short_output{};
+        require(!try_decode_svg_glyph_document(
+            document, short_output, written, &error));
+        require(error == font_error::insufficient_buffer && written == 0U);
         require(!font.try_get_svg_glyph_document(3U, document, &error));
         require(error == font_error::invalid_glyph && document.bytes.empty());
     }

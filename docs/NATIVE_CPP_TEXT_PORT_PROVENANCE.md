@@ -341,7 +341,33 @@ Apple Clang, LLVM named-module, ASan/UBSan, and Emscripten compilation plus the
 shared Emdawnwebgpu/Chromium runtime contract cover all three block types,
 history overlap, malformed headers, trailing data, short output, and checksum
 failure. PNG chunk/filter conversion and SVG gzip framing remain separate
-bounded slices.
+bounded consumers.
+
+The compression module also implements the
+[RFC 1952](https://www.rfc-editor.org/info/rfc1952/) single-member gzip framing
+required by OpenType SVG glyph documents. It validates optional extra, name,
+comment, and header-CRC fields, then checks payload CRC-32 and `ISIZE` around
+the same caller-buffer DEFLATE engine. `sfnt_svg_glyph_document_view` stays
+borrowed; its typed decoder either copies plain XML or inflates gzip into the
+caller span without a heap allocation or platform codec dependency. Framing is
+`O(I + O)` time and `O(1)` internal storage, with short output, malformed
+headers, DEFLATE errors, and checksum failures reported explicitly.
+
+The next bounded slice ports ProGPU's managed PNG ownership and pixel contract
+into the standalone `progpu_native_image` C++20 library while deriving the wire
+format exclusively from [W3C PNG Third Edition](https://www.w3.org/TR/png-3/).
+It validates signature, critical-chunk order, CRC-32, palette/transparency
+metadata, consecutive `IDAT` payloads, and the exact zlib result before writing
+straight RGBA8. The current explicit profile covers non-interlaced 8-bit
+grayscale, RGB, indexed, grayscale-alpha, and RGBA plus filters 0–4. Parsing and
+decode are `O(C + B + W*H)` time with caller-owned compressed, filtered, and
+RGBA spans and `O(1)` internal state. Unknown critical chunks, malformed
+palette indices, unsupported depth/interlace, CRC/Adler failures, and short
+buffers fail transactionally. Normal Apple Clang warnings-as-errors, LLVM named
+modules, ASan/UBSan, and a real Emscripten/Emdawnwebgpu/Chromium execution gate
+exercise this same library. Sub-byte/16-bit samples and Adam7 remain explicit
+follow-up work; the implementation does not label the current subset as full
+PNG parity.
 
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,

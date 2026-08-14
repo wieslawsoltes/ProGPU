@@ -1,7 +1,9 @@
 #include "progpu_native_text.hpp"
 
+#include "progpu_native_compression.hpp"
 #include "progpu_native_font_bytes.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 
@@ -25,6 +27,64 @@ void set_error(font_error* destination, font_error value) noexcept {
 }
 
 } // namespace
+
+bool try_get_svg_glyph_document_size(
+    const sfnt_svg_glyph_document_view& document,
+    std::size_t& result,
+    font_error* error) noexcept {
+    result = 0U;
+    set_error(error, font_error::none);
+    if (document.bytes.empty()) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    if (!document.gzip_compressed) {
+        result = document.bytes.size();
+        return true;
+    }
+    compression::compression_error compression_error{};
+    if (!compression::try_get_gzip_uncompressed_size(
+            document.bytes, result, &compression_error)) {
+        set_error(error, font_error::invalid_glyph);
+        result = 0U;
+        return false;
+    }
+    return true;
+}
+
+bool try_decode_svg_glyph_document(
+    const sfnt_svg_glyph_document_view& document,
+    std::span<std::byte> output,
+    std::size_t& written,
+    font_error* error) noexcept {
+    written = 0U;
+    set_error(error, font_error::none);
+    if (document.bytes.empty()) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    if (!document.gzip_compressed) {
+        if (output.size() < document.bytes.size()) {
+            set_error(error, font_error::insufficient_buffer);
+            return false;
+        }
+        std::copy(document.bytes.begin(), document.bytes.end(), output.begin());
+        written = document.bytes.size();
+        return true;
+    }
+    compression::compression_error compression_error{};
+    if (!compression::try_inflate_gzip(
+            document.bytes, output, written, &compression_error)) {
+        set_error(error,
+            compression_error ==
+                    compression::compression_error::insufficient_buffer
+                ? font_error::insufficient_buffer
+                : font_error::invalid_glyph);
+        written = 0U;
+        return false;
+    }
+    return true;
+}
 
 bool sfnt_font_view::try_get_svg_glyph_document(
     std::uint16_t glyph_index,

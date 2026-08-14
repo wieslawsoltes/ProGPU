@@ -357,6 +357,17 @@ struct sfnt_svg_glyph_document_view final {
     bool gzip_compressed = false;
 };
 
+bool try_decode_svg_glyph_document(
+    const sfnt_svg_glyph_document_view& document,
+    std::span<std::byte> output,
+    std::size_t& written,
+    font_error* error = nullptr) noexcept;
+
+bool try_get_svg_glyph_document_size(
+    const sfnt_svg_glyph_document_view& document,
+    std::size_t& result,
+    font_error* error = nullptr) noexcept;
+
 struct sfnt_color_rgba8 final {
     std::uint8_t red = 255U;
     std::uint8_t green = 255U;

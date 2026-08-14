@@ -21,6 +21,17 @@ bool try_inflate_zlib(
     std::size_t& written,
     compression_error* error = nullptr) noexcept;
 
+bool try_inflate_gzip(
+    std::span<const std::byte> input,
+    std::span<std::byte> output,
+    std::size_t& written,
+    compression_error* error = nullptr) noexcept;
+
+bool try_get_gzip_uncompressed_size(
+    std::span<const std::byte> input,
+    std::size_t& result,
+    compression_error* error = nullptr) noexcept;
+
 } // namespace progpu::native::compression
 
 #endif

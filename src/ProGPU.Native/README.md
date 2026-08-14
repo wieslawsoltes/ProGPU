@@ -56,7 +56,11 @@ steps in about 53 seconds while repeated D3D12 process cold starts extended the
 win-x64 job to about 31 minutes. The bounded profile removes 34 of those 44
 benchmark process starts without removing native tests, ABI/export checks,
 package staging, the D3D12 sample, managed/native image comparison, or any
-semantic resource/effect family. This avoids
+semantic resource/effect family. Exact-head Build run 31830534644 confirms the
+result: win-x64 fell from 36m40s on exhaustive run 31807899721 to 9m53s
+(`-73.0%`), and win-arm64 fell from 42m08s to 12m54s (`-69.4%`). The broad
+Windows managed job also fell from 19m08s to 18m10s after building each harness
+once (`-5.1%`). This avoids
 compiling the same renderer twice in the compatibility lane without removing a
 compiler, ABI, runtime, or package gate. Module-capable LLVM Clang/Ninja builds additionally expose and test
 `import progpu.native.scene_builder;` through a CMake `CXX_MODULES` file set.
@@ -192,13 +196,30 @@ header checks, and Adler-32 validation without heap allocation or a platform
 compression dependency. The output span is the explicit memory bound; invalid
 headers, truncated/oversubscribed streams, invalid distances, trailing bytes,
 short output, and checksum mismatches fail explicitly. PNG scanline filtering
-and SVG gzip framing remain the next consumers rather than being folded into
-the compression layer.
+and SVG gzip framing remain separate consumers rather than being folded into
+the zlib decoder. The same compression module now exposes a bounded RFC 1952
+single-member gzip decoder with optional extra/name/comment/header-CRC parsing,
+payload CRC-32 and output-size validation. OpenType SVG document views use that
+path directly; uncompressed SVG remains a bounded caller-buffer copy.
+
+The first consumer is the standalone `progpu_native_image` C++20 library and
+`progpu.native.image` module. Its dependency-free PNG path validates the
+signature, ordered critical chunks, per-chunk CRC-32, palette/transparency
+metadata, consecutive `IDAT` payloads, zlib checksum, and exact caller buffer
+requirements before producing pixels. The current bounded profile accepts
+non-interlaced 8-bit grayscale, RGB, indexed, grayscale-alpha, and RGBA images,
+reconstructs all five standard PNG filters in place, and emits straight RGBA8.
+Parsing and decode are `O(C + B + W*H)` for chunks `C`, encoded bytes `B`, and
+pixels `W*H`; all compressed, filtered, and output storage is caller-owned.
+Malformed input, unsupported bit depth/interlace, short scratch, palette index,
+and checksum failures are explicit, and the RGBA destination is unchanged on
+failure. Lower bit depths, 16-bit conversion, and Adam7 remain tracked PNG
+parity work rather than silent approximations.
 
 WOFF1/WOFF2 are rejected explicitly until the native container-normalization
 slice lands. C++ clients can use the header surfaces or, on the supported LLVM
-configuration, `import progpu.native.text;` and
-`import progpu.native.compression;`.
+configuration, `import progpu.native.text;`,
+`import progpu.native.compression;`, or `import progpu.native.image;`.
 Additional renderer domains will move behind similarly typed internal modules
 as their ownership seams are stabilized; no module exports backend descriptor
 layouts.

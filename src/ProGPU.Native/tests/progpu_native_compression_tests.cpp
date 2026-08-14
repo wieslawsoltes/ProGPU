@@ -3,13 +3,17 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <span>
 #include <string_view>
+#include <vector>
 
 namespace {
 
 using progpu::native::compression::compression_error;
+using progpu::native::compression::try_get_gzip_uncompressed_size;
+using progpu::native::compression::try_inflate_gzip;
 using progpu::native::compression::try_inflate_zlib;
 
 void require(bool condition) {
@@ -115,11 +119,94 @@ void stored_blocks_and_failures_are_bounded() {
     require(error == compression_error::checksum_mismatch && written == 0U);
 }
 
+std::uint32_t crc32(std::span<const std::byte> bytes) {
+    auto crc = 0xFFFFFFFFU;
+    for (const auto value : bytes) {
+        crc ^= std::to_integer<std::uint8_t>(value);
+        for (std::uint32_t bit = 0U; bit < 8U; ++bit) {
+            const auto mask = 0U - (crc & 1U);
+            crc = (crc >> 1U) ^ (0xEDB88320U & mask);
+        }
+    }
+    return crc ^ 0xFFFFFFFFU;
+}
+
+void append_u16_le(std::vector<std::byte>& bytes, std::uint16_t value) {
+    bytes.push_back(static_cast<std::byte>(value));
+    bytes.push_back(static_cast<std::byte>(value >> 8U));
+}
+
+void append_u32_le(std::vector<std::byte>& bytes, std::uint32_t value) {
+    append_u16_le(bytes, static_cast<std::uint16_t>(value));
+    append_u16_le(bytes, static_cast<std::uint16_t>(value >> 16U));
+}
+
+std::vector<std::byte> make_gzip(std::span<const std::byte> payload) {
+    require(payload.size() <= 65535U);
+    std::vector<std::byte> result{
+        std::byte{0x1FU}, std::byte{0x8BU}, std::byte{8U},
+        std::byte{0x1EU}, std::byte{0U}, std::byte{0U}, std::byte{0U},
+        std::byte{0U}, std::byte{0U}, std::byte{255U}};
+    append_u16_le(result, 2U);
+    result.push_back(std::byte{0xCAU});
+    result.push_back(std::byte{0xFEU});
+    constexpr std::string_view name = "glyph.svg";
+    for (const auto value : name) {
+        result.push_back(static_cast<std::byte>(value));
+    }
+    result.push_back(std::byte{0U});
+    constexpr std::string_view comment = "ProGPU";
+    for (const auto value : comment) {
+        result.push_back(static_cast<std::byte>(value));
+    }
+    result.push_back(std::byte{0U});
+    append_u16_le(result,
+        static_cast<std::uint16_t>(crc32(result)));
+    result.push_back(std::byte{1U});
+    const auto length = static_cast<std::uint16_t>(payload.size());
+    append_u16_le(result, length);
+    append_u16_le(result, static_cast<std::uint16_t>(~length));
+    result.insert(result.end(), payload.begin(), payload.end());
+    append_u32_le(result, crc32(payload));
+    append_u32_le(result, static_cast<std::uint32_t>(payload.size()));
+    return result;
+}
+
+void gzip_optional_fields_and_failures_are_bounded() {
+    constexpr std::string_view expected = "svg-gzip";
+    std::array<std::byte, expected.size()> payload{};
+    for (std::size_t index = 0U; index < expected.size(); ++index) {
+        payload[index] = static_cast<std::byte>(expected[index]);
+    }
+    auto encoded = make_gzip(payload);
+    std::array<std::byte, expected.size()> output{};
+    std::size_t written = 0U;
+    compression_error error = compression_error::invalid_stream;
+    std::size_t expected_size = 0U;
+    require(try_get_gzip_uncompressed_size(
+        encoded, expected_size, &error));
+    require(error == compression_error::none &&
+        expected_size == expected.size());
+    require(try_inflate_gzip(encoded, output, written, &error));
+    require(error == compression_error::none && written == output.size());
+    require(output == payload);
+
+    std::array<std::byte, expected.size() - 1U> short_output{};
+    require(!try_inflate_gzip(
+        encoded, short_output, written, &error));
+    require(error == compression_error::insufficient_buffer && written == 0U);
+
+    encoded[31U] ^= std::byte{1U};
+    require(!try_inflate_gzip(encoded, output, written, &error));
+    require(error == compression_error::checksum_mismatch && written == 0U);
+}
+
 } // namespace
 
 int main() {
     fixed_huffman_and_overlapping_history_decode();
     dynamic_huffman_decodes_exact_payload();
     stored_blocks_and_failures_are_bounded();
+    gzip_optional_fields_and_failures_are_bounded();
     return 0;
 }

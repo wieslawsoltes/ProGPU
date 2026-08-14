@@ -405,6 +405,7 @@ add_library(progpu_native_compression STATIC
     src/progpu_native_deflate.cpp
     src/progpu_native_deflate_huffman.cpp
     src/progpu_native_deflate_internal.hpp
+    src/progpu_native_gzip.cpp
     src/progpu_native_zlib.cpp
     include/progpu_native_compression.hpp)
 target_compile_features(progpu_native_compression PUBLIC cxx_std_20)
@@ -418,6 +419,27 @@ if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
 endif()
 progpu_native_enable_warnings(progpu_native_compression)
 progpu_native_enable_sanitizers(progpu_native_compression)
+
+add_library(progpu_native_image STATIC
+    src/progpu_native_png.cpp
+    src/progpu_native_png_crc.cpp
+    src/progpu_native_png_filter.cpp
+    src/progpu_native_png_pixels.cpp
+    src/progpu_native_png_internal.hpp
+    include/progpu_native_image.hpp)
+target_compile_features(progpu_native_image PUBLIC cxx_std_20)
+target_include_directories(progpu_native_image
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(progpu_native_image PUBLIC progpu_native_compression)
+if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
+    target_sources(progpu_native_image
+        PUBLIC
+        FILE_SET CXX_MODULES
+        FILES src/progpu_native_image.cppm)
+endif()
+progpu_native_enable_warnings(progpu_native_image)
+progpu_native_enable_sanitizers(progpu_native_image)
 
 add_library(progpu_native_text STATIC
     src/progpu_native_font_variations.cpp
@@ -465,6 +487,7 @@ add_library(progpu_native_text STATIC
 target_compile_features(progpu_native_text PUBLIC cxx_std_20)
 target_include_directories(progpu_native_text
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_link_libraries(progpu_native_text PUBLIC progpu_native_compression)
 if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
     target_sources(progpu_native_text
         PUBLIC
@@ -682,6 +705,7 @@ if(EMSCRIPTEN)
         "${CMAKE_CURRENT_SOURCE_DIR}/tests"
         "${generated_directory}")
     target_link_libraries(progpu_native_browser_smoke PRIVATE
+        progpu_native_image
         progpu_native_scene_builder
         progpu_native_text)
     target_compile_options(progpu_native_browser_smoke PRIVATE
@@ -733,6 +757,22 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
             progpu_native_compression_module_tests
             PROPERTIES TIMEOUT 60)
 
+        add_executable(progpu_native_image_module_tests
+            tests/progpu_native_image_module_tests.cpp)
+        target_link_libraries(
+            progpu_native_image_module_tests
+            PRIVATE progpu_native_image)
+        progpu_native_enable_warnings(
+            progpu_native_image_module_tests)
+        progpu_native_enable_sanitizers(
+            progpu_native_image_module_tests)
+        add_test(
+            NAME progpu_native_image_module_tests
+            COMMAND progpu_native_image_module_tests)
+        set_tests_properties(
+            progpu_native_image_module_tests
+            PROPERTIES TIMEOUT 60)
+
         add_executable(progpu_native_scene_builder_module_tests
             tests/progpu_native_scene_builder_module_tests.cpp)
         target_link_libraries(
@@ -777,6 +817,18 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         COMMAND progpu_native_compression_tests)
     set_tests_properties(
         progpu_native_compression_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_image_tests
+        tests/progpu_native_image_tests.cpp)
+    target_link_libraries(progpu_native_image_tests PRIVATE
+        progpu_native_image)
+    progpu_native_enable_warnings(progpu_native_image_tests)
+    progpu_native_enable_sanitizers(progpu_native_image_tests)
+    add_test(
+        NAME progpu_native_image_tests
+        COMMAND progpu_native_image_tests)
+    set_tests_properties(
+        progpu_native_image_tests PROPERTIES TIMEOUT 60)
 
     add_executable(progpu_native_text_tests
         tests/progpu_native_text_tests.cpp)

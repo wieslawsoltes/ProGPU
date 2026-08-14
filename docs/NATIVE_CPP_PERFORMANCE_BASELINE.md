@@ -2533,3 +2533,17 @@ does not include the newly added pinned-source/NuGet dependency cache benefit.
 The new run configured in `17.3s` and passed all three native test executables;
 the improvement comes from removing duplicate compilation/integration work,
 not from weakening compiler or runtime coverage.
+
+The later exact-head Build run
+[31830534644](https://github.com/wieslawsoltes/ProGPU/actions/runs/31830534644)
+measures the bounded Windows D3D12 profile itself. Against successful exhaustive
+run 31807899721, win-x64 fell from `36m40s` to `9m53s`, a `26m47s` or `73.0%`
+reduction; win-arm64 fell from `42m08s` to `12m54s`, a `29m14s` or `69.4%`
+reduction. The broad Windows managed job fell from `19m08s` to `18m10s`, a
+`58s` or `5.1%` reduction, after its two managed harnesses changed from repeated
+project launches to one build plus direct DLL execution. The optimized run kept
+MSVC and GCC warnings-as-errors gates, ClangCL native tests, ABI/export checks,
+package staging, D3D12 samples, managed/native image comparison, and ten
+representative resource/effect cases. The exhaustive 44-case profile remains a
+local/manual qualification command, while Linux and macOS retain the exhaustive
+automated semantic-family coverage.

@@ -53,6 +53,8 @@ try {
       document.body.dataset.progpuNativeSemanticGeometry,
     nativeSceneBuilder:
       document.body.dataset.progpuNativeSceneBuilder,
+    nativePngDecode:
+      document.body.dataset.progpuNativePngDecode,
     incrementalUpdate:
       document.body.dataset.progpuNativeIncrementalUpdate,
     deviceRecovery: document.body.dataset.progpuNativeDeviceRecovery,
@@ -73,6 +75,7 @@ try {
     stateMaskMedia: "passed",
     semanticGeometry: "passed",
     nativeSceneBuilder: "passed",
+    nativePngDecode: "passed",
     incrementalUpdate: "passed",
     deviceRecovery: "passed",
     error: ""

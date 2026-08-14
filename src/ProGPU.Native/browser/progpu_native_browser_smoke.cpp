@@ -1,6 +1,7 @@
 #include "progpu_native_browser.h"
 #include "progpu_native_browser_evidence.hpp"
 #include "progpu_native_geometry_base.hpp"
+#include "progpu_native_image.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_semantic_backdrop_scene.hpp"
 #include "progpu_native_semantic_color_glyph_scene.hpp"
@@ -37,6 +38,40 @@ struct browser_resources final {
 };
 
 browser_resources resources{};
+
+bool verify_native_png_decode() {
+    constexpr std::array png{
+        std::byte{0x89U}, std::byte{0x50U}, std::byte{0x4eU}, std::byte{0x47U},
+        std::byte{0x0dU}, std::byte{0x0aU}, std::byte{0x1aU}, std::byte{0x0aU},
+        std::byte{0x00U}, std::byte{0x00U}, std::byte{0x00U}, std::byte{0x0dU},
+        std::byte{0x49U}, std::byte{0x48U}, std::byte{0x44U}, std::byte{0x52U},
+        std::byte{0x00U}, std::byte{0x00U}, std::byte{0x00U}, std::byte{0x01U},
+        std::byte{0x00U}, std::byte{0x00U}, std::byte{0x00U}, std::byte{0x01U},
+        std::byte{0x08U}, std::byte{0x06U}, std::byte{0x00U}, std::byte{0x00U},
+        std::byte{0x00U}, std::byte{0x1fU}, std::byte{0x15U}, std::byte{0xc4U},
+        std::byte{0x89U}, std::byte{0x00U}, std::byte{0x00U}, std::byte{0x00U},
+        std::byte{0x0dU}, std::byte{0x49U}, std::byte{0x44U}, std::byte{0x41U},
+        std::byte{0x54U}, std::byte{0x78U}, std::byte{0x01U}, std::byte{0x63U},
+        std::byte{0xe0U}, std::byte{0x12U}, std::byte{0x91U}, std::byte{0xd3U},
+        std::byte{0x00U}, std::byte{0x00U}, std::byte{0x00U}, std::byte{0xcdU},
+        std::byte{0x00U}, std::byte{0x65U}, std::byte{0x98U}, std::byte{0xe9U},
+        std::byte{0x07U}, std::byte{0xb0U}, std::byte{0x00U}, std::byte{0x00U},
+        std::byte{0x00U}, std::byte{0x00U}, std::byte{0x49U}, std::byte{0x45U},
+        std::byte{0x4eU}, std::byte{0x44U}, std::byte{0xaeU}, std::byte{0x42U},
+        std::byte{0x60U}, std::byte{0x82U}};
+    std::array<std::byte, 13U> compressed{};
+    std::array<std::byte, 5U> filtered{};
+    std::array<std::byte, 4U> rgba{};
+    progpu::native::image::png_decode_requirements requirements{};
+    progpu::native::image::image_error error{};
+    return progpu::native::image::try_decode_png_rgba(
+            png, compressed, filtered, rgba, requirements, &error) &&
+        requirements.width == 1U && requirements.height == 1U &&
+        requirements.color_type == 6U &&
+        rgba == std::array{
+            std::byte{10U}, std::byte{20U},
+            std::byte{30U}, std::byte{40U}};
+}
 
 [[noreturn]] void fail(const char* message) {
     std::fprintf(stderr, "ProGPU browser smoke failed: %s\n", message);
@@ -79,6 +114,7 @@ bool finish_evidence_frame(double, void*) {
         document.body.dataset.progpuNativeStateMaskMedia = "passed";
         document.body.dataset.progpuNativeSemanticGeometry = "passed";
         document.body.dataset.progpuNativeSceneBuilder = "passed";
+        document.body.dataset.progpuNativePngDecode = "passed";
         document.body.dataset.progpuNativeIncrementalUpdate = "passed";
         document.body.dataset.progpuNativeDeviceRecovery = "passed";
         document.body.dataset.progpuNativeEvidenceTarget =
@@ -1151,6 +1187,9 @@ bool render_browser_frame(double, void*) {
 } // namespace
 
 int main() {
+    if (!verify_native_png_decode()) {
+        fail("The dependency-free native PNG decoder contract is invalid.");
+    }
     progpu_native_engine_info info{};
     info.struct_size = sizeof(info);
     if (progpu_native_get_info(&info) == 0U ||
