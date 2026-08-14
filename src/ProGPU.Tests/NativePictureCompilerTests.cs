@@ -417,6 +417,127 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerCoalescesRetainedPathFillsAndPreservesSegments()
+    {
+        var firstPath = new PathGeometry();
+        var firstFigure = new PathFigure(new Vector2(4f, 5f), isClosed: true);
+        firstFigure.Segments.Add(new LineSegment(new Vector2(28f, 5f)));
+        firstFigure.Segments.Add(new QuadraticBezierSegment(
+            new Vector2(36f, 18f),
+            new Vector2(24f, 30f)));
+        firstFigure.Segments.Add(new CubicBezierSegment(
+            new Vector2(18f, 34f),
+            new Vector2(8f, 28f),
+            new Vector2(4f, 18f)));
+        firstPath.Figures.Add(firstFigure);
+
+        var secondPath = new PathGeometry { FillRule = FillRule.EvenOdd };
+        var secondFigure = new PathFigure(new Vector2(44f, 21f), isClosed: true);
+        secondFigure.Segments.Add(new LineSegment(new Vector2(58f, 8f)));
+        secondFigure.Segments.Add(new ArcSegment(
+            new Vector2(72f, 21f),
+            new Vector2(14f, 14f),
+            0f,
+            isLargeArc: false,
+            SweepDirection.Clockwise));
+        secondPath.Figures.Add(secondFigure);
+
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(
+            new Rect(0f, 0f, 96f, 64f));
+        drawing.DrawPath(
+            new SolidColorBrush(new Vector4(0.8f, 0.2f, 0.1f, 1f)),
+            null,
+            firstPath,
+            Matrix4x4.CreateTranslation(2f, 3f, 0f));
+        drawing.DrawPath(
+            new LinearGradientBrush(
+                new Vector2(44f, 8f),
+                new Vector2(72f, 34f),
+                [
+                    new GradientStop(Vector4.One, 0f),
+                    new GradientStop(new Vector4(0f, 0f, 1f, 1f), 1f)
+                ]),
+            null,
+            secondPath);
+        using GpuPicture picture = recorder.EndRecording();
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            95U,
+            7U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(2, compiled.SourceCommandCount);
+        Assert.Equal(1, compiled.NativeCommandCount);
+        Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(2, compiled.PathCount);
+        Assert.Equal(7, compiled.PathSegmentCount);
+        Assert.Equal(0, compiled.VertexMeshCount);
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            compiled.Stream.Slice(checked((int)header.ResourceOffset)));
+        Assert.Equal(NativeSceneResourceKind.PathBatch, resource.Kind);
+        ReadOnlySpan<NativeScenePathFill> paths =
+            MemoryMarshal.Cast<byte, NativeScenePathFill>(
+                compiled.Stream.Slice(
+                    checked((int)resource.PayloadOffset),
+                    checked((int)resource.PayloadSize)));
+        Assert.Equal(2, paths.Length);
+        Assert.Equal(0UL, paths[0].SegmentOffset);
+        Assert.Equal(4UL, paths[0].SegmentCount);
+        Assert.Equal(new Vector2(2f, 3f), new Vector2(
+            paths[0].Transform.M31,
+            paths[0].Transform.M32));
+        Assert.Equal(4UL, paths[1].SegmentOffset);
+        Assert.Equal(3UL, paths[1].SegmentCount);
+        Assert.Equal(NativeFillRule.EvenOdd, paths[1].FillRule);
+        Assert.Equal(4U, paths[1].SampleGrid);
+
+        ReadOnlySpan<NativePathSegment> segments =
+            MemoryMarshal.Cast<byte, NativePathSegment>(
+                compiled.Stream.Slice(
+                    checked((int)resource.AuxiliaryOffset),
+                    checked((int)resource.AuxiliarySize)));
+        Assert.Equal(NativePathSegmentKind.Line, segments[0].Kind);
+        Assert.Equal(NativePathSegmentKind.Quadratic, segments[1].Kind);
+        Assert.Equal(NativePathSegmentKind.Cubic, segments[2].Kind);
+        Assert.Equal(new Vector2(4f, 5f), segments[3].P1);
+        Assert.Equal(NativePathSegmentKind.Arc, segments[5].Kind);
+        Assert.True(segments[5].P3.X > 0f && segments[5].P3.Y > 0f);
+    }
+
+    [Fact]
+    public void CompilerRejectsPathStrokeWithoutDroppingIt()
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(new Vector2(2f, 2f));
+        figure.Segments.Add(new LineSegment(new Vector2(20f, 20f)));
+        path.Figures.Add(figure);
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(
+            new Rect(0f, 0f, 32f, 32f));
+        drawing.DrawPath(
+            null,
+            new Pen(new SolidColorBrush(Vector4.One), 2f),
+            path);
+        using GpuPicture picture = recorder.EndRecording();
+
+        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            96U,
+            8U,
+            out _,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileError.UnsupportedStroke, failure.Error);
+        Assert.Equal(0, failure.CommandIndex);
+        Assert.Equal(RenderCommandType.DrawPath, failure.CommandType);
+    }
+
+    [Fact]
     public void CompilerLowersNestedOpacityAndAxisAlignedClipScopes()
     {
         var red = new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f));

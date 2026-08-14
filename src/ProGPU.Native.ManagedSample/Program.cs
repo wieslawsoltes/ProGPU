@@ -70,6 +70,23 @@ drawing.DrawVertexMesh(
         ],
         indices: [0, 1, 2]),
     VertexColorBlendMode.Dst);
+var path = new PathGeometry();
+var pathFigure = new PathFigure(new Vector2(575f, 54f), isClosed: true);
+pathFigure.Segments.Add(new QuadraticBezierSegment(
+    new Vector2(575f, 15f),
+    new Vector2(600f, 20f)));
+pathFigure.Segments.Add(new CubicBezierSegment(
+    new Vector2(630f, 20f),
+    new Vector2(630f, 54f),
+    new Vector2(600f, 58f)));
+pathFigure.Segments.Add(new QuadraticBezierSegment(
+    new Vector2(575f, 58f),
+    pathFigure.StartPoint));
+path.Figures.Add(pathFigure);
+drawing.DrawPath(
+    new SolidColorBrush(new Vector4(0.16f, 0.92f, 0.66f, 1f)),
+    null,
+    path);
 drawing.PushOpacity(0.75f);
 drawing.PushClip(new Rect(128f, 224f, 256f, 72f));
 drawing.DrawRectangle(
@@ -116,14 +133,16 @@ if (!GpuPictureNativeSceneCompiler.TryCompile(
         $"The managed picture compiler failed: {failure}.");
 }
 NativeSceneUpdateMetrics updateMetrics = compositor.UpdateScene(compiled.Stream);
-if (updateMetrics.CommandCount != 9U ||
-    updateMetrics.ResourceCount != 8U ||
-    updateMetrics.DrawCount != 5U ||
+if (updateMetrics.CommandCount != 10U ||
+    updateMetrics.ResourceCount != 9U ||
+    updateMetrics.DrawCount != 6U ||
     updateMetrics.MaximumStackDepth != 2U ||
-    compiled.SourceCommandCount != 11 ||
-    compiled.NativeCommandCount != 9 ||
-    compiled.NativeDrawCount != 5 ||
-    compiled.BrushCount != 7 ||
+    compiled.SourceCommandCount != 12 ||
+    compiled.NativeCommandCount != 10 ||
+    compiled.NativeDrawCount != 6 ||
+    compiled.PathCount != 1 ||
+    compiled.PathSegmentCount != 3 ||
+    compiled.BrushCount != 8 ||
     compiled.GradientStopCount != 2)
 {
     throw new InvalidOperationException(
@@ -230,6 +249,7 @@ static bool HasExpectedColors(byte[] pixels, int width)
     var roundPoint = Pixel(96, 342);
     var hairlinePoint = Pixel(448, 342);
     var meshCenter = Pixel(255, 34);
+    var pathCenter = Pixel(600, 40);
     var background = Pixel(10, 10);
     return blue[2] > 180 && blue[0] < 100 &&
         amber[0] > 180 && amber[1] > 90 &&
@@ -241,6 +261,7 @@ static bool HasExpectedColors(byte[] pixels, int width)
         roundPoint[0] > 200 && roundPoint[1] > 150 &&
         hairlinePoint[0] > 200 && hairlinePoint[2] > 120 &&
         meshCenter[0] + meshCenter[1] + meshCenter[2] > 180 &&
+        pathCenter[1] > 180 && pathCenter[2] > 120 &&
         background[0] < 30 && background[1] < 30;
 }
 

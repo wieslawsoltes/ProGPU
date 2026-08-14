@@ -195,6 +195,8 @@ internal static class ManagedPictureBenchmark
             NativeCommandCount: compiled.NativeCommandCount,
             AnalyticPrimitiveCount: compiled.AnalyticPrimitiveCount,
             GeometryPrimitiveCount: compiled.GeometryPrimitiveCount,
+            PathCount: compiled.PathCount,
+            PathSegmentCount: compiled.PathSegmentCount,
             PointBatchCount: compiled.PointBatchCount,
             PointCount: compiled.PointCount,
             VertexMeshCount: compiled.VertexMeshCount,
@@ -323,8 +325,11 @@ internal static class ManagedPictureBenchmark
         int vertexMeshCount = Math.Min(
             primitiveCount - pointBatchCount - 1,
             Math.Max(1, primitiveCount / 12));
+        int pathCount = Math.Min(
+            primitiveCount - pointBatchCount - vertexMeshCount - 1,
+            Math.Max(1, primitiveCount / 12));
         int graphicCommandCount =
-            primitiveCount - pointBatchCount - vertexMeshCount;
+            primitiveCount - pointBatchCount - vertexMeshCount - pathCount;
         int analyticCount = Math.Max(1, graphicCommandCount * 5 / 6);
         int dotGridCount = Math.Min(
             analyticCount,
@@ -391,8 +396,39 @@ internal static class ManagedPictureBenchmark
                 (yIndex + 1) * cellHeight - inset);
             drawing.DrawLine(linePen, start, end);
         }
-        int pointBatchEnd = graphicCommandCount + pointBatchCount;
-        for (int index = graphicCommandCount; index < pointBatchEnd; index++)
+        int pathEnd = graphicCommandCount + pathCount;
+        for (int index = graphicCommandCount; index < pathEnd; index++)
+        {
+            int xIndex = index % columns;
+            int yIndex = index / columns;
+            float left = xIndex * cellWidth + inset;
+            float top = yIndex * cellHeight + inset;
+            float right = (xIndex + 1) * cellWidth - inset;
+            float bottom = (yIndex + 1) * cellHeight - inset;
+            var path = new PathGeometry
+            {
+                FillRule = (index & 1) == 0
+                    ? FillRule.Nonzero
+                    : FillRule.EvenOdd
+            };
+            var figure = new PathFigure(
+                new Vector2(left, (top + bottom) * 0.5f),
+                isClosed: true);
+            figure.Segments.Add(new QuadraticBezierSegment(
+                new Vector2(left, top),
+                new Vector2((left + right) * 0.5f, top)));
+            figure.Segments.Add(new CubicBezierSegment(
+                new Vector2(right, top),
+                new Vector2(right, bottom),
+                new Vector2((left + right) * 0.5f, bottom)));
+            figure.Segments.Add(new QuadraticBezierSegment(
+                new Vector2(left, bottom),
+                figure.StartPoint));
+            path.Figures.Add(figure);
+            drawing.DrawPath(brushes[index % brushes.Length], null, path);
+        }
+        int pointBatchEnd = pathEnd + pointBatchCount;
+        for (int index = pathEnd; index < pointBatchEnd; index++)
         {
             int xIndex = index % columns;
             int yIndex = index / columns;
@@ -595,6 +631,8 @@ internal static class ManagedPictureBenchmark
         int NativeCommandCount,
         int AnalyticPrimitiveCount,
         int GeometryPrimitiveCount,
+        int PathCount,
+        int PathSegmentCount,
         int PointBatchCount,
         int PointCount,
         int VertexMeshCount,

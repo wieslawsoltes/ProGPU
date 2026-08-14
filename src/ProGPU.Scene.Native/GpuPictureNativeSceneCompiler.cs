@@ -22,6 +22,7 @@ public static class GpuPictureNativeSceneCompiler
     {
         Analytic,
         Geometry,
+        Path,
         PointBatch,
         VertexMesh
     }
@@ -101,6 +102,9 @@ public static class GpuPictureNativeSceneCompiler
         var analyticBrushIndices = new List<uint>();
         var geometry = new List<NativeGeometryPrimitive>();
         var geometryBrushIndices = new List<uint>();
+        var paths = new List<NativeScenePathFill>();
+        var pathSegments = new List<NativePathSegment>();
+        var pathBrushIndices = new List<uint>();
         var pointBatches = new List<NativeScenePointBatch>();
         var points = new List<Vector2>();
         var pointBatchBrushIndices = new List<uint>();
@@ -149,6 +153,9 @@ public static class GpuPictureNativeSceneCompiler
                     analyticBrushIndices,
                     geometry,
                     geometryBrushIndices,
+                    paths,
+                    pathSegments,
+                    pathBrushIndices,
                     pointBatches,
                     points,
                     pointBatchBrushIndices,
@@ -190,6 +197,8 @@ public static class GpuPictureNativeSceneCompiler
             int arenaCapacity = checked(
                 analytics.Count * Unsafe.SizeOf<NativeAnalyticPrimitive>() +
                 geometry.Count * Unsafe.SizeOf<NativeGeometryPrimitive>() +
+                paths.Count * Unsafe.SizeOf<NativeScenePathFill>() +
+                pathSegments.Count * Unsafe.SizeOf<NativePathSegment>() +
                 pointBatches.Count * Unsafe.SizeOf<NativeScenePointBatch>() +
                 points.Count * Unsafe.SizeOf<Vector2>() +
                 vertexMeshes.Count * Unsafe.SizeOf<NativeSceneVertexMesh>() +
@@ -201,8 +210,8 @@ public static class GpuPictureNativeSceneCompiler
                 states.Count * Unsafe.SizeOf<NativeSceneState>() +
                 operations.Count * 64 +
                 batches.Count * 30 +
-                (analytics.Count + geometry.Count + pointBatches.Count +
-                    vertexMeshes.Count) *
+                (analytics.Count + geometry.Count + paths.Count +
+                    pointBatches.Count + vertexMeshes.Count) *
                     sizeof(uint) + 14);
             int resourceCount = checked(batches.Count + 1 + states.Count);
             int capacity = NativeSceneStreamBuilder.GetRequiredBufferSize(
@@ -220,6 +229,10 @@ public static class GpuPictureNativeSceneCompiler
                 CollectionsMarshal.AsSpan(analytics);
             Span<NativeGeometryPrimitive> geometrySpan =
                 CollectionsMarshal.AsSpan(geometry);
+            Span<NativeScenePathFill> pathSpan =
+                CollectionsMarshal.AsSpan(paths);
+            Span<NativePathSegment> pathSegmentSpan =
+                CollectionsMarshal.AsSpan(pathSegments);
             Span<NativeScenePointBatch> pointBatchSpan =
                 CollectionsMarshal.AsSpan(pointBatches);
             Span<Vector2> pointSpan = CollectionsMarshal.AsSpan(points);
@@ -232,6 +245,8 @@ public static class GpuPictureNativeSceneCompiler
                 CollectionsMarshal.AsSpan(analyticBrushIndices);
             Span<uint> geometryBrushSpan =
                 CollectionsMarshal.AsSpan(geometryBrushIndices);
+            Span<uint> pathBrushSpan =
+                CollectionsMarshal.AsSpan(pathBrushIndices);
             Span<uint> pointBatchBrushSpan =
                 CollectionsMarshal.AsSpan(pointBatchBrushIndices);
             Span<uint> vertexMeshBrushSpan =
@@ -250,6 +265,15 @@ public static class GpuPictureNativeSceneCompiler
                         checked((ulong)index + 1U),
                         generation,
                         geometrySpan.Slice(batch.Start, batch.Count),
+                        out batch.ResourceIndex)
+                    : batch.Kind == BatchKind.Path
+                    ? builder.TryAddPathResource(
+                        checked((ulong)index + 1U),
+                        generation,
+                        pathSpan.Slice(batch.Start, batch.Count),
+                        pathSegmentSpan.Slice(
+                            batch.AuxiliaryStart,
+                            batch.AuxiliaryCount),
                         out batch.ResourceIndex)
                     : batch.Kind == BatchKind.PointBatch
                     ? builder.TryAddPointBatchResource(
@@ -343,6 +367,13 @@ public static class GpuPictureNativeSceneCompiler
                             batch.Bounds,
                             brushResourceIndex,
                             geometryBrushSpan.Slice(batch.BrushStart, batch.Count))
+                        : batch.Kind == BatchKind.Path
+                        ? builder.TryDrawPath(
+                            commandId,
+                            batch.ResourceIndex,
+                            batch.Bounds,
+                            brushResourceIndex,
+                            pathBrushSpan.Slice(batch.BrushStart, batch.Count))
                         : batch.Kind == BatchKind.PointBatch
                         ? builder.TryDrawPointBatch(
                             commandId,
@@ -388,6 +419,8 @@ public static class GpuPictureNativeSceneCompiler
                 batches.Count,
                 analytics.Count,
                 geometry.Count,
+                paths.Count,
+                pathSegments.Count,
                 pointBatches.Count,
                 points.Count,
                 vertexMeshes.Count,
@@ -530,6 +563,9 @@ public static class GpuPictureNativeSceneCompiler
         List<uint> analyticBrushIndices,
         List<NativeGeometryPrimitive> geometry,
         List<uint> geometryBrushIndices,
+        List<NativeScenePathFill> paths,
+        List<NativePathSegment> pathSegments,
+        List<uint> pathBrushIndices,
         List<NativeScenePointBatch> pointBatches,
         List<Vector2> points,
         List<uint> pointBatchBrushIndices,
@@ -693,6 +729,17 @@ public static class GpuPictureNativeSceneCompiler
                     transform,
                     geometry,
                     geometryBrushIndices,
+                    batches,
+                    operations,
+                    materials,
+                    out error);
+            case RenderCommandType.DrawPath:
+                return TryAppendPathFill(
+                    command,
+                    transform,
+                    paths,
+                    pathSegments,
+                    pathBrushIndices,
                     batches,
                     operations,
                     materials,
@@ -1228,6 +1275,141 @@ public static class GpuPictureNativeSceneCompiler
         return true;
     }
 
+    private static bool TryAppendPathFill(
+        in RenderCommand command,
+        Matrix3x2 transform,
+        List<NativeScenePathFill> nativePaths,
+        List<NativePathSegment> nativeSegments,
+        List<uint> brushIndices,
+        List<Batch> batches,
+        List<Operation> operations,
+        NativeBrushTableBuilder materials,
+        out NativePictureCompileError error)
+    {
+        error = NativePictureCompileError.None;
+        if (command.Pen is not null)
+        {
+            error = NativePictureCompileError.UnsupportedStroke;
+            return false;
+        }
+        if (command.Brush is null)
+        {
+            error = NativePictureCompileError.UnsupportedBrush;
+            return false;
+        }
+        if (command.Path is not { } path)
+        {
+            error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+        if (path.IsCombined)
+        {
+            error = NativePictureCompileError.UnsupportedCommand;
+            return false;
+        }
+        if (MathF.Abs(transform.GetDeterminant()) <= 0.000001f)
+        {
+            error = NativePictureCompileError.UnsupportedTransform;
+            return false;
+        }
+
+        (_, GpuPathSegment[] segments) = PathAtlas.CompileFillPath(
+            path,
+            out float minimumX,
+            out float minimumY,
+            out float maximumX,
+            out float maximumY);
+        if (segments.Length == 0 || !float.IsFinite(minimumX) ||
+            !float.IsFinite(minimumY) || !float.IsFinite(maximumX) ||
+            !float.IsFinite(maximumY) || maximumX <= minimumX ||
+            maximumY <= minimumY)
+        {
+            error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+        for (int index = 0; index < segments.Length; index++)
+        {
+            ref readonly GpuPathSegment segment = ref segments[index];
+            if (segment.SegmentType > (uint)NativePathSegmentKind.Arc ||
+                !IsFinite(segment.P0) || !IsFinite(segment.P1) ||
+                !IsFinite(segment.P2) || !IsFinite(segment.P3) ||
+                (segment.SegmentType == (uint)NativePathSegmentKind.Arc
+                    ? segment.P3.X <= 0f || segment.P3.Y <= 0f ||
+                        !float.IsFinite(BitConverter.Int32BitsToSingle(
+                            unchecked((int)segment.Pad0))) ||
+                        !float.IsFinite(BitConverter.Int32BitsToSingle(
+                            unchecked((int)segment.Pad1))) ||
+                        !float.IsFinite(BitConverter.Int32BitsToSingle(
+                            unchecked((int)segment.Pad2)))
+                    : segment.Pad0 != 0U || segment.Pad1 != 0U ||
+                        segment.Pad2 != 0U))
+            {
+                error = NativePictureCompileError.InvalidGeometry;
+                return false;
+            }
+        }
+        if (!materials.TryRegister(command.Brush, out uint brushIndex, out error))
+        {
+            return false;
+        }
+
+        bool continuing = batches.Count > 0 && operations.Count > 0 &&
+            operations[^1].Kind == OperationKind.Draw &&
+            operations[^1].BatchIndex == batches.Count - 1 &&
+            batches[^1].Kind == BatchKind.Path;
+        ulong resourceSegmentOffset = continuing
+            ? checked((ulong)batches[^1].AuxiliaryCount)
+            : 0U;
+        int pathStart = nativePaths.Count;
+        int segmentStart = nativeSegments.Count;
+        for (int index = 0; index < segments.Length; index++)
+        {
+            ref readonly GpuPathSegment segment = ref segments[index];
+            nativeSegments.Add(new(
+                (NativePathSegmentKind)segment.SegmentType,
+                segment.P0,
+                segment.P1,
+                segment.P2,
+                segment.P3,
+                segment.Pad0,
+                segment.Pad1,
+                segment.Pad2));
+        }
+        uint sampleGrid = command.PathSampleGrid >=
+            PathAtlas.HighPrecisionCoverageSampleGrid
+            ? PathAtlas.HighPrecisionCoverageSampleGrid
+            : PathAtlas.StandardCoverageSampleGrid;
+        nativePaths.Add(new(
+            resourceSegmentOffset,
+            checked((ulong)segments.Length),
+            new Vector2(minimumX, minimumY),
+            new Vector2(maximumX, maximumY),
+            Vector4.One,
+            transform,
+            path.FillRule == FillRule.EvenOdd
+                ? NativeFillRule.EvenOdd
+                : NativeFillRule.NonZero,
+            sampleGrid));
+        brushIndices.Add(brushIndex);
+        AppendBatch(
+            batches,
+            operations,
+            BatchKind.Path,
+            pathStart,
+            pathStart,
+            1,
+            TransformBounds(
+                new Rect(
+                    minimumX,
+                    minimumY,
+                    maximumX - minimumX,
+                    maximumY - minimumY),
+                transform),
+            segmentStart,
+            segments.Length);
+        return true;
+    }
+
     private static void AppendBatch(
         List<Batch> batches,
         List<Operation> operations,
@@ -1250,6 +1432,9 @@ public static class GpuPictureNativeSceneCompiler
             if (previous.Kind == kind &&
                 previous.Start + previous.Count == start &&
                 previous.BrushStart + previous.Count == brushStart &&
+                (kind != BatchKind.Path ||
+                    previous.AuxiliaryStart + previous.AuxiliaryCount ==
+                        auxiliaryStart) &&
                 (kind != BatchKind.PointBatch ||
                     previous.AuxiliaryStart + previous.AuxiliaryCount ==
                         auxiliaryStart) &&

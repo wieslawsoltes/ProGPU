@@ -1259,11 +1259,26 @@ managed allocation, or upload. The implementation reuses production
 `Vector.wgsl` shape 18, including its existing GPU brush/vertex-color blend
 path, rather than introducing a second mesh shader.
 
+The managed substitution adapter also targets the existing semantic
+`PATH_BATCH` / `DRAW_PATH` family instead of introducing another native
+tessellator. Consecutive fill-only `DrawPath` commands compile once through
+the shared CPU path-segment canonicalizer, then coalesce into one pointer-free
+resource whose fixed-width records reference a contiguous line, quadratic,
+cubic, and analytic-arc segment arena. Nonzero/even-odd fill rules, 4x4/8x8
+coverage selection, affine transforms, and the shared solid/gradient brush
+table remain explicit. Every segment and transformed bound is finite-checked;
+singular transforms, combined boolean paths, and strokes fail with typed
+diagnostics until their dedicated continuation slices land. Changed lowering
+is `O(P + S)` time and storage for `P` paths and `S` segments; unchanged
+render-bundle replay performs no path translation, managed allocation,
+coverage recomputation, or upload.
+
 `ProGPU.Scene.Native` is the first reusable .NET substitution adapter. It reads
 the immutable allocation-free command view of a `GpuPicture`, rejects
 unsupported commands and materials with a typed source-command diagnostic,
-and coalesces consecutive analytic, geometry, or point commands into native
-batches. Compilation is deliberately one-time `O(C + P)` work with `O(P)` bounded
+and coalesces consecutive analytic, geometry, path-fill, point, or mesh
+commands into native batches. Compilation is deliberately one-time
+`O(C + P)` work with `O(P)` bounded
 managed/native stream storage for `C` source commands. The resulting
 `NativeCompiledPicture` owns one pointer-free stream; unchanged frames call
 only `UpdateScene` once and `RenderScene` thereafter. The desktop sample
@@ -1278,7 +1293,8 @@ rejects per-command P/Invoke, reflection, implicit managed fallback, and
 per-frame stream rebuilding. The current accepted prefix is intentionally
 narrow: affine analytic primitives, affine geometry, periodic dot grids, and
 square/round point batches including one-device-pixel hairlines, and indexed or
-unindexed vertex meshes, with solid,
+unindexed vertex meshes, plus non-combined retained path fills containing line,
+quadratic, cubic, or analytic-arc segments, with solid,
 linear, radial, two-point conical, or sweep-gradient brushes. Brush
 opacity, sorted
 stop ownership, spread, color-interpolation mode, optional conical outside
@@ -1289,8 +1305,9 @@ existing native absolute-state resources and save/restore commands. State
 boundaries terminate draw batches; stable replay does not inspect or rebuild
 the managed state stack. Non-finite, non-invertible, rotated, or sheared
 rectangle clips and mismatched or unterminated scopes fail with typed
-source-command diagnostics. Perlin/hatch brushes, vector clips, paths, text,
-images, nested pictures, isolated layers, effects, remaining extensions, and 3D remain
+source-command diagnostics. Perlin/hatch brushes, vector clips, path
+strokes/boolean combinations, text, images, nested pictures, isolated layers,
+effects, remaining extensions, and 3D remain
 explicit fail-closed continuation slices rather than silent parity claims.
 
 The semantic state payload is a 64-byte fixed-width record: declared size and

@@ -15,6 +15,8 @@ public sealed class NativeCompiledPicture
         int nativeDrawCount,
         int analyticPrimitiveCount,
         int geometryPrimitiveCount,
+        int pathCount,
+        int pathSegmentCount,
         int pointBatchCount,
         int pointCount,
         int vertexMeshCount,
@@ -32,6 +34,8 @@ public sealed class NativeCompiledPicture
         NativeDrawCount = nativeDrawCount;
         AnalyticPrimitiveCount = analyticPrimitiveCount;
         GeometryPrimitiveCount = geometryPrimitiveCount;
+        PathCount = pathCount;
+        PathSegmentCount = pathSegmentCount;
         PointBatchCount = pointBatchCount;
         PointCount = pointCount;
         VertexMeshCount = vertexMeshCount;
@@ -58,6 +62,10 @@ public sealed class NativeCompiledPicture
     public int AnalyticPrimitiveCount { get; }
 
     public int GeometryPrimitiveCount { get; }
+
+    public int PathCount { get; }
+
+    public int PathSegmentCount { get; }
 
     public int PointBatchCount { get; }
 
