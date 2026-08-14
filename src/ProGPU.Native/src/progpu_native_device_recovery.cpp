@@ -61,6 +61,7 @@ progpu_native_status clone_retained_cpu_state(
         replacement->semantic_scene_generation =
             source->semantic_scene_generation;
         replacement->semantic_scene_hash = source->semantic_scene_hash;
+        replacement->semantic_hashes = source->semantic_hashes;
         replacement->semantic_scene_header =
             source->semantic_scene_header;
         replacement->semantic_scene_metrics =

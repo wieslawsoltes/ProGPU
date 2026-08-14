@@ -2129,30 +2129,68 @@ int main(int argc, char** argv) {
     engine = replacement_engine;
     semantic_metrics = {};
     semantic_metrics.struct_size = sizeof(semantic_metrics);
-    require(progpu_native_engine_render_scene(
+    const auto replacement_render_status = progpu_native_engine_render_scene(
         engine,
         &semantic_frame,
-        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        &semantic_metrics);
+    const auto replacement_render_valid =
+        replacement_render_status == PROGPU_NATIVE_STATUS_SUCCESS &&
         semantic_metrics.payload_hash != 0U &&
         semantic_metrics.payload_hash != semantic_payload_hash &&
         semantic_metrics.vertex_upload_bytes != 0U &&
         semantic_metrics.text_style_upload_bytes ==
-            3U * sizeof(progpu_native_scene_text_style),
+            3U * sizeof(progpu_native_scene_text_style);
+    if (!replacement_render_valid) {
+        std::fprintf(stderr,
+            "replacement render status=%u hash=%llu previous=%llu "
+            "vertex=%llu index=%llu texture=%llu uniform=%llu "
+            "text-style=%llu\n",
+            static_cast<unsigned>(replacement_render_status),
+            static_cast<unsigned long long>(semantic_metrics.payload_hash),
+            static_cast<unsigned long long>(semantic_payload_hash),
+            static_cast<unsigned long long>(semantic_metrics.vertex_upload_bytes),
+            static_cast<unsigned long long>(semantic_metrics.index_upload_bytes),
+            static_cast<unsigned long long>(semantic_metrics.texture_upload_bytes),
+            static_cast<unsigned long long>(semantic_metrics.uniform_upload_bytes),
+            static_cast<unsigned long long>(semantic_metrics.text_style_upload_bytes));
+    }
+    require(replacement_render_valid,
         "replacement Dawn engine did not rebuild retained GPU state");
     const std::uint64_t replacement_payload_hash =
         semantic_metrics.payload_hash;
     semantic_metrics = {};
     semantic_metrics.struct_size = sizeof(semantic_metrics);
-    require(progpu_native_engine_render_scene(
+    const auto stable_recovery_status = progpu_native_engine_render_scene(
         engine,
         &semantic_frame,
-        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        &semantic_metrics);
+    const auto stable_recovery_reused =
+        stable_recovery_status == PROGPU_NATIVE_STATUS_SUCCESS &&
         semantic_metrics.payload_hash == replacement_payload_hash &&
         semantic_metrics.vertex_upload_bytes == 0U &&
         semantic_metrics.index_upload_bytes == 0U &&
         semantic_metrics.texture_upload_bytes == 0U &&
         semantic_metrics.uniform_upload_bytes == 0U &&
-        semantic_metrics.text_style_upload_bytes == 0U,
+        semantic_metrics.text_style_upload_bytes == 0U;
+    if (!stable_recovery_reused) {
+        std::fprintf(stderr,
+            "stable recovery status=%u hash=%llu expected=%llu vertex=%llu "
+            "index=%llu texture=%llu uniform=%llu text-style=%llu\n",
+            static_cast<unsigned>(stable_recovery_status),
+            static_cast<unsigned long long>(semantic_metrics.payload_hash),
+            static_cast<unsigned long long>(replacement_payload_hash),
+            static_cast<unsigned long long>(
+                semantic_metrics.vertex_upload_bytes),
+            static_cast<unsigned long long>(
+                semantic_metrics.index_upload_bytes),
+            static_cast<unsigned long long>(
+                semantic_metrics.texture_upload_bytes),
+            static_cast<unsigned long long>(
+                semantic_metrics.uniform_upload_bytes),
+            static_cast<unsigned long long>(
+                semantic_metrics.text_style_upload_bytes));
+    }
+    require(stable_recovery_reused,
         "stable Dawn replay after device recovery rebuilt resources");
     std::uint64_t semantic_submission{};
     require(progpu_native_engine_get_last_submission(
@@ -2520,19 +2558,44 @@ int main(int argc, char** argv) {
     }
     semantic_metrics = {};
     semantic_metrics.struct_size = sizeof(semantic_metrics);
-    require(progpu_native_engine_render_scene(
+    const auto interleaved_rebuild_status = progpu_native_engine_render_scene(
         engine,
         &opacity_layer_frame,
-        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        &semantic_metrics);
+    const auto interleaved_rebuild_valid =
+        interleaved_rebuild_status == PROGPU_NATIVE_STATUS_SUCCESS &&
         semantic_metrics.command_count == 13U &&
         semantic_metrics.draw_call_count == 8U &&
         semantic_metrics.submission_count == 1U &&
-        semantic_metrics.vertex_upload_bytes != 0U &&
+        semantic_metrics.vertex_upload_bytes == 0U &&
         semantic_metrics.index_upload_bytes == 0U &&
         semantic_metrics.texture_upload_bytes == 0U &&
         semantic_metrics.uniform_upload_bytes != 0U &&
         semantic_metrics.coverage_staging_bytes == 0U &&
-        semantic_metrics.payload_hash == opacity_layer_payload_hash,
+        semantic_metrics.payload_hash == opacity_layer_payload_hash;
+    if (!interleaved_rebuild_valid) {
+        std::fprintf(stderr,
+            "interleaved rebuild status=%u commands=%u draws=%u "
+            "submissions=%llu vertex=%llu index=%llu texture=%llu "
+            "uniform=%llu coverage=%llu hash=%llu expected=%llu\n",
+            static_cast<unsigned>(interleaved_rebuild_status),
+            semantic_metrics.command_count,
+            semantic_metrics.draw_call_count,
+            static_cast<unsigned long long>(semantic_metrics.submission_count),
+            static_cast<unsigned long long>(
+                semantic_metrics.vertex_upload_bytes),
+            static_cast<unsigned long long>(
+                semantic_metrics.index_upload_bytes),
+            static_cast<unsigned long long>(
+                semantic_metrics.texture_upload_bytes),
+            static_cast<unsigned long long>(
+                semantic_metrics.uniform_upload_bytes),
+            static_cast<unsigned long long>(
+                semantic_metrics.coverage_staging_bytes),
+            static_cast<unsigned long long>(semantic_metrics.payload_hash),
+            static_cast<unsigned long long>(opacity_layer_payload_hash));
+    }
+    require(interleaved_rebuild_valid,
         "interleaved semantic opacity-layer rebuild did not restore state");
     semantic_layer_metrics = {};
     semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
@@ -2545,7 +2608,7 @@ int main(int argc, char** argv) {
         semantic_layer_metrics.composite_pass_count == 3U &&
         semantic_layer_metrics.cache_hit == 0U &&
         semantic_layer_metrics.texture_bytes == 2816U &&
-        semantic_layer_metrics.vertex_upload_bytes != 0U &&
+        semantic_layer_metrics.vertex_upload_bytes == 0U &&
         semantic_layer_metrics.uniform_upload_bytes != 0U,
         "interleaved semantic opacity-layer metrics are incorrect");
     semantic_metrics = {};
