@@ -760,6 +760,68 @@ bool try_itemize_font_fallback(
     std::uint32_t& written,
     font_error* error = nullptr) noexcept;
 
+enum class text_line_break_kind : std::uint8_t {
+    prohibited = 0U,
+    opportunity = 1U,
+    mandatory = 2U
+};
+
+struct text_layout_options final {
+    float scale = 1.0F;
+    float maximum_width = 0.0F;
+    float line_height = 0.0F;
+    std::uint32_t maximum_lines = 0U;
+    shaping_direction direction = shaping_direction::left_to_right;
+};
+
+struct positioned_text_glyph final {
+    std::uint32_t glyph_index = 0U;
+    std::int32_t cluster = 0;
+    float x = 0.0F;
+    float y = 0.0F;
+    float advance_x = 0.0F;
+    float advance_y = 0.0F;
+};
+
+struct positioned_text_line final {
+    std::uint32_t glyph_start = 0U;
+    std::uint32_t glyph_count = 0U;
+    std::int32_t input_start = 0;
+    std::int32_t input_end = 0;
+    float width = 0.0F;
+    float baseline_y = 0.0F;
+    float height = 0.0F;
+    bool clipped = false;
+    std::uint8_t reserved0 = 0U;
+    std::uint8_t reserved1 = 0U;
+    std::uint8_t reserved2 = 0U;
+};
+
+struct text_layout_requirements final {
+    std::uint32_t glyph_capacity = 0U;
+    std::uint32_t line_capacity = 0U;
+};
+
+bool try_get_text_layout_requirements(
+    std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks_after,
+    const text_layout_options& options,
+    text_layout_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+/* Positions an already-shaped visual run in O(G) time with O(1) internal
+ * storage. Break opportunities are supplied by the reusable Unicode line-break
+ * stage and are ignored inside equal-cluster glyph sequences. */
+bool try_layout_shaped_text(
+    std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks_after,
+    const text_layout_options& options,
+    std::span<positioned_text_glyph> positioned_glyphs,
+    std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count,
+    std::uint32_t& line_count,
+    font_error* error = nullptr) noexcept;
+
 bool try_get_open_type_shape_run_requirements(
     const sfnt_font_view& font,
     std::span<const unicode_scalar> input,

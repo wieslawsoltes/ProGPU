@@ -84,6 +84,13 @@ using progpu::native::text::font_fallback_candidate;
 using progpu::native::text::font_fallback_run;
 using progpu::native::text::try_get_font_fallback_run_count;
 using progpu::native::text::try_itemize_font_fallback;
+using progpu::native::text::text_line_break_kind;
+using progpu::native::text::text_layout_options;
+using progpu::native::text::positioned_text_glyph;
+using progpu::native::text::positioned_text_line;
+using progpu::native::text::text_layout_requirements;
+using progpu::native::text::try_get_text_layout_requirements;
+using progpu::native::text::try_layout_shaped_text;
 using progpu::native::text::sfnt_container_requirements;
 using progpu::native::text::try_get_sfnt_container_requirements;
 using progpu::native::text::try_normalize_sfnt_container;
@@ -2634,6 +2641,110 @@ void native_font_fallback_preserves_graphemes_and_missing_state() {
     require(error == font_error::insufficient_buffer && written == 0U);
 }
 
+void native_positioned_text_layout_wraps_without_allocation() {
+    const std::array<shaping_glyph, 4U> glyphs{
+        shaping_glyph{1U, 0U, 0, shaping_glyph_flags::none, 10},
+        shaping_glyph{2U, 1U, 1, shaping_glyph_flags::none, 10},
+        shaping_glyph{3U, 2U, 2, shaping_glyph_flags::none, 10},
+        shaping_glyph{4U, 3U, 3, shaping_glyph_flags::none, 10}};
+    const std::array<text_line_break_kind, 4U> breaks{
+        text_line_break_kind::prohibited,
+        text_line_break_kind::opportunity,
+        text_line_break_kind::prohibited,
+        text_line_break_kind::opportunity};
+    const text_layout_options options{
+        1.0F,
+        25.0F,
+        12.0F,
+        0U,
+        progpu::native::text::shaping_direction::left_to_right};
+    text_layout_requirements requirements{};
+    font_error error = font_error::none;
+    require(try_get_text_layout_requirements(
+        glyphs, breaks, options, requirements, &error));
+    require(requirements.glyph_capacity == 4U &&
+        requirements.line_capacity == 2U);
+
+    std::array<positioned_text_glyph, 4U> positioned{};
+    std::array<positioned_text_line, 2U> lines{};
+    std::uint32_t glyph_count = 0U;
+    std::uint32_t line_count = 0U;
+    require(try_layout_shaped_text(
+        glyphs,
+        breaks,
+        options,
+        positioned,
+        lines,
+        glyph_count,
+        line_count,
+        &error));
+    require(glyph_count == 4U && line_count == 2U);
+    require(positioned[0U].x == 0.0F && positioned[1U].x == 10.0F &&
+        positioned[2U].x == 0.0F && positioned[2U].y == 12.0F);
+    require(lines[0U].glyph_start == 0U && lines[0U].glyph_count == 2U &&
+        lines[0U].width == 20.0F && !lines[0U].clipped);
+    require(lines[1U].glyph_start == 2U && lines[1U].glyph_count == 2U &&
+        lines[1U].baseline_y == 12.0F);
+
+    auto clustered = glyphs;
+    clustered[1U].cluster = 0;
+    const std::array<text_line_break_kind, 4U> clustered_breaks{
+        text_line_break_kind::opportunity,
+        text_line_break_kind::prohibited,
+        text_line_break_kind::opportunity,
+        text_line_break_kind::opportunity};
+    const text_layout_options narrow_options{
+        1.0F,
+        15.0F,
+        12.0F,
+        0U,
+        progpu::native::text::shaping_direction::left_to_right};
+    require(try_get_text_layout_requirements(
+        clustered, clustered_breaks, narrow_options, requirements, &error));
+    require(requirements.line_capacity == 3U);
+
+    std::array<positioned_text_line, 3U> narrow_lines{};
+    require(try_layout_shaped_text(
+        clustered,
+        clustered_breaks,
+        narrow_options,
+        positioned,
+        narrow_lines,
+        glyph_count,
+        line_count,
+        &error));
+    require(line_count == 3U && narrow_lines[0U].glyph_count == 2U);
+
+    auto clipped_options = options;
+    clipped_options.maximum_lines = 1U;
+    positioned.fill(positioned_text_glyph{});
+    lines.fill(positioned_text_line{});
+    require(try_layout_shaped_text(
+        glyphs,
+        breaks,
+        clipped_options,
+        positioned,
+        lines,
+        glyph_count,
+        line_count,
+        &error));
+    require(glyph_count == 2U && line_count == 1U && lines[0U].clipped);
+
+    glyph_count = 99U;
+    line_count = 99U;
+    require(!try_layout_shaped_text(
+        glyphs,
+        breaks,
+        options,
+        std::span<positioned_text_glyph>{positioned}.first(3U),
+        lines,
+        glyph_count,
+        line_count,
+        &error));
+    require(error == font_error::insufficient_buffer &&
+        glyph_count == 0U && line_count == 0U);
+}
+
 void variation_axes_are_borrowed_bounded_and_transactional() {
     const auto data = make_font(0U, 22U, 0U, true);
     sfnt_font_view font{};
@@ -4845,6 +4956,7 @@ int main() {
     open_type_uniform_run_shaper_connects_unicode_font_and_metrics();
     open_type_gpos_device_and_variation_deltas_are_applied();
     native_font_fallback_preserves_graphemes_and_missing_state();
+    native_positioned_text_layout_wraps_without_allocation();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();

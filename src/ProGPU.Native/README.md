@@ -339,6 +339,16 @@ explicitly, and performs no discovery callbacks, I/O, or allocation while
 itemizing. Variation selectors and join controls remain attached to their base
 cluster for the later cmap-format-14/script stage.
 
+Positioned native line layout consumes already-shaped visual-order glyphs and
+caller-supplied break decisions, preserving the managed ProGPU separation
+between reusable shaping, Unicode paragraph analysis, and viewport-dependent
+wrapping. It performs one bounded requirements pass and one write pass over
+caller-owned glyph and line spans. Breaks inside an equal-cluster sequence are
+ignored, mandatory and hard-wrap boundaries are explicit, and maximum-line
+clipping is reported rather than silently discarding state. Work is `O(G)` and
+internal storage is `O(1)` for `G` shaped glyphs; invalid options and short
+buffers leave output counts at zero.
+
 C++ clients can use the header surfaces or, on the supported LLVM
 configuration, `import progpu.native.text;`,
 `import progpu.native.compression;`, or `import progpu.native.image;`.
