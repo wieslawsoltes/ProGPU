@@ -155,9 +155,22 @@ an absent/out-of-range optional table retains the base normalized coordinate,
 and an axis-count mismatch is ignored exactly like the managed implementation.
 Synthetic endpoints, clamping, interpolation, invalid-axis, and truncated-map
 cases plus the real InterVariable checkpoints match `opsz=23 -> 8192`,
-`wght=500 -> 2949`, and `wght=700 -> 8847`. Named instances, `gvar` deltas,
-HVAR/MVAR/GDEF variation stores, and per-instance caching remain explicit later
-slices.
+`wght=500 -> 2949`, and `wght=700 -> 8847`.
+
+The first `gvar` slice follows at checkpoint
+`9e0c63be839ad651c61f477da1f85111204eaa21`. Granular
+`progpu_native_gvar.cpp` and `progpu_native_gvar_packed.cpp` translation units
+port the ProGPU-owned table layout, glyph-offset, shared-tuple, packed-point,
+and packed-delta contracts without retaining or allocating table data. Every
+packed stream uses a validating count pass before its transactional caller-span
+write pass, both `O(N)` time and `O(1)` internal storage for `N` encoded values.
+Normal Clang, named C++20 module, and ASan/UBSan builds cover malformed runs,
+undersized outputs, duplicate points, signed byte/word deltas, and all-point
+encoding. The real InterVariable checkpoint matches 2 axes, 5 shared tuples,
+2,937 glyphs, long offsets, exact shared tuple coordinates, and exact 594/60
+byte glyph payloads for glyphs 397/618. Tuple-header scalar evaluation,
+interpolation/application to outlines, HVAR/MVAR/GDEF variation stores, named
+instances, and per-instance caching remain explicit later slices.
 
 WOFF1 and WOFF2 are rejected explicitly rather than being interpreted as SFNT;
 container normalization, compressed ownership, legacy symbol-page tables,

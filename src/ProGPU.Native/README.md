@@ -150,8 +150,11 @@ range/default, flags, and name ID in fixed records, validates the complete table
 before writing caller storage, and is exported through both the header and LLVM
 module surfaces. The same allocation-free surface now normalizes signed 16.16
 user coordinates and applies optional piecewise `avar` mappings in a bounded
-scan. `gvar` and metric/layout variation application remain explicitly
-unsupported until their following bounded slices land.
+scan. Granular `progpu_native_gvar.cpp` and
+`progpu_native_gvar_packed.cpp` units now expose borrowed glyph tuple slices,
+shared tuples, and transactional packed point/delta decoding with no internal
+allocation. Tuple scalar evaluation and outline/metric/layout variation
+application remain explicitly sequenced later work.
 WOFF1/WOFF2 are rejected explicitly until the native container-normalization
 slice lands. C++ clients can use the header surface or, on the supported LLVM
 configuration, `import progpu.native.text;`.
