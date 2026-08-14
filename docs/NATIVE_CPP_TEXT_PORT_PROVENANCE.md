@@ -134,7 +134,7 @@ Clang and Windows build scripts pass the font explicitly, making the real
 font-to-GPU connection an integration gate on runnable targets.
 
 Variable-font metadata starts at checkpoint
-`3d1bae9477bd5c03199eff66daee07c388b840a9` with a separate
+`3d1bae94c64259afbd64ed2bc630fb3430d2bc79` with a separate
 `progpu_native_font_variations.cpp` translation unit that ports
 `OpenTypeVariationData.ParseAxes`. The borrowed two-pass API validates the
 `fvar` header, axis offset/count/stride, and complete fixed-size record range
