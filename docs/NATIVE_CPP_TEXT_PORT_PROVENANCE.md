@@ -42,6 +42,16 @@ parallel handwritten field layouts while keeping managed ownership and ergonomic
 outside the wire contract. Every new eligible record must add its generator marker and
 pass the stale-output plus native/C# size-and-offset gates in the same slice.
 
+The initial native OpenType layout execution boundary ports the ProGPU-owned
+coverage/class lookup and GDEF compatibility policy at checkpoint `3cc418aa`.
+`open_type_layout_table_view` lazily validates GSUB/GPOS lookup records;
+`open_type_gdef_view` borrows GDEF 1.0/1.2/1.3 glyph classes,
+mark-attachment classes, and MarkGlyphSets coverage without copying font data.
+Coverage and range-class queries are `O(log R)`, dense class queries are
+`O(1)`, fixed blocklist evaluation is bounded `O(1)`, and all views retain
+`O(1)` storage. This common validated layer is shared by the following native
+GSUB and GPOS executors so lookup flags do not fork or allocate per glyph.
+
 ## Delivered borrowed SFNT/TTC foundation
 
 The first text-core slice ports the ProGPU-owned `SfntFontFace.cs` contracts at

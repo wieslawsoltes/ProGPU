@@ -356,6 +356,52 @@ private:
     std::uint16_t lookup_count_ = 0U;
 };
 
+enum class open_type_glyph_class : std::uint16_t {
+    unclassified = 0U,
+    base = 1U,
+    ligature = 2U,
+    mark = 3U,
+    component = 4U
+};
+
+/*
+ * Borrowed GDEF glyph-class and mark-filtering metadata. Construction validates
+ * only the present tables and retains no ownership. Glyph classification is
+ * O(log R) for range ClassDefs, while mark-set membership is O(log C) for C
+ * coverage records. The fixed compatibility blocklist matches ProGPU's managed
+ * OpenTypeGdefPolicy and is O(1) without allocation.
+ */
+class open_type_gdef_view final {
+public:
+    static bool try_create(
+        std::span<const std::byte> table,
+        open_type_gdef_view& result,
+        font_error* error = nullptr) noexcept;
+
+    open_type_glyph_class glyph_class(std::uint16_t glyph_id) const noexcept;
+    std::uint16_t mark_attachment_class(std::uint16_t glyph_id) const noexcept;
+    std::uint16_t mark_set_count() const noexcept {
+        return mark_set_count_;
+    }
+    bool is_in_mark_set(
+        std::uint16_t set_index,
+        std::uint16_t glyph_id) const noexcept;
+
+private:
+    std::span<const std::byte> table_{};
+    open_type_class_definition_view glyph_classes_{};
+    open_type_class_definition_view mark_attachment_classes_{};
+    std::size_t mark_sets_offset_ = 0U;
+    std::uint16_t mark_set_count_ = 0U;
+    bool has_glyph_classes_ = false;
+    bool has_mark_attachment_classes_ = false;
+};
+
+bool is_open_type_gdef_blocklisted(
+    std::size_t gdef_length,
+    std::size_t gsub_length,
+    std::size_t gpos_length) noexcept;
+
 struct sfnt_table_view final {
     open_type_tag tag{};
     std::uint32_t checksum = 0U;

@@ -41,6 +41,9 @@ using progpu::native::text::open_type_coverage_view;
 using progpu::native::text::open_type_class_definition_view;
 using progpu::native::text::open_type_lookup_view;
 using progpu::native::text::open_type_layout_table_view;
+using progpu::native::text::open_type_glyph_class;
+using progpu::native::text::open_type_gdef_view;
+using progpu::native::text::is_open_type_gdef_blocklisted;
 using progpu::native::text::sfnt_container_requirements;
 using progpu::native::text::try_get_sfnt_container_requirements;
 using progpu::native::text::try_normalize_sfnt_container;
@@ -425,6 +428,60 @@ void open_type_common_layout_views_are_borrowed_and_bounded() {
         malformed_layout, table, &error));
     require(!table.try_get_lookup(0U, lookup, &error));
     require(error == font_error::invalid_face && lookup.table.empty());
+}
+
+void open_type_gdef_classes_and_mark_sets_are_borrowed_and_bounded() {
+    // GDEF 1.2: class format 1 at 14, mark-attachment range class at 24,
+    // and two MarkGlyphSets coverages at 40 and 48.
+    std::array<std::byte, 60U> table{};
+    write_u16(table, 0U, 1U);
+    write_u16(table, 2U, 2U);
+    write_u16(table, 4U, 14U);
+    write_u16(table, 10U, 24U);
+    write_u16(table, 12U, 34U);
+    write_u16(table, 14U, 1U);
+    write_u16(table, 16U, 10U);
+    write_u16(table, 18U, 2U);
+    write_u16(table, 20U, 1U);
+    write_u16(table, 22U, 3U);
+    write_u16(table, 24U, 2U);
+    write_u16(table, 26U, 1U);
+    write_u16(table, 28U, 20U);
+    write_u16(table, 30U, 21U);
+    write_u16(table, 32U, 7U);
+    write_u16(table, 34U, 1U);
+    write_u16(table, 36U, 2U);
+    table[41U] = std::byte{12U};
+    table[45U] = std::byte{20U};
+    write_u16(table, 46U, 1U);
+    write_u16(table, 48U, 1U);
+    write_u16(table, 50U, 10U);
+    write_u16(table, 52U, 0U);
+    write_u16(table, 54U, 1U);
+    write_u16(table, 56U, 1U);
+    write_u16(table, 58U, 11U);
+
+    open_type_gdef_view gdef{};
+    font_error error = font_error::invalid_argument;
+    require(open_type_gdef_view::try_create(table, gdef, &error));
+    require(error == font_error::none &&
+        gdef.glyph_class(10U) == open_type_glyph_class::base &&
+        gdef.glyph_class(11U) == open_type_glyph_class::mark &&
+        gdef.glyph_class(12U) == open_type_glyph_class::unclassified);
+    require(gdef.mark_attachment_class(20U) == 7U &&
+        gdef.mark_attachment_class(22U) == 0U);
+    require(gdef.mark_set_count() == 2U &&
+        gdef.is_in_mark_set(0U, 10U) &&
+        gdef.is_in_mark_set(1U, 11U) &&
+        !gdef.is_in_mark_set(0U, 11U) &&
+        !gdef.is_in_mark_set(2U, 10U));
+    require(is_open_type_gdef_blocklisted(442U, 2874U, 42038U));
+    require(!is_open_type_gdef_blocklisted(442U, 2874U, 42039U));
+
+    auto malformed = table;
+    write_u16(malformed, 54U, 10U);
+    require(!open_type_gdef_view::try_create(malformed, gdef, &error));
+    require(error == font_error::invalid_face && gdef.mark_set_count() == 0U);
 }
 
 std::uint64_t hash_path_segments(
@@ -3341,6 +3398,7 @@ int main() {
     canonical_unicode_normalization_uses_shared_borrowed_data();
     unicode_script_itemization_preserves_source_ranges();
     open_type_common_layout_views_are_borrowed_and_bounded();
+    open_type_gdef_classes_and_mark_sets_are_borrowed_and_bounded();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();
