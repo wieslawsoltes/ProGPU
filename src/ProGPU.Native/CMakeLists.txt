@@ -444,6 +444,7 @@ progpu_native_enable_sanitizers(progpu_native_image)
 
 add_library(progpu_native_text STATIC
     src/progpu_native_unicode.cpp
+    src/progpu_native_unicode_normalization.cpp
     src/progpu_native_unicode_data.generated.hpp
     src/progpu_native_font_variations.cpp
     src/progpu_native_font_bytes.hpp
@@ -842,7 +843,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     target_compile_definitions(progpu_native_text_tests PRIVATE
         "PROGPU_NATIVE_TEST_INTER_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Fonts.Inter/Fonts/Inter-Medium.ttf\""
         "PROGPU_NATIVE_TEST_INTER_VARIABLE_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Fonts.Inter/Fonts/InterVariable.ttf\""
-        "PROGPU_NATIVE_TEST_NOTO_CFF_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Fonts.Noto/Fonts/NotoSansCJKjp-Regular.otf\"")
+        "PROGPU_NATIVE_TEST_NOTO_CFF_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Fonts.Noto/Fonts/NotoSansCJKjp-Regular.otf\""
+        "PROGPU_NATIVE_TEST_UNICODE_NORMALIZATION_DATA=\"${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Text/UnicodeNormalizationData.bin\"")
     progpu_native_enable_warnings(progpu_native_text_tests)
     progpu_native_enable_sanitizers(progpu_native_text_tests)
     add_test(NAME progpu_native_text_tests COMMAND progpu_native_text_tests)

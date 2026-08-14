@@ -29,6 +29,11 @@ using progpu::native::text::try_get_utf8_decode_requirements;
 using progpu::native::text::try_decode_utf8;
 using progpu::native::text::try_get_utf16_decode_requirements;
 using progpu::native::text::try_decode_utf16;
+using progpu::native::text::unicode_normalization_form;
+using progpu::native::text::unicode_normalization_requirements;
+using progpu::native::text::unicode_normalization_data;
+using progpu::native::text::try_get_unicode_normalization_requirements;
+using progpu::native::text::try_normalize_unicode;
 using progpu::native::text::sfnt_container_requirements;
 using progpu::native::text::try_get_sfnt_container_requirements;
 using progpu::native::text::try_normalize_sfnt_container;
@@ -161,6 +166,113 @@ void unicode_contract_and_strict_decoders_are_transactional() {
     require(!try_decode_utf16(lone_high, untouched, written, &error));
     require(error == unicode_error::invalid_encoding && written == 0U &&
         untouched[0U].code_point == 99U);
+}
+
+void canonical_unicode_normalization_uses_shared_borrowed_data() {
+    std::ifstream stream(
+        PROGPU_NATIVE_TEST_UNICODE_NORMALIZATION_DATA,
+        std::ios::binary);
+    require(stream.good());
+    const std::vector<char> source{
+        std::istreambuf_iterator<char>(stream),
+        std::istreambuf_iterator<char>()};
+    std::vector<std::byte> bytes(source.size());
+    for (std::size_t index = 0U; index < source.size(); ++index) {
+        bytes[index] = static_cast<std::byte>(source[index]);
+    }
+
+    unicode_normalization_data data{};
+    unicode_error error = unicode_error::invalid_argument;
+    require(unicode_normalization_data::try_create(bytes, data, &error));
+    require(error == unicode_error::none);
+    std::span<const std::byte> decomposition{};
+    require(data.try_get_decomposition(0x01FAU, decomposition));
+    require(decomposition.size() == 12U);
+    std::uint32_t composed = 0U;
+    require(data.try_compose(0x0041U, 0x030AU, composed));
+    require(composed == 0x00C5U);
+
+    constexpr std::array<unicode_scalar, 1U> precomposed{
+        unicode_scalar{
+            0x01FAU,
+            4U,
+            1U,
+            0U,
+            0U,
+            open_type_tag::from_chars('l', 'a', 't', 'n')}};
+    unicode_normalization_requirements requirements{};
+    require(try_get_unicode_normalization_requirements(
+        precomposed, data, requirements, &error));
+    require(requirements.scalar_capacity == 3U);
+    std::array<unicode_scalar, 3U> normalized{};
+    std::uint32_t written = 99U;
+    require(try_normalize_unicode(
+        precomposed,
+        data,
+        unicode_normalization_form::canonical_decomposition,
+        normalized,
+        written,
+        &error));
+    require(written == 3U && normalized[0U].code_point == 0x0041U &&
+        normalized[1U].code_point == 0x030AU &&
+        normalized[2U].code_point == 0x0301U &&
+        normalized[0U].input_index == 4U &&
+        normalized[2U].input_index == 4U);
+    require(try_normalize_unicode(
+        precomposed,
+        data,
+        unicode_normalization_form::canonical_composition,
+        normalized,
+        written,
+        &error));
+    require(written == 1U && normalized[0U].code_point == 0x01FAU);
+
+    constexpr std::array<unicode_scalar, 3U> unordered{
+        unicode_scalar{0x0041U, 0U, 1U, 0U, 0U,
+            open_type_tag::from_chars('l', 'a', 't', 'n')},
+        unicode_scalar{0x0301U, 1U, 2U, 230U, 0U,
+            open_type_tag::from_chars('D', 'F', 'L', 'T')},
+        unicode_scalar{0x0323U, 3U, 2U, 220U, 0U,
+            open_type_tag::from_chars('D', 'F', 'L', 'T')}};
+    require(try_normalize_unicode(
+        unordered,
+        data,
+        unicode_normalization_form::canonical_decomposition,
+        normalized,
+        written,
+        &error));
+    require(written == 3U && normalized[1U].code_point == 0x0323U &&
+        normalized[2U].code_point == 0x0301U);
+    require(try_normalize_unicode(
+        unordered,
+        data,
+        unicode_normalization_form::canonical_composition,
+        normalized,
+        written,
+        &error));
+    require(written == 2U && normalized[0U].code_point == 0x1EA0U &&
+        normalized[1U].code_point == 0x0301U &&
+        normalized[0U].input_index == 0U &&
+        normalized[0U].input_length == 5U);
+
+    std::array<unicode_scalar, 3U> untouched{
+        unicode_scalar{99U}, unicode_scalar{99U}, unicode_scalar{99U}};
+    require(!try_normalize_unicode(
+        precomposed,
+        data,
+        unicode_normalization_form::canonical_decomposition,
+        std::span<unicode_scalar>{untouched}.first(2U),
+        written,
+        &error));
+    require(error == unicode_error::insufficient_buffer && written == 0U &&
+        untouched[0U].code_point == 99U);
+
+    auto malformed = bytes;
+    malformed[0U] = std::byte{0U};
+    unicode_normalization_data invalid{};
+    require(!unicode_normalization_data::try_create(
+        malformed, invalid, &error));
+    require(error == unicode_error::invalid_argument);
 }
 
 std::uint64_t hash_path_segments(
@@ -3074,6 +3186,7 @@ void production_inter_variable_font_matches_fvar_axes() {
 
 int main() {
     unicode_contract_and_strict_decoders_are_transactional();
+    canonical_unicode_normalization_uses_shared_borrowed_data();
     woff1_normalization_is_bounded_and_transactional();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_axes_are_borrowed_bounded_and_transactional();

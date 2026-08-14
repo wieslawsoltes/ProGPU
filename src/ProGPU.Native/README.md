@@ -250,6 +250,16 @@ storage. Script and combining-class tables are generated from the same managed
 packed data and are verified by the native contract CI gate; the native text
 library does not maintain a handwritten Unicode table fork.
 
+Canonical normalization consumes the same
+`UnicodeNormalizationData.bin` resource as managed ProGPU through a validated,
+borrowed view. A requirements pass reports maximum FormD capacity; the write
+pass expands fully decomposed scalars, performs stable canonical-class ordering,
+and optionally compacts FormC pairs while preserving source ranges. Typical
+work is `O(D log R)` for `D` decomposed scalars and binary-searched records `R`;
+in-place stable ordering is `O(D)` for already ordered text and `O(D^2)` only
+for an adversarial reverse-ordered combining sequence. Storage is entirely
+caller-owned and validation or capacity failure leaves output untouched.
+
 C++ clients can use the header surfaces or, on the supported LLVM
 configuration, `import progpu.native.text;`,
 `import progpu.native.compression;`, or `import progpu.native.image;`.

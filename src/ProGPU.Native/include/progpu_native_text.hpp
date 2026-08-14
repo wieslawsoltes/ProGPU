@@ -191,6 +191,67 @@ bool try_decode_utf16(
     std::uint32_t& written,
     unicode_error* error = nullptr) noexcept;
 
+enum class unicode_normalization_form : std::uint8_t {
+    canonical_decomposition = 0U,
+    canonical_composition = 1U
+};
+
+struct unicode_normalization_requirements final {
+    std::uint32_t scalar_capacity = 0U;
+};
+
+/*
+ * Borrowed view over ProGPU.Text/UnicodeNormalizationData.bin. The format is
+ * shared with UnicodeNormalizationPlan.cs and contains fully decomposed FormD
+ * scalars plus canonical FormC pairs. Construction validates the complete
+ * little-endian resource and retains no ownership.
+ */
+class unicode_normalization_data final {
+public:
+    static bool try_create(
+        std::span<const std::byte> bytes,
+        unicode_normalization_data& result,
+        unicode_error* error = nullptr) noexcept;
+
+    bool try_get_decomposition(
+        std::uint32_t code_point,
+        std::span<const std::byte>& little_endian_scalars) const noexcept;
+
+    bool try_compose(
+        std::uint32_t first,
+        std::uint32_t second,
+        std::uint32_t& composed) const noexcept;
+
+private:
+    std::span<const std::byte> bytes_{};
+    std::size_t decomposition_offset_ = 0U;
+    std::size_t scalar_offset_ = 0U;
+    std::size_t composition_offset_ = 0U;
+    std::uint32_t decomposition_count_ = 0U;
+    std::uint32_t scalar_count_ = 0U;
+    std::uint32_t composition_count_ = 0U;
+};
+
+/*
+ * Canonical normalization uses the shared fully decomposed plan. Requirements
+ * reports the maximum FormD output. The write pass performs stable canonical
+ * ordering in place and optionally compacts canonical compositions. It is
+ * transactional for validation/capacity failure and retains source ranges.
+ */
+bool try_get_unicode_normalization_requirements(
+    std::span<const unicode_scalar> input,
+    const unicode_normalization_data& data,
+    unicode_normalization_requirements& result,
+    unicode_error* error = nullptr) noexcept;
+
+bool try_normalize_unicode(
+    std::span<const unicode_scalar> input,
+    const unicode_normalization_data& data,
+    unicode_normalization_form form,
+    std::span<unicode_scalar> output,
+    std::uint32_t& written,
+    unicode_error* error = nullptr) noexcept;
+
 struct sfnt_table_view final {
     open_type_tag tag{};
     std::uint32_t checksum = 0U;

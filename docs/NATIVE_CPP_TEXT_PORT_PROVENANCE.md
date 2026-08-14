@@ -430,6 +430,25 @@ boundaries. This checkpoint deliberately does not claim grapheme,
 normalization, or bidi completion; those algorithms build on these exact
 scalar records in subsequent slices.
 
+Canonical FormD/FormC execution follows in the granular
+`progpu_native_unicode_normalization.cpp` unit and directly consumes the same
+`src/ProGPU.Text/UnicodeNormalizationData.bin` plan loaded by
+`UnicodeNormalizationPlan.cs`. The native view validates the complete
+little-endian header, record counts, scalar ranges, sorted keys, decomposition
+spans, and composition pairs once while retaining only the caller's borrowed
+bytes. Requirements reports exact maximum FormD scalar capacity. The write
+pass expands fully decomposed sequences, performs stable canonical-class
+ordering, and optionally compacts unblocked canonical pairs while preserving
+the original input range. Validation and short-buffer failures are
+transactional. Decomposition and composition lookup are `O(log R)` for `R`
+records; ordinary ordered text is `O(D log R)` for `D` decomposed scalars, while
+the allocation-free stable reorder has an explicit adversarial `O(D^2)` worst
+case for one reverse-ordered combining sequence. The implementation uses no
+locale, ICU, platform normalizer, or heap-owned table copy. Synthetic Latin
+multi-step decomposition, reordered combining marks, canonical composition,
+source-range merging, malformed-resource, and short-buffer cases use the real
+shared 450,920-byte Unicode plan.
+
 The header-compatible library compiles under the normal Clang/MSVC/GCC matrix,
 is part of the Emscripten all-target build, and adds a real
 `import progpu.native.text;` consumer to the LLVM Clang/Ninja named-module gate.
