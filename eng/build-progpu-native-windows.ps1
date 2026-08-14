@@ -114,7 +114,7 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $ImportLibrary)) {
     throw "Failed to generate the pinned wgpu-native import library."
 }
 
-$GeneratorArguments = if ($Generator -eq "Ninja") {
+[string[]] $GeneratorArguments = if ($Generator -eq "Ninja") {
     if (-not (Get-Command ninja.exe -ErrorAction SilentlyContinue)) {
         throw "Ninja is required for the default fast Windows native build. Use -Generator VisualStudio only as a compatibility fallback."
     }
@@ -122,7 +122,7 @@ $GeneratorArguments = if ($Generator -eq "Ninja") {
 } else {
     @("-A", $CMakeArchitecture)
 }
-$CompilerArguments = if ($Generator -eq "Ninja") {
+[string[]] $CompilerArguments = if ($Generator -eq "Ninja") {
     if ($Compiler -eq "ClangCL") {
         @(
             "-DCMAKE_CXX_COMPILER=clang-cl",
