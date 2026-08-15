@@ -6,6 +6,28 @@ lifetime, batching, submission, and validation while consuming the exact same
 [`Vector.wgsl`](../ProGPU.Backend/Shaders/Vector.wgsl) source as the managed
 renderer.
 
+## Source layout
+
+The native implementation mirrors the ownership boundaries of the managed
+ProGPU projects so equivalent implementations can be reviewed and maintained
+side by side:
+
+| Native directory | Managed authority | Responsibility |
+| --- | --- | --- |
+| `src/Backend/` | `ProGPU.Backend` | WebGPU device, pipeline, resource, geometry, and draw execution |
+| `src/Scene/` | `ProGPU.Scene` | Pointer-free semantic scene validation, state, resources, and replay |
+| `src/Scene/Builder/` | `ProGPU.Scene.Native` | Standalone retained C++ scene recording and stream compilation |
+| `src/Text/` | `ProGPU.Text` | Unicode, font containers/outlines, variations, color glyphs, and layout |
+| `src/Text/Bidi/` | `ProGPU.Text/Bidi` | Unicode bidirectional resolution |
+| `src/Text/Shaping/` | `ProGPU.Text.Shaping` and the ProGPU-owned shaper | OpenType planning, GSUB/GPOS/GDEF, script shaping, and fallback |
+| `src/Image/` | ProGPU image/bitmap contracts | Bounded PNG decoding and image module implementation |
+| `src/Compression/` | ProGPU codec support | Bounded zlib, deflate, and gzip implementation |
+
+Public C and C++ compatibility headers remain under `include/`; browser,
+sample, and test hosts retain their own top-level directories. CMake exposes
+the domain directories only as private implementation includes, so this layout
+does not change the installed ABI, module names, or downstream include paths.
+
 The native ABI accepts an existing device, queue, and target view through an
 explicit backend adapter. Desktop/mobile packages retain the pinned May-2024
 wgpu-native ABI or the separately resolved WebScene Dawn ABI. Browser builds

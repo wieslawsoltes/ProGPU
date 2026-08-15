@@ -311,7 +311,7 @@ def main() -> int:
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parent.parent
-    output = root / "src/ProGPU.Native/src/progpu_native_unicode_data.generated.hpp"
+    output = root / "src/ProGPU.Native/src/Text/progpu_native_unicode_data.generated.hpp"
     generated = generate(root)
     if args.verify:
         if not output.exists() or output.read_text(encoding="utf-8") != generated:

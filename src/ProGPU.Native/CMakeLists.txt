@@ -413,237 +413,264 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_advanced_blend_shader}"
         "${generated_native_3d_shader}")
 
+set(PROGPU_NATIVE_BACKEND_SOURCES
+    src/Backend/progpu_native_advanced_blend_execution.cpp
+    src/Backend/progpu_native_backdrop_execution.cpp
+    src/Backend/progpu_native.cpp
+    src/Backend/progpu_native_draw_state.cpp
+    src/Backend/progpu_native_draw_state.hpp
+    src/Backend/progpu_native_device_recovery.cpp
+    src/Backend/progpu_native_device_recovery.hpp
+    src/Backend/progpu_native_engine.hpp
+    src/Backend/progpu_native_effect_plan.cpp
+    src/Backend/progpu_native_effect_plan.hpp
+    src/Backend/progpu_native_frame_execution.hpp
+    src/Backend/progpu_native_frame_execution_common.hpp
+    src/Backend/progpu_native_geometry.hpp
+    src/Backend/progpu_native_geometry_analytic.hpp
+    src/Backend/progpu_native_geometry_base.hpp
+    src/Backend/progpu_native_geometry_dash.hpp
+    src/Backend/progpu_native_geometry_spline.hpp
+    src/Backend/progpu_native_geometry_stroke.hpp
+    src/Backend/progpu_native_gpu_records.hpp
+    src/Backend/progpu_native_clip_execution.cpp
+    src/Backend/progpu_native_clip_resources.cpp
+    src/Backend/progpu_native_color_glyph_resources.cpp
+    src/Backend/progpu_native_image_execution.cpp
+    src/Backend/progpu_native_image_layer_resources.cpp
+    src/Backend/progpu_native_layer_resource_execution.cpp
+    src/Backend/progpu_native_3d_execution.cpp
+    src/Backend/progpu_native_3d_execution.hpp
+    src/Backend/progpu_native_effect_execution.cpp
+    src/Backend/progpu_native_layer_composite_execution.cpp
+    src/Backend/progpu_native_path_text_resources.cpp
+    src/Backend/progpu_native_path_execution.cpp
+    src/Backend/progpu_native_glyph_execution.cpp
+    src/Backend/progpu_native_texture_execution.cpp
+    src/Backend/progpu_native_pipeline.cpp
+    src/Backend/progpu_native_pipeline.hpp
+    src/Backend/progpu_native_replay_execution.hpp
+    src/Backend/progpu_native_webgpu_resources.hpp
+    src/Backend/progpu_native_vector_execution.cpp
+    src/Backend/progpu_webgpu_compat.hpp)
+
+set(PROGPU_NATIVE_SCENE_SOURCES
+    src/Scene/progpu_native_semantic_masked_text_pipeline.cpp
+    src/Scene/progpu_native_semantic_masked_vector_pipeline.cpp
+    src/Scene/progpu_native_semantic_mask_chain_pipeline.cpp
+    src/Scene/progpu_native_scene.cpp
+    src/Scene/progpu_native_scene.hpp
+    src/Scene/progpu_native_semantic_budget.hpp
+    src/Scene/progpu_native_semantic_brush.cpp
+    src/Scene/progpu_native_semantic_brush.hpp
+    src/Scene/progpu_native_semantic_color_glyph.cpp
+    src/Scene/progpu_native_semantic_color_glyph.hpp
+    src/Scene/progpu_native_semantic_image.cpp
+    src/Scene/progpu_native_semantic_image.hpp
+    src/Scene/progpu_native_semantic_image_resources.cpp
+    src/Scene/progpu_native_semantic_image_effect_resources.cpp
+    src/Scene/progpu_native_semantic_image_blur_resources.cpp
+    src/Scene/progpu_native_semantic_image_resources.hpp
+    src/Scene/progpu_native_semantic_identity.cpp
+    src/Scene/progpu_native_semantic_identity.hpp
+    src/Scene/progpu_native_semantic_layer_mask.cpp
+    src/Scene/progpu_native_semantic_layer_mask.hpp
+    src/Scene/progpu_native_semantic_layer_mask_resources.cpp
+    src/Scene/progpu_native_semantic_layer_mask_resources.hpp
+    src/Scene/progpu_native_semantic_text_style.cpp
+    src/Scene/progpu_native_semantic_text_style.hpp
+    src/Scene/progpu_native_semantic_effect_cache.cpp
+    src/Scene/progpu_native_semantic_effect_cache.hpp
+    src/Scene/progpu_native_semantic_draw_execution.cpp
+    src/Scene/progpu_native_semantic_draw_execution.hpp
+    src/Scene/progpu_native_semantic_update_execution.cpp
+    src/Scene/progpu_native_semantic_render_execution.cpp
+    src/Scene/progpu_native_semantic_replay.hpp
+    src/Scene/progpu_native_semantic_state.cpp
+    src/Scene/progpu_native_semantic_state.hpp
+    src/Scene/progpu_native_semantic_validation.cpp
+    src/Scene/progpu_native_semantic_validation.hpp)
+
 set(PROGPU_NATIVE_RENDERER_SOURCES
-    src/progpu_native_advanced_blend_execution.cpp
-    src/progpu_native_backdrop_execution.cpp
-    src/progpu_native.cpp
-    src/progpu_native_draw_state.cpp
-    src/progpu_native_draw_state.hpp
-    src/progpu_native_device_recovery.cpp
-    src/progpu_native_device_recovery.hpp
-    src/progpu_native_engine.hpp
-    src/progpu_native_effect_plan.cpp
-    src/progpu_native_effect_plan.hpp
-    src/progpu_native_frame_execution.hpp
-    src/progpu_native_frame_execution_common.hpp
-    src/progpu_native_geometry.hpp
-    src/progpu_native_geometry_analytic.hpp
-    src/progpu_native_geometry_base.hpp
-    src/progpu_native_geometry_dash.hpp
-    src/progpu_native_geometry_spline.hpp
-    src/progpu_native_geometry_stroke.hpp
-    src/progpu_native_gpu_records.hpp
-    src/progpu_native_clip_execution.cpp
-    src/progpu_native_clip_resources.cpp
-    src/progpu_native_color_glyph_resources.cpp
-    src/progpu_native_image_execution.cpp
-    src/progpu_native_image_layer_resources.cpp
-    src/progpu_native_layer_resource_execution.cpp
-    src/progpu_native_3d_execution.cpp
-    src/progpu_native_3d_execution.hpp
-    src/progpu_native_effect_execution.cpp
-    src/progpu_native_layer_composite_execution.cpp
-    src/progpu_native_path_text_resources.cpp
-    src/progpu_native_path_execution.cpp
-    src/progpu_native_glyph_execution.cpp
-    src/progpu_native_texture_execution.cpp
-    src/progpu_native_pipeline.cpp
-    src/progpu_native_pipeline.hpp
-    src/progpu_native_semantic_masked_text_pipeline.cpp
-    src/progpu_native_semantic_masked_vector_pipeline.cpp
-    src/progpu_native_semantic_mask_chain_pipeline.cpp
-    src/progpu_native_replay_execution.hpp
-    src/progpu_native_scene.cpp
-    src/progpu_native_scene.hpp
-    src/progpu_native_semantic_budget.hpp
-    src/progpu_native_semantic_brush.cpp
-    src/progpu_native_semantic_brush.hpp
-    src/progpu_native_semantic_color_glyph.cpp
-    src/progpu_native_semantic_color_glyph.hpp
-    src/progpu_native_semantic_image.cpp
-    src/progpu_native_semantic_image.hpp
-    src/progpu_native_semantic_image_resources.cpp
-    src/progpu_native_semantic_image_effect_resources.cpp
-    src/progpu_native_semantic_image_blur_resources.cpp
-    src/progpu_native_semantic_image_resources.hpp
-    src/progpu_native_semantic_identity.cpp
-    src/progpu_native_semantic_identity.hpp
-    src/progpu_native_semantic_layer_mask.cpp
-    src/progpu_native_semantic_layer_mask.hpp
-    src/progpu_native_semantic_layer_mask_resources.cpp
-    src/progpu_native_semantic_layer_mask_resources.hpp
-    src/progpu_native_semantic_text_style.cpp
-    src/progpu_native_semantic_text_style.hpp
-    src/progpu_native_semantic_effect_cache.cpp
-    src/progpu_native_semantic_effect_cache.hpp
-    src/progpu_native_semantic_draw_execution.cpp
-    src/progpu_native_semantic_draw_execution.hpp
-    src/progpu_native_semantic_update_execution.cpp
-    src/progpu_native_semantic_render_execution.cpp
-    src/progpu_native_semantic_replay.hpp
-    src/progpu_native_semantic_state.cpp
-    src/progpu_native_semantic_state.hpp
-    src/progpu_native_semantic_validation.cpp
-    src/progpu_native_semantic_validation.hpp
-    src/progpu_native_webgpu_resources.hpp
-    src/progpu_native_vector_execution.cpp
-    src/progpu_webgpu_compat.hpp
+    ${PROGPU_NATIVE_BACKEND_SOURCES}
+    ${PROGPU_NATIVE_SCENE_SOURCES}
     include/progpu_native.h)
 
+# Mirror the managed ProGPU project boundaries in the native source tree while
+# keeping internal includes independent of a translation unit's physical folder.
+# Public consumers continue to see only the stable headers under include/.
+set(PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Backend"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Scene"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Scene/Builder"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Text"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Bidi"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Shaping"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Image"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Compression")
+
 add_library(progpu_native_compression STATIC
-    src/progpu_native_deflate.cpp
-    src/progpu_native_deflate_huffman.cpp
-    src/progpu_native_deflate_internal.hpp
-    src/progpu_native_gzip.cpp
-    src/progpu_native_zlib.cpp
+    src/Compression/progpu_native_deflate.cpp
+    src/Compression/progpu_native_deflate_huffman.cpp
+    src/Compression/progpu_native_deflate_internal.hpp
+    src/Compression/progpu_native_gzip.cpp
+    src/Compression/progpu_native_zlib.cpp
     include/progpu_native_compression.hpp)
 target_compile_features(progpu_native_compression PUBLIC cxx_std_20)
 target_include_directories(progpu_native_compression
-    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/Compression")
 if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
     target_sources(progpu_native_compression
         PUBLIC
         FILE_SET CXX_MODULES
-        FILES src/progpu_native_compression.cppm)
+        FILES src/Compression/progpu_native_compression.cppm)
 endif()
 progpu_native_enable_warnings(progpu_native_compression)
 progpu_native_enable_sanitizers(progpu_native_compression)
 
 add_library(progpu_native_image STATIC
-    src/progpu_native_png.cpp
-    src/progpu_native_png_crc.cpp
-    src/progpu_native_png_filter.cpp
-    src/progpu_native_png_layout.cpp
-    src/progpu_native_png_pixels.cpp
-    src/progpu_native_png_internal.hpp
+    src/Image/progpu_native_png.cpp
+    src/Image/progpu_native_png_crc.cpp
+    src/Image/progpu_native_png_filter.cpp
+    src/Image/progpu_native_png_layout.cpp
+    src/Image/progpu_native_png_pixels.cpp
+    src/Image/progpu_native_png_internal.hpp
     include/progpu_native_image.hpp)
 target_compile_features(progpu_native_image PUBLIC cxx_std_20)
 target_include_directories(progpu_native_image
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
-    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Image"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Compression")
 target_link_libraries(progpu_native_image PUBLIC progpu_native_compression)
 if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
     target_sources(progpu_native_image
         PUBLIC
         FILE_SET CXX_MODULES
-        FILES src/progpu_native_image.cppm)
+        FILES src/Image/progpu_native_image.cppm)
 endif()
 progpu_native_enable_warnings(progpu_native_image)
 progpu_native_enable_sanitizers(progpu_native_image)
 
 add_library(progpu_native_text STATIC
-    src/progpu_native_unicode.cpp
-    src/progpu_native_unicode_bidi.cpp
-    src/progpu_native_unicode_grapheme.cpp
-    src/progpu_native_unicode_shaping.cpp
-    src/progpu_native_unicode_syllables.cpp
-    src/progpu_native_unicode_arabic.cpp
-    src/progpu_native_unicode_normalization.cpp
-    src/progpu_native_open_type_layout.cpp
-    src/progpu_native_open_type_features.cpp
-    src/progpu_native_open_type_feature_values.cpp
-    src/progpu_native_open_type_feature_values_internal.hpp
-    src/progpu_native_open_type_gdef.cpp
-    src/progpu_native_open_type_gsub.cpp
-    src/progpu_native_open_type_gpos.cpp
-    src/progpu_native_open_type_gpos_context.cpp
-    src/progpu_native_open_type_gpos_internal.hpp
-    src/progpu_native_open_type_plan.cpp
-    src/progpu_native_open_type_shaper.cpp
-    src/progpu_native_open_type_complex_internal.hpp
-    src/progpu_native_open_type_khmer.cpp
-    src/progpu_native_open_type_indic.cpp
-    src/progpu_native_open_type_myanmar.cpp
-    src/progpu_native_open_type_use.cpp
-    src/progpu_native_open_type_hangul.cpp
-    src/progpu_native_open_type_preprocess.cpp
-    src/progpu_native_font_fallback.cpp
-    src/progpu_native_font_provider.cpp
-    src/progpu_native_unicode_line_break.cpp
-    src/progpu_native_text_layout.cpp
-    src/progpu_native_text_interaction.cpp
-    src/progpu_native_unicode_data.generated.hpp
-    src/progpu_native_font_variations.cpp
-    src/progpu_native_font_bytes.hpp
-    src/progpu_native_gvar.cpp
-    src/progpu_native_gvar_apply.cpp
-    src/progpu_native_gvar_composite.cpp
-    src/progpu_native_gvar_payload.cpp
-    src/progpu_native_gvar_phantom.cpp
-    src/progpu_native_gvar_payload_internal.hpp
-    src/progpu_native_gvar_packed.cpp
-    src/progpu_native_gvar_interpolate.cpp
-    src/progpu_native_gvar_tuples.cpp
-    src/progpu_native_item_variation_store.cpp
-    src/progpu_native_hvar.cpp
-    src/progpu_native_mvar.cpp
-    src/progpu_native_gdef_variations.cpp
-    src/progpu_native_cff_index.cpp
-    src/progpu_native_cff_dictionary.cpp
-    src/progpu_native_cff_private.cpp
-    src/progpu_native_cff_fd_select.cpp
-    src/progpu_native_cff1.cpp
-    src/progpu_native_cff2.cpp
-    src/progpu_native_cff_type2.cpp
-    src/progpu_native_cff_type2_operators.cpp
-    src/progpu_native_cff_outline.cpp
-    src/progpu_native_cff_type2_internal.hpp
-    src/progpu_native_sbix.cpp
-    src/progpu_native_cblc.cpp
-    src/progpu_native_cblc_index.cpp
-    src/progpu_native_cbdt.cpp
-    src/progpu_native_cbdt_internal.hpp
-    src/progpu_native_colr.cpp
-    src/progpu_native_cpal.cpp
-    src/progpu_native_colr_internal.hpp
-    src/progpu_native_svg_glyph.cpp
-    src/progpu_native_woff1.cpp
-    src/progpu_native_sfnt.cpp
-    src/progpu_native_true_type_composite.cpp
-    src/progpu_native_true_type_composite_internal.hpp
-    src/progpu_native_true_type_glyph.cpp
-    src/progpu_native_true_type_outline.cpp
-    src/progpu_native_true_type_varied_outline.cpp
-    src/progpu_native_true_type_varied_requirements.cpp
-    src/progpu_native_true_type_path.cpp
+    src/Text/progpu_native_unicode.cpp
+    src/Text/Bidi/progpu_native_unicode_bidi.cpp
+    src/Text/progpu_native_unicode_grapheme.cpp
+    src/Text/Shaping/progpu_native_unicode_shaping.cpp
+    src/Text/Shaping/progpu_native_unicode_syllables.cpp
+    src/Text/Shaping/progpu_native_unicode_arabic.cpp
+    src/Text/progpu_native_unicode_normalization.cpp
+    src/Text/Shaping/progpu_native_open_type_layout.cpp
+    src/Text/Shaping/progpu_native_open_type_features.cpp
+    src/Text/Shaping/progpu_native_open_type_feature_values.cpp
+    src/Text/Shaping/progpu_native_open_type_feature_values_internal.hpp
+    src/Text/Shaping/progpu_native_open_type_gdef.cpp
+    src/Text/Shaping/progpu_native_open_type_gsub.cpp
+    src/Text/Shaping/progpu_native_open_type_gpos.cpp
+    src/Text/Shaping/progpu_native_open_type_gpos_context.cpp
+    src/Text/Shaping/progpu_native_open_type_gpos_internal.hpp
+    src/Text/Shaping/progpu_native_open_type_plan.cpp
+    src/Text/Shaping/progpu_native_open_type_shaper.cpp
+    src/Text/Shaping/progpu_native_open_type_complex_internal.hpp
+    src/Text/Shaping/progpu_native_open_type_khmer.cpp
+    src/Text/Shaping/progpu_native_open_type_indic.cpp
+    src/Text/Shaping/progpu_native_open_type_myanmar.cpp
+    src/Text/Shaping/progpu_native_open_type_use.cpp
+    src/Text/Shaping/progpu_native_open_type_hangul.cpp
+    src/Text/Shaping/progpu_native_open_type_preprocess.cpp
+    src/Text/Shaping/progpu_native_font_fallback.cpp
+    src/Text/Shaping/progpu_native_font_provider.cpp
+    src/Text/progpu_native_unicode_line_break.cpp
+    src/Text/progpu_native_text_layout.cpp
+    src/Text/progpu_native_text_interaction.cpp
+    src/Text/progpu_native_unicode_data.generated.hpp
+    src/Text/progpu_native_font_variations.cpp
+    src/Text/progpu_native_font_bytes.hpp
+    src/Text/progpu_native_gvar.cpp
+    src/Text/progpu_native_gvar_apply.cpp
+    src/Text/progpu_native_gvar_composite.cpp
+    src/Text/progpu_native_gvar_payload.cpp
+    src/Text/progpu_native_gvar_phantom.cpp
+    src/Text/progpu_native_gvar_payload_internal.hpp
+    src/Text/progpu_native_gvar_packed.cpp
+    src/Text/progpu_native_gvar_interpolate.cpp
+    src/Text/progpu_native_gvar_tuples.cpp
+    src/Text/progpu_native_item_variation_store.cpp
+    src/Text/progpu_native_hvar.cpp
+    src/Text/progpu_native_mvar.cpp
+    src/Text/progpu_native_gdef_variations.cpp
+    src/Text/progpu_native_cff_index.cpp
+    src/Text/progpu_native_cff_dictionary.cpp
+    src/Text/progpu_native_cff_private.cpp
+    src/Text/progpu_native_cff_fd_select.cpp
+    src/Text/progpu_native_cff1.cpp
+    src/Text/progpu_native_cff2.cpp
+    src/Text/progpu_native_cff_type2.cpp
+    src/Text/progpu_native_cff_type2_operators.cpp
+    src/Text/progpu_native_cff_outline.cpp
+    src/Text/progpu_native_cff_type2_internal.hpp
+    src/Text/progpu_native_sbix.cpp
+    src/Text/progpu_native_cblc.cpp
+    src/Text/progpu_native_cblc_index.cpp
+    src/Text/progpu_native_cbdt.cpp
+    src/Text/progpu_native_cbdt_internal.hpp
+    src/Text/progpu_native_colr.cpp
+    src/Text/progpu_native_cpal.cpp
+    src/Text/progpu_native_colr_internal.hpp
+    src/Text/progpu_native_svg_glyph.cpp
+    src/Text/progpu_native_woff1.cpp
+    src/Text/progpu_native_sfnt.cpp
+    src/Text/progpu_native_true_type_composite.cpp
+    src/Text/progpu_native_true_type_composite_internal.hpp
+    src/Text/progpu_native_true_type_glyph.cpp
+    src/Text/progpu_native_true_type_outline.cpp
+    src/Text/progpu_native_true_type_varied_outline.cpp
+    src/Text/progpu_native_true_type_varied_requirements.cpp
+    src/Text/progpu_native_true_type_path.cpp
     include/progpu_native_text.hpp)
 target_compile_features(progpu_native_text PUBLIC cxx_std_20)
 target_include_directories(progpu_native_text
-    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Text"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Bidi"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Shaping"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Compression")
 target_link_libraries(progpu_native_text PUBLIC progpu_native_compression)
 if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
     target_sources(progpu_native_text
         PUBLIC
         FILE_SET CXX_MODULES
-        FILES src/progpu_native_text.cppm)
+        FILES src/Text/progpu_native_text.cppm)
 endif()
 progpu_native_enable_warnings(progpu_native_text)
 progpu_native_enable_sanitizers(progpu_native_text)
 
 add_library(progpu_native_scene_builder STATIC
-    src/progpu_native_scene_builder.cpp
-    src/progpu_native_scene_builder_3d.cpp
-    src/progpu_native_scene_builder_geometry.cpp
-    src/progpu_native_scene_builder_glyph.cpp
-    src/progpu_native_scene_builder_image.cpp
-    src/progpu_native_scene_builder_layer.cpp
-    src/progpu_native_scene_builder_path.cpp
-    src/progpu_native_scene_builder_text.cpp
-    src/progpu_native_scene_builder_internal.hpp
-    src/progpu_native_semantic_layer_mask.cpp
-    src/progpu_native_semantic_layer_mask.hpp
-    src/progpu_native_semantic_validation.cpp
-    src/progpu_native_semantic_validation.hpp
+    src/Scene/Builder/progpu_native_scene_builder.cpp
+    src/Scene/Builder/progpu_native_scene_builder_3d.cpp
+    src/Scene/Builder/progpu_native_scene_builder_geometry.cpp
+    src/Scene/Builder/progpu_native_scene_builder_glyph.cpp
+    src/Scene/Builder/progpu_native_scene_builder_image.cpp
+    src/Scene/Builder/progpu_native_scene_builder_layer.cpp
+    src/Scene/Builder/progpu_native_scene_builder_path.cpp
+    src/Scene/Builder/progpu_native_scene_builder_text.cpp
+    src/Scene/Builder/progpu_native_scene_builder_internal.hpp
+    src/Scene/progpu_native_semantic_layer_mask.cpp
+    src/Scene/progpu_native_semantic_layer_mask.hpp
+    src/Scene/progpu_native_semantic_validation.cpp
+    src/Scene/progpu_native_semantic_validation.hpp
     include/progpu_native_scene_builder.hpp)
 target_compile_features(progpu_native_scene_builder PUBLIC cxx_std_20)
 target_include_directories(progpu_native_scene_builder
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
-    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    PRIVATE ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})
 if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
     target_sources(progpu_native_scene_builder
         PUBLIC
         FILE_SET CXX_MODULES
-        FILES src/progpu_native_scene_builder.cppm)
+        FILES src/Scene/Builder/progpu_native_scene_builder.cppm)
 endif()
 progpu_native_enable_warnings(progpu_native_scene_builder)
 progpu_native_enable_sanitizers(progpu_native_scene_builder)
@@ -657,7 +684,7 @@ target_compile_definitions(progpu_native PRIVATE PROGPU_NATIVE_BUILD=1)
 target_include_directories(progpu_native
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
     PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES}
         "${generated_directory}")
 target_include_directories(progpu_native SYSTEM PRIVATE
     "${PROGPU_NATIVE_WEBGPU_INCLUDE_DIR}")
@@ -693,8 +720,8 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
     target_include_directories(progpu_native_dawn
         PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
         PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/src"
-        "${generated_directory}")
+            ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES}
+            "${generated_directory}")
     target_include_directories(progpu_native_dawn SYSTEM PRIVATE
         "${PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR}")
     progpu_native_enable_warnings(progpu_native_dawn)
@@ -828,7 +855,7 @@ if(EMSCRIPTEN)
         PROGPU_NATIVE_BROWSER=1)
     target_include_directories(progpu_native_browser_smoke PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES}
         "${CMAKE_CURRENT_SOURCE_DIR}/browser/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests"
         "${generated_directory}")
@@ -982,40 +1009,40 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         tests/progpu_native_semantic_image_tests.hpp
         tests/progpu_native_semantic_layer_mask_tests.cpp
         tests/progpu_native_semantic_layer_mask_tests.hpp
-        src/progpu_native_draw_state.cpp
-        src/progpu_native_draw_state.hpp
-        src/progpu_native_effect_plan.cpp
-        src/progpu_native_effect_plan.hpp
-        src/progpu_native_geometry_analytic.hpp
-        src/progpu_native_geometry_base.hpp
-        src/progpu_native_geometry_dash.hpp
-        src/progpu_native_geometry_spline.hpp
-        src/progpu_native_geometry_stroke.hpp
-        src/progpu_native_gpu_records.hpp
-        src/progpu_native_scene.cpp
-        src/progpu_native_scene.hpp
-        src/progpu_native_semantic_budget.hpp
-        src/progpu_native_semantic_brush.cpp
-        src/progpu_native_semantic_brush.hpp
-        src/progpu_native_semantic_color_glyph.cpp
-        src/progpu_native_semantic_color_glyph.hpp
-        src/progpu_native_semantic_image.cpp
-        src/progpu_native_semantic_image.hpp
-        src/progpu_native_semantic_identity.cpp
-        src/progpu_native_semantic_identity.hpp
-        src/progpu_native_semantic_layer_mask.hpp
-        src/progpu_native_semantic_text_style.cpp
-        src/progpu_native_semantic_text_style.hpp
-        src/progpu_native_semantic_effect_cache.cpp
-        src/progpu_native_semantic_effect_cache.hpp
-        src/progpu_native_semantic_replay.hpp
-        src/progpu_native_semantic_state.cpp
-        src/progpu_native_semantic_state.hpp
-        src/progpu_native_semantic_validation.hpp)
+        src/Backend/progpu_native_draw_state.cpp
+        src/Backend/progpu_native_draw_state.hpp
+        src/Backend/progpu_native_effect_plan.cpp
+        src/Backend/progpu_native_effect_plan.hpp
+        src/Backend/progpu_native_geometry_analytic.hpp
+        src/Backend/progpu_native_geometry_base.hpp
+        src/Backend/progpu_native_geometry_dash.hpp
+        src/Backend/progpu_native_geometry_spline.hpp
+        src/Backend/progpu_native_geometry_stroke.hpp
+        src/Backend/progpu_native_gpu_records.hpp
+        src/Scene/progpu_native_scene.cpp
+        src/Scene/progpu_native_scene.hpp
+        src/Scene/progpu_native_semantic_budget.hpp
+        src/Scene/progpu_native_semantic_brush.cpp
+        src/Scene/progpu_native_semantic_brush.hpp
+        src/Scene/progpu_native_semantic_color_glyph.cpp
+        src/Scene/progpu_native_semantic_color_glyph.hpp
+        src/Scene/progpu_native_semantic_image.cpp
+        src/Scene/progpu_native_semantic_image.hpp
+        src/Scene/progpu_native_semantic_identity.cpp
+        src/Scene/progpu_native_semantic_identity.hpp
+        src/Scene/progpu_native_semantic_layer_mask.hpp
+        src/Scene/progpu_native_semantic_text_style.cpp
+        src/Scene/progpu_native_semantic_text_style.hpp
+        src/Scene/progpu_native_semantic_effect_cache.cpp
+        src/Scene/progpu_native_semantic_effect_cache.hpp
+        src/Scene/progpu_native_semantic_replay.hpp
+        src/Scene/progpu_native_semantic_state.cpp
+        src/Scene/progpu_native_semantic_state.hpp
+        src/Scene/progpu_native_semantic_validation.hpp)
     target_compile_features(progpu_native_internal_tests PRIVATE cxx_std_20)
     target_include_directories(progpu_native_internal_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+        ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})
     target_link_libraries(progpu_native_internal_tests PRIVATE
         progpu_native_scene_builder)
     progpu_native_enable_warnings(progpu_native_internal_tests)
@@ -1029,24 +1056,24 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     if(PROGPU_NATIVE_BUILD_WGPU_TARGET)
     add_executable(progpu_native_tests
         tests/progpu_native_tests.cpp
-        src/progpu_native_scene.cpp
-        src/progpu_native_scene.hpp
-        src/progpu_native_semantic_brush.cpp
-        src/progpu_native_semantic_brush.hpp
-        src/progpu_native_semantic_color_glyph.cpp
-        src/progpu_native_semantic_color_glyph.hpp
-        src/progpu_native_semantic_layer_mask.cpp
-        src/progpu_native_semantic_layer_mask.hpp
-        src/progpu_native_semantic_text_style.cpp
-        src/progpu_native_semantic_text_style.hpp
-        src/progpu_native_semantic_state.cpp
-        src/progpu_native_semantic_state.hpp
-        src/progpu_native_semantic_validation.cpp
-        src/progpu_native_semantic_validation.hpp)
+        src/Scene/progpu_native_scene.cpp
+        src/Scene/progpu_native_scene.hpp
+        src/Scene/progpu_native_semantic_brush.cpp
+        src/Scene/progpu_native_semantic_brush.hpp
+        src/Scene/progpu_native_semantic_color_glyph.cpp
+        src/Scene/progpu_native_semantic_color_glyph.hpp
+        src/Scene/progpu_native_semantic_layer_mask.cpp
+        src/Scene/progpu_native_semantic_layer_mask.hpp
+        src/Scene/progpu_native_semantic_text_style.cpp
+        src/Scene/progpu_native_semantic_text_style.hpp
+        src/Scene/progpu_native_semantic_state.cpp
+        src/Scene/progpu_native_semantic_state.hpp
+        src/Scene/progpu_native_semantic_validation.cpp
+        src/Scene/progpu_native_semantic_validation.hpp)
     target_compile_features(progpu_native_tests PRIVATE cxx_std_20)
     target_include_directories(progpu_native_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+        ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})
     target_link_libraries(progpu_native_tests PRIVATE progpu_native)
     progpu_native_enable_warnings(progpu_native_tests)
     progpu_native_enable_sanitizers(progpu_native_tests)
@@ -1091,10 +1118,10 @@ if(NOT EMSCRIPTEN)
         include/progpu_native_text.hpp
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
     install(FILES
-        src/progpu_native_compression.cppm
-        src/progpu_native_image.cppm
-        src/progpu_native_scene_builder.cppm
-        src/progpu_native_text.cppm
+        src/Compression/progpu_native_compression.cppm
+        src/Image/progpu_native_image.cppm
+        src/Scene/Builder/progpu_native_scene_builder.cppm
+        src/Text/progpu_native_text.cppm
         DESTINATION "${CMAKE_INSTALL_DATADIR}/progpu/modules")
     install(FILES cmake/ProGPUNativeConfig.cmake
         DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/ProGPUNative")

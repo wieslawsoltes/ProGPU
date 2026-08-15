@@ -2805,6 +2805,41 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeImplementationMirrorsManagedOwnershipBoundaries()
+    {
+        string nativeRoot = Path.GetDirectoryName(FindRepoFile(
+            "src", "ProGPU.Native", "CMakeLists.txt"))!;
+        string implementationRoot = Path.Combine(nativeRoot, "src");
+        string readme = File.ReadAllText(Path.Combine(nativeRoot, "README.md"));
+        var expectedDomains = new[]
+        {
+            (Path: "Backend", Authority: "ProGPU.Backend"),
+            (Path: "Scene", Authority: "ProGPU.Scene"),
+            (Path: "Scene/Builder", Authority: "ProGPU.Scene.Native"),
+            (Path: "Text", Authority: "ProGPU.Text"),
+            (Path: "Text/Bidi", Authority: "ProGPU.Text/Bidi"),
+            (Path: "Text/Shaping", Authority: "ProGPU.Text.Shaping"),
+            (Path: "Image", Authority: "ProGPU image/bitmap contracts"),
+            (Path: "Compression", Authority: "ProGPU codec support")
+        };
+
+        foreach ((string relativePath, string authority) in expectedDomains)
+        {
+            string platformPath = relativePath.Replace(
+                '/', Path.DirectorySeparatorChar);
+            Assert.True(
+                Directory.Exists(Path.Combine(implementationRoot, platformPath)),
+                $"Missing native implementation domain {relativePath}.");
+            Assert.Contains(authority, readme, StringComparison.Ordinal);
+        }
+
+        Assert.Empty(Directory.EnumerateFiles(
+            implementationRoot,
+            "progpu_*",
+            SearchOption.TopDirectoryOnly));
+    }
+
+    [Fact]
     public void NativeBuildReusesProductionShaderAndExactManagedWgpuRevision()
     {
         string cmake = File.ReadAllText(FindRepoFile(
@@ -2823,47 +2858,47 @@ public class NativeRendererInteropTests
             StringComparison.Ordinal);
         Assert.Contains("EmbedShader.cmake", cmake, StringComparison.Ordinal);
         Assert.Contains(
-            "src/progpu_native_vector_execution.cpp",
+            "src/Backend/progpu_native_vector_execution.cpp",
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
-            "src/progpu_native_path_execution.cpp",
+            "src/Backend/progpu_native_path_execution.cpp",
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
-            "src/progpu_native_glyph_execution.cpp",
+            "src/Backend/progpu_native_glyph_execution.cpp",
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
-            "src/progpu_native_texture_execution.cpp",
+            "src/Backend/progpu_native_texture_execution.cpp",
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
-            "src/progpu_native_semantic_update_execution.cpp",
+            "src/Scene/progpu_native_semantic_update_execution.cpp",
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
-            "src/progpu_native_semantic_draw_execution.cpp",
+            "src/Scene/progpu_native_semantic_draw_execution.cpp",
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
-            "src/progpu_native_semantic_render_execution.cpp",
+            "src/Scene/progpu_native_semantic_render_execution.cpp",
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
-            "src/progpu_native_layer_resource_execution.cpp",
+            "src/Backend/progpu_native_layer_resource_execution.cpp",
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
-            "src/progpu_native_effect_execution.cpp",
+            "src/Backend/progpu_native_effect_execution.cpp",
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
-            "src/progpu_native_layer_composite_execution.cpp",
+            "src/Backend/progpu_native_layer_composite_execution.cpp",
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
-            "src/progpu_native_advanced_blend_execution.cpp",
+            "src/Backend/progpu_native_advanced_blend_execution.cpp",
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -2872,13 +2907,13 @@ public class NativeRendererInteropTests
             StringComparison.Ordinal);
 
         string pipelineSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_pipeline.cpp"));
+            "src", "ProGPU.Native", "src", "Backend", "progpu_native_pipeline.cpp"));
         Assert.Contains(
             "VectorWgsl.generated.hpp",
             pipelineSource,
             StringComparison.Ordinal);
         string pathTextSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_path_text_resources.cpp"));
+            "src", "ProGPU.Native", "src", "Backend", "progpu_native_path_text_resources.cpp"));
         Assert.Contains(
             "GlyphRasterizerWgsl.generated.hpp",
             pathTextSource,
@@ -2888,37 +2923,37 @@ public class NativeRendererInteropTests
             pathTextSource,
             StringComparison.Ordinal);
         string imageLayerSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_image_layer_resources.cpp"));
+            "src", "ProGPU.Native", "src", "Backend", "progpu_native_image_layer_resources.cpp"));
         string clipSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_clip_resources.cpp"));
+            "src", "ProGPU.Native", "src", "Backend", "progpu_native_clip_resources.cpp"));
         string clipExecutionSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_clip_execution.cpp"));
+            "src", "ProGPU.Native", "src", "Backend", "progpu_native_clip_execution.cpp"));
         string imageExecutionSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_image_execution.cpp"));
+            "src", "ProGPU.Native", "src", "Backend", "progpu_native_image_execution.cpp"));
         string layerResourceExecutionSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_layer_resource_execution.cpp"));
+            "src", "ProGPU.Native", "src", "Backend", "progpu_native_layer_resource_execution.cpp"));
         string effectExecutionSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_effect_execution.cpp"));
+            "src", "ProGPU.Native", "src", "Backend", "progpu_native_effect_execution.cpp"));
         string layerCompositeExecutionSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_layer_composite_execution.cpp"));
+            "src", "ProGPU.Native", "src", "Backend", "progpu_native_layer_composite_execution.cpp"));
         string vectorExecutionSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_vector_execution.cpp"));
+            "src", "ProGPU.Native", "src", "Backend", "progpu_native_vector_execution.cpp"));
         string pathExecutionSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_path_execution.cpp"));
+            "src", "ProGPU.Native", "src", "Backend", "progpu_native_path_execution.cpp"));
         string glyphExecutionSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_glyph_execution.cpp"));
+            "src", "ProGPU.Native", "src", "Backend", "progpu_native_glyph_execution.cpp"));
         string textureExecutionSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_texture_execution.cpp"));
+            "src", "ProGPU.Native", "src", "Backend", "progpu_native_texture_execution.cpp"));
         string semanticUpdateExecutionSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_semantic_update_execution.cpp"));
+            "src", "ProGPU.Native", "src", "Scene", "progpu_native_semantic_update_execution.cpp"));
         string semanticDrawExecutionSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_semantic_draw_execution.cpp"));
+            "src", "ProGPU.Native", "src", "Scene", "progpu_native_semantic_draw_execution.cpp"));
         string semanticRenderExecutionSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_semantic_render_execution.cpp"));
+            "src", "ProGPU.Native", "src", "Scene", "progpu_native_semantic_render_execution.cpp"));
         string advancedBlendSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_advanced_blend_execution.cpp"));
+            "src", "ProGPU.Native", "src", "Backend", "progpu_native_advanced_blend_execution.cpp"));
         string frameExecutionCommonSource = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_native_frame_execution_common.hpp"));
+            "src", "ProGPU.Native", "src", "Backend", "progpu_native_frame_execution_common.hpp"));
         Assert.Contains(
             "GaussianBlurHorizontalWgsl.generated.hpp",
             effectExecutionSource,
@@ -3100,7 +3135,7 @@ public class NativeRendererInteropTests
         string cmake = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "CMakeLists.txt"));
         string compatibility = File.ReadAllText(FindRepoFile(
-            "src", "ProGPU.Native", "src", "progpu_webgpu_compat.hpp"));
+            "src", "ProGPU.Native", "src", "Backend", "progpu_webgpu_compat.hpp"));
         string verifier = File.ReadAllText(FindRepoFile(
             "eng", "progpu-verify-native-dawn-header.sh"));
         string providerVerifier = File.ReadAllText(FindRepoFile(
