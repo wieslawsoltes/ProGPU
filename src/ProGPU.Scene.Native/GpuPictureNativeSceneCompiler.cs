@@ -29,7 +29,8 @@ public static partial class GpuPictureNativeSceneCompiler
         VertexMesh,
         Stroke,
         Glyph,
-        ColorGlyph
+        ColorGlyph,
+        Line3D
     }
 
     private enum OperationKind : byte
@@ -60,6 +61,7 @@ public static partial class GpuPictureNativeSceneCompiler
         public NativeImageRect Bounds;
         public uint ResourceIndex;
         public uint StyleIndex;
+        public NativeSceneCamera3D Camera3D;
     }
 
     private readonly record struct Operation(
@@ -195,6 +197,7 @@ public static partial class GpuPictureNativeSceneCompiler
         var colorGlyphPixels = new List<byte>();
         var positionedGlyphs = new List<NativePositionedGlyph>();
         var textStyles = new List<NativeSceneTextStyle>();
+        var lines3D = new List<NativeSceneLine3D>();
         var batches = new List<Batch>();
         var operations = new List<Operation>();
         var states = new List<StateSnapshot>();
@@ -232,14 +235,21 @@ public static partial class GpuPictureNativeSceneCompiler
                 ownerId = 0;
                 command = picture.GetCommand(index);
                 sourceCommandType = command.Type;
-                if (command.UseGpuTransforms ||
+                if ((!IsNative3DCommand(command) && command.UseGpuTransforms) ||
                     !TryGetAffine(command.Transform, out transform))
                 {
+                    if (IsNative3DCommand(command))
+                    {
+                        transform = Matrix3x2.Identity;
+                    }
+                    else
+                    {
                     failure = new(
                         NativePictureCompileError.UnsupportedTransform,
                         sourceCommandIndex,
                         sourceCommandType);
                     return false;
+                    }
                 }
             }
             else
@@ -265,9 +275,12 @@ public static partial class GpuPictureNativeSceneCompiler
                 transform = source.Transform;
                 command = source.Picture.GetCommand(source.CommandIndex);
             }
-            command.Transform = transform == Matrix3x2.Identity
-                ? default
-                : ToMatrix4x4(transform);
+            if (!IsNative3DCommand(command))
+            {
+                command.Transform = transform == Matrix3x2.Identity
+                    ? default
+                    : ToMatrix4x4(transform);
+            }
             if (!TryAppendStateCommand(
                     command,
                     ownerId,
@@ -318,10 +331,11 @@ public static partial class GpuPictureNativeSceneCompiler
                     colorGlyphPixels,
                     positionedGlyphs,
                     textStyles,
+                    lines3D,
                     batches,
                     operations,
                     materials,
-                    options.DpiScale,
+                    options,
                     out NativePictureCompileError error))
             {
                 failure = new(
@@ -373,6 +387,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 colorGlyphPixels.Count +
                 positionedGlyphs.Count * Unsafe.SizeOf<NativePositionedGlyph>() +
                 textStyles.Count * Unsafe.SizeOf<NativeSceneTextStyle>() +
+                lines3D.Count * Unsafe.SizeOf<NativeSceneLine3D>() +
                 materials.BrushCount * Unsafe.SizeOf<NativeSceneBrush>() +
                 materials.GradientStopCount *
                     Unsafe.SizeOf<NativeSceneGradientStop>() +
@@ -383,6 +398,8 @@ public static partial class GpuPictureNativeSceneCompiler
                 batches.Count(static batch =>
                     batch.Kind is BatchKind.Glyph or BatchKind.ColorGlyph) *
                     NativeSceneGlyphDrawSize +
+                batches.Count(static batch => batch.Kind == BatchKind.Line3D) *
+                    Unsafe.SizeOf<NativeSceneCamera3D>() +
                 batches.Count * 30 +
                 (analytics.Count + geometry.Count + paths.Count +
                     pointBatches.Count + vertexMeshes.Count + strokes.Count) *
@@ -438,6 +455,8 @@ public static partial class GpuPictureNativeSceneCompiler
                 CollectionsMarshal.AsSpan(positionedGlyphs);
             Span<NativeSceneTextStyle> textStyleSpan =
                 CollectionsMarshal.AsSpan(textStyles);
+            Span<NativeSceneLine3D> line3DSpan =
+                CollectionsMarshal.AsSpan(lines3D);
             Span<uint> analyticBrushSpan =
                 CollectionsMarshal.AsSpan(analyticBrushIndices);
             Span<uint> geometryBrushSpan =
@@ -517,6 +536,12 @@ public static partial class GpuPictureNativeSceneCompiler
                         colorGlyphPixelSpan.Slice(
                             batch.AuxiliaryStart,
                             batch.AuxiliaryCount),
+                        out batch.ResourceIndex)
+                    : batch.Kind == BatchKind.Line3D
+                    ? builder.TryAddLine3DResource(
+                        checked((ulong)index + 1U),
+                        generation,
+                        line3DSpan.Slice(batch.Start, batch.Count),
                         out batch.ResourceIndex)
                     : builder.TryAddGlyphResource(
                         checked((ulong)index + 1U),
@@ -690,6 +715,12 @@ public static partial class GpuPictureNativeSceneCompiler
                             strokeBrushSpan.Slice(
                                 batch.BrushStart,
                                 batch.Count))
+                        : batch.Kind == BatchKind.Line3D
+                        ? builder.TryDrawLine3D(
+                            commandId,
+                            batch.ResourceIndex,
+                            batch.Bounds,
+                            in batch.Camera3D)
                         : builder.TryDrawGlyphRun(
                             commandId,
                             batch.ResourceIndex,
@@ -744,6 +775,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 colorGlyphPixels.Count,
                 positionedGlyphs.Count,
                 textStyles.Count,
+                lines3D.Count,
                 materials.BrushCount,
                 materials.GradientStopCount);
             return true;
@@ -967,10 +999,11 @@ public static partial class GpuPictureNativeSceneCompiler
         List<byte> colorGlyphPixels,
         List<NativePositionedGlyph> positionedGlyphs,
         List<NativeSceneTextStyle> textStyles,
+        List<NativeSceneLine3D> lines3D,
         List<Batch> batches,
         List<Operation> operations,
         NativeBrushTableBuilder materials,
-        float targetDpiScale,
+        NativePictureCompileOptions options,
         out NativePictureCompileError error)
     {
         error = NativePictureCompileError.None;
@@ -1195,7 +1228,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 return TryAppendGlyphRun(
                     command,
                     transform,
-                    targetDpiScale,
+                    options.DpiScale,
                     paths,
                     pathSegments,
                     pathBrushIndices,
@@ -1209,10 +1242,126 @@ public static partial class GpuPictureNativeSceneCompiler
                     operations,
                     materials,
                     out error);
+            case RenderCommandType.DrawExtension
+                when command.ExtensionId is
+                    CompositorBuiltInExtensions.Line3D or
+                    CompositorBuiltInExtensions.AcisSolid:
+                return TryAppendLine3D(
+                    picture,
+                    command,
+                    lines3D,
+                    batches,
+                    operations,
+                    options,
+                    out error);
             default:
                 error = NativePictureCompileError.UnsupportedCommand;
                 return false;
         }
+    }
+
+    private static bool TryAppendLine3D(
+        GpuPicture picture,
+        in RenderCommand command,
+        List<NativeSceneLine3D> lines,
+        List<Batch> batches,
+        List<Operation> operations,
+        NativePictureCompileOptions options,
+        out NativePictureCompileError error)
+    {
+        error = NativePictureCompileError.None;
+        Pen? pen = (command.DataParam as Pen) ?? command.Pen;
+        if (pen is null || pen.HasDashPattern ||
+            pen.Brush is not SolidColorBrush solid ||
+            !float.IsFinite(pen.Thickness) || pen.Thickness <= 0f ||
+            !float.IsFinite(solid.Opacity) ||
+            !IsFinite(solid.Color))
+        {
+            error = NativePictureCompileError.UnsupportedStroke;
+            return false;
+        }
+
+        int start = lines.Count;
+        Matrix4x4 modelTransform = command.ExtensionId ==
+                CompositorBuiltInExtensions.AcisSolid &&
+            command.Transform != default
+            ? command.Transform
+            : Matrix4x4.Identity;
+        if (!IsFinite(modelTransform))
+        {
+            error = NativePictureCompileError.UnsupportedTransform;
+            return false;
+        }
+
+        if (command.ExtensionId == CompositorBuiltInExtensions.Line3D)
+        {
+            if (command.FloatBufferCount < 6)
+            {
+                error = NativePictureCompileError.InvalidGeometry;
+                return false;
+            }
+            ReadOnlySpan<float> values = picture.GetFloats(
+                command.FloatBufferOffset,
+                6);
+            Vector3 startPoint = new(values[0], values[1], values[2]);
+            Vector3 endPoint = new(values[3], values[4], values[5]);
+            if (!IsFinite(startPoint) || !IsFinite(endPoint))
+            {
+                error = NativePictureCompileError.InvalidGeometry;
+                return false;
+            }
+            lines.Add(new NativeSceneLine3D(
+                startPoint,
+                endPoint,
+                solid.Color,
+                pen.Thickness,
+                solid.Opacity,
+                modelTransform));
+        }
+        else
+        {
+            if (command.Line3DBufferCount <= 0)
+            {
+                error = NativePictureCompileError.InvalidGeometry;
+                return false;
+            }
+            ReadOnlySpan<Line3D> edges = picture.GetLines3D(
+                command.Line3DBufferOffset,
+                command.Line3DBufferCount);
+            for (int index = 0; index < edges.Length; index++)
+            {
+                Line3D edge = edges[index];
+                if (!IsFinite(edge.Start) || !IsFinite(edge.End))
+                {
+                    error = NativePictureCompileError.InvalidGeometry;
+                    return false;
+                }
+                lines.Add(new NativeSceneLine3D(
+                    edge.Start,
+                    edge.End,
+                    solid.Color,
+                    pen.Thickness,
+                    solid.Opacity,
+                    modelTransform));
+            }
+        }
+
+        int count = lines.Count - start;
+        Batch batch = new()
+        {
+            Kind = BatchKind.Line3D,
+            Start = start,
+            Count = count,
+            Bounds = default,
+            Camera3D = new NativeSceneCamera3D(
+                options.Projection3D,
+                options.View3D,
+                options.CameraPosition3D)
+        };
+        int batchIndex = batches.Count;
+        batches.Add(batch);
+        operations.Add(new Operation(OperationKind.Draw, batchIndex));
+        return true;
     }
 
     private static bool TryAppendAnalytic(
@@ -2199,6 +2348,25 @@ public static partial class GpuPictureNativeSceneCompiler
     private static bool IsFinite(Vector4 value) =>
         float.IsFinite(value.X) && float.IsFinite(value.Y) &&
         float.IsFinite(value.Z) && float.IsFinite(value.W);
+
+    private static bool IsFinite(Vector3 value) =>
+        float.IsFinite(value.X) && float.IsFinite(value.Y) &&
+        float.IsFinite(value.Z);
+
+    private static bool IsFinite(Matrix4x4 value) =>
+        float.IsFinite(value.M11) && float.IsFinite(value.M12) &&
+        float.IsFinite(value.M13) && float.IsFinite(value.M14) &&
+        float.IsFinite(value.M21) && float.IsFinite(value.M22) &&
+        float.IsFinite(value.M23) && float.IsFinite(value.M24) &&
+        float.IsFinite(value.M31) && float.IsFinite(value.M32) &&
+        float.IsFinite(value.M33) && float.IsFinite(value.M34) &&
+        float.IsFinite(value.M41) && float.IsFinite(value.M42) &&
+        float.IsFinite(value.M43) && float.IsFinite(value.M44);
+
+    private static bool IsNative3DCommand(in RenderCommand command) =>
+        command.Type == RenderCommandType.DrawExtension &&
+        command.ExtensionId is CompositorBuiltInExtensions.Line3D or
+            CompositorBuiltInExtensions.AcisSolid;
 
     private static bool IsFinite(Vector2 value) =>
         float.IsFinite(value.X) && float.IsFinite(value.Y);

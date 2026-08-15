@@ -32,6 +32,7 @@ public sealed class NativeCompiledPicture
         int colorGlyphPixelBytes,
         int positionedGlyphCount,
         int textStyleCount,
+        int line3DCount,
         int brushCount,
         int gradientStopCount)
     {
@@ -61,6 +62,7 @@ public sealed class NativeCompiledPicture
         ColorGlyphPixelBytes = colorGlyphPixelBytes;
         PositionedGlyphCount = positionedGlyphCount;
         TextStyleCount = textStyleCount;
+        Line3DCount = line3DCount;
         BrushCount = brushCount;
         GradientStopCount = gradientStopCount;
     }
@@ -124,6 +126,8 @@ public sealed class NativeCompiledPicture
     public int PositionedGlyphCount { get; }
 
     public int TextStyleCount { get; }
+
+    public int Line3DCount { get; }
 
     public int BrushCount { get; }
 

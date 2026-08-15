@@ -14,6 +14,96 @@ namespace ProGPU.Tests;
 public class NativePictureCompilerTests
 {
     [Fact]
+    public void CompilerLowersRetainedLineAndAcisEdgesToNative3DResources()
+    {
+        var pen = new Pen(
+            new SolidColorBrush(new Vector4(0.25f, 0.5f, 0.75f, 1f))
+            {
+                Opacity = 0.8f
+            },
+            3f);
+        Matrix4x4 model = Matrix4x4.CreateRotationX(0.35f) *
+            Matrix4x4.CreateTranslation(2f, 3f, 4f);
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawExtension,
+                    ExtensionId = CompositorBuiltInExtensions.Line3D,
+                    DataParam = pen,
+                    FloatBufferOffset = 0,
+                    FloatBufferCount = 6
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawExtension,
+                    ExtensionId = CompositorBuiltInExtensions.AcisSolid,
+                    Pen = pen,
+                    Line3DBufferOffset = 0,
+                    Line3DBufferCount = 1,
+                    Transform = model
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            [new Line3D(new Vector3(-1f, 0f, 0f), new Vector3(1f, 0f, 0f))],
+            [0f, 1f, 2f, 3f, 4f, 5f]);
+        Matrix4x4 projection = Matrix4x4.CreatePerspectiveFieldOfView(
+            0.75f,
+            1.5f,
+            0.1f,
+            100f);
+        Matrix4x4 view = Matrix4x4.CreateLookAt(
+            new Vector3(0f, 0f, 8f),
+            Vector3.Zero,
+            Vector3.UnitY);
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            301U,
+            9U,
+            new NativePictureCompileOptions(
+                2f,
+                projection,
+                view,
+                new Vector3(0f, 0f, 8f)),
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(2, compiled.NativeDrawCount);
+        Assert.Equal(2, compiled.Line3DCount);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)header.ResourceCount *
+                        Unsafe.SizeOf<NativeMethods.SceneResource>())));
+        Assert.Equal(NativeSceneResourceKind.Line3DBatch, resources[0].Kind);
+        Assert.Equal(NativeSceneResourceKind.Line3DBatch, resources[1].Kind);
+        NativeSceneLine3D acis = MemoryMarshal.Read<NativeSceneLine3D>(
+            compiled.Stream.Slice(checked((int)resources[1].PayloadOffset)));
+        Assert.Equal(model.M23, acis.Transform.M23);
+        Assert.Equal(model.M43, acis.Transform.M43);
+        Assert.Equal(0.8f, acis.Opacity);
+
+        NativeMethods.SceneCommand firstCommand =
+            MemoryMarshal.Read<NativeMethods.SceneCommand>(
+                compiled.Stream.Slice(checked((int)header.CommandOffset)));
+        Assert.Equal(
+            NativeSceneCommandKind.DrawLine3DBatch,
+            firstCommand.Kind);
+        NativeSceneCamera3D camera = MemoryMarshal.Read<NativeSceneCamera3D>(
+            compiled.Stream.Slice(checked((int)firstCommand.PayloadOffset)));
+        Assert.Equal(projection.M11, camera.Projection.M11);
+        Assert.Equal(view.M43, camera.View.M43);
+        Assert.Equal(8f, camera.CameraPosition.Z);
+    }
+
+    [Fact]
     public void CompilerLowersRepeatedBitmapGlyphsToOneDecodedColorResource()
     {
         var font = new TtfFont(SfntFontFaceTests.BuildSingleBitmapGlyphFont());
