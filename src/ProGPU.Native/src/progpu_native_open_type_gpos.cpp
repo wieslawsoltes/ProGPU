@@ -2,6 +2,7 @@
 #include "progpu_native_open_type_gpos_internal.hpp"
 
 #include <bit>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <limits>

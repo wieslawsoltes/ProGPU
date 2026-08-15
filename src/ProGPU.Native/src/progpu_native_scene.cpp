@@ -576,11 +576,13 @@ validation_result validate(
                         resource.auxiliary_offset + vertex_index *
                             sizeof(progpu_native_scene_mesh_3d_vertex));
                 if (!semantic::is_valid_semantic_mesh_3d_vertex(vertex)) {
+                    const auto error_offset = static_cast<std::uint32_t>(
+                        resource.auxiliary_offset + vertex_index *
+                            sizeof(progpu_native_scene_mesh_3d_vertex));
                     return fail(
                         header,
                         PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
-                        resource.auxiliary_offset + vertex_index *
-                            sizeof(progpu_native_scene_mesh_3d_vertex));
+                        error_offset);
                 }
             }
             const std::size_t indices_offset = resource.auxiliary_offset +

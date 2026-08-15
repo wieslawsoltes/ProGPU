@@ -2952,6 +2952,8 @@ public class NativeRendererInteropTests
             ".github", "workflows", "release.yml"));
         string packageProject = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Backend.Native", "ProGPU.Backend.Native.csproj"));
+        string dawnHeaderPath = FindRepoFile(
+            "src", "ProGPU.Native", "include", "progpu_native_dawn.h");
         string nativeBuild = File.ReadAllText(FindRepoFile(
             "eng", "build-progpu-native.sh"));
         string windowsBuild = File.ReadAllText(FindRepoFile(
@@ -2992,9 +2994,10 @@ public class NativeRendererInteropTests
             packageProject,
             StringComparison.Ordinal);
         Assert.Contains(
-            "progpu_native_dawn.h",
+            @"..\ProGPU.Native\include\*",
             packageProject,
             StringComparison.Ordinal);
+        Assert.True(File.Exists(dawnHeaderPath));
         Assert.Contains(
             "progpu_native_webscene_provider_tests",
             cmake,
