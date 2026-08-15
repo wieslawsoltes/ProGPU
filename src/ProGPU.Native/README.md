@@ -41,6 +41,13 @@ positioned text directly into that existing GPU glyph command. The caller owns
 the conversion span and optional glyph-id-to-outline map; the bridge performs
 `O(G)` fixed-record writes with no allocation, retained intermediate, managed
 callback, or per-glyph managed/native call.
+`progpu_native_scene_builder_3d.cpp` owns the retained three-dimensional
+contract. Line and ACIS edge batches preserve local 3D endpoints, full 4x4
+transforms, physical-pixel thickness, and camera matrices; indexed meshes keep
+positions, normals, UVs, model/normal matrices, and the proven managed material
+lighting baseline in pointer-free records. Neither family projects or expands
+geometry on the CPU. The stream validator checks every matrix/component,
+range, index, material mode, and auxiliary byte boundary before GPU work.
 
 Native code is strict portable C++20. Clang is the primary toolchain; GCC and
 Visual Studio MSVC compile/test the same header compatibility implementation in

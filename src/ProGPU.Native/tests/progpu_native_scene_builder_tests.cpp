@@ -899,6 +899,112 @@ bool semantic_scene_builder_preserves_stable_resource_identities() {
         unchanged == std::vector<std::byte>{std::byte{0x5a}};
 }
 
+bool semantic_scene_builder_records_retained_3d_families() {
+    progpu_native_matrix_4x4 identity{};
+    identity.m11 = 1.0F;
+    identity.m22 = 1.0F;
+    identity.m33 = 1.0F;
+    identity.m44 = 1.0F;
+    progpu_native_scene_camera_3d camera{};
+    camera.struct_size = sizeof(camera);
+    camera.projection = identity;
+    camera.view = identity;
+
+    progpu_native_scene_line_3d line{};
+    line.struct_size = sizeof(line);
+    line.start = {-0.75F, -0.5F, 0.0F, 0.0F};
+    line.end = {0.75F, 0.5F, 0.0F, 0.0F};
+    line.color = {0.1F, 0.7F, 1.0F, 1.0F};
+    line.thickness = 2.0F;
+    line.opacity = 1.0F;
+    line.transform = identity;
+
+    const std::array vertices{
+        progpu_native_scene_mesh_3d_vertex{
+            {-0.5F, -0.5F, 0.0F, 0.0F},
+            {0.0F, 0.0F, 1.0F, 0.0F},
+            {0.0F, 1.0F},
+            0U,
+            0U},
+        progpu_native_scene_mesh_3d_vertex{
+            {0.5F, -0.5F, 0.0F, 0.0F},
+            {0.0F, 0.0F, 1.0F, 0.0F},
+            {1.0F, 1.0F},
+            0U,
+            0U},
+        progpu_native_scene_mesh_3d_vertex{
+            {0.0F, 0.5F, 0.0F, 0.0F},
+            {0.0F, 0.0F, 1.0F, 0.0F},
+            {0.5F, 0.0F},
+            0U,
+            0U}};
+    constexpr std::array<std::uint32_t, 3U> indices{0U, 1U, 2U};
+    progpu_native_scene_mesh_3d mesh{};
+    mesh.struct_size = sizeof(mesh);
+    mesh.topology = PROGPU_NATIVE_MESH_3D_TRIANGLES;
+    mesh.render_mode = PROGPU_NATIVE_MESH_3D_SOLID;
+    mesh.vertex_count = vertices.size();
+    mesh.index_count = indices.size();
+    mesh.model_transform = identity;
+    mesh.normal_transform = identity;
+    mesh.color = {0.9F, 0.4F, 0.1F, 1.0F};
+    mesh.light_direction = {0.0F, 0.0F, -1.0F, 1.0F};
+    mesh.ambient_color = {1.0F, 1.0F, 1.0F, 0.2F};
+    mesh.specular_color = {1.0F, 1.0F, 1.0F, 16.0F};
+    mesh.material_ambient = {0.1F, 0.1F, 0.1F, 0.0F};
+    mesh.opacity = 1.0F;
+
+    semantic_scene_builder builder(712U, 3U);
+    if (!builder.draw_lines_3d(
+            std::span<const progpu_native_scene_line_3d>(&line, 1U),
+            camera,
+            {0.0F, 0.0F, 256.0F, 256.0F}) ||
+        !builder.draw_meshes_3d(
+            std::span<const progpu_native_scene_mesh_3d>(&mesh, 1U),
+            vertices,
+            indices,
+            camera,
+            {0.0F, 0.0F, 256.0F, 256.0F})) {
+        return false;
+    }
+    std::vector<std::byte> stream;
+    scene_build_metrics metrics{};
+    if (!builder.build(stream, &metrics)) {
+        return false;
+    }
+    const auto validated = scene::validate(stream.data(), stream.size());
+    if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        validated.header.resource_count != 2U ||
+        validated.header.command_count != 2U ||
+        metrics.command_count != 2U || metrics.resource_count != 2U) {
+        return false;
+    }
+    const auto line_resource = read<progpu_native_scene_resource>(
+        stream, validated.header.resource_offset);
+    const auto mesh_resource = read<progpu_native_scene_resource>(
+        stream,
+        validated.header.resource_offset + validated.header.resource_stride);
+    const auto line_command = read<progpu_native_scene_command>(
+        stream, validated.header.command_offset);
+    const auto mesh_command = read<progpu_native_scene_command>(
+        stream,
+        validated.header.command_offset + validated.header.command_stride);
+    return line_resource.kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_LINE_3D_BATCH &&
+        line_resource.payload_size == sizeof(line) &&
+        mesh_resource.kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH &&
+        mesh_resource.payload_size == sizeof(mesh) &&
+        mesh_resource.auxiliary_size == sizeof(vertices) +
+            sizeof(indices) &&
+        line_command.kind ==
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH &&
+        mesh_command.kind ==
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH &&
+        line_command.payload_size == sizeof(camera) &&
+        mesh_command.payload_size == sizeof(camera);
+}
+
 bool semantic_scene_content_hashes_isolate_image_updates() {
     semantic_scene_builder builder(710U, 1U);
     std::uint32_t brush = PROGPU_NATIVE_SCENE_NO_INDEX;

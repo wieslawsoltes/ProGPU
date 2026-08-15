@@ -769,6 +769,8 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_builder_preserves_stable_resource_identities());
     require(progpu::native::tests::
+        semantic_scene_builder_records_retained_3d_families());
+    require(progpu::native::tests::
         semantic_scene_content_hashes_isolate_image_updates());
     semantic_text_style_page_is_validated_deduplicated_and_retained();
     semantic_color_glyph_resource_is_strictly_validated();

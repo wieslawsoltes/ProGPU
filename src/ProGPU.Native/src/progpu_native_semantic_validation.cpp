@@ -298,4 +298,80 @@ bool is_valid_semantic_effect(
         effect.color_a >= 0.0F && effect.color_a <= 1.0F;
 }
 
+namespace {
+
+bool finite_matrix(const progpu_native_matrix_4x4& matrix) noexcept {
+    const float* values = &matrix.m11;
+    for (std::size_t index = 0U; index < 16U; ++index) {
+        if (!std::isfinite(values[index])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool finite_point_3d(const progpu_native_point_3d& point) noexcept {
+    return std::isfinite(point.x) && std::isfinite(point.y) &&
+        std::isfinite(point.z) && point.reserved == 0.0F;
+}
+
+bool finite_float_4(const progpu_native_float_4& value) noexcept {
+    return std::isfinite(value.x) && std::isfinite(value.y) &&
+        std::isfinite(value.z) && std::isfinite(value.w);
+}
+
+} // namespace
+
+bool is_valid_semantic_camera_3d(
+    const progpu_native_scene_camera_3d& camera) noexcept {
+    return camera.struct_size == sizeof(camera) && camera.flags == 0U &&
+        camera.reserved0 == 0U && camera.reserved1 == 0U &&
+        finite_matrix(camera.projection) && finite_matrix(camera.view) &&
+        finite_point_3d(camera.camera_position);
+}
+
+bool is_valid_semantic_line_3d(
+    const progpu_native_scene_line_3d& line) noexcept {
+    return line.struct_size == sizeof(line) && line.flags == 0U &&
+        line.reserved0 == 0U && line.reserved1 == 0U &&
+        finite_point_3d(line.start) && finite_point_3d(line.end) &&
+        is_finite(line.color) && std::isfinite(line.thickness) &&
+        line.thickness > 0.0F && line.thickness <= 16384.0F &&
+        std::isfinite(line.opacity) && line.opacity >= 0.0F &&
+        line.opacity <= 1.0F && finite_matrix(line.transform);
+}
+
+bool is_valid_semantic_mesh_3d_vertex(
+    const progpu_native_scene_mesh_3d_vertex& vertex) noexcept {
+    return finite_point_3d(vertex.position) &&
+        finite_point_3d(vertex.normal) &&
+        is_finite(vertex.texture_coordinate) &&
+        vertex.reserved0 == 0U && vertex.reserved1 == 0U;
+}
+
+bool is_valid_semantic_mesh_3d(
+    const progpu_native_scene_mesh_3d& mesh,
+    std::size_t vertex_count,
+    std::size_t index_count) noexcept {
+    const std::size_t mesh_vertex_offset = mesh.vertex_offset;
+    const std::size_t mesh_index_offset = mesh.index_offset;
+    return mesh.struct_size == sizeof(mesh) && mesh.flags == 0U &&
+        mesh.topology <= PROGPU_NATIVE_MESH_3D_TRIANGLE_STRIP &&
+        mesh.render_mode <= PROGPU_NATIVE_MESH_3D_SOLID_WIREFRAME &&
+        mesh.vertex_count >= 3U && mesh.index_count >= 3U &&
+        mesh_vertex_offset <= vertex_count &&
+        mesh.vertex_count <= vertex_count - mesh_vertex_offset &&
+        mesh_index_offset <= index_count &&
+        mesh.index_count <= index_count - mesh_index_offset &&
+        finite_matrix(mesh.model_transform) &&
+        finite_matrix(mesh.normal_transform) && is_finite(mesh.color) &&
+        finite_float_4(mesh.light_direction) &&
+        finite_float_4(mesh.ambient_color) &&
+        finite_float_4(mesh.specular_color) &&
+        finite_float_4(mesh.material_ambient) &&
+        std::isfinite(mesh.opacity) && mesh.opacity >= 0.0F &&
+        mesh.opacity <= 1.0F && mesh.shading_mode <= 6U &&
+        mesh.reserved0 == 0U && mesh.reserved1 == 0U;
+}
+
 } // namespace progpu::native::semantic

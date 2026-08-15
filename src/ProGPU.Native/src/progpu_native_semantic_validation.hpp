@@ -50,4 +50,18 @@ bool is_valid_semantic_layer(
 bool is_valid_semantic_effect(
     const progpu_native_group_effect& effect) noexcept;
 
+bool is_valid_semantic_camera_3d(
+    const progpu_native_scene_camera_3d& camera) noexcept;
+
+bool is_valid_semantic_line_3d(
+    const progpu_native_scene_line_3d& line) noexcept;
+
+bool is_valid_semantic_mesh_3d(
+    const progpu_native_scene_mesh_3d& mesh,
+    std::size_t vertex_count,
+    std::size_t index_count) noexcept;
+
+bool is_valid_semantic_mesh_3d_vertex(
+    const progpu_native_scene_mesh_3d_vertex& vertex) noexcept;
+
 } // namespace progpu::native::semantic

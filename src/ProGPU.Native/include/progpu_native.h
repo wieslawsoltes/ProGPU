@@ -67,6 +67,8 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_POINT_BATCH (UINT64_C(1) << 36U)
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_VERTEX_MESH (UINT64_C(1) << 37U)
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_STROKE_BATCH (UINT64_C(1) << 38U)
+#define PROGPU_NATIVE_CAPABILITY_SEMANTIC_LINE_3D_BATCH (UINT64_C(1) << 39U)
+#define PROGPU_NATIVE_CAPABILITY_SEMANTIC_MESH_3D_BATCH (UINT64_C(1) << 40U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -106,7 +108,9 @@ typedef enum progpu_native_scene_resource_kind {
     PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH = 10,
     PROGPU_NATIVE_SCENE_RESOURCE_POINT_BATCH = 11,
     PROGPU_NATIVE_SCENE_RESOURCE_VERTEX_MESH = 12,
-    PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH = 13
+    PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH = 13,
+    PROGPU_NATIVE_SCENE_RESOURCE_LINE_3D_BATCH = 14,
+    PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH = 15
 } progpu_native_scene_resource_kind;
 
 typedef enum progpu_native_scene_text_rendering_mode {
@@ -164,7 +168,9 @@ typedef enum progpu_native_scene_command_kind {
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY = 20,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH = 21,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH = 22,
-    PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH = 23
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH = 23,
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH = 24,
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH = 25
 } progpu_native_scene_command_kind;
 
 typedef enum progpu_native_scene_validation_error {
@@ -915,6 +921,113 @@ typedef struct progpu_native_scene_mesh_vertex {
     progpu_native_point texture_coordinate;
     progpu_native_color color;
 } progpu_native_scene_mesh_vertex;
+
+typedef struct progpu_native_point_3d {
+    float x;
+    float y;
+    float z;
+    float reserved;
+} progpu_native_point_3d;
+
+typedef struct progpu_native_float_4 {
+    float x;
+    float y;
+    float z;
+    float w;
+} progpu_native_float_4;
+
+/* Row-major System.Numerics-compatible matrix storage. Shared WGSL reads the
+ * uploaded columns after the backend's existing matrix upload conversion. */
+typedef struct progpu_native_matrix_4x4 {
+    float m11;
+    float m12;
+    float m13;
+    float m14;
+    float m21;
+    float m22;
+    float m23;
+    float m24;
+    float m31;
+    float m32;
+    float m33;
+    float m34;
+    float m41;
+    float m42;
+    float m43;
+    float m44;
+} progpu_native_matrix_4x4;
+
+/* One immutable camera payload shared by line/ACIS and mesh commands. */
+typedef struct progpu_native_scene_camera_3d {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t reserved0;
+    uint32_t reserved1;
+    progpu_native_matrix_4x4 projection;
+    progpu_native_matrix_4x4 view;
+    progpu_native_point_3d camera_position;
+} progpu_native_scene_camera_3d;
+
+/* A line/ACIS edge remains in local 3D coordinates. The full affine/projective
+ * transform and camera are evaluated by WebGPU; compilation never projects or
+ * expands the edge on the CPU. Thickness is in physical framebuffer pixels. */
+typedef struct progpu_native_scene_line_3d {
+    uint32_t struct_size;
+    uint32_t flags;
+    progpu_native_point_3d start;
+    progpu_native_point_3d end;
+    progpu_native_color color;
+    float thickness;
+    float opacity;
+    uint32_t reserved0;
+    uint32_t reserved1;
+    progpu_native_matrix_4x4 transform;
+} progpu_native_scene_line_3d;
+
+typedef enum progpu_native_mesh_3d_topology {
+    PROGPU_NATIVE_MESH_3D_TRIANGLES = 0,
+    PROGPU_NATIVE_MESH_3D_TRIANGLE_STRIP = 1
+} progpu_native_mesh_3d_topology;
+
+typedef enum progpu_native_mesh_3d_render_mode {
+    PROGPU_NATIVE_MESH_3D_SOLID = 0,
+    PROGPU_NATIVE_MESH_3D_WIREFRAME = 1,
+    PROGPU_NATIVE_MESH_3D_SOLID_WIREFRAME = 2
+} progpu_native_mesh_3d_render_mode;
+
+typedef struct progpu_native_scene_mesh_3d_vertex {
+    progpu_native_point_3d position;
+    progpu_native_point_3d normal;
+    progpu_native_point texture_coordinate;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_scene_mesh_3d_vertex;
+
+/* Retained mesh ranges address the owning resource auxiliary arena: all
+ * vertices form its prefix and all uint32 indices form its suffix. Material
+ * fields mirror the proven managed GpuMesh3DRecord baseline without texture
+ * handles; texture leases remain an explicit follow-up resource family. */
+typedef struct progpu_native_scene_mesh_3d {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t topology;
+    uint32_t render_mode;
+    uint32_t vertex_offset;
+    uint32_t vertex_count;
+    uint32_t index_offset;
+    uint32_t index_count;
+    progpu_native_matrix_4x4 model_transform;
+    progpu_native_matrix_4x4 normal_transform;
+    progpu_native_color color;
+    progpu_native_float_4 light_direction;
+    progpu_native_float_4 ambient_color;
+    progpu_native_float_4 specular_color;
+    progpu_native_float_4 material_ambient;
+    float opacity;
+    uint32_t shading_mode;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_scene_mesh_3d;
 
 typedef enum progpu_native_scene_stroke_kind {
     PROGPU_NATIVE_SCENE_STROKE_POLYLINE = 0,

@@ -82,7 +82,7 @@ bool span_lives_in_arena(
 
 bool is_known_resource(std::uint32_t kind) noexcept {
     return kind >= PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH &&
-        kind <= PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH;
+        kind <= PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH;
 }
 
 bool is_known_command(std::uint32_t kind) noexcept {
@@ -91,12 +91,12 @@ bool is_known_command(std::uint32_t kind) noexcept {
         kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
         kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER ||
         (kind >= PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
-            kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH);
+            kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH);
 }
 
 bool is_draw_command(std::uint32_t kind) noexcept {
     return kind >= PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
-        kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH;
+        kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH;
 }
 
 std::uint32_t expected_resource_kind(std::uint32_t command_kind) noexcept {
@@ -117,6 +117,10 @@ std::uint32_t expected_resource_kind(std::uint32_t command_kind) noexcept {
             return PROGPU_NATIVE_SCENE_RESOURCE_VERTEX_MESH;
         case PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH:
             return PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH;
+        case PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH:
+            return PROGPU_NATIVE_SCENE_RESOURCE_LINE_3D_BATCH;
+        case PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH:
+            return PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH;
         default:
             return 0U;
     }
@@ -485,6 +489,127 @@ validation_result validate(
                     PROGPU_NATIVE_STATUS_OUT_OF_MEMORY);
             }
         }
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LINE_3D_BATCH) {
+            if (resource.payload_size == 0U ||
+                resource.payload_size % sizeof(progpu_native_scene_line_3d) !=
+                    0U ||
+                resource.auxiliary_size != 0U) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                    offset);
+            }
+            const std::uint32_t line_count = resource.payload_size /
+                sizeof(progpu_native_scene_line_3d);
+            for (std::uint32_t line_index = 0U;
+                 line_index < line_count;
+                 ++line_index) {
+                const std::uint32_t line_offset = resource.payload_offset +
+                    line_index * sizeof(progpu_native_scene_line_3d);
+                const auto line = read_record<progpu_native_scene_line_3d>(
+                    bytes, line_offset);
+                if (!semantic::is_valid_semantic_line_3d(line)) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                        line_offset);
+                }
+            }
+        }
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH) {
+            if (resource.payload_size == 0U ||
+                resource.payload_size % sizeof(progpu_native_scene_mesh_3d) !=
+                    0U ||
+                resource.auxiliary_size == 0U) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                    offset);
+            }
+            const std::uint32_t mesh_count = resource.payload_size /
+                sizeof(progpu_native_scene_mesh_3d);
+            std::size_t vertex_count = 0U;
+            std::size_t index_count = 0U;
+            for (std::uint32_t mesh_index = 0U;
+                 mesh_index < mesh_count;
+                 ++mesh_index) {
+                const auto mesh = read_record<progpu_native_scene_mesh_3d>(
+                    bytes,
+                    resource.payload_offset + mesh_index *
+                        sizeof(progpu_native_scene_mesh_3d));
+                vertex_count = std::max(
+                    vertex_count,
+                    static_cast<std::size_t>(mesh.vertex_offset) +
+                        mesh.vertex_count);
+                index_count = std::max(
+                    index_count,
+                    static_cast<std::size_t>(mesh.index_offset) +
+                        mesh.index_count);
+            }
+            const std::uint64_t vertex_bytes =
+                static_cast<std::uint64_t>(vertex_count) *
+                    sizeof(progpu_native_scene_mesh_3d_vertex);
+            const std::uint64_t index_bytes =
+                static_cast<std::uint64_t>(index_count) * sizeof(std::uint32_t);
+            if (vertex_bytes + index_bytes != resource.auxiliary_size) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                    resource.auxiliary_offset);
+            }
+            for (std::size_t vertex_index = 0U;
+                 vertex_index < vertex_count;
+                 ++vertex_index) {
+                const auto vertex = read_record<
+                    progpu_native_scene_mesh_3d_vertex>(
+                        bytes,
+                        resource.auxiliary_offset + vertex_index *
+                            sizeof(progpu_native_scene_mesh_3d_vertex));
+                if (!semantic::is_valid_semantic_mesh_3d_vertex(vertex)) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                        resource.auxiliary_offset + vertex_index *
+                            sizeof(progpu_native_scene_mesh_3d_vertex));
+                }
+            }
+            const std::size_t indices_offset = resource.auxiliary_offset +
+                static_cast<std::size_t>(vertex_bytes);
+            for (std::uint32_t mesh_index = 0U;
+                 mesh_index < mesh_count;
+                 ++mesh_index) {
+                const auto mesh = read_record<progpu_native_scene_mesh_3d>(
+                    bytes,
+                    resource.payload_offset + mesh_index *
+                        sizeof(progpu_native_scene_mesh_3d));
+                if (!semantic::is_valid_semantic_mesh_3d(
+                        mesh, vertex_count, index_count)) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                        resource.payload_offset + mesh_index *
+                            sizeof(progpu_native_scene_mesh_3d));
+                }
+                for (std::size_t mesh_index_offset = mesh.index_offset;
+                     mesh_index_offset <
+                        static_cast<std::size_t>(mesh.index_offset) +
+                            mesh.index_count;
+                     ++mesh_index_offset) {
+                    const auto value = read_record<std::uint32_t>(
+                        bytes,
+                        indices_offset + mesh_index_offset *
+                            sizeof(std::uint32_t));
+                    if (value >= mesh.vertex_count) {
+                        return fail(
+                            header,
+                            PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                            static_cast<std::uint32_t>(
+                                indices_offset + mesh_index_offset *
+                                    sizeof(std::uint32_t)));
+                    }
+                }
+            }
+        }
         previous_resource_id = resource.resource_id;
         payload_bytes += resource.payload_size;
         payload_bytes += resource.auxiliary_size;
@@ -594,6 +719,27 @@ validation_result validate(
                     header,
                     PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
                     offset);
+            }
+            if (command.kind ==
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH ||
+                command.kind ==
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) {
+                if (command.payload_size !=
+                    sizeof(progpu_native_scene_camera_3d)) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                        offset);
+                }
+                const auto camera = read_record<
+                    progpu_native_scene_camera_3d>(
+                        bytes, command.payload_offset);
+                if (!semantic::is_valid_semantic_camera_3d(camera)) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                        command.payload_offset);
+                }
             }
             if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
                     command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH ||

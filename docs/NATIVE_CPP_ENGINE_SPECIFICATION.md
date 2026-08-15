@@ -2225,6 +2225,15 @@ runtime asset. Both package consumers use an isolated package cache; the real
 Dawn gate also uses a commit-qualified package version and disables HTTP/cache
 reuse.
 
+The pointer-free 3D extension keeps local line/ACIS endpoints and indexed mesh
+positions, normals, UVs, model/normal matrices, camera matrices, and bounded
+material-lighting state in the retained stream. Projection, physical-pixel
+line expansion, normal transformation, lighting, depth, and rasterization are
+GPU responsibilities; the compiler must not silently lower this family to
+CPU-projected 2D geometry. Validation establishes exact vertex/index suffix
+layout and rejects non-finite matrices, invalid indices, unsupported modes, or
+non-canonical reserved storage before resource allocation.
+
 The engine validates every untrusted count, offset, size, enum, finite float,
 resource generation, and nesting depth before allocation or GPU submission.
 Integer arithmetic is checked. User shaders remain a separately permissioned

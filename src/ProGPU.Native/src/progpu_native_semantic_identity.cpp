@@ -46,7 +46,9 @@ bool is_analytic_resource(std::uint32_t kind) noexcept {
         kind == PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH ||
         kind == PROGPU_NATIVE_SCENE_RESOURCE_POINT_BATCH ||
         kind == PROGPU_NATIVE_SCENE_RESOURCE_VERTEX_MESH ||
-        kind == PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH;
+        kind == PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH ||
+        kind == PROGPU_NATIVE_SCENE_RESOURCE_LINE_3D_BATCH ||
+        kind == PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH;
 }
 
 } // namespace
