@@ -3,6 +3,7 @@
 // Regenerate with: ./eng/progpu-generate-native-contract.sh
 
 using System.Runtime.InteropServices;
+using System.Numerics;
 
 namespace ProGPU.Backend.Native;
 
@@ -144,4 +145,112 @@ internal static unsafe partial class NativeMethods
         internal ulong TextStyleUploadBytes;
         internal ulong ColorGlyphUploadBytes;
     }
+}
+// Native source: progpu_native_point_3d.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativePoint3D
+{
+    public float X;
+    public float Y;
+    public float Z;
+    public float Reserved;
+}
+
+// Native source: progpu_native_float_4.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeFloat4
+{
+    public float X;
+    public float Y;
+    public float Z;
+    public float W;
+}
+
+// Native source: progpu_native_matrix_4x4.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeMatrix4x4
+{
+    public float M11;
+    public float M12;
+    public float M13;
+    public float M14;
+    public float M21;
+    public float M22;
+    public float M23;
+    public float M24;
+    public float M31;
+    public float M32;
+    public float M33;
+    public float M34;
+    public float M41;
+    public float M42;
+    public float M43;
+    public float M44;
+}
+
+// Native source: progpu_native_scene_camera_3d.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeSceneCamera3D
+{
+    public uint StructSize;
+    public uint Flags;
+    public uint Reserved0;
+    public uint Reserved1;
+    public NativeMatrix4x4 Projection;
+    public NativeMatrix4x4 View;
+    public NativePoint3D CameraPosition;
+}
+
+// Native source: progpu_native_scene_line_3d.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeSceneLine3D
+{
+    public uint StructSize;
+    public uint Flags;
+    public uint Reserved0;
+    public uint Reserved1;
+    public NativePoint3D Start;
+    public NativePoint3D End;
+    public Vector4 Color;
+    public float Thickness;
+    public float Opacity;
+    public uint Reserved2;
+    public uint Reserved3;
+    public NativeMatrix4x4 Transform;
+}
+
+// Native source: progpu_native_scene_mesh_3d_vertex.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeSceneMesh3DVertex
+{
+    public NativePoint3D Position;
+    public NativePoint3D Normal;
+    public Vector2 TextureCoordinate;
+    public uint Reserved0;
+    public uint Reserved1;
+}
+
+// Native source: progpu_native_scene_mesh_3d.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeSceneMesh3D
+{
+    public uint StructSize;
+    public uint Flags;
+    public uint Topology;
+    public uint RenderMode;
+    public uint VertexOffset;
+    public uint VertexCount;
+    public uint IndexOffset;
+    public uint IndexCount;
+    public NativeMatrix4x4 ModelTransform;
+    public NativeMatrix4x4 NormalTransform;
+    public Vector4 Color;
+    public NativeFloat4 LightDirection;
+    public NativeFloat4 AmbientColor;
+    public NativeFloat4 SpecularColor;
+    public NativeFloat4 MaterialAmbient;
+    public float Opacity;
+    public uint ShadingMode;
+    public uint Reserved0;
+    public uint Reserved1;
 }

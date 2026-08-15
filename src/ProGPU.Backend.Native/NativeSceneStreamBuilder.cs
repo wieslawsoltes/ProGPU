@@ -594,6 +594,51 @@ public ref struct NativeSceneStreamBuilder
             out resourceIndex,
             flags: flags);
 
+    public bool TryAddLine3DResource(
+        ulong resourceId,
+        ulong generation,
+        scoped ReadOnlySpan<NativeSceneLine3D> lines,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required) =>
+        TryAddResource(
+            NativeSceneResourceKind.Line3DBatch,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(lines),
+            out resourceIndex,
+            flags: flags);
+
+    public bool TryAddMesh3DResource(
+        ulong resourceId,
+        ulong generation,
+        scoped ReadOnlySpan<NativeSceneMesh3D> meshes,
+        scoped ReadOnlySpan<NativeSceneMesh3DVertex> vertices,
+        scoped ReadOnlySpan<uint> indices,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        if (meshes.IsEmpty || vertices.IsEmpty || indices.IsEmpty)
+        {
+            return false;
+        }
+        int vertexBytes = checked(
+            vertices.Length * Unsafe.SizeOf<NativeSceneMesh3DVertex>());
+        int indexBytes = checked(indices.Length * sizeof(uint));
+        byte[] auxiliary = GC.AllocateUninitializedArray<byte>(
+            checked(vertexBytes + indexBytes));
+        MemoryMarshal.AsBytes(vertices).CopyTo(auxiliary);
+        MemoryMarshal.AsBytes(indices).CopyTo(auxiliary.AsSpan(vertexBytes));
+        return TryAddResource(
+            NativeSceneResourceKind.Mesh3DBatch,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(meshes),
+            out resourceIndex,
+            auxiliary,
+            flags);
+    }
+
     public bool TryAddStateResource(
         ulong resourceId,
         ulong generation,
@@ -991,6 +1036,36 @@ public ref struct NativeSceneStreamBuilder
             bounds,
             brushResourceIndex,
             brushIndices,
+            stateIndex);
+
+    public bool TryDrawLine3D(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        in NativeSceneCamera3D camera,
+        uint stateIndex = uint.MaxValue) =>
+        TryDraw(
+            NativeSceneCommandKind.DrawLine3DBatch,
+            commandId,
+            resourceIndex,
+            bounds,
+            MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(
+                ref Unsafe.AsRef(in camera), 1)),
+            stateIndex);
+
+    public bool TryDrawMesh3D(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        in NativeSceneCamera3D camera,
+        uint stateIndex = uint.MaxValue) =>
+        TryDraw(
+            NativeSceneCommandKind.DrawMesh3DBatch,
+            commandId,
+            resourceIndex,
+            bounds,
+            MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(
+                ref Unsafe.AsRef(in camera), 1)),
             stateIndex);
 
     public bool TryDrawPath(
@@ -1641,12 +1716,16 @@ public ref struct NativeSceneStreamBuilder
                 NativeSceneResourceKind.VertexMesh,
             NativeSceneCommandKind.DrawStrokeBatch =>
                 NativeSceneResourceKind.StrokeBatch,
+            NativeSceneCommandKind.DrawLine3DBatch =>
+                NativeSceneResourceKind.Line3DBatch,
+            NativeSceneCommandKind.DrawMesh3DBatch =>
+                NativeSceneResourceKind.Mesh3DBatch,
             _ => throw new ArgumentOutOfRangeException(nameof(kind))
         };
 
     private static bool IsKnownResource(NativeSceneResourceKind kind) =>
         kind is >= NativeSceneResourceKind.AnalyticBatch and
-            <= NativeSceneResourceKind.StrokeBatch;
+            <= NativeSceneResourceKind.Mesh3DBatch;
 
     private static bool IsValidBrushTable(
         ReadOnlySpan<NativeSceneBrush> brushes,

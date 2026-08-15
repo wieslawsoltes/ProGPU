@@ -263,7 +263,9 @@ public enum NativeSceneResourceKind : uint
     GeometryBatch = 10,
     PointBatch = 11,
     VertexMesh = 12,
-    StrokeBatch = 13
+    StrokeBatch = 13,
+    Line3DBatch = 14,
+    Mesh3DBatch = 15
 }
 
 public enum NativeSceneTextRenderingMode : uint
@@ -321,7 +323,22 @@ public enum NativeSceneCommandKind : uint
     DrawGeometry = 20,
     DrawPointBatch = 21,
     DrawVertexMesh = 22,
-    DrawStrokeBatch = 23
+    DrawStrokeBatch = 23,
+    DrawLine3DBatch = 24,
+    DrawMesh3DBatch = 25
+}
+
+public enum NativeMesh3DTopology : uint
+{
+    Triangles = 0,
+    TriangleStrip = 1
+}
+
+public enum NativeMesh3DRenderMode : uint
+{
+    Solid = 0,
+    Wireframe = 1,
+    SolidWireframe = 2
 }
 
 [Flags]

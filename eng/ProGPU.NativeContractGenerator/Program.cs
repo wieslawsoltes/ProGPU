@@ -125,6 +125,7 @@ static string Generate(string header, string sourceName)
     builder.AppendLine("// Regenerate with: ./eng/progpu-generate-native-contract.sh");
     builder.AppendLine();
     builder.AppendLine("using System.Runtime.InteropServices;");
+    builder.AppendLine("using System.Numerics;");
     builder.AppendLine();
     builder.AppendLine("namespace ProGPU.Backend.Native;");
     builder.AppendLine();
@@ -133,6 +134,24 @@ static string Generate(string header, string sourceName)
         static value => value.Container,
         StringComparer.Ordinal))
     {
+        if (string.Equals(group.Key, "Public", StringComparison.Ordinal))
+        {
+            foreach (ContractStruct structure in group)
+            {
+                builder.AppendLine(
+                    $"// Native source: {structure.NativeName}.");
+                builder.AppendLine("[StructLayout(LayoutKind.Sequential)]");
+                builder.AppendLine($"public partial struct {structure.Name}");
+                builder.AppendLine("{");
+                foreach (ContractField field in structure.Fields)
+                {
+                    builder.AppendLine($"    public {field.Type} {field.Name};");
+                }
+                builder.AppendLine("}");
+                builder.AppendLine();
+            }
+            continue;
+        }
         if (!string.Equals(group.Key, "NativeMethods", StringComparison.Ordinal))
         {
             throw new InvalidDataException(
@@ -160,7 +179,7 @@ static string Generate(string header, string sourceName)
         builder.AppendLine("}");
     }
 
-    return NormalizeLineEndings(builder.ToString());
+    return NormalizeLineEndings(builder.ToString().TrimEnd() + Environment.NewLine);
 }
 
 static string MapType(string nativeType) => nativeType switch
@@ -170,6 +189,10 @@ static string MapType(string nativeType) => nativeType switch
     "uintptr_t" => "nuint",
     "float" => "float",
     "progpu_native_color" => "NativeColor",
+    "progpu_native_point" => "Vector2",
+    "progpu_native_point_3d" => "NativePoint3D",
+    "progpu_native_float_4" => "NativeFloat4",
+    "progpu_native_matrix_4x4" => "NativeMatrix4x4",
     _ => throw new InvalidDataException(
         $"Unsupported native contract field type: {nativeType}.")
 };

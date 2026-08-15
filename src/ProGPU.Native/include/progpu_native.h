@@ -922,6 +922,7 @@ typedef struct progpu_native_scene_mesh_vertex {
     progpu_native_color color;
 } progpu_native_scene_mesh_vertex;
 
+/* PROGPU_CSHARP_STRUCT: Public.NativePoint3D */
 typedef struct progpu_native_point_3d {
     float x;
     float y;
@@ -929,6 +930,7 @@ typedef struct progpu_native_point_3d {
     float reserved;
 } progpu_native_point_3d;
 
+/* PROGPU_CSHARP_STRUCT: Public.NativeFloat4 */
 typedef struct progpu_native_float_4 {
     float x;
     float y;
@@ -938,6 +940,7 @@ typedef struct progpu_native_float_4 {
 
 /* Row-major System.Numerics-compatible matrix storage. Shared WGSL reads the
  * uploaded columns after the backend's existing matrix upload conversion. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeMatrix4x4 */
 typedef struct progpu_native_matrix_4x4 {
     float m11;
     float m12;
@@ -958,6 +961,7 @@ typedef struct progpu_native_matrix_4x4 {
 } progpu_native_matrix_4x4;
 
 /* One immutable camera payload shared by line/ACIS and mesh commands. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeSceneCamera3D */
 typedef struct progpu_native_scene_camera_3d {
     uint32_t struct_size;
     uint32_t flags;
@@ -971,6 +975,7 @@ typedef struct progpu_native_scene_camera_3d {
 /* A line/ACIS edge remains in local 3D coordinates. The full affine/projective
  * transform and camera are evaluated by WebGPU; compilation never projects or
  * expands the edge on the CPU. Thickness is in physical framebuffer pixels. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeSceneLine3D */
 typedef struct progpu_native_scene_line_3d {
     uint32_t struct_size;
     uint32_t flags;
@@ -978,7 +983,7 @@ typedef struct progpu_native_scene_line_3d {
     uint32_t reserved1;
     progpu_native_point_3d start;
     progpu_native_point_3d end;
-    progpu_native_color color;
+    /* PROGPU_CSHARP_TYPE: Vector4 */ progpu_native_color color;
     float thickness;
     float opacity;
     uint32_t reserved2;
@@ -997,6 +1002,7 @@ typedef enum progpu_native_mesh_3d_render_mode {
     PROGPU_NATIVE_MESH_3D_SOLID_WIREFRAME = 2
 } progpu_native_mesh_3d_render_mode;
 
+/* PROGPU_CSHARP_STRUCT: Public.NativeSceneMesh3DVertex */
 typedef struct progpu_native_scene_mesh_3d_vertex {
     progpu_native_point_3d position;
     progpu_native_point_3d normal;
@@ -1009,6 +1015,7 @@ typedef struct progpu_native_scene_mesh_3d_vertex {
  * vertices form its prefix and all uint32 indices form its suffix. Material
  * fields mirror the proven managed GpuMesh3DRecord baseline without texture
  * handles; texture leases remain an explicit follow-up resource family. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeSceneMesh3D */
 typedef struct progpu_native_scene_mesh_3d {
     uint32_t struct_size;
     uint32_t flags;
@@ -1020,7 +1027,7 @@ typedef struct progpu_native_scene_mesh_3d {
     uint32_t index_count;
     progpu_native_matrix_4x4 model_transform;
     progpu_native_matrix_4x4 normal_transform;
-    progpu_native_color color;
+    /* PROGPU_CSHARP_TYPE: Vector4 */ progpu_native_color color;
     progpu_native_float_4 light_direction;
     progpu_native_float_4 ambient_color;
     progpu_native_float_4 specular_color;
