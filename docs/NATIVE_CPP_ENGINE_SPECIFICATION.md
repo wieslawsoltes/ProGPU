@@ -708,9 +708,16 @@ DMA-BUF, and AHardwareBuffer import plus explicit producer/consumer fences are
 implemented by the typed Dawn platform layer before this boundary. C++ consumes
 only the validated same-device view and therefore keeps platform descriptors
 out of the stable renderer ABI. Browser external textures remain a separate
-browser-host acquisition concern. Premultiplied formats, subrect
-updates, mipmaps, cubic/anisotropic sampling, tiling, color transforms, and
-masks also remain.
+browser-host acquisition concern. The retained semantic stream represents
+these images with pointer-free resource identities and installs borrowed views
+through one bulk, owner-thread-affine binding call. Retained draws support
+source subrects, nearest/linear/custom-cubic sampling, and one fused
+straight-RGBA 4x5 color transform without copying pixels into the stream or
+native texture storage. Stable replay uploads zero image bytes and the existing
+submission token is the consumer fence for every bound view. Premultiplied
+input, mipmaps/anisotropy, tiling/patch draws, and the non-affine
+blur/YUV/spherical image-effect modes remain explicit typed failures rather
+than approximations.
 
 The following ABI-v2 increment accepts a second borrowed same-device
 R8/RGBA/BGRA unorm texture view as an image opacity mask. Its red channel is
@@ -1577,11 +1584,17 @@ the managed state stack. Geometry-mask affine transforms may rotate or shear;
 ordinary rectangular scissors and direct solid opacity masks retain their
 axis-aligned subset. Non-finite or non-invertible transforms, nested/general
 vector masks, and mismatched or unterminated scopes fail with typed
-source-command diagnostics. Perlin/hatch brushes, general
-`DrawPath` strokes/boolean combinations, non-solid/picture/path opacity masks,
-color/bitmap/vector-fallback glyphs, text decorations and text masks, images,
-embedded visuals, isolated layers, effects, remaining extensions, and 3D remain
-explicit fail-closed continuation slices rather than silent parity claims.
+source-command diagnostics. Perlin materials,
+color/vector/bitmap glyphs, text decorations, text masks, typed 2D/3D geometry,
+advanced blend isolation, and ordinary straight-alpha image draws are now
+retained. Images preserve source rectangles, nearest/linear/custom-cubic
+sampling, a same-device external view, a fused affine color transform, and
+submission-token lifetime fencing. The remaining explicit exclusions are
+combined geometry and general path strokes, hatch and opaque static-DXF
+extension objects, mutable embedded `Visual` instances, texture patches/pixel
+snapping, premultiplied sources, mipmaps/anisotropy, and non-affine image
+effects. Those records fail with a typed source-command diagnostic; no managed
+fallback or semantic approximation is inserted.
 
 Glyph compilation is explicitly target-DPI-sensitive. The public
 `NativePictureCompileOptions.DpiScale` selects the physical atlas raster size,
@@ -2239,23 +2252,20 @@ resource generation, and nesting depth before allocation or GPU submission.
 Integer arithmetic is checked. User shaders remain a separately permissioned
 path with WebGPU validation and bounded resource policies.
 
-## 14. Immediate continuation order
+## 14. Final continuation order
 
-1. Land the independently reproducible native ABI, typed .NET owner, sample,
-   exact rectangle differential, and bounded Instruments baseline as one
-   opt-in foundation. This work must not change the default renderer.
-2. Extend the completed indexed primitive and packed gradient-material bridge
-   with retained save/restore, opacity, rectangular/vector clips, and layers as
-   one wider 2D state tranche.
-3. Expand the differential to transformed and stroked primitives, multiple DPI
-   values, opacity, clipping, resize, invalid input, lifetime, and device loss.
-4. Add the versioned mixed-scene stream and nested save/clip/opacity/mask/layer
-   state used by Avalonia.Skia, then complete path/glyph live-set recovery,
-   vector/color text, text masks, image color processing, and external media
-   textures while continuing to reuse production WGSL modules.
-5. Keep the completed macOS-arm64 managed/native Dawn/WebScene gate and the
-   build-only Android/iOS package gates green. Add physical mobile-device
-   rendering evidence only in the explicit final manual/device phase.
-6. Complete final-candidate Windows/Linux native profiling and user-owned
-   desktop/mobile manual review before allowing opt-in .NET substitution to
-   graduate beyond experimental status.
+1. Keep the additive native ABI, package, standalone C++20 SDK, browser build,
+   compiler matrix, and managed substitution lane green without changing the
+   default renderer.
+2. Finish the explicitly excluded immutable rendering records: exact general
+   path strokes and hatch, followed by non-affine image effects. Opaque
+   `DxfStaticBuffer` and mutable `Visual` objects require typed immutable
+   snapshot contracts; they must never cross the C ABI as managed pointers.
+3. Run the final matched text/scene/image differential and seam budgets after
+   those families settle; do not reuse interim performance evidence as the
+   final-candidate result.
+4. Complete WebScene-provider D3D12/Vulkan, physical mobile, and Windows/Linux
+   profiler evidence only on the corresponding real hosts. Build-only or
+   software-adapter results do not satisfy those hardware gates.
+5. Hand the draft to the user for desktop/browser/mobile manual review. Mark it
+   ready or merge only after explicit approval.

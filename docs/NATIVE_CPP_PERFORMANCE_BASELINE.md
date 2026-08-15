@@ -2547,3 +2547,22 @@ package staging, D3D12 samples, managed/native image comparison, and ten
 representative resource/effect cases. The exhaustive 44-case profile remains a
 local/manual qualification command, while Linux and macOS retain the exhaustive
 automated semantic-family coverage.
+
+## Retained external-image scene checkpoint
+
+The managed-picture compiler now emits immutable external-image resource
+id/generation pairs and keeps every `GpuTexture` alive in the compiled-picture
+owner. One bulk typed interop call installs the matching same-device texture
+views before the scene snapshot is updated. The native engine sorts and retains
+the table transactionally, rejects duplicate or malformed identities, and
+releases replaced views on the owner thread.
+
+The retained stream contains no pointers or pixel payload for this family.
+Nearest, linear, and custom-cubic draws reuse the existing texture shader;
+brightness, contrast, saturation, grayscale, sepia, invert, and an optional
+managed color matrix are composed once into a single native 4x5 straight-RGBA
+transform. Stable replay therefore has zero image-copy/upload bytes by
+construction and uses the existing submission index as the consumer fence.
+This checkpoint records architecture and counters only; no new latency claim is
+made until the final matched workload is rerun after the remaining rendering
+families settle.

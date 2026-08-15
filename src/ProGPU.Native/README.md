@@ -632,6 +632,16 @@ DXGI/keyed mutex, AHardwareBuffer/SyncFD, and DMA-BUF/SyncFD are converted to a
 same-device WebGPU view before entering C++. The renderer deliberately does not
 duplicate OS handle descriptors in its stable semantic ABI.
 
+The mixed retained-scene ABI keeps external images pointer-free. A scene owns
+only immutable resource id/generation records; the host installs all current
+same-device texture views through one
+`progpu_native_engine_bind_scene_external_images` call. The renderer retains
+each view, resolves it while compiling the image page, supports
+nearest/linear/custom-cubic sampling plus a fused affine color matrix, and
+uploads zero image bytes. Replacing the binding table is transactional and
+invalidates only the retained image page/render bundle. Callers keep the
+underlying textures alive until the engine's submission token completes.
+
 Run the matched managed/native rectangle differential and CPU-submission
 benchmark after the native build:
 
