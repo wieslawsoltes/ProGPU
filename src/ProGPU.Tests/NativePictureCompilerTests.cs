@@ -1384,11 +1384,53 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
-    public void CompilerRejectsPathStrokeWithoutDroppingIt()
+    public void CompilerLowersLineOnlyPathStrokeWithoutFlatteningIt()
     {
         var path = new PathGeometry();
         var figure = new PathFigure(new Vector2(2f, 2f));
         figure.Segments.Add(new LineSegment(new Vector2(20f, 20f)));
+        path.Figures.Add(figure);
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(
+            new Rect(0f, 0f, 32f, 32f));
+        drawing.DrawPath(
+            null,
+            new Pen(new SolidColorBrush(Vector4.One), 2f),
+            path);
+        using GpuPicture picture = recorder.EndRecording();
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            96U,
+            8U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.StrokeCount);
+        Assert.Equal(2, compiled.StrokePointCount);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        NativeMethods.SceneResource resource =
+            MemoryMarshal.Read<NativeMethods.SceneResource>(
+                compiled.Stream.Slice(checked((int)header.ResourceOffset)));
+        Assert.Equal(NativeSceneResourceKind.StrokeBatch, resource.Kind);
+        NativeSceneStroke stroke = MemoryMarshal.Read<NativeSceneStroke>(
+            compiled.Stream.Slice(checked((int)resource.PayloadOffset)));
+        Assert.Equal(NativeSceneStrokeKind.Polyline, stroke.Kind);
+        Assert.Equal(2UL, stroke.PointCount);
+        Assert.Equal(2f, stroke.StrokeThickness);
+    }
+
+    [Fact]
+    public void CompilerRejectsCurvedPathStrokeWithoutFlatteningIt()
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(new Vector2(2f, 2f));
+        figure.Segments.Add(new QuadraticBezierSegment(
+            new Vector2(10f, 2f),
+            new Vector2(20f, 20f)));
         path.Figures.Add(figure);
         var recorder = new GpuPictureRecorder();
         DrawingContext drawing = recorder.BeginRecording(

@@ -1372,12 +1372,17 @@ public static partial class GpuPictureNativeSceneCompiler
                     materials,
                     out error);
             case RenderCommandType.DrawPath:
-                return TryAppendPathFill(
+                return TryAppendPath(
+                    picture,
                     command,
                     transform,
                     paths,
                     pathSegments,
                     pathBrushIndices,
+                    strokes,
+                    strokePoints,
+                    strokeDoubles,
+                    strokeBrushIndices,
                     batches,
                     operations,
                     materials,
@@ -2561,6 +2566,118 @@ public static partial class GpuPictureNativeSceneCompiler
         return true;
     }
 
+    private static bool TryAppendPath(
+        GpuPicture picture,
+        in RenderCommand command,
+        Matrix3x2 transform,
+        List<NativeScenePathFill> nativePaths,
+        List<NativePathSegment> nativeSegments,
+        List<uint> pathBrushIndices,
+        List<NativeSceneStroke> nativeStrokes,
+        List<Vector2> nativePoints,
+        List<double> nativeDoubles,
+        List<uint> strokeBrushIndices,
+        List<Batch> batches,
+        List<Operation> operations,
+        NativeBrushTableBuilder materials,
+        out NativePictureCompileError error)
+    {
+        error = NativePictureCompileError.None;
+        if (command.Path is not { } path)
+        {
+            error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+        if (command.Brush is null && command.Pen is null)
+        {
+            error = NativePictureCompileError.UnsupportedCommand;
+            return false;
+        }
+
+        if (command.Brush is not null)
+        {
+            RenderCommand fillCommand = command;
+            fillCommand.Pen = null;
+            if (!TryAppendPathFill(
+                    fillCommand,
+                    transform,
+                    nativePaths,
+                    nativeSegments,
+                    pathBrushIndices,
+                    batches,
+                    operations,
+                    materials,
+                    out error))
+            {
+                return false;
+            }
+        }
+
+        if (command.Pen is null)
+        {
+            return true;
+        }
+        if (path.IsCombined)
+        {
+            error = NativePictureCompileError.UnsupportedStroke;
+            return false;
+        }
+
+        bool emittedStroke = false;
+        foreach (PathFigure figure in path.Figures)
+        {
+            if (figure.Segments.Count == 0)
+            {
+                continue;
+            }
+
+            var points = new Vector2[figure.Segments.Count + 1];
+            points[0] = figure.StartPoint;
+            for (int index = 0; index < figure.Segments.Count; index++)
+            {
+                if (figure.Segments[index] is not LineSegment line)
+                {
+                    error = NativePictureCompileError.UnsupportedStroke;
+                    return false;
+                }
+                points[index + 1] = line.Point;
+            }
+
+            RenderCommand strokeCommand = command;
+            strokeCommand.Type = RenderCommandType.DrawPolyline;
+            strokeCommand.Brush = null;
+            strokeCommand.Path = null;
+            strokeCommand.PolylinePoints = points;
+            strokeCommand.PointBufferOffset = 0;
+            strokeCommand.PointBufferCount = 0;
+            strokeCommand.IsClosed = figure.IsClosed;
+            if (!TryAppendStroke(
+                    picture,
+                    strokeCommand,
+                    transform,
+                    NativeSceneStrokeKind.Polyline,
+                    nativeStrokes,
+                    nativePoints,
+                    nativeDoubles,
+                    strokeBrushIndices,
+                    batches,
+                    operations,
+                    materials,
+                    out error))
+            {
+                return false;
+            }
+            emittedStroke = true;
+        }
+
+        if (!emittedStroke)
+        {
+            error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+        return true;
+    }
+
     private static bool TryAppendPathFill(
         in RenderCommand command,
         Matrix3x2 transform,
@@ -2573,11 +2690,6 @@ public static partial class GpuPictureNativeSceneCompiler
         out NativePictureCompileError error)
     {
         error = NativePictureCompileError.None;
-        if (command.Pen is not null)
-        {
-            error = NativePictureCompileError.UnsupportedStroke;
-            return false;
-        }
         if (command.Brush is null)
         {
             error = NativePictureCompileError.UnsupportedBrush;
