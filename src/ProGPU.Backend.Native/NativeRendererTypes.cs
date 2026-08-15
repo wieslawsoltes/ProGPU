@@ -146,6 +146,13 @@ public enum NativeSceneImageFlags : uint
     ColorMatrix = 1U << 0
 }
 
+[Flags]
+public enum NativeSceneImageColorMatrixFlags : uint
+{
+    None = 0,
+    LuminanceToAlpha = 1U << 0
+}
+
 public enum NativeGroupMaskKind : uint
 {
     None = 0,
@@ -932,10 +939,12 @@ public readonly struct NativeSceneImageColorMatrix
         Vector4 green,
         Vector4 blue,
         Vector4 alpha,
-        Vector4 offset)
+        Vector4 offset,
+        NativeSceneImageColorMatrixFlags flags =
+            NativeSceneImageColorMatrixFlags.None)
     {
         StructSize = (uint)Unsafe.SizeOf<NativeSceneImageColorMatrix>();
-        Flags = 0U;
+        Flags = flags;
         Red = red;
         Green = green;
         Blue = blue;
@@ -953,7 +962,7 @@ public readonly struct NativeSceneImageColorMatrix
         Vector4.Zero);
 
     public readonly uint StructSize;
-    private readonly uint Flags;
+    public readonly NativeSceneImageColorMatrixFlags Flags;
     public readonly Vector4 Red;
     public readonly Vector4 Green;
     public readonly Vector4 Blue;
@@ -964,7 +973,8 @@ public readonly struct NativeSceneImageColorMatrix
 
     internal bool HasCanonicalFields =>
         StructSize == Unsafe.SizeOf<NativeSceneImageColorMatrix>() &&
-        Flags == 0U && Reserved0 == 0U && Reserved1 == 0U &&
+        (Flags & ~NativeSceneImageColorMatrixFlags.LuminanceToAlpha) == 0 &&
+        Reserved0 == 0U && Reserved1 == 0U &&
         IsFiniteAndBounded(Red) && IsFiniteAndBounded(Green) &&
         IsFiniteAndBounded(Blue) && IsFiniteAndBounded(Alpha) &&
         IsFiniteAndBounded(Offset);

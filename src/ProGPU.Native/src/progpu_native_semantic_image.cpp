@@ -49,6 +49,10 @@ bool validate_image_draw_payload(
             return false;
         }
         options.has_color_matrix = true;
+        options.luminance_to_alpha =
+            (matrix.flags &
+                PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX_LUMINANCE_TO_ALPHA) !=
+            0U;
     }
     return command.payload_size == expected_size;
 }

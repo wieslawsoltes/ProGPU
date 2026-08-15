@@ -200,6 +200,11 @@ enum {
 };
 
 enum {
+    /* Apply Skia-compatible luma-to-alpha after the affine transform. */
+    PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX_LUMINANCE_TO_ALPHA = 1U << 0U
+};
+
+enum {
     PROGPU_NATIVE_POINT_BATCH_EDGE_ALIASED = 1U << 0U,
     PROGPU_NATIVE_POINT_BATCH_ROUND = 1U << 1U,
     PROGPU_NATIVE_POINT_BATCH_HAIRLINE = 1U << 2U,
@@ -678,8 +683,10 @@ typedef struct progpu_native_scene_image_sampling_options {
 
 /*
  * Optional exact suffix selected by PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX.
- * Rows and offset form a 4x5 affine transform over straight RGBA. The two
- * reserved words preserve 16-byte GPU-uniform alignment.
+ * Rows and offset form a 4x5 affine transform over straight RGBA. The optional
+ * luminance flag converts the transformed straight RGB to transparent black
+ * with luminance times source alpha in alpha. The two reserved words preserve
+ * 16-byte GPU-uniform alignment.
  */
 typedef struct progpu_native_scene_image_color_matrix {
     uint32_t struct_size;

@@ -2377,7 +2377,11 @@ public class NativeRendererInteropTests
             new Vector4(0.2126f, 0.7152f, 0.0722f, 0f),
             new Vector4(0.2126f, 0.7152f, 0.0722f, 0f),
             Vector4.UnitW,
-            Vector4.Zero);
+            Vector4.Zero,
+            NativeSceneImageColorMatrixFlags.LuminanceToAlpha);
+        Assert.Equal(
+            NativeSceneImageColorMatrixFlags.LuminanceToAlpha,
+            matrix.Flags);
 
         static bool Build(
             Span<byte> bytes,

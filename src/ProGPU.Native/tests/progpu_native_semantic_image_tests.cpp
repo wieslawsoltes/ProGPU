@@ -79,6 +79,21 @@ bool semantic_image_sampling_payload_is_exact_and_bounded() {
         !parsed.has_color_matrix || parsed.color_matrix.red[0] != 1.0F) {
         return false;
     }
+    matrix.flags =
+        PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX_LUMINANCE_TO_ALPHA;
+    std::memcpy(bytes.data() + base_size, &matrix, sizeof(matrix));
+    if (!semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed) ||
+        !parsed.luminance_to_alpha) {
+        return false;
+    }
+    matrix.flags = 1U << 31U;
+    std::memcpy(bytes.data() + base_size, &matrix, sizeof(matrix));
+    if (semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed)) {
+        return false;
+    }
+    matrix.flags = 0U;
     matrix.offset[0] = std::numeric_limits<float>::infinity();
     std::memcpy(bytes.data() + base_size, &matrix, sizeof(matrix));
     return !semantic::validate_image_draw_payload(

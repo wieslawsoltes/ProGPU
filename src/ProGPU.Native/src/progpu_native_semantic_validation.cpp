@@ -239,7 +239,10 @@ bool is_valid_semantic_image_color_matrix(
         }
         return true;
     };
-    return matrix.struct_size == sizeof(matrix) && matrix.flags == 0U &&
+    return matrix.struct_size == sizeof(matrix) &&
+        (matrix.flags &
+            ~PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX_LUMINANCE_TO_ALPHA) ==
+            0U &&
         matrix.reserved[0] == 0U && matrix.reserved[1] == 0U &&
         valid_row(matrix.red) && valid_row(matrix.green) &&
         valid_row(matrix.blue) && valid_row(matrix.alpha) &&

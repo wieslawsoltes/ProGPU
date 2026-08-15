@@ -11,6 +11,7 @@ struct semantic_image_options final {
     float cubic_b = 0.0F;
     float cubic_c = 0.5F;
     bool has_color_matrix = false;
+    bool luminance_to_alpha = false;
     progpu_native_scene_image_color_matrix color_matrix{};
 };
 

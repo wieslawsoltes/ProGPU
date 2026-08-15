@@ -2741,7 +2741,7 @@ public static partial class GpuPictureNativeSceneCompiler
             ImageEffectCommandData effect = command.ResolveImageEffect(picture);
             bool affineOnly = effect.BlurSigma == 0f &&
                 effect.MaskTexture is null &&
-                !effect.LuminanceToAlpha && effect.ChromaTexture is null &&
+                effect.ChromaTexture is null &&
                 !effect.YuvConversion.HasValue &&
                 !effect.SphericalProjection.HasValue;
             if (!affineOnly ||
@@ -2879,7 +2879,8 @@ public static partial class GpuPictureNativeSceneCompiler
             !float.IsFinite(effect.Saturation) ||
             !float.IsFinite(effect.Grayscale) ||
             !float.IsFinite(effect.Sepia) ||
-            !float.IsFinite(effect.Invert))
+            !float.IsFinite(effect.Invert) ||
+            effect.LuminanceToAlpha && effect.ColorMatrix.HasValue)
         {
             return false;
         }
@@ -2970,7 +2971,10 @@ public static partial class GpuPictureNativeSceneCompiler
             transform.Green,
             transform.Blue,
             transform.Alpha,
-            transform.Offset);
+            transform.Offset,
+            effect.LuminanceToAlpha
+                ? NativeSceneImageColorMatrixFlags.LuminanceToAlpha
+                : NativeSceneImageColorMatrixFlags.None);
         return true;
     }
 

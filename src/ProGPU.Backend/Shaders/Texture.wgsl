@@ -1,5 +1,5 @@
-// Algorithm: Transform batched image/lattice/atlas quads, emit fixed-color cells without sampling, or sample nearest, linear, or Mitchell-Netravali cubic kernels; atlas sprites optionally combine sampled source and per-sprite destination colors with a Skia blend mode.
-// Time complexity: O(1) per invocation; fixed-color cells perform no image sample, cubic filtering performs a fixed 4x4 sample footprint, optional semantic color processing performs five fixed dot products, atlas color blending uses bounded scalar work, and semantic mask chains evaluate at most four analytic rounded masks.
+// Algorithm: Transform batched image/lattice/atlas quads, emit fixed-color cells without sampling, or sample nearest, linear, or Mitchell-Netravali cubic kernels; atlas sprites optionally combine sampled source and per-sprite destination colors with a Skia blend mode; semantic color processing optionally applies Skia-compatible post-transform luminance-to-alpha.
+// Time complexity: O(1) per invocation; fixed-color cells perform no image sample, cubic filtering performs a fixed 4x4 sample footprint, optional semantic color processing performs five fixed dot products plus one luminance dot product, atlas color blending uses bounded scalar work, and semantic mask chains evaluate at most four analytic rounded masks.
 // Space complexity: O(1) local storage and bounded texture bandwidth per fragment; texture masks add one sample plus a fixed axis-aligned or affine UV transform, color matrices add one 96-byte uniform record containing 80 bytes of coefficients, and nested analytic masks use one primary 96-byte record plus one fixed 288-byte continuation record without another texture.
 struct VertexInput {
     @location(0) position: vec2<f32>,
@@ -480,11 +480,23 @@ fn color_matrix_fs_main_with_mask(
     if (input.color.g > 0.5) {
         source = atlas_unpremultiply(source);
     }
-    let transformed = clamp(vec4<f32>(
+    var transformed = vec4<f32>(
         dot(source, matrix.coordinate0) + matrix.cornerRadiiY.x,
         dot(source, matrix.coordinate1) + matrix.cornerRadiiY.y,
         dot(source, matrix.bounds) + matrix.cornerRadiiY.z,
-        dot(source, matrix.cornerRadiiX) + matrix.cornerRadiiY.w),
+        dot(source, matrix.cornerRadiiX) + matrix.cornerRadiiY.w);
+    if (matrix.options.x > 0.5) {
+        let luminance = dot(
+            transformed.rgb,
+            vec3<f32>(0.2126, 0.7152, 0.0722));
+        transformed = vec4<f32>(
+            0.0,
+            0.0,
+            0.0,
+            luminance * transformed.a);
+    }
+    transformed = clamp(
+        transformed,
         vec4<f32>(0.0),
         vec4<f32>(1.0));
     return vec4<f32>(

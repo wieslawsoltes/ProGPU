@@ -44,6 +44,11 @@ bool create_semantic_image_color_matrix_resources(
         uniforms.corner_radii_y,
         matrix.offset,
         sizeof(matrix.offset));
+    uniforms.options[0] =
+        (matrix.flags &
+            PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX_LUMINANCE_TO_ALPHA) != 0U
+        ? 1.0F
+        : 0.0F;
 
     WGPUBufferDescriptor buffer_descriptor{};
     buffer_descriptor.label = webgpu::string_view(
