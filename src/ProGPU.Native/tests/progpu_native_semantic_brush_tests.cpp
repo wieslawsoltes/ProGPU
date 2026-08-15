@@ -118,6 +118,27 @@ bool semantic_perlin_brush_table_is_exact_and_bounded() {
         return false;
     }
 
+    auto hatch = brush;
+    hatch.type = PROGPU_NATIVE_SCENE_BRUSH_CROSS_HATCH;
+    hatch.center = {8.0F, 1.5F};
+    hatch.stop_count = 0U;
+    hatch.stop_offset = 0U;
+    hatch.spread_method = 0U;
+    hatch.color_interpolation_mode =
+        PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB;
+    std::memcpy(bytes.data() + brush_offset, &hatch, sizeof(hatch));
+    if (!semantic::validate_brush_table(
+            bytes.data(), resource, error_offset)) {
+        return false;
+    }
+    hatch.center.x = 0.0F;
+    std::memcpy(bytes.data() + brush_offset, &hatch, sizeof(hatch));
+    if (semantic::validate_brush_table(
+            bytes.data(), resource, error_offset)) {
+        return false;
+    }
+    std::memcpy(bytes.data() + brush_offset, &brush, sizeof(brush));
+
     auto truncated = resource;
     truncated.auxiliary_size -=
         sizeof(progpu_native_scene_gradient_stop);

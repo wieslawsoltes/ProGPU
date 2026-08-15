@@ -33,7 +33,6 @@ public class NativePictureCompilerTests
             .ToArray();
         Assert.Equal(
             [
-                RenderCommandType.DrawHatch,
                 RenderCommandType.DrawStaticDxf,
                 RenderCommandType.DrawVisual
             ],
@@ -1421,6 +1420,65 @@ public class NativePictureCompilerTests
         Assert.Equal(NativeSceneStrokeKind.Polyline, stroke.Kind);
         Assert.Equal(2UL, stroke.PointCount);
         Assert.Equal(2f, stroke.StrokeThickness);
+    }
+
+    [Fact]
+    public void CompilerLowersHatchExtensionsThroughSharedPathShader()
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(new Vector2(2f, 2f), isClosed: true);
+        figure.Segments.Add(new LineSegment(new Vector2(30f, 2f)));
+        figure.Segments.Add(new LineSegment(new Vector2(30f, 20f)));
+        figure.Segments.Add(new LineSegment(new Vector2(2f, 20f)));
+        path.Figures.Add(figure);
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(
+            new Rect(0f, 0f, 32f, 24f));
+        drawing.DrawHatch(
+            new HatchPatternBrush(
+                0.35f,
+                6f,
+                1.5f,
+                new Vector4(1f, 0.25f, 0.1f, 1f)),
+            path);
+        drawing.DrawHatch(
+            new CrossHatchBrush(
+                0.7f,
+                8f,
+                2f,
+                new Vector4(0.1f, 0.5f, 1f, 1f)),
+            path);
+        using GpuPicture picture = recorder.EndRecording();
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            196U,
+            3U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(2, compiled.PathCount);
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)header.ResourceCount *
+                        Unsafe.SizeOf<NativeMethods.SceneResource>())));
+        NativeMethods.SceneResource brushResource = resources.ToArray().Single(
+            static resource =>
+                resource.Kind == NativeSceneResourceKind.BrushTable);
+        ReadOnlySpan<NativeSceneBrush> brushes =
+            MemoryMarshal.Cast<byte, NativeSceneBrush>(
+                compiled.Stream.Slice(
+                    checked((int)brushResource.PayloadOffset),
+                    checked((int)brushResource.PayloadSize)));
+        Assert.Equal(NativeSceneBrushKind.HatchPattern, brushes[0].Kind);
+        Assert.Equal(NativeSceneBrushKind.CrossHatch, brushes[1].Kind);
+        Assert.Equal(6f, brushes[0].Center.X);
+        Assert.Equal(2f, brushes[1].Center.Y);
     }
 
     [Fact]

@@ -48,6 +48,9 @@ public static partial class GpuPictureNativeSceneCompiler
         RenderCommandType.DrawDotGrid =>
             NativePictureCommandCapability.DirectDraw,
 
+        RenderCommandType.DrawHatch =>
+            NativePictureCommandCapability.BuiltInExtension,
+
         RenderCommandType.PushClip or
         RenderCommandType.PopClip or
         RenderCommandType.PushOpacity or
@@ -68,7 +71,6 @@ public static partial class GpuPictureNativeSceneCompiler
         // These commands retain live managed/GPU objects or use a shader
         // family that has no pointer-free semantic resource yet. They are
         // rejected transactionally; no command is silently dropped.
-        RenderCommandType.DrawHatch or
         RenderCommandType.DrawStaticDxf or
         RenderCommandType.DrawVisual =>
             NativePictureCommandCapability.ExplicitlyUnsupported,

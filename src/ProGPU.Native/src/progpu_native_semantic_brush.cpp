@@ -42,6 +42,8 @@ bool supported_brush_kind(std::uint32_t kind) noexcept {
     return kind == PROGPU_NATIVE_SCENE_BRUSH_SOLID ||
         kind == PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT ||
         kind == PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT ||
+        kind == PROGPU_NATIVE_SCENE_BRUSH_HATCH_PATTERN ||
+        kind == PROGPU_NATIVE_SCENE_BRUSH_CROSS_HATCH ||
         kind == PROGPU_NATIVE_SCENE_BRUSH_TWO_POINT_CONICAL_GRADIENT ||
         kind == PROGPU_NATIVE_SCENE_BRUSH_SWEEP_GRADIENT ||
         kind == PROGPU_NATIVE_SCENE_BRUSH_PERLIN_NOISE;
@@ -122,6 +124,12 @@ bool valid_brush(
             }
         }
         return true;
+    }
+
+    if ((brush.type == PROGPU_NATIVE_SCENE_BRUSH_HATCH_PATTERN ||
+            brush.type == PROGPU_NATIVE_SCENE_BRUSH_CROSS_HATCH) &&
+        (brush.center.x <= 0.0F || brush.center.y < 0.0F)) {
+        return false;
     }
 
     if (!gradient_brush_kind(brush.type)) {

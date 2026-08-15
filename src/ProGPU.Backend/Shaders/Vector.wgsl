@@ -2392,6 +2392,29 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
                     }
                 }
             }
+        } else if (brush.brushType == 3u || brush.brushType == 4u) {
+            // Analytic hatch: project the local point onto one periodic axis;
+            // cross-hatch evaluates the perpendicular axis as well. The native
+            // semantic compiler validates positive spacing before GPU upload.
+            let theta = brush.gradientRadius;
+            let spacing = brush.gradientCenter.x;
+            let thickness = brush.gradientCenter.y;
+            let direction0 = vec2<f32>(cos(theta), sin(theta));
+            let distance0 = dot(evalCoord, direction0);
+            let phase0 = abs(fract(distance0 / spacing) * spacing - spacing * 0.5);
+            var hatchHit = phase0 < thickness * 0.5;
+            if (brush.brushType == 4u) {
+                let direction1 = vec2<f32>(-direction0.y, direction0.x);
+                let distance1 = dot(evalCoord, direction1);
+                let phase1 = abs(fract(distance1 / spacing) * spacing - spacing * 0.5);
+                hatchHit = hatchHit || phase1 < thickness * 0.5;
+            }
+            if (!hatchHit) {
+                discard;
+            }
+            finalColor = vec4<f32>(
+                brush.stopColors0.rgb,
+                brush.stopColors0.a * brush.opacity);
         } else if (brush.brushType == 5u) {
             // Two-point conical gradient: interpolate between two moving circle boundaries.
             let solution = solve_two_point_conical_gradient(brush, brushCoord);
@@ -2413,8 +2436,9 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             let noiseColor = sample_perlin_noise(brush, brushCoord);
             finalColor = vec4<f32>(noiseColor.rgb, noiseColor.a * brush.opacity);
         }
-        if (brush.brushType == 7u) {
-            // Procedural noise was evaluated directly above.
+        if (brush.brushType == 3u || brush.brushType == 4u ||
+            brush.brushType == 7u) {
+            // Procedural hatch/noise was evaluated directly above.
         } else if (gradientCoverage <= 0.0) {
             if ((brush.spreadMethod & 0x80000000u) != 0u) {
                 finalColor = vec4<f32>(brush.stopColors0.rgb, brush.stopColors0.a * brush.opacity);

@@ -207,6 +207,40 @@ internal sealed class NativeBrushTableBuilder
                     brush.Opacity,
                     perlinTransform);
                 break;
+            case HatchPatternBrush hatch:
+                if (!float.IsFinite(hatch.Angle) ||
+                    !float.IsFinite(hatch.Spacing) || hatch.Spacing <= 0f ||
+                    !float.IsFinite(hatch.Thickness) || hatch.Thickness < 0f ||
+                    !IsFinite(hatch.Color))
+                {
+                    return Fail(out index, out error);
+                }
+                native = NativeSceneBrush.HatchPattern(
+                    hatch.Angle,
+                    hatch.Spacing,
+                    hatch.Thickness,
+                    hatch.Color,
+                    crossHatch: false,
+                    opacity: brush.Opacity);
+                break;
+            case CrossHatchBrush crossHatch:
+                if (!float.IsFinite(crossHatch.Angle) ||
+                    !float.IsFinite(crossHatch.Spacing) ||
+                    crossHatch.Spacing <= 0f ||
+                    !float.IsFinite(crossHatch.Thickness) ||
+                    crossHatch.Thickness < 0f ||
+                    !IsFinite(crossHatch.Color))
+                {
+                    return Fail(out index, out error);
+                }
+                native = NativeSceneBrush.HatchPattern(
+                    crossHatch.Angle,
+                    crossHatch.Spacing,
+                    crossHatch.Thickness,
+                    crossHatch.Color,
+                    crossHatch: true,
+                    opacity: brush.Opacity);
+                break;
             default:
                 return Fail(out index, out error);
         }

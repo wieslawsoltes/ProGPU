@@ -293,6 +293,8 @@ public enum NativeSceneBrushKind : uint
     Solid = 0,
     LinearGradient = 1,
     RadialGradient = 2,
+    HatchPattern = 3,
+    CrossHatch = 4,
     TwoPointConicalGradient = 5,
     SweepGradient = 6,
     PerlinNoise = 7
@@ -561,6 +563,26 @@ public struct NativeSceneBrush
         brush.StartPoint = origin;
         brush.Radius = radiusX;
         brush.RadiusY = radiusY;
+        return brush;
+    }
+
+    public static NativeSceneBrush HatchPattern(
+        float angle,
+        float spacing,
+        float thickness,
+        Vector4 color,
+        bool crossHatch = false,
+        float opacity = 1f)
+    {
+        var brush = CreateBase(
+            crossHatch
+                ? NativeSceneBrushKind.CrossHatch
+                : NativeSceneBrushKind.HatchPattern,
+            opacity,
+            Matrix3x2.Identity);
+        brush.Radius = angle;
+        brush.Center = new Vector2(spacing, thickness);
+        brush.Color0 = color;
         return brush;
     }
 

@@ -1802,6 +1802,8 @@ public ref struct NativeSceneStreamBuilder
                 NativeSceneBrushKind.Solid or
                 NativeSceneBrushKind.LinearGradient or
                 NativeSceneBrushKind.RadialGradient or
+                NativeSceneBrushKind.HatchPattern or
+                NativeSceneBrushKind.CrossHatch or
                 NativeSceneBrushKind.TwoPointConicalGradient or
                 NativeSceneBrushKind.SweepGradient or
                 NativeSceneBrushKind.PerlinNoise;
@@ -1855,9 +1857,14 @@ public ref struct NativeSceneStreamBuilder
             }
             if (!gradient)
             {
+                bool hatch = brush.Kind is
+                    NativeSceneBrushKind.HatchPattern or
+                    NativeSceneBrushKind.CrossHatch;
                 if (brush.StopCount != 0U || brush.StopOffset != 0U ||
                     spread != 0U || brush.Interpolation !=
-                        NativeSceneGradientInterpolation.SRgb)
+                        NativeSceneGradientInterpolation.SRgb ||
+                    (hatch && (brush.Center.X <= 0f ||
+                        brush.Center.Y < 0f)))
                 {
                     return false;
                 }

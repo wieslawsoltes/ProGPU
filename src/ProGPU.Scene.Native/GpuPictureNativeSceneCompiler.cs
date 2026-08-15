@@ -1387,6 +1387,24 @@ public static partial class GpuPictureNativeSceneCompiler
                     operations,
                     materials,
                     out error);
+            case RenderCommandType.DrawHatch:
+            case RenderCommandType.DrawExtension
+                when command.ExtensionId == CompositorBuiltInExtensions.Hatch:
+                return TryAppendPath(
+                    picture,
+                    command,
+                    transform,
+                    paths,
+                    pathSegments,
+                    pathBrushIndices,
+                    strokes,
+                    strokePoints,
+                    strokeDoubles,
+                    strokeBrushIndices,
+                    batches,
+                    operations,
+                    materials,
+                    out error);
             case RenderCommandType.DrawPointBatch:
                 return TryAppendPointBatch(
                     command,
