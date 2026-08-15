@@ -646,10 +646,13 @@ internal static class ManagedPictureBenchmark
         return new(
             SubmissionP50Milliseconds: Percentile(submission, 0.50),
             SubmissionP95Milliseconds: Percentile(submission, 0.95),
+            SubmissionP99Milliseconds: Percentile(submission, 0.99),
             CompletionWaitP50Milliseconds: Percentile(completion, 0.50),
             CompletionWaitP95Milliseconds: Percentile(completion, 0.95),
+            CompletionWaitP99Milliseconds: Percentile(completion, 0.99),
             TotalP50Milliseconds: Percentile(total, 0.50),
             TotalP95Milliseconds: Percentile(total, 0.95),
+            TotalP99Milliseconds: Percentile(total, 0.99),
             MaximumMilliseconds: total[^1],
             AllocatedBytesPerFrame: samples.Average(static value => (double)value.AllocatedBytes));
     }
@@ -800,10 +803,13 @@ internal static class ManagedPictureBenchmark
     private sealed record TimingSummary(
         double SubmissionP50Milliseconds,
         double SubmissionP95Milliseconds,
+        double SubmissionP99Milliseconds,
         double CompletionWaitP50Milliseconds,
         double CompletionWaitP95Milliseconds,
+        double CompletionWaitP99Milliseconds,
         double TotalP50Milliseconds,
         double TotalP95Milliseconds,
+        double TotalP99Milliseconds,
         double MaximumMilliseconds,
         double AllocatedBytesPerFrame);
 

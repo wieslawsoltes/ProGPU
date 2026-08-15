@@ -2578,13 +2578,16 @@ bytes. Stable replay allocates `0 B/frame` on both paths and reports zero native
 vertex, index, texture, uniform, coverage, brush, gradient-stop, text-style, and
 color-glyph upload.
 
-This short final-slice qualification used four warm-up and eight alternating
-synchronized frames. Native/managed submission p50 was `0.0748/1.2359 ms` and
-p95 was `0.1013/9.0758 ms`; synchronized total p50 was `4.5961/4.2728 ms` and
-p95 was `6.1285/13.6192 ms`. These samples qualify the new command path and do
-not replace the longer matched baseline above. GPU-complete medians remain on
-the same Metal completion floor, as expected because both routes execute the
-same production shaders and queue work.
+Three final-slice repeats each used 60 warm-up and 300 alternating synchronized
+frames. The median native/managed submission p50, p95, and p99 values across
+the repeats were `0.0750/0.4090 ms`, `0.1502/0.8702 ms`, and
+`0.2490/1.1224 ms`. Median synchronized total p50, p95, and p99 were
+`3.0702/2.3540 ms`, `6.1775/6.5542 ms`, and `7.6065/6.8276 ms`. Native and
+managed p95 completion wait was effectively equal at `6.0770/6.0688 ms`;
+repeat-to-repeat p50 and p99 completion clusters alternated with queue
+scheduling. The result therefore qualifies lower native submission cost and a
+common GPU-completion floor, but does not claim a synchronized tail advantage.
+Both routes execute the same production shaders and Metal queue work.
 
 Across 518,400 pixels, the maximum channel difference is `11/255`, exactly
 three pixels exceed `3/255`, and mean absolute channel difference is
@@ -2595,6 +2598,7 @@ native, managed, and 32-times-amplified difference PNG SHA-256 values are
 `f1fb602b7301af95c0f9eac915e0f9577439e81b5f6a62d4d770400ccb10ef32`, and
 `fce3300776942bf31eb4b34c7f31d2edc975c3a4281008364f998a164d63dfda`.
 Local evidence is retained under
-`artifacts/progpu-native/final-candidate/`; exact-head CI produces the
+`artifacts/progpu-native/final-candidate/`, including all three JSON
+distributions; exact-head CI produces the
 cross-platform package and backend evidence, while the requested visual sample
 approval remains a manual gate.
