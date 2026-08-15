@@ -95,8 +95,20 @@ with cycle detection and a depth limit of 64. A lookup is
 `O(P * S * (log C + log K))` for positions `P`, subtables `S`, coverage size
 `C`, and pair/anchor search size `K`; resolving mark relationships adds
 `O(P + A)` work for the advances `A` crossed by attached marks. Anchor format-3
-device references are validated but their device/variation deltas remain an
-explicit subsequent slice.
+Device and VariationIndex references are applied through the caller's ppem and
+normalized variation coordinates using the shared item-variation executor.
+
+The resolved feature-value lane ports the ProGPU-owned 16-byte
+`ShapingFeature` contract and its half-open `[Start, End)` input ranges. One
+borrowed span now controls GSUB, alternate selection, GPOS, Arabic forms,
+Hangul Jamo stages, conditional fraction actions, and the Indic/USE/Myanmar/
+Khmer staged executors. A lookup shared by multiple feature tags uses the same
+required/global-feature precedence as the managed plan. Ranged lookups execute
+at eligible cluster starts without allocating or materializing per-glyph
+masks; ordinary runs with no ranged settings retain the existing bulk lookup
+executor. The implementation is isolated in
+`progpu_native_open_type_feature_values.cpp`, keeping the uniform-run
+orchestrator focused on stage ordering and preserving C++20 module builds.
 
 Unicode bidi analysis ports the ProGPU-owned `Bidi/Uax9Resolver.cs` at
 checkpoint `d9e89879`. The generator now copies the already generated Unicode
@@ -679,9 +691,21 @@ has zero pixels over 3/255, and has mean absolute channel difference
 5. Port wrapping, trimming, caret/selection geometry, hit testing, and reusable
    positioned-run caches.
 6. Connect native shaped runs directly to the standalone C++ retained-scene
-   compiler and existing compute glyph/text pipelines. The first direct
-   decoded-outline-to-GPU connection is complete; native shaping and run
-   assembly remain open.
+   compiler and existing compute glyph/text pipelines. Native shaping, run
+   assembly, decoded outlines, retained atlas resources, and the shared
+   glyph/text shaders are connected without a per-glyph interop call.
 7. Gate cold start, first interaction, sustained layout/shaping throughput,
    allocations, cache residency, malformed input, DPI/subpixel quality,
    browser AOT, and matched C#/C++ screenshots before claiming parity.
+
+At checkpoint `82da561e`, warning-clean Apple Clang and LLVM 22 named-module
+builds pass the complete native text suite. The production Inter qualification
+reuses one parsed face and one caller-owned shaping plan for 1,024 runs and
+matches the managed glyph ID, cluster, advance, offset, and dependency-flag
+signatures for kerning (`AVATAR`), contextual substitution (`office AV`),
+automatic Unicode fractions (`1⁄2`), and independent ligature/kerning feature
+ranges. The native test suite also covers transactional malformed SFNT, cmap,
+GSUB, GPOS, WOFF, CFF, variation, bitmap/color/SVG, Unicode, fallback, wrapping,
+and interaction paths. Direct retained text rendering remains covered by the
+matched GPU screenshot result above; final cross-platform release CI and
+manual sample inspection remain PR-level gates rather than text-port gaps.
