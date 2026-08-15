@@ -1462,6 +1462,34 @@ void semantic_point_batch_compiles_compact_retained_points() {
     PROGPU_REQUIRE(nearly_equal(vertices[0].texture_coordinate[0], -0.5F));
     PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 1020.0F));
 
+    auto fixed = batch;
+    fixed.flags = PROGPU_NATIVE_POINT_BATCH_ROUND |
+        PROGPU_NATIVE_POINT_BATCH_FIXED_DEVICE_RADIUS;
+    fixed.point_count = 1U;
+    vertices.clear();
+    indices.clear();
+    PROGPU_REQUIRE(progpu::native::append_point_batch(
+        fixed,
+        points.data(),
+        points.size(),
+        1.0F,
+        false,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].position[0], 21.5F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].position[1], 63.5F));
+    PROGPU_REQUIRE(nearly_equal(vertices[2].position[0], 28.5F));
+    PROGPU_REQUIRE(nearly_equal(vertices[2].position[1], 70.5F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].texture_coordinate[0], -3.5F));
+
+    fixed.flags |= PROGPU_NATIVE_POINT_BATCH_HAIRLINE;
+    fixed.radius = 0.5F;
+    PROGPU_REQUIRE(!progpu::native::point_batch_capacity(
+        fixed,
+        points.size(),
+        vertex_capacity,
+        index_capacity));
+
     auto invalid_points = points;
     invalid_points[1].x = std::numeric_limits<float>::infinity();
     vertices.clear();

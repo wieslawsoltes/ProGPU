@@ -14,7 +14,8 @@ inline bool point_batch_capacity(
     constexpr std::uint32_t allowed_flags =
         PROGPU_NATIVE_POINT_BATCH_EDGE_ALIASED |
         PROGPU_NATIVE_POINT_BATCH_ROUND |
-        PROGPU_NATIVE_POINT_BATCH_HAIRLINE;
+        PROGPU_NATIVE_POINT_BATCH_HAIRLINE |
+        PROGPU_NATIVE_POINT_BATCH_FIXED_DEVICE_RADIUS;
     if (batch.struct_size != sizeof(batch) ||
         (batch.flags & ~allowed_flags) != 0U ||
         batch.point_count == 0U ||
@@ -24,7 +25,9 @@ inline bool point_batch_capacity(
         batch.reserved != 0.0F || !is_finite(batch.color) ||
         !is_finite(batch.transform) ||
         ((batch.flags & PROGPU_NATIVE_POINT_BATCH_HAIRLINE) != 0U &&
-            batch.radius != 0.5F) ||
+            (batch.radius != 0.5F ||
+                (batch.flags &
+                    PROGPU_NATIVE_POINT_BATCH_FIXED_DEVICE_RADIUS) != 0U)) ||
         batch.point_count >
             std::numeric_limits<std::uint32_t>::max() / 6U) {
         return false;
@@ -54,6 +57,9 @@ inline bool is_valid_point_batch(
         (batch.flags & PROGPU_NATIVE_POINT_BATCH_EDGE_ALIASED) != 0U;
     const bool hairline =
         (batch.flags & PROGPU_NATIVE_POINT_BATCH_HAIRLINE) != 0U;
+    const bool fixed_device_radius =
+        (batch.flags &
+            PROGPU_NATIVE_POINT_BATCH_FIXED_DEVICE_RADIUS) != 0U;
     const float extent = batch.radius + (aliased ? 0.0F : 1.5F);
     constexpr progpu_native_point corners[4] = {
         {-1.0F, -1.0F},
@@ -79,12 +85,23 @@ inline bool is_valid_point_batch(
                     center.x + corner.x * extent,
                     center.y + corner.y * extent};
             progpu_native_point position{};
-            transform_point(
-                batch.transform,
-                local_position.x,
-                local_position.y,
-                position.x,
-                position.y);
+            if (fixed_device_radius && !hairline) {
+                transform_point(
+                    batch.transform,
+                    center.x,
+                    center.y,
+                    position.x,
+                    position.y);
+                position.x += corner.x * extent;
+                position.y += corner.y * extent;
+            } else {
+                transform_point(
+                    batch.transform,
+                    local_position.x,
+                    local_position.y,
+                    position.x,
+                    position.y);
+            }
             if (!is_finite(local_position) || !is_finite(position)) {
                 return false;
             }
@@ -124,6 +141,9 @@ inline bool append_point_batch(
         (batch.flags & PROGPU_NATIVE_POINT_BATCH_ROUND) != 0U;
     const bool hairline =
         (batch.flags & PROGPU_NATIVE_POINT_BATCH_HAIRLINE) != 0U;
+    const bool fixed_device_radius =
+        (batch.flags &
+            PROGPU_NATIVE_POINT_BATCH_FIXED_DEVICE_RADIUS) != 0U;
     const float extent = batch.radius + (aliased ? 0.0F : 1.5F);
     const float diameter = batch.radius * 2.0F;
     const float shape_type = hairline
@@ -155,7 +175,10 @@ inline bool append_point_batch(
                 center.x + corner.x * extent,
                 center.y + corner.y * extent};
             progpu_native_point position = transformed_center;
-            if (!hairline) {
+            if (fixed_device_radius && !hairline) {
+                position.x += corner.x * extent;
+                position.y += corner.y * extent;
+            } else if (!hairline) {
                 transform_point(
                     batch.transform,
                     local_position.x,

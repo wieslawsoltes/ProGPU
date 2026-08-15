@@ -250,7 +250,8 @@ public ref struct NativeSceneStreamBuilder
         const NativePointBatchFlags allowedFlags =
             NativePointBatchFlags.EdgeAliased |
             NativePointBatchFlags.Round |
-            NativePointBatchFlags.Hairline;
+            NativePointBatchFlags.Hairline |
+            NativePointBatchFlags.FixedDeviceRadius;
         foreach (ref readonly NativeScenePointBatch batch in batches)
         {
             if (batch.StructSize != Unsafe.SizeOf<NativeScenePointBatch>() ||
@@ -262,7 +263,9 @@ public ref struct NativeSceneStreamBuilder
                 !batch.HasCanonicalReservedField || !IsFinite(batch.Color) ||
                 !IsFinite(batch.Transform) ||
                 ((batch.Flags & NativePointBatchFlags.Hairline) != 0 &&
-                    batch.Radius != 0.5f))
+                    (batch.Radius != 0.5f ||
+                        (batch.Flags &
+                            NativePointBatchFlags.FixedDeviceRadius) != 0)))
             {
                 return false;
             }

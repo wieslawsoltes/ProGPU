@@ -46,7 +46,8 @@ public enum NativePointBatchFlags : uint
     None = 0,
     EdgeAliased = 1U << 0,
     Round = 1U << 1,
-    Hairline = 1U << 2
+    Hairline = 1U << 2,
+    FixedDeviceRadius = 1U << 3
 }
 
 public enum NativeVertexMeshTopology : uint

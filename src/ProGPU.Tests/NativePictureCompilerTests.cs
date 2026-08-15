@@ -165,6 +165,69 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerLowersGpuSeriesWithDeviceFixedWidths()
+    {
+        Brush brush = new SolidColorBrush(new Vector4(0.8f, 0.3f, 0.2f, 1f));
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawExtension,
+                    ExtensionId = CompositorBuiltInExtensions.GpuLineSeries,
+                    Brush = brush,
+                    GpuPointsCount = 3,
+                    FloatBufferOffset = 0,
+                    FloatBufferCount = 6,
+                    RadiusX = 2f,
+                    Scale = new Vector2(2f, 3f)
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawExtension,
+                    ExtensionId = CompositorBuiltInExtensions.GpuScatterSeries,
+                    Brush = brush,
+                    GpuPointsCount = 2,
+                    FloatBufferOffset = 6,
+                    FloatBufferCount = 4,
+                    RadiusX = 4f,
+                    Translate = new Vector2(5f, 7f)
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            [0f, 0f, 1f, 1f, 2f, 0f, 3f, 4f, 5f, 6f]);
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            303U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.StrokeCount);
+        Assert.Equal(1, compiled.PointBatchCount);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)header.ResourceCount *
+                        Unsafe.SizeOf<NativeMethods.SceneResource>())));
+        NativeSceneStroke line = MemoryMarshal.Read<NativeSceneStroke>(
+            compiled.Stream.Slice(checked((int)resources[0].PayloadOffset)));
+        NativeScenePointBatch scatter =
+            MemoryMarshal.Read<NativeScenePointBatch>(
+                compiled.Stream.Slice(checked((int)resources[1].PayloadOffset)));
+        Assert.True((line.Flags & NativePolylineFlags.FixedDeviceStroke) != 0);
+        Assert.True((scatter.Flags &
+            NativePointBatchFlags.FixedDeviceRadius) != 0);
+    }
+
+    [Fact]
     public void CompilerLowersRepeatedBitmapGlyphsToOneDecodedColorResource()
     {
         var font = new TtfFont(SfntFontFaceTests.BuildSingleBitmapGlyphFont());

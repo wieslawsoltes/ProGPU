@@ -1191,6 +1191,36 @@ public static partial class GpuPictureNativeSceneCompiler
                     operations,
                     materials,
                     out error);
+            case RenderCommandType.DrawGpuLineSeries:
+            case RenderCommandType.DrawExtension
+                when command.ExtensionId ==
+                    CompositorBuiltInExtensions.GpuLineSeries:
+                return TryAppendGpuLineSeries(
+                    picture,
+                    command,
+                    transform,
+                    strokes,
+                    strokePoints,
+                    strokeBrushIndices,
+                    batches,
+                    operations,
+                    materials,
+                    out error);
+            case RenderCommandType.DrawGpuScatterSeries:
+            case RenderCommandType.DrawExtension
+                when command.ExtensionId ==
+                    CompositorBuiltInExtensions.GpuScatterSeries:
+                return TryAppendGpuScatterSeries(
+                    picture,
+                    command,
+                    transform,
+                    pointBatches,
+                    points,
+                    pointBatchBrushIndices,
+                    batches,
+                    operations,
+                    materials,
+                    out error);
             case RenderCommandType.DrawVertexMesh:
                 return TryAppendVertexMesh(
                     command,
@@ -1269,6 +1299,200 @@ public static partial class GpuPictureNativeSceneCompiler
                 error = NativePictureCompileError.UnsupportedCommand;
                 return false;
         }
+    }
+
+    private static bool TryAppendGpuLineSeries(
+        GpuPicture picture,
+        in RenderCommand command,
+        Matrix3x2 parentTransform,
+        List<NativeSceneStroke> nativeStrokes,
+        List<Vector2> nativePoints,
+        List<uint> brushIndices,
+        List<Batch> batches,
+        List<Operation> operations,
+        NativeBrushTableBuilder materials,
+        out NativePictureCompileError error)
+    {
+        error = NativePictureCompileError.None;
+        if (command.Brush is null || command.GpuPointsCount < 2 ||
+            !float.IsFinite(command.RadiusX) || command.RadiusX <= 0f ||
+            !TryGetSeriesPoints(picture, command, allowPerPointRadius: false,
+                out ReadOnlySpan<float> values, out error) ||
+            !materials.TryRegister(command.Brush, out uint brushIndex, out error))
+        {
+            if (error == NativePictureCompileError.None)
+                error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+
+        Matrix3x2 transform = CreateSeriesTransform(command, parentTransform);
+        if (!TryAppendSeriesPoints(
+                values,
+                command.GpuPointsCount,
+                transform,
+                nativePoints,
+                out int pointStart,
+                out NativeImageRect bounds))
+        {
+            error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+        bool continuing = batches.Count > 0 && operations.Count > 0 &&
+            operations[^1].Kind == OperationKind.Draw &&
+            operations[^1].BatchIndex == batches.Count - 1 &&
+            batches[^1].Kind == BatchKind.Stroke;
+        ulong resourcePointOffset = continuing
+            ? checked((ulong)batches[^1].AuxiliaryCount)
+            : 0U;
+        int strokeStart = nativeStrokes.Count;
+        nativeStrokes.Add(new NativeSceneStroke(
+            NativeSceneStrokeKind.Polyline,
+            resourcePointOffset,
+            checked((ulong)command.GpuPointsCount),
+            transform,
+            command.RadiusX,
+            1f,
+            NativePolylineFlags.FixedDeviceStroke));
+        brushIndices.Add(brushIndex);
+        AppendBatch(
+            batches,
+            operations,
+            BatchKind.Stroke,
+            strokeStart,
+            strokeStart,
+            1,
+            Inflate(bounds, command.RadiusX + 1.5f),
+            pointStart,
+            command.GpuPointsCount);
+        return true;
+    }
+
+    private static bool TryAppendGpuScatterSeries(
+        GpuPicture picture,
+        in RenderCommand command,
+        Matrix3x2 parentTransform,
+        List<NativeScenePointBatch> nativeBatches,
+        List<Vector2> nativePoints,
+        List<uint> brushIndices,
+        List<Batch> batches,
+        List<Operation> operations,
+        NativeBrushTableBuilder materials,
+        out NativePictureCompileError error)
+    {
+        error = NativePictureCompileError.None;
+        if (command.Brush is null || command.GpuPointsCount <= 0 ||
+            !float.IsFinite(command.RadiusX) || command.RadiusX <= 0f ||
+            !TryGetSeriesPoints(picture, command, allowPerPointRadius: false,
+                out ReadOnlySpan<float> values, out error) ||
+            !materials.TryRegister(command.Brush, out uint brushIndex, out error))
+        {
+            if (error == NativePictureCompileError.None)
+                error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+
+        Matrix3x2 transform = CreateSeriesTransform(command, parentTransform);
+        if (!TryAppendSeriesPoints(
+                values,
+                command.GpuPointsCount,
+                transform,
+                nativePoints,
+                out int pointStart,
+                out NativeImageRect bounds))
+        {
+            error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+        bool continuing = batches.Count > 0 && operations.Count > 0 &&
+            operations[^1].Kind == OperationKind.Draw &&
+            operations[^1].BatchIndex == batches.Count - 1 &&
+            batches[^1].Kind == BatchKind.PointBatch;
+        uint resourcePointOffset = continuing
+            ? checked((uint)batches[^1].AuxiliaryCount)
+            : 0U;
+        int batchStart = nativeBatches.Count;
+        nativeBatches.Add(new NativeScenePointBatch(
+            resourcePointOffset,
+            checked((uint)command.GpuPointsCount),
+            command.RadiusX,
+            Vector4.One,
+            transform,
+            NativePointBatchFlags.Round |
+                NativePointBatchFlags.FixedDeviceRadius));
+        brushIndices.Add(brushIndex);
+        AppendBatch(
+            batches,
+            operations,
+            BatchKind.PointBatch,
+            batchStart,
+            batchStart,
+            1,
+            Inflate(bounds, command.RadiusX + 1.5f),
+            pointStart,
+            command.GpuPointsCount);
+        return true;
+    }
+
+    private static bool TryGetSeriesPoints(
+        GpuPicture picture,
+        in RenderCommand command,
+        bool allowPerPointRadius,
+        out ReadOnlySpan<float> values,
+        out NativePictureCompileError error)
+    {
+        error = NativePictureCompileError.None;
+        values = command.GpuPoints is { Length: > 0 } inline
+            ? inline
+            : command.FloatBufferCount > 0
+                ? picture.GetFloats(
+                    command.FloatBufferOffset,
+                    command.FloatBufferCount)
+                : ReadOnlySpan<float>.Empty;
+        int coordinateCount = checked(command.GpuPointsCount * 2);
+        if (values.Length == coordinateCount)
+            return true;
+        if (allowPerPointRadius &&
+            values.Length == checked(command.GpuPointsCount * 3))
+            return true;
+        error = NativePictureCompileError.InvalidGeometry;
+        return false;
+    }
+
+    private static Matrix3x2 CreateSeriesTransform(
+        in RenderCommand command,
+        Matrix3x2 parentTransform) =>
+        Matrix3x2.CreateScale(command.Scale == default ? Vector2.One : command.Scale) *
+        Matrix3x2.CreateTranslation(command.Translate) *
+        parentTransform;
+
+    private static bool TryAppendSeriesPoints(
+        ReadOnlySpan<float> values,
+        int count,
+        Matrix3x2 transform,
+        List<Vector2> destination,
+        out int start,
+        out NativeImageRect bounds)
+    {
+        start = destination.Count;
+        bounds = default;
+        float minX = float.PositiveInfinity;
+        float minY = float.PositiveInfinity;
+        float maxX = float.NegativeInfinity;
+        float maxY = float.NegativeInfinity;
+        for (int index = 0; index < count; index++)
+        {
+            Vector2 point = new(values[index * 2], values[index * 2 + 1]);
+            Vector2 transformed = Vector2.Transform(point, transform);
+            if (!IsFinite(point) || !IsFinite(transformed))
+                return false;
+            destination.Add(point);
+            minX = MathF.Min(minX, transformed.X);
+            minY = MathF.Min(minY, transformed.Y);
+            maxX = MathF.Max(maxX, transformed.X);
+            maxY = MathF.Max(maxY, transformed.Y);
+        }
+        bounds = new NativeImageRect(minX, minY, maxX - minX, maxY - minY);
+        return true;
     }
 
     private static bool TryAppendLine3D(
