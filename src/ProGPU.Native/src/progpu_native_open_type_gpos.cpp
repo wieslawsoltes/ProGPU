@@ -1210,6 +1210,34 @@ bool try_apply_open_type_gpos_lookup(
     return true;
 }
 
+bool try_apply_open_type_gpos_lookup_at(
+    const open_type_layout_table_view& gpos,
+    std::uint16_t lookup_index,
+    std::span<shaping_glyph> glyphs,
+    std::uint32_t position,
+    const open_type_gpos_apply_options& options,
+    bool& applied,
+    font_error* error) noexcept {
+    applied = false;
+    if (position >= glyphs.size()) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    const detail::gpos_apply_result result = detail::apply_gpos_lookup_at(
+        gpos, lookup_index, glyphs, position, options, 0U);
+    if (result == detail::gpos_apply_result::malformed) {
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    if (result == detail::gpos_apply_result::invalid_argument) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    applied = result == detail::gpos_apply_result::applied;
+    set_error(error, font_error::none);
+    return true;
+}
+
 bool try_resolve_open_type_attachments(
     std::span<shaping_glyph> glyphs,
     std::span<const shaping_attachment> attachments,

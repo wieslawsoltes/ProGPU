@@ -427,4 +427,38 @@ bool open_type_layout_table_view::try_feature_contains_lookup(
     return true;
 }
 
+bool open_type_layout_table_view::try_required_feature_contains_lookup(
+    open_type_tag script,
+    open_type_tag language,
+    std::uint16_t lookup,
+    bool& contains,
+    font_error* error) const noexcept {
+    contains = false;
+    if (lookup >= lookup_count_) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    selection_result selected{};
+    if (!select_layout_lookups(
+            table_,
+            script_list_offset_,
+            feature_list_offset_,
+            lookup_count_,
+            script,
+            language,
+            {},
+            {},
+            {},
+            true,
+            false,
+            lookup,
+            selected)) {
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    contains = selected.contains_target;
+    set_error(error, font_error::none);
+    return true;
+}
+
 } // namespace progpu::native::text

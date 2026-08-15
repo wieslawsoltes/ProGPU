@@ -125,6 +125,11 @@ struct complex_metadata_guard final {
     }
 };
 
+std::uint32_t get_feature_value(
+    const open_type_shape_run_options& options,
+    open_type_tag feature,
+    std::int32_t cluster) noexcept;
+
 bool apply_arabic_form_feature(
     const open_type_layout_table_view& gsub,
     open_type_tag script,
@@ -134,7 +139,8 @@ bool apply_arabic_form_feature(
     std::span<std::uint16_t> lookup_scratch,
     std::span<shaping_glyph> glyph_storage,
     std::uint32_t& glyph_count,
-    const open_type_gsub_apply_options& options,
+    const open_type_shape_run_options& run_options,
+    const open_type_gsub_apply_options& apply_options,
     font_error* error) noexcept {
     std::uint32_t lookup_count = 0U;
     if (!gsub.try_select_feature_lookups(
@@ -149,19 +155,24 @@ bool apply_arabic_form_feature(
     for (std::uint32_t lookup = 0U; lookup < lookup_count; ++lookup) {
         std::uint32_t position = 0U;
         while (position < glyph_count) {
-            if (get_arabic_action(glyph_storage[position]) != action) {
+            const std::uint32_t value = get_feature_value(
+                run_options, feature, glyph_storage[position].cluster);
+            if (value == 0U ||
+                get_arabic_action(glyph_storage[position]) != action) {
                 ++position;
                 continue;
             }
             const std::uint32_t count_before = glyph_count;
             bool applied = false;
+            auto targeted_options = apply_options;
+            targeted_options.alternate_value = value;
             if (!try_apply_open_type_gsub_lookup_at(
                     gsub,
                     lookup_scratch[lookup],
                     glyph_storage,
                     glyph_count,
                     position,
-                    options,
+                    targeted_options,
                     applied,
                     error)) {
                 return false;
@@ -183,7 +194,8 @@ bool apply_hangul_feature(
     std::span<std::uint16_t> lookup_scratch,
     std::span<shaping_glyph> glyph_storage,
     std::uint32_t& glyph_count,
-    const open_type_gsub_apply_options& options,
+    const open_type_shape_run_options& run_options,
+    const open_type_gsub_apply_options& apply_options,
     font_error* error) noexcept {
     std::uint32_t lookup_count = 0U;
     if (!gsub.try_select_feature_lookups(
@@ -198,20 +210,25 @@ bool apply_hangul_feature(
     for (std::uint32_t lookup = 0U; lookup < lookup_count; ++lookup) {
         std::uint32_t position = 0U;
         while (position < glyph_count) {
-            if (get_hangul_feature(glyph_storage[position]) !=
+            const std::uint32_t value = get_feature_value(
+                run_options, feature, glyph_storage[position].cluster);
+            if (value == 0U ||
+                get_hangul_feature(glyph_storage[position]) !=
                 required_feature) {
                 ++position;
                 continue;
             }
             const std::uint32_t count_before = glyph_count;
             bool applied = false;
+            auto targeted_options = apply_options;
+            targeted_options.alternate_value = value;
             if (!try_apply_open_type_gsub_lookup_at(
                     gsub,
                     lookup_scratch[lookup],
                     glyph_storage,
                     glyph_count,
                     position,
-                    options,
+                    targeted_options,
                     applied,
                     error)) {
                 return false;
@@ -229,6 +246,124 @@ bool contains_feature(
     open_type_tag feature) noexcept {
     return std::find(features.begin(), features.end(), feature) !=
         features.end();
+}
+
+bool has_feature_settings(
+    const open_type_shape_run_options& options,
+    open_type_tag feature) noexcept {
+    return std::any_of(
+        options.feature_settings.begin(),
+        options.feature_settings.end(),
+        [feature](const shaping_feature& setting) {
+            return setting.tag == feature;
+        });
+}
+
+std::uint32_t get_feature_value(
+    const open_type_shape_run_options& options,
+    open_type_tag feature,
+    std::int32_t cluster) noexcept {
+    const bool has_settings = has_feature_settings(options, feature);
+    std::uint32_t value = has_settings
+        ? 0U
+        : (contains_feature(options.requested_features, feature) ? 1U : 0U);
+    const std::uint32_t input_index = cluster < 0
+        ? 0U
+        : static_cast<std::uint32_t>(cluster);
+    for (const auto& setting : options.feature_settings) {
+        if (setting.tag == feature && setting.applies_to(input_index)) {
+            value = setting.value;
+        }
+    }
+    return value;
+}
+
+bool is_feature_explicit_at(
+    const open_type_shape_run_options& options,
+    open_type_tag feature,
+    std::int32_t cluster) noexcept {
+    const bool explicit_tag = contains_feature(options.explicit_features, feature);
+    bool has_settings = false;
+    const std::uint32_t input_index = cluster < 0
+        ? 0U
+        : static_cast<std::uint32_t>(cluster);
+    for (const auto& setting : options.feature_settings) {
+        if (setting.tag != feature) {
+            continue;
+        }
+        has_settings = true;
+        if (setting.applies_to(input_index)) {
+            return true;
+        }
+    }
+    return explicit_tag && !has_settings;
+}
+
+bool is_global_feature(
+    open_type_tag script,
+    open_type_tag feature) noexcept {
+    constexpr auto rand = open_type_tag::from_chars('r', 'a', 'n', 'd');
+    constexpr std::array directional{
+        open_type_tag::from_chars('l', 't', 'r', 'a'),
+        open_type_tag::from_chars('l', 't', 'r', 'm'),
+        open_type_tag::from_chars('r', 't', 'l', 'a'),
+        open_type_tag::from_chars('r', 't', 'l', 'm'),
+        open_type_tag::from_chars('v', 'e', 'r', 't'),
+        open_type_tag::from_chars('v', 'r', 't', '2')};
+    constexpr std::array hangul{
+        open_type_tag::from_chars('l', 'j', 'm', 'o'),
+        open_type_tag::from_chars('v', 'j', 'm', 'o'),
+        open_type_tag::from_chars('t', 'j', 'm', 'o')};
+    return feature == rand || contains_feature(directional, feature) ||
+        (script == open_type_tag::from_chars('h', 'a', 'n', 'g') &&
+            contains_feature(hangul, feature));
+}
+
+struct lookup_feature_resolution final {
+    open_type_tag feature{};
+    bool found = false;
+    bool required = false;
+};
+
+bool try_resolve_lookup_feature(
+    const open_type_layout_table_view& layout,
+    const open_type_shape_run_options& options,
+    std::uint16_t lookup,
+    lookup_feature_resolution& result,
+    font_error* error) noexcept {
+    result = {};
+    if (!layout.try_required_feature_contains_lookup(
+            options.script,
+            options.language,
+            lookup,
+            result.required,
+            error)) {
+        return false;
+    }
+    if (result.required) {
+        return true;
+    }
+    for (const auto feature : options.requested_features) {
+        bool contains = false;
+        if (!layout.try_feature_contains_lookup(
+                options.script,
+                options.language,
+                feature,
+                lookup,
+                contains,
+                error)) {
+            return false;
+        }
+        if (!contains) {
+            continue;
+        }
+        if (!result.found || !is_global_feature(options.script, result.feature) ||
+            is_global_feature(options.script, feature)) {
+            result.feature = feature;
+            result.found = true;
+        }
+    }
+    return true;
 }
 
 bool is_decimal_digit(std::uint32_t code_point) noexcept {
@@ -271,6 +406,17 @@ enum class fraction_feature_kind : std::uint8_t {
     denominator
 };
 
+bool apply_fraction_lookup(
+    const open_type_layout_table_view& gsub,
+    std::span<const unicode_scalar> input,
+    const open_type_shape_run_options& options,
+    std::uint16_t lookup,
+    fraction_feature_kind kind,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    const open_type_gdef_view* gdef,
+    font_error* error) noexcept;
+
 bool try_get_fraction_feature_kind(
     const open_type_layout_table_view& gsub,
     const open_type_shape_run_options& options,
@@ -286,8 +432,7 @@ bool try_get_fraction_feature_kind(
         std::pair{open_type_tag::from_chars('d', 'n', 'o', 'm'),
             fraction_feature_kind::denominator}};
     for (const auto& [feature, kind] : features) {
-        if (!contains_feature(options.requested_features, feature) ||
-            contains_feature(options.explicit_features, feature)) {
+        if (!contains_feature(options.requested_features, feature)) {
             continue;
         }
         bool contains = false;
@@ -309,10 +454,22 @@ bool try_get_fraction_feature_kind(
 
 bool is_fraction_feature_enabled(
     std::span<const unicode_scalar> input,
+    const open_type_shape_run_options& options,
     std::int32_t cluster,
     fraction_feature_kind kind) noexcept {
     if (cluster < 0 || kind == fraction_feature_kind::none) {
         return false;
+    }
+    const open_type_tag feature = kind == fraction_feature_kind::fraction
+        ? open_type_tag::from_chars('f', 'r', 'a', 'c')
+        : (kind == fraction_feature_kind::numerator
+            ? open_type_tag::from_chars('n', 'u', 'm', 'r')
+            : open_type_tag::from_chars('d', 'n', 'o', 'm'));
+    if (get_feature_value(options, feature, cluster) == 0U) {
+        return false;
+    }
+    if (is_feature_explicit_at(options, feature, cluster)) {
+        return true;
     }
     for (std::size_t slash = 1U; slash + 1U < input.size(); ++slash) {
         if (input[slash].code_point != 0x2044U ||
@@ -362,36 +519,194 @@ bool apply_fraction_features(
         if (kind == fraction_feature_kind::none) {
             continue;
         }
-        std::uint32_t position = 0U;
-        while (position < glyph_count) {
-            if (!is_fraction_feature_enabled(
-                    input, glyph_storage[position].cluster, kind)) {
-                ++position;
-                continue;
+        if (!apply_fraction_lookup(
+                gsub,
+                input,
+                options,
+                lookup,
+                kind,
+                glyph_storage,
+                glyph_count,
+                gdef,
+                error)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool apply_fraction_lookup(
+    const open_type_layout_table_view& gsub,
+    std::span<const unicode_scalar> input,
+    const open_type_shape_run_options& options,
+    std::uint16_t lookup,
+    fraction_feature_kind kind,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    const open_type_gdef_view* gdef,
+    font_error* error) noexcept {
+    std::uint32_t position = 0U;
+    while (position < glyph_count) {
+        if (!is_fraction_feature_enabled(
+                input, options, glyph_storage[position].cluster, kind)) {
+            ++position;
+            continue;
+        }
+        const std::uint32_t count_before = glyph_count;
+        std::uint32_t context_match_end = 0U;
+        bool applied = false;
+        const open_type_tag feature = kind == fraction_feature_kind::fraction
+            ? open_type_tag::from_chars('f', 'r', 'a', 'c')
+            : (kind == fraction_feature_kind::numerator
+                ? open_type_tag::from_chars('n', 'u', 'm', 'r')
+                : open_type_tag::from_chars('d', 'n', 'o', 'm'));
+        if (!try_apply_open_type_gsub_lookup_at(
+                gsub,
+                lookup,
+                glyph_storage,
+                glyph_count,
+                position,
+                open_type_gsub_apply_options{
+                    gdef,
+                    get_feature_value(
+                        options, feature, glyph_storage[position].cluster),
+                    0U,
+                    false,
+                    &context_match_end},
+                applied,
+                error)) {
+            return false;
+        }
+        if (glyph_count > count_before) {
+            position += glyph_count - count_before;
+        }
+        position = std::max(position + 1U, context_match_end);
+    }
+    return true;
+}
+
+bool apply_gsub_lookup_with_feature_values(
+    const open_type_layout_table_view& gsub,
+    const open_type_shape_run_options& options,
+    std::uint16_t lookup,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    const open_type_gdef_view* gdef,
+    font_error* error) noexcept {
+    if (options.feature_settings.empty()) {
+        bool applied = false;
+        return try_apply_open_type_gsub_lookup(
+            gsub,
+            lookup,
+            glyph_storage,
+            glyph_count,
+            open_type_gsub_apply_options{
+                gdef, options.alternate_value},
+            applied,
+            error);
+    }
+    lookup_feature_resolution resolution{};
+    if (!try_resolve_lookup_feature(
+            gsub, options, lookup, resolution, error)) {
+        return false;
+    }
+    if (resolution.required || !resolution.found ||
+        !has_feature_settings(options, resolution.feature)) {
+        bool applied = false;
+        return try_apply_open_type_gsub_lookup(
+            gsub,
+            lookup,
+            glyph_storage,
+            glyph_count,
+            open_type_gsub_apply_options{
+                gdef, options.alternate_value},
+            applied,
+            error);
+    }
+
+    open_type_lookup_view lookup_view{};
+    if (!gsub.try_get_lookup(lookup, lookup_view, error)) {
+        return false;
+    }
+    const bool reverse = lookup_view.type == 8U;
+    std::uint32_t iteration = reverse ? glyph_count : 0U;
+    while (reverse ? iteration != 0U : iteration < glyph_count) {
+        const std::uint32_t position = reverse ? --iteration : iteration;
+        const std::uint32_t feature_value = get_feature_value(
+            options, resolution.feature, glyph_storage[position].cluster);
+        if (feature_value == 0U) {
+            if (!reverse) {
+                ++iteration;
             }
-            const std::uint32_t count_before = glyph_count;
-            std::uint32_t context_match_end = 0U;
-            bool applied = false;
-            if (!try_apply_open_type_gsub_lookup_at(
-                    gsub,
-                    lookup,
-                    glyph_storage,
-                    glyph_count,
-                    position,
-                    open_type_gsub_apply_options{
-                        gdef,
-                        options.alternate_value,
-                        0U,
-                        false,
-                        &context_match_end},
-                    applied,
-                    error)) {
-                return false;
-            }
+            continue;
+        }
+        const std::uint32_t count_before = glyph_count;
+        std::uint32_t context_match_end = 0U;
+        bool applied = false;
+        if (!try_apply_open_type_gsub_lookup_at(
+                gsub,
+                lookup,
+                glyph_storage,
+                glyph_count,
+                position,
+                open_type_gsub_apply_options{
+                    gdef,
+                    feature_value,
+                    0U,
+                    false,
+                    &context_match_end},
+                applied,
+                error)) {
+            return false;
+        }
+        if (!reverse) {
             if (glyph_count > count_before) {
-                position += glyph_count - count_before;
+                iteration += glyph_count - count_before;
             }
-            position = std::max(position + 1U, context_match_end);
+            iteration = std::max(iteration + 1U, context_match_end);
+        }
+    }
+    return true;
+}
+
+bool apply_gpos_lookup_with_feature_values(
+    const open_type_layout_table_view& gpos,
+    const open_type_shape_run_options& options,
+    std::uint16_t lookup,
+    std::span<shaping_glyph> glyphs,
+    const open_type_gpos_apply_options& apply_options,
+    font_error* error) noexcept {
+    if (options.feature_settings.empty()) {
+        bool applied = false;
+        return try_apply_open_type_gpos_lookup(
+            gpos, lookup, glyphs, apply_options, applied, error);
+    }
+    lookup_feature_resolution resolution{};
+    if (!try_resolve_lookup_feature(
+            gpos, options, lookup, resolution, error)) {
+        return false;
+    }
+    if (resolution.required || !resolution.found ||
+        !has_feature_settings(options, resolution.feature)) {
+        bool applied = false;
+        return try_apply_open_type_gpos_lookup(
+            gpos, lookup, glyphs, apply_options, applied, error);
+    }
+    for (std::uint32_t position = 0U; position < glyphs.size(); ++position) {
+        if (get_feature_value(
+                options, resolution.feature, glyphs[position].cluster) == 0U) {
+            continue;
+        }
+        bool applied = false;
+        if (!try_apply_open_type_gpos_lookup_at(
+                gpos,
+                lookup,
+                glyphs,
+                position,
+                apply_options,
+                applied,
+                error)) {
+            return false;
         }
     }
     return true;
@@ -428,16 +743,59 @@ bool apply_complex_feature(
             : required_private_mask << complex_detail::feature_shift,
         true};
     for (std::uint32_t index = 0U; index < lookup_count; ++index) {
-        bool applied = false;
-        if (!try_apply_open_type_gsub_lookup(
-                gsub,
-                lookup_scratch[index],
-                glyph_storage,
-                glyph_count,
-                apply_options,
-                applied,
-                error)) {
+        if (!has_feature_settings(run_options, feature)) {
+            bool applied = false;
+            if (!try_apply_open_type_gsub_lookup(
+                    gsub,
+                    lookup_scratch[index],
+                    glyph_storage,
+                    glyph_count,
+                    apply_options,
+                    applied,
+                    error)) {
+                return false;
+            }
+            continue;
+        }
+        open_type_lookup_view lookup{};
+        if (!gsub.try_get_lookup(lookup_scratch[index], lookup, error)) {
             return false;
+        }
+        const bool reverse = lookup.type == 8U;
+        std::uint32_t iteration = reverse ? glyph_count : 0U;
+        while (reverse ? iteration != 0U : iteration < glyph_count) {
+            const std::uint32_t position = reverse ? --iteration : iteration;
+            const std::uint32_t value = get_feature_value(
+                run_options, feature, glyph_storage[position].cluster);
+            if (value == 0U) {
+                if (!reverse) {
+                    ++iteration;
+                }
+                continue;
+            }
+            const std::uint32_t count_before = glyph_count;
+            std::uint32_t context_match_end = 0U;
+            bool applied = false;
+            auto targeted_options = apply_options;
+            targeted_options.alternate_value = value;
+            targeted_options.context_match_end = &context_match_end;
+            if (!try_apply_open_type_gsub_lookup_at(
+                    gsub,
+                    lookup_scratch[index],
+                    glyph_storage,
+                    glyph_count,
+                    position,
+                    targeted_options,
+                    applied,
+                    error)) {
+                return false;
+            }
+            if (!reverse) {
+                if (glyph_count > count_before) {
+                    iteration += glyph_count - count_before;
+                }
+                iteration = std::max(iteration + 1U, context_match_end);
+            }
         }
     }
     return true;
@@ -496,6 +854,7 @@ bool apply_complex_feature_group(
 bool apply_complex_script_features(
     const sfnt_font_view& font,
     const open_type_layout_table_view& gsub,
+    std::span<const unicode_scalar> input,
     const open_type_shape_run_options& options,
     std::span<std::uint16_t> lookup_scratch,
     std::span<shaping_glyph> glyph_storage,
@@ -541,11 +900,53 @@ bool apply_complex_script_features(
         open_type_tag::from_chars('c', 'c', 'm', 'p')};
     if (!apply_complex_feature_group(
             gsub, options, directional, lookup_scratch, glyph_storage,
-            glyph_count, gdef, error) ||
-        !apply_complex_feature_group(
-            gsub, options, preprocessing, lookup_scratch, glyph_storage,
             glyph_count, gdef, error)) {
         return false;
+    }
+    for (std::uint16_t lookup = 0U; lookup < gsub.lookup_count(); ++lookup) {
+        lookup_feature_resolution resolution{};
+        if (!try_resolve_lookup_feature(
+                gsub, options, lookup, resolution, error)) {
+            return false;
+        }
+        if (resolution.required || !resolution.found ||
+            !contains_feature(preprocessing, resolution.feature)) {
+            continue;
+        }
+        fraction_feature_kind fraction_kind = fraction_feature_kind::none;
+        if (resolution.feature ==
+            open_type_tag::from_chars('f', 'r', 'a', 'c')) {
+            fraction_kind = fraction_feature_kind::fraction;
+        } else if (resolution.feature ==
+            open_type_tag::from_chars('n', 'u', 'm', 'r')) {
+            fraction_kind = fraction_feature_kind::numerator;
+        } else if (resolution.feature ==
+            open_type_tag::from_chars('d', 'n', 'o', 'm')) {
+            fraction_kind = fraction_feature_kind::denominator;
+        }
+        if (fraction_kind != fraction_feature_kind::none) {
+            if (!apply_fraction_lookup(
+                    gsub,
+                    input,
+                    options,
+                    lookup,
+                    fraction_kind,
+                    glyph_storage,
+                    glyph_count,
+                    gdef,
+                    error)) {
+                return false;
+            }
+        } else if (!apply_gsub_lookup_with_feature_values(
+                gsub,
+                options,
+                lookup,
+                glyph_storage,
+                glyph_count,
+                gdef,
+                error)) {
+            return false;
+        }
     }
 
     constexpr std::array khmer_basic{
@@ -659,7 +1060,7 @@ bool apply_complex_script_features(
     }
 
     for (const auto feature : options.requested_features) {
-        if (contains_feature(directional, feature) ||
+            if (contains_feature(directional, feature) ||
             contains_feature(preprocessing, feature) ||
             contains_feature(khmer_basic, feature) ||
             contains_feature(myanmar_basic, feature) ||
@@ -778,6 +1179,13 @@ bool try_shape_open_type_run(
     const open_type_shape_plan* plan) noexcept {
     glyph_count = 0U;
     complex_metadata_guard complex_guard{glyph_storage, &glyph_count, false};
+    for (const auto& feature : options.feature_settings) {
+        if (feature.start > feature.end ||
+            !contains_feature(options.requested_features, feature.tag)) {
+            set_error(error, font_error::invalid_argument);
+            return false;
+        }
+    }
     if (plan != nullptr && !plan->matches(font, options)) {
         set_error(error, font_error::invalid_argument);
         return false;
@@ -994,6 +1402,7 @@ bool try_shape_open_type_run(
             if (!apply_complex_script_features(
                     font,
                     gsub,
+                    input,
                     options,
                     scratch.gsub_lookups.first(gsub.lookup_count()),
                     glyph_storage,
@@ -1032,15 +1441,13 @@ bool try_shape_open_type_run(
                 selected_lookups = scratch.gsub_lookups.first(lookup_count);
             }
             for (std::uint32_t index = 0U; index < lookup_count; ++index) {
-                bool applied = false;
-                if (!try_apply_open_type_gsub_lookup(
+                if (!apply_gsub_lookup_with_feature_values(
                         gsub,
+                        options,
                         selected_lookups[index],
                         glyph_storage,
                         glyph_count,
-                        open_type_gsub_apply_options{
-                            gdef_pointer, options.alternate_value},
-                        applied,
+                        gdef_pointer,
                         error)) {
                     return false;
                 }
@@ -1084,6 +1491,7 @@ bool try_shape_open_type_run(
                         scratch.gsub_lookups.first(gsub.lookup_count()),
                         glyph_storage,
                         glyph_count,
+                        options,
                         apply_options,
                         error)) {
                     clear_arabic_actions(glyph_storage.first(glyph_count));
@@ -1111,6 +1519,7 @@ bool try_shape_open_type_run(
                         scratch.gsub_lookups.first(gsub.lookup_count()),
                         glyph_storage,
                         glyph_count,
+                        options,
                         apply_options,
                         error)) {
                     clear_hangul_features(glyph_storage.first(glyph_count));
@@ -1237,19 +1646,19 @@ bool try_shape_open_type_run(
         }
         const auto glyphs = glyph_storage.first(glyph_count);
         const auto attachments = scratch.attachments.first(glyph_count);
+        const open_type_gpos_apply_options apply_options{
+            gdef_pointer,
+            options.direction,
+            attachments,
+            &font,
+            options.normalized_coordinates};
         for (std::uint32_t index = 0U; index < lookup_count; ++index) {
-            bool applied = false;
-            if (!try_apply_open_type_gpos_lookup(
+            if (!apply_gpos_lookup_with_feature_values(
                     gpos,
+                    options,
                     selected_lookups[index],
                     glyphs,
-                    open_type_gpos_apply_options{
-                        gdef_pointer,
-                        options.direction,
-                        attachments,
-                        &font,
-                        options.normalized_coordinates},
-                    applied,
+                    apply_options,
                     error)) {
                 return false;
             }

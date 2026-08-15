@@ -6018,6 +6018,47 @@ void production_inter_shaping_is_stable_and_reusable() {
     }
     require(contextual_hash == 17720644002999414799ULL);
 
+    constexpr auto liga = open_type_tag::from_chars('l', 'i', 'g', 'a');
+    constexpr auto kern = open_type_tag::from_chars('k', 'e', 'r', 'n');
+    constexpr std::array ranged_explicit{liga, kern};
+    constexpr std::array ranged_settings{
+        shaping_feature{liga, 1U, 0U, 0xFFFFFFFFU},
+        shaping_feature{liga, 0U, 0U, 6U},
+        shaping_feature{kern, 1U, 0U, 0xFFFFFFFFU},
+        shaping_feature{kern, 0U, 7U, 9U}};
+    auto ranged_options = options;
+    ranged_options.explicit_features = ranged_explicit;
+    ranged_options.feature_settings = ranged_settings;
+    std::uint32_t ranged_count = 0U;
+    require(try_shape_open_type_run(
+        font,
+        contextual_input,
+        ranged_options,
+        glyphs,
+        contextual_scratch,
+        ranged_count,
+        &error,
+        &plan));
+    std::uint64_t ranged_hash = 1469598103934665603ULL;
+    const auto ranged_mix = [&ranged_hash](std::uint32_t value) {
+        for (std::uint32_t shift = 0U; shift < 32U; shift += 8U) {
+            ranged_hash ^= (value >> shift) & 0xFFU;
+            ranged_hash *= 1099511628211ULL;
+        }
+    };
+    ranged_mix(ranged_count);
+    for (std::uint32_t index = 0U; index < ranged_count; ++index) {
+        const auto& glyph = glyphs[index];
+        ranged_mix(glyph.glyph_id);
+        ranged_mix(static_cast<std::uint32_t>(glyph.cluster));
+        ranged_mix(static_cast<std::uint32_t>(glyph.advance_x));
+        ranged_mix(static_cast<std::uint32_t>(glyph.advance_y));
+        ranged_mix(static_cast<std::uint32_t>(glyph.offset_x));
+        ranged_mix(static_cast<std::uint32_t>(glyph.offset_y));
+        ranged_mix(static_cast<std::uint32_t>(glyph.flags));
+    }
+    require(ranged_hash == 14240206642389312925ULL);
+
     constexpr std::array fraction_input{
         unicode_scalar{0x31U, 0U, 1U},
         unicode_scalar{0x2044U, 1U, 1U},

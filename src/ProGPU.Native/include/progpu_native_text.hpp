@@ -617,6 +617,13 @@ public:
         bool& contains,
         font_error* error = nullptr) const noexcept;
 
+    bool try_required_feature_contains_lookup(
+        open_type_tag script,
+        open_type_tag language,
+        std::uint16_t lookup,
+        bool& contains,
+        font_error* error = nullptr) const noexcept;
+
 private:
     std::span<const std::byte> table_{};
     std::size_t script_list_offset_ = 0U;
@@ -755,6 +762,15 @@ bool try_apply_open_type_gpos_lookup(
     bool& applied,
     font_error* error = nullptr) noexcept;
 
+bool try_apply_open_type_gpos_lookup_at(
+    const open_type_layout_table_view& gpos,
+    std::uint16_t lookup_index,
+    std::span<shaping_glyph> glyphs,
+    std::uint32_t position,
+    const open_type_gpos_apply_options& options,
+    bool& applied,
+    font_error* error = nullptr) noexcept;
+
 bool try_resolve_open_type_attachments(
     std::span<shaping_glyph> glyphs,
     std::span<const shaping_attachment> attachments,
@@ -787,6 +803,12 @@ struct open_type_shape_run_options final {
      * shaper defaults. Conditional defaults such as numr/dnom remain dormant
      * outside their script context unless listed here. */
     std::span<const open_type_tag> explicit_features{};
+    /* Exact ProGPU half-open feature-value ranges. The records are borrowed
+     * for the run and cross the managed/native boundary as one fixed-layout
+     * span; requested_features must contain every referenced tag. When a tag
+     * has any records, this span is its resolved value sequence and therefore
+     * includes an all-input baseline record before narrower overrides. */
+    std::span<const shaping_feature> feature_settings{};
 };
 
 struct open_type_shape_run_scratch final {

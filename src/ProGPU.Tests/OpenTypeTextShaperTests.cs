@@ -423,6 +423,33 @@ public sealed class OpenTypeTextShaperTests
         }
         Assert.Equal(17720644002999414799UL, contextualHash);
 
+        using var ranged = new ShapingBuffer(64);
+        CpuOpenTypeShaper.Instance.Shape(
+            "office AV",
+            new TtfShapingFontFace(InterFontFamily.GetFont(500)),
+            new ShapingRequest(
+                ShapingDirection.LeftToRight,
+                new OpenTypeTag("latn"),
+                features: new ShapingFeature[]
+                {
+                    new ShapingFeature(new OpenTypeTag("liga"), 0, 0, 6),
+                    new ShapingFeature(new OpenTypeTag("kern"), 0, 7, 9)
+                }),
+            ranged);
+        ulong rangedHash = 1469598103934665603UL;
+        Mix(ref rangedHash, (uint)ranged.Count);
+        foreach (ref readonly ShapingGlyph glyph in ranged.Glyphs)
+        {
+            Mix(ref rangedHash, glyph.GlyphId);
+            Mix(ref rangedHash, unchecked((uint)glyph.Cluster));
+            Mix(ref rangedHash, unchecked((uint)glyph.AdvanceX));
+            Mix(ref rangedHash, unchecked((uint)glyph.AdvanceY));
+            Mix(ref rangedHash, unchecked((uint)glyph.OffsetX));
+            Mix(ref rangedHash, unchecked((uint)glyph.OffsetY));
+            Mix(ref rangedHash, (uint)glyph.Flags);
+        }
+        Assert.Equal(14240206642389312925UL, rangedHash);
+
         using var fraction = new ShapingBuffer(64);
         OpenTypeTextShaper.ShapeDesignUnits(
             "1\u20442",
