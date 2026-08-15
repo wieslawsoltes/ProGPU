@@ -103,6 +103,7 @@ bool select_layout_lookups(
     open_type_tag script,
     open_type_tag language,
     std::span<const open_type_tag> requested_features,
+    std::span<const open_type_tag> excluded_features,
     std::span<std::uint16_t> output,
     bool include_required,
     bool write,
@@ -224,6 +225,7 @@ bool select_layout_lookups(
         const std::size_t record = feature_list + 2U + feature_index * 6U;
         const open_type_tag tag{read_u32(table, record)};
         if (contains_tag(requested_features, tag) &&
+            !contains_tag(excluded_features, tag) &&
             !append_feature(feature_index)) {
             return false;
         }
@@ -249,6 +251,7 @@ bool open_type_layout_table_view::try_get_lookup_selection_requirements(
             script,
             language,
             requested_features,
+            {},
             {},
             true,
             false,
@@ -288,6 +291,7 @@ bool open_type_layout_table_view::try_select_lookups(
             script,
             language,
             requested_features,
+            {},
             output,
             true,
             true,
@@ -296,6 +300,48 @@ bool open_type_layout_table_view::try_select_lookups(
         return false;
     }
     written = selected.written;
+    std::sort(output.begin(), output.begin() + written);
+    set_error(error, font_error::none);
+    return true;
+}
+
+bool open_type_layout_table_view::try_select_lookups_excluding(
+    open_type_tag script,
+    open_type_tag language,
+    std::span<const open_type_tag> requested_features,
+    std::span<const open_type_tag> excluded_features,
+    std::span<std::uint16_t> output,
+    std::uint32_t& written,
+    font_error* error) const noexcept {
+    written = 0U;
+    lookup_selection_requirements requirements{};
+    if (!try_get_lookup_selection_requirements(
+            script, language, requested_features, requirements, error)) {
+        return false;
+    }
+    if (output.size() < requirements.lookup_capacity) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
+    }
+    selection_result selected{};
+    if (!select_layout_lookups(
+            table_,
+            script_list_offset_,
+            feature_list_offset_,
+            lookup_count_,
+            script,
+            language,
+            requested_features,
+            excluded_features,
+            output,
+            true,
+            true,
+            selected)) {
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    written = selected.written;
+    std::sort(output.begin(), output.begin() + written);
     set_error(error, font_error::none);
     return true;
 }
@@ -322,6 +368,7 @@ bool open_type_layout_table_view::try_select_feature_lookups(
             script,
             language,
             requested,
+            {},
             output,
             false,
             true,

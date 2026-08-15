@@ -1037,8 +1037,8 @@ void open_type_gsub_context_format3_applies_bounded_nested_lookups() {
         gsub, 0U, glyphs, count, {}, applied, &error));
     require(applied && count == 2U && glyphs[0U].glyph_id == 5U &&
         glyphs[1U].glyph_id == 12U &&
-        (static_cast<std::uint32_t>(glyphs[0U].flags) & 1U) != 0U &&
-        (static_cast<std::uint32_t>(glyphs[1U].flags) & 1U) != 0U);
+        (static_cast<std::uint32_t>(glyphs[0U].flags) & 3U) == 0U &&
+        (static_cast<std::uint32_t>(glyphs[1U].flags) & 3U) == 1U);
 
     std::array<std::byte, 86U> chaining{};
     write_u16(chaining, 0U, 1U);
@@ -5967,6 +5967,56 @@ void production_inter_shaping_is_stable_and_reusable() {
         }
     }
     require(stable_hash == 13341559627338683649ULL);
+
+    constexpr std::array contextual_input{
+        unicode_scalar{0x6FU, 0U, 1U},
+        unicode_scalar{0x66U, 1U, 1U},
+        unicode_scalar{0x66U, 2U, 1U},
+        unicode_scalar{0x69U, 3U, 1U},
+        unicode_scalar{0x63U, 4U, 1U},
+        unicode_scalar{0x65U, 5U, 1U},
+        unicode_scalar{0x20U, 6U, 1U},
+        unicode_scalar{0x41U, 7U, 1U},
+        unicode_scalar{0x56U, 8U, 1U}};
+    const open_type_shape_run_scratch contextual_scratch{
+        graphemes,
+        gsub,
+        gpos,
+        attachments,
+        states,
+        arabic_actions,
+        categories,
+        syllables,
+        indices};
+    std::uint32_t contextual_count = 0U;
+    require(try_shape_open_type_run(
+        font,
+        contextual_input,
+        options,
+        glyphs,
+        contextual_scratch,
+        contextual_count,
+        &error,
+        &plan));
+    std::uint64_t contextual_hash = 1469598103934665603ULL;
+    const auto contextual_mix = [&contextual_hash](std::uint32_t value) {
+        for (std::uint32_t shift = 0U; shift < 32U; shift += 8U) {
+            contextual_hash ^= (value >> shift) & 0xFFU;
+            contextual_hash *= 1099511628211ULL;
+        }
+    };
+    contextual_mix(contextual_count);
+    for (std::uint32_t index = 0U; index < contextual_count; ++index) {
+        const auto& glyph = glyphs[index];
+        contextual_mix(glyph.glyph_id);
+        contextual_mix(static_cast<std::uint32_t>(glyph.cluster));
+        contextual_mix(static_cast<std::uint32_t>(glyph.advance_x));
+        contextual_mix(static_cast<std::uint32_t>(glyph.advance_y));
+        contextual_mix(static_cast<std::uint32_t>(glyph.offset_x));
+        contextual_mix(static_cast<std::uint32_t>(glyph.offset_y));
+        contextual_mix(static_cast<std::uint32_t>(glyph.flags));
+    }
+    require(contextual_hash == 17720644002999414799ULL);
 }
 
 } // namespace

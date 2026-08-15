@@ -231,6 +231,43 @@ bool contains_feature(
         features.end();
 }
 
+bool is_decimal_digit(std::uint32_t code_point) noexcept {
+    return get_unicode_line_break_class(code_point) ==
+        unicode_line_break_class::numeric;
+}
+
+bool has_fraction_actions(std::span<const unicode_scalar> input) noexcept {
+    for (std::size_t slash = 1U; slash + 1U < input.size(); ++slash) {
+        if (input[slash].code_point != 0x2044U ||
+            !is_decimal_digit(input[slash - 1U].code_point) ||
+            !is_decimal_digit(input[slash + 1U].code_point)) {
+            continue;
+        }
+        return true;
+    }
+    return false;
+}
+
+std::span<const open_type_tag> inactive_fraction_features(
+    const open_type_shape_run_options& options,
+    bool has_fraction,
+    std::array<open_type_tag, 3U>& storage) noexcept {
+    if (has_fraction) {
+        return {};
+    }
+    constexpr std::array conditional{
+        open_type_tag::from_chars('f', 'r', 'a', 'c'),
+        open_type_tag::from_chars('n', 'u', 'm', 'r'),
+        open_type_tag::from_chars('d', 'n', 'o', 'm')};
+    std::size_t count = 0U;
+    for (const auto feature : conditional) {
+        if (!contains_feature(options.explicit_features, feature)) {
+            storage[count++] = feature;
+        }
+    }
+    return std::span<const open_type_tag>{storage}.first(count);
+}
+
 bool apply_complex_feature(
     const open_type_layout_table_view& gsub,
     const open_type_shape_run_options& run_options,
@@ -818,6 +855,11 @@ bool try_shape_open_type_run(
         }
     }
     const open_type_gdef_view* gdef_pointer = has_gdef ? &gdef : nullptr;
+    std::array<open_type_tag, 3U> excluded_fraction_storage{};
+    const auto excluded_fraction = inactive_fraction_features(
+        options,
+        has_fraction_actions(input),
+        excluded_fraction_storage);
 
     if (gsub.lookup_count() != 0U) {
         if (complex_script) {
@@ -835,18 +877,28 @@ bool try_shape_open_type_run(
         } else {
             std::uint32_t lookup_count = 0U;
             std::span<const std::uint16_t> selected_lookups{};
-            if (plan != nullptr) {
+            if (plan != nullptr && excluded_fraction.empty()) {
                 selected_lookups = plan->gsub_lookups;
                 lookup_count = static_cast<std::uint32_t>(
                     selected_lookups.size());
             } else {
-                if (!gsub.try_select_lookups(
+                const bool selected = excluded_fraction.empty()
+                    ? gsub.try_select_lookups(
                         options.script,
                         options.language,
                         options.requested_features,
                         scratch.gsub_lookups.first(gsub.lookup_count()),
                         lookup_count,
-                        error)) {
+                        error)
+                    : gsub.try_select_lookups_excluding(
+                        options.script,
+                        options.language,
+                        options.requested_features,
+                        excluded_fraction,
+                        scratch.gsub_lookups.first(gsub.lookup_count()),
+                        lookup_count,
+                        error);
+                if (!selected) {
                     return false;
                 }
                 selected_lookups = scratch.gsub_lookups.first(lookup_count);
@@ -1019,18 +1071,28 @@ bool try_shape_open_type_run(
     if (gpos.lookup_count() != 0U) {
         std::uint32_t lookup_count = 0U;
         std::span<const std::uint16_t> selected_lookups{};
-        if (plan != nullptr) {
+        if (plan != nullptr && excluded_fraction.empty()) {
             selected_lookups = plan->gpos_lookups;
             lookup_count = static_cast<std::uint32_t>(
                 selected_lookups.size());
         } else {
-            if (!gpos.try_select_lookups(
+            const bool selected = excluded_fraction.empty()
+                ? gpos.try_select_lookups(
                     options.script,
                     options.language,
                     options.requested_features,
                     scratch.gpos_lookups.first(gpos.lookup_count()),
                     lookup_count,
-                    error)) {
+                    error)
+                : gpos.try_select_lookups_excluding(
+                    options.script,
+                    options.language,
+                    options.requested_features,
+                    excluded_fraction,
+                    scratch.gpos_lookups.first(gpos.lookup_count()),
+                    lookup_count,
+                    error);
+            if (!selected) {
                 return false;
             }
             selected_lookups = scratch.gpos_lookups.first(lookup_count);

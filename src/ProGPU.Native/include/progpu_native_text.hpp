@@ -589,6 +589,15 @@ public:
         std::uint32_t& written,
         font_error* error = nullptr) const noexcept;
 
+    bool try_select_lookups_excluding(
+        open_type_tag script,
+        open_type_tag language,
+        std::span<const open_type_tag> requested_features,
+        std::span<const open_type_tag> excluded_features,
+        std::span<std::uint16_t> output,
+        std::uint32_t& written,
+        font_error* error = nullptr) const noexcept;
+
     /* Selects only one allowed LangSys feature, excluding the required
      * feature. This supports staged script shapers such as Arabic forms while
      * retaining the same caller-owned lookup buffer. */
@@ -662,6 +671,10 @@ struct open_type_gsub_apply_options final {
      * starting glyph. Zero preserves ordinary GSUB behavior. */
     std::uint32_t required_glyph_flags = 0U;
     bool mark_substituted = false;
+    /* Optional top-level contextual match boundary. Context and chaining
+     * lookups write the exclusive input end so a caller can avoid feeding a
+     * matched input sequence back through the same lookup. */
+    std::uint32_t* context_match_end = nullptr;
 };
 
 /*
@@ -762,6 +775,10 @@ struct open_type_shape_run_options final {
     shaping_buffer_flags buffer_flags = shaping_buffer_flags::none;
     bool compose_hebrew_presentation_forms = true;
     open_type_complex_script complex_script = open_type_complex_script::none;
+    /* Feature tags explicitly requested by the caller, as distinct from
+     * shaper defaults. Conditional defaults such as numr/dnom remain dormant
+     * outside their script context unless listed here. */
+    std::span<const open_type_tag> explicit_features{};
 };
 
 struct open_type_shape_run_scratch final {

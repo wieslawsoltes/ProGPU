@@ -402,6 +402,26 @@ public sealed class OpenTypeTextShaperTests
         }
 
         Assert.Equal(13341559627338683649UL, hash);
+
+        using var contextual = new ShapingBuffer(64);
+        OpenTypeTextShaper.ShapeDesignUnits(
+            "office AV",
+            InterFontFamily.GetFont(500),
+            TextShapingOptions.Default,
+            contextual);
+        ulong contextualHash = 1469598103934665603UL;
+        Mix(ref contextualHash, (uint)contextual.Count);
+        foreach (ref readonly ShapingGlyph glyph in contextual.Glyphs)
+        {
+            Mix(ref contextualHash, glyph.GlyphId);
+            Mix(ref contextualHash, unchecked((uint)glyph.Cluster));
+            Mix(ref contextualHash, unchecked((uint)glyph.AdvanceX));
+            Mix(ref contextualHash, unchecked((uint)glyph.AdvanceY));
+            Mix(ref contextualHash, unchecked((uint)glyph.OffsetX));
+            Mix(ref contextualHash, unchecked((uint)glyph.OffsetY));
+            Mix(ref contextualHash, (uint)glyph.Flags);
+        }
+        Assert.Equal(17720644002999414799UL, contextualHash);
     }
 
     [Fact]

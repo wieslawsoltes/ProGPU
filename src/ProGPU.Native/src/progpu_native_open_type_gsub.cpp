@@ -46,6 +46,38 @@ bool try_add(
     return true;
 }
 
+void mark_gsub_dependency(
+    std::span<shaping_glyph> glyphs,
+    std::uint32_t first,
+    std::uint32_t last) noexcept {
+    if (first >= glyphs.size() || last >= glyphs.size() || first >= last) {
+        return;
+    }
+    std::int32_t minimum_cluster = glyphs[first].cluster;
+    for (std::uint32_t index = first + 1U; index <= last; ++index) {
+        minimum_cluster = std::min(minimum_cluster, glyphs[index].cluster);
+    }
+    constexpr auto dependency_flags =
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break) |
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_concat);
+    for (std::uint32_t index = first; index <= last; ++index) {
+        if (glyphs[index].cluster != minimum_cluster) {
+            glyphs[index].flags = static_cast<shaping_glyph_flags>(
+                static_cast<std::uint32_t>(glyphs[index].flags) |
+                dependency_flags);
+        }
+    }
+}
+
+void record_context_match(
+    const open_type_gsub_apply_options& options,
+    std::uint32_t exclusive_end) noexcept {
+    if (options.context_match_end != nullptr &&
+        exclusive_end > *options.context_match_end) {
+        *options.context_match_end = exclusive_end;
+    }
+}
+
 std::uint16_t read_u16(
     std::span<const std::byte> bytes,
     std::size_t offset) noexcept {
@@ -378,11 +410,8 @@ apply_result apply_context_format3(
             return apply_result::no_match;
         }
     }
-    for (std::uint32_t index = position; index <= match; ++index) {
-        storage[index].flags = static_cast<shaping_glyph_flags>(
-            static_cast<std::uint32_t>(storage[index].flags) |
-            static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break));
-    }
+    mark_gsub_dependency(storage, position, match);
+    record_context_match(options, match + 1U);
     return apply_context_records(
         gsub,
         table,
@@ -513,12 +542,8 @@ apply_result apply_context_format1_or2(
         if (!matches) {
             continue;
         }
-        for (std::uint32_t index = position; index <= match; ++index) {
-            storage[index].flags = static_cast<shaping_glyph_flags>(
-                static_cast<std::uint32_t>(storage[index].flags) |
-                static_cast<std::uint32_t>(
-                    shaping_glyph_flags::unsafe_to_break));
-        }
+        mark_gsub_dependency(storage, position, match);
+        record_context_match(options, match + 1U);
         return apply_context_records(
             gsub,
             table,
@@ -663,11 +688,8 @@ apply_result apply_chain_context_format3(
             return apply_result::no_match;
         }
     }
-    for (std::uint32_t index = position; index <= input_end; ++index) {
-        storage[index].flags = static_cast<shaping_glyph_flags>(
-            static_cast<std::uint32_t>(storage[index].flags) |
-            static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break));
-    }
+    mark_gsub_dependency(storage, position, input_end);
+    record_context_match(options, input_end + 1U);
     return apply_context_records(
         gsub,
         table,
@@ -895,12 +917,8 @@ apply_result apply_chain_context_format1_or2(
         if (!matches) {
             continue;
         }
-        for (std::uint32_t index = position; index <= input_end; ++index) {
-            storage[index].flags = static_cast<shaping_glyph_flags>(
-                static_cast<std::uint32_t>(storage[index].flags) |
-                static_cast<std::uint32_t>(
-                    shaping_glyph_flags::unsafe_to_break));
-        }
+        mark_gsub_dependency(storage, position, input_end);
+        record_context_match(options, input_end + 1U);
         return apply_context_records(
             gsub,
             table,
@@ -1333,6 +1351,9 @@ bool try_apply_open_type_gsub_lookup(
                 options.gdef)) {
             continue;
         }
+        std::uint32_t context_match_end = 0U;
+        open_type_gsub_apply_options effective_options = options;
+        effective_options.context_match_end = &context_match_end;
         const std::uint32_t count_before = glyph_count;
         for (std::uint16_t subtable_index = 0U;
              subtable_index < lookup.subtable_count;
@@ -1351,7 +1372,7 @@ bool try_apply_open_type_gsub_lookup(
                 position,
                 lookup.flags,
                 lookup.mark_filtering_set,
-                options,
+                effective_options,
                 0U);
             if (result == apply_result::malformed) {
                 set_error(error, font_error::invalid_face);
@@ -1372,6 +1393,13 @@ bool try_apply_open_type_gsub_lookup(
                 }
                 if (glyph_count > count_before) {
                     iteration += glyph_count - count_before;
+                }
+                if (!reverse && context_match_end > iteration) {
+                    iteration = context_match_end;
+                }
+                if (options.context_match_end != nullptr &&
+                    context_match_end > *options.context_match_end) {
+                    *options.context_match_end = context_match_end;
                 }
                 break;
             }
