@@ -476,6 +476,8 @@ add_library(progpu_native_text STATIC
     src/progpu_native_unicode_normalization.cpp
     src/progpu_native_open_type_layout.cpp
     src/progpu_native_open_type_features.cpp
+    src/progpu_native_open_type_feature_values.cpp
+    src/progpu_native_open_type_feature_values_internal.hpp
     src/progpu_native_open_type_gdef.cpp
     src/progpu_native_open_type_gsub.cpp
     src/progpu_native_open_type_gpos.cpp
