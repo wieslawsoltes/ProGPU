@@ -686,7 +686,7 @@ inline bool is_valid_geometry_primitive(
         PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE |
         PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK |
         PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK;
-    if (primitive.kind > PROGPU_NATIVE_GEOMETRY_DOT_GRID ||
+    if (primitive.kind > PROGPU_NATIVE_GEOMETRY_PATH_JOIN ||
         !is_finite(primitive.p0) || !is_finite(primitive.p1) ||
         !is_finite(primitive.p2) || !is_finite(primitive.p3) ||
         !std::isfinite(primitive.stroke_thickness) ||
@@ -709,6 +709,39 @@ inline bool is_valid_geometry_primitive(
     }
     if ((primitive.flags & ~all_line_flags) != 0U) {
         return false;
+    }
+    if (primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC &&
+        (std::abs(primitive.p1.x * primitive.p2.y -
+                primitive.p1.y * primitive.p2.x) <= 0.000001F ||
+            std::abs(primitive.p3.y) <= 0.000001F ||
+            std::abs(primitive.p3.y) >
+                std::numbers::pi_v<float> * 2.0F + 0.001F ||
+            (primitive.flags & (
+                PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK |
+                PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK)) != 0U)) {
+        return false;
+    }
+    if (primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP) {
+        const std::uint32_t cap =
+            (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
+                PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+        if (cap == PROGPU_NATIVE_STROKE_CAP_FLAT ||
+            (primitive.flags & PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK) != 0U ||
+            (primitive.p2.x != 0.0F && primitive.p2.x != 1.0F) ||
+            primitive.p2.y != 0.0F || primitive.p3.x != 0.0F ||
+            primitive.p3.y != 0.0F) {
+            return false;
+        }
+    }
+    if (primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_JOIN) {
+        const std::uint32_t join =
+            (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
+                PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+        if (join > PROGPU_NATIVE_STROKE_JOIN_ROUND ||
+            (primitive.flags & PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK) != 0U ||
+            !(primitive.p3.x >= 1.0F) || primitive.p3.y != 0.0F) {
+            return false;
+        }
     }
     const bool hairline = (primitive.flags &
         PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE) != 0U;
@@ -744,6 +777,30 @@ inline bool geometry_primitive_capacity(
         index_count = 3U;
         return true;
     }
+    if (primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP ||
+        primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_JOIN) {
+        vertex_count = 32U;
+        index_count = 48U;
+        return true;
+    }
+    if (primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC) {
+        const bool affine =
+            (primitive.flags & (
+                PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE |
+                PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE)) == 0U &&
+            requires_affine_stroke_geometry(primitive.transform);
+        const std::size_t sections = affine
+            ? std::clamp(
+                static_cast<std::size_t>(std::ceil(
+                    std::abs(primitive.p3.y) /
+                    (std::numbers::pi_v<float> / 24.0F))),
+                std::size_t{1U},
+                std::size_t{48U})
+            : 1U;
+        vertex_count = sections * 4U;
+        index_count = sections * 6U;
+        return true;
+    }
     if (primitive.kind == PROGPU_NATIVE_GEOMETRY_QUADRILATERAL ||
         primitive.kind == PROGPU_NATIVE_GEOMETRY_DOT_GRID ||
         primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE) {
@@ -766,6 +823,31 @@ inline bool geometry_primitive_capacity(
     index_count = segments * 6U + cap_count * 48U;
     return true;
 }
+
+inline bool append_cpu_join(
+    std::uint32_t join,
+    float thickness,
+    float miter_limit,
+    const progpu_native_point& join_point,
+    const progpu_native_point& incoming,
+    const progpu_native_point& outgoing,
+    const progpu_native_affine_2d* outline_transform,
+    float brush_index,
+    bool aliased,
+    std::vector<vector_vertex>& vertices,
+    std::vector<std::uint32_t>& indices);
+
+inline void append_device_join(
+    std::uint32_t join,
+    float miter_limit,
+    const progpu_native_point& join_point,
+    const progpu_native_point& incoming,
+    const progpu_native_point& outgoing,
+    float encoded_thickness,
+    float brush_index,
+    bool aliased,
+    std::vector<vector_vertex>& vertices,
+    std::vector<std::uint32_t>& indices);
 
 inline bool append_geometry_primitive(
     const progpu_native_geometry_primitive& primitive,
@@ -796,17 +878,14 @@ inline bool append_geometry_primitive(
             ? affine_quadratic_segment_count(primitive)
             : affine_cubic_segment_count(primitive)
         : direct_curve_segment_count;
-    const std::size_t cap_count =
-        ((primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) != 0U
-            ? 1U : 0U) +
-        ((primitive.flags & PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK) != 0U
-            ? 1U : 0U);
-    const std::size_t maximum_vertices_to_add = (is_curve
-        ? uses_affine_curve ? curve_segments * 4U : 2U * (curve_segments + 1U)
-        : 4U) + cap_count * 32U;
-    const std::size_t maximum_indices_to_add = (is_curve
-        ? curve_segments * 6U
-        : 6U) + cap_count * 48U;
+    std::size_t maximum_vertices_to_add = 0U;
+    std::size_t maximum_indices_to_add = 0U;
+    if (!geometry_primitive_capacity(
+            primitive,
+            maximum_vertices_to_add,
+            maximum_indices_to_add)) {
+        return false;
+    }
     if (vertices.size() >
             std::numeric_limits<std::uint32_t>::max() - maximum_vertices_to_add ||
         vertices.size() >
@@ -934,6 +1013,222 @@ inline bool append_geometry_primitive(
 
     const bool affine_stroke_geometry = !hairline && !fixed_device &&
         requires_affine_stroke_geometry(primitive.transform);
+
+    if (primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP) {
+        const std::uint32_t cap =
+            (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
+                PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+        const bool is_start = primitive.p2.x == 1.0F;
+        if (hairline || fixed_device) {
+            append_device_cap(
+                cap,
+                transformed_point(primitive.transform, primitive.p0),
+                transformed_direction(primitive.transform, primitive.p1),
+                is_start,
+                encoded_thickness,
+                brush_index,
+                aliased,
+                vertices,
+                indices);
+            return true;
+        }
+        return append_cpu_cap(
+            cap,
+            affine_stroke_geometry
+                ? primitive.stroke_thickness
+                : primitive.stroke_thickness * maximum_scale,
+            affine_stroke_geometry
+                ? primitive.p0
+                : transformed_point(primitive.transform, primitive.p0),
+            affine_stroke_geometry
+                ? primitive.p1
+                : transformed_direction(primitive.transform, primitive.p1),
+            is_start,
+            affine_stroke_geometry ? &primitive.transform : nullptr,
+            brush_index,
+            aliased,
+            vertices,
+            indices);
+    }
+
+    if (primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_JOIN) {
+        const std::uint32_t join =
+            (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
+                PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+        if (hairline || fixed_device) {
+            append_device_join(
+                join,
+                primitive.p3.x,
+                transformed_point(primitive.transform, primitive.p0),
+                transformed_direction(primitive.transform, primitive.p1),
+                transformed_direction(primitive.transform, primitive.p2),
+                encoded_thickness,
+                brush_index,
+                aliased,
+                vertices,
+                indices);
+            return true;
+        }
+        return append_cpu_join(
+            join,
+            affine_stroke_geometry
+                ? primitive.stroke_thickness
+                : primitive.stroke_thickness * maximum_scale,
+            primitive.p3.x,
+            affine_stroke_geometry
+                ? primitive.p0
+                : transformed_point(primitive.transform, primitive.p0),
+            affine_stroke_geometry
+                ? primitive.p1
+                : transformed_direction(primitive.transform, primitive.p1),
+            affine_stroke_geometry
+                ? primitive.p2
+                : transformed_direction(primitive.transform, primitive.p2),
+            affine_stroke_geometry ? &primitive.transform : nullptr,
+            brush_index,
+            aliased,
+            vertices,
+            indices);
+    }
+
+    if (primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC) {
+        const progpu_native_point local_axis_x = primitive.p1;
+        const progpu_native_point local_axis_y = primitive.p2;
+        const auto evaluate_arc = [&](float theta) {
+            return progpu_native_point{
+                primitive.p0.x + local_axis_x.x * std::cos(theta) +
+                    local_axis_y.x * std::sin(theta),
+                primitive.p0.y + local_axis_x.y * std::cos(theta) +
+                    local_axis_y.y * std::sin(theta)
+            };
+        };
+        const auto evaluate_arc_tangent = [&](float theta) {
+            const float direction = std::copysign(1.0F, primitive.p3.y);
+            return progpu_native_point{
+                (-local_axis_x.x * std::sin(theta) +
+                    local_axis_y.x * std::cos(theta)) * direction,
+                (-local_axis_x.y * std::sin(theta) +
+                    local_axis_y.y * std::cos(theta)) * direction
+            };
+        };
+        if (affine_stroke_geometry) {
+            const std::size_t sections = std::clamp(
+                static_cast<std::size_t>(std::ceil(
+                    std::abs(primitive.p3.y) /
+                    (std::numbers::pi_v<float> / 24.0F))),
+                std::size_t{1U},
+                std::size_t{48U});
+            progpu_native_point previous = evaluate_arc(primitive.p3.x);
+            progpu_native_point previous_tangent =
+                evaluate_arc_tangent(primitive.p3.x);
+            for (std::size_t section = 1U; section <= sections; ++section) {
+                const float t = static_cast<float>(section) /
+                    static_cast<float>(sections);
+                const float theta = primitive.p3.x + primitive.p3.y * t;
+                const progpu_native_point point = evaluate_arc(theta);
+                const progpu_native_point tangent = evaluate_arc_tangent(theta);
+                const progpu_native_point chord{
+                    point.x - previous.x,
+                    point.y - previous.y
+                };
+                progpu_native_point start_direction{};
+                progpu_native_point end_direction{};
+                if (try_normalize(previous_tangent, chord, start_direction) &&
+                    try_normalize(tangent, chord, end_direction)) {
+                    const float radius = primitive.stroke_thickness * 0.5F;
+                    const progpu_native_point start_normal{
+                        -start_direction.y * radius,
+                        start_direction.x * radius
+                    };
+                    const progpu_native_point end_normal{
+                        -end_direction.y * radius,
+                        end_direction.x * radius
+                    };
+                    const progpu_native_point local_points[4] = {
+                        {previous.x + start_normal.x,
+                            previous.y + start_normal.y},
+                        {point.x + end_normal.x,
+                            point.y + end_normal.y},
+                        {point.x - end_normal.x,
+                            point.y - end_normal.y},
+                        {previous.x - start_normal.x,
+                            previous.y - start_normal.y}
+                    };
+                    progpu_native_point points[4]{};
+                    for (std::size_t index = 0U; index < 4U; ++index) {
+                        points[index] = transformed_point(
+                            primitive.transform,
+                            local_points[index]);
+                    }
+                    const float shape_type = section == 1U
+                        ? section == sections ? 14.0F : 16.0F
+                        : section == sections ? 17.0F : 15.0F;
+                    if (!append_stroke_quadrilateral(
+                            points,
+                            brush_index,
+                            aliased,
+                            shape_type,
+                            vertices,
+                            indices)) {
+                        vertices.resize(initial_vertex_count);
+                        indices.resize(initial_index_count);
+                        return false;
+                    }
+                }
+                previous = point;
+                previous_tangent = tangent;
+            }
+            return true;
+        }
+
+        const progpu_native_point center = transformed_point(
+            primitive.transform,
+            primitive.p0);
+        const progpu_native_point axis_x = transformed_direction(
+            primitive.transform,
+            local_axis_x);
+        const progpu_native_point axis_y = transformed_direction(
+            primitive.transform,
+            local_axis_y);
+        const float padding = hairline
+            ? 2.0F
+            : fixed_device
+                ? primitive.stroke_thickness * 0.5F + 1.5F
+                : encoded_thickness * 0.5F + 2.0F;
+        const float extent_x =
+            std::abs(axis_x.x) + std::abs(axis_y.x) + padding;
+        const float extent_y =
+            std::abs(axis_x.y) + std::abs(axis_y.y) + padding;
+        const std::uint32_t arc_base =
+            static_cast<std::uint32_t>(vertices.size());
+        const auto append_arc_vertex = [&](float x, float y) {
+            vector_vertex vertex{};
+            vertex.position[0] = x;
+            vertex.position[1] = y;
+            vertex.color[0] = center.x;
+            vertex.color[1] = center.y;
+            vertex.color[2] = primitive.p3.x;
+            vertex.color[3] = primitive.p3.y;
+            vertex.texture_coordinate[0] = axis_x.x;
+            vertex.texture_coordinate[1] = axis_x.y;
+            vertex.brush_index = brush_index;
+            vertex.shape_size[0] = axis_y.x;
+            vertex.shape_size[1] = axis_y.y;
+            vertex.stroke_thickness = encoded_thickness;
+            vertex.shape_type = 12.0F + alias_offset;
+            vertices.push_back(vertex);
+        };
+        append_arc_vertex(center.x - extent_x, center.y - extent_y);
+        append_arc_vertex(center.x + extent_x, center.y - extent_y);
+        append_arc_vertex(center.x + extent_x, center.y + extent_y);
+        append_arc_vertex(center.x - extent_x, center.y + extent_y);
+        indices.insert(indices.end(), {
+            arc_base, arc_base + 1U, arc_base + 2U,
+            arc_base, arc_base + 2U, arc_base + 3U
+        });
+        return true;
+    }
+
     if (!append_primitive_caps(
             primitive,
             hairline,

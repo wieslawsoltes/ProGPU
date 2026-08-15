@@ -1383,7 +1383,7 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
-    public void CompilerLowersLineOnlyPathStrokeWithoutFlatteningIt()
+    public void CompilerLowersLineOnlyPathStrokeAsExactGeometry()
     {
         var path = new PathGeometry();
         var figure = new PathFigure(new Vector2(2f, 2f));
@@ -1406,19 +1406,20 @@ public class NativePictureCompilerTests
             out NativePictureCompileFailure failure),
             failure.ToString());
         Assert.NotNull(compiled);
-        Assert.Equal(1, compiled.StrokeCount);
-        Assert.Equal(2, compiled.StrokePointCount);
+        Assert.Equal(1, compiled.GeometryPrimitiveCount);
+        Assert.Equal(0, compiled.StrokeCount);
 
         NativeMethods.SceneHeader header =
             MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
         NativeMethods.SceneResource resource =
             MemoryMarshal.Read<NativeMethods.SceneResource>(
                 compiled.Stream.Slice(checked((int)header.ResourceOffset)));
-        Assert.Equal(NativeSceneResourceKind.StrokeBatch, resource.Kind);
-        NativeSceneStroke stroke = MemoryMarshal.Read<NativeSceneStroke>(
+        Assert.Equal(NativeSceneResourceKind.GeometryBatch, resource.Kind);
+        NativeGeometryPrimitive stroke = MemoryMarshal.Read<NativeGeometryPrimitive>(
             compiled.Stream.Slice(checked((int)resource.PayloadOffset)));
-        Assert.Equal(NativeSceneStrokeKind.Polyline, stroke.Kind);
-        Assert.Equal(2UL, stroke.PointCount);
+        Assert.Equal(NativeGeometryPrimitiveKind.Line, stroke.Kind);
+        Assert.Equal(new Vector2(2f, 2f), stroke.P0);
+        Assert.Equal(new Vector2(20f, 20f), stroke.P1);
         Assert.Equal(2f, stroke.StrokeThickness);
     }
 
@@ -1482,32 +1483,128 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
-    public void CompilerRejectsCurvedPathStrokeWithoutFlatteningIt()
+    public void CompilerLowersCurvedPathStrokeWithExactSegmentsCapsAndJoins()
     {
         var path = new PathGeometry();
         var figure = new PathFigure(new Vector2(2f, 2f));
         figure.Segments.Add(new QuadraticBezierSegment(
             new Vector2(10f, 2f),
             new Vector2(20f, 20f)));
+        figure.Segments.Add(new CubicBezierSegment(
+            new Vector2(24f, 28f),
+            new Vector2(30f, 4f),
+            new Vector2(34f, 12f)));
+        figure.Segments.Add(new ArcSegment(
+            new Vector2(48f, 20f),
+            new Vector2(12f, 8f),
+            18f,
+            isLargeArc: false,
+            SweepDirection.Clockwise));
         path.Figures.Add(figure);
         var recorder = new GpuPictureRecorder();
         DrawingContext drawing = recorder.BeginRecording(
-            new Rect(0f, 0f, 32f, 32f));
+            new Rect(0f, 0f, 64f, 40f));
         drawing.DrawPath(
             null,
-            new Pen(new SolidColorBrush(Vector4.One), 2f),
+            new Pen(
+                new SolidColorBrush(Vector4.One),
+                2f,
+                PenLineJoin.Round,
+                4f,
+                PenLineCap.Round,
+                PenLineCap.Square),
             path);
         using GpuPicture picture = recorder.EndRecording();
 
-        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
             picture,
             96U,
             8U,
-            out _,
-            out NativePictureCompileFailure failure));
-        Assert.Equal(NativePictureCompileError.UnsupportedStroke, failure.Error);
-        Assert.Equal(0, failure.CommandIndex);
-        Assert.Equal(RenderCommandType.DrawPath, failure.CommandType);
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(7, compiled.GeometryPrimitiveCount);
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        NativeMethods.SceneResource resource =
+            MemoryMarshal.Read<NativeMethods.SceneResource>(
+                compiled.Stream.Slice(checked((int)header.ResourceOffset)));
+        Assert.Equal(NativeSceneResourceKind.GeometryBatch, resource.Kind);
+        ReadOnlySpan<NativeGeometryPrimitive> primitives =
+            MemoryMarshal.Cast<byte, NativeGeometryPrimitive>(
+                compiled.Stream.Slice(
+                    checked((int)resource.PayloadOffset),
+                    checked((int)resource.PayloadSize)));
+        Assert.Equal(NativeGeometryPrimitiveKind.PathCap, primitives[0].Kind);
+        Assert.Equal(NativeStrokeCap.Round, primitives[0].StartCap);
+        Assert.Equal(NativeGeometryPrimitiveKind.QuadraticBezier, primitives[1].Kind);
+        Assert.Equal(NativeGeometryPrimitiveKind.PathJoin, primitives[2].Kind);
+        Assert.Equal(NativeGeometryPrimitiveKind.CubicBezier, primitives[3].Kind);
+        Assert.Equal(NativeGeometryPrimitiveKind.PathJoin, primitives[4].Kind);
+        Assert.Equal(NativeGeometryPrimitiveKind.Arc, primitives[5].Kind);
+        Assert.True(MathF.Abs(
+            primitives[5].P1.X * primitives[5].P2.Y -
+            primitives[5].P1.Y * primitives[5].P2.X) > 0.0001f);
+        Assert.Equal(NativeGeometryPrimitiveKind.PathCap, primitives[6].Kind);
+        Assert.Equal(NativeStrokeCap.Square, primitives[6].StartCap);
+    }
+
+    [Fact]
+    public void CompilerMaterializesCurvedDashesOnceAndKeepsFixedDeviceStroke()
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(new Vector2(3f, 4f));
+        figure.Segments.Add(new QuadraticBezierSegment(
+            new Vector2(20f, 32f),
+            new Vector2(42f, 8f)));
+        path.Figures.Add(figure);
+        var pen = new Pen(
+            new SolidColorBrush(Vector4.One),
+            3f,
+            PenLineJoin.Bevel,
+            4f,
+            PenLineCap.Round,
+            PenLineCap.Triangle,
+            PenLineCap.Square,
+            [2.0, 1.0],
+            0.5,
+            PenStrokeTransformMode.Fixed);
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(
+            new Rect(0f, 0f, 128f, 64f));
+        drawing.DrawPath(
+            null,
+            pen,
+            path,
+            Matrix4x4.CreateScale(2.5f, 0.75f, 1f));
+        using GpuPicture picture = recorder.EndRecording();
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            128U,
+            9U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.True(compiled.GeometryPrimitiveCount > 2);
+        Assert.Equal(0, compiled.StrokeCount);
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        NativeMethods.SceneResource resource =
+            MemoryMarshal.Read<NativeMethods.SceneResource>(
+                compiled.Stream.Slice(checked((int)header.ResourceOffset)));
+        ReadOnlySpan<NativeGeometryPrimitive> primitives =
+            MemoryMarshal.Cast<byte, NativeGeometryPrimitive>(
+                compiled.Stream.Slice(
+                    checked((int)resource.PayloadOffset),
+                    checked((int)resource.PayloadSize)));
+        Assert.All(primitives.ToArray(), primitive =>
+            Assert.True(primitive.Flags.HasFlag(
+                NativeGeometryPrimitiveFlags.FixedDeviceStroke)));
+        Assert.Contains(primitives.ToArray(), primitive =>
+            primitive.Kind == NativeGeometryPrimitiveKind.QuadraticBezier);
     }
 
     [Fact]

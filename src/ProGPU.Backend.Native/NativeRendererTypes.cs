@@ -37,7 +37,10 @@ public enum NativeGeometryPrimitiveKind : uint
     Quadrilateral = 2,
     QuadraticBezier = 3,
     CubicBezier = 4,
-    DotGrid = 5
+    DotGrid = 5,
+    Arc = 6,
+    PathCap = 7,
+    PathJoin = 8
 }
 
 [Flags]

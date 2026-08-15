@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstring>
+#include <numbers>
 
 namespace progpu::native::tests {
 namespace {
@@ -57,6 +58,41 @@ std::vector<std::byte> create_semantic_geometry_scene_stream(
             {8.0F, 8.0F},
             {16.0F, 3.0F},
             0.0F,
+            0.0F,
+            {1.0F, 1.0F, 1.0F, 1.0F},
+            identity},
+        progpu_native_geometry_primitive{
+            PROGPU_NATIVE_GEOMETRY_ARC,
+            0U,
+            {target_width * 0.5F, target_height * 0.48F},
+            {target_width * 0.12F, 0.0F},
+            {0.0F, target_height * 0.08F},
+            {0.0F, std::numbers::pi_v<float>},
+            5.0F,
+            0.0F,
+            {1.0F, 1.0F, 1.0F, 1.0F},
+            identity},
+        progpu_native_geometry_primitive{
+            PROGPU_NATIVE_GEOMETRY_PATH_CAP,
+            PROGPU_NATIVE_STROKE_CAP_ROUND <<
+                PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT,
+            {target_width * 0.38F, target_height * 0.48F},
+            {1.0F, 0.0F},
+            {1.0F, 0.0F},
+            {},
+            5.0F,
+            0.0F,
+            {1.0F, 1.0F, 1.0F, 1.0F},
+            identity},
+        progpu_native_geometry_primitive{
+            PROGPU_NATIVE_GEOMETRY_PATH_JOIN,
+            PROGPU_NATIVE_STROKE_JOIN_ROUND <<
+                PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT,
+            {target_width * 0.62F, target_height * 0.48F},
+            {1.0F, 0.0F},
+            {0.0F, 1.0F},
+            {4.0F, 0.0F},
+            5.0F,
             0.0F,
             {1.0F, 1.0F, 1.0F, 1.0F},
             identity}
@@ -171,7 +207,8 @@ std::vector<std::byte> create_semantic_geometry_scene_stream(
         static_cast<std::uint32_t>(geometry.size()),
         0U};
     const std::uint32_t draw_offset = append(stream, &draw_brushes, 1U);
-    constexpr std::array<std::uint32_t, 2U> brush_indices{0U, 0U};
+    constexpr std::array<std::uint32_t, 5U> brush_indices{
+        0U, 0U, 0U, 0U, 0U};
     append(stream, brush_indices.data(), brush_indices.size());
     const progpu_native_scene_draw_brushes point_draw_brushes{
         sizeof(progpu_native_scene_draw_brushes),

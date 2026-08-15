@@ -1337,6 +1337,84 @@ void geometry_batch_encodes_gpu_and_affine_bezier_strokes() {
     PROGPU_REQUIRE(vertices[vertices.size() - 1U].shape_type == 17.0F);
 }
 
+void geometry_batch_encodes_exact_path_arcs_caps_and_joins() {
+    std::vector<progpu::native::vector_vertex> vertices;
+    std::vector<std::uint32_t> indices;
+    const progpu_native_geometry_primitive arc{
+        PROGPU_NATIVE_GEOMETRY_ARC,
+        0U,
+        {20.0F, 18.0F},
+        {11.27214F, 4.11477F},
+        {-2.40028F, 6.57661F},
+        {0.25F, std::numbers::pi_v<float>},
+        3.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        {2.0F, 0.0F, 0.0F, 2.0F, 5.0F, 7.0F}
+    };
+    std::size_t vertex_capacity = 0U;
+    std::size_t index_capacity = 0U;
+    PROGPU_REQUIRE(progpu::native::geometry_primitive_capacity(
+        arc,
+        vertex_capacity,
+        index_capacity));
+    PROGPU_REQUIRE(vertex_capacity == 4U && index_capacity == 6U);
+    PROGPU_REQUIRE(progpu::native::append_geometry_primitive(
+        arc,
+        2.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.size() == 4U && indices.size() == 6U);
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 12.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].color[0], 45.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].color[1], 43.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].stroke_thickness, 6.0F));
+
+    vertices.clear();
+    indices.clear();
+    const progpu_native_geometry_primitive cap{
+        PROGPU_NATIVE_GEOMETRY_PATH_CAP,
+        PROGPU_NATIVE_STROKE_CAP_ROUND <<
+            PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT,
+        {10.0F, 12.0F},
+        {1.0F, 0.0F},
+        {1.0F, 0.0F},
+        {},
+        4.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F}
+    };
+    PROGPU_REQUIRE(progpu::native::append_geometry_primitive(
+        cap,
+        3.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(!vertices.empty() && !indices.empty());
+
+    vertices.clear();
+    indices.clear();
+    const progpu_native_geometry_primitive join{
+        PROGPU_NATIVE_GEOMETRY_PATH_JOIN,
+        PROGPU_NATIVE_STROKE_JOIN_ROUND <<
+            PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT,
+        {10.0F, 12.0F},
+        {1.0F, 0.0F},
+        {0.0F, 1.0F},
+        {4.0F, 0.0F},
+        4.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F}
+    };
+    PROGPU_REQUIRE(progpu::native::append_geometry_primitive(
+        join,
+        4.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(!vertices.empty() && !indices.empty());
+}
+
 void geometry_batch_encodes_periodic_dot_grid_as_one_quad() {
     const progpu_native_geometry_primitive grid{
         PROGPU_NATIVE_GEOMETRY_DOT_GRID,
@@ -2262,6 +2340,7 @@ int main() {
     geometry_batch_encodes_direct_and_affine_lines();
     geometry_batch_encodes_device_strokes_and_fills();
     geometry_batch_encodes_gpu_and_affine_bezier_strokes();
+    geometry_batch_encodes_exact_path_arcs_caps_and_joins();
     geometry_batch_encodes_periodic_dot_grid_as_one_quad();
     semantic_point_batch_compiles_compact_retained_points();
     semantic_vertex_mesh_preserves_topology_color_and_coordinates();

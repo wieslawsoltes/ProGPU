@@ -525,7 +525,23 @@ typedef enum progpu_native_geometry_primitive_kind {
      * bounds extent, p2 is phase, and p3 is {spacing, radius}. The shared
      * vector shader performs constant bounded work per covered fragment.
      */
-    PROGPU_NATIVE_GEOMETRY_DOT_GRID = 5
+    PROGPU_NATIVE_GEOMETRY_DOT_GRID = 5,
+    /*
+     * Exact retained elliptical-arc stroke. p0 is the local center, p1/p2 are
+     * the already-resolved local ellipse axes, and p3 is
+     * {theta1, delta-theta}. The ordinary conformal lane evaluates one
+     * analytic GPU quad;
+     * non-conformal local outlines are expanded once when the scene changes.
+     */
+    PROGPU_NATIVE_GEOMETRY_ARC = 6,
+    /*
+     * Connected-path adornments. PATH_CAP stores center/direction in p0/p1,
+     * p2.x is one for a start cap, and the cap kind uses START_CAP_MASK.
+     * PATH_JOIN stores point/incoming/outgoing in p0/p1/p2, p3.x is the miter
+     * limit, and the join kind uses START_CAP_MASK (the enum values coincide).
+     */
+    PROGPU_NATIVE_GEOMETRY_PATH_CAP = 7,
+    PROGPU_NATIVE_GEOMETRY_PATH_JOIN = 8
 } progpu_native_geometry_primitive_kind;
 
 typedef struct progpu_native_point {
@@ -934,9 +950,9 @@ typedef struct progpu_native_analytic_primitive {
  * or cubic Bezier stroke. A normal stroke scales with transform; HAIRLINE
  * selects one framebuffer pixel and
  * FIXED_DEVICE_STROKE keeps stroke_thickness in framebuffer pixels. The two
- * device-stroke flags are mutually exclusive and apply only to stroked lines
- * and curves. The start/end cap fields are packed into their documented flag
- * masks and are ignored by filled records.
+ * device-stroke flags are mutually exclusive and apply only to stroked lines,
+ * curves, arcs, caps, and joins. The start/end cap fields are packed into
+ * their documented flag masks and are ignored by filled records.
  */
 typedef struct progpu_native_geometry_primitive {
     uint32_t kind;

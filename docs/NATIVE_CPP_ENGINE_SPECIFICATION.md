@@ -1058,8 +1058,9 @@ ordered semantic layers now own bounded backdrop input.
 - solid fills/strokes, affine transforms, and alias mode are implemented for
   the current analytic subset; line hairline/fixed-device width is implemented;
   curve hairline/fixed-device strokes, all four line/curve cap kinds, all three
-  solid-polyline/spline join kinds, reusable dash styles, and retained compiled
-  geometry replay are implemented; the remaining primitives are pending;
+  solid-polyline/spline join kinds, reusable dash styles, exact general-path
+  line/quadratic/cubic/arc strokes, and retained compiled geometry replay are
+  implemented;
 - transforms are implemented for the current subsets; common physical-scissor
   clipping and primitive opacity are implemented across rectangles, analytic
   geometry, retained geometry, paths, glyphs, and images with append-only ABI
@@ -1604,7 +1605,7 @@ advanced blend isolation, and ordinary straight-alpha image draws are now
 retained. Images preserve source rectangles, nearest/linear/custom-cubic
 sampling, a same-device external view, a fused affine color transform, and
 submission-token lifetime fencing. The remaining explicit exclusions are
-combined geometry and general path strokes, hatch and opaque static-DXF
+combined geometry, opaque static-DXF
 extension objects, mutable embedded `Visual` instances, texture patches/pixel
 snapping, premultiplied sources, mipmaps/anisotropy, and non-affine image
 effects. Those records fail with a typed source-command diagnostic; no managed
@@ -2271,9 +2272,10 @@ path with WebGPU validation and bounded resource policies.
 1. Keep the additive native ABI, package, standalone C++20 SDK, browser build,
    compiler matrix, and managed substitution lane green without changing the
    default renderer.
-2. Finish the explicitly excluded immutable rendering records: exact curved
-   general-path strokes. Opaque
-   `DxfStaticBuffer` and mutable `Visual` objects require typed immutable
+2. Keep the completed exact general-path line/quadratic/cubic/arc stroke lane
+   green, including caps, joins, dashes, hairlines, fixed-device widths, and
+   non-conformal local outlines. Opaque `DxfStaticBuffer` and mutable `Visual`
+   objects require typed immutable
    snapshot contracts; they must never cross the C ABI as managed pointers.
 3. Run the final matched text/scene/image differential and seam budgets after
    those families settle; do not reuse interim performance evidence as the

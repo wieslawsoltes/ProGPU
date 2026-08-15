@@ -2566,3 +2566,35 @@ construction and uses the existing submission index as the consumer fence.
 This checkpoint records architecture and counters only; no new latency claim is
 made until the final matched workload is rerun after the remaining rendering
 families settle.
+
+## Curved retained-stroke final qualification
+
+The final Apple M3 Pro/Metal Release qualification extends the matched
+391-command managed-picture workload with quadratic and elliptical-arc path
+strokes, connected caps/joins, and fixed-device dashed curved strokes. The
+immutable native snapshot contains 28 commands, 22 draws, 613 geometry
+primitives, 32 retained path fills, and 24 retained stroke records in 106,704
+bytes. Stable replay allocates `0 B/frame` on both paths and reports zero native
+vertex, index, texture, uniform, coverage, brush, gradient-stop, text-style, and
+color-glyph upload.
+
+This short final-slice qualification used four warm-up and eight alternating
+synchronized frames. Native/managed submission p50 was `0.0748/1.2359 ms` and
+p95 was `0.1013/9.0758 ms`; synchronized total p50 was `4.5961/4.2728 ms` and
+p95 was `6.1285/13.6192 ms`. These samples qualify the new command path and do
+not replace the longer matched baseline above. GPU-complete medians remain on
+the same Metal completion floor, as expected because both routes execute the
+same production shaders and queue work.
+
+Across 518,400 pixels, the maximum channel difference is `11/255`, exactly
+three pixels exceed `3/255`, and mean absolute channel difference is
+`0.000310089/255`. Inspection localizes the differences to isolated cap/join
+antialiasing ties; no geometry, fill, dash, or coverage region is missing. The
+native, managed, and 32-times-amplified difference PNG SHA-256 values are
+`c37ab433e5c46ecc6b10062305909146c5c168217556e2852ca1c90e117abe20`,
+`f1fb602b7301af95c0f9eac915e0f9577439e81b5f6a62d4d770400ccb10ef32`, and
+`fce3300776942bf31eb4b34c7f31d2edc975c3a4281008364f998a164d63dfda`.
+Local evidence is retained under
+`artifacts/progpu-native/final-candidate/`; exact-head CI produces the
+cross-platform package and backend evidence, while the requested visual sample
+approval remains a manual gate.

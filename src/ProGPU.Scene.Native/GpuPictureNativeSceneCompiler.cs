@@ -1376,16 +1376,13 @@ public static partial class GpuPictureNativeSceneCompiler
                     out error);
             case RenderCommandType.DrawPath:
                 return TryAppendPath(
-                    picture,
                     command,
                     transform,
+                    geometry,
+                    geometryBrushIndices,
                     paths,
                     pathSegments,
                     pathBrushIndices,
-                    strokes,
-                    strokePoints,
-                    strokeDoubles,
-                    strokeBrushIndices,
                     batches,
                     operations,
                     materials,
@@ -1394,16 +1391,13 @@ public static partial class GpuPictureNativeSceneCompiler
             case RenderCommandType.DrawExtension
                 when command.ExtensionId == CompositorBuiltInExtensions.Hatch:
                 return TryAppendPath(
-                    picture,
                     command,
                     transform,
+                    geometry,
+                    geometryBrushIndices,
                     paths,
                     pathSegments,
                     pathBrushIndices,
-                    strokes,
-                    strokePoints,
-                    strokeDoubles,
-                    strokeBrushIndices,
                     batches,
                     operations,
                     materials,
@@ -2588,16 +2582,13 @@ public static partial class GpuPictureNativeSceneCompiler
     }
 
     private static bool TryAppendPath(
-        GpuPicture picture,
         in RenderCommand command,
         Matrix3x2 transform,
+        List<NativeGeometryPrimitive> nativeGeometry,
+        List<uint> geometryBrushIndices,
         List<NativeScenePathFill> nativePaths,
         List<NativePathSegment> nativeSegments,
         List<uint> pathBrushIndices,
-        List<NativeSceneStroke> nativeStrokes,
-        List<Vector2> nativePoints,
-        List<double> nativeDoubles,
-        List<uint> strokeBrushIndices,
         List<Batch> batches,
         List<Operation> operations,
         NativeBrushTableBuilder materials,
@@ -2643,60 +2634,497 @@ public static partial class GpuPictureNativeSceneCompiler
             error = NativePictureCompileError.UnsupportedStroke;
             return false;
         }
+        return TryAppendGeneralPathStroke(
+            command,
+            path,
+            transform,
+            nativeGeometry,
+            geometryBrushIndices,
+            batches,
+            operations,
+            materials,
+            out error);
+    }
+
+    private static bool TryAppendGeneralPathStroke(
+        in RenderCommand command,
+        PathGeometry path,
+        Matrix3x2 transform,
+        List<NativeGeometryPrimitive> nativeGeometry,
+        List<uint> brushIndices,
+        List<Batch> batches,
+        List<Operation> operations,
+        NativeBrushTableBuilder materials,
+        out NativePictureCompileError error)
+    {
+        error = NativePictureCompileError.None;
+        Pen? pen = command.Pen;
+        if (pen is null || !command.IsPenThicknessLocal ||
+            (!pen.IsHairline &&
+                (!float.IsFinite(pen.Thickness) || pen.Thickness <= 0f)) ||
+            !float.IsFinite(pen.MiterLimit) || pen.MiterLimit < 1f ||
+            MathF.Abs(transform.GetDeterminant()) <= 0.000001f)
+        {
+            error = NativePictureCompileError.UnsupportedStroke;
+            return false;
+        }
+
+        if (pen.HasDashPattern)
+        {
+            float localThickness = pen.IsHairline ? 1f : pen.Thickness;
+            if (!Compositor.TryCreateDashedStrokePath(
+                    path,
+                    pen,
+                    localThickness,
+                    out PathGeometry dashedPath))
+            {
+                error = NativePictureCompileError.UnsupportedStroke;
+                return false;
+            }
+            RenderCommand dashedCommand = command;
+            dashedCommand.Brush = null;
+            dashedCommand.Path = dashedPath;
+            dashedCommand.Pen = Compositor.CreateUndashedPen(pen, localThickness);
+            dashedCommand.IsPenThicknessLocal = true;
+            return TryAppendGeneralPathStroke(
+                dashedCommand,
+                dashedPath,
+                transform,
+                nativeGeometry,
+                brushIndices,
+                batches,
+                operations,
+                materials,
+                out error);
+        }
+
+        if (!path.TryGetBounds(out Vector2 minimum, out Vector2 maximum) ||
+            !IsFinite(minimum) || !IsFinite(maximum) ||
+            maximum.X < minimum.X || maximum.Y < minimum.Y ||
+            !materials.TryRegister(pen.Brush, out uint brushIndex, out error))
+        {
+            if (error == NativePictureCompileError.None)
+                error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+
+        NativeGeometryPrimitiveFlags flags = command.IsEdgeAliased
+            ? NativeGeometryPrimitiveFlags.EdgeAliased
+            : NativeGeometryPrimitiveFlags.None;
+        if (pen.IsHairline)
+            flags |= NativeGeometryPrimitiveFlags.Hairline;
+        else if (pen.IsFixed)
+            flags |= NativeGeometryPrimitiveFlags.FixedDeviceStroke;
+        float thickness = pen.IsHairline ? 0f : pen.Thickness;
+        int primitiveStart = nativeGeometry.Count;
+        int brushStart = brushIndices.Count;
+
+        void AppendPrimitive(
+            NativeGeometryPrimitiveKind kind,
+            Vector2 p0,
+            Vector2 p1,
+            Vector2 p2 = default,
+            Vector2 p3 = default,
+            NativeStrokeCap specialKind = NativeStrokeCap.Flat)
+        {
+            nativeGeometry.Add(new(
+                kind,
+                p0,
+                p1,
+                Vector4.One,
+                transform,
+                p2,
+                p3,
+                thickness,
+                flags,
+                specialKind));
+            brushIndices.Add(brushIndex);
+        }
+
+        void AppendCap(
+            PenLineCap cap,
+            Vector2 center,
+            Vector2 direction,
+            bool isStart)
+        {
+            NativeStrokeCap nativeCap = MapCap(cap);
+            if (nativeCap == NativeStrokeCap.Flat)
+                return;
+            AppendPrimitive(
+                NativeGeometryPrimitiveKind.PathCap,
+                center,
+                direction,
+                new Vector2(isStart ? 1f : 0f, 0f),
+                default,
+                nativeCap);
+        }
+
+        void AppendJoin(
+            Vector2 center,
+            Vector2 incoming,
+            Vector2 outgoing,
+            bool isSmooth)
+        {
+            if (isSmooth)
+                return;
+            AppendPrimitive(
+                NativeGeometryPrimitiveKind.PathJoin,
+                center,
+                incoming,
+                outgoing,
+                new Vector2(pen.MiterLimit, 0f),
+                (NativeStrokeCap)(uint)MapJoin(pen.LineJoin));
+        }
+
+        bool AppendSegment(
+            PathSegment segment,
+            Vector2 start,
+            out Vector2 end)
+        {
+            end = default;
+            switch (segment)
+            {
+                case LineSegment line:
+                    end = line.Point;
+                    AppendPrimitive(
+                        NativeGeometryPrimitiveKind.Line,
+                        start,
+                        end);
+                    return IsFinite(start) && IsFinite(end);
+                case QuadraticBezierSegment quadratic:
+                    end = quadratic.Point;
+                    AppendPrimitive(
+                        NativeGeometryPrimitiveKind.QuadraticBezier,
+                        start,
+                        quadratic.ControlPoint,
+                        end);
+                    return IsFinite(start) && IsFinite(quadratic.ControlPoint) &&
+                        IsFinite(end);
+                case CubicBezierSegment cubic:
+                    end = cubic.Point;
+                    AppendPrimitive(
+                        NativeGeometryPrimitiveKind.CubicBezier,
+                        start,
+                        cubic.ControlPoint1,
+                        cubic.ControlPoint2,
+                        end);
+                    return IsFinite(start) && IsFinite(cubic.ControlPoint1) &&
+                        IsFinite(cubic.ControlPoint2) && IsFinite(end);
+                case ArcSegment arc:
+                    end = arc.Point;
+                    if (!ArcSegmentGeometry.TryGetArcCenter(
+                            start,
+                            arc.Point,
+                            arc.Size,
+                            arc.RotationAngle,
+                            arc.IsLargeArc,
+                            arc.SweepDirection,
+                            out Vector2 center,
+                            out float theta1,
+                            out float deltaTheta,
+                            out float radiusX,
+                            out float radiusY))
+                    {
+                        return false;
+                    }
+                    float phi = arc.RotationAngle * MathF.PI / 180f;
+                    Vector2 axisX = new(
+                        radiusX * MathF.Cos(phi),
+                        radiusX * MathF.Sin(phi));
+                    Vector2 axisY = new(
+                        -radiusY * MathF.Sin(phi),
+                        radiusY * MathF.Cos(phi));
+                    AppendPrimitive(
+                        NativeGeometryPrimitiveKind.Arc,
+                        center,
+                        axisX,
+                        axisY,
+                        new Vector2(theta1, deltaTheta));
+                    return IsFinite(start) && IsFinite(end) &&
+                        IsFinite(center) && float.IsFinite(theta1) &&
+                        float.IsFinite(deltaTheta) && radiusX > 0f && radiusY > 0f;
+                default:
+                    return false;
+            }
+        }
 
         bool emittedStroke = false;
         foreach (PathFigure figure in path.Figures)
         {
-            if (figure.Segments.Count == 0)
-            {
-                continue;
-            }
+            Vector2 currentPoint = figure.StartPoint;
+            Vector2 firstDirection = default;
+            Vector2 previousDirection = default;
+            bool firstSmoothJoin = false;
+            bool hasFirstDirection = false;
+            bool hasPreviousDirection = false;
+            bool runStarted = false;
+            PenLineCap startCap = figure.StrokeStartLineCap ?? pen.StartLineCap;
+            PenLineCap endCap = figure.StrokeEndLineCap ?? pen.EndLineCap;
 
-            var points = new Vector2[figure.Segments.Count + 1];
-            points[0] = figure.StartPoint;
-            for (int index = 0; index < figure.Segments.Count; index++)
+            foreach (PathSegment segment in figure.Segments)
             {
-                if (figure.Segments[index] is not LineSegment line)
+                if (!TryGetNativePathSegmentEndPoint(segment, out Vector2 endPoint))
                 {
                     error = NativePictureCompileError.UnsupportedStroke;
                     return false;
                 }
-                points[index + 1] = line.Point;
+                if (!segment.IsStroked)
+                {
+                    if (!figure.IsClosed && runStarted && hasPreviousDirection)
+                        AppendCap(endCap, currentPoint, previousDirection, false);
+                    currentPoint = endPoint;
+                    firstDirection = default;
+                    previousDirection = default;
+                    firstSmoothJoin = false;
+                    hasFirstDirection = false;
+                    hasPreviousDirection = false;
+                    runStarted = false;
+                    continue;
+                }
+
+                bool hasStartDirection = TryGetNativePathSegmentDirection(
+                    segment,
+                    currentPoint,
+                    true,
+                    out Vector2 startDirection);
+                bool hasEndDirection = TryGetNativePathSegmentDirection(
+                    segment,
+                    currentPoint,
+                    false,
+                    out Vector2 endDirection);
+                if (!hasStartDirection && !hasEndDirection &&
+                    Vector2.DistanceSquared(currentPoint, endPoint) <=
+                        0.00000001f)
+                {
+                    if (!figure.IsClosed && !runStarted)
+                    {
+                        int beforeCaps = nativeGeometry.Count;
+                        AppendCap(startCap, currentPoint, Vector2.UnitX, true);
+                        AppendCap(endCap, currentPoint, Vector2.UnitX, false);
+                        emittedStroke |= nativeGeometry.Count != beforeCaps;
+                    }
+                    currentPoint = endPoint;
+                    continue;
+                }
+                if (!runStarted && hasStartDirection)
+                {
+                    firstDirection = startDirection;
+                    firstSmoothJoin = segment.IsSmoothJoin;
+                    hasFirstDirection = true;
+                    if (!figure.IsClosed)
+                        AppendCap(startCap, currentPoint, startDirection, true);
+                }
+                else if (runStarted && hasPreviousDirection && hasStartDirection)
+                {
+                    AppendJoin(
+                        currentPoint,
+                        previousDirection,
+                        startDirection,
+                        segment.IsSmoothJoin);
+                }
+
+                if (!AppendSegment(segment, currentPoint, out endPoint))
+                {
+                    error = NativePictureCompileError.InvalidGeometry;
+                    return false;
+                }
+                emittedStroke = true;
+                runStarted = true;
+                currentPoint = endPoint;
+                previousDirection = endDirection;
+                hasPreviousDirection = hasEndDirection;
             }
 
-            RenderCommand strokeCommand = command;
-            strokeCommand.Type = RenderCommandType.DrawPolyline;
-            strokeCommand.Brush = null;
-            strokeCommand.Path = null;
-            strokeCommand.PolylinePoints = points;
-            strokeCommand.PointBufferOffset = 0;
-            strokeCommand.PointBufferCount = 0;
-            strokeCommand.IsClosed = figure.IsClosed;
-            if (!TryAppendStroke(
-                    picture,
-                    strokeCommand,
-                    transform,
-                    NativeSceneStrokeKind.Polyline,
-                    nativeStrokes,
-                    nativePoints,
-                    nativeDoubles,
-                    strokeBrushIndices,
-                    batches,
-                    operations,
-                    materials,
-                    out error))
+            if (!runStarted)
+                continue;
+            if (!figure.IsClosed)
             {
-                return false;
+                if (hasPreviousDirection)
+                    AppendCap(endCap, currentPoint, previousDirection, false);
+                continue;
             }
-            emittedStroke = true;
+
+            Vector2 closeDirection = figure.StartPoint - currentPoint;
+            if (closeDirection.LengthSquared() > 0.00000001f)
+            {
+                if (hasPreviousDirection)
+                    AppendJoin(
+                        currentPoint,
+                        previousDirection,
+                        closeDirection,
+                        false);
+                AppendPrimitive(
+                    NativeGeometryPrimitiveKind.Line,
+                    currentPoint,
+                    figure.StartPoint);
+                emittedStroke = true;
+                if (hasFirstDirection)
+                    AppendJoin(
+                        figure.StartPoint,
+                        closeDirection,
+                        firstDirection,
+                        firstSmoothJoin);
+            }
+            else if (hasPreviousDirection && hasFirstDirection)
+            {
+                AppendJoin(
+                    figure.StartPoint,
+                    previousDirection,
+                    firstDirection,
+                    firstSmoothJoin);
+            }
         }
 
-        if (!emittedStroke)
+        int primitiveCount = nativeGeometry.Count - primitiveStart;
+        if (!emittedStroke || primitiveCount == 0)
         {
             error = NativePictureCompileError.InvalidGeometry;
             return false;
         }
+        float deviceThickness = pen.IsHairline ? 1f : pen.Thickness;
+        float strokeExtent = (pen.IsHairline || pen.IsFixed
+            ? deviceThickness
+            : deviceThickness * MaxScale(transform)) *
+            MathF.Max(1f, pen.MiterLimit);
+        if (!command.IsEdgeAliased)
+            strokeExtent += 1.5f;
+        AppendBatch(
+            batches,
+            operations,
+            BatchKind.Geometry,
+            primitiveStart,
+            brushStart,
+            primitiveCount,
+            Inflate(
+                TransformBounds(
+                    new Rect(
+                        minimum.X,
+                        minimum.Y,
+                        maximum.X - minimum.X,
+                        maximum.Y - minimum.Y),
+                    transform),
+                strokeExtent));
         return true;
+    }
+
+    private static bool TryGetNativePathSegmentEndPoint(
+        PathSegment segment,
+        out Vector2 endPoint)
+    {
+        switch (segment)
+        {
+            case LineSegment line:
+                endPoint = line.Point;
+                return true;
+            case QuadraticBezierSegment quadratic:
+                endPoint = quadratic.Point;
+                return true;
+            case CubicBezierSegment cubic:
+                endPoint = cubic.Point;
+                return true;
+            case ArcSegment arc:
+                endPoint = arc.Point;
+                return true;
+            default:
+                endPoint = default;
+                return false;
+        }
+    }
+
+    private static bool TryGetNativePathSegmentDirection(
+        PathSegment segment,
+        Vector2 start,
+        bool atStart,
+        out Vector2 direction)
+    {
+        direction = default;
+        switch (segment)
+        {
+            case LineSegment line:
+                return TrySelectNativeDirection(out direction, line.Point - start);
+            case QuadraticBezierSegment quadratic:
+                return atStart
+                    ? TrySelectNativeDirection(
+                        out direction,
+                        quadratic.ControlPoint - start,
+                        quadratic.Point - start)
+                    : TrySelectNativeDirection(
+                        out direction,
+                        quadratic.Point - quadratic.ControlPoint,
+                        quadratic.Point - start);
+            case CubicBezierSegment cubic:
+                return atStart
+                    ? TrySelectNativeDirection(
+                        out direction,
+                        cubic.ControlPoint1 - start,
+                        cubic.ControlPoint2 - start,
+                        cubic.Point - start)
+                    : TrySelectNativeDirection(
+                        out direction,
+                        cubic.Point - cubic.ControlPoint2,
+                        cubic.Point - cubic.ControlPoint1,
+                        cubic.Point - start);
+            case ArcSegment arc:
+                if (!ArcSegmentGeometry.TryGetArcCenter(
+                        start,
+                        arc.Point,
+                        arc.Size,
+                        arc.RotationAngle,
+                        arc.IsLargeArc,
+                        arc.SweepDirection,
+                        out _,
+                        out float theta1,
+                        out float deltaTheta,
+                        out float radiusX,
+                        out float radiusY))
+                {
+                    return false;
+                }
+                float phi = arc.RotationAngle * MathF.PI / 180f;
+                Vector2 axisX = new(
+                    radiusX * MathF.Cos(phi),
+                    radiusX * MathF.Sin(phi));
+                Vector2 axisY = new(
+                    -radiusY * MathF.Sin(phi),
+                    radiusY * MathF.Cos(phi));
+                float theta = atStart ? theta1 : theta1 + deltaTheta;
+                Vector2 tangent =
+                    (-axisX * MathF.Sin(theta) + axisY * MathF.Cos(theta)) *
+                    MathF.CopySign(1f, deltaTheta);
+                return TrySelectNativeDirection(out direction, tangent);
+            default:
+                return false;
+        }
+    }
+
+    private static bool TrySelectNativeDirection(
+        out Vector2 direction,
+        Vector2 first,
+        Vector2 second = default,
+        Vector2 third = default)
+    {
+        if (TryUseNativeDirection(first, out direction) ||
+            TryUseNativeDirection(second, out direction) ||
+            TryUseNativeDirection(third, out direction))
+        {
+            return true;
+        }
+        direction = default;
+        return false;
+    }
+
+    private static bool TryUseNativeDirection(
+        Vector2 candidate,
+        out Vector2 direction)
+    {
+        float length = candidate.Length();
+        if (float.IsFinite(length) && length > 0.0001f)
+        {
+            direction = candidate;
+            return true;
+        }
+        direction = default;
+        return false;
     }
 
     private static bool TryAppendPathFill(

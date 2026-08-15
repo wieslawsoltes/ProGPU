@@ -215,7 +215,10 @@ inline bool requires_affine_stroke_geometry(
 inline bool geometry_uses_payload_brush(
     const progpu_native_geometry_primitive& primitive) noexcept {
     if (primitive.kind == PROGPU_NATIVE_GEOMETRY_QUADRATIC_BEZIER ||
-        primitive.kind == PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER) {
+        primitive.kind == PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER ||
+        primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC ||
+        primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP ||
+        primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_JOIN) {
         return true;
     }
     return primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE &&

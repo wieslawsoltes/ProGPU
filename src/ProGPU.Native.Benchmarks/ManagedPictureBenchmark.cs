@@ -489,14 +489,36 @@ internal static class ManagedPictureBenchmark
             Vector2 start = new(left, bottom);
             Vector2 control = new((left + right) * 0.5f, top);
             Vector2 end = new(right, bottom);
-            switch (index % 3)
+            switch (index % 4)
             {
                 case 0:
+                    var curvedPath = new PathGeometry();
+                    var curvedFigure = new PathFigure(start);
+                    curvedFigure.Segments.Add(new QuadraticBezierSegment(
+                        control,
+                        new Vector2(
+                            (left + right) * 0.58f,
+                            (top + bottom) * 0.48f)));
+                    curvedFigure.Segments.Add(new ArcSegment(
+                        end,
+                        new Vector2(
+                            MathF.Max(1f, (right - left) * 0.32f),
+                            MathF.Max(1f, (bottom - top) * 0.38f)),
+                        12f,
+                        isLargeArc: false,
+                        SweepDirection.Clockwise));
+                    curvedPath.Figures.Add(curvedFigure);
+                    drawing.DrawPath(
+                        null,
+                        (index & 4) == 0 ? connectedPen : fixedDashPen,
+                        curvedPath);
+                    break;
+                case 1:
                     drawing.DrawPolyline(
                         connectedPen,
                         [start, control, end]);
                     break;
-                case 1:
+                case 2:
                     drawing.DrawPolyline(
                         fixedDashPen,
                         [start, control, end]);
