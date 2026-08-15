@@ -274,6 +274,14 @@ public static partial class GpuPictureNativeSceneCompiler
                 ownerId = source.OwnerId;
                 transform = source.Transform;
                 command = source.Picture.GetCommand(source.CommandIndex);
+                if (IsNative3DCommand(command))
+                {
+                    command.CameraView = source.CameraView;
+                    Matrix4x4 local = command.Transform == default
+                        ? Matrix4x4.Identity
+                        : command.Transform;
+                    command.Transform = local * ToMatrix4x4(transform);
+                }
             }
             if (!IsNative3DCommand(command))
             {
@@ -1355,7 +1363,10 @@ public static partial class GpuPictureNativeSceneCompiler
             Bounds = default,
             Camera3D = new NativeSceneCamera3D(
                 options.Projection3D,
-                options.View3D,
+                command.CameraView == default ||
+                    command.CameraView == Matrix4x4.Identity
+                    ? options.View3D
+                    : command.CameraView * options.View3D,
                 options.CameraPosition3D)
         };
         int batchIndex = batches.Count;

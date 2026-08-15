@@ -104,6 +104,67 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerCarriesNestedGpuCameraIntoNative3DDraw()
+    {
+        var pen = new Pen(new SolidColorBrush(Vector4.One), 2f);
+        using var nested = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawExtension,
+                    ExtensionId = CompositorBuiltInExtensions.Line3D,
+                    DataParam = pen,
+                    FloatBufferCount = 6
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            [0f, 0f, 0f, 1f, 1f, 1f]);
+        Matrix4x4 cameraView = Matrix4x4.CreateLookAt(
+            new Vector3(0f, 0f, 6f),
+            Vector3.Zero,
+            Vector3.UnitY);
+        using var outer = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawPicture,
+                    Picture = nested,
+                    UseGpuTransforms = true,
+                    CameraView = cameraView
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            outer,
+            302U,
+            3U,
+            new NativePictureCompileOptions(
+                1f,
+                Matrix4x4.Identity,
+                Matrix4x4.Identity,
+                new Vector3(0f, 0f, 6f)),
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        NativeMethods.SceneCommand command =
+            MemoryMarshal.Read<NativeMethods.SceneCommand>(
+                compiled.Stream.Slice(checked((int)header.CommandOffset)));
+        NativeSceneCamera3D camera = MemoryMarshal.Read<NativeSceneCamera3D>(
+            compiled.Stream.Slice(checked((int)command.PayloadOffset)));
+        Assert.Equal(cameraView.M33, camera.View.M33);
+        Assert.Equal(cameraView.M43, camera.View.M43);
+    }
+
+    [Fact]
     public void CompilerLowersRepeatedBitmapGlyphsToOneDecodedColorResource()
     {
         var font = new TtfFont(SfntFontFaceTests.BuildSingleBitmapGlyphFont());

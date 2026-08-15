@@ -13,6 +13,7 @@ public static partial class GpuPictureNativeSceneCompiler
         int OwnerId,
         int SourceCommandIndex,
         RenderCommandType SourceCommandType,
+        Matrix4x4 CameraView,
         bool IsBoundary = false);
 
     private static bool ContainsNestedPicture(GpuPicture picture)
@@ -39,6 +40,7 @@ public static partial class GpuPictureNativeSceneCompiler
         return TryFlattenPicture(
             picture,
             Matrix3x2.Identity,
+            Matrix4x4.Identity,
             commands,
             active,
             ref nextOwnerId,
@@ -52,6 +54,7 @@ public static partial class GpuPictureNativeSceneCompiler
     private static bool TryFlattenPicture(
         GpuPicture picture,
         Matrix3x2 parentTransform,
+        Matrix4x4 parentCameraView,
         List<FlattenedCommand> commands,
         HashSet<GpuPicture> active,
         ref int nextOwnerId,
@@ -100,7 +103,8 @@ public static partial class GpuPictureNativeSceneCompiler
                 RenderCommandType sourceType = outerCommandIndex >= 0
                     ? outerCommandType
                     : command.Type;
-                if (command.UseGpuTransforms ||
+                bool isPicture = command.Type == RenderCommandType.DrawPicture;
+                if ((!isPicture && command.UseGpuTransforms) ||
                     !TryGetAffine(command.Transform, out Matrix3x2 localTransform))
                 {
                     failure = new(
@@ -111,7 +115,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 }
 
                 Matrix3x2 transform = localTransform * parentTransform;
-                if (command.Type == RenderCommandType.DrawPicture)
+                if (isPicture)
                 {
                     if (command.Picture is null)
                     {
@@ -121,9 +125,14 @@ public static partial class GpuPictureNativeSceneCompiler
                             sourceType);
                         return false;
                     }
+                    Matrix4x4 cameraView = command.UseGpuTransforms &&
+                        command.CameraView != default
+                        ? command.CameraView * parentCameraView
+                        : parentCameraView;
                     if (!TryFlattenPicture(
                             command.Picture,
                             transform,
+                            cameraView,
                             commands,
                             active,
                             ref nextOwnerId,
@@ -138,13 +147,24 @@ public static partial class GpuPictureNativeSceneCompiler
                     continue;
                 }
 
+                if (parentCameraView != Matrix4x4.Identity &&
+                    !IsNative3DCommand(command))
+                {
+                    failure = new(
+                        NativePictureCompileError.UnsupportedTransform,
+                        sourceIndex,
+                        sourceType);
+                    return false;
+                }
+
                 commands.Add(new(
                     picture,
                     index,
                     transform,
                     ownerId,
                     sourceIndex,
-                    sourceType));
+                    sourceType,
+                    parentCameraView));
             }
 
             if (outerCommandIndex >= 0)
@@ -156,6 +176,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     ownerId,
                     outerCommandIndex,
                     outerCommandType,
+                    parentCameraView,
                     IsBoundary: true));
             }
             return true;
