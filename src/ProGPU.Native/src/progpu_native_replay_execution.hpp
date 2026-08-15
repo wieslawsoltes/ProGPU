@@ -43,6 +43,12 @@ bool prepare_semantic_layer_resources(
     std::uint32_t composite_count,
     std::uint64_t& uploaded_uniform_bytes);
 
+bool prepare_semantic_depth_resources(
+    progpu_native_engine& engine,
+    const semantic::layer_budget& budget,
+    std::uint32_t frame_width,
+    std::uint32_t frame_height);
+
 bool ensure_semantic_texture_slot(
     progpu_native_engine& engine,
     semantic_layer_slot& slot,

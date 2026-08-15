@@ -334,6 +334,7 @@ bool is_valid_semantic_line_3d(
     const progpu_native_scene_line_3d& line) noexcept {
     return line.struct_size == sizeof(line) && line.flags == 0U &&
         line.reserved0 == 0U && line.reserved1 == 0U &&
+        line.reserved2 == 0U && line.reserved3 == 0U &&
         finite_point_3d(line.start) && finite_point_3d(line.end) &&
         is_finite(line.color) && std::isfinite(line.thickness) &&
         line.thickness > 0.0F && line.thickness <= 16384.0F &&

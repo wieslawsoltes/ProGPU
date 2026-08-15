@@ -1,4 +1,5 @@
 #include "progpu_native_dawn.h"
+#include "progpu_native_scene_builder.hpp"
 #include "progpu_native_semantic_backdrop_scene.hpp"
 #include "progpu_native_semantic_color_glyph_scene.hpp"
 #include "progpu_native_semantic_coverage_mask_scene.hpp"
@@ -29,6 +30,68 @@
 #include <vector>
 
 namespace {
+
+void require(bool condition, const char* message);
+
+std::vector<std::byte> create_native_3d_scene_stream() {
+    using progpu::native::semantic_scene_builder;
+    progpu_native_matrix_4x4 identity{};
+    identity.m11 = 1.0F;
+    identity.m22 = 1.0F;
+    identity.m33 = 1.0F;
+    identity.m44 = 1.0F;
+    progpu_native_scene_camera_3d camera{};
+    camera.struct_size = sizeof(camera);
+    camera.projection = identity;
+    camera.view = identity;
+    camera.camera_position = {0.0F, 0.0F, 2.0F, 0.0F};
+    progpu_native_scene_line_3d line{};
+    line.struct_size = sizeof(line);
+    line.start = {-0.85F, -0.75F, 0.0F, 0.0F};
+    line.end = {0.85F, 0.75F, 0.0F, 0.0F};
+    line.color = {0.0F, 0.8F, 1.0F, 1.0F};
+    line.thickness = 3.0F;
+    line.opacity = 1.0F;
+    line.transform = identity;
+    const std::array vertices{
+        progpu_native_scene_mesh_3d_vertex{
+            {-0.65F, -0.55F, 0.25F, 0.0F},
+            {0.0F, 0.0F, 1.0F, 0.0F}, {0.0F, 1.0F}, 0U, 0U},
+        progpu_native_scene_mesh_3d_vertex{
+            {0.65F, -0.55F, 0.25F, 0.0F},
+            {0.0F, 0.0F, 1.0F, 0.0F}, {1.0F, 1.0F}, 0U, 0U},
+        progpu_native_scene_mesh_3d_vertex{
+            {0.0F, 0.65F, 0.25F, 0.0F},
+            {0.0F, 0.0F, 1.0F, 0.0F}, {0.5F, 0.0F}, 0U, 0U}};
+    constexpr std::array<std::uint32_t, 3U> indices{0U, 1U, 2U};
+    progpu_native_scene_mesh_3d mesh{};
+    mesh.struct_size = sizeof(mesh);
+    mesh.topology = PROGPU_NATIVE_MESH_3D_TRIANGLES;
+    mesh.render_mode = PROGPU_NATIVE_MESH_3D_SOLID_WIREFRAME;
+    mesh.vertex_count = vertices.size();
+    mesh.index_count = indices.size();
+    mesh.model_transform = identity;
+    mesh.normal_transform = identity;
+    mesh.color = {1.0F, 0.2F, 0.5F, 1.0F};
+    mesh.light_direction = {0.0F, 0.0F, -1.0F, 0.0F};
+    mesh.ambient_color = {0.2F, 0.2F, 0.2F, 1.0F};
+    mesh.specular_color = {1.0F, 1.0F, 1.0F, 1.0F};
+    mesh.material_ambient = {1.0F, 1.0F, 1.0F, 1.0F};
+    mesh.opacity = 1.0F;
+    mesh.shading_mode = 1U;
+    semantic_scene_builder builder(793U, 1U);
+    require(builder.draw_meshes_3d(
+        std::span<const progpu_native_scene_mesh_3d>(&mesh, 1U),
+        vertices, indices, camera, {0.0F, 0.0F, 64.0F, 48.0F}),
+        "native retained 3D mesh recording failed");
+    require(builder.draw_lines_3d(
+        std::span<const progpu_native_scene_line_3d>(&line, 1U),
+        camera, {0.0F, 0.0F, 64.0F, 48.0F}),
+        "native retained 3D line recording failed");
+    std::vector<std::byte> stream;
+    require(builder.build(stream), "native retained 3D stream build failed");
+    return stream;
+}
 
 using progpu::native::tests::
     create_semantic_advanced_blend_scene_stream;
@@ -4478,6 +4541,36 @@ int main(int argc, char** argv) {
     require(progpu_native_engine_render(engine, &frame, &metrics) ==
         PROGPU_NATIVE_STATUS_SUCCESS,
         "post-blend baseline replay failed");
+    const auto native_3d_scene = create_native_3d_scene_stream();
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        native_3d_scene.data(),
+        native_3d_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "native retained 3D scene update failed");
+    progpu_native_scene_frame native_3d_frame{};
+    native_3d_frame.struct_size = sizeof(native_3d_frame);
+    native_3d_frame.width = 64U;
+    native_3d_frame.height = 48U;
+    native_3d_frame.dpi_scale = 1.0F;
+    native_3d_frame.target_view = reinterpret_cast<std::uintptr_t>(view);
+    native_3d_frame.clear_color = {0.01F, 0.02F, 0.04F, 1.0F};
+    native_3d_frame.scene_id = 793U;
+    native_3d_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &native_3d_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.command_count == 2U &&
+        semantic_metrics.draw_call_count == 2U,
+        "native retained 3D GPU execution failed");
+    require(progpu_native_engine_render(engine, &frame, &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS,
+        "post-3D capture baseline replay failed");
     std::uint64_t submission{};
     require(progpu_native_engine_get_last_submission(engine, &submission) ==
         PROGPU_NATIVE_STATUS_SUCCESS && submission != 0U,

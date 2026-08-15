@@ -530,6 +530,77 @@ bool ensure_semantic_layer_slot(
             "ProGPU semantic depth-indexed isolated layer");
 }
 
+bool ensure_semantic_depth_slot(
+    progpu_native_engine& engine,
+    semantic_layer_slot& slot,
+    std::uint32_t width,
+    std::uint32_t height,
+    const char* label) {
+    if (slot.depth_texture != nullptr && slot.depth_view != nullptr &&
+        slot.depth_width == width && slot.depth_height == height) {
+        return true;
+    }
+    WGPUTextureDescriptor descriptor{};
+    descriptor.label = ::progpu::native::webgpu::string_view(label);
+    descriptor.usage = WGPUTextureUsage_RenderAttachment;
+    descriptor.dimension = WGPUTextureDimension_2D;
+    descriptor.size = {width, height, 1U};
+    descriptor.format = WGPUTextureFormat_Depth24Plus;
+    descriptor.mipLevelCount = 1U;
+    descriptor.sampleCount = 1U;
+    WGPUTexture texture = wgpuDeviceCreateTexture(engine.device, &descriptor);
+    if (texture == nullptr) {
+        return false;
+    }
+    WGPUTextureView view = wgpuTextureCreateView(texture, nullptr);
+    if (view == nullptr) {
+        wgpuTextureDestroy(texture);
+        wgpuTextureRelease(texture);
+        return false;
+    }
+    if (slot.depth_view != nullptr) {
+        wgpuTextureViewRelease(slot.depth_view);
+    }
+    if (slot.depth_texture != nullptr) {
+        wgpuTextureDestroy(slot.depth_texture);
+        wgpuTextureRelease(slot.depth_texture);
+    }
+    slot.depth_texture = texture;
+    slot.depth_view = view;
+    slot.depth_width = width;
+    slot.depth_height = height;
+    ++engine.semantic_layer_allocation_count;
+    return true;
+}
+
+bool prepare_semantic_depth_resources(
+    progpu_native_engine& engine,
+    const semantic_layer_budget& budget,
+    std::uint32_t frame_width,
+    std::uint32_t frame_height) {
+    if (!ensure_semantic_depth_slot(
+            engine,
+            engine.semantic_root_slot,
+            frame_width,
+            frame_height,
+            "ProGPU semantic root 3D depth")) {
+        return false;
+    }
+    for (std::uint32_t index = 0U;
+         index < budget.peak_materialized_depth;
+         ++index) {
+        if (!ensure_semantic_depth_slot(
+                engine,
+                engine.semantic_layer_slots[index],
+                budget.slot_widths[index],
+                budget.slot_heights[index],
+                "ProGPU semantic isolated-layer 3D depth")) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool ensure_semantic_layer_vertex_buffer(
     progpu_native_engine& engine,
     std::uint64_t required_bytes) {

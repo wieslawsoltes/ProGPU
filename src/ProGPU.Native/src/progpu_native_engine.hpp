@@ -363,6 +363,13 @@ struct progpu_native_engine {
     semantic_path_page semantic_path_cache;
     semantic_glyph_page semantic_glyph_cache;
     semantic_image_page semantic_image_cache;
+    semantic_3d_page semantic_3d_cache;
+    WGPUShaderModule semantic_3d_shader = nullptr;
+    WGPURenderPipeline semantic_line_3d_pipeline = nullptr;
+    WGPURenderPipeline semantic_mesh_3d_pipeline = nullptr;
+    WGPURenderPipeline semantic_mesh_strip_3d_pipeline = nullptr;
+    WGPUBindGroupLayout semantic_3d_layout = nullptr;
+    WGPUPipelineLayout semantic_3d_pipeline_layout = nullptr;
     std::vector<semantic_render_bundle_span> semantic_render_bundle_spans;
     std::vector<semantic_effect_dispatch> semantic_effect_dispatches;
     std::array<semantic_layer_slot,
@@ -703,6 +710,54 @@ struct progpu_native_engine {
         page.draws.clear();
     }
 
+    void release_semantic_3d_resources() noexcept {
+        auto& page = semantic_3d_cache;
+        if (page.bind_group != nullptr) {
+            wgpuBindGroupRelease(page.bind_group);
+            page.bind_group = nullptr;
+        }
+        const auto release_buffer = [](WGPUBuffer& buffer) noexcept {
+            if (buffer != nullptr) {
+                wgpuBufferDestroy(buffer);
+                wgpuBufferRelease(buffer);
+                buffer = nullptr;
+            }
+        };
+        release_buffer(page.camera_buffer);
+        release_buffer(page.line_buffer);
+        release_buffer(page.mesh_buffer);
+        release_buffer(page.vertex_buffer);
+        release_buffer(page.index_buffer);
+        page.draws.clear();
+        page.mesh_topologies.clear();
+        page.mesh_index_counts.clear();
+        page.cache_valid = false;
+        if (semantic_mesh_strip_3d_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(semantic_mesh_strip_3d_pipeline);
+            semantic_mesh_strip_3d_pipeline = nullptr;
+        }
+        if (semantic_mesh_3d_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(semantic_mesh_3d_pipeline);
+            semantic_mesh_3d_pipeline = nullptr;
+        }
+        if (semantic_line_3d_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(semantic_line_3d_pipeline);
+            semantic_line_3d_pipeline = nullptr;
+        }
+        if (semantic_3d_pipeline_layout != nullptr) {
+            wgpuPipelineLayoutRelease(semantic_3d_pipeline_layout);
+            semantic_3d_pipeline_layout = nullptr;
+        }
+        if (semantic_3d_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(semantic_3d_layout);
+            semantic_3d_layout = nullptr;
+        }
+        if (semantic_3d_shader != nullptr) {
+            wgpuShaderModuleRelease(semantic_3d_shader);
+            semantic_3d_shader = nullptr;
+        }
+    }
+
     void release_semantic_render_bundle() noexcept {
         for (auto& span : semantic_render_bundle_spans) {
             if (span.advanced_blend_bind_group != nullptr) {
@@ -817,6 +872,15 @@ struct progpu_native_engine {
                 wgpuTextureRelease(slot.texture);
                 slot.texture = nullptr;
             }
+            if (slot.depth_view != nullptr) {
+                wgpuTextureViewRelease(slot.depth_view);
+                slot.depth_view = nullptr;
+            }
+            if (slot.depth_texture != nullptr) {
+                wgpuTextureDestroy(slot.depth_texture);
+                wgpuTextureRelease(slot.depth_texture);
+                slot.depth_texture = nullptr;
+            }
             if (slot.uniform_buffer != nullptr) {
                 wgpuBufferDestroy(slot.uniform_buffer);
                 wgpuBufferRelease(slot.uniform_buffer);
@@ -828,6 +892,8 @@ struct progpu_native_engine {
             slot.uniform_cache_valid = false;
             slot.width = 0U;
             slot.height = 0U;
+            slot.depth_width = 0U;
+            slot.depth_height = 0U;
             slot.effect_width = 0U;
             slot.effect_height = 0U;
             progpu::native::effects::invalidate_semantic_output_cache(
@@ -1029,6 +1095,7 @@ struct progpu_native_engine {
         release_semantic_layer_resources();
         release_semantic_image_page();
         release_semantic_analytic_page();
+        release_semantic_3d_resources();
         release_effect_resources();
         release_clip_resources();
         if (semantic_advanced_blend_layout != nullptr) {

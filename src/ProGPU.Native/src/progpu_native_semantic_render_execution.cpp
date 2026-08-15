@@ -1,5 +1,6 @@
 #include "progpu_native_frame_execution_common.hpp"
 #include "progpu_native_semantic_draw_execution.hpp"
+#include "progpu_native_3d_execution.hpp"
 
 namespace progpu::native::execution {
 
@@ -332,6 +333,7 @@ progpu_native_status render_scene(
     std::uint32_t semantic_path_draw_count = 0U;
     std::uint32_t semantic_glyph_draw_count = 0U;
     std::uint32_t semantic_image_draw_count = 0U;
+    std::uint32_t semantic_3d_draw_count = 0U;
     std::uint64_t semantic_analytic_vertex_bytes = 0U;
     std::uint64_t semantic_analytic_index_bytes = 0U;
     std::uint64_t semantic_path_count = 0U;
@@ -372,10 +374,19 @@ progpu_native_status render_scene(
             continue;
         }
         if (command.kind < PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
-            command.kind > PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH) {
+            command.kind >
+                PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) {
             continue;
         }
         if ((state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U) {
+            if (command.kind ==
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH ||
+                command.kind ==
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                    "Per-draw masks over native retained 3D commands require an isolated layer.");
+            }
             const auto mask_resource = read_resource(
                 state.mask_resource_index);
             std::uint32_t mask_kind = 0U;
@@ -950,6 +961,32 @@ progpu_native_status render_scene(
                 compiled_texture_bytes = resource.payload_size;
                 break;
             }
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH: {
+                valid = resource.kind ==
+                        PROGPU_NATIVE_SCENE_RESOURCE_LINE_3D_BATCH &&
+                    resource.payload_size != 0U &&
+                    span_is_multiple(resource.payload_size,
+                        sizeof(progpu_native_scene_line_3d)) &&
+                    command.payload_size ==
+                        sizeof(progpu_native_scene_camera_3d);
+                compiled_vertex_bytes = resource.payload_size +
+                    sizeof(progpu::native::three_d::camera_record);
+                break;
+            }
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH: {
+                valid = resource.kind ==
+                        PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH &&
+                    resource.payload_size != 0U &&
+                    resource.auxiliary_size != 0U &&
+                    span_is_multiple(resource.payload_size,
+                        sizeof(progpu_native_scene_mesh_3d)) &&
+                    command.payload_size ==
+                        sizeof(progpu_native_scene_camera_3d);
+                compiled_vertex_bytes = resource.payload_size +
+                    resource.auxiliary_size +
+                    sizeof(progpu::native::three_d::camera_record);
+                break;
+            }
             default:
                 break;
         }
@@ -974,6 +1011,12 @@ progpu_native_status render_scene(
                             : command.kind ==
                                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH
                                 ? "stroke-batch"
+                            : command.kind ==
+                                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH
+                                ? "line-3d-batch"
+                            : command.kind ==
+                                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH
+                                ? "mesh-3d-batch"
                                 : "geometry";
             const std::string detail = std::string("A typed semantic ") +
                 family + " scene resource payload is invalid.";
@@ -1034,6 +1077,11 @@ progpu_native_status render_scene(
                 (command.flags & PROGPU_NATIVE_SCENE_GLYPH_STYLED) != 0U;
         } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
             ++semantic_image_draw_count;
+        } else if (command.kind ==
+                PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH ||
+            command.kind ==
+                PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) {
+            ++semantic_3d_draw_count;
         }
         ++semantic_draw_count;
     }
@@ -2332,6 +2380,7 @@ progpu_native_status render_scene(
     std::uint32_t semantic_path_draw_index = 0U;
     std::uint32_t semantic_glyph_draw_index = 0U;
     std::uint32_t semantic_image_draw_index = 0U;
+    std::uint32_t semantic_3d_draw_index = 0U;
 
     const auto discard_encoder = [&]() noexcept {
         if (engine->semantic_encoder != nullptr) {
@@ -2653,6 +2702,31 @@ progpu_native_status render_scene(
             engine->image_uniform_cache_valid);
         uniform_upload_bytes += uploaded ? sizeof(gpu_uniforms) : 0U;
     }
+    std::uint64_t semantic_3d_upload_bytes = 0U;
+    if (semantic_3d_draw_count != 0U) {
+        const auto status = compile_semantic_3d_page(
+            *engine,
+            bytes,
+            header,
+            *frame,
+            semantic_3d_draw_count,
+            semantic_3d_upload_bytes);
+        if (status != PROGPU_NATIVE_STATUS_SUCCESS) {
+            discard_encoder();
+            return status;
+        }
+        if (!prepare_semantic_depth_resources(
+                *engine,
+                layer_budget,
+                frame->width,
+                frame->height)) {
+            discard_encoder();
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The native retained 3D depth targets could not be prepared.");
+        }
+        vertex_upload_bytes += semantic_3d_upload_bytes;
+    }
     if (semantic_has_materialized_layers) {
         const std::uint32_t semantic_layer_quad_count =
             semantic_materialized_layer_count +
@@ -2735,6 +2809,9 @@ progpu_native_status render_scene(
             "ProGPU retained semantic mixed-scene bundle encoder");
         bundle_descriptor.colorFormatCount = 1U;
         bundle_descriptor.colorFormats = &engine->target_format;
+        bundle_descriptor.depthStencilFormat = semantic_3d_draw_count != 0U
+            ? WGPUTextureFormat_Depth24Plus
+            : WGPUTextureFormat_Undefined;
         bundle_descriptor.sampleCount = 1U;
         std::vector<semantic_render_bundle_span> compiled_spans;
         std::vector<semantic_effect_dispatch> compiled_effect_dispatches;
@@ -3279,7 +3356,7 @@ progpu_native_status render_scene(
             if (command.kind <
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
                 command.kind >
-                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH) {
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) {
                 continue;
             }
             const auto scissor = resolve_semantic_target_scissor(
@@ -3485,6 +3562,23 @@ progpu_native_status render_scene(
                     }
                     break;
                 }
+                case PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH:
+                case PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH: {
+                    if (semantic_3d_draw_index >=
+                        engine->semantic_3d_cache.draws.size()) {
+                        return fail_bundle(engine->fail(
+                            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                            "The semantic retained 3D packed-page index is invalid."));
+                    }
+                    const auto draw_index = semantic_3d_draw_index++;
+                    if (scissor.drawable) {
+                        status = encode_semantic_3d_bundle_draw(
+                            *engine,
+                            bundle_encoder,
+                            engine->semantic_3d_cache.draws[draw_index]);
+                    }
+                    break;
+                }
                 default:
                     break;
             }
@@ -3516,7 +3610,8 @@ progpu_native_status render_scene(
                 semantic_analytic_draw_count ||
             semantic_path_draw_index != semantic_path_draw_count ||
             semantic_glyph_draw_index != semantic_glyph_draw_count ||
-            semantic_image_draw_index != semantic_image_draw_count) {
+            semantic_image_draw_index != semantic_image_draw_count ||
+            semantic_3d_draw_index != semantic_3d_draw_count) {
             return fail_bundle(engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "A semantic packed-page draw count is inconsistent."));
@@ -3629,6 +3724,16 @@ progpu_native_status render_scene(
             "ProGPU retained semantic bundle replay pass");
         pass_descriptor.colorAttachmentCount = 1U;
         pass_descriptor.colorAttachments = &color_attachment;
+        WGPURenderPassDepthStencilAttachment depth_attachment{};
+        if (semantic_3d_draw_count != 0U) {
+            depth_attachment.view = engine->semantic_root_slot.depth_view;
+            depth_attachment.depthLoadOp = WGPULoadOp_Clear;
+            depth_attachment.depthStoreOp = WGPUStoreOp_Store;
+            depth_attachment.depthClearValue = 1.0F;
+            depth_attachment.stencilLoadOp = WGPULoadOp_Undefined;
+            depth_attachment.stencilStoreOp = WGPUStoreOp_Undefined;
+            pass_descriptor.depthStencilAttachment = &depth_attachment;
+        }
         pass = wgpuCommandEncoderBeginRenderPass(
             engine->semantic_encoder,
             &pass_descriptor);
@@ -3676,6 +3781,17 @@ progpu_native_status render_scene(
                 ? engine->semantic_layer_slots[target_layer].view
                 : nullptr;
         };
+        const auto target_depth_view = [&](std::uint32_t target_layer) {
+            if (semantic_3d_draw_count == 0U) {
+                return static_cast<WGPUTextureView>(nullptr);
+            }
+            if (target_layer == PROGPU_NATIVE_SCENE_NO_INDEX) {
+                return engine->semantic_root_slot.depth_view;
+            }
+            return target_layer < engine->semantic_layer_slots.size()
+                ? engine->semantic_layer_slots[target_layer].depth_view
+                : nullptr;
+        };
         const auto begin_pass = [&](
             std::uint32_t target_layer,
             WGPULoadOp load_op) {
@@ -3702,6 +3818,16 @@ progpu_native_status render_scene(
                 "ProGPU retained semantic isolated-layer replay pass");
             pass_descriptor.colorAttachmentCount = 1U;
             pass_descriptor.colorAttachments = &color_attachment;
+            WGPURenderPassDepthStencilAttachment depth_attachment{};
+            depth_attachment.view = target_depth_view(target_layer);
+            if (depth_attachment.view != nullptr) {
+                depth_attachment.depthLoadOp = load_op;
+                depth_attachment.depthStoreOp = WGPUStoreOp_Store;
+                depth_attachment.depthClearValue = 1.0F;
+                depth_attachment.stencilLoadOp = WGPULoadOp_Undefined;
+                depth_attachment.stencilStoreOp = WGPUStoreOp_Undefined;
+                pass_descriptor.depthStencilAttachment = &depth_attachment;
+            }
             pass = wgpuCommandEncoderBeginRenderPass(
                 engine->semantic_encoder,
                 &pass_descriptor);

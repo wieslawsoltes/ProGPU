@@ -17,6 +17,7 @@ struct semantic_content_hashes final {
     std::uint64_t path = 0U;
     std::uint64_t glyph = 0U;
     std::uint64_t image = 0U;
+    std::uint64_t three_d = 0U;
 };
 
 semantic_content_hashes compute_content_hashes(

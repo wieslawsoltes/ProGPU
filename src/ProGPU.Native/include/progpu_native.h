@@ -974,13 +974,15 @@ typedef struct progpu_native_scene_camera_3d {
 typedef struct progpu_native_scene_line_3d {
     uint32_t struct_size;
     uint32_t flags;
+    uint32_t reserved0;
+    uint32_t reserved1;
     progpu_native_point_3d start;
     progpu_native_point_3d end;
     progpu_native_color color;
     float thickness;
     float opacity;
-    uint32_t reserved0;
-    uint32_t reserved1;
+    uint32_t reserved2;
+    uint32_t reserved3;
     progpu_native_matrix_4x4 transform;
 } progpu_native_scene_line_3d;
 

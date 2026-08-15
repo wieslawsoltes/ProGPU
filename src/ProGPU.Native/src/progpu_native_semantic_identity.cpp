@@ -46,7 +46,11 @@ bool is_analytic_resource(std::uint32_t kind) noexcept {
         kind == PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH ||
         kind == PROGPU_NATIVE_SCENE_RESOURCE_POINT_BATCH ||
         kind == PROGPU_NATIVE_SCENE_RESOURCE_VERTEX_MESH ||
-        kind == PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH ||
+        kind == PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH;
+}
+
+bool is_3d_resource(std::uint32_t kind) noexcept {
+    return
         kind == PROGPU_NATIVE_SCENE_RESOURCE_LINE_3D_BATCH ||
         kind == PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH;
 }
@@ -86,6 +90,7 @@ semantic_content_hashes compute_content_hashes(
     std::uint64_t paths = fnv_offset;
     std::uint64_t glyphs = fnv_offset;
     std::uint64_t images = fnv_offset;
+    std::uint64_t three_d = fnv_offset;
     for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
         const std::size_t offset = header.resource_offset +
             static_cast<std::size_t>(index) * header.resource_stride;
@@ -107,6 +112,8 @@ semantic_content_hashes compute_content_hashes(
             glyphs = append_identity(glyphs, resource);
         } else if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE) {
             images = append_identity(images, resource);
+        } else if (is_3d_resource(resource.kind)) {
+            three_d = append_identity(three_d, resource);
         }
     }
 
@@ -130,6 +137,7 @@ semantic_content_hashes compute_content_hashes(
     result.glyph = finish(append_fnv1a64(
         result.glyph, &styles, sizeof(styles)));
     result.image = combine(fnv_offset ^ 0x06U, images);
+    result.three_d = combine(fnv_offset ^ 0x07U, three_d);
     return result;
 }
 

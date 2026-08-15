@@ -103,6 +103,78 @@ struct semantic_image_page {
     std::vector<semantic_image_draw> draws;
 };
 
+namespace progpu::native::three_d {
+
+struct alignas(16) camera_record {
+    progpu_native_matrix_4x4 projection{};
+    progpu_native_matrix_4x4 view{};
+    float camera_position[4]{};
+    float viewport[4]{};
+};
+
+struct alignas(16) line_record {
+    float start[4]{};
+    float end[4]{};
+    progpu_native_color color{};
+    float thickness = 0.0F;
+    float opacity = 0.0F;
+    std::uint32_t camera_index = 0U;
+    std::uint32_t flags = 0U;
+    progpu_native_matrix_4x4 transform{};
+};
+
+struct alignas(16) mesh_record {
+    std::uint32_t flags = 0U;
+    std::uint32_t topology = 0U;
+    std::uint32_t render_mode = 0U;
+    std::uint32_t camera_index = 0U;
+    std::uint32_t vertex_offset = 0U;
+    std::uint32_t vertex_count = 0U;
+    std::uint32_t index_offset = 0U;
+    std::uint32_t index_count = 0U;
+    progpu_native_matrix_4x4 model_transform{};
+    progpu_native_matrix_4x4 normal_transform{};
+    progpu_native_color color{};
+    progpu_native_float_4 light_direction{};
+    progpu_native_float_4 ambient_color{};
+    progpu_native_float_4 specular_color{};
+    progpu_native_float_4 material_ambient{};
+    float opacity = 0.0F;
+    std::uint32_t shading_mode = 0U;
+    std::uint32_t reserved0 = 0U;
+    std::uint32_t reserved1 = 0U;
+};
+
+static_assert(sizeof(camera_record) == 160U);
+static_assert(sizeof(line_record) == 128U);
+static_assert(sizeof(mesh_record) == 256U);
+static_assert(sizeof(progpu_native_scene_mesh_3d_vertex) == 48U);
+
+} // namespace progpu::native::three_d
+
+struct semantic_3d_draw {
+    std::uint32_t kind = 0U;
+    std::uint32_t first_record = 0U;
+    std::uint32_t record_count = 0U;
+};
+
+struct semantic_3d_page {
+    WGPUBuffer camera_buffer = nullptr;
+    WGPUBuffer line_buffer = nullptr;
+    WGPUBuffer mesh_buffer = nullptr;
+    WGPUBuffer vertex_buffer = nullptr;
+    WGPUBuffer index_buffer = nullptr;
+    WGPUBindGroup bind_group = nullptr;
+    std::uint64_t scene_hash = 0U;
+    float dpi_scale = 0.0F;
+    std::uint32_t target_width = 0U;
+    std::uint32_t target_height = 0U;
+    bool cache_valid = false;
+    std::vector<semantic_3d_draw> draws;
+    std::vector<std::uint32_t> mesh_topologies;
+    std::vector<std::uint32_t> mesh_index_counts;
+};
+
 enum class semantic_replay_kind : std::uint8_t {
     bundle,
     push_layer,
@@ -163,6 +235,10 @@ struct semantic_render_bundle_span {
 struct semantic_layer_slot {
     WGPUTexture texture = nullptr;
     WGPUTextureView view = nullptr;
+    WGPUTexture depth_texture = nullptr;
+    WGPUTextureView depth_view = nullptr;
+    std::uint32_t depth_width = 0U;
+    std::uint32_t depth_height = 0U;
     WGPUBindGroup bind_group = nullptr;
     WGPUBuffer uniform_buffer = nullptr;
     WGPUBindGroup analytic_uniform_bind_group = nullptr;

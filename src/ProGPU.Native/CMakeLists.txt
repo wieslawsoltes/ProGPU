@@ -78,6 +78,9 @@ set(PROGPU_NATIVE_GROUP_BLEND_SHADER
 set(PROGPU_NATIVE_ADVANCED_BLEND_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/AdvancedBlend.wgsl"
     CACHE FILEPATH "Shared ProGPU destination-aware blend shader source")
+set(PROGPU_NATIVE_3D_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Scene/Shaders/Native3D.wgsl"
+    CACHE FILEPATH "Shared ProGPU native retained 3D shader source")
 option(PROGPU_NATIVE_BUILD_SAMPLE "Build the live headless WebGPU sample" ON)
 option(PROGPU_NATIVE_BUILD_WGPU_TARGET
     "Build the directly linked pinned wgpu-native renderer" ON)
@@ -154,6 +157,9 @@ if(NOT EXISTS "${PROGPU_NATIVE_GROUP_BLEND_SHADER}")
 endif()
 if(NOT EXISTS "${PROGPU_NATIVE_ADVANCED_BLEND_SHADER}")
     message(FATAL_ERROR "The shared ProGPU advanced-blend shader source is missing")
+endif()
+if(NOT EXISTS "${PROGPU_NATIVE_3D_SHADER}")
+    message(FATAL_ERROR "The shared ProGPU Native3D.wgsl source is missing")
 endif()
 
 set(generated_directory "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -311,6 +317,20 @@ add_custom_command(
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU advanced-blend shader"
     VERBATIM)
+set(generated_native_3d_shader
+    "${generated_directory}/Native3DWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_native_3d_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_3D_SHADER}"
+        "-DOUTPUT=${generated_native_3d_shader}"
+        "-DSYMBOL=native_3d_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_3D_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the shared ProGPU Native3D.wgsl shader"
+    VERBATIM)
 
 # All renderer variants include the same generated headers. Model generation
 # as one target so multi-config generators cannot race two custom commands
@@ -327,7 +347,8 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_gaussian_blur_vertical_shader}"
         "${generated_group_drop_shadow_compose_shader}"
         "${generated_group_blend_shader}"
-        "${generated_advanced_blend_shader}")
+        "${generated_advanced_blend_shader}"
+        "${generated_native_3d_shader}")
 
 set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_native_advanced_blend_execution.cpp
@@ -355,6 +376,8 @@ set(PROGPU_NATIVE_RENDERER_SOURCES
     src/progpu_native_image_execution.cpp
     src/progpu_native_image_layer_resources.cpp
     src/progpu_native_layer_resource_execution.cpp
+    src/progpu_native_3d_execution.cpp
+    src/progpu_native_3d_execution.hpp
     src/progpu_native_effect_execution.cpp
     src/progpu_native_layer_composite_execution.cpp
     src/progpu_native_path_text_resources.cpp
@@ -683,9 +706,12 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
             find_library(PROGPU_NATIVE_IOSURFACE_FRAMEWORK IOSurface REQUIRED)
             target_link_libraries(progpu_native_webscene_provider_tests PRIVATE
                 progpu_native_dawn
+                progpu_native_scene_builder
                 "${PROGPU_NATIVE_IOSURFACE_FRAMEWORK}"
                 "${CMAKE_DL_LIBS}")
             progpu_native_enable_warnings(
+                progpu_native_webscene_provider_tests)
+            progpu_native_enable_sanitizers(
                 progpu_native_webscene_provider_tests)
             add_test(
                 NAME progpu_native_webscene_provider_tests
