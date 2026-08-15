@@ -36,7 +36,28 @@ required_entries=(
   runtimes/win-arm64/native/progpu_native_dawn.dll
   build/native/include/progpu_native.h
   build/native/include/progpu_native_dawn.h
+  build/native/include/progpu_native_compression.hpp
+  build/native/include/progpu_native_image.hpp
+  build/native/include/progpu_native_scene_builder.hpp
+  build/native/include/progpu_native_text.hpp
+  build/native/modules/progpu_native_compression.cppm
+  build/native/modules/progpu_native_image.cppm
+  build/native/modules/progpu_native_scene_builder.cppm
+  build/native/modules/progpu_native_text.cppm
+  build/native/cmake/ProGPUNativeConfig.cmake
 )
+for rid in linux-x64 linux-arm64 osx-x64 osx-arm64; do
+  for library in compression image text scene_builder; do
+    required_entries+=(
+      "runtimes/${rid}/native/sdk/libprogpu_native_${library}.a")
+  done
+done
+for rid in win-x64 win-arm64; do
+  for library in compression image text scene_builder; do
+    required_entries+=(
+      "runtimes/${rid}/native/sdk/progpu_native_${library}.lib")
+  done
+done
 for entry in "${required_entries[@]}"; do
   if ! unzip -Z1 "${package}" | grep -Fx "${entry}" >/dev/null; then
     echo "Native backend package is missing ${entry}." >&2
@@ -59,4 +80,18 @@ NUGET_PACKAGES="${consumer_packages}" dotnet run \
   -p:ProGpuNativePackageSource="${package_output}" \
   -p:ProGpuNativePackageVersion="${package_version}"
 
-echo "Verified ProGPU.Backend.Native ${package_version} package contents and runtime consumer."
+native_consumer_root="$(mktemp -d /tmp/progpu-native-cpp-consumer.XXXXXX)"
+cleanup_native_consumer() {
+  rm -rf "${native_consumer_root}"
+}
+trap 'cleanup_consumer_packages; cleanup_native_consumer' EXIT
+unzip -q "${package}" -d "${native_consumer_root}/package"
+cmake -S "${repo_root}/tests/ProGPU.Native.CppPackageConsumer" \
+  -B "${native_consumer_root}/build" \
+  -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DProGPUNative_DIR="${native_consumer_root}/package/build/native/cmake"
+cmake --build "${native_consumer_root}/build" --parallel
+"${native_consumer_root}/build/progpu_native_cpp_package_consumer"
+
+echo "Verified ProGPU.Backend.Native ${package_version} package contents and .NET/C++ consumers."

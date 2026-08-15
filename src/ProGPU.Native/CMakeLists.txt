@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.28)
 project(ProGPUNative LANGUAGES CXX)
 
 include(CTest)
+include(GNUInstallDirs)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -979,4 +980,28 @@ if(PROGPU_NATIVE_BUILD_SAMPLE AND NOT EMSCRIPTEN AND PROGPU_NATIVE_BUILD_WGPU_TA
         set_target_properties(progpu_native_sample PROPERTIES
             BUILD_RPATH "${webgpu_library_directory}")
     endif()
+endif()
+
+if(NOT EMSCRIPTEN)
+    install(TARGETS
+        progpu_native_compression
+        progpu_native_image
+        progpu_native_text
+        progpu_native_scene_builder
+        ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+    install(FILES
+        include/progpu_native.h
+        include/progpu_native_compression.hpp
+        include/progpu_native_image.hpp
+        include/progpu_native_scene_builder.hpp
+        include/progpu_native_text.hpp
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+    install(FILES
+        src/progpu_native_compression.cppm
+        src/progpu_native_image.cppm
+        src/progpu_native_scene_builder.cppm
+        src/progpu_native_text.cppm
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/progpu/modules")
+    install(FILES cmake/ProGPUNativeConfig.cmake
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/ProGPUNative")
 endif()

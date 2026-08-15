@@ -38,9 +38,27 @@ if [[ ! -f "${source_library}" || ! -f "${dawn_library}" ]]; then
   exit 1
 fi
 
+sdk_libraries=(
+  libprogpu_native_compression.a
+  libprogpu_native_image.a
+  libprogpu_native_text.a
+  libprogpu_native_scene_builder.a
+)
+for sdk_library in "${sdk_libraries[@]}"; do
+  if [[ ! -f "${build_dir}/${sdk_library}" ]]; then
+    echo "Native C++ SDK build output is missing: ${build_dir}/${sdk_library}" >&2
+    exit 1
+  fi
+done
+
 destination="${package_root}/runtimes/${rid}/native"
+sdk_destination="${destination}/sdk"
 mkdir -p "${destination}"
+mkdir -p "${sdk_destination}"
 cp "${source_library}" "${destination}/$(basename "${source_library}")"
 cp "${dawn_library}" "${destination}/$(basename "${dawn_library}")"
+for sdk_library in "${sdk_libraries[@]}"; do
+  cp "${build_dir}/${sdk_library}" "${sdk_destination}/${sdk_library}"
+done
 
-echo "Staged ProGPU native renderer for ${rid}: ${destination}"
+echo "Staged ProGPU native renderer and C++ SDK for ${rid}: ${destination}"

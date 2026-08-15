@@ -205,6 +205,21 @@ if (-not $SkipExtendedIntegration) {
     }
     Copy-Item $NativeDll (Join-Path $PackageStage "progpu_native.dll") -Force
     Copy-Item $DawnDll (Join-Path $PackageStage "progpu_native_dawn.dll") -Force
+    $SdkPackageStage = Join-Path $PackageStage "sdk"
+    New-Item -ItemType Directory -Force -Path $SdkPackageStage | Out-Null
+    $SdkLibraries = @(
+        "progpu_native_compression.lib",
+        "progpu_native_image.lib",
+        "progpu_native_text.lib",
+        "progpu_native_scene_builder.lib"
+    )
+    foreach ($SdkLibraryName in $SdkLibraries) {
+        $SdkLibrary = Join-Path $BinaryDirectory $SdkLibraryName
+        if (-not (Test-Path $SdkLibrary)) {
+            throw "The native C++ SDK library was not produced: $SdkLibrary"
+        }
+        Copy-Item $SdkLibrary (Join-Path $SdkPackageStage $SdkLibraryName) -Force
+    }
     $NativePdb = Join-Path $BinaryDirectory "progpu_native.pdb"
     $DawnPdb = Join-Path $BinaryDirectory "progpu_native_dawn.pdb"
     if ((Test-Path $NativePdb) -or (Test-Path $DawnPdb)) {

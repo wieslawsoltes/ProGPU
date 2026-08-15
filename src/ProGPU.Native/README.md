@@ -587,6 +587,19 @@ reads back and checks known pixels, and uploads both the PPM capture and a
 provider hardware gate runs separately on macOS arm64 because that provider
 revision currently exposes Metal/IOSurface.
 
+The same package is also the standalone C++20 SDK distribution. It contains
+the public compression, image, text, and retained-scene headers, the four thin
+named-module interface sources, and their static libraries under each desktop
+RID. `find_package(ProGPUNative CONFIG REQUIRED)` exposes
+`ProGPU::native_compression`, `ProGPU::native_image`, `ProGPU::native_text`, and
+`ProGPU::native_scene_builder`; the target graph carries the required
+transitive libraries and C++20 feature. Compiled module artifacts are never
+shipped because they are compiler-specific. The package gate extracts the
+NuGet into an isolated directory, configures a source-independent CMake
+consumer, links a scene builder, and executes a pointer-free scene build.
+Ordinary `cmake --install` produces the equivalent include/lib/CMake/module
+layout for consumers that do not use NuGet.
+
 Build the provider-resolved mobile C++ adapter without linking a private Dawn
 copy:
 

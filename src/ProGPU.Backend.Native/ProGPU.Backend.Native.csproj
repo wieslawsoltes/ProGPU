@@ -6,7 +6,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
     <IsPackable>true</IsPackable>
-    <PackageDescription>Typed zero-copy .NET host for the isolated wgpu-native and provider-resolved Dawn ProGPU C++ renderers.</PackageDescription>
+    <PackageDescription>Typed zero-copy .NET host plus standalone C++20 SDK for the isolated wgpu-native and provider-resolved Dawn ProGPU renderers.</PackageDescription>
     <PackageTags>progpu;native;c++;webgpu;renderer;interop</PackageTags>
     <ProGpuNativeRuntimeRoot Condition="'$(ProGpuNativeRuntimeRoot)' == ''">$(MSBuildThisFileDirectory)..\..\artifacts\progpu-native\package</ProGpuNativeRuntimeRoot>
   </PropertyGroup>
@@ -22,13 +22,17 @@
           Pack="true"
           PackagePath="%(RecursiveDir)%(Filename)%(Extension)"
           Visible="false" />
-    <None Include="..\ProGPU.Native\include\progpu_native.h"
+    <None Include="..\ProGPU.Native\include\*"
           Pack="true"
-          PackagePath="build\native\include\progpu_native.h"
+          PackagePath="build\native\include\%(Filename)%(Extension)"
           Visible="false" />
-    <None Include="..\ProGPU.Native\include\progpu_native_dawn.h"
+    <None Include="..\ProGPU.Native\src\*.cppm"
           Pack="true"
-          PackagePath="build\native\include\progpu_native_dawn.h"
+          PackagePath="build\native\modules\%(Filename)%(Extension)"
+          Visible="false" />
+    <None Include="..\ProGPU.Native\cmake\ProGPUNativeConfig.cmake"
+          Pack="true"
+          PackagePath="build\native\cmake\ProGPUNativeConfig.cmake"
           Visible="false" />
   </ItemGroup>
   <Target Name="ValidateProGpuNativePackageRuntimes"

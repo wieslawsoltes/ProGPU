@@ -2205,6 +2205,15 @@ dependency. The Android/iOS Dawn host supplies a live instance/device/queue and
 a procedure resolver through the typed .NET `NativeDawnAdapter`. OS decoder
 handles and producer fences remain owned by the Dawn platform assembly.
 
+The desktop package also carries the standalone C++20 construction SDK:
+public compression/image/text/scene-builder headers, portable module interface
+sources, and matching static libraries per RID. Its CMake configuration maps
+the active platform and architecture to the exact packaged archive and exports
+typed transitive targets. CI must extract the final NuGet and build/run a CMake
+consumer without referencing the ProGPU source tree; a regular CMake install
+must expose the same target graph. Compiler-specific BMIs are intentionally
+excluded from the distribution.
+
 The package gate produces `ProGPU.Backend`, `ProGPU.Backend.Dawn`, and
 `ProGPU.Backend.Native` at one exact version. The native package declares both
 managed dependencies explicitly. Its ordinary six-RID consumer exercises the
