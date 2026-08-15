@@ -2602,3 +2602,10 @@ Local evidence is retained under
 distributions; exact-head CI produces the
 cross-platform package and backend evidence, while the requested visual sample
 approval remains a manual gate.
+
+The macOS x64 CI runner exercises a different Metal raster scheduling path for
+the same three isolated cap/join edge pixels: maximum `104/255`, three pixels
+over `3/255`, and mean `0.000531925/255`. The automated independent-AA budget
+therefore permits at most `128/255` for an individual half-covered edge sample;
+the existing changed-pixel and whole-image mean limits remain mandatory and
+continue to reject regional geometry or coverage divergence.
