@@ -3194,6 +3194,22 @@ public class NativeRendererInteropTests
             @"..\ProGPU.Native\include\*",
             packageProject,
             StringComparison.Ordinal);
+        Assert.Contains(
+            @"..\ProGPU.Native\src\Compression\progpu_native_compression.cppm",
+            packageProject,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            @"..\ProGPU.Native\src\Image\progpu_native_image.cppm",
+            packageProject,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            @"..\ProGPU.Native\src\Scene\Builder\progpu_native_scene_builder.cppm",
+            packageProject,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            @"..\ProGPU.Native\src\Text\progpu_native_text.cppm",
+            packageProject,
+            StringComparison.Ordinal);
         Assert.True(File.Exists(dawnHeaderPath));
         Assert.Contains(
             "progpu_native_webscene_provider_tests",
