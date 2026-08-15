@@ -78,7 +78,24 @@ public static partial class GpuPictureNativeSceneCompiler
         GpuTexture Texture,
         NativeSceneImageDraw Draw,
         NativeSceneImageSamplingOptions SamplingOptions,
-        bool HasSamplingOptions);
+        bool HasSamplingOptions,
+        NativeSceneImageColorMatrix ColorMatrix,
+        bool HasColorMatrix);
+
+    private readonly record struct AffineColorTransform(
+        Vector4 Red,
+        Vector4 Green,
+        Vector4 Blue,
+        Vector4 Alpha,
+        Vector4 Offset)
+    {
+        public static AffineColorTransform Identity => new(
+            Vector4.UnitX,
+            Vector4.UnitY,
+            Vector4.UnitZ,
+            Vector4.UnitW,
+            Vector4.Zero);
+    }
 
     private readonly record struct StateSnapshot(
         float Opacity,
@@ -1183,6 +1200,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     out error);
             case RenderCommandType.DrawTexture:
                 return TryAppendExternalImage(
+                    picture,
                     command,
                     transform,
                     externalImages,
@@ -2654,6 +2672,7 @@ public static partial class GpuPictureNativeSceneCompiler
     }
 
     private static bool TryAppendExternalImage(
+        GpuPicture picture,
         in RenderCommand command,
         Matrix3x2 transform,
         List<ExternalImageDraw> externalImages,
@@ -2666,7 +2685,7 @@ public static partial class GpuPictureNativeSceneCompiler
             texture.AlphaMode != GpuTextureAlphaMode.Straight ||
             texture.Width == 0U || texture.Height == 0U ||
             texture.Width > 16_384U || texture.Height > 16_384U ||
-            command.TexturePatches is not null || command.HasImageEffect ||
+            command.TexturePatches is not null ||
             command.SnapTextureToPixels || !IsFiniteRect(command.Rect) ||
             command.Rect.Width <= 0f || command.Rect.Height <= 0f)
         {
@@ -2715,6 +2734,27 @@ public static partial class GpuPictureNativeSceneCompiler
             return false;
         }
 
+        NativeSceneImageColorMatrix colorMatrix = default;
+        bool hasColorMatrix = false;
+        if (command.HasImageEffect)
+        {
+            ImageEffectCommandData effect = command.ResolveImageEffect(picture);
+            bool affineOnly = effect.BlurSigma == 0f &&
+                effect.MaskTexture is null &&
+                !effect.LuminanceToAlpha && effect.ChromaTexture is null &&
+                !effect.YuvConversion.HasValue &&
+                !effect.SphericalProjection.HasValue;
+            if (!affineOnly ||
+                !TryCreateAffineImageColorMatrix(
+                    in effect,
+                    out colorMatrix))
+            {
+                error = NativePictureCompileError.UnsupportedCommand;
+                return false;
+            }
+            hasColorMatrix = true;
+        }
+
         var draw = new NativeSceneImageDraw(
             texture.Width,
             texture.Height,
@@ -2731,13 +2771,18 @@ public static partial class GpuPictureNativeSceneCompiler
                 command.Rect.Width,
                 command.Rect.Height),
             transform,
-            1f);
+            1f,
+            hasColorMatrix
+                ? NativeSceneImageFlags.ColorMatrix
+                : NativeSceneImageFlags.None);
         int drawIndex = externalImages.Count;
         externalImages.Add(new(
             texture,
             draw,
             new NativeSceneImageSamplingOptions(cubic.X, cubic.Y),
-            sampling == NativeImageSampling.Cubic));
+            sampling == NativeImageSampling.Cubic,
+            colorMatrix,
+            hasColorMatrix));
         batches.Add(new Batch
         {
             Kind = BatchKind.Image,
@@ -2758,6 +2803,18 @@ public static partial class GpuPictureNativeSceneCompiler
         in ExternalImageDraw image)
     {
         NativeSceneImageDraw draw = image.Draw;
+        if (image.HasSamplingOptions && image.HasColorMatrix)
+        {
+            NativeSceneImageSamplingOptions sampling = image.SamplingOptions;
+            NativeSceneImageColorMatrix colorMatrix = image.ColorMatrix;
+            return builder.TryDrawImage(
+                commandId,
+                resourceIndex,
+                bounds,
+                in draw,
+                in sampling,
+                in colorMatrix);
+        }
         if (image.HasSamplingOptions)
         {
             NativeSceneImageSamplingOptions sampling = image.SamplingOptions;
@@ -2767,6 +2824,16 @@ public static partial class GpuPictureNativeSceneCompiler
                 bounds,
                 in draw,
                 in sampling);
+        }
+        if (image.HasColorMatrix)
+        {
+            NativeSceneImageColorMatrix colorMatrix = image.ColorMatrix;
+            return builder.TryDrawImage(
+                commandId,
+                resourceIndex,
+                bounds,
+                in draw,
+                in colorMatrix);
         }
         return builder.TryDrawImage(
             commandId,
@@ -2801,6 +2868,136 @@ public static partial class GpuPictureNativeSceneCompiler
         }
         return bindings;
     }
+
+    private static bool TryCreateAffineImageColorMatrix(
+        in ImageEffectCommandData effect,
+        out NativeSceneImageColorMatrix result)
+    {
+        result = default;
+        if (!float.IsFinite(effect.Brightness) ||
+            !float.IsFinite(effect.Contrast) ||
+            !float.IsFinite(effect.Saturation) ||
+            !float.IsFinite(effect.Grayscale) ||
+            !float.IsFinite(effect.Sepia) ||
+            !float.IsFinite(effect.Invert))
+        {
+            return false;
+        }
+
+        float contrast = effect.Contrast;
+        float rgbOffset = effect.Brightness * contrast +
+            0.5f - 0.5f * contrast;
+        AffineColorTransform transform = ComposeColorTransforms(
+            AffineColorTransform.Identity,
+            new(
+                Vector4.UnitX * contrast,
+                Vector4.UnitY * contrast,
+                Vector4.UnitZ * contrast,
+                Vector4.UnitW,
+                new Vector4(rgbOffset, rgbOffset, rgbOffset, 0f)));
+
+        const float luminanceRed = 0.2126f;
+        const float luminanceGreen = 0.7152f;
+        const float luminanceBlue = 0.0722f;
+        float identityWeight =
+            (1f - effect.Grayscale) * effect.Saturation;
+        float luminanceWeight =
+            (1f - effect.Grayscale) * (1f - effect.Saturation) +
+            effect.Grayscale;
+        Vector4 luminance = new(
+            luminanceRed * luminanceWeight,
+            luminanceGreen * luminanceWeight,
+            luminanceBlue * luminanceWeight,
+            0f);
+        transform = ComposeColorTransforms(
+            transform,
+            new(
+                luminance + Vector4.UnitX * identityWeight,
+                luminance + Vector4.UnitY * identityWeight,
+                luminance + Vector4.UnitZ * identityWeight,
+                Vector4.UnitW,
+                Vector4.Zero));
+
+        float sepia = effect.Sepia;
+        float retain = 1f - sepia;
+        transform = ComposeColorTransforms(
+            transform,
+            new(
+                Vector4.UnitX * retain +
+                    new Vector4(0.393f, 0.769f, 0.189f, 0f) * sepia,
+                Vector4.UnitY * retain +
+                    new Vector4(0.349f, 0.686f, 0.168f, 0f) * sepia,
+                Vector4.UnitZ * retain +
+                    new Vector4(0.272f, 0.534f, 0.131f, 0f) * sepia,
+                Vector4.UnitW,
+                Vector4.Zero));
+
+        float invertScale = 1f - 2f * effect.Invert;
+        transform = ComposeColorTransforms(
+            transform,
+            new(
+                Vector4.UnitX * invertScale,
+                Vector4.UnitY * invertScale,
+                Vector4.UnitZ * invertScale,
+                Vector4.UnitW,
+                new Vector4(
+                    effect.Invert,
+                    effect.Invert,
+                    effect.Invert,
+                    0f)));
+
+        if (effect.ColorMatrix is { } matrix)
+        {
+            transform = ComposeColorTransforms(
+                transform,
+                new(
+                    matrix.Red,
+                    matrix.Green,
+                    matrix.Blue,
+                    matrix.Alpha,
+                    matrix.Offset));
+        }
+        if (!IsFiniteBounded(transform.Red) ||
+            !IsFiniteBounded(transform.Green) ||
+            !IsFiniteBounded(transform.Blue) ||
+            !IsFiniteBounded(transform.Alpha) ||
+            !IsFiniteBounded(transform.Offset))
+        {
+            return false;
+        }
+        result = new NativeSceneImageColorMatrix(
+            transform.Red,
+            transform.Green,
+            transform.Blue,
+            transform.Alpha,
+            transform.Offset);
+        return true;
+    }
+
+    private static AffineColorTransform ComposeColorTransforms(
+        AffineColorTransform current,
+        AffineColorTransform next)
+    {
+        Vector4 TransformRow(Vector4 row) =>
+            current.Red * row.X + current.Green * row.Y +
+            current.Blue * row.Z + current.Alpha * row.W;
+        return new(
+            TransformRow(next.Red),
+            TransformRow(next.Green),
+            TransformRow(next.Blue),
+            TransformRow(next.Alpha),
+            new Vector4(
+                Vector4.Dot(next.Red, current.Offset),
+                Vector4.Dot(next.Green, current.Offset),
+                Vector4.Dot(next.Blue, current.Offset),
+                Vector4.Dot(next.Alpha, current.Offset)) + next.Offset);
+    }
+
+    private static bool IsFiniteBounded(Vector4 value) =>
+        IsFinite(value) && Vector4.Abs(value).X <= 1024f &&
+        Vector4.Abs(value).Y <= 1024f &&
+        Vector4.Abs(value).Z <= 1024f &&
+        Vector4.Abs(value).W <= 1024f;
 
     private static void AppendBatch(
         List<Batch> batches,
