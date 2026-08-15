@@ -2926,9 +2926,7 @@ public static partial class GpuPictureNativeSceneCompiler
                         Height: > 0U
                     } mask &&
                     mask.Width <= 16_384U && mask.Height <= 16_384U) &&
-                supportedPlanarResources &&
-                !(effect.BlurSigma > 0.01f &&
-                    texture.Format == ProGpuTextureFormats.R16Unorm);
+                supportedPlanarResources;
             bool needsFullEffect =
                 hasYuv ||
                 maskTexture is not null || effect.BlurSigma > 0.01f ||
@@ -2941,6 +2939,7 @@ public static partial class GpuPictureNativeSceneCompiler
                         in effect,
                         texture.Width,
                         texture.Height,
+                        texture.Format == ProGpuTextureFormats.R16Unorm,
                         out nativeEffect)
                     : !TryCreateAffineImageColorMatrix(
                         in effect,
@@ -3224,6 +3223,7 @@ public static partial class GpuPictureNativeSceneCompiler
         in ImageEffectCommandData effect,
         uint textureWidth,
         uint textureHeight,
+        bool unfilterablePlanar,
         out NativeSceneImageEffect result)
     {
         result = default;
@@ -3330,7 +3330,10 @@ public static partial class GpuPictureNativeSceneCompiler
             sphericalUvRect,
             rotation0,
             rotation1,
-            rotation2);
+            rotation2,
+            unfilterablePlanar
+                ? NativeSceneImageEffectFlags.UnfilterablePlanar
+                : NativeSceneImageEffectFlags.None);
         return true;
     }
 

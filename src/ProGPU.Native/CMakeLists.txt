@@ -66,6 +66,9 @@ set(PROGPU_NATIVE_IMAGE_EFFECT_SHADER
 set(PROGPU_NATIVE_TEXTURE_GAUSSIAN_BLUR_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextureGaussianBlur.wgsl"
     CACHE FILEPATH "Shared ProGPU texture Gaussian-blur shader source")
+set(PROGPU_NATIVE_TEXTURE_GAUSSIAN_BLUR_UNFILTERABLE_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextureGaussianBlurUnfilterable.wgsl"
+    CACHE FILEPATH "Shared ProGPU unfilterable texture Gaussian-blur shader source")
 set(PROGPU_NATIVE_CLIP_COMPOSE_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/ClipCompose.wgsl"
     CACHE FILEPATH "Shared ProGPU retained clip-composition shader source")
@@ -151,6 +154,9 @@ if(NOT EXISTS "${PROGPU_NATIVE_IMAGE_EFFECT_SHADER}")
 endif()
 if(NOT EXISTS "${PROGPU_NATIVE_TEXTURE_GAUSSIAN_BLUR_SHADER}")
     message(FATAL_ERROR "The shared ProGPU texture Gaussian-blur shader source is missing")
+endif()
+if(NOT EXISTS "${PROGPU_NATIVE_TEXTURE_GAUSSIAN_BLUR_UNFILTERABLE_SHADER}")
+    message(FATAL_ERROR "The shared ProGPU unfilterable texture Gaussian-blur shader source is missing")
 endif()
 if(NOT EXISTS "${PROGPU_NATIVE_CLIP_COMPOSE_SHADER}")
     message(FATAL_ERROR "The shared ProGPU ClipCompose.wgsl source is missing")
@@ -258,6 +264,20 @@ add_custom_command(
         "${PROGPU_NATIVE_TEXTURE_GAUSSIAN_BLUR_SHADER}"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU texture Gaussian-blur shader"
+    VERBATIM)
+set(generated_texture_gaussian_blur_unfilterable_shader
+    "${generated_directory}/TextureGaussianBlurUnfilterableWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_texture_gaussian_blur_unfilterable_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_TEXTURE_GAUSSIAN_BLUR_UNFILTERABLE_SHADER}"
+        "-DOUTPUT=${generated_texture_gaussian_blur_unfilterable_shader}"
+        "-DSYMBOL=texture_gaussian_blur_unfilterable_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_TEXTURE_GAUSSIAN_BLUR_UNFILTERABLE_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the shared ProGPU unfilterable texture Gaussian-blur shader"
     VERBATIM)
 set(generated_path_rasterizer_shader
     "${generated_directory}/PathRasterizerWgsl.generated.hpp")
@@ -384,6 +404,7 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_texture_shader}"
         "${generated_image_effect_shader}"
         "${generated_texture_gaussian_blur_shader}"
+        "${generated_texture_gaussian_blur_unfilterable_shader}"
         "${generated_clip_compose_shader}"
         "${generated_gaussian_blur_horizontal_shader}"
         "${generated_gaussian_blur_vertical_shader}"

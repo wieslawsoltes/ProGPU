@@ -714,10 +714,14 @@ typedef struct progpu_native_scene_image_color_matrix {
  * first 288 bytes match the production ImageEffect.wgsl uniform layout; the
  * trailing 16-byte contract footer keeps validation metadata out of the GPU
  * hot path. This additive version supports one RGB source, fused color
- * operations, luminance-to-alpha, and spherical projection. Planar YUV,
- * explicit texture masks, and Gaussian prepasses require auxiliary resources
- * and remain rejected until their typed resource references are present.
+ * operations, luminance-to-alpha, spherical projection, role-keyed planar YUV
+ * and texture-mask resources, and shared filterable or Tier-1 unfilterable
+ * Gaussian prepasses.
  */
+typedef enum progpu_native_scene_image_effect_flags {
+    PROGPU_NATIVE_SCENE_IMAGE_EFFECT_UNFILTERABLE_PLANAR = 1U << 0
+} progpu_native_scene_image_effect_flags;
+
 typedef struct progpu_native_scene_image_effect {
     float color_matrix_red[4];
     float color_matrix_green[4];

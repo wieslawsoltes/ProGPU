@@ -331,12 +331,9 @@ progpu_native_status encode_semantic_image_draw(
     const bool chained = !draw.has_effect_mask &&
         mask_chain_bind_group != nullptr;
     if (draw.has_effect) {
-        if (chained) {
-            return engine.fail(
-                PROGPU_NATIVE_STATUS_UNSUPPORTED,
-                "Image effects with chained masks require a packed four-group layout.");
-        }
-        if (!create_semantic_image_effect_pipelines(engine) ||
+        if ((!chained && !create_semantic_image_effect_pipelines(engine)) ||
+            (chained &&
+                !create_semantic_image_effect_mask_chain_pipeline(engine)) ||
             draw.effect_uniform_bind_group == nullptr ||
             draw.effect_texture_bind_group == nullptr ||
             draw.effect_dummy_mask_bind_group == nullptr) {
@@ -346,7 +343,9 @@ progpu_native_status encode_semantic_image_draw(
         }
         Commands::set_pipeline(
             encoder,
-            engine.image_effect_pipeline);
+            chained
+                ? engine.image_effect_mask_chain_pipeline
+                : engine.image_effect_pipeline);
         Commands::set_bind_group(encoder, 0U, uniform_group);
         Commands::set_bind_group(
             encoder, 1U, draw.effect_uniform_bind_group);
@@ -355,7 +354,9 @@ progpu_native_status encode_semantic_image_draw(
         Commands::set_bind_group(
             encoder,
             3U,
-            draw.has_effect_mask
+            chained
+                ? mask_chain_bind_group
+                : draw.has_effect_mask
                 ? draw.effect_dummy_mask_bind_group
                 : masked
                     ? mask_bind_group

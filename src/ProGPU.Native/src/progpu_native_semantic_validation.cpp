@@ -265,7 +265,13 @@ bool is_valid_semantic_image_effect(
         return std::isfinite(row[0]) && std::isfinite(row[1]) &&
             std::isfinite(row[2]) && std::isfinite(row[3]);
     };
-    return effect.struct_size == sizeof(effect) && effect.flags == 0U &&
+    constexpr std::uint32_t known_flags =
+        PROGPU_NATIVE_SCENE_IMAGE_EFFECT_UNFILTERABLE_PLANAR;
+    return effect.struct_size == sizeof(effect) &&
+        (effect.flags & ~known_flags) == 0U &&
+        ((effect.flags &
+                PROGPU_NATIVE_SCENE_IMAGE_EFFECT_UNFILTERABLE_PLANAR) == 0U ||
+            effect.flags0[0] == 1.0F) &&
         effect.reserved0 == 0U && effect.reserved1 == 0U &&
         finite_row(effect.color_matrix_red) &&
         finite_row(effect.color_matrix_green) &&

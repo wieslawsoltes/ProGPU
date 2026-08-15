@@ -2355,7 +2355,10 @@ progpu_native_status render_scene(
                     progpu_native_scene_image_effect render_effect =
                         image_options.effect;
                     if (draw.has_effect &&
-                        render_effect.effects1[2] > 0.01F &&
+                        (render_effect.effects1[2] > 0.01F ||
+                            (render_effect.flags &
+                                PROGPU_NATIVE_SCENE_IMAGE_EFFECT_UNFILTERABLE_PLANAR) !=
+                                0U) &&
                         !semantic::create_semantic_image_blur_resources(
                             *engine,
                             draw.view,
@@ -2369,6 +2372,7 @@ progpu_native_status render_scene(
                     if (draw.has_live_blur) {
                         render_effect.effects1[2] = 0.0F;
                         render_effect.flags0[0] = 0.0F;
+                        render_effect.flags = 0U;
                     }
                     if (draw.has_effect &&
                         !create_semantic_image_effect_resources(

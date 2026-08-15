@@ -106,6 +106,7 @@ struct semantic_image_draw {
     bool has_effect = false;
     bool has_effect_mask = false;
     bool has_live_blur = false;
+    bool blur_unfilterable_source = false;
 };
 
 struct semantic_image_page {

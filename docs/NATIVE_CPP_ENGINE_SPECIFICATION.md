@@ -725,8 +725,13 @@ The native renderer retains one RGBA intermediate/output pair, axis uniforms,
 and bind groups per affected immutable draw, then records two fullscreen GPU
 passes before the image-effect draw. Stable replay performs no C# / C++ call,
 image copy, or CPU upload; mutable borrowed source views are sampled again each
-frame. Tier-1 unfilterable R16/RG16 blur remains a typed exclusion until its
-unfilterable sampling variant is shared.
+frame. Tier-1 R16/RG16 sources select the shared
+`TextureGaussianBlurUnfilterable.wgsl` first pass with explicit integer luma
+loads and reconstructed half-resolution chroma; an unblurred source uses its
+center-only variant so the final effect shader always consumes filterable RGBA.
+The effect shader also exposes a dedicated bounded analytic-mask-chain entry
+point over the existing four-group chain layout, preserving the same retained
+mask uniforms used by vector, text, and ordinary image draws.
 
 The following ABI-v2 increment accepts a second borrowed same-device
 R8/RGBA/BGRA unorm texture view as an image opacity mask. Its red channel is
@@ -2267,8 +2272,7 @@ path with WebGPU validation and bounded resource policies.
    compiler matrix, and managed substitution lane green without changing the
    default renderer.
 2. Finish the explicitly excluded immutable rendering records: exact curved
-   general-path strokes, Tier-1 R16/RG16 image blur, and packed image-effect plus
-   state-mask-chain composition. Opaque
+   general-path strokes. Opaque
    `DxfStaticBuffer` and mutable `Visual` objects require typed immutable
    snapshot contracts; they must never cross the C ABI as managed pointers.
 3. Run the final matched text/scene/image differential and seam budgets after

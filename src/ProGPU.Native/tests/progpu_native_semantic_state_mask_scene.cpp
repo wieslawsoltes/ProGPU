@@ -202,7 +202,9 @@ std::vector<std::byte> create_semantic_state_mask_media_scene_stream_impl(
         stream, image_pixels.data(), image_pixels.size());
     const progpu_native_scene_image_draw image{
         sizeof(progpu_native_scene_image_draw),
-        PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX,
+        analytic_chain
+            ? PROGPU_NATIVE_SCENE_IMAGE_EFFECT
+            : PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX,
         2U,
         2U,
         8U,
@@ -223,7 +225,24 @@ std::vector<std::byte> create_semantic_state_mask_media_scene_stream_impl(
         {0.0F, 0.0F, 0.0F, 1.0F},
         {0.0F, 0.0F, 0.0F, 0.0F},
         {0U, 0U}};
-    append(stream, &color_matrix, 1U);
+    if (!analytic_chain) {
+        append(stream, &color_matrix, 1U);
+    }
+    const progpu_native_scene_image_effect image_effect{
+        {0.0F, 1.0F, 0.0F, 0.0F},
+        {1.0F, 0.0F, 0.0F, 0.0F},
+        {0.0F, 0.0F, 1.0F, 0.0F},
+        {0.0F, 0.0F, 0.0F, 1.0F},
+        {},
+        {0.0F, 1.0F, 1.0F, 0.0F},
+        {0.0F, 0.0F, 0.0F, 1.0F},
+        {2.0F, 2.0F, 0.0F, 0.0F},
+        {0.0F, 0.0F, 1.0F, 0.0F},
+        {}, {}, {}, {}, {}, {}, {}, {}, {},
+        sizeof(progpu_native_scene_image_effect), 0U, 0U, 0U};
+    if (analytic_chain) {
+        append(stream, &image_effect, 1U);
+    }
 
     progpu_native_scene_layer_coverage_mask coverage_mask{};
     coverage_mask.struct_size = sizeof(coverage_mask);
@@ -338,7 +357,11 @@ std::vector<std::byte> create_semantic_state_mask_media_scene_stream_impl(
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
             0U, command_id_base + 1U, 3U, 1U,
-            image_draw_offset, sizeof(image) + sizeof(color_matrix),
+            image_draw_offset,
+            static_cast<std::uint32_t>(
+                sizeof(image) + (analytic_chain
+                    ? sizeof(image_effect)
+                    : sizeof(color_matrix))),
             0.0F, 0.0F,
             static_cast<float>(target_width),
             static_cast<float>(target_height), 0U, 0U},

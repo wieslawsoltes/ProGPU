@@ -10,6 +10,7 @@
 #endif
 
 #include "TextureGaussianBlurWgsl.generated.hpp"
+#include "TextureGaussianBlurUnfilterableWgsl.generated.hpp"
 #include "progpu_native_engine.hpp"
 #include "progpu_native_semantic_image_resources.hpp"
 #include "progpu_webgpu_compat.hpp"
@@ -60,8 +61,23 @@ bool build_blur_uniforms(
     const progpu_native_scene_image_effect& effect,
     bool decode_yuv,
     semantic_image_blur_uniforms& uniforms) noexcept {
-    if (!std::isfinite(sigma) || sigma <= 0.01F || sigma > 32.0F) {
+    if (!std::isfinite(sigma) || sigma < 0.0F || sigma > 32.0F) {
         return false;
+    }
+    if (sigma <= 0.01F) {
+        uniforms = {};
+        uniforms.axis[0] = direction_x;
+        uniforms.axis[1] = direction_y;
+        uniforms.axis[2] = 1.0F;
+        set_identity_rows(uniforms);
+        uniforms.options[0] = decode_yuv ? 1.0F : 0.0F;
+        if (decode_yuv) {
+            copy_row(uniforms.yuv_range, effect.yuv_range);
+            copy_row(uniforms.yuv_red, effect.yuv_red);
+            copy_row(uniforms.yuv_green, effect.yuv_green);
+            copy_row(uniforms.yuv_blue, effect.yuv_blue);
+        }
+        return true;
     }
     const auto radius = static_cast<std::uint32_t>(std::min(
         static_cast<int>(maximum_blur_radius),
@@ -117,9 +133,11 @@ WGPUBindGroup create_blur_bind_group(
     WGPUTextureView source,
     WGPUTextureView chroma,
     WGPUBuffer uniforms,
+    WGPUSampler sampler,
+    WGPUBindGroupLayout layout,
     const char* label) noexcept {
     const std::array<WGPUBindGroupEntry, 4U> entries{{
-        {nullptr, 0U, nullptr, 0U, 0U, engine.image_linear_sampler, nullptr},
+        {nullptr, 0U, nullptr, 0U, 0U, sampler, nullptr},
         {nullptr, 1U, nullptr, 0U, 0U, nullptr, source},
         {nullptr, 2U, nullptr, 0U, 0U, nullptr, chroma},
         {nullptr, 3U, uniforms, 0U,
@@ -127,42 +145,51 @@ WGPUBindGroup create_blur_bind_group(
     }};
     WGPUBindGroupDescriptor descriptor{};
     descriptor.label = webgpu::string_view(label);
-    descriptor.layout = engine.semantic_image_blur_layout;
+    descriptor.layout = layout;
     descriptor.entryCount = entries.size();
     descriptor.entries = entries.data();
     return wgpuDeviceCreateBindGroup(engine.device, &descriptor);
 }
 
-bool create_blur_pipeline(progpu_native_engine& engine) noexcept {
-    if (engine.semantic_image_blur_pipeline != nullptr) {
+bool create_blur_pipeline_variant(
+    progpu_native_engine& engine,
+    const std::uint8_t* source,
+    std::size_t source_size,
+    WGPUSamplerBindingType sampler_type,
+    WGPUTextureSampleType texture_type,
+    const char* shader_label,
+    const char* layout_label,
+    const char* pipeline_label,
+    WGPUShaderModule& shader,
+    WGPUBindGroupLayout& layout,
+    WGPURenderPipeline& pipeline) noexcept {
+    if (pipeline != nullptr) {
         return true;
     }
-    if (engine.semantic_image_blur_shader != nullptr ||
-        engine.semantic_image_blur_layout != nullptr) {
+    if (shader != nullptr || layout != nullptr) {
         return false;
     }
     webgpu::wgsl_source wgsl(
-        generated::texture_gaussian_blur_wgsl,
-        generated::texture_gaussian_blur_wgsl_size);
+        source,
+        source_size);
     WGPUShaderModuleDescriptor shader_descriptor{};
     shader_descriptor.nextInChain = wgsl.chain();
-    shader_descriptor.label = webgpu::string_view(
-        "ProGPU shared TextureGaussianBlur.wgsl");
-    engine.semantic_image_blur_shader = wgpuDeviceCreateShaderModule(
+    shader_descriptor.label = webgpu::string_view(shader_label);
+    shader = wgpuDeviceCreateShaderModule(
         engine.device,
         &shader_descriptor);
-    if (engine.semantic_image_blur_shader == nullptr) {
+    if (shader == nullptr) {
         return false;
     }
 
     std::array<WGPUBindGroupLayoutEntry, 4U> entries{};
     entries[0].binding = 0U;
     entries[0].visibility = WGPUShaderStage_Fragment;
-    entries[0].sampler.type = WGPUSamplerBindingType_Filtering;
+    entries[0].sampler.type = sampler_type;
     for (std::uint32_t index = 1U; index <= 2U; ++index) {
         entries[index].binding = index;
         entries[index].visibility = WGPUShaderStage_Fragment;
-        entries[index].texture.sampleType = WGPUTextureSampleType_Float;
+        entries[index].texture.sampleType = texture_type;
         entries[index].texture.viewDimension = WGPUTextureViewDimension_2D;
         entries[index].texture.multisampled = false;
     }
@@ -171,22 +198,20 @@ bool create_blur_pipeline(progpu_native_engine& engine) noexcept {
     entries[3].buffer.type = WGPUBufferBindingType_Uniform;
     entries[3].buffer.minBindingSize = sizeof(semantic_image_blur_uniforms);
     WGPUBindGroupLayoutDescriptor layout_descriptor{};
-    layout_descriptor.label = webgpu::string_view(
-        "ProGPU semantic image live-blur layout");
+    layout_descriptor.label = webgpu::string_view(layout_label);
     layout_descriptor.entryCount = entries.size();
     layout_descriptor.entries = entries.data();
-    engine.semantic_image_blur_layout = wgpuDeviceCreateBindGroupLayout(
+    layout = wgpuDeviceCreateBindGroupLayout(
         engine.device,
         &layout_descriptor);
-    if (engine.semantic_image_blur_layout == nullptr) {
+    if (layout == nullptr) {
         return false;
     }
     WGPUPipelineLayoutDescriptor pipeline_layout_descriptor{};
     pipeline_layout_descriptor.label = webgpu::string_view(
         "ProGPU semantic image live-blur pipeline layout");
     pipeline_layout_descriptor.bindGroupLayoutCount = 1U;
-    pipeline_layout_descriptor.bindGroupLayouts =
-        &engine.semantic_image_blur_layout;
+    pipeline_layout_descriptor.bindGroupLayouts = &layout;
     WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(
         engine.device,
         &pipeline_layout_descriptor);
@@ -197,15 +222,14 @@ bool create_blur_pipeline(progpu_native_engine& engine) noexcept {
     target.format = WGPUTextureFormat_RGBA8Unorm;
     target.writeMask = WGPUColorWriteMask_All;
     WGPUFragmentState fragment{};
-    fragment.module = engine.semantic_image_blur_shader;
+    fragment.module = shader;
     fragment.entryPoint = webgpu::string_view("fs_main");
     fragment.targetCount = 1U;
     fragment.targets = &target;
     WGPURenderPipelineDescriptor descriptor{};
-    descriptor.label = webgpu::string_view(
-        "ProGPU semantic image live Gaussian blur");
+    descriptor.label = webgpu::string_view(pipeline_label);
     descriptor.layout = pipeline_layout;
-    descriptor.vertex.module = engine.semantic_image_blur_shader;
+    descriptor.vertex.module = shader;
     descriptor.vertex.entryPoint = webgpu::string_view("vs_main");
     descriptor.primitive.topology = WGPUPrimitiveTopology_TriangleList;
     descriptor.primitive.frontFace = WGPUFrontFace_CCW;
@@ -213,18 +237,45 @@ bool create_blur_pipeline(progpu_native_engine& engine) noexcept {
     descriptor.multisample.count = 1U;
     descriptor.multisample.mask = 0xFFFFFFFFU;
     descriptor.fragment = &fragment;
-    engine.semantic_image_blur_pipeline = wgpuDeviceCreateRenderPipeline(
+    pipeline = wgpuDeviceCreateRenderPipeline(
         engine.device,
         &descriptor);
     wgpuPipelineLayoutRelease(pipeline_layout);
-    return engine.semantic_image_blur_pipeline != nullptr;
+    return pipeline != nullptr;
+}
+
+bool create_blur_pipelines(progpu_native_engine& engine) noexcept {
+    return create_blur_pipeline_variant(
+            engine,
+            generated::texture_gaussian_blur_wgsl,
+            generated::texture_gaussian_blur_wgsl_size,
+            WGPUSamplerBindingType_Filtering,
+            WGPUTextureSampleType_Float,
+            "ProGPU shared TextureGaussianBlur.wgsl",
+            "ProGPU semantic image live-blur layout",
+            "ProGPU semantic image live Gaussian blur",
+            engine.semantic_image_blur_shader,
+            engine.semantic_image_blur_layout,
+            engine.semantic_image_blur_pipeline) &&
+        create_blur_pipeline_variant(
+            engine,
+            generated::texture_gaussian_blur_unfilterable_wgsl,
+            generated::texture_gaussian_blur_unfilterable_wgsl_size,
+            WGPUSamplerBindingType_NonFiltering,
+            WGPUTextureSampleType_UnfilterableFloat,
+            "ProGPU shared TextureGaussianBlurUnfilterable.wgsl",
+            "ProGPU semantic image Tier-1 live-blur layout",
+            "ProGPU semantic image Tier-1 live Gaussian blur",
+            engine.semantic_image_blur_unfilterable_shader,
+            engine.semantic_image_blur_unfilterable_layout,
+            engine.semantic_image_blur_unfilterable_pipeline);
 }
 
 bool encode_blur_pass(
-    progpu_native_engine& engine,
     WGPUCommandEncoder encoder,
     WGPUTextureView target_view,
     WGPUBindGroup bind_group,
+    WGPURenderPipeline pipeline,
     const char* label) noexcept {
     WGPURenderPassColorAttachment attachment{};
     webgpu::initialize_color_attachment(attachment);
@@ -244,7 +295,7 @@ bool encode_blur_pass(
     }
     wgpuRenderPassEncoderSetPipeline(
         pass,
-        engine.semantic_image_blur_pipeline);
+        pipeline);
     wgpuRenderPassEncoderSetBindGroup(pass, 0U, bind_group, 0U, nullptr);
     wgpuRenderPassEncoderDraw(pass, 3U, 1U, 0U, 0U);
     wgpuRenderPassEncoderEnd(pass);
@@ -291,6 +342,7 @@ void release_semantic_image_blur_resources(
     draw.blur_intermediate_view = nullptr;
     draw.blur_intermediate_texture = nullptr;
     draw.has_live_blur = false;
+    draw.blur_unfilterable_source = false;
 }
 
 bool create_semantic_image_blur_resources(
@@ -301,15 +353,18 @@ bool create_semantic_image_blur_resources(
     std::uint32_t height,
     const progpu_native_scene_image_effect& effect,
     semantic_image_draw& draw) noexcept {
+    const bool unfilterable_source =
+        (effect.flags &
+            PROGPU_NATIVE_SCENE_IMAGE_EFFECT_UNFILTERABLE_PLANAR) != 0U;
     if (image_view == nullptr || width == 0U || height == 0U ||
-        effect.effects1[2] <= 0.01F ||
-        !create_blur_pipeline(engine)) {
+        (effect.effects1[2] <= 0.01F && !unfilterable_source) ||
+        !create_blur_pipelines(engine)) {
         return false;
     }
     semantic_image_blur_uniforms horizontal{};
     semantic_image_blur_uniforms vertical{};
     const bool decode_yuv = effect.flags0[0] > 0.5F;
-    if (decode_yuv && chroma_view == nullptr) {
+    if ((decode_yuv || unfilterable_source) && chroma_view == nullptr) {
         return false;
     }
     if (!build_blur_uniforms(
@@ -395,12 +450,20 @@ bool create_semantic_image_blur_resources(
         image_view,
         decode_yuv ? chroma_view : image_view,
         draw.blur_horizontal_uniform_buffer,
+        unfilterable_source
+            ? engine.image_nearest_sampler
+            : engine.image_linear_sampler,
+        unfilterable_source
+            ? engine.semantic_image_blur_unfilterable_layout
+            : engine.semantic_image_blur_layout,
         "ProGPU semantic image horizontal live-blur binding");
     draw.blur_vertical_bind_group = create_blur_bind_group(
         engine,
         draw.blur_intermediate_view,
         draw.blur_intermediate_view,
         draw.blur_vertical_uniform_buffer,
+        engine.image_linear_sampler,
+        engine.semantic_image_blur_layout,
         "ProGPU semantic image vertical live-blur binding");
     if (draw.blur_horizontal_bind_group == nullptr ||
         draw.blur_vertical_bind_group == nullptr) {
@@ -408,6 +471,7 @@ bool create_semantic_image_blur_resources(
         return false;
     }
     draw.has_live_blur = true;
+    draw.blur_unfilterable_source = unfilterable_source;
     return true;
 }
 
@@ -420,16 +484,18 @@ bool encode_semantic_image_blurs(
             continue;
         }
         if (!encode_blur_pass(
-                engine,
                 encoder,
                 draw.blur_intermediate_view,
                 draw.blur_horizontal_bind_group,
+                draw.blur_unfilterable_source
+                    ? engine.semantic_image_blur_unfilterable_pipeline
+                    : engine.semantic_image_blur_pipeline,
                 "ProGPU semantic image horizontal live-blur pass") ||
             !encode_blur_pass(
-                engine,
                 encoder,
                 draw.blur_output_view,
                 draw.blur_vertical_bind_group,
+                engine.semantic_image_blur_pipeline,
                 "ProGPU semantic image vertical live-blur pass")) {
             return false;
         }

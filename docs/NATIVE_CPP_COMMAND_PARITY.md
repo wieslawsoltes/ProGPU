@@ -17,15 +17,18 @@ always returns a typed failure without partially committing a scene.
 Image effects include external same-device RGB textures, zero-copy paired
 R8/RG8 or Tier-1 R16/RG16 luma/chroma views, nearest/linear/cubic sampling,
 affine color operations, luminance-to-alpha, spherical projection, explicit R8
-texture masks, and the shared shader's bounded blur footprint. External image
+texture masks, bounded analytic state-mask chains, and the shared shader's
+bounded blur footprint. External image
 bindings are ordered by immutable resource id plus primary/chroma/mask role, so
 changing a view invalidates the retained image page without copying plane or
 mask pixels across the C# / C++ boundary. The managed-authoritative separable
-Gaussian implementation is now shared directly with C++: filterable RGB and
-R8/RG8 planar sources run two retained horizontal/vertical GPU passes inside
-the native command encoder, with no steady-replay interop call or CPU upload.
-Tier-1 unfilterable R16/RG16 blur and effect-plus-state-mask-chain packing remain
-the final image-effect conformance slice.
+Gaussian implementation is now shared directly with C++: filterable RGB,
+R8/RG8 planar, and Tier-1 unfilterable R16/RG16 sources run two retained
+horizontal/vertical GPU passes inside the native command encoder, with no
+steady-replay interop call or CPU upload. An identity first pass also converts
+an unblurred Tier-1 planar source before fused effects. Image effects and bounded
+analytic state-mask chains share one four-group shader layout instead of a CPU
+materialization or extra texture pass.
 
 This inventory distinguishes parity work from intentional ownership
 boundaries; it must not be used to convert an unsupported command into a silent

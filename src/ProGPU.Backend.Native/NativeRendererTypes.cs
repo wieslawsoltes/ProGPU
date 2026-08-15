@@ -1026,6 +1026,13 @@ public readonly struct NativeSceneImageColorMatrix
 /// Exact pointer-free uniform payload consumed by the shared
 /// <c>ImageEffect.wgsl</c> pipeline.
 /// </summary>
+[Flags]
+public enum NativeSceneImageEffectFlags : uint
+{
+    None = 0,
+    UnfilterablePlanar = 1U << 0
+}
+
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct NativeSceneImageEffect
 {
@@ -1047,7 +1054,9 @@ public readonly struct NativeSceneImageEffect
         Vector4 sphericalUvRect,
         Vector4 sphericalRotation0,
         Vector4 sphericalRotation1,
-        Vector4 sphericalRotation2)
+        Vector4 sphericalRotation2,
+        NativeSceneImageEffectFlags flags =
+            NativeSceneImageEffectFlags.None)
     {
         ColorMatrixRed = colorMatrixRed;
         ColorMatrixGreen = colorMatrixGreen;
@@ -1068,7 +1077,7 @@ public readonly struct NativeSceneImageEffect
         SphericalRotation1 = sphericalRotation1;
         SphericalRotation2 = sphericalRotation2;
         StructSize = (uint)Unsafe.SizeOf<NativeSceneImageEffect>();
-        Flags = 0U;
+        Flags = flags;
         Reserved0 = 0U;
         Reserved1 = 0U;
     }
@@ -1092,13 +1101,14 @@ public readonly struct NativeSceneImageEffect
     public readonly Vector4 SphericalRotation1;
     public readonly Vector4 SphericalRotation2;
     public readonly uint StructSize;
-    private readonly uint Flags;
+    internal readonly NativeSceneImageEffectFlags Flags;
     private readonly uint Reserved0;
     private readonly uint Reserved1;
 
     internal bool HasCanonicalFields =>
         StructSize == Unsafe.SizeOf<NativeSceneImageEffect>() &&
-        Flags == 0U && Reserved0 == 0U && Reserved1 == 0U &&
+        (Flags & ~NativeSceneImageEffectFlags.UnfilterablePlanar) == 0 &&
+        Reserved0 == 0U && Reserved1 == 0U &&
         IsFinite(ColorMatrixRed) && IsFinite(ColorMatrixGreen) &&
         IsFinite(ColorMatrixBlue) && IsFinite(ColorMatrixAlpha) &&
         IsFinite(ColorMatrixOffset) && IsFinite(Effects0) &&

@@ -159,6 +159,7 @@ struct progpu_native_engine {
     WGPURenderPipeline image_mask_chain_color_matrix_pipeline = nullptr;
     WGPUShaderModule image_effect_shader = nullptr;
     WGPURenderPipeline image_effect_pipeline = nullptr;
+    WGPURenderPipeline image_effect_mask_chain_pipeline = nullptr;
     WGPUBindGroupLayout image_uniform_layout = nullptr;
     WGPUBindGroupLayout image_texture_layout = nullptr;
     WGPUBindGroupLayout image_mask_layout = nullptr;
@@ -167,6 +168,9 @@ struct progpu_native_engine {
     WGPUShaderModule semantic_image_blur_shader = nullptr;
     WGPURenderPipeline semantic_image_blur_pipeline = nullptr;
     WGPUBindGroupLayout semantic_image_blur_layout = nullptr;
+    WGPUShaderModule semantic_image_blur_unfilterable_shader = nullptr;
+    WGPURenderPipeline semantic_image_blur_unfilterable_pipeline = nullptr;
+    WGPUBindGroupLayout semantic_image_blur_unfilterable_layout = nullptr;
     WGPUBindGroupLayout semantic_mask_chain_layout = nullptr;
     WGPUBuffer image_uniform_buffer = nullptr;
     WGPUBindGroup image_uniform_bind_group = nullptr;
@@ -1305,8 +1309,23 @@ struct progpu_native_engine {
         if (image_effect_pipeline != nullptr) {
             wgpuRenderPipelineRelease(image_effect_pipeline);
         }
+        if (image_effect_mask_chain_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(image_effect_mask_chain_pipeline);
+        }
         if (semantic_image_blur_pipeline != nullptr) {
             wgpuRenderPipelineRelease(semantic_image_blur_pipeline);
+        }
+        if (semantic_image_blur_unfilterable_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(
+                semantic_image_blur_unfilterable_pipeline);
+        }
+        if (semantic_image_blur_unfilterable_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(
+                semantic_image_blur_unfilterable_layout);
+        }
+        if (semantic_image_blur_unfilterable_shader != nullptr) {
+            wgpuShaderModuleRelease(
+                semantic_image_blur_unfilterable_shader);
         }
         if (semantic_image_blur_layout != nullptr) {
             wgpuBindGroupLayoutRelease(semantic_image_blur_layout);

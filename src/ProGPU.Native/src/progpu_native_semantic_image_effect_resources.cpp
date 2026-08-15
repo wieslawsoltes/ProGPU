@@ -126,6 +126,7 @@ bool create_semantic_image_effect_pipelines(
     }
     if (!create_image_resources(engine) ||
         !progpu::native::execution::create_image_mask_resources(engine) ||
+        engine.image_effect_pipeline != nullptr ||
         engine.image_effect_shader != nullptr ||
         engine.image_effect_uniform_layout != nullptr ||
         engine.image_effect_texture_layout != nullptr) {
@@ -176,6 +177,40 @@ bool create_semantic_image_effect_pipelines(
         "ProGPU semantic image-effect pipeline");
     wgpuPipelineLayoutRelease(layout);
     return engine.image_effect_pipeline != nullptr;
+}
+
+bool create_semantic_image_effect_mask_chain_pipeline(
+    progpu_native_engine& engine) {
+    if (engine.image_effect_mask_chain_pipeline != nullptr) {
+        return true;
+    }
+    if (!create_semantic_image_effect_pipelines(engine) ||
+        !create_semantic_image_mask_chain_pipelines(engine)) {
+        return false;
+    }
+    const std::array<WGPUBindGroupLayout, 4U> chain_layouts{{
+        engine.image_uniform_layout,
+        engine.image_effect_uniform_layout,
+        engine.image_effect_texture_layout,
+        engine.semantic_mask_chain_layout
+    }};
+    WGPUPipelineLayoutDescriptor layout_descriptor{};
+    layout_descriptor.label = webgpu::string_view(
+        "ProGPU semantic image-effect mask-chain layout");
+    layout_descriptor.bindGroupLayoutCount = chain_layouts.size();
+    layout_descriptor.bindGroupLayouts = chain_layouts.data();
+    WGPUPipelineLayout layout = wgpuDeviceCreatePipelineLayout(
+        engine.device,
+        &layout_descriptor);
+    if (layout != nullptr) {
+        engine.image_effect_mask_chain_pipeline = create_effect_pipeline(
+            engine,
+            layout,
+            "fs_main_chain",
+            "ProGPU semantic image-effect mask-chain pipeline");
+        wgpuPipelineLayoutRelease(layout);
+    }
+    return engine.image_effect_mask_chain_pipeline != nullptr;
 }
 
 namespace progpu::native::semantic {

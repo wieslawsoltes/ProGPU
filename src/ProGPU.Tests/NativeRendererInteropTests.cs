@@ -606,6 +606,9 @@ public class NativeRendererInteropTests
         Assert.Equal(0U, (uint)NativeSceneExternalImageRole.Primary);
         Assert.Equal(1U, (uint)NativeSceneExternalImageRole.Chroma);
         Assert.Equal(2U, (uint)NativeSceneExternalImageRole.Mask);
+        Assert.Equal(
+            1U,
+            (uint)NativeSceneImageEffectFlags.UnfilterablePlanar);
         Assert.Equal(1UL, (ulong)NativeRendererCapabilities.SolidRectBatch);
         Assert.Equal(2UL, (ulong)NativeRendererCapabilities.SharedVectorShader);
         Assert.Equal(4UL, (ulong)NativeRendererCapabilities.ExternalTarget);
@@ -2550,6 +2553,32 @@ public class NativeRendererInteropTests
             default,
             default);
         Assert.True(Build(destination, pixels, in image, in blurred));
+
+        var unfilterablePlanar = new NativeSceneImageEffect(
+            default,
+            default,
+            default,
+            default,
+            default,
+            new Vector4(0f, 1f, 1f, 0f),
+            new Vector4(0f, 0f, 0.5f, 1f),
+            new Vector4(2f, 2f, 0f, 0f),
+            Vector4.UnitX,
+            default,
+            default,
+            default,
+            default,
+            default,
+            default,
+            default,
+            default,
+            default,
+            NativeSceneImageEffectFlags.UnfilterablePlanar);
+        Assert.True(Build(
+            destination,
+            pixels,
+            in image,
+            in unfilterablePlanar));
 
         var invalid = new NativeSceneImageEffect(
             default,

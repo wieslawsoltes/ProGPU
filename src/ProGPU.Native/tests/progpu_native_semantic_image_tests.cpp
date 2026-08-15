@@ -140,6 +140,20 @@ bool semantic_image_sampling_payload_is_exact_and_bounded() {
         parsed.effect.flags0[0] != 1.0F) {
         return false;
     }
+    effect.flags =
+        PROGPU_NATIVE_SCENE_IMAGE_EFFECT_UNFILTERABLE_PLANAR;
+    std::memcpy(bytes.data() + base_size, &effect, sizeof(effect));
+    if (!semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed)) {
+        return false;
+    }
+    effect.flags0[0] = 0.0F;
+    std::memcpy(bytes.data() + base_size, &effect, sizeof(effect));
+    if (semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed)) {
+        return false;
+    }
+    effect.flags = 0U;
     effect.flags0[0] = 0.5F;
     std::memcpy(bytes.data() + base_size, &effect, sizeof(effect));
     if (semantic::validate_image_draw_payload(
