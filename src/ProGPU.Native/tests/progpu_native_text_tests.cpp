@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <span>
 #include <source_location>
 #include <string_view>
