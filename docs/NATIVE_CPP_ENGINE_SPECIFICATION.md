@@ -715,9 +715,12 @@ source subrects, nearest/linear/custom-cubic sampling, and one fused
 straight-RGBA 4x5 color transform without copying pixels into the stream or
 native texture storage. Stable replay uploads zero image bytes and the existing
 submission token is the consumer fence for every bound view. Premultiplied
-input, mipmaps/anisotropy, tiling/patch draws, and the non-affine
-blur/YUV/spherical image-effect modes remain explicit typed failures rather
-than approximations.
+input, mipmaps/anisotropy, and tiling/patch draws remain explicit typed
+failures rather than approximations. The retained effect suffix now shares the
+production image-effect shader for bounded blur, spherical mapping, luminance
+conversion, zero-copy paired luma/chroma views, and explicit R8 effect masks.
+The separable managed-authoritative live Gaussian prepass remains the
+performance path to port for larger blur footprints.
 
 The following ABI-v2 increment accepts a second borrowed same-device
 R8/RGBA/BGRA unorm texture view as an image opacity mask. Its red channel is
@@ -2257,8 +2260,9 @@ path with WebGPU validation and bounded resource policies.
 1. Keep the additive native ABI, package, standalone C++20 SDK, browser build,
    compiler matrix, and managed substitution lane green without changing the
    default renderer.
-2. Finish the explicitly excluded immutable rendering records: exact general
-   path strokes and hatch, followed by non-affine image effects. Opaque
+2. Finish the explicitly excluded immutable rendering records: exact curved
+   general-path strokes, the separable live image-blur prepass, and packed
+   image-effect plus state-mask-chain composition. Opaque
    `DxfStaticBuffer` and mutable `Visual` objects require typed immutable
    snapshot contracts; they must never cross the C ABI as managed pointers.
 3. Run the final matched text/scene/image differential and seam budgets after

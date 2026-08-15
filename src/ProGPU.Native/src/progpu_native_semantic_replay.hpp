@@ -88,6 +88,7 @@ struct semantic_image_draw {
     WGPUBuffer color_matrix_buffer = nullptr;
     WGPUBindGroup color_matrix_bind_group = nullptr;
     WGPUBuffer effect_uniform_buffer = nullptr;
+    WGPUBuffer effect_mask_uniform_buffer = nullptr;
     WGPUBindGroup effect_uniform_bind_group = nullptr;
     WGPUBindGroup effect_texture_bind_group = nullptr;
     WGPUBindGroup effect_dummy_mask_bind_group = nullptr;
@@ -95,6 +96,7 @@ struct semantic_image_draw {
     std::uint32_t sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
     bool has_color_matrix = false;
     bool has_effect = false;
+    bool has_effect_mask = false;
 };
 
 struct semantic_image_page {
@@ -111,6 +113,7 @@ struct semantic_image_page {
 struct semantic_external_image_binding {
     std::uint64_t resource_id = 0U;
     std::uint64_t generation = 0U;
+    std::uint32_t role = PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_PRIMARY;
     WGPUTextureView view = nullptr;
     std::uint32_t width = 0U;
     std::uint32_t height = 0U;

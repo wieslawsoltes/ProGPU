@@ -21,6 +21,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 using progpu::native::gpu_drop_shadow_params;
@@ -944,6 +945,10 @@ struct progpu_native_engine {
                 wgpuBufferDestroy(draw.effect_uniform_buffer);
                 wgpuBufferRelease(draw.effect_uniform_buffer);
             }
+            if (draw.effect_mask_uniform_buffer != nullptr) {
+                wgpuBufferDestroy(draw.effect_mask_uniform_buffer);
+                wgpuBufferRelease(draw.effect_mask_uniform_buffer);
+            }
             if (draw.color_matrix_bind_group != nullptr) {
                 wgpuBindGroupRelease(draw.color_matrix_bind_group);
             }
@@ -991,18 +996,23 @@ struct progpu_native_engine {
     const semantic_external_image_binding*
     find_semantic_external_image_binding(
         std::uint64_t resource_id,
-        std::uint64_t generation) const noexcept {
+        std::uint64_t generation,
+        std::uint32_t role =
+            PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_PRIMARY) const noexcept {
         const auto iterator = std::lower_bound(
             semantic_external_image_bindings.begin(),
             semantic_external_image_bindings.end(),
-            resource_id,
+            std::pair{resource_id, role},
             [](const semantic_external_image_binding& binding,
-                std::uint64_t id) noexcept {
-                return binding.resource_id < id;
+                const std::pair<std::uint64_t, std::uint32_t>& key) noexcept {
+                return binding.resource_id < key.first ||
+                    (binding.resource_id == key.first &&
+                        binding.role < key.second);
             });
         return iterator != semantic_external_image_bindings.end() &&
                 iterator->resource_id == resource_id &&
-                iterator->generation == generation
+                iterator->generation == generation &&
+                iterator->role == role
             ? &*iterator
             : nullptr;
     }

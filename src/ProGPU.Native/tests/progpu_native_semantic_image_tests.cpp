@@ -118,13 +118,35 @@ bool semantic_image_sampling_payload_is_exact_and_bounded() {
         !parsed.has_effect || parsed.effect.effects0[1] != 1.0F) {
         return false;
     }
-    effect.effects1[2] = 0.5F;
+    effect.effects1[2] = 32.0F;
+    std::memcpy(bytes.data() + base_size, &effect, sizeof(effect));
+    if (!semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed) ||
+        parsed.effect.effects1[2] != 32.0F) {
+        return false;
+    }
+    effect.effects1[2] = 32.01F;
     std::memcpy(bytes.data() + base_size, &effect, sizeof(effect));
     if (semantic::validate_image_draw_payload(
             bytes.data(), command, image, 16U, parsed)) {
         return false;
     }
     effect.effects1[2] = 0.0F;
+    effect.effects1[3] = 0.0F;
+    effect.flags0[0] = 1.0F;
+    std::memcpy(bytes.data() + base_size, &effect, sizeof(effect));
+    if (!semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed) ||
+        parsed.effect.flags0[0] != 1.0F) {
+        return false;
+    }
+    effect.flags0[0] = 0.5F;
+    std::memcpy(bytes.data() + base_size, &effect, sizeof(effect));
+    if (semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed)) {
+        return false;
+    }
+    effect.flags0[0] = 0.0F;
     effect.spherical0[0] = 0.5F;
     std::memcpy(bytes.data() + base_size, &effect, sizeof(effect));
     return !semantic::validate_image_draw_payload(

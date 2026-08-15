@@ -14,10 +14,15 @@ always returns a typed failure without partially committing a scene.
 | Built-in extension | `DrawExtension` | Line/spline/chart/3D/hatch built-ins are selected by stable extension ID; hatch boundaries reuse retained path batches and shared hatch material kinds, while unknown or object-backed extensions fail closed. |
 | Explicitly unsupported | `DrawStaticDxf`, `DrawVisual` | Static DXF and embedded visual commands retain live managed/GPU ownership and cannot enter the pointer-free immutable scene contract. |
 
-Image effects currently include external same-device RGB textures,
-nearest/linear/cubic sampling, affine color operations, luminance-to-alpha, and
-spherical projection. Auxiliary chroma/YUV, explicit texture masks, and the
-managed-authoritative live Gaussian prepass remain the image-resource slice.
+Image effects include external same-device RGB textures, zero-copy paired
+R8/RG8 or Tier-1 R16/RG16 luma/chroma views, nearest/linear/cubic sampling,
+affine color operations, luminance-to-alpha, spherical projection, explicit R8
+texture masks, and the shared shader's bounded blur footprint. External image
+bindings are ordered by immutable resource id plus primary/chroma/mask role, so
+changing a view invalidates the retained image page without copying plane or
+mask pixels across the C# / C++ boundary. The managed-authoritative separable
+live Gaussian prepass and effect-plus-state-mask-chain packing remain the final
+image-effect performance/conformance slice.
 
 This inventory distinguishes parity work from intentional ownership
 boundaries; it must not be used to convert an unsupported command into a silent

@@ -16,9 +16,14 @@ bool create_semantic_image_color_matrix_resources(
 bool create_semantic_image_effect_resources(
     progpu_native_engine& engine,
     WGPUTextureView image_view,
+    WGPUTextureView chroma_view,
+    WGPUTextureView mask_view,
+    std::uint32_t mask_width,
+    std::uint32_t mask_height,
     WGPUSampler sampler,
     const progpu_native_scene_image_effect& effect,
     WGPUBuffer& uniform_buffer,
+    WGPUBuffer& mask_uniform_buffer,
     WGPUBindGroup& uniform_bind_group,
     WGPUBindGroup& texture_bind_group,
     WGPUBindGroup& dummy_mask_bind_group) noexcept;

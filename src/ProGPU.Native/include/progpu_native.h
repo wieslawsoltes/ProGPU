@@ -434,7 +434,8 @@ typedef struct progpu_native_engine_options {
 
 /*
  * Same-device image views are bound outside the immutable pointer-free scene
- * stream. The engine retains each view until the complete table is replaced.
+ * stream. Flags carries progpu_native_scene_external_image_role. The engine
+ * retains each view until the complete table is replaced.
  */
 /* PROGPU_CSHARP_STRUCT: NativeMethods.SceneExternalImageBinding */
 typedef struct progpu_native_scene_external_image_binding {
@@ -448,6 +449,12 @@ typedef struct progpu_native_scene_external_image_binding {
     uint32_t reserved0;
     uint32_t reserved1;
 } progpu_native_scene_external_image_binding;
+
+typedef enum progpu_native_scene_external_image_role {
+    PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_PRIMARY = 0,
+    PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_CHROMA = 1,
+    PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_MASK = 2
+} progpu_native_scene_external_image_role;
 
 /* PROGPU_CSHARP_STRUCT: NativeMethods.NativeColor */
 typedef struct progpu_native_color {
@@ -743,14 +750,13 @@ typedef struct progpu_native_scene_image_effect {
  * is local to that resource. The semantic compiler packs referenced brushes
  * and stops into one retained scene-wide GPU page and rewrites indices once.
  *
- * The native semantic lane accepts solid, linear, radial, two-point conical,
- * sweep, and Perlin-noise brushes. Perlin overloads StartPoint/EndPoint/Center
+ * The native semantic lane accepts solid, linear, radial, hatch, cross-hatch,
+ * two-point conical, sweep, and Perlin-noise brushes. Perlin overloads StartPoint/EndPoint/Center
  * as base frequency, stitch period, and tile size; Radius is the normalized
  * seed, StopCount is the bounded octave count, and SpreadMethod 0/1 selects
  * fractal/turbulence noise. Interpolation 0 selects the bounded hash fallback;
  * interpolation 1 references exactly 512 packed permutation/gradient records
- * at StopOffset. Hatch remains an explicit extension command rather than a
- * semantic brush kind and therefore fails closed here.
+ * at StopOffset. Hatch kinds use Radius as angle and Center as spacing/thickness.
  */
 typedef struct progpu_native_scene_brush {
     uint32_t type;

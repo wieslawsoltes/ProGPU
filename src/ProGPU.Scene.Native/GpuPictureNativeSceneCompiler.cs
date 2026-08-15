@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using ProGPU.Backend;
 using ProGPU.Backend.Native;
 using ProGPU.Vector;
+using Silk.NET.WebGPU;
 
 namespace ProGPU.Scene.Native;
 
@@ -76,6 +77,8 @@ public static partial class GpuPictureNativeSceneCompiler
 
     private readonly record struct ExternalImageDraw(
         GpuTexture Texture,
+        GpuTexture? ChromaTexture,
+        GpuTexture? MaskTexture,
         NativeSceneImageDraw Draw,
         NativeSceneImageSamplingOptions SamplingOptions,
         bool HasSamplingOptions,
@@ -2893,14 +2896,40 @@ public static partial class GpuPictureNativeSceneCompiler
         bool hasColorMatrix = false;
         NativeSceneImageEffect nativeEffect = default;
         bool hasEffect = false;
+        GpuTexture? chromaTexture = null;
+        GpuTexture? maskTexture = null;
         if (command.HasImageEffect)
         {
             ImageEffectCommandData effect = command.ResolveImageEffect(picture);
-            bool supportedResources = effect.BlurSigma == 0f &&
-                effect.MaskTexture is null &&
-                effect.ChromaTexture is null &&
-                !effect.YuvConversion.HasValue;
+            chromaTexture = effect.ChromaTexture;
+            maskTexture = effect.MaskTexture;
+            bool hasChroma = chromaTexture is not null;
+            bool hasYuv = effect.YuvConversion.HasValue;
+            bool supportedPlanarResources = !hasChroma ||
+                (chromaTexture is { IsDisposed: false } chroma &&
+                    texture.Format == TextureFormat.R8Unorm &&
+                    chroma.Format == TextureFormat.RG8Unorm &&
+                    chroma.Width == (texture.Width + 1U) / 2U &&
+                    chroma.Height == (texture.Height + 1U) / 2U) ||
+                (chromaTexture is { IsDisposed: false } wideChroma &&
+                    texture.Format == ProGpuTextureFormats.R16Unorm &&
+                    wideChroma.Format == ProGpuTextureFormats.RG16Unorm &&
+                    wideChroma.Width == (texture.Width + 1U) / 2U &&
+                    wideChroma.Height == (texture.Height + 1U) / 2U);
+            bool supportedResources = hasChroma == hasYuv &&
+                (maskTexture is null ||
+                    maskTexture is
+                    {
+                        IsDisposed: false,
+                        Format: TextureFormat.R8Unorm,
+                        Width: > 0U,
+                        Height: > 0U
+                    } mask &&
+                    mask.Width <= 16_384U && mask.Height <= 16_384U) &&
+                supportedPlanarResources;
             bool needsFullEffect =
+                hasYuv ||
+                maskTexture is not null || effect.BlurSigma > 0.01f ||
                 effect.SphericalProjection.HasValue ||
                 effect.LuminanceToAlpha && effect.ColorMatrix.HasValue;
             if (!supportedResources ||
@@ -2947,6 +2976,8 @@ public static partial class GpuPictureNativeSceneCompiler
         int drawIndex = externalImages.Count;
         externalImages.Add(new(
             texture,
+            chromaTexture,
+            maskTexture,
             draw,
             new NativeSceneImageSamplingOptions(cubic.X, cubic.Y),
             sampling == NativeImageSampling.Cubic,
@@ -3033,7 +3064,19 @@ public static partial class GpuPictureNativeSceneCompiler
         {
             return [];
         }
-        var bindings = new NativeSceneExternalImageBinding[images.Length];
+        int bindingCount = images.Length;
+        foreach (ref readonly ExternalImageDraw image in images)
+        {
+            if (image.ChromaTexture is not null)
+            {
+                bindingCount++;
+            }
+            if (image.MaskTexture is not null)
+            {
+                bindingCount++;
+            }
+        }
+        var bindings = new NativeSceneExternalImageBinding[bindingCount];
         int bindingIndex = 0;
         for (int batchIndex = 0; batchIndex < batches.Count; batchIndex++)
         {
@@ -3046,6 +3089,22 @@ public static partial class GpuPictureNativeSceneCompiler
                 checked((ulong)batchIndex + 1U),
                 generation,
                 images[batch.Start].Texture);
+            if (images[batch.Start].ChromaTexture is { } chroma)
+            {
+                bindings[bindingIndex++] = new(
+                    checked((ulong)batchIndex + 1U),
+                    generation,
+                    chroma,
+                    NativeSceneExternalImageRole.Chroma);
+            }
+            if (images[batch.Start].MaskTexture is { } mask)
+            {
+                bindings[bindingIndex++] = new(
+                    checked((ulong)batchIndex + 1U),
+                    generation,
+                    mask,
+                    NativeSceneExternalImageRole.Mask);
+            }
         }
         return bindings;
     }
@@ -3172,12 +3231,14 @@ public static partial class GpuPictureNativeSceneCompiler
             !float.IsFinite(effect.Grayscale) ||
             !float.IsFinite(effect.Sepia) ||
             !float.IsFinite(effect.Invert) ||
-            effect.BlurSigma != 0f)
+            !float.IsFinite(effect.BlurSigma) || effect.BlurSigma < 0f ||
+            effect.BlurSigma > GpuTextureGaussianBlur.MaximumStandardDeviation)
         {
             return false;
         }
 
         ImageEffectColorMatrix? colorMatrix = effect.ColorMatrix;
+        ImageEffectYuvConversion? yuv = effect.YuvConversion;
         Vector4 matrixRed = colorMatrix?.Red ?? default;
         Vector4 matrixGreen = colorMatrix?.Green ?? default;
         Vector4 matrixBlue = colorMatrix?.Blue ?? default;
@@ -3228,6 +3289,15 @@ public static partial class GpuPictureNativeSceneCompiler
             rotation2 = new(rotation.M31, rotation.M32, rotation.M33, 0f);
         }
 
+        if (yuv is { } conversion &&
+            (!IsFiniteBounded(conversion.Range) ||
+                !IsFiniteBounded(conversion.Red) ||
+                !IsFiniteBounded(conversion.Green) ||
+                !IsFiniteBounded(conversion.Blue)))
+        {
+            return false;
+        }
+
         result = new NativeSceneImageEffect(
             matrixRed,
             matrixGreen,
@@ -3239,17 +3309,21 @@ public static partial class GpuPictureNativeSceneCompiler
                 effect.Contrast,
                 effect.Saturation,
                 effect.Grayscale),
-            new Vector4(effect.Sepia, effect.Invert, 0f, 1f),
+            new Vector4(
+                effect.Sepia,
+                effect.Invert,
+                effect.BlurSigma,
+                1f),
             new Vector4(textureWidth, textureHeight, 0f, 0f),
             new Vector4(
-                0f,
-                0f,
+                yuv.HasValue ? 1f : 0f,
+                effect.MaskTexture is null ? 0f : 1f,
                 colorMatrix.HasValue ? 1f : 0f,
                 effect.LuminanceToAlpha ? 1f : 0f),
-            default,
-            default,
-            default,
-            default,
+            yuv?.Range ?? default,
+            yuv?.Red ?? default,
+            yuv?.Green ?? default,
+            yuv?.Blue ?? default,
             spherical0,
             sphericalUvRect,
             rotation0,

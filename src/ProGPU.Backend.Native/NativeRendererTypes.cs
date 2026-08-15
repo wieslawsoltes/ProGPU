@@ -372,11 +372,13 @@ public readonly struct NativeSceneExternalImageBinding
     public NativeSceneExternalImageBinding(
         ulong resourceId,
         ulong generation,
-        GpuTexture texture)
+        GpuTexture texture,
+        NativeSceneExternalImageRole role = NativeSceneExternalImageRole.Primary)
     {
         ResourceId = resourceId;
         Generation = generation;
         Texture = texture ?? throw new ArgumentNullException(nameof(texture));
+        Role = role;
     }
 
     public ulong ResourceId { get; }
@@ -384,6 +386,15 @@ public readonly struct NativeSceneExternalImageBinding
     public ulong Generation { get; }
 
     public GpuTexture Texture { get; }
+
+    public NativeSceneExternalImageRole Role { get; }
+}
+
+public enum NativeSceneExternalImageRole : uint
+{
+    Primary = 0,
+    Chroma = 1,
+    Mask = 2
 }
 
 [Flags]
@@ -1096,10 +1107,12 @@ public readonly struct NativeSceneImageEffect
         IsFinite(YuvBlue) && IsFinite(Spherical0) &&
         IsFinite(SphericalUvRect) && IsFinite(SphericalRotation0) &&
         IsFinite(SphericalRotation1) && IsFinite(SphericalRotation2) &&
-        Effects1.Z == 0f && Effects1.W == 1f &&
+        Effects1.Z >= 0f && Effects1.Z <=
+            GpuTextureGaussianBlur.MaximumStandardDeviation &&
+        IsBinary(Effects1.W) &&
         Texture0.X > 0f && Texture0.Y > 0f &&
         Texture0.Z == 0f && Texture0.W == 0f &&
-        Flags0.X == 0f && Flags0.Y == 0f &&
+        IsBinary(Flags0.X) && IsBinary(Flags0.Y) &&
         IsBinary(Flags0.Z) && IsBinary(Flags0.W) &&
         IsBinary(Spherical0.X);
 

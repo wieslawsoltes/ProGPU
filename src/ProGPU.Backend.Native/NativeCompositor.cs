@@ -411,24 +411,34 @@ public sealed unsafe class NativeCompositor : IDisposable
         try
         {
             ulong previousResourceId = 0U;
+            NativeSceneExternalImageRole previousRole =
+                NativeSceneExternalImageRole.Primary;
             for (int index = 0; index < bindings.Length; index++)
             {
                 ref readonly NativeSceneExternalImageBinding binding =
                     ref bindings[index];
                 if (binding.ResourceId == 0U ||
-                    binding.ResourceId <= previousResourceId ||
-                    binding.Generation == 0U)
+                    binding.Generation == 0U ||
+                    (uint)binding.Role >
+                        (uint)NativeSceneExternalImageRole.Mask ||
+                    (binding.ResourceId < previousResourceId ||
+                        binding.ResourceId == previousResourceId &&
+                        binding.Role <= previousRole))
                 {
                     throw new ArgumentException(
-                        "External scene image bindings must have nonzero generations and strictly increasing resource identifiers.",
+                        "External scene image bindings must have nonzero generations and strictly increasing resource/role keys.",
                         nameof(bindings));
                 }
-                ValidateSceneExternalImageSource(binding.Texture);
+                ValidateSceneExternalImageSource(
+                    binding.Texture,
+                    binding.Role);
                 previousResourceId = binding.ResourceId;
+                previousRole = binding.Role;
                 nativeBindings[index] = new NativeMethods.SceneExternalImageBinding
                 {
                     StructSize = (uint)Unsafe.SizeOf<
                         NativeMethods.SceneExternalImageBinding>(),
+                    Flags = (uint)binding.Role,
                     ResourceId = binding.ResourceId,
                     Generation = binding.Generation,
                     TextureView = (nuint)binding.Texture.ViewPtr,
@@ -1621,7 +1631,9 @@ public sealed unsafe class NativeCompositor : IDisposable
         }
     }
 
-    private void ValidateSceneExternalImageSource(GpuTexture source)
+    private void ValidateSceneExternalImageSource(
+        GpuTexture source,
+        NativeSceneExternalImageRole role)
     {
         ArgumentNullException.ThrowIfNull(source);
         ThrowIfDisposed();
@@ -1635,17 +1647,30 @@ public sealed unsafe class NativeCompositor : IDisposable
         {
             throw new ObjectDisposedException(nameof(source));
         }
-        if ((source.Usage & TextureUsage.TextureBinding) == 0 ||
-            source.SampleCount != 1 ||
-            source.AlphaMode != GpuTextureAlphaMode.Straight ||
-            source.Format is not (
+        bool supportedFormat = role switch
+        {
+            NativeSceneExternalImageRole.Primary => source.Format is
                 TextureFormat.Rgba8Unorm or
                 TextureFormat.Bgra8Unorm or
                 TextureFormat.Rgba8UnormSrgb or
-                TextureFormat.Bgra8UnormSrgb))
+                TextureFormat.Bgra8UnormSrgb or
+                TextureFormat.R8Unorm ||
+                source.Format == ProGpuTextureFormats.R16Unorm,
+            NativeSceneExternalImageRole.Chroma =>
+                source.Format == TextureFormat.RG8Unorm ||
+                source.Format == ProGpuTextureFormats.RG16Unorm,
+            NativeSceneExternalImageRole.Mask =>
+                source.Format == TextureFormat.R8Unorm,
+            _ => false
+        };
+        if ((source.Usage & TextureUsage.TextureBinding) == 0 ||
+            source.Dimension != GpuTextureDimension.Dimension2D ||
+            source.DepthOrArrayLayers != 1 || source.SampleCount != 1 ||
+            source.AlphaMode != GpuTextureAlphaMode.Straight ||
+            !supportedFormat)
         {
             throw new ArgumentException(
-                "External scene images require a single-sample bindable straight-alpha RGBA/BGRA 8-bit texture.",
+                "External scene images require a role-compatible single-sample bindable straight-alpha 2D texture.",
                 nameof(source));
         }
     }

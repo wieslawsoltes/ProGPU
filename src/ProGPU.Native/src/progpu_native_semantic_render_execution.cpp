@@ -958,6 +958,18 @@ progpu_native_status render_scene(
                         resource.resource_id,
                         resource.generation)
                     : nullptr;
+                const auto* chroma_binding = external_image
+                    ? engine->find_semantic_external_image_binding(
+                        resource.resource_id,
+                        resource.generation,
+                        PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_CHROMA)
+                    : nullptr;
+                const auto* effect_mask_binding = external_image
+                    ? engine->find_semantic_external_image_binding(
+                        resource.resource_id,
+                        resource.generation,
+                        PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_MASK)
+                    : nullptr;
                 valid = resource.auxiliary_size == 0U &&
                     validate_image_draw_payload(
                         bytes,
@@ -968,7 +980,12 @@ progpu_native_status render_scene(
                     (!external_image ||
                         (external_binding != nullptr &&
                             external_binding->width == image.image_width &&
-                            external_binding->height == image.image_height));
+                            external_binding->height == image.image_height)) &&
+                    (!image_options.has_effect || (
+                        (image_options.effect.flags0[0] <= 0.5F ||
+                            chroma_binding != nullptr) &&
+                        (image_options.effect.flags0[1] <= 0.5F ||
+                            effect_mask_binding != nullptr)));
                 semantic_has_image_color_matrices |=
                     valid && image_options.has_color_matrix;
                 compiled_vertex_bytes =
@@ -2113,6 +2130,10 @@ progpu_native_status render_scene(
                     wgpuBufferDestroy(draw.effect_uniform_buffer);
                     wgpuBufferRelease(draw.effect_uniform_buffer);
                 }
+                if (draw.effect_mask_uniform_buffer != nullptr) {
+                    wgpuBufferDestroy(draw.effect_mask_uniform_buffer);
+                    wgpuBufferRelease(draw.effect_mask_uniform_buffer);
+                }
                 if (draw.color_matrix_bind_group != nullptr) {
                     wgpuBindGroupRelease(draw.color_matrix_bind_group);
                 }
@@ -2182,6 +2203,18 @@ progpu_native_status render_scene(
                     ? engine->find_semantic_external_image_binding(
                         resource.resource_id,
                         resource.generation)
+                    : nullptr;
+                const auto* chroma_binding = external_image
+                    ? engine->find_semantic_external_image_binding(
+                        resource.resource_id,
+                        resource.generation,
+                        PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_CHROMA)
+                    : nullptr;
+                const auto* effect_mask_binding = external_image
+                    ? engine->find_semantic_external_image_binding(
+                        resource.resource_id,
+                        resource.generation,
+                        PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_MASK)
                     : nullptr;
                 if (!validate_image_draw_payload(
                         bytes,
@@ -2270,6 +2303,23 @@ progpu_native_status render_scene(
                 draw.sampling = image.sampling;
                 draw.has_color_matrix = image_options.has_color_matrix;
                 draw.has_effect = image_options.has_effect;
+                const bool requires_chroma = draw.has_effect &&
+                    image_options.effect.flags0[0] > 0.5F;
+                if (requires_chroma && chroma_binding == nullptr) {
+                    release_compiled();
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                        "A planar image effect is missing its chroma binding.");
+                }
+                const bool requires_effect_mask = draw.has_effect &&
+                    image_options.effect.flags0[1] > 0.5F;
+                if (requires_effect_mask && effect_mask_binding == nullptr) {
+                    release_compiled();
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                        "An image effect is missing its mask binding.");
+                }
+                draw.has_effect_mask = requires_effect_mask;
                 if (external_image) {
                     draw.view = external_binding->view;
                     progpu::native::webgpu::texture_view_add_ref(draw.view);
@@ -2305,12 +2355,23 @@ progpu_native_status render_scene(
                         !create_semantic_image_effect_resources(
                             *engine,
                             draw.view,
+                            requires_chroma ? chroma_binding->view : nullptr,
+                            requires_effect_mask
+                                ? effect_mask_binding->view
+                                : nullptr,
+                            requires_effect_mask
+                                ? effect_mask_binding->width
+                                : 0U,
+                            requires_effect_mask
+                                ? effect_mask_binding->height
+                                : 0U,
                             image.sampling ==
                                 PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
                                 ? engine->image_nearest_sampler
                                 : engine->image_linear_sampler,
                             image_options.effect,
                             draw.effect_uniform_buffer,
+                            draw.effect_mask_uniform_buffer,
                             draw.effect_uniform_bind_group,
                             draw.effect_texture_bind_group,
                             draw.effect_dummy_mask_bind_group)) {

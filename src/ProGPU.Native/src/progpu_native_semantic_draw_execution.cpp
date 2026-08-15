@@ -326,9 +326,10 @@ progpu_native_status encode_semantic_image_draw(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The semantic image packed page is incomplete.");
     }
-    const bool masked = mask_bind_group != nullptr ||
+    const bool masked = draw.has_effect_mask ||
+        mask_bind_group != nullptr || mask_chain_bind_group != nullptr;
+    const bool chained = !draw.has_effect_mask &&
         mask_chain_bind_group != nullptr;
-    const bool chained = mask_chain_bind_group != nullptr;
     if (draw.has_effect) {
         if (chained) {
             return engine.fail(
@@ -354,9 +355,11 @@ progpu_native_status encode_semantic_image_draw(
         Commands::set_bind_group(
             encoder,
             3U,
-            masked
-                ? mask_bind_group
-                : draw.effect_dummy_mask_bind_group);
+            draw.has_effect_mask
+                ? draw.effect_dummy_mask_bind_group
+                : masked
+                    ? mask_bind_group
+                    : draw.effect_dummy_mask_bind_group);
         Commands::set_vertex_buffer(
             encoder, page.vertex_buffer, page.vertex_bytes);
         Commands::set_index_buffer(

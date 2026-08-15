@@ -16,6 +16,10 @@ constexpr std::uint32_t maximum_atlas_size = 4096U;
 constexpr std::uint32_t path_padding = 4U;
 constexpr std::uint32_t copy_row_alignment = 256U;
 
+constexpr bool binary_flag(float value) noexcept {
+    return value == 0.0F || value == 1.0F;
+}
+
 std::uint32_t align_up(
     std::uint32_t value,
     std::uint32_t alignment) noexcept {
@@ -277,9 +281,9 @@ bool is_valid_semantic_image_effect(
         finite_row(effect.spherical_rotation0) &&
         finite_row(effect.spherical_rotation1) &&
         finite_row(effect.spherical_rotation2) &&
-        effect.effects1[2] == 0.0F &&
-        effect.effects1[3] == 1.0F &&
-        effect.flags0[0] == 0.0F && effect.flags0[1] == 0.0F &&
+        effect.effects1[2] >= 0.0F && effect.effects1[2] <= 32.0F &&
+        binary_flag(effect.effects1[3]) &&
+        binary_flag(effect.flags0[0]) && binary_flag(effect.flags0[1]) &&
         (effect.flags0[2] == 0.0F || effect.flags0[2] == 1.0F) &&
         (effect.flags0[3] == 0.0F || effect.flags0[3] == 1.0F) &&
         effect.texture0[0] > 0.0F && effect.texture0[1] > 0.0F &&

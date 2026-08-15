@@ -207,6 +207,9 @@ public class NativeRendererInteropTests
         Assert.Equal(48, Unsafe.SizeOf<NativeMethods.SceneResource>());
         Assert.Equal(64, Unsafe.SizeOf<NativeMethods.SceneCommand>());
         Assert.Equal(64, Unsafe.SizeOf<NativeMethods.SceneMetrics>());
+        Assert.Equal(
+            48,
+            Unsafe.SizeOf<NativeMethods.SceneExternalImageBinding>());
         Assert.Equal(88, Unsafe.SizeOf<NativeSceneImageDraw>());
         Assert.Equal(16, Unsafe.SizeOf<NativeSceneImageSamplingOptions>());
         Assert.Equal(96, Unsafe.SizeOf<NativeSceneImageColorMatrix>());
@@ -600,6 +603,9 @@ public class NativeRendererInteropTests
     [Fact]
     public void CapabilityValuesMatchPublishedNativeHeader()
     {
+        Assert.Equal(0U, (uint)NativeSceneExternalImageRole.Primary);
+        Assert.Equal(1U, (uint)NativeSceneExternalImageRole.Chroma);
+        Assert.Equal(2U, (uint)NativeSceneExternalImageRole.Mask);
         Assert.Equal(1UL, (ulong)NativeRendererCapabilities.SolidRectBatch);
         Assert.Equal(2UL, (ulong)NativeRendererCapabilities.SharedVectorShader);
         Assert.Equal(4UL, (ulong)NativeRendererCapabilities.ExternalTarget);
@@ -2524,7 +2530,7 @@ public class NativeRendererInteropTests
         Assert.True(success);
         Assert.Equal(0L, GC.GetAllocatedBytesForCurrentThread() - before);
 
-        var invalid = new NativeSceneImageEffect(
+        var blurred = new NativeSceneImageEffect(
             default,
             default,
             default,
@@ -2532,6 +2538,27 @@ public class NativeRendererInteropTests
             default,
             new Vector4(0f, 1f, 1f, 0f),
             new Vector4(0f, 0f, 0.5f, 1f),
+            new Vector4(2f, 2f, 0f, 0f),
+            default,
+            default,
+            default,
+            default,
+            default,
+            default,
+            default,
+            default,
+            default,
+            default);
+        Assert.True(Build(destination, pixels, in image, in blurred));
+
+        var invalid = new NativeSceneImageEffect(
+            default,
+            default,
+            default,
+            default,
+            default,
+            new Vector4(0f, 1f, 1f, 0f),
+            new Vector4(0f, 0f, 32.01f, 1f),
             new Vector4(2f, 2f, 0f, 0f),
             default,
             default,

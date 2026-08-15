@@ -183,13 +183,19 @@ namespace progpu::native::semantic {
 bool create_semantic_image_effect_resources(
     progpu_native_engine& engine,
     WGPUTextureView image_view,
+    WGPUTextureView chroma_view,
+    WGPUTextureView mask_view,
+    std::uint32_t mask_width,
+    std::uint32_t mask_height,
     WGPUSampler sampler,
     const progpu_native_scene_image_effect& effect,
     WGPUBuffer& uniform_buffer,
+    WGPUBuffer& mask_uniform_buffer,
     WGPUBindGroup& uniform_bind_group,
     WGPUBindGroup& texture_bind_group,
     WGPUBindGroup& dummy_mask_bind_group) noexcept {
     uniform_buffer = nullptr;
+    mask_uniform_buffer = nullptr;
     uniform_bind_group = nullptr;
     texture_bind_group = nullptr;
     dummy_mask_bind_group = nullptr;
@@ -230,7 +236,8 @@ bool create_semantic_image_effect_resources(
         {nullptr, 0U, nullptr, 0U, 0U,
             sampler, nullptr},
         {nullptr, 1U, nullptr, 0U, 0U, nullptr, image_view},
-        {nullptr, 2U, nullptr, 0U, 0U, nullptr, image_view}
+        {nullptr, 2U, nullptr, 0U, 0U, nullptr,
+            chroma_view != nullptr ? chroma_view : image_view}
     }};
     descriptor.label = webgpu::string_view(
         "ProGPU semantic image-effect texture bind group");
@@ -239,11 +246,59 @@ bool create_semantic_image_effect_resources(
     descriptor.entries = texture_entries.data();
     texture_bind_group = wgpuDeviceCreateBindGroup(engine.device, &descriptor);
 
+    WGPUBuffer selected_mask_uniform = engine.image_mask_uniform_buffer;
+    if (mask_view != nullptr) {
+        if (mask_width == 0U || mask_height == 0U) {
+            if (texture_bind_group != nullptr)
+                wgpuBindGroupRelease(texture_bind_group);
+            if (uniform_bind_group != nullptr)
+                wgpuBindGroupRelease(uniform_bind_group);
+            wgpuBufferDestroy(uniform_buffer);
+            wgpuBufferRelease(uniform_buffer);
+            uniform_buffer = nullptr;
+            uniform_bind_group = nullptr;
+            texture_bind_group = nullptr;
+            return false;
+        }
+        gpu_mask_sampling_uniforms sampling{};
+        sampling.coordinate1[0] = 1.0F / static_cast<float>(mask_width);
+        sampling.coordinate1[1] = 1.0F / static_cast<float>(mask_height);
+        sampling.options[0] = 1.0F;
+        WGPUBufferDescriptor mask_buffer_descriptor{};
+        mask_buffer_descriptor.label = webgpu::string_view(
+            "ProGPU semantic image-effect mask uniforms");
+        mask_buffer_descriptor.usage = WGPUBufferUsage_Uniform |
+            WGPUBufferUsage_CopyDst;
+        mask_buffer_descriptor.size = sizeof(sampling);
+        mask_uniform_buffer = wgpuDeviceCreateBuffer(
+            engine.device,
+            &mask_buffer_descriptor);
+        if (mask_uniform_buffer == nullptr) {
+            if (texture_bind_group != nullptr)
+                wgpuBindGroupRelease(texture_bind_group);
+            if (uniform_bind_group != nullptr)
+                wgpuBindGroupRelease(uniform_bind_group);
+            wgpuBufferDestroy(uniform_buffer);
+            wgpuBufferRelease(uniform_buffer);
+            uniform_buffer = nullptr;
+            uniform_bind_group = nullptr;
+            texture_bind_group = nullptr;
+            return false;
+        }
+        wgpuQueueWriteBuffer(
+            engine.queue,
+            mask_uniform_buffer,
+            0U,
+            &sampling,
+            sizeof(sampling));
+        selected_mask_uniform = mask_uniform_buffer;
+    }
     const std::array<WGPUBindGroupEntry, 3U> mask_entries{{
         {nullptr, 0U, nullptr, 0U, 0U,
             engine.image_linear_sampler, nullptr},
-        {nullptr, 1U, nullptr, 0U, 0U, nullptr, image_view},
-        {nullptr, 2U, engine.image_mask_uniform_buffer, 0U,
+        {nullptr, 1U, nullptr, 0U, 0U, nullptr,
+            mask_view != nullptr ? mask_view : image_view},
+        {nullptr, 2U, selected_mask_uniform, 0U,
             sizeof(gpu_mask_sampling_uniforms), nullptr, nullptr}
     }};
     descriptor.label = webgpu::string_view(
@@ -262,9 +317,14 @@ bool create_semantic_image_effect_resources(
             wgpuBindGroupRelease(texture_bind_group);
         if (uniform_bind_group != nullptr)
             wgpuBindGroupRelease(uniform_bind_group);
+        if (mask_uniform_buffer != nullptr) {
+            wgpuBufferDestroy(mask_uniform_buffer);
+            wgpuBufferRelease(mask_uniform_buffer);
+        }
         wgpuBufferDestroy(uniform_buffer);
         wgpuBufferRelease(uniform_buffer);
         uniform_buffer = nullptr;
+        mask_uniform_buffer = nullptr;
         uniform_bind_group = nullptr;
         texture_bind_group = nullptr;
         dummy_mask_bind_group = nullptr;

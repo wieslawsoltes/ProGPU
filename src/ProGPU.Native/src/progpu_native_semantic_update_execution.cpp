@@ -27,10 +27,15 @@ progpu_native_status bind_scene_external_images(
     bool identical =
         binding_count == engine->semantic_external_image_bindings.size();
     std::uint64_t previous_id = 0U;
+    std::uint32_t previous_role = 0U;
     for (std::size_t index = 0U; index < binding_count; ++index) {
         const auto& source = bindings[index];
-        if (source.struct_size < sizeof(source) || source.flags != 0U ||
-            source.resource_id == 0U || source.resource_id <= previous_id ||
+        if (source.struct_size < sizeof(source) ||
+            source.flags > PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_MASK ||
+            source.resource_id == 0U ||
+            source.resource_id < previous_id ||
+            (source.resource_id == previous_id &&
+                source.flags <= previous_role) ||
             source.generation == 0U || source.texture_view == 0U ||
             source.width == 0U || source.height == 0U ||
             source.width > 16384U || source.height > 16384U ||
@@ -40,11 +45,13 @@ progpu_native_status bind_scene_external_images(
                 "An external-image binding record is invalid or unordered.");
         }
         previous_id = source.resource_id;
+        previous_role = source.flags;
         if (identical) {
             const auto& current =
                 engine->semantic_external_image_bindings[index];
             identical = current.resource_id == source.resource_id &&
                 current.generation == source.generation &&
+                current.role == source.flags &&
                 current.view == reinterpret_cast<WGPUTextureView>(
                     source.texture_view) &&
                 current.width == source.width &&
@@ -67,6 +74,7 @@ progpu_native_status bind_scene_external_images(
             next.push_back({
                 source.resource_id,
                 source.generation,
+                source.flags,
                 view,
                 source.width,
                 source.height});
