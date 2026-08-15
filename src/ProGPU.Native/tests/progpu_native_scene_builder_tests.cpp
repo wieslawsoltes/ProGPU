@@ -987,8 +987,8 @@ bool semantic_scene_builder_records_retained_3d_families() {
     mesh.struct_size = sizeof(mesh);
     mesh.topology = PROGPU_NATIVE_MESH_3D_TRIANGLES;
     mesh.render_mode = PROGPU_NATIVE_MESH_3D_SOLID;
-    mesh.vertex_count = vertices.size();
-    mesh.index_count = indices.size();
+    mesh.vertex_count = static_cast<std::uint32_t>(vertices.size());
+    mesh.index_count = static_cast<std::uint32_t>(indices.size());
     mesh.model_transform = identity;
     mesh.normal_transform = identity;
     mesh.color = {0.9F, 0.4F, 0.1F, 1.0F};

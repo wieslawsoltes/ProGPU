@@ -68,8 +68,8 @@ std::vector<std::byte> create_native_3d_scene_stream() {
     mesh.struct_size = sizeof(mesh);
     mesh.topology = PROGPU_NATIVE_MESH_3D_TRIANGLES;
     mesh.render_mode = PROGPU_NATIVE_MESH_3D_SOLID_WIREFRAME;
-    mesh.vertex_count = vertices.size();
-    mesh.index_count = indices.size();
+    mesh.vertex_count = static_cast<std::uint32_t>(vertices.size());
+    mesh.index_count = static_cast<std::uint32_t>(indices.size());
     mesh.model_transform = identity;
     mesh.normal_transform = identity;
     mesh.color = {1.0F, 0.2F, 0.5F, 1.0F};
