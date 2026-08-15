@@ -2513,11 +2513,7 @@ public class NativePictureCompilerTests
     [Fact]
     public void CompilerFailsClosedForUnsupportedBrush()
     {
-        var unsupported = new HatchPatternBrush(
-            45f,
-            8f,
-            1f,
-            Vector4.One);
+        var unsupported = new UnknownBrush();
         using var picture = new GpuPicture(
             new[]
             {
@@ -2544,5 +2540,9 @@ public class NativePictureCompilerTests
         Assert.Equal(NativePictureCompileError.UnsupportedBrush, failure.Error);
         Assert.Equal(0, failure.CommandIndex);
         Assert.Equal(RenderCommandType.DrawRect, failure.CommandType);
+    }
+
+    private sealed class UnknownBrush : Brush
+    {
     }
 }
