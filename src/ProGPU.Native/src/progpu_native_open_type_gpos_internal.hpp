@@ -14,6 +14,32 @@ enum class gpos_apply_result : std::uint8_t {
     malformed
 };
 
+inline void mark_gpos_dependency(
+    std::span<shaping_glyph> glyphs,
+    std::size_t first,
+    std::size_t last) noexcept {
+    if (first > last || last >= glyphs.size() || first == last) {
+        return;
+    }
+    std::int32_t minimum_cluster = glyphs[first].cluster;
+    for (std::size_t index = first + 1U; index <= last; ++index) {
+        if (glyphs[index].cluster < minimum_cluster) {
+            minimum_cluster = glyphs[index].cluster;
+        }
+    }
+    constexpr auto dependency_flags =
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break) |
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_concat);
+    for (std::size_t index = first; index <= last; ++index) {
+        if (glyphs[index].cluster == minimum_cluster) {
+            continue;
+        }
+        glyphs[index].flags = static_cast<shaping_glyph_flags>(
+            static_cast<std::uint32_t>(glyphs[index].flags) |
+            dependency_flags);
+    }
+}
+
 gpos_apply_result apply_gpos_lookup_at(
     const open_type_layout_table_view&,
     std::uint16_t,

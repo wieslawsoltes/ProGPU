@@ -463,6 +463,10 @@ apply_result apply_cursive(
             glyphs[parent].offset_x = 0;
         }
     }
+    detail::mark_gpos_dependency(
+        glyphs,
+        previous < position ? previous : position,
+        previous < position ? position : previous);
     return apply_result::applied;
 }
 
@@ -562,9 +566,10 @@ apply_result attach_mark(
     }
     glyphs[mark_index].offset_x = target_x - mark_x;
     glyphs[mark_index].offset_y = target_y - mark_y;
-    glyphs[mark_index].flags = static_cast<shaping_glyph_flags>(
-        static_cast<std::uint32_t>(glyphs[mark_index].flags) |
-        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break));
+    detail::mark_gpos_dependency(
+        glyphs,
+        mark_index < target_index ? mark_index : target_index,
+        mark_index < target_index ? target_index : mark_index);
     options.attachments[mark_index].target =
         static_cast<std::int32_t>(target_index);
     options.attachments[mark_index].kind = shaping_attachment_kind::mark;
@@ -762,6 +767,7 @@ apply_result apply_pair(
     }
     apply_value(glyphs[position], value1);
     apply_value(glyphs[second], value2);
+    detail::mark_gpos_dependency(glyphs, position, second);
     return apply_result::applied;
 }
 

@@ -370,6 +370,41 @@ public sealed class OpenTypeTextShaperTests
     }
 
     [Fact]
+    public void InterDesignUnitShapingMatchesNativeQualificationSignature()
+    {
+        using var glyphs = new ShapingBuffer(64);
+        OpenTypeTextShaper.ShapeDesignUnits(
+            "AVATAR",
+            InterFontFamily.GetFont(500),
+            TextShapingOptions.Default,
+            glyphs);
+
+        ulong hash = 1469598103934665603UL;
+        static void Mix(ref ulong value, uint field)
+        {
+            for (int shift = 0; shift < 32; shift += 8)
+            {
+                value ^= (field >> shift) & 0xffU;
+                value *= 1099511628211UL;
+            }
+        }
+
+        Mix(ref hash, (uint)glyphs.Count);
+        foreach (ref readonly ShapingGlyph glyph in glyphs.Glyphs)
+        {
+            Mix(ref hash, glyph.GlyphId);
+            Mix(ref hash, unchecked((uint)glyph.Cluster));
+            Mix(ref hash, unchecked((uint)glyph.AdvanceX));
+            Mix(ref hash, unchecked((uint)glyph.AdvanceY));
+            Mix(ref hash, unchecked((uint)glyph.OffsetX));
+            Mix(ref hash, unchecked((uint)glyph.OffsetY));
+            Mix(ref hash, (uint)glyph.Flags);
+        }
+
+        Assert.Equal(13341559627338683649UL, hash);
+    }
+
+    [Fact]
     public void IndicSyllableBoundariesExposeUnsafeToBreakDependencies()
     {
         IReadOnlyList<ShapedGlyph> glyphs = OpenTypeTextShaper.Shape(

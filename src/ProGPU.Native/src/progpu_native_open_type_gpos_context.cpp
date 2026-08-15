@@ -131,14 +131,7 @@ void mark_unsafe(
     std::span<shaping_glyph> glyphs,
     std::size_t first,
     std::size_t last) noexcept {
-    if (first > last || last >= glyphs.size()) {
-        return;
-    }
-    for (std::size_t index = first; index <= last; ++index) {
-        glyphs[index].flags = static_cast<shaping_glyph_flags>(
-            static_cast<std::uint32_t>(glyphs[index].flags) |
-            static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break));
-    }
+    detail::mark_gpos_dependency(glyphs, first, last);
 }
 
 apply_result match_coverage(

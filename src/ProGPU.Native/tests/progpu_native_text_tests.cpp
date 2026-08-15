@@ -1675,10 +1675,13 @@ void open_type_gpos_context_format3_applies_nested_lookup() {
         glyphs[1U].advance_x == 8 &&
         (static_cast<std::uint32_t>(glyphs[0U].flags) &
             static_cast<std::uint32_t>(
+                shaping_glyph_flags::unsafe_to_break)) == 0U &&
+        (static_cast<std::uint32_t>(glyphs[1U].flags) &
+            static_cast<std::uint32_t>(
                 shaping_glyph_flags::unsafe_to_break)) != 0U &&
         (static_cast<std::uint32_t>(glyphs[1U].flags) &
             static_cast<std::uint32_t>(
-                shaping_glyph_flags::unsafe_to_break)) != 0U);
+                shaping_glyph_flags::unsafe_to_concat)) != 0U);
 }
 
 void open_type_gpos_rule_and_chain_contexts_are_bounded() {
@@ -1779,10 +1782,16 @@ void open_type_gpos_rule_and_chain_contexts_are_bounded() {
     require(applied && chain_glyphs[1U].advance_x == 8 &&
         (static_cast<std::uint32_t>(chain_glyphs[0U].flags) &
             static_cast<std::uint32_t>(
+                shaping_glyph_flags::unsafe_to_break)) == 0U &&
+        (static_cast<std::uint32_t>(chain_glyphs[1U].flags) &
+            static_cast<std::uint32_t>(
+                shaping_glyph_flags::unsafe_to_concat)) != 0U &&
+        (static_cast<std::uint32_t>(chain_glyphs[2U].flags) &
+            static_cast<std::uint32_t>(
                 shaping_glyph_flags::unsafe_to_break)) != 0U &&
         (static_cast<std::uint32_t>(chain_glyphs[2U].flags) &
             static_cast<std::uint32_t>(
-                shaping_glyph_flags::unsafe_to_break)) != 0U);
+                shaping_glyph_flags::unsafe_to_concat)) != 0U);
 }
 
 std::uint64_t hash_path_segments(
@@ -5811,6 +5820,155 @@ void production_inter_variable_font_matches_fvar_axes() {
         untouched_points[0].y == 99.0F);
 }
 
+void production_inter_shaping_is_stable_and_reusable() {
+    std::ifstream stream(PROGPU_NATIVE_TEST_INTER_FONT, std::ios::binary);
+    require(stream.good());
+    const std::vector<char> source{
+        std::istreambuf_iterator<char>(stream),
+        std::istreambuf_iterator<char>()};
+    std::vector<std::byte> data(source.size());
+    for (std::size_t index = 0U; index < source.size(); ++index) {
+        data[index] = static_cast<std::byte>(source[index]);
+    }
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+    constexpr std::array input{
+        unicode_scalar{0x41U, 0U, 1U},
+        unicode_scalar{0x56U, 1U, 1U},
+        unicode_scalar{0x41U, 2U, 1U},
+        unicode_scalar{0x54U, 3U, 1U},
+        unicode_scalar{0x41U, 4U, 1U},
+        unicode_scalar{0x52U, 5U, 1U}};
+    constexpr std::array default_features{
+        open_type_tag::from_chars('l', 't', 'r', 'a'),
+        open_type_tag::from_chars('l', 't', 'r', 'm'),
+        open_type_tag::from_chars('r', 'v', 'r', 'n'),
+        open_type_tag::from_chars('f', 'r', 'a', 'c'),
+        open_type_tag::from_chars('n', 'u', 'm', 'r'),
+        open_type_tag::from_chars('d', 'n', 'o', 'm'),
+        open_type_tag::from_chars('c', 'c', 'm', 'p'),
+        open_type_tag::from_chars('l', 'o', 'c', 'l'),
+        open_type_tag::from_chars('i', 's', 'o', 'l'),
+        open_type_tag::from_chars('f', 'i', 'n', 'a'),
+        open_type_tag::from_chars('f', 'i', 'n', '2'),
+        open_type_tag::from_chars('f', 'i', 'n', '3'),
+        open_type_tag::from_chars('m', 'e', 'd', 'i'),
+        open_type_tag::from_chars('m', 'e', 'd', '2'),
+        open_type_tag::from_chars('i', 'n', 'i', 't'),
+        open_type_tag::from_chars('r', 'l', 'i', 'g'),
+        open_type_tag::from_chars('m', 'a', 'r', 'k'),
+        open_type_tag::from_chars('m', 'k', 'm', 'k'),
+        open_type_tag::from_chars('c', 'a', 'l', 't'),
+        open_type_tag::from_chars('c', 'l', 'i', 'g'),
+        open_type_tag::from_chars('c', 'u', 'r', 's'),
+        open_type_tag::from_chars('d', 'i', 's', 't'),
+        open_type_tag::from_chars('a', 'b', 'v', 'm'),
+        open_type_tag::from_chars('b', 'l', 'w', 'm'),
+        open_type_tag::from_chars('k', 'e', 'r', 'n'),
+        open_type_tag::from_chars('l', 'i', 'g', 'a'),
+        open_type_tag::from_chars('r', 'c', 'l', 't'),
+        open_type_tag::from_chars('r', 'a', 'n', 'd')};
+    const open_type_shape_run_options options{
+        open_type_tag::from_chars('l', 'a', 't', 'n'),
+        {},
+        progpu::native::text::shaping_direction::left_to_right,
+        default_features};
+    open_type_shape_run_requirements requirements{};
+    require(try_get_open_type_shape_run_requirements(
+        font, input, requirements, &error));
+    require(requirements.glyph_capacity <= 64U &&
+        requirements.grapheme_capacity <= 16U &&
+        requirements.gsub_lookup_capacity <= 128U &&
+        requirements.gpos_lookup_capacity <= 128U);
+    open_type_shape_plan_requirements plan_requirements{};
+    require(try_get_open_type_shape_plan_requirements(
+        font, options, plan_requirements, &error));
+    require(plan_requirements.gsub_lookup_capacity <= 128U &&
+        plan_requirements.gpos_lookup_capacity <= 128U);
+
+    std::array<std::uint16_t, 128U> plan_gsub{};
+    std::array<std::uint16_t, 128U> plan_gpos{};
+    open_type_shape_plan plan{};
+    require(try_build_open_type_shape_plan(
+        font,
+        options,
+        std::span<std::uint16_t>(plan_gsub).first(
+            plan_requirements.gsub_lookup_capacity),
+        std::span<std::uint16_t>(plan_gpos).first(
+            plan_requirements.gpos_lookup_capacity),
+        plan,
+        &error));
+
+    std::array<shaping_glyph, 64U> glyphs{};
+    std::array<unicode_grapheme_cluster, 16U> graphemes{};
+    std::array<std::uint16_t, 128U> gsub{};
+    std::array<std::uint16_t, 128U> gpos{};
+    std::array<shaping_attachment, 64U> attachments{};
+    std::array<std::uint8_t, 64U> states{};
+    std::array<open_type_arabic_action, 64U> arabic_actions{};
+    std::array<std::uint8_t, 64U> categories{};
+    std::array<std::uint8_t, 64U> syllables{};
+    std::array<std::uint32_t, 64U> indices{};
+    const open_type_shape_run_scratch scratch{
+        std::span<unicode_grapheme_cluster>(graphemes).first(
+            requirements.grapheme_capacity),
+        std::span<std::uint16_t>(gsub).first(
+            requirements.gsub_lookup_capacity),
+        std::span<std::uint16_t>(gpos).first(
+            requirements.gpos_lookup_capacity),
+        std::span<shaping_attachment>(attachments).first(
+            requirements.glyph_capacity),
+        std::span<std::uint8_t>(states).first(requirements.glyph_capacity),
+        std::span<open_type_arabic_action>(arabic_actions).first(
+            requirements.script_action_capacity),
+        std::span<std::uint8_t>(categories).first(
+            requirements.complex_script_capacity),
+        std::span<std::uint8_t>(syllables).first(
+            requirements.complex_script_capacity),
+        std::span<std::uint32_t>(indices).first(
+            requirements.complex_script_index_capacity)};
+
+    std::uint64_t stable_hash = 0U;
+    for (std::uint32_t iteration = 0U; iteration < 1024U; ++iteration) {
+        std::uint32_t glyph_count = 0U;
+        require(try_shape_open_type_run(
+            font,
+            input,
+            options,
+            std::span<shaping_glyph>(glyphs).first(
+                requirements.glyph_capacity),
+            scratch,
+            glyph_count,
+            &error,
+            &plan));
+        std::uint64_t hash = 1469598103934665603ULL;
+        const auto mix = [&hash](std::uint32_t value) {
+            for (std::uint32_t shift = 0U; shift < 32U; shift += 8U) {
+                hash ^= (value >> shift) & 0xFFU;
+                hash *= 1099511628211ULL;
+            }
+        };
+        mix(glyph_count);
+        for (std::uint32_t index = 0U; index < glyph_count; ++index) {
+            const auto& glyph = glyphs[index];
+            mix(glyph.glyph_id);
+            mix(static_cast<std::uint32_t>(glyph.cluster));
+            mix(static_cast<std::uint32_t>(glyph.advance_x));
+            mix(static_cast<std::uint32_t>(glyph.advance_y));
+            mix(static_cast<std::uint32_t>(glyph.offset_x));
+            mix(static_cast<std::uint32_t>(glyph.offset_y));
+            mix(static_cast<std::uint32_t>(glyph.flags));
+        }
+        if (iteration == 0U) {
+            stable_hash = hash;
+        } else {
+            require(hash == stable_hash);
+        }
+    }
+    require(stable_hash == 13341559627338683649ULL);
+}
+
 } // namespace
 
 int main() {
@@ -5872,5 +6030,6 @@ int main() {
     production_noto_cff1_container_matches_sfnt_glyph_count();
     production_inter_font_decodes_real_simple_outline();
     production_inter_variable_font_matches_fvar_axes();
+    production_inter_shaping_is_stable_and_reusable();
     return 0;
 }
