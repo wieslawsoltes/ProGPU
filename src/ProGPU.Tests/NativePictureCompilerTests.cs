@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using ProGPU.Backend;
 using ProGPU.Backend.Native;
 using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
@@ -225,6 +226,65 @@ public class NativePictureCompilerTests
         Assert.True((line.Flags & NativePolylineFlags.FixedDeviceStroke) != 0);
         Assert.True((scatter.Flags &
             NativePointBatchFlags.FixedDeviceRadius) != 0);
+    }
+
+    [Fact]
+    public void CompilerIsolatesEachDrawInsideManagedBlendScope()
+    {
+        Brush brush = new SolidColorBrush(Vector4.One);
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushBlendMode,
+                    IntParam = (int)GpuBlendMode.Multiply
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Rect = new Rect(0f, 0f, 10f, 10f),
+                    Brush = brush
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Rect = new Rect(5f, 5f, 10f, 10f),
+                    Brush = brush
+                },
+                new RenderCommand { Type = RenderCommandType.PopBlendMode }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            304U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(6, compiled.NativeCommandCount);
+        Assert.Equal(2, compiled.NativeDrawCount);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        ReadOnlySpan<NativeMethods.SceneCommand> commands =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneCommand>(
+                compiled.Stream.Slice(
+                    checked((int)header.CommandOffset),
+                    checked((int)header.CommandCount *
+                        Unsafe.SizeOf<NativeMethods.SceneCommand>())));
+        Assert.Equal(NativeSceneCommandKind.PushLayer, commands[0].Kind);
+        Assert.Equal(NativeSceneCommandKind.DrawAnalytic, commands[1].Kind);
+        Assert.Equal(NativeSceneCommandKind.PopLayer, commands[2].Kind);
+        Assert.Equal(NativeSceneCommandKind.PushLayer, commands[3].Kind);
+        NativeSceneLayer layer = MemoryMarshal.Read<NativeSceneLayer>(
+            compiled.Stream.Slice(checked((int)commands[0].PayloadOffset)));
+        Assert.Equal(GpuBlendMode.Multiply, layer.BlendMode);
+        Assert.True((layer.Flags & NativeSceneLayerFlags.ForceIsolation) != 0);
     }
 
     [Fact]

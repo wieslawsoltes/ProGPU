@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using ProGPU.Backend;
 using ProGPU.Backend.Native;
 using ProGPU.Vector;
 
@@ -37,7 +38,8 @@ public static partial class GpuPictureNativeSceneCompiler
     {
         Draw,
         Save,
-        Restore
+        Restore,
+        BatchBarrier
     }
 
     private enum StateScopeKind : byte
@@ -45,7 +47,8 @@ public static partial class GpuPictureNativeSceneCompiler
         Opacity,
         Clip,
         OpacityMask,
-        GeometryClip
+        GeometryClip,
+        Blend
     }
 
     private struct Batch
@@ -67,15 +70,22 @@ public static partial class GpuPictureNativeSceneCompiler
     private readonly record struct Operation(
         OperationKind Kind,
         int BatchIndex = -1,
-        int StateIndex = -1);
+        int StateIndex = -1,
+        GpuBlendMode BlendMode = GpuBlendMode.SrcOver);
 
     private readonly record struct StateSnapshot(
         float Opacity,
         bool HasClip,
         NativeImageRect ClipRect,
-        int MaskIndex)
+        int MaskIndex,
+        GpuBlendMode BlendMode)
     {
-        public static StateSnapshot Identity => new(1f, false, default, -1);
+        public static StateSnapshot Identity => new(
+            1f,
+            false,
+            default,
+            -1,
+            GpuBlendMode.SrcOver);
 
         public NativeSceneState ToNative(uint maskResourceIndex)
         {
@@ -311,6 +321,12 @@ public static partial class GpuPictureNativeSceneCompiler
             {
                 continue;
             }
+            int operationStart = operations.Count;
+            bool isolateBlend = currentState.BlendMode != GpuBlendMode.SrcOver;
+            if (isolateBlend)
+            {
+                operations.Add(new Operation(OperationKind.BatchBarrier));
+            }
             if (!TryAppendCommand(
                     sourcePicture,
                     command,
@@ -352,6 +368,23 @@ public static partial class GpuPictureNativeSceneCompiler
                     sourceCommandType);
                 return false;
             }
+            if (isolateBlend)
+            {
+                operations.RemoveAt(operationStart);
+                for (int operationIndex = operationStart;
+                    operationIndex < operations.Count;
+                    operationIndex++)
+                {
+                    Operation operation = operations[operationIndex];
+                    if (operation.Kind == OperationKind.Draw)
+                    {
+                        operations[operationIndex] = operation with
+                        {
+                            BlendMode = currentState.BlendMode
+                        };
+                    }
+                }
+            }
         }
 
         if (stateScopes.Count != 0)
@@ -375,6 +408,10 @@ public static partial class GpuPictureNativeSceneCompiler
 
         try
         {
+            int nativeCommandCount = checked(operations.Count +
+                operations.Count(static operation =>
+                    operation.Kind == OperationKind.Draw &&
+                    operation.BlendMode != GpuBlendMode.SrcOver) * 2);
             int arenaCapacity = checked(
                 analytics.Count * Unsafe.SizeOf<NativeAnalyticPrimitive>() +
                 geometry.Count * Unsafe.SizeOf<NativeGeometryPrimitive>() +
@@ -401,7 +438,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     Unsafe.SizeOf<NativeSceneGradientStop>() +
                 states.Count * Unsafe.SizeOf<NativeSceneState>() +
                 stateMasks.Count * Unsafe.SizeOf<NativeSceneLayerMaskChain>() +
-                operations.Count * 64 +
+                nativeCommandCount * 64 +
                 positionedGlyphs.Count * Unsafe.SizeOf<NativePositionedGlyph>() +
                 batches.Count(static batch =>
                     batch.Kind is BatchKind.Glyph or BatchKind.ColorGlyph) *
@@ -419,7 +456,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 batches.Count + optionalTableResourceCount +
                 stateMasks.Count + states.Count);
             int capacity = NativeSceneStreamBuilder.GetRequiredBufferSize(
-                operations.Count,
+                nativeCommandCount,
                 resourceCount,
                 arenaCapacity);
             byte[] storage = GC.AllocateUninitializedArray<byte>(capacity);
@@ -427,7 +464,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 storage,
                 sceneId,
                 generation,
-                operations.Count,
+                nativeCommandCount,
                 resourceCount);
             Span<NativeAnalyticPrimitive> analyticSpan =
                 CollectionsMarshal.AsSpan(analytics);
@@ -657,10 +694,11 @@ public static partial class GpuPictureNativeSceneCompiler
                     return false;
                 }
             }
+            ulong nextCommandId = 1U;
             for (int index = 0; index < operations.Count; index++)
             {
                 Operation operation = operations[index];
-                ulong commandId = checked((ulong)index + 1U);
+                ulong commandId = nextCommandId++;
                 bool added;
                 if (operation.Kind == OperationKind.Save)
                 {
@@ -675,6 +713,23 @@ public static partial class GpuPictureNativeSceneCompiler
                 else
                 {
                     Batch batch = batches[operation.BatchIndex];
+                    if (operation.BlendMode != GpuBlendMode.SrcOver)
+                    {
+                        var layer = new NativeSceneLayer(
+                            opacity: 1f,
+                            blendMode: operation.BlendMode,
+                            flags: NativeSceneLayerFlags.ForceIsolation);
+                        added = builder.TryPushLayer(commandId, in layer);
+                        if (!added)
+                        {
+                            failure = new(
+                                NativePictureCompileError.StreamBuildFailed,
+                                -1,
+                                default);
+                            return false;
+                        }
+                        commandId = nextCommandId++;
+                    }
                     added = batch.Kind == BatchKind.Analytic
                         ? builder.TryDrawAnalytic(
                             commandId,
@@ -738,6 +793,10 @@ public static partial class GpuPictureNativeSceneCompiler
                                 batch.SecondaryCount),
                             textStyleResourceIndex,
                             batch.StyleIndex);
+                    if (added && operation.BlendMode != GpuBlendMode.SrcOver)
+                    {
+                        added = builder.TryPopLayer(nextCommandId++);
+                    }
                 }
                 if (!added)
                 {
@@ -763,7 +822,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 generation,
                 options.DpiScale,
                 sourceCommandCount,
-                operations.Count,
+                nativeCommandCount,
                 batches.Count,
                 analytics.Count,
                 geometry.Count,
@@ -896,6 +955,23 @@ public static partial class GpuPictureNativeSceneCompiler
                     scopes,
                     states,
                     operations);
+            case RenderCommandType.PushBlendMode:
+                if ((uint)command.IntParam > (uint)GpuBlendMode.Modulate)
+                {
+                    error = NativePictureCompileError.InvalidState;
+                    return false;
+                }
+                return PushLogicalState(
+                    StateScopeKind.Blend,
+                    current with
+                    {
+                        BlendMode = (GpuBlendMode)command.IntParam
+                    },
+                    ownerId,
+                    sourceCommandIndex,
+                    command.Type,
+                    ref current,
+                    scopes);
             case RenderCommandType.PopOpacity:
                 return TryRestoreState(
                     StateScopeKind.Opacity,
@@ -928,10 +1004,54 @@ public static partial class GpuPictureNativeSceneCompiler
                     scopes,
                     operations,
                     out error);
+            case RenderCommandType.PopBlendMode:
+                return TryRestoreLogicalState(
+                    StateScopeKind.Blend,
+                    ownerId,
+                    ref current,
+                    scopes,
+                    out error);
             default:
                 handled = false;
                 return true;
         }
+    }
+
+    private static bool PushLogicalState(
+        StateScopeKind kind,
+        StateSnapshot next,
+        int ownerId,
+        int sourceCommandIndex,
+        RenderCommandType sourceCommandType,
+        ref StateSnapshot current,
+        Stack<StateScope> scopes)
+    {
+        scopes.Push(new(
+            kind,
+            current,
+            ownerId,
+            sourceCommandIndex,
+            sourceCommandType));
+        current = next;
+        return true;
+    }
+
+    private static bool TryRestoreLogicalState(
+        StateScopeKind expected,
+        int ownerId,
+        ref StateSnapshot current,
+        Stack<StateScope> scopes,
+        out NativePictureCompileError error)
+    {
+        if (scopes.Count == 0 || scopes.Peek().Kind != expected ||
+            scopes.Peek().OwnerId != ownerId)
+        {
+            error = NativePictureCompileError.UnbalancedState;
+            return false;
+        }
+        current = scopes.Pop().Previous;
+        error = NativePictureCompileError.None;
+        return true;
     }
 
     private static bool PushState(
