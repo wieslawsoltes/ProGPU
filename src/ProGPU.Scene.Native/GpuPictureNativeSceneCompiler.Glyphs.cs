@@ -17,6 +17,100 @@ public static partial class GpuPictureNativeSceneCompiler
         uint RasterScaleBits,
         uint SubpixelBits);
 
+    private static bool TryAppendText(
+        in RenderCommand command,
+        Matrix3x2 transform,
+        float targetDpiScale,
+        List<NativeScenePathFill> paths,
+        List<NativePathSegment> pathSegments,
+        List<uint> pathBrushIndices,
+        List<NativeSceneGlyphOutline> outlines,
+        List<NativePathSegment> segments,
+        List<NativeSceneColorGlyphBitmap> colorBitmaps,
+        List<byte> colorPixels,
+        List<NativePositionedGlyph> glyphs,
+        List<NativeSceneTextStyle> styles,
+        List<Batch> batches,
+        List<Operation> operations,
+        NativeBrushTableBuilder materials,
+        out NativePictureCompileError error)
+    {
+        error = NativePictureCompileError.None;
+        if (command.Font is null || command.Text is null ||
+            !float.IsFinite(command.FontSize) || command.FontSize <= 0f)
+        {
+            error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+        if (command.Text.Length == 0)
+            return true;
+
+        float maxWidth = command.Rect.Width > 0f &&
+            float.IsFinite(command.Rect.Width)
+            ? command.Rect.Width
+            : 10_000f;
+        var layout = new TextLayout(
+            command.Text,
+            command.Font,
+            command.FontSize,
+            maxWidth,
+            command.TextAlignment,
+            atlas: null,
+            command.TextShapingOptions);
+        List<TextRunGlyph> sourceGlyphs = layout.Glyphs;
+        int runStart = 0;
+        while (runStart < sourceGlyphs.Count)
+        {
+            TtfFont runFont = sourceGlyphs[runStart].Font;
+            int runEnd = runStart + 1;
+            while (runEnd < sourceGlyphs.Count &&
+                ReferenceEquals(sourceGlyphs[runEnd].Font, runFont))
+            {
+                runEnd++;
+            }
+
+            int runCount = runEnd - runStart;
+            var indices = new ushort[runCount];
+            var positions = new Vector2[runCount];
+            for (int index = 0; index < runCount; index++)
+            {
+                TextRunGlyph source = sourceGlyphs[runStart + index];
+                indices[index] = source.GlyphIndex;
+                positions[index] = source.Position;
+            }
+            RenderCommand glyphCommand = command;
+            glyphCommand.Type = RenderCommandType.DrawGlyphRun;
+            glyphCommand.Text = null;
+            glyphCommand.Font = runFont;
+            glyphCommand.GlyphIndices = indices;
+            glyphCommand.GlyphPositions = positions;
+            glyphCommand.GlyphRangeStart = 0;
+            glyphCommand.GlyphRangeCount = runCount;
+            if (!TryAppendGlyphRun(
+                    glyphCommand,
+                    transform,
+                    targetDpiScale,
+                    paths,
+                    pathSegments,
+                    pathBrushIndices,
+                    outlines,
+                    segments,
+                    colorBitmaps,
+                    colorPixels,
+                    glyphs,
+                    styles,
+                    batches,
+                    operations,
+                    materials,
+                    out error))
+            {
+                return false;
+            }
+            runStart = runEnd;
+        }
+        return true;
+    }
+
     /// <summary>
     /// Lowers an already-shaped managed glyph run without repeating character
     /// mapping or OpenType shaping. The source of truth is the immutable glyph

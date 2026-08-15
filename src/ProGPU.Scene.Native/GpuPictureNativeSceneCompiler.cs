@@ -1401,6 +1401,24 @@ public static partial class GpuPictureNativeSceneCompiler
                     operations,
                     materials,
                     out error);
+            case RenderCommandType.DrawText:
+                return TryAppendText(
+                    command,
+                    transform,
+                    options.DpiScale,
+                    paths,
+                    pathSegments,
+                    pathBrushIndices,
+                    glyphOutlines,
+                    glyphSegments,
+                    colorGlyphBitmaps,
+                    colorGlyphPixels,
+                    positionedGlyphs,
+                    textStyles,
+                    batches,
+                    operations,
+                    materials,
+                    out error);
             case RenderCommandType.DrawLine3D:
             case RenderCommandType.DrawAcisSolid:
             case RenderCommandType.DrawExtension

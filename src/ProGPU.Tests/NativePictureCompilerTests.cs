@@ -288,6 +288,41 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerShapesLegacyTextBeforeNativeGlyphLowering()
+    {
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawText,
+                    Text = "Native text",
+                    Font = InterFontFamily.Regular,
+                    FontSize = 18f,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Position = new Vector2(4f, 24f),
+                    PreferGlyphAtlas = true
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            305U,
+            1U,
+            new NativePictureCompileOptions(2f),
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.True(compiled.PositionedGlyphCount > 0);
+        Assert.True(compiled.GlyphOutlineCount > 0);
+        Assert.Equal(1, compiled.TextStyleCount);
+    }
+
+    [Fact]
     public void CompilerLowersRepeatedBitmapGlyphsToOneDecodedColorResource()
     {
         var font = new TtfFont(SfntFontFaceTests.BuildSingleBitmapGlyphFont());
