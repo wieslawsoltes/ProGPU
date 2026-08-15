@@ -164,6 +164,9 @@ struct progpu_native_engine {
     WGPUBindGroupLayout image_mask_layout = nullptr;
     WGPUBindGroupLayout image_effect_uniform_layout = nullptr;
     WGPUBindGroupLayout image_effect_texture_layout = nullptr;
+    WGPUShaderModule semantic_image_blur_shader = nullptr;
+    WGPURenderPipeline semantic_image_blur_pipeline = nullptr;
+    WGPUBindGroupLayout semantic_image_blur_layout = nullptr;
     WGPUBindGroupLayout semantic_mask_chain_layout = nullptr;
     WGPUBuffer image_uniform_buffer = nullptr;
     WGPUBindGroup image_uniform_bind_group = nullptr;
@@ -932,6 +935,34 @@ struct progpu_native_engine {
     void release_semantic_image_page() noexcept {
         auto& page = semantic_image_cache;
         for (auto& draw : page.draws) {
+            if (draw.blur_vertical_bind_group != nullptr) {
+                wgpuBindGroupRelease(draw.blur_vertical_bind_group);
+            }
+            if (draw.blur_horizontal_bind_group != nullptr) {
+                wgpuBindGroupRelease(draw.blur_horizontal_bind_group);
+            }
+            if (draw.blur_vertical_uniform_buffer != nullptr) {
+                wgpuBufferDestroy(draw.blur_vertical_uniform_buffer);
+                wgpuBufferRelease(draw.blur_vertical_uniform_buffer);
+            }
+            if (draw.blur_horizontal_uniform_buffer != nullptr) {
+                wgpuBufferDestroy(draw.blur_horizontal_uniform_buffer);
+                wgpuBufferRelease(draw.blur_horizontal_uniform_buffer);
+            }
+            if (draw.blur_output_view != nullptr) {
+                wgpuTextureViewRelease(draw.blur_output_view);
+            }
+            if (draw.blur_output_texture != nullptr) {
+                wgpuTextureDestroy(draw.blur_output_texture);
+                wgpuTextureRelease(draw.blur_output_texture);
+            }
+            if (draw.blur_intermediate_view != nullptr) {
+                wgpuTextureViewRelease(draw.blur_intermediate_view);
+            }
+            if (draw.blur_intermediate_texture != nullptr) {
+                wgpuTextureDestroy(draw.blur_intermediate_texture);
+                wgpuTextureRelease(draw.blur_intermediate_texture);
+            }
             if (draw.effect_dummy_mask_bind_group != nullptr) {
                 wgpuBindGroupRelease(draw.effect_dummy_mask_bind_group);
             }
@@ -1273,6 +1304,15 @@ struct progpu_native_engine {
         }
         if (image_effect_pipeline != nullptr) {
             wgpuRenderPipelineRelease(image_effect_pipeline);
+        }
+        if (semantic_image_blur_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(semantic_image_blur_pipeline);
+        }
+        if (semantic_image_blur_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(semantic_image_blur_layout);
+        }
+        if (semantic_image_blur_shader != nullptr) {
+            wgpuShaderModuleRelease(semantic_image_blur_shader);
         }
         if (image_effect_texture_layout != nullptr) {
             wgpuBindGroupLayoutRelease(image_effect_texture_layout);

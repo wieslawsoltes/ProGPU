@@ -92,11 +92,20 @@ struct semantic_image_draw {
     WGPUBindGroup effect_uniform_bind_group = nullptr;
     WGPUBindGroup effect_texture_bind_group = nullptr;
     WGPUBindGroup effect_dummy_mask_bind_group = nullptr;
+    WGPUTexture blur_intermediate_texture = nullptr;
+    WGPUTextureView blur_intermediate_view = nullptr;
+    WGPUTexture blur_output_texture = nullptr;
+    WGPUTextureView blur_output_view = nullptr;
+    WGPUBuffer blur_horizontal_uniform_buffer = nullptr;
+    WGPUBuffer blur_vertical_uniform_buffer = nullptr;
+    WGPUBindGroup blur_horizontal_bind_group = nullptr;
+    WGPUBindGroup blur_vertical_bind_group = nullptr;
     std::uint32_t first_vertex = 0U;
     std::uint32_t sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
     bool has_color_matrix = false;
     bool has_effect = false;
     bool has_effect_mask = false;
+    bool has_live_blur = false;
 };
 
 struct semantic_image_page {

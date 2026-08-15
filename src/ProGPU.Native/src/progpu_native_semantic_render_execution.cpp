@@ -2117,6 +2117,7 @@ progpu_native_status render_scene(
         WGPUBuffer compiled_vertex_buffer = nullptr;
         const auto release_compiled = [&]() noexcept {
             for (auto& draw : compiled_draws) {
+                semantic::release_semantic_image_blur_resources(draw);
                 if (draw.effect_dummy_mask_bind_group != nullptr) {
                     wgpuBindGroupRelease(draw.effect_dummy_mask_bind_group);
                 }
@@ -2351,11 +2352,33 @@ progpu_native_status render_scene(
                             draw.color_matrix_bind_group)) {
                         draw.has_color_matrix = false;
                     }
+                    progpu_native_scene_image_effect render_effect =
+                        image_options.effect;
                     if (draw.has_effect &&
-                        !create_semantic_image_effect_resources(
+                        render_effect.effects1[2] > 0.01F &&
+                        !semantic::create_semantic_image_blur_resources(
                             *engine,
                             draw.view,
                             requires_chroma ? chroma_binding->view : nullptr,
+                            image.image_width,
+                            image.image_height,
+                            render_effect,
+                            draw)) {
+                        draw.has_effect = false;
+                    }
+                    if (draw.has_live_blur) {
+                        render_effect.effects1[2] = 0.0F;
+                        render_effect.flags0[0] = 0.0F;
+                    }
+                    if (draw.has_effect &&
+                        !create_semantic_image_effect_resources(
+                            *engine,
+                            draw.has_live_blur
+                                ? draw.blur_output_view
+                                : draw.view,
+                            requires_chroma && !draw.has_live_blur
+                                ? chroma_binding->view
+                                : nullptr,
                             requires_effect_mask
                                 ? effect_mask_binding->view
                                 : nullptr,
@@ -2369,7 +2392,7 @@ progpu_native_status render_scene(
                                 PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
                                 ? engine->image_nearest_sampler
                                 : engine->image_linear_sampler,
-                            image_options.effect,
+                            render_effect,
                             draw.effect_uniform_buffer,
                             draw.effect_mask_uniform_buffer,
                             draw.effect_uniform_bind_group,
@@ -2424,7 +2447,8 @@ progpu_native_status render_scene(
                     : image_options.has_effect
                     ? offsetof(
                         progpu_native_scene_image_effect,
-                        struct_size)
+                        struct_size) +
+                        (draw.has_live_blur ? 1824U : 0U)
                     : 0U;
             }
         } catch (const std::bad_alloc&) {
@@ -2587,6 +2611,17 @@ progpu_native_status render_scene(
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The semantic scene command encoder could not be created.");
+    }
+
+    if (engine->semantic_encoder != nullptr &&
+        !semantic::encode_semantic_image_blurs(
+            *engine,
+            engine->semantic_encoder,
+            semantic_image_page)) {
+        discard_encoder();
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The semantic image live-blur passes could not be encoded.");
     }
 
     if (semantic_path_draw_count != 0U &&

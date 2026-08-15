@@ -719,8 +719,14 @@ input, mipmaps/anisotropy, and tiling/patch draws remain explicit typed
 failures rather than approximations. The retained effect suffix now shares the
 production image-effect shader for bounded blur, spherical mapping, luminance
 conversion, zero-copy paired luma/chroma views, and explicit R8 effect masks.
-The separable managed-authoritative live Gaussian prepass remains the
-performance path to port for larger blur footprints.
+Larger filterable RGB and R8/RG8 planar blur footprints use the same embedded
+`TextureGaussianBlur.wgsl` and CPU-packed Gaussian taps as managed rendering.
+The native renderer retains one RGBA intermediate/output pair, axis uniforms,
+and bind groups per affected immutable draw, then records two fullscreen GPU
+passes before the image-effect draw. Stable replay performs no C# / C++ call,
+image copy, or CPU upload; mutable borrowed source views are sampled again each
+frame. Tier-1 unfilterable R16/RG16 blur remains a typed exclusion until its
+unfilterable sampling variant is shared.
 
 The following ABI-v2 increment accepts a second borrowed same-device
 R8/RGBA/BGRA unorm texture view as an image opacity mask. Its red channel is
@@ -2261,8 +2267,8 @@ path with WebGPU validation and bounded resource policies.
    compiler matrix, and managed substitution lane green without changing the
    default renderer.
 2. Finish the explicitly excluded immutable rendering records: exact curved
-   general-path strokes, the separable live image-blur prepass, and packed
-   image-effect plus state-mask-chain composition. Opaque
+   general-path strokes, Tier-1 R16/RG16 image blur, and packed image-effect plus
+   state-mask-chain composition. Opaque
    `DxfStaticBuffer` and mutable `Visual` objects require typed immutable
    snapshot contracts; they must never cross the C ABI as managed pointers.
 3. Run the final matched text/scene/image differential and seam budgets after

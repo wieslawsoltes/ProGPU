@@ -2926,7 +2926,9 @@ public static partial class GpuPictureNativeSceneCompiler
                         Height: > 0U
                     } mask &&
                     mask.Width <= 16_384U && mask.Height <= 16_384U) &&
-                supportedPlanarResources;
+                supportedPlanarResources &&
+                !(effect.BlurSigma > 0.01f &&
+                    texture.Format == ProGpuTextureFormats.R16Unorm);
             bool needsFullEffect =
                 hasYuv ||
                 maskTexture is not null || effect.BlurSigma > 0.01f ||

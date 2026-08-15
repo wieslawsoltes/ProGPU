@@ -21,8 +21,11 @@ texture masks, and the shared shader's bounded blur footprint. External image
 bindings are ordered by immutable resource id plus primary/chroma/mask role, so
 changing a view invalidates the retained image page without copying plane or
 mask pixels across the C# / C++ boundary. The managed-authoritative separable
-live Gaussian prepass and effect-plus-state-mask-chain packing remain the final
-image-effect performance/conformance slice.
+Gaussian implementation is now shared directly with C++: filterable RGB and
+R8/RG8 planar sources run two retained horizontal/vertical GPU passes inside
+the native command encoder, with no steady-replay interop call or CPU upload.
+Tier-1 unfilterable R16/RG16 blur and effect-plus-state-mask-chain packing remain
+the final image-effect conformance slice.
 
 This inventory distinguishes parity work from intentional ownership
 boundaries; it must not be used to convert an unsupported command into a silent

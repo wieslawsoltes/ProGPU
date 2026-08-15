@@ -344,7 +344,7 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
     const progpu_native_scene_image_effect image_effect{
         {}, {}, {}, {}, {},
         {0.0F, 1.0F, 1.0F, 0.0F},
-        {0.0F, 0.0F, 0.0F, 1.0F},
+        {0.0F, 0.0F, 0.75F, 1.0F},
         {2.0F, 2.0F, 0.0F, 0.0F},
         {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
         sizeof(progpu_native_scene_image_effect), 0U, 0U, 0U};
