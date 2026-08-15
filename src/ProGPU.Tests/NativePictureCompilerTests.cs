@@ -15,6 +15,32 @@ namespace ProGPU.Tests;
 public class NativePictureCompilerTests
 {
     [Fact]
+    public void EveryRenderCommandHasDocumentedNativeCapability()
+    {
+        RenderCommandType[] commandTypes =
+            Enum.GetValues<RenderCommandType>();
+        Assert.All(commandTypes, static commandType =>
+            Assert.NotEqual(
+                NativePictureCommandCapability.Unknown,
+                GpuPictureNativeSceneCompiler.GetCommandCapability(
+                    commandType)));
+
+        RenderCommandType[] unsupported = commandTypes
+            .Where(static commandType =>
+                GpuPictureNativeSceneCompiler.GetCommandCapability(
+                    commandType) ==
+                NativePictureCommandCapability.ExplicitlyUnsupported)
+            .ToArray();
+        Assert.Equal(
+            [
+                RenderCommandType.DrawHatch,
+                RenderCommandType.DrawStaticDxf,
+                RenderCommandType.DrawVisual
+            ],
+            unsupported);
+    }
+
+    [Fact]
     public void CompilerLowersRetainedLineAndAcisEdgesToNative3DResources()
     {
         var pen = new Pen(
