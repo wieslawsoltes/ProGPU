@@ -1217,6 +1217,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     operations,
                     materials,
                     out error);
+            case RenderCommandType.DrawSpline:
             case RenderCommandType.DrawExtension
                 when command.ExtensionId == CompositorBuiltInExtensions.Spline:
                 return TryAppendStroke(
@@ -1250,6 +1251,8 @@ public static partial class GpuPictureNativeSceneCompiler
                     operations,
                     materials,
                     out error);
+            case RenderCommandType.DrawLine3D:
+            case RenderCommandType.DrawAcisSolid:
             case RenderCommandType.DrawExtension
                 when command.ExtensionId is
                     CompositorBuiltInExtensions.Line3D or
@@ -1290,8 +1293,10 @@ public static partial class GpuPictureNativeSceneCompiler
         }
 
         int start = lines.Count;
-        Matrix4x4 modelTransform = command.ExtensionId ==
-                CompositorBuiltInExtensions.AcisSolid &&
+        bool isAcis = command.Type == RenderCommandType.DrawAcisSolid ||
+            (command.Type == RenderCommandType.DrawExtension &&
+                command.ExtensionId == CompositorBuiltInExtensions.AcisSolid);
+        Matrix4x4 modelTransform = isAcis &&
             command.Transform != default
             ? command.Transform
             : Matrix4x4.Identity;
@@ -1301,18 +1306,23 @@ public static partial class GpuPictureNativeSceneCompiler
             return false;
         }
 
-        if (command.ExtensionId == CompositorBuiltInExtensions.Line3D)
+        if (!isAcis)
         {
-            if (command.FloatBufferCount < 6)
+            Vector3 startPoint;
+            Vector3 endPoint;
+            if (command.FloatBufferCount >= 6)
             {
-                error = NativePictureCompileError.InvalidGeometry;
-                return false;
+                ReadOnlySpan<float> values = picture.GetFloats(
+                    command.FloatBufferOffset,
+                    6);
+                startPoint = new(values[0], values[1], values[2]);
+                endPoint = new(values[3], values[4], values[5]);
             }
-            ReadOnlySpan<float> values = picture.GetFloats(
-                command.FloatBufferOffset,
-                6);
-            Vector3 startPoint = new(values[0], values[1], values[2]);
-            Vector3 endPoint = new(values[3], values[4], values[5]);
+            else
+            {
+                startPoint = command.Position3D1;
+                endPoint = command.Position3D2;
+            }
             if (!IsFinite(startPoint) || !IsFinite(endPoint))
             {
                 error = NativePictureCompileError.InvalidGeometry;
@@ -1328,14 +1338,18 @@ public static partial class GpuPictureNativeSceneCompiler
         }
         else
         {
-            if (command.Line3DBufferCount <= 0)
+            ReadOnlySpan<Line3D> edges = command.Line3DBufferCount > 0
+                ? picture.GetLines3D(
+                    command.Line3DBufferOffset,
+                    command.Line3DBufferCount)
+                : command.Edges3D is { Count: > 0 } inlineEdges
+                    ? CollectionsMarshal.AsSpan(inlineEdges)
+                    : ReadOnlySpan<Line3D>.Empty;
+            if (edges.IsEmpty)
             {
                 error = NativePictureCompileError.InvalidGeometry;
                 return false;
             }
-            ReadOnlySpan<Line3D> edges = picture.GetLines3D(
-                command.Line3DBufferOffset,
-                command.Line3DBufferCount);
             for (int index = 0; index < edges.Length; index++)
             {
                 Line3D edge = edges[index];
@@ -1945,7 +1959,9 @@ public static partial class GpuPictureNativeSceneCompiler
         uint degree = 0U;
         if (kind == NativeSceneStrokeKind.Spline)
         {
-            if (command.SplineDegree < 0 || command.DoubleBufferCount <= 0)
+            if (command.SplineDegree < 0 ||
+                (command.DoubleBufferCount <= 0 &&
+                    command.SplineKnots is not { Length: > 0 }))
             {
                 error = NativePictureCompileError.InvalidGeometry;
                 return false;
@@ -2375,9 +2391,11 @@ public static partial class GpuPictureNativeSceneCompiler
         float.IsFinite(value.M43) && float.IsFinite(value.M44);
 
     private static bool IsNative3DCommand(in RenderCommand command) =>
-        command.Type == RenderCommandType.DrawExtension &&
-        command.ExtensionId is CompositorBuiltInExtensions.Line3D or
-            CompositorBuiltInExtensions.AcisSolid;
+        command.Type is RenderCommandType.DrawLine3D or
+            RenderCommandType.DrawAcisSolid ||
+        (command.Type == RenderCommandType.DrawExtension &&
+            command.ExtensionId is CompositorBuiltInExtensions.Line3D or
+                CompositorBuiltInExtensions.AcisSolid);
 
     private static bool IsFinite(Vector2 value) =>
         float.IsFinite(value.X) && float.IsFinite(value.Y);
