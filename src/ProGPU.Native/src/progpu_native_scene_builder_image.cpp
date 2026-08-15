@@ -128,7 +128,8 @@ bool semantic_scene_builder::draw_image(
     progpu_native_image_rect bounds,
     std::uint32_t state_resource_index,
     const progpu_native_scene_image_sampling_options* sampling_options,
-    const progpu_native_scene_image_color_matrix* color_matrix) noexcept {
+    const progpu_native_scene_image_color_matrix* color_matrix,
+    const progpu_native_scene_image_effect* effect) noexcept {
     if (image_resource_index >= implementation_->resources.size() ||
         !implementation_->valid_state_index(state_resource_index) ||
         !finite_rect(bounds) ||
@@ -144,6 +145,8 @@ bool semantic_scene_builder::draw_image(
         image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC;
     const bool wants_matrix =
         (image.flags & PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX) != 0U;
+    const bool wants_effect =
+        (image.flags & PROGPU_NATIVE_SCENE_IMAGE_EFFECT) != 0U;
     const bool external_image =
         (resource.record.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
     const std::uint64_t validation_bytes = external_image
@@ -158,16 +161,20 @@ bool semantic_scene_builder::draw_image(
         !semantic::is_valid_semantic_image(image, validation_bytes) ||
         wants_sampling != (sampling_options != nullptr) ||
         wants_matrix != (color_matrix != nullptr) ||
+        wants_effect != (effect != nullptr) ||
         (sampling_options != nullptr &&
             !semantic::is_valid_semantic_image_sampling_options(
                 *sampling_options)) ||
         (color_matrix != nullptr &&
-            !semantic::is_valid_semantic_image_color_matrix(*color_matrix))) {
+            !semantic::is_valid_semantic_image_color_matrix(*color_matrix)) ||
+        (effect != nullptr &&
+            !semantic::is_valid_semantic_image_effect(*effect))) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
     const std::uint64_t payload_size = sizeof(image) +
         (sampling_options == nullptr ? 0U : sizeof(*sampling_options)) +
-        (color_matrix == nullptr ? 0U : sizeof(*color_matrix));
+        (color_matrix == nullptr ? 0U : sizeof(*color_matrix)) +
+        (effect == nullptr ? 0U : sizeof(*effect));
     if (payload_size > std::numeric_limits<std::uint32_t>::max()) {
         return implementation_->fail(scene_build_error::capacity_exceeded);
     }
@@ -201,6 +208,13 @@ bool semantic_scene_builder::draw_image(
                 command.payload.data() + offset,
                 color_matrix,
                 sizeof(*color_matrix));
+            offset += sizeof(*color_matrix);
+        }
+        if (effect != nullptr) {
+            std::memcpy(
+                command.payload.data() + offset,
+                effect,
+                sizeof(*effect));
         }
         implementation_->commands.push_back(std::move(command));
         implementation_->error = scene_build_error::none;

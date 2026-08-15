@@ -183,7 +183,9 @@ public:
         const progpu_native_scene_image_sampling_options*
             sampling_options = nullptr,
         const progpu_native_scene_image_color_matrix*
-            color_matrix = nullptr) noexcept;
+            color_matrix = nullptr,
+        const progpu_native_scene_image_effect*
+            effect = nullptr) noexcept;
 
     bool draw_glyph_run(
         std::uint32_t glyph_resource_index,

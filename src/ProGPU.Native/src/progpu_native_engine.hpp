@@ -156,9 +156,13 @@ struct progpu_native_engine {
     WGPURenderPipeline image_masked_color_matrix_pipeline = nullptr;
     WGPURenderPipeline image_mask_chain_pipeline = nullptr;
     WGPURenderPipeline image_mask_chain_color_matrix_pipeline = nullptr;
+    WGPUShaderModule image_effect_shader = nullptr;
+    WGPURenderPipeline image_effect_pipeline = nullptr;
     WGPUBindGroupLayout image_uniform_layout = nullptr;
     WGPUBindGroupLayout image_texture_layout = nullptr;
     WGPUBindGroupLayout image_mask_layout = nullptr;
+    WGPUBindGroupLayout image_effect_uniform_layout = nullptr;
+    WGPUBindGroupLayout image_effect_texture_layout = nullptr;
     WGPUBindGroupLayout semantic_mask_chain_layout = nullptr;
     WGPUBuffer image_uniform_buffer = nullptr;
     WGPUBindGroup image_uniform_bind_group = nullptr;
@@ -927,6 +931,19 @@ struct progpu_native_engine {
     void release_semantic_image_page() noexcept {
         auto& page = semantic_image_cache;
         for (auto& draw : page.draws) {
+            if (draw.effect_dummy_mask_bind_group != nullptr) {
+                wgpuBindGroupRelease(draw.effect_dummy_mask_bind_group);
+            }
+            if (draw.effect_texture_bind_group != nullptr) {
+                wgpuBindGroupRelease(draw.effect_texture_bind_group);
+            }
+            if (draw.effect_uniform_bind_group != nullptr) {
+                wgpuBindGroupRelease(draw.effect_uniform_bind_group);
+            }
+            if (draw.effect_uniform_buffer != nullptr) {
+                wgpuBufferDestroy(draw.effect_uniform_buffer);
+                wgpuBufferRelease(draw.effect_uniform_buffer);
+            }
             if (draw.color_matrix_bind_group != nullptr) {
                 wgpuBindGroupRelease(draw.color_matrix_bind_group);
             }
@@ -1243,6 +1260,18 @@ struct progpu_native_engine {
         }
         if (image_masked_color_matrix_pipeline != nullptr) {
             wgpuRenderPipelineRelease(image_masked_color_matrix_pipeline);
+        }
+        if (image_effect_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(image_effect_pipeline);
+        }
+        if (image_effect_texture_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(image_effect_texture_layout);
+        }
+        if (image_effect_uniform_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(image_effect_uniform_layout);
+        }
+        if (image_effect_shader != nullptr) {
+            wgpuShaderModuleRelease(image_effect_shader);
         }
         if (image_mask_chain_color_matrix_pipeline != nullptr) {
             wgpuRenderPipelineRelease(image_mask_chain_color_matrix_pipeline);

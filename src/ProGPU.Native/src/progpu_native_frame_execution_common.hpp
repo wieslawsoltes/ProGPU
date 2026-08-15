@@ -57,6 +57,7 @@ using semantic::is_valid_semantic_image;
 using semantic::semantic_image_options;
 using semantic::validate_image_draw_payload;
 using semantic::create_semantic_image_color_matrix_resources;
+using semantic::create_semantic_image_effect_resources;
 using semantic::is_valid_semantic_path;
 using semantic::is_valid_semantic_positioned_glyph;
 using semantic::is_valid_semantic_segment;

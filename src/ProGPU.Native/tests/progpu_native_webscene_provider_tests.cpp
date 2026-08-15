@@ -329,7 +329,7 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
         stream, image_pixels.data(), image_pixels.size());
     const progpu_native_scene_image_draw image{
         sizeof(progpu_native_scene_image_draw),
-        0U,
+        PROGPU_NATIVE_SCENE_IMAGE_EFFECT,
         2U,
         2U,
         8U,
@@ -341,6 +341,14 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
         0U};
     const std::uint32_t image_draw_offset = append_scene_payload(
         stream, &image, 1U);
+    const progpu_native_scene_image_effect image_effect{
+        {}, {}, {}, {}, {},
+        {0.0F, 1.0F, 1.0F, 0.0F},
+        {0.0F, 0.0F, 0.0F, 1.0F},
+        {2.0F, 2.0F, 0.0F, 0.0F},
+        {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
+        sizeof(progpu_native_scene_image_effect), 0U, 0U, 0U};
+    append_scene_payload(stream, &image_effect, 1U);
     const std::array<std::uint8_t, 16U> second_image_pixels{
         255U, 0U, 0U, 255U, 0U, 255U, 0U, 255U,
         0U, 0U, 255U, 255U, 255U, 255U, 255U, 255U};
@@ -490,7 +498,7 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 204U,
             PROGPU_NATIVE_SCENE_NO_INDEX, 3U,
-            image_draw_offset, sizeof(image),
+            image_draw_offset, sizeof(image) + sizeof(image_effect),
             50.0F, 4.0F, 10.0F, 12.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
             PROGPU_NATIVE_SCENE_COMMAND_SAVE,

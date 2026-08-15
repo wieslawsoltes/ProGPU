@@ -1346,6 +1346,35 @@ public ref struct NativeSceneStreamBuilder
             stateIndex);
     }
 
+    public bool TryDrawImage(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        in NativeSceneImageDraw image,
+        in NativeSceneImageEffect effect,
+        uint stateIndex = uint.MaxValue)
+    {
+        if (image.Sampling == NativeImageSampling.Cubic ||
+            image.Flags != NativeSceneImageFlags.Effect ||
+            !effect.HasCanonicalFields)
+        {
+            return false;
+        }
+        Span<byte> payload = stackalloc byte[
+            Unsafe.SizeOf<NativeSceneImageDraw>() +
+            Unsafe.SizeOf<NativeSceneImageEffect>()];
+        MemoryMarshal.Write(payload, in image);
+        MemoryMarshal.Write(
+            payload[Unsafe.SizeOf<NativeSceneImageDraw>()..],
+            in effect);
+        return TryDrawImage(
+            commandId,
+            resourceIndex,
+            bounds,
+            payload,
+            stateIndex);
+    }
+
     public bool TryBuild(out ReadOnlySpan<byte> stream)
     {
         stream = default;

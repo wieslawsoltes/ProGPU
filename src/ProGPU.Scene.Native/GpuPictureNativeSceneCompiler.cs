@@ -80,7 +80,9 @@ public static partial class GpuPictureNativeSceneCompiler
         NativeSceneImageSamplingOptions SamplingOptions,
         bool HasSamplingOptions,
         NativeSceneImageColorMatrix ColorMatrix,
-        bool HasColorMatrix);
+        bool HasColorMatrix,
+        NativeSceneImageEffect Effect,
+        bool HasEffect);
 
     private readonly record struct AffineColorTransform(
         Vector4 Red,
@@ -2736,23 +2738,35 @@ public static partial class GpuPictureNativeSceneCompiler
 
         NativeSceneImageColorMatrix colorMatrix = default;
         bool hasColorMatrix = false;
+        NativeSceneImageEffect nativeEffect = default;
+        bool hasEffect = false;
         if (command.HasImageEffect)
         {
             ImageEffectCommandData effect = command.ResolveImageEffect(picture);
-            bool affineOnly = effect.BlurSigma == 0f &&
+            bool supportedResources = effect.BlurSigma == 0f &&
                 effect.MaskTexture is null &&
                 effect.ChromaTexture is null &&
-                !effect.YuvConversion.HasValue &&
-                !effect.SphericalProjection.HasValue;
-            if (!affineOnly ||
-                !TryCreateAffineImageColorMatrix(
-                    in effect,
-                    out colorMatrix))
+                !effect.YuvConversion.HasValue;
+            bool needsFullEffect =
+                effect.SphericalProjection.HasValue ||
+                effect.LuminanceToAlpha && effect.ColorMatrix.HasValue;
+            if (!supportedResources ||
+                (needsFullEffect && sampling == NativeImageSampling.Cubic) ||
+                (needsFullEffect
+                    ? !TryCreateNativeImageEffect(
+                        in effect,
+                        texture.Width,
+                        texture.Height,
+                        out nativeEffect)
+                    : !TryCreateAffineImageColorMatrix(
+                        in effect,
+                        out colorMatrix)))
             {
                 error = NativePictureCompileError.UnsupportedCommand;
                 return false;
             }
-            hasColorMatrix = true;
+            hasEffect = needsFullEffect;
+            hasColorMatrix = !needsFullEffect;
         }
 
         var draw = new NativeSceneImageDraw(
@@ -2774,6 +2788,8 @@ public static partial class GpuPictureNativeSceneCompiler
             1f,
             hasColorMatrix
                 ? NativeSceneImageFlags.ColorMatrix
+                : hasEffect
+                ? NativeSceneImageFlags.Effect
                 : NativeSceneImageFlags.None);
         int drawIndex = externalImages.Count;
         externalImages.Add(new(
@@ -2782,7 +2798,9 @@ public static partial class GpuPictureNativeSceneCompiler
             new NativeSceneImageSamplingOptions(cubic.X, cubic.Y),
             sampling == NativeImageSampling.Cubic,
             colorMatrix,
-            hasColorMatrix));
+            hasColorMatrix,
+            nativeEffect,
+            hasEffect));
         batches.Add(new Batch
         {
             Kind = BatchKind.Image,
@@ -2803,6 +2821,16 @@ public static partial class GpuPictureNativeSceneCompiler
         in ExternalImageDraw image)
     {
         NativeSceneImageDraw draw = image.Draw;
+        if (image.HasEffect)
+        {
+            NativeSceneImageEffect effect = image.Effect;
+            return builder.TryDrawImage(
+                commandId,
+                resourceIndex,
+                bounds,
+                in draw,
+                in effect);
+        }
         if (image.HasSamplingOptions && image.HasColorMatrix)
         {
             NativeSceneImageSamplingOptions sampling = image.SamplingOptions;
@@ -2975,6 +3003,105 @@ public static partial class GpuPictureNativeSceneCompiler
             effect.LuminanceToAlpha
                 ? NativeSceneImageColorMatrixFlags.LuminanceToAlpha
                 : NativeSceneImageColorMatrixFlags.None);
+        return true;
+    }
+
+    private static bool TryCreateNativeImageEffect(
+        in ImageEffectCommandData effect,
+        uint textureWidth,
+        uint textureHeight,
+        out NativeSceneImageEffect result)
+    {
+        result = default;
+        if (!float.IsFinite(effect.Brightness) ||
+            !float.IsFinite(effect.Contrast) ||
+            !float.IsFinite(effect.Saturation) ||
+            !float.IsFinite(effect.Grayscale) ||
+            !float.IsFinite(effect.Sepia) ||
+            !float.IsFinite(effect.Invert) ||
+            effect.BlurSigma != 0f)
+        {
+            return false;
+        }
+
+        ImageEffectColorMatrix? colorMatrix = effect.ColorMatrix;
+        Vector4 matrixRed = colorMatrix?.Red ?? default;
+        Vector4 matrixGreen = colorMatrix?.Green ?? default;
+        Vector4 matrixBlue = colorMatrix?.Blue ?? default;
+        Vector4 matrixAlpha = colorMatrix?.Alpha ?? default;
+        Vector4 matrixOffset = colorMatrix?.Offset ?? default;
+        if (!IsFiniteBounded(matrixRed) ||
+            !IsFiniteBounded(matrixGreen) ||
+            !IsFiniteBounded(matrixBlue) ||
+            !IsFiniteBounded(matrixAlpha) ||
+            !IsFiniteBounded(matrixOffset))
+        {
+            return false;
+        }
+
+        Vector4 spherical0 = default;
+        Vector4 sphericalUvRect = default;
+        Vector4 rotation0 = default;
+        Vector4 rotation1 = default;
+        Vector4 rotation2 = default;
+        if (effect.SphericalProjection is { } spherical)
+        {
+            if (!IsFiniteBounded(spherical.SourceUvRect) ||
+                spherical.SourceUvRect.Z <= 0f ||
+                spherical.SourceUvRect.W <= 0f ||
+                !float.IsFinite(spherical.HorizontalFieldOfViewRadians) ||
+                spherical.HorizontalFieldOfViewRadians <= 0f ||
+                spherical.HorizontalFieldOfViewRadians >= MathF.PI ||
+                !float.IsFinite(spherical.OutputAspectRatio) ||
+                spherical.OutputAspectRatio <= 0f ||
+                !float.IsFinite(spherical.ViewOrientation.X) ||
+                !float.IsFinite(spherical.ViewOrientation.Y) ||
+                !float.IsFinite(spherical.ViewOrientation.Z) ||
+                !float.IsFinite(spherical.ViewOrientation.W) ||
+                spherical.ViewOrientation.LengthSquared() <= 1e-12f)
+            {
+                return false;
+            }
+            Matrix4x4 rotation = Matrix4x4.CreateFromQuaternion(
+                Quaternion.Normalize(spherical.ViewOrientation));
+            spherical0 = new(
+                1f,
+                spherical.HorizontalFieldOfViewRadians,
+                spherical.OutputAspectRatio,
+                0f);
+            sphericalUvRect = spherical.SourceUvRect;
+            rotation0 = new(rotation.M11, rotation.M12, rotation.M13, 0f);
+            rotation1 = new(rotation.M21, rotation.M22, rotation.M23, 0f);
+            rotation2 = new(rotation.M31, rotation.M32, rotation.M33, 0f);
+        }
+
+        result = new NativeSceneImageEffect(
+            matrixRed,
+            matrixGreen,
+            matrixBlue,
+            matrixAlpha,
+            matrixOffset,
+            new Vector4(
+                effect.Brightness,
+                effect.Contrast,
+                effect.Saturation,
+                effect.Grayscale),
+            new Vector4(effect.Sepia, effect.Invert, 0f, 1f),
+            new Vector4(textureWidth, textureHeight, 0f, 0f),
+            new Vector4(
+                0f,
+                0f,
+                colorMatrix.HasValue ? 1f : 0f,
+                effect.LuminanceToAlpha ? 1f : 0f),
+            default,
+            default,
+            default,
+            default,
+            spherical0,
+            sphericalUvRect,
+            rotation0,
+            rotation1,
+            rotation2);
         return true;
     }
 

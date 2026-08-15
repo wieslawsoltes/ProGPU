@@ -44,6 +44,9 @@ bool is_valid_semantic_image_sampling_options(
 bool is_valid_semantic_image_color_matrix(
     const progpu_native_scene_image_color_matrix& matrix) noexcept;
 
+bool is_valid_semantic_image_effect(
+    const progpu_native_scene_image_effect& effect) noexcept;
+
 bool is_valid_semantic_layer(
     const progpu_native_scene_layer& layer) noexcept;
 

@@ -12,7 +12,9 @@ struct semantic_image_options final {
     float cubic_c = 0.5F;
     bool has_color_matrix = false;
     bool luminance_to_alpha = false;
+    bool has_effect = false;
     progpu_native_scene_image_color_matrix color_matrix{};
+    progpu_native_scene_image_effect effect{};
 };
 
 bool validate_image_draw_payload(

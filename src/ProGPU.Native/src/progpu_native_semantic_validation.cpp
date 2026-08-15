@@ -199,14 +199,20 @@ bool is_valid_semantic_image(
         ? 0U
         : static_cast<std::uint64_t>(image.row_bytes) *
                 (image.image_height - 1U) + minimum_row_bytes;
+    const std::uint32_t known_flags =
+        PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX |
+        PROGPU_NATIVE_SCENE_IMAGE_EFFECT;
     return image.struct_size >= sizeof(image) &&
-        (image.flags & ~PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX) == 0U &&
+        (image.flags & ~known_flags) == 0U &&
+        (image.flags & known_flags) != known_flags &&
         image.reserved == 0U && image.image_width != 0U &&
         image.image_height != 0U && image.image_width <= 16384U &&
         image.image_height <= 16384U &&
         image.row_bytes >= minimum_row_bytes &&
         required_pixels <= pixel_bytes &&
         image.sampling <= PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC &&
+        !((image.flags & PROGPU_NATIVE_SCENE_IMAGE_EFFECT) != 0U &&
+            image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC) &&
         valid_rect(image.source_rect) && valid_rect(image.destination_rect) &&
         image.source_rect.x >= 0.0F && image.source_rect.y >= 0.0F &&
         image.source_rect.x + image.source_rect.width <=
@@ -247,6 +253,38 @@ bool is_valid_semantic_image_color_matrix(
         valid_row(matrix.red) && valid_row(matrix.green) &&
         valid_row(matrix.blue) && valid_row(matrix.alpha) &&
         valid_row(matrix.offset);
+}
+
+bool is_valid_semantic_image_effect(
+    const progpu_native_scene_image_effect& effect) noexcept {
+    const auto finite_row = [](const float (&row)[4]) noexcept {
+        return std::isfinite(row[0]) && std::isfinite(row[1]) &&
+            std::isfinite(row[2]) && std::isfinite(row[3]);
+    };
+    return effect.struct_size == sizeof(effect) && effect.flags == 0U &&
+        effect.reserved0 == 0U && effect.reserved1 == 0U &&
+        finite_row(effect.color_matrix_red) &&
+        finite_row(effect.color_matrix_green) &&
+        finite_row(effect.color_matrix_blue) &&
+        finite_row(effect.color_matrix_alpha) &&
+        finite_row(effect.color_matrix_offset) &&
+        finite_row(effect.effects0) && finite_row(effect.effects1) &&
+        finite_row(effect.texture0) && finite_row(effect.flags0) &&
+        finite_row(effect.yuv_range) && finite_row(effect.yuv_red) &&
+        finite_row(effect.yuv_green) && finite_row(effect.yuv_blue) &&
+        finite_row(effect.spherical0) &&
+        finite_row(effect.spherical_uv_rect) &&
+        finite_row(effect.spherical_rotation0) &&
+        finite_row(effect.spherical_rotation1) &&
+        finite_row(effect.spherical_rotation2) &&
+        effect.effects1[2] == 0.0F &&
+        effect.effects1[3] == 1.0F &&
+        effect.flags0[0] == 0.0F && effect.flags0[1] == 0.0F &&
+        (effect.flags0[2] == 0.0F || effect.flags0[2] == 1.0F) &&
+        (effect.flags0[3] == 0.0F || effect.flags0[3] == 1.0F) &&
+        effect.texture0[0] > 0.0F && effect.texture0[1] > 0.0F &&
+        effect.texture0[2] == 0.0F && effect.texture0[3] == 0.0F &&
+        (effect.spherical0[0] == 0.0F || effect.spherical0[0] == 1.0F);
 }
 
 bool is_valid_semantic_layer(

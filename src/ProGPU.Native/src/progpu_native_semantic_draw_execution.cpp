@@ -329,6 +329,44 @@ progpu_native_status encode_semantic_image_draw(
     const bool masked = mask_bind_group != nullptr ||
         mask_chain_bind_group != nullptr;
     const bool chained = mask_chain_bind_group != nullptr;
+    if (draw.has_effect) {
+        if (chained) {
+            return engine.fail(
+                PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                "Image effects with chained masks require a packed four-group layout.");
+        }
+        if (!create_semantic_image_effect_pipelines(engine) ||
+            draw.effect_uniform_bind_group == nullptr ||
+            draw.effect_texture_bind_group == nullptr ||
+            draw.effect_dummy_mask_bind_group == nullptr) {
+            return engine.fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The semantic image-effect pipeline is incomplete.");
+        }
+        Commands::set_pipeline(
+            encoder,
+            engine.image_effect_pipeline);
+        Commands::set_bind_group(encoder, 0U, uniform_group);
+        Commands::set_bind_group(
+            encoder, 1U, draw.effect_uniform_bind_group);
+        Commands::set_bind_group(
+            encoder, 2U, draw.effect_texture_bind_group);
+        Commands::set_bind_group(
+            encoder,
+            3U,
+            masked
+                ? mask_bind_group
+                : draw.effect_dummy_mask_bind_group);
+        Commands::set_vertex_buffer(
+            encoder, page.vertex_buffer, page.vertex_bytes);
+        Commands::set_index_buffer(
+            encoder, engine.image_index_buffer,
+            6U * sizeof(std::uint32_t));
+        Commands::draw_indexed(
+            encoder, 6U, 0U,
+            static_cast<std::int32_t>(draw.first_vertex));
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    }
     if (masked && !chained && engine.image_mask_pipeline == nullptr &&
         !create_image_mask_resources(engine)) {
         return engine.fail(

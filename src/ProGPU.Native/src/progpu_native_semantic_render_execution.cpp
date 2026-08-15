@@ -2100,6 +2100,19 @@ progpu_native_status render_scene(
         WGPUBuffer compiled_vertex_buffer = nullptr;
         const auto release_compiled = [&]() noexcept {
             for (auto& draw : compiled_draws) {
+                if (draw.effect_dummy_mask_bind_group != nullptr) {
+                    wgpuBindGroupRelease(draw.effect_dummy_mask_bind_group);
+                }
+                if (draw.effect_texture_bind_group != nullptr) {
+                    wgpuBindGroupRelease(draw.effect_texture_bind_group);
+                }
+                if (draw.effect_uniform_bind_group != nullptr) {
+                    wgpuBindGroupRelease(draw.effect_uniform_bind_group);
+                }
+                if (draw.effect_uniform_buffer != nullptr) {
+                    wgpuBufferDestroy(draw.effect_uniform_buffer);
+                    wgpuBufferRelease(draw.effect_uniform_buffer);
+                }
                 if (draw.color_matrix_bind_group != nullptr) {
                     wgpuBindGroupRelease(draw.color_matrix_bind_group);
                 }
@@ -2218,7 +2231,7 @@ progpu_native_status render_scene(
                         vertex.position[0],
                         vertex.position[1]);
                     vertex.color[0] = 1.0F;
-                    vertex.color[1] = 0.0F;
+                    vertex.color[1] = image_options.has_effect ? 1.0F : 0.0F;
                     vertex.color[2] = 1.0F;
                     vertex.color[3] = cubic_sampling
                         ? -image.opacity
@@ -2256,6 +2269,7 @@ progpu_native_status render_scene(
                 draw.first_vertex = first_vertex;
                 draw.sampling = image.sampling;
                 draw.has_color_matrix = image_options.has_color_matrix;
+                draw.has_effect = image_options.has_effect;
                 if (external_image) {
                     draw.view = external_binding->view;
                     progpu::native::webgpu::texture_view_add_ref(draw.view);
@@ -2287,6 +2301,21 @@ progpu_native_status render_scene(
                             draw.color_matrix_bind_group)) {
                         draw.has_color_matrix = false;
                     }
+                    if (draw.has_effect &&
+                        !create_semantic_image_effect_resources(
+                            *engine,
+                            draw.view,
+                            image.sampling ==
+                                PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
+                                ? engine->image_nearest_sampler
+                                : engine->image_linear_sampler,
+                            image_options.effect,
+                            draw.effect_uniform_buffer,
+                            draw.effect_uniform_bind_group,
+                            draw.effect_texture_bind_group,
+                            draw.effect_dummy_mask_bind_group)) {
+                        draw.has_effect = false;
+                    }
                 }
                 compiled_draws.push_back(draw);
                 auto& retained_draw = compiled_draws.back();
@@ -2295,7 +2324,12 @@ progpu_native_status render_scene(
                     retained_draw.nearest_bind_group == nullptr ||
                     retained_draw.linear_bind_group == nullptr ||
                     (image_options.has_color_matrix &&
-                        retained_draw.color_matrix_bind_group == nullptr)) {
+                        retained_draw.color_matrix_bind_group == nullptr) ||
+                    (image_options.has_effect &&
+                        (retained_draw.effect_uniform_bind_group == nullptr ||
+                            retained_draw.effect_texture_bind_group == nullptr ||
+                            retained_draw.effect_dummy_mask_bind_group ==
+                                nullptr))) {
                     release_compiled();
                     return engine->fail(
                         PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
@@ -2326,6 +2360,10 @@ progpu_native_status render_scene(
                 semantic_image_color_uniform_upload_bytes +=
                     image_options.has_color_matrix
                     ? sizeof(progpu::native::gpu_mask_sampling_uniforms)
+                    : image_options.has_effect
+                    ? offsetof(
+                        progpu_native_scene_image_effect,
+                        struct_size)
                     : 0U;
             }
         } catch (const std::bad_alloc&) {

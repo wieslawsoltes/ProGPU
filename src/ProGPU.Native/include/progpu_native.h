@@ -196,7 +196,8 @@ enum {
 };
 
 enum {
-    PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX = 1U << 0U
+    PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX = 1U << 0U,
+    PROGPU_NATIVE_SCENE_IMAGE_EFFECT = 1U << 1U
 };
 
 enum {
@@ -698,6 +699,40 @@ typedef struct progpu_native_scene_image_color_matrix {
     float offset[4];
     uint32_t reserved[2];
 } progpu_native_scene_image_color_matrix;
+
+/*
+ * Optional exact suffix selected by PROGPU_NATIVE_SCENE_IMAGE_EFFECT. The
+ * first 288 bytes match the production ImageEffect.wgsl uniform layout; the
+ * trailing 16-byte contract footer keeps validation metadata out of the GPU
+ * hot path. This additive version supports one RGB source, fused color
+ * operations, luminance-to-alpha, and spherical projection. Planar YUV,
+ * explicit texture masks, and Gaussian prepasses require auxiliary resources
+ * and remain rejected until their typed resource references are present.
+ */
+typedef struct progpu_native_scene_image_effect {
+    float color_matrix_red[4];
+    float color_matrix_green[4];
+    float color_matrix_blue[4];
+    float color_matrix_alpha[4];
+    float color_matrix_offset[4];
+    float effects0[4];
+    float effects1[4];
+    float texture0[4];
+    float flags0[4];
+    float yuv_range[4];
+    float yuv_red[4];
+    float yuv_green[4];
+    float yuv_blue[4];
+    float spherical0[4];
+    float spherical_uv_rect[4];
+    float spherical_rotation0[4];
+    float spherical_rotation1[4];
+    float spherical_rotation2[4];
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_scene_image_effect;
 
 /*
  * Exact pointer-free storage layout consumed by production Vector.wgsl.

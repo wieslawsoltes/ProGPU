@@ -53,6 +53,18 @@ bool validate_image_draw_payload(
             (matrix.flags &
                 PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX_LUMINANCE_TO_ALPHA) !=
             0U;
+        cursor += sizeof(matrix);
+    }
+    if ((image.flags & PROGPU_NATIVE_SCENE_IMAGE_EFFECT) != 0U) {
+        expected_size += sizeof(progpu_native_scene_image_effect);
+        if (command.payload_size < expected_size) {
+            return false;
+        }
+        std::memcpy(&options.effect, bytes + cursor, sizeof(options.effect));
+        if (!is_valid_semantic_image_effect(options.effect)) {
+            return false;
+        }
+        options.has_effect = true;
     }
     return command.payload_size == expected_size;
 }

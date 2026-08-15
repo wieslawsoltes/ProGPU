@@ -210,6 +210,7 @@ public class NativeRendererInteropTests
         Assert.Equal(88, Unsafe.SizeOf<NativeSceneImageDraw>());
         Assert.Equal(16, Unsafe.SizeOf<NativeSceneImageSamplingOptions>());
         Assert.Equal(96, Unsafe.SizeOf<NativeSceneImageColorMatrix>());
+        Assert.Equal(304, Unsafe.SizeOf<NativeSceneImageEffect>());
         Assert.Equal(64, Unsafe.SizeOf<NativeSceneState>());
         Assert.Equal(64, Unsafe.SizeOf<NativeSceneLayer>());
         Assert.Equal(104, Unsafe.SizeOf<NativeSceneLayerMask>());
@@ -282,6 +283,14 @@ public class NativeRendererInteropTests
             72,
             OffsetOf<NativeSceneImageColorMatrix>(
                 nameof(NativeSceneImageColorMatrix.Offset)));
+        Assert.Equal(
+            80,
+            OffsetOf<NativeSceneImageEffect>(
+                nameof(NativeSceneImageEffect.Effects0)));
+        Assert.Equal(
+            288,
+            OffsetOf<NativeSceneImageEffect>(
+                nameof(NativeSceneImageEffect.StructSize)));
         Assert.Equal(
             8,
             OffsetOf<NativeSceneState>(nameof(NativeSceneState.Transform)));
@@ -2445,6 +2454,96 @@ public class NativeRendererInteropTests
             in image,
             in sampling,
             in invalid));
+    }
+
+    [Fact]
+    public void SemanticImageEffectBuildsWithoutAllocation()
+    {
+        Span<byte> destination = stackalloc byte[2048];
+        Span<byte> pixels = stackalloc byte[16];
+        var image = new NativeSceneImageDraw(
+            2,
+            2,
+            8,
+            NativeImageSampling.Linear,
+            new NativeImageRect(0f, 0f, 2f, 2f),
+            new NativeImageRect(0f, 0f, 8f, 8f),
+            Matrix3x2.Identity,
+            1f,
+            NativeSceneImageFlags.Effect);
+        var effect = new NativeSceneImageEffect(
+            default,
+            default,
+            default,
+            default,
+            default,
+            new Vector4(0f, 1f, 1f, 0f),
+            new Vector4(0f, 0f, 0f, 1f),
+            new Vector4(2f, 2f, 0f, 0f),
+            default,
+            default,
+            default,
+            default,
+            default,
+            default,
+            default,
+            default,
+            default,
+            default);
+
+        static bool Build(
+            Span<byte> bytes,
+            ReadOnlySpan<byte> imagePayload,
+            in NativeSceneImageDraw draw,
+            in NativeSceneImageEffect imageEffect)
+        {
+            var builder = new NativeSceneStreamBuilder(
+                bytes,
+                95U,
+                1U,
+                commandCapacity: 1,
+                resourceCapacity: 1);
+            return builder.TryAddImageResource(
+                    1U, 1U, imagePayload, out uint resource) &&
+                builder.TryDrawImage(
+                    1U,
+                    resource,
+                    new NativeImageRect(0f, 0f, 8f, 8f),
+                    in draw,
+                    in imageEffect) &&
+                builder.TryBuild(out _);
+        }
+
+        Assert.True(Build(destination, pixels, in image, in effect));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool success = true;
+        for (int iteration = 0; iteration < 10_000; ++iteration)
+        {
+            success &= Build(destination, pixels, in image, in effect);
+        }
+        Assert.True(success);
+        Assert.Equal(0L, GC.GetAllocatedBytesForCurrentThread() - before);
+
+        var invalid = new NativeSceneImageEffect(
+            default,
+            default,
+            default,
+            default,
+            default,
+            new Vector4(0f, 1f, 1f, 0f),
+            new Vector4(0f, 0f, 0.5f, 1f),
+            new Vector4(2f, 2f, 0f, 0f),
+            default,
+            default,
+            default,
+            default,
+            default,
+            default,
+            default,
+            default,
+            default,
+            default);
+        Assert.False(Build(destination, pixels, in image, in invalid));
     }
 
     [Fact]

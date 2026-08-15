@@ -143,7 +143,8 @@ public enum NativeImageSampling : uint
 public enum NativeSceneImageFlags : uint
 {
     None = 0,
-    ColorMatrix = 1U << 0
+    ColorMatrix = 1U << 0,
+    Effect = 1U << 1
 }
 
 [Flags]
@@ -986,6 +987,105 @@ public readonly struct NativeSceneImageColorMatrix
         Vector4.Abs(value).Y <= 1024f &&
         Vector4.Abs(value).Z <= 1024f &&
         Vector4.Abs(value).W <= 1024f;
+}
+
+/// <summary>
+/// Exact pointer-free uniform payload consumed by the shared
+/// <c>ImageEffect.wgsl</c> pipeline.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneImageEffect
+{
+    public NativeSceneImageEffect(
+        Vector4 colorMatrixRed,
+        Vector4 colorMatrixGreen,
+        Vector4 colorMatrixBlue,
+        Vector4 colorMatrixAlpha,
+        Vector4 colorMatrixOffset,
+        Vector4 effects0,
+        Vector4 effects1,
+        Vector4 texture0,
+        Vector4 flags0,
+        Vector4 yuvRange,
+        Vector4 yuvRed,
+        Vector4 yuvGreen,
+        Vector4 yuvBlue,
+        Vector4 spherical0,
+        Vector4 sphericalUvRect,
+        Vector4 sphericalRotation0,
+        Vector4 sphericalRotation1,
+        Vector4 sphericalRotation2)
+    {
+        ColorMatrixRed = colorMatrixRed;
+        ColorMatrixGreen = colorMatrixGreen;
+        ColorMatrixBlue = colorMatrixBlue;
+        ColorMatrixAlpha = colorMatrixAlpha;
+        ColorMatrixOffset = colorMatrixOffset;
+        Effects0 = effects0;
+        Effects1 = effects1;
+        Texture0 = texture0;
+        Flags0 = flags0;
+        YuvRange = yuvRange;
+        YuvRed = yuvRed;
+        YuvGreen = yuvGreen;
+        YuvBlue = yuvBlue;
+        Spherical0 = spherical0;
+        SphericalUvRect = sphericalUvRect;
+        SphericalRotation0 = sphericalRotation0;
+        SphericalRotation1 = sphericalRotation1;
+        SphericalRotation2 = sphericalRotation2;
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneImageEffect>();
+        Flags = 0U;
+        Reserved0 = 0U;
+        Reserved1 = 0U;
+    }
+
+    public readonly Vector4 ColorMatrixRed;
+    public readonly Vector4 ColorMatrixGreen;
+    public readonly Vector4 ColorMatrixBlue;
+    public readonly Vector4 ColorMatrixAlpha;
+    public readonly Vector4 ColorMatrixOffset;
+    public readonly Vector4 Effects0;
+    public readonly Vector4 Effects1;
+    public readonly Vector4 Texture0;
+    public readonly Vector4 Flags0;
+    public readonly Vector4 YuvRange;
+    public readonly Vector4 YuvRed;
+    public readonly Vector4 YuvGreen;
+    public readonly Vector4 YuvBlue;
+    public readonly Vector4 Spherical0;
+    public readonly Vector4 SphericalUvRect;
+    public readonly Vector4 SphericalRotation0;
+    public readonly Vector4 SphericalRotation1;
+    public readonly Vector4 SphericalRotation2;
+    public readonly uint StructSize;
+    private readonly uint Flags;
+    private readonly uint Reserved0;
+    private readonly uint Reserved1;
+
+    internal bool HasCanonicalFields =>
+        StructSize == Unsafe.SizeOf<NativeSceneImageEffect>() &&
+        Flags == 0U && Reserved0 == 0U && Reserved1 == 0U &&
+        IsFinite(ColorMatrixRed) && IsFinite(ColorMatrixGreen) &&
+        IsFinite(ColorMatrixBlue) && IsFinite(ColorMatrixAlpha) &&
+        IsFinite(ColorMatrixOffset) && IsFinite(Effects0) &&
+        IsFinite(Effects1) && IsFinite(Texture0) && IsFinite(Flags0) &&
+        IsFinite(YuvRange) && IsFinite(YuvRed) && IsFinite(YuvGreen) &&
+        IsFinite(YuvBlue) && IsFinite(Spherical0) &&
+        IsFinite(SphericalUvRect) && IsFinite(SphericalRotation0) &&
+        IsFinite(SphericalRotation1) && IsFinite(SphericalRotation2) &&
+        Effects1.Z == 0f && Effects1.W == 1f &&
+        Texture0.X > 0f && Texture0.Y > 0f &&
+        Texture0.Z == 0f && Texture0.W == 0f &&
+        Flags0.X == 0f && Flags0.Y == 0f &&
+        IsBinary(Flags0.Z) && IsBinary(Flags0.W) &&
+        IsBinary(Spherical0.X);
+
+    private static bool IsFinite(Vector4 value) =>
+        float.IsFinite(value.X) && float.IsFinite(value.Y) &&
+        float.IsFinite(value.Z) && float.IsFinite(value.W);
+
+    private static bool IsBinary(float value) => value == 0f || value == 1f;
 }
 
 /// <summary>

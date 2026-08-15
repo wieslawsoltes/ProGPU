@@ -250,10 +250,22 @@ bool semantic_scene_builder_reuses_retained_images() {
     image.destination_rect = {8.0F, 10.0F, 32.0F, 32.0F};
     image.transform = semantic_scene_builder::identity_transform();
     image.opacity = 1.0F;
+    const progpu_native_scene_image_effect effect{
+        {}, {}, {}, {}, {},
+        {0.0F, 1.0F, 1.0F, 0.0F},
+        {0.0F, 0.0F, 0.0F, 1.0F},
+        {2.0F, 2.0F, 0.0F, 0.0F},
+        {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
+        sizeof(progpu_native_scene_image_effect), 0U, 0U, 0U};
+    image.flags = PROGPU_NATIVE_SCENE_IMAGE_EFFECT;
     if (!builder.draw_image(
             image_index,
             image,
-            {8.0F, 10.0F, 32.0F, 32.0F})) {
+            {8.0F, 10.0F, 32.0F, 32.0F},
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            nullptr,
+            nullptr,
+            &effect)) {
         return false;
     }
     image.flags = PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
@@ -308,7 +320,8 @@ bool semantic_scene_builder_reuses_retained_images() {
         resource.payload_size != pixels.size() ||
         first_command.resource_index != 0U ||
         second_command.resource_index != 0U ||
-        first_command.payload_size != sizeof(progpu_native_scene_image_draw) ||
+        first_command.payload_size != sizeof(progpu_native_scene_image_draw) +
+            sizeof(progpu_native_scene_image_effect) ||
         second_command.payload_size != sizeof(progpu_native_scene_image_draw) +
             sizeof(progpu_native_scene_image_sampling_options) +
             sizeof(progpu_native_scene_image_color_matrix)) {

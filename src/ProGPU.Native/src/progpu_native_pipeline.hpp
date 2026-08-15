@@ -45,6 +45,7 @@ bool create_text_masked_pipeline(progpu_native_engine& engine);
 bool create_semantic_vector_mask_chain_pipeline(progpu_native_engine& engine);
 bool create_semantic_text_mask_chain_pipeline(progpu_native_engine& engine);
 bool create_semantic_image_mask_chain_pipelines(progpu_native_engine& engine);
+bool create_semantic_image_effect_pipelines(progpu_native_engine& engine);
 WGPUBindGroup create_semantic_mask_chain_bind_group(
     progpu_native_engine& engine,
     WGPUSampler sampler,

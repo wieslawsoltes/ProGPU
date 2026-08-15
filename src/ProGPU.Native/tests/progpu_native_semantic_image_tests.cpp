@@ -13,10 +13,12 @@ namespace progpu::native::tests {
 bool semantic_image_sampling_payload_is_exact_and_bounded() {
     static_assert(sizeof(progpu_native_scene_image_sampling_options) == 16U);
     static_assert(sizeof(progpu_native_scene_image_color_matrix) == 96U);
+    static_assert(sizeof(progpu_native_scene_image_effect) == 304U);
     constexpr auto base_size = sizeof(progpu_native_scene_image_draw);
     std::array<std::byte,
         base_size + sizeof(progpu_native_scene_image_sampling_options) +
-            sizeof(progpu_native_scene_image_color_matrix)> bytes{};
+            sizeof(progpu_native_scene_image_color_matrix) +
+            sizeof(progpu_native_scene_image_effect)> bytes{};
     progpu_native_scene_image_draw image{};
     image.struct_size = sizeof(image);
     image.image_width = 2U;
@@ -96,6 +98,35 @@ bool semantic_image_sampling_payload_is_exact_and_bounded() {
     matrix.flags = 0U;
     matrix.offset[0] = std::numeric_limits<float>::infinity();
     std::memcpy(bytes.data() + base_size, &matrix, sizeof(matrix));
+    if (semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed)) {
+        return false;
+    }
+
+    image.flags = PROGPU_NATIVE_SCENE_IMAGE_EFFECT;
+    progpu_native_scene_image_effect effect{};
+    effect.effects0[1] = 1.0F;
+    effect.effects0[2] = 1.0F;
+    effect.effects1[3] = 1.0F;
+    effect.texture0[0] = 2.0F;
+    effect.texture0[1] = 2.0F;
+    effect.struct_size = sizeof(effect);
+    std::memcpy(bytes.data() + base_size, &effect, sizeof(effect));
+    command.payload_size = base_size + sizeof(effect);
+    if (!semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed) ||
+        !parsed.has_effect || parsed.effect.effects0[1] != 1.0F) {
+        return false;
+    }
+    effect.effects1[2] = 0.5F;
+    std::memcpy(bytes.data() + base_size, &effect, sizeof(effect));
+    if (semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed)) {
+        return false;
+    }
+    effect.effects1[2] = 0.0F;
+    effect.spherical0[0] = 0.5F;
+    std::memcpy(bytes.data() + base_size, &effect, sizeof(effect));
     return !semantic::validate_image_draw_payload(
         bytes.data(), command, image, 16U, parsed);
 }
