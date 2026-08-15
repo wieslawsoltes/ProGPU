@@ -2356,6 +2356,61 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerLowersUnequalRoundedRectangleFillAsExactArcPath()
+    {
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRoundedRect,
+                    Rect = new Rect(2f, 3f, 40f, 24f),
+                    RadiusX = 9f,
+                    RadiusY = 5f,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Transform = Matrix4x4.Identity
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            121U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(0, compiled.AnalyticPrimitiveCount);
+        Assert.Equal(1, compiled.PathCount);
+        Assert.Equal(8, compiled.PathSegmentCount);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        NativeMethods.SceneResource resource =
+            MemoryMarshal.Read<NativeMethods.SceneResource>(
+                compiled.Stream.Slice(checked((int)header.ResourceOffset)));
+        Assert.Equal(NativeSceneResourceKind.PathBatch, resource.Kind);
+        ReadOnlySpan<NativePathSegment> segments =
+            MemoryMarshal.Cast<byte, NativePathSegment>(
+                compiled.Stream.Slice(
+                    checked((int)resource.AuxiliaryOffset),
+                    checked((int)resource.AuxiliarySize)));
+        Assert.Equal(4, segments.ToArray().Count(static segment =>
+            segment.Kind == NativePathSegmentKind.Arc));
+        Assert.All(
+            segments.ToArray().Where(static segment =>
+                segment.Kind == NativePathSegmentKind.Arc),
+            static segment =>
+            {
+                Assert.Equal(9f, segment.P3.X);
+                Assert.Equal(5f, segment.P3.Y);
+            });
+    }
+
+    [Fact]
     public void CompilerFailsClosedForUnsupportedBrush()
     {
         var unsupported = new HatchPatternBrush(

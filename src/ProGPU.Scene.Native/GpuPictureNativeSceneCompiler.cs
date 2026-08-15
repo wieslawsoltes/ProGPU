@@ -1246,8 +1246,31 @@ public static partial class GpuPictureNativeSceneCompiler
             case RenderCommandType.DrawRoundedRect:
                 if (MathF.Abs(command.RadiusX - command.RadiusY) > 0.0001f)
                 {
-                    error = NativePictureCompileError.UnsupportedCommand;
-                    return false;
+                    if (command.Pen is not null)
+                    {
+                        error = NativePictureCompileError.UnsupportedStroke;
+                        return false;
+                    }
+                    RenderCommand roundedPath = command;
+                    roundedPath.Type = RenderCommandType.DrawPath;
+                    roundedPath.Path =
+                        PrimitivePathGeometry.CreateRoundedRectangle(
+                            command.Rect.X,
+                            command.Rect.Y,
+                            command.Rect.Width,
+                            command.Rect.Height,
+                            command.RadiusX,
+                            command.RadiusY);
+                    return TryAppendPathFill(
+                        in roundedPath,
+                        transform,
+                        paths,
+                        pathSegments,
+                        pathBrushIndices,
+                        batches,
+                        operations,
+                        materials,
+                        out error);
                 }
                 return TryAppendAnalytic(
                     command,
