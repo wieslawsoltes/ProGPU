@@ -2260,6 +2260,76 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerLowersPerlinNoiseWithExactManagedTable()
+    {
+        var brush = new PerlinNoiseBrush(
+            isTurbulence: true,
+            baseFrequency: new Vector2(0.13f, 0.07f),
+            numOctaves: 4,
+            seed: -17f,
+            tileSize: new Vector2(64f, 48f))
+        {
+            Opacity = 0.75f,
+            CoordinateTransform = Matrix4x4.CreateTranslation(3f, 5f, 0f)
+        };
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Rect = new Rect(0f, 0f, 32f, 24f),
+                    Brush = brush,
+                    Transform = Matrix4x4.Identity
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            119U,
+            3U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.BrushCount);
+        Assert.Equal(512, compiled.GradientStopCount);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)(header.ResourceCount * header.ResourceStride))));
+        NativeMethods.SceneResource brushResource = Assert.Single(
+            resources.ToArray(),
+            static resource =>
+                resource.Kind == NativeSceneResourceKind.BrushTable);
+        NativeSceneBrush nativeBrush = MemoryMarshal.Read<NativeSceneBrush>(
+            compiled.Stream.Slice(checked((int)brushResource.PayloadOffset)));
+        Assert.Equal(NativeSceneBrushKind.PerlinNoise, nativeBrush.Kind);
+        Assert.Equal(4U, nativeBrush.StopCount);
+        Assert.Equal(0U, nativeBrush.StopOffset);
+        Assert.Equal(NativeSceneGradientInterpolation.ScRgb,
+            nativeBrush.Interpolation);
+        Assert.Equal(0.75f, nativeBrush.Opacity);
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            119U,
+            3U,
+            out NativeCompiledPicture? second,
+            out failure),
+            failure.ToString());
+        Assert.NotNull(second);
+        Assert.True(compiled.Stream.SequenceEqual(second.Stream));
+    }
+
+    [Fact]
     public void CompilerFailsClosedForUnsupportedBrush()
     {
         var unsupported = new HatchPatternBrush(
