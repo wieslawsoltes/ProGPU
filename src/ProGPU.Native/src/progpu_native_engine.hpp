@@ -363,6 +363,8 @@ struct progpu_native_engine {
     semantic_path_page semantic_path_cache;
     semantic_glyph_page semantic_glyph_cache;
     semantic_image_page semantic_image_cache;
+    std::vector<semantic_external_image_binding>
+        semantic_external_image_bindings;
     semantic_3d_page semantic_3d_cache;
     WGPUShaderModule semantic_3d_shader = nullptr;
     WGPURenderPipeline semantic_line_3d_pipeline = nullptr;
@@ -960,6 +962,34 @@ struct progpu_native_engine {
         page.cache_valid = false;
     }
 
+    void release_semantic_external_image_bindings() noexcept {
+        for (auto& binding : semantic_external_image_bindings) {
+            if (binding.view != nullptr) {
+                wgpuTextureViewRelease(binding.view);
+            }
+        }
+        semantic_external_image_bindings.clear();
+    }
+
+    const semantic_external_image_binding*
+    find_semantic_external_image_binding(
+        std::uint64_t resource_id,
+        std::uint64_t generation) const noexcept {
+        const auto iterator = std::lower_bound(
+            semantic_external_image_bindings.begin(),
+            semantic_external_image_bindings.end(),
+            resource_id,
+            [](const semantic_external_image_binding& binding,
+                std::uint64_t id) noexcept {
+                return binding.resource_id < id;
+            });
+        return iterator != semantic_external_image_bindings.end() &&
+                iterator->resource_id == resource_id &&
+                iterator->generation == generation
+            ? &*iterator
+            : nullptr;
+    }
+
     void release_semantic_layer_analytic_bindings() noexcept {
         release_semantic_render_bundle();
         for (auto& slot : semantic_layer_slots) {
@@ -1094,6 +1124,7 @@ struct progpu_native_engine {
         release_semantic_render_bundle();
         release_semantic_layer_resources();
         release_semantic_image_page();
+        release_semantic_external_image_bindings();
         release_semantic_analytic_page();
         release_semantic_3d_resources();
         release_effect_resources();

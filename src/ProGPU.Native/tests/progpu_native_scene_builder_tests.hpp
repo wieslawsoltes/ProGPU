@@ -6,6 +6,7 @@ namespace progpu::native::tests {
 bool semantic_scene_builder_is_deterministic_and_valid();
 bool semantic_scene_builder_rejects_invalid_state();
 bool semantic_scene_builder_reuses_retained_images();
+bool semantic_scene_builder_serializes_external_images_pointer_free();
 bool semantic_scene_builder_updates_retained_images_transactionally();
 bool semantic_scene_builder_records_styled_glyph_runs();
 bool semantic_scene_builder_records_native_shaped_runs();

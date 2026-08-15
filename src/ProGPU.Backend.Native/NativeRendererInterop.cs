@@ -66,6 +66,17 @@ internal static unsafe class NativeRendererInterop
             : NativeMethods.UpdateScene(
                 engine, stream, streamSize, metrics);
 
+    internal static NativeRendererStatus BindSceneExternalImages(
+        NativeRendererInteropKind kind,
+        nint engine,
+        NativeMethods.SceneExternalImageBinding* bindings,
+        nuint bindingCount) =>
+        kind == NativeRendererInteropKind.Dawn
+            ? NativeDawnMethods.BindSceneExternalImages(
+                engine, bindings, bindingCount)
+            : NativeMethods.BindSceneExternalImages(
+                engine, bindings, bindingCount);
+
     internal static NativeRendererStatus RenderScene(
         NativeRendererInteropKind kind,
         nint engine,

@@ -340,6 +340,37 @@ bool semantic_scene_builder_reuses_retained_images() {
         invalid.last_error() == scene_build_error::invalid_argument;
 }
 
+bool semantic_scene_builder_serializes_external_images_pointer_free() {
+    semantic_scene_builder builder(713U, 4U);
+    std::uint32_t image_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    progpu_native_scene_image_draw image{};
+    image.image_width = 64U;
+    image.image_height = 32U;
+    image.row_bytes = 256U;
+    image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+    image.source_rect = {0.0F, 0.0F, 64.0F, 32.0F};
+    image.destination_rect = {4.0F, 6.0F, 128.0F, 64.0F};
+    image.transform = semantic_scene_builder::identity_transform();
+    image.opacity = 1.0F;
+    std::vector<std::byte> stream;
+    if (!builder.add_external_image(64U, 32U, image_index) ||
+        !builder.draw_image(
+            image_index, image, {4.0F, 6.0F, 128.0F, 64.0F}) ||
+        !builder.build(stream)) {
+        return false;
+    }
+    const auto validation = scene::validate(stream.data(), stream.size());
+    if (validation.status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return false;
+    }
+    const auto resource = read<progpu_native_scene_resource>(
+        stream, validation.header.resource_offset);
+    return resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE &&
+        resource.flags == (PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
+            PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) &&
+        resource.payload_size == 0U && resource.auxiliary_size == 0U;
+}
+
 bool semantic_scene_builder_updates_retained_images_transactionally() {
     semantic_scene_builder builder(704U, 1U);
     constexpr std::array<std::byte, 16U> first_pixels{

@@ -447,6 +447,15 @@ internal static unsafe partial class NativeMethods
         nuint streamSize,
         SceneMetrics* metrics);
 
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_engine_bind_scene_external_images")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus BindSceneExternalImages(
+        nint engine,
+        SceneExternalImageBinding* bindings,
+        nuint bindingCount);
+
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_render_scene")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus RenderScene(

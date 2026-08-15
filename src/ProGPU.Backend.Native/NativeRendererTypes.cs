@@ -348,7 +348,32 @@ public enum NativeSceneRecordFlags : uint
     None = 0,
     Required = 1U << 0,
     StyledGlyphs = 1U << 1,
-    ColorGlyphBitmaps = 1U << 2
+    ColorGlyphBitmaps = 1U << 2,
+    ExternalImage = 1U << 3
+}
+
+/// <summary>
+/// Binds one retained pointer-free scene image resource to a live same-device
+/// WebGPU texture view. The native compositor retains the view until the full
+/// binding table is replaced.
+/// </summary>
+public readonly struct NativeSceneExternalImageBinding
+{
+    public NativeSceneExternalImageBinding(
+        ulong resourceId,
+        ulong generation,
+        GpuTexture texture)
+    {
+        ResourceId = resourceId;
+        Generation = generation;
+        Texture = texture ?? throw new ArgumentNullException(nameof(texture));
+    }
+
+    public ulong ResourceId { get; }
+
+    public ulong Generation { get; }
+
+    public GpuTexture Texture { get; }
 }
 
 [Flags]
@@ -817,13 +842,14 @@ internal readonly struct NativeSceneGlyphDraw
 }
 
 /// <summary>
-/// Describes one upload-backed image draw stored inside a semantic scene.
+/// Describes one upload-backed or externally bound image draw stored inside a
+/// semantic scene.
 /// </summary>
 /// <remarks>
-/// The matching image resource owns the RGBA8 byte payload. Source and
-/// destination rectangles use logical image and target coordinates,
-/// respectively. The record is pointer-free and can be written directly to
-/// the semantic scene arena.
+/// An upload-backed resource owns RGBA8 bytes; an external resource resolves a
+/// same-device view from the compositor binding table. Source and destination
+/// rectangles use logical image and target coordinates. The record remains
+/// pointer-free in both modes.
 /// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct NativeSceneImageDraw

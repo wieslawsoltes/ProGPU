@@ -83,6 +83,10 @@ public:
         std::uint32_t row_bytes,
         std::span<const std::byte> pixels,
         std::uint32_t& resource_index) noexcept;
+    bool add_external_image(
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t& resource_index) noexcept;
     bool update_rgba8_image(
         std::uint32_t resource_index,
         std::uint32_t width,

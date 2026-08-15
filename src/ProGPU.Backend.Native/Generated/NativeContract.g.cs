@@ -101,6 +101,21 @@ internal static unsafe partial class NativeMethods
         internal ulong Flags;
     }
 
+    // Native source: progpu_native_scene_external_image_binding.
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct SceneExternalImageBinding
+    {
+        internal uint StructSize;
+        internal uint Flags;
+        internal ulong ResourceId;
+        internal ulong Generation;
+        internal nuint TextureView;
+        internal uint Width;
+        internal uint Height;
+        internal uint Reserved0;
+        internal uint Reserved1;
+    }
+
     // Native source: progpu_native_color.
     [StructLayout(LayoutKind.Sequential)]
     internal partial struct NativeColor

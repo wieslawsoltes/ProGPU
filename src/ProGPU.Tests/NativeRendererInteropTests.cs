@@ -2314,6 +2314,49 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void SemanticExternalImageResourceRemainsPointerFree()
+    {
+        Span<byte> destination = stackalloc byte[1024];
+        var image = new NativeSceneImageDraw(
+            64,
+            32,
+            256,
+            NativeImageSampling.Linear,
+            new NativeImageRect(0f, 0f, 64f, 32f),
+            new NativeImageRect(4f, 6f, 128f, 64f),
+            Matrix3x2.Identity,
+            1f);
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            713U,
+            4U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+
+        Assert.True(builder.TryAddExternalImageResource(
+            1U, 4U, out uint resourceIndex));
+        Assert.True(builder.TryDrawImage(
+            1U,
+            resourceIndex,
+            new NativeImageRect(4f, 6f, 128f, 64f),
+            in image));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        NativeMethods.SceneResource resource =
+            MemoryMarshal.Read<NativeMethods.SceneResource>(
+                stream.Slice(checked((int)header.ResourceOffset)));
+        Assert.Equal(NativeSceneResourceKind.Image, resource.Kind);
+        Assert.Equal(
+            NativeSceneRecordFlags.Required |
+                NativeSceneRecordFlags.ExternalImage,
+            resource.Flags);
+        Assert.Equal(0U, resource.PayloadSize);
+        Assert.Equal(0U, resource.AuxiliarySize);
+    }
+
+    [Fact]
     public void SemanticImageColorMatrixCombinesWithCubicWithoutAllocation()
     {
         Span<byte> destination = stackalloc byte[2048];

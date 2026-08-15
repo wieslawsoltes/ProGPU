@@ -94,6 +94,15 @@ internal static unsafe partial class NativeDawnMethods
 
     [LibraryImport(
         LibraryName,
+        EntryPoint = "progpu_native_engine_bind_scene_external_images")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus BindSceneExternalImages(
+        nint engine,
+        NativeMethods.SceneExternalImageBinding* bindings,
+        nuint bindingCount);
+
+    [LibraryImport(
+        LibraryName,
         EntryPoint = "progpu_native_engine_render_scene")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus RenderScene(

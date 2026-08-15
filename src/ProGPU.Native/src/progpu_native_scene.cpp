@@ -19,7 +19,8 @@ namespace {
 
 constexpr std::uint32_t known_resource_flags =
     PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
-    PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS;
+    PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS |
+    PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE;
 constexpr std::uint32_t known_command_flags =
     PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
     PROGPU_NATIVE_SCENE_GLYPH_STYLED;
@@ -316,6 +317,14 @@ validation_result validate(
             resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN) {
             return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
         }
+        const bool external_image =
+            (resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
+        if (external_image &&
+            (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
+                resource.payload_size != 0U ||
+                resource.auxiliary_size != 0U)) {
+            return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
+        }
         if (resource.resource_id <= previous_resource_id) {
             return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_ID, offset);
         }
@@ -333,7 +342,8 @@ validation_result validate(
                 offset,
                 PROGPU_NATIVE_STATUS_UNSUPPORTED);
         }
-        if (is_known_resource(resource.kind) && resource.payload_size == 0U) {
+        if (is_known_resource(resource.kind) && resource.payload_size == 0U &&
+            !external_image) {
             return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
         }
         if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_STATE) {

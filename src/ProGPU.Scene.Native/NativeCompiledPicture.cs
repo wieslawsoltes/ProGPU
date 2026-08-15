@@ -1,3 +1,5 @@
+using ProGPU.Backend.Native;
+
 namespace ProGPU.Scene.Native;
 
 /// <summary>
@@ -34,9 +36,11 @@ public sealed class NativeCompiledPicture
         int textStyleCount,
         int line3DCount,
         int brushCount,
-        int gradientStopCount)
+        int gradientStopCount,
+        NativeSceneExternalImageBinding[] externalImages)
     {
         Storage = storage;
+        _externalImages = externalImages;
         Length = length;
         SceneId = sceneId;
         Generation = generation;
@@ -68,6 +72,8 @@ public sealed class NativeCompiledPicture
     }
 
     private byte[] Storage { get; }
+
+    private readonly NativeSceneExternalImageBinding[] _externalImages;
 
     public int Length { get; }
 
@@ -132,6 +138,13 @@ public sealed class NativeCompiledPicture
     public int BrushCount { get; }
 
     public int GradientStopCount { get; }
+
+    /// <summary>
+    /// Gets the live same-device image bindings required before this retained
+    /// scene snapshot is installed. The scene stream itself stays pointer-free.
+    /// </summary>
+    public ReadOnlySpan<NativeSceneExternalImageBinding> ExternalImages =>
+        _externalImages;
 
     public ReadOnlyMemory<byte> Memory => Storage.AsMemory(0, Length);
 

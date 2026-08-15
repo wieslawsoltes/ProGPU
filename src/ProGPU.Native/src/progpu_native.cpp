@@ -385,6 +385,14 @@ progpu_native_status progpu_native_engine_update_scene(
         engine, stream, stream_size, metrics);
 }
 
+progpu_native_status progpu_native_engine_bind_scene_external_images(
+    progpu_native_engine* engine,
+    const progpu_native_scene_external_image_binding* bindings,
+    size_t binding_count) {
+    return progpu::native::execution::bind_scene_external_images(
+        engine, bindings, binding_count);
+}
+
 progpu_native_status progpu_native_engine_render(
     progpu_native_engine* engine,
     const progpu_native_frame* frame,

@@ -162,11 +162,18 @@ public ref struct NativeSceneStreamBuilder
         if (_built || _resourceCount == _resourceCapacity ||
             !IsKnownResource(kind) || resourceId == 0U ||
             resourceId <= _lastResourceId || generation == 0U ||
-            payload.IsEmpty ||
+            (payload.IsEmpty &&
+                (flags & NativeSceneRecordFlags.ExternalImage) == 0) ||
             (flags & ~(NativeSceneRecordFlags.Required |
                 (kind == NativeSceneResourceKind.GlyphRun
                     ? NativeSceneRecordFlags.ColorGlyphBitmaps
-                    : NativeSceneRecordFlags.None))) != 0)
+                    : NativeSceneRecordFlags.None) |
+                (kind == NativeSceneResourceKind.Image
+                    ? NativeSceneRecordFlags.ExternalImage
+                    : NativeSceneRecordFlags.None))) != 0 ||
+            ((flags & NativeSceneRecordFlags.ExternalImage) != 0 &&
+                (kind != NativeSceneResourceKind.Image ||
+                    !payload.IsEmpty || !auxiliary.IsEmpty)))
         {
             return false;
         }
@@ -596,6 +603,19 @@ public ref struct NativeSceneStreamBuilder
             rgbaPixels,
             out resourceIndex,
             flags: flags);
+
+    public bool TryAddExternalImageResource(
+        ulong resourceId,
+        ulong generation,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required) =>
+        TryAddResource(
+            NativeSceneResourceKind.Image,
+            resourceId,
+            generation,
+            ReadOnlySpan<byte>.Empty,
+            out resourceIndex,
+            flags: flags | NativeSceneRecordFlags.ExternalImage);
 
     public bool TryAddLine3DResource(
         ulong resourceId,

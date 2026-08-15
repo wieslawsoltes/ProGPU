@@ -14,6 +14,11 @@ progpu_native_status update_scene(
     std::size_t stream_size,
     progpu_native_scene_metrics* metrics);
 
+progpu_native_status bind_scene_external_images(
+    progpu_native_engine* engine,
+    const progpu_native_scene_external_image_binding* bindings,
+    std::size_t binding_count);
+
 progpu_native_status render_solid(
     progpu_native_engine* engine,
     const progpu_native_frame* frame,

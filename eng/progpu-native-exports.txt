@@ -1,3 +1,4 @@
+progpu_native_engine_bind_scene_external_images
 progpu_native_engine_create
 progpu_native_engine_destroy
 progpu_native_engine_get_last_error

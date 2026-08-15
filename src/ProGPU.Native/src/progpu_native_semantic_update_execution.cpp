@@ -2,6 +2,92 @@
 
 namespace progpu::native::execution {
 
+progpu_native_status bind_scene_external_images(
+    progpu_native_engine* engine,
+    const progpu_native_scene_external_image_binding* bindings,
+    std::size_t binding_count) {
+    if (engine == nullptr ||
+        (binding_count != 0U && bindings == nullptr) ||
+        binding_count > PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    const progpu::native::webgpu::dispatch_scope dispatch_scope(
+        &engine->webgpu_dispatch);
+    if (std::this_thread::get_id() != engine->owner_thread) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_WRONG_THREAD,
+            "Native external-image bindings are owner-thread affine.");
+    }
+    if (engine->device_lost || engine->device == nullptr) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_DEVICE_LOST,
+            "A lost native device cannot retain external-image views.");
+    }
+
+    bool identical =
+        binding_count == engine->semantic_external_image_bindings.size();
+    std::uint64_t previous_id = 0U;
+    for (std::size_t index = 0U; index < binding_count; ++index) {
+        const auto& source = bindings[index];
+        if (source.struct_size < sizeof(source) || source.flags != 0U ||
+            source.resource_id == 0U || source.resource_id <= previous_id ||
+            source.generation == 0U || source.texture_view == 0U ||
+            source.width == 0U || source.height == 0U ||
+            source.width > 16384U || source.height > 16384U ||
+            source.reserved0 != 0U || source.reserved1 != 0U) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                "An external-image binding record is invalid or unordered.");
+        }
+        previous_id = source.resource_id;
+        if (identical) {
+            const auto& current =
+                engine->semantic_external_image_bindings[index];
+            identical = current.resource_id == source.resource_id &&
+                current.generation == source.generation &&
+                current.view == reinterpret_cast<WGPUTextureView>(
+                    source.texture_view) &&
+                current.width == source.width &&
+                current.height == source.height;
+        }
+    }
+    if (identical) {
+        engine->last_error.clear();
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    }
+
+    std::vector<semantic_external_image_binding> next;
+    try {
+        next.reserve(binding_count);
+        for (std::size_t index = 0U; index < binding_count; ++index) {
+            const auto& source = bindings[index];
+            auto view = reinterpret_cast<WGPUTextureView>(
+                source.texture_view);
+            progpu::native::webgpu::texture_view_add_ref(view);
+            next.push_back({
+                source.resource_id,
+                source.generation,
+                view,
+                source.width,
+                source.height});
+        }
+    } catch (const std::bad_alloc&) {
+        for (auto& binding : next) {
+            wgpuTextureViewRelease(binding.view);
+        }
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+            "The external-image binding table could not be allocated.");
+    }
+
+    engine->release_semantic_render_bundle();
+    engine->release_semantic_image_page();
+    engine->release_semantic_external_image_bindings();
+    engine->semantic_external_image_bindings.swap(next);
+    engine->last_error.clear();
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
 progpu_native_status update_scene(
     progpu_native_engine* engine,
     const void* stream,

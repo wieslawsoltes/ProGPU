@@ -31,7 +31,8 @@ public static partial class GpuPictureNativeSceneCompiler
         Stroke,
         Glyph,
         ColorGlyph,
-        Line3D
+        Line3D,
+        Image
     }
 
     private enum OperationKind : byte
@@ -72,6 +73,12 @@ public static partial class GpuPictureNativeSceneCompiler
         int BatchIndex = -1,
         int StateIndex = -1,
         GpuBlendMode BlendMode = GpuBlendMode.SrcOver);
+
+    private readonly record struct ExternalImageDraw(
+        GpuTexture Texture,
+        NativeSceneImageDraw Draw,
+        NativeSceneImageSamplingOptions SamplingOptions,
+        bool HasSamplingOptions);
 
     private readonly record struct StateSnapshot(
         float Opacity,
@@ -208,6 +215,7 @@ public static partial class GpuPictureNativeSceneCompiler
         var positionedGlyphs = new List<NativePositionedGlyph>();
         var textStyles = new List<NativeSceneTextStyle>();
         var lines3D = new List<NativeSceneLine3D>();
+        var externalImages = new List<ExternalImageDraw>();
         var batches = new List<Batch>();
         var operations = new List<Operation>();
         var states = new List<StateSnapshot>();
@@ -356,6 +364,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     positionedGlyphs,
                     textStyles,
                     lines3D,
+                    externalImages,
                     batches,
                     operations,
                     materials,
@@ -433,6 +442,9 @@ public static partial class GpuPictureNativeSceneCompiler
                 positionedGlyphs.Count * Unsafe.SizeOf<NativePositionedGlyph>() +
                 textStyles.Count * Unsafe.SizeOf<NativeSceneTextStyle>() +
                 lines3D.Count * Unsafe.SizeOf<NativeSceneLine3D>() +
+                externalImages.Count * (
+                    Unsafe.SizeOf<NativeSceneImageDraw>() +
+                    Unsafe.SizeOf<NativeSceneImageSamplingOptions>() + 8) +
                 materials.BrushCount * Unsafe.SizeOf<NativeSceneBrush>() +
                 materials.GradientStopCount *
                     Unsafe.SizeOf<NativeSceneGradientStop>() +
@@ -502,6 +514,8 @@ public static partial class GpuPictureNativeSceneCompiler
                 CollectionsMarshal.AsSpan(textStyles);
             Span<NativeSceneLine3D> line3DSpan =
                 CollectionsMarshal.AsSpan(lines3D);
+            Span<ExternalImageDraw> externalImageSpan =
+                CollectionsMarshal.AsSpan(externalImages);
             Span<uint> analyticBrushSpan =
                 CollectionsMarshal.AsSpan(analyticBrushIndices);
             Span<uint> geometryBrushSpan =
@@ -587,6 +601,11 @@ public static partial class GpuPictureNativeSceneCompiler
                         checked((ulong)index + 1U),
                         generation,
                         line3DSpan.Slice(batch.Start, batch.Count),
+                        out batch.ResourceIndex)
+                    : batch.Kind == BatchKind.Image
+                    ? builder.TryAddExternalImageResource(
+                        checked((ulong)index + 1U),
+                        generation,
                         out batch.ResourceIndex)
                     : builder.TryAddGlyphResource(
                         checked((ulong)index + 1U),
@@ -784,6 +803,13 @@ public static partial class GpuPictureNativeSceneCompiler
                             batch.ResourceIndex,
                             batch.Bounds,
                             in batch.Camera3D)
+                        : batch.Kind == BatchKind.Image
+                        ? TryDrawExternalImage(
+                            ref builder,
+                            commandId,
+                            batch.ResourceIndex,
+                            batch.Bounds,
+                            in externalImageSpan[batch.Start])
                         : builder.TryDrawGlyphRun(
                             commandId,
                             batch.ResourceIndex,
@@ -844,7 +870,11 @@ public static partial class GpuPictureNativeSceneCompiler
                 textStyles.Count,
                 lines3D.Count,
                 materials.BrushCount,
-                materials.GradientStopCount);
+                materials.GradientStopCount,
+                CreateExternalImageBindings(
+                    batches,
+                    externalImageSpan,
+                    generation));
             return true;
         }
         catch (Exception exception) when (
@@ -1128,6 +1158,7 @@ public static partial class GpuPictureNativeSceneCompiler
         List<NativePositionedGlyph> positionedGlyphs,
         List<NativeSceneTextStyle> textStyles,
         List<NativeSceneLine3D> lines3D,
+        List<ExternalImageDraw> externalImages,
         List<Batch> batches,
         List<Operation> operations,
         NativeBrushTableBuilder materials,
@@ -1149,6 +1180,14 @@ public static partial class GpuPictureNativeSceneCompiler
                     batches,
                     operations,
                     materials,
+                    out error);
+            case RenderCommandType.DrawTexture:
+                return TryAppendExternalImage(
+                    command,
+                    transform,
+                    externalImages,
+                    batches,
+                    operations,
                     out error);
             case RenderCommandType.DrawEllipse:
                 return TryAppendAnalytic(
@@ -2612,6 +2651,155 @@ public static partial class GpuPictureNativeSceneCompiler
             segmentStart,
             segments.Length);
         return true;
+    }
+
+    private static bool TryAppendExternalImage(
+        in RenderCommand command,
+        Matrix3x2 transform,
+        List<ExternalImageDraw> externalImages,
+        List<Batch> batches,
+        List<Operation> operations,
+        out NativePictureCompileError error)
+    {
+        GpuTexture? texture = command.Texture;
+        if (texture is null || texture.IsDisposed ||
+            texture.AlphaMode != GpuTextureAlphaMode.Straight ||
+            texture.Width == 0U || texture.Height == 0U ||
+            texture.Width > 16_384U || texture.Height > 16_384U ||
+            command.TexturePatches is not null || command.HasImageEffect ||
+            command.SnapTextureToPixels || !IsFiniteRect(command.Rect) ||
+            command.Rect.Width <= 0f || command.Rect.Height <= 0f)
+        {
+            error = NativePictureCompileError.UnsupportedCommand;
+            return false;
+        }
+
+        NativeImageSampling sampling;
+        switch (command.TextureSamplingMode)
+        {
+            case TextureSamplingMode.Nearest:
+                sampling = NativeImageSampling.Nearest;
+                break;
+            case TextureSamplingMode.Linear:
+                sampling = NativeImageSampling.Linear;
+                break;
+            case TextureSamplingMode.Cubic:
+                sampling = NativeImageSampling.Cubic;
+                break;
+            default:
+                error = NativePictureCompileError.UnsupportedCommand;
+                return false;
+        }
+
+        Rect source = command.SrcRect;
+        if (source.Width <= 0f || source.Height <= 0f)
+        {
+            source = new Rect(0f, 0f, texture.Width, texture.Height);
+        }
+        if (!IsFiniteRect(source) || source.X < 0f || source.Y < 0f ||
+            source.Width <= 0f || source.Height <= 0f ||
+            source.Right > texture.Width || source.Bottom > texture.Height)
+        {
+            error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+
+        Vector2 cubic = command.HasTextureCubicCoefficients
+            ? command.TextureCubicCoefficients
+            : new Vector2(0f, 0.5f);
+        if (sampling == NativeImageSampling.Cubic &&
+            (!IsFinite(cubic) || MathF.Abs(cubic.X) > 16f ||
+                MathF.Abs(cubic.Y) > 16f))
+        {
+            error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+
+        var draw = new NativeSceneImageDraw(
+            texture.Width,
+            texture.Height,
+            checked(texture.Width * 4U),
+            sampling,
+            new NativeImageRect(
+                source.X,
+                source.Y,
+                source.Width,
+                source.Height),
+            new NativeImageRect(
+                command.Rect.X,
+                command.Rect.Y,
+                command.Rect.Width,
+                command.Rect.Height),
+            transform,
+            1f);
+        int drawIndex = externalImages.Count;
+        externalImages.Add(new(
+            texture,
+            draw,
+            new NativeSceneImageSamplingOptions(cubic.X, cubic.Y),
+            sampling == NativeImageSampling.Cubic));
+        batches.Add(new Batch
+        {
+            Kind = BatchKind.Image,
+            Start = drawIndex,
+            Count = 1,
+            Bounds = TransformBounds(command.Rect, transform)
+        });
+        operations.Add(new Operation(OperationKind.Draw, batches.Count - 1));
+        error = NativePictureCompileError.None;
+        return true;
+    }
+
+    private static bool TryDrawExternalImage(
+        ref NativeSceneStreamBuilder builder,
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        in ExternalImageDraw image)
+    {
+        NativeSceneImageDraw draw = image.Draw;
+        if (image.HasSamplingOptions)
+        {
+            NativeSceneImageSamplingOptions sampling = image.SamplingOptions;
+            return builder.TryDrawImage(
+                commandId,
+                resourceIndex,
+                bounds,
+                in draw,
+                in sampling);
+        }
+        return builder.TryDrawImage(
+            commandId,
+            resourceIndex,
+            bounds,
+            in draw);
+    }
+
+    private static NativeSceneExternalImageBinding[]
+    CreateExternalImageBindings(
+        List<Batch> batches,
+        ReadOnlySpan<ExternalImageDraw> images,
+        ulong generation)
+    {
+        if (images.IsEmpty)
+        {
+            return [];
+        }
+        var bindings = new NativeSceneExternalImageBinding[images.Length];
+        int bindingIndex = 0;
+        for (int batchIndex = 0; batchIndex < batches.Count; batchIndex++)
+        {
+            Batch batch = batches[batchIndex];
+            if (batch.Kind != BatchKind.Image)
+            {
+                continue;
+            }
+            bindings[bindingIndex++] = new(
+                checked((ulong)batchIndex + 1U),
+                generation,
+                images[batch.Start].Texture);
+        }
+        return bindings;
     }
 
     private static void AppendBatch(

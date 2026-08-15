@@ -92,6 +92,7 @@ enum {
     PROGPU_NATIVE_SCENE_RECORD_REQUIRED = 1U << 0U,
     PROGPU_NATIVE_SCENE_GLYPH_STYLED = 1U << 1U,
     PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS = 1U << 2U,
+    PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE = 1U << 3U,
     PROGPU_NATIVE_SCENE_METRICS_SNAPSHOT_REUSED = 1U << 0U
 };
 
@@ -422,6 +423,23 @@ typedef struct progpu_native_engine_options {
     uintptr_t queue;
     uint64_t flags;
 } progpu_native_engine_options;
+
+/*
+ * Same-device image views are bound outside the immutable pointer-free scene
+ * stream. The engine retains each view until the complete table is replaced.
+ */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneExternalImageBinding */
+typedef struct progpu_native_scene_external_image_binding {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint64_t resource_id;
+    uint64_t generation;
+    uintptr_t texture_view;
+    uint32_t width;
+    uint32_t height;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_scene_external_image_binding;
 
 /* PROGPU_CSHARP_STRUCT: NativeMethods.NativeColor */
 typedef struct progpu_native_color {
@@ -1645,6 +1663,11 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_update_scene(
     const void* stream,
     size_t stream_size,
     progpu_native_scene_metrics* metrics);
+PROGPU_NATIVE_API progpu_native_status
+progpu_native_engine_bind_scene_external_images(
+    progpu_native_engine* engine,
+    const progpu_native_scene_external_image_binding* bindings,
+    size_t binding_count);
 PROGPU_NATIVE_API progpu_native_status progpu_native_engine_render_scene(
     progpu_native_engine* engine,
     const progpu_native_scene_frame* frame,

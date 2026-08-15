@@ -103,6 +103,14 @@ struct semantic_image_page {
     std::vector<semantic_image_draw> draws;
 };
 
+struct semantic_external_image_binding {
+    std::uint64_t resource_id = 0U;
+    std::uint64_t generation = 0U;
+    WGPUTextureView view = nullptr;
+    std::uint32_t width = 0U;
+    std::uint32_t height = 0U;
+};
+
 namespace progpu::native::three_d {
 
 struct alignas(16) camera_record {

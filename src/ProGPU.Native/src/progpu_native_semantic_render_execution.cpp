@@ -946,19 +946,37 @@ progpu_native_status render_scene(
                     sizeof(image));
                 apply_semantic_state(image, state);
                 semantic_image_options image_options{};
+                const bool external_image =
+                    (resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
+                const std::uint64_t validation_bytes = external_image
+                    ? static_cast<std::uint64_t>(image.row_bytes) *
+                            (image.image_height - 1U) +
+                        static_cast<std::uint64_t>(image.image_width) * 4U
+                    : resource.payload_size;
+                const auto* external_binding = external_image
+                    ? engine->find_semantic_external_image_binding(
+                        resource.resource_id,
+                        resource.generation)
+                    : nullptr;
                 valid = resource.auxiliary_size == 0U &&
                     validate_image_draw_payload(
                         bytes,
                         command,
                         image,
-                        resource.payload_size,
-                        image_options);
+                        validation_bytes,
+                        image_options) &&
+                    (!external_image ||
+                        (external_binding != nullptr &&
+                            external_binding->width == image.image_width &&
+                            external_binding->height == image.image_height));
                 semantic_has_image_color_matrices |=
                     valid && image_options.has_color_matrix;
                 compiled_vertex_bytes =
                     4U * sizeof(progpu::native::vector_vertex);
                 compiled_index_bytes = 6U * sizeof(std::uint32_t);
-                compiled_texture_bytes = resource.payload_size;
+                compiled_texture_bytes = external_image
+                    ? 0U
+                    : resource.payload_size;
                 break;
             }
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH: {
@@ -2140,12 +2158,28 @@ progpu_native_status render_scene(
                     sizeof(image));
                 apply_semantic_state(image, state);
                 semantic_image_options image_options{};
+                const bool external_image =
+                    (resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
+                const std::uint64_t validation_bytes = external_image
+                    ? static_cast<std::uint64_t>(image.row_bytes) *
+                            (image.image_height - 1U) +
+                        static_cast<std::uint64_t>(image.image_width) * 4U
+                    : resource.payload_size;
+                const auto* external_binding = external_image
+                    ? engine->find_semantic_external_image_binding(
+                        resource.resource_id,
+                        resource.generation)
+                    : nullptr;
                 if (!validate_image_draw_payload(
                         bytes,
                         command,
                         image,
-                        resource.payload_size,
-                        image_options)) {
+                        validation_bytes,
+                        image_options) ||
+                    (external_image &&
+                        (external_binding == nullptr ||
+                            external_binding->width != image.image_width ||
+                            external_binding->height != image.image_height))) {
                     release_compiled();
                     return engine->fail(
                         PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
@@ -2222,10 +2256,15 @@ progpu_native_status render_scene(
                 draw.first_vertex = first_vertex;
                 draw.sampling = image.sampling;
                 draw.has_color_matrix = image_options.has_color_matrix;
-                draw.texture = wgpuDeviceCreateTexture(
-                    engine->device,
-                    &texture_descriptor);
-                if (draw.texture != nullptr) {
+                if (external_image) {
+                    draw.view = external_binding->view;
+                    progpu::native::webgpu::texture_view_add_ref(draw.view);
+                } else {
+                    draw.texture = wgpuDeviceCreateTexture(
+                        engine->device,
+                        &texture_descriptor);
+                }
+                if (!external_image && draw.texture != nullptr) {
                     draw.view = wgpuTextureCreateView(draw.texture, nullptr);
                 }
                 if (draw.view != nullptr) {
@@ -2251,7 +2290,7 @@ progpu_native_status render_scene(
                 }
                 compiled_draws.push_back(draw);
                 auto& retained_draw = compiled_draws.back();
-                if (retained_draw.texture == nullptr ||
+                if ((!external_image && retained_draw.texture == nullptr) ||
                     retained_draw.view == nullptr ||
                     retained_draw.nearest_bind_group == nullptr ||
                     retained_draw.linear_bind_group == nullptr ||
@@ -2262,26 +2301,28 @@ progpu_native_status render_scene(
                         PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                         "A semantic image page texture could not be allocated.");
                 }
-                progpu::native::webgpu::image_copy_texture destination{};
-                destination.texture = retained_draw.texture;
-                destination.aspect = WGPUTextureAspect_All;
-                progpu::native::webgpu::texture_data_layout layout{};
-                layout.bytesPerRow = image.row_bytes;
-                layout.rowsPerImage = image.image_height;
-                const std::uint64_t upload_bytes =
-                    static_cast<std::uint64_t>(image.row_bytes) *
-                        (image.image_height - 1U) +
-                    static_cast<std::uint64_t>(image.image_width) * 4U;
-                const WGPUExtent3D extent{
-                    image.image_width, image.image_height, 1U};
-                wgpuQueueWriteTexture(
-                    engine->queue,
-                    &destination,
-                    bytes + resource.payload_offset,
-                    static_cast<std::size_t>(upload_bytes),
-                    &layout,
-                    &extent);
-                semantic_image_texture_upload_bytes += upload_bytes;
+                if (!external_image) {
+                    progpu::native::webgpu::image_copy_texture destination{};
+                    destination.texture = retained_draw.texture;
+                    destination.aspect = WGPUTextureAspect_All;
+                    progpu::native::webgpu::texture_data_layout layout{};
+                    layout.bytesPerRow = image.row_bytes;
+                    layout.rowsPerImage = image.image_height;
+                    const std::uint64_t upload_bytes =
+                        static_cast<std::uint64_t>(image.row_bytes) *
+                            (image.image_height - 1U) +
+                        static_cast<std::uint64_t>(image.image_width) * 4U;
+                    const WGPUExtent3D extent{
+                        image.image_width, image.image_height, 1U};
+                    wgpuQueueWriteTexture(
+                        engine->queue,
+                        &destination,
+                        bytes + resource.payload_offset,
+                        static_cast<std::size_t>(upload_bytes),
+                        &layout,
+                        &extent);
+                    semantic_image_texture_upload_bytes += upload_bytes;
+                }
                 semantic_image_color_uniform_upload_bytes +=
                     image_options.has_color_matrix
                     ? sizeof(progpu::native::gpu_mask_sampling_uniforms)

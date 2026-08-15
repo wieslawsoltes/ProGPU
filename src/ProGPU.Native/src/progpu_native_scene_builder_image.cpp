@@ -56,6 +56,41 @@ bool semantic_scene_builder::add_rgba8_image(
     }
 }
 
+bool semantic_scene_builder::add_external_image(
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (width == 0U || height == 0U || width > 16384U || height > 16384U ||
+        implementation_->resources.size() >=
+            PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    try {
+        implementation_->resources.reserve(
+            implementation_->resources.size() + 1U);
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_IMAGE;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
+            PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.image_width = width;
+        resource.image_height = height;
+        resource.image_row_bytes = width * 4U;
+        resource_index = static_cast<std::uint32_t>(
+            implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
 bool semantic_scene_builder::update_rgba8_image(
     std::uint32_t resource_index,
     std::uint32_t width,
@@ -109,11 +144,18 @@ bool semantic_scene_builder::draw_image(
         image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC;
     const bool wants_matrix =
         (image.flags & PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX) != 0U;
-    if (!resource.rgba8_image ||
+    const bool external_image =
+        (resource.record.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
+    const std::uint64_t validation_bytes = external_image
+        ? static_cast<std::uint64_t>(image.row_bytes) *
+                (image.image_height - 1U) +
+            static_cast<std::uint64_t>(image.image_width) * 4U
+        : resource.payload.size();
+    if ((!resource.rgba8_image && !external_image) ||
         image.image_width != resource.image_width ||
         image.image_height != resource.image_height ||
         image.row_bytes != resource.image_row_bytes ||
-        !semantic::is_valid_semantic_image(image, resource.payload.size()) ||
+        !semantic::is_valid_semantic_image(image, validation_bytes) ||
         wants_sampling != (sampling_options != nullptr) ||
         wants_matrix != (color_matrix != nullptr) ||
         (sampling_options != nullptr &&

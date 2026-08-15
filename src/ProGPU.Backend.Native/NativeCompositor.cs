@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -386,6 +387,79 @@ public sealed unsafe class NativeCompositor : IDisposable
             info.BackendAbi,
             (NativeRendererCapabilities)info.Capabilities,
             name);
+    }
+
+    /// <summary>
+    /// Transactionally replaces the same-device texture-view table used by
+    /// external image resources in retained pointer-free scenes.
+    /// </summary>
+    public void BindSceneExternalImages(
+        ReadOnlySpan<NativeSceneExternalImageBinding> bindings)
+    {
+        if ((uint)bindings.Length > NativeMethods.SceneMaximumResources)
+        {
+            throw new ArgumentOutOfRangeException(nameof(bindings));
+        }
+
+        NativeMethods.SceneExternalImageBinding[]? rented = null;
+        Span<NativeMethods.SceneExternalImageBinding> nativeBindings =
+            bindings.Length <= 64
+                ? stackalloc NativeMethods.SceneExternalImageBinding[
+                    bindings.Length]
+                : (rented = ArrayPool<NativeMethods.SceneExternalImageBinding>
+                    .Shared.Rent(bindings.Length)).AsSpan(0, bindings.Length);
+        try
+        {
+            ulong previousResourceId = 0U;
+            for (int index = 0; index < bindings.Length; index++)
+            {
+                ref readonly NativeSceneExternalImageBinding binding =
+                    ref bindings[index];
+                if (binding.ResourceId == 0U ||
+                    binding.ResourceId <= previousResourceId ||
+                    binding.Generation == 0U)
+                {
+                    throw new ArgumentException(
+                        "External scene image bindings must have nonzero generations and strictly increasing resource identifiers.",
+                        nameof(bindings));
+                }
+                ValidateSceneExternalImageSource(binding.Texture);
+                previousResourceId = binding.ResourceId;
+                nativeBindings[index] = new NativeMethods.SceneExternalImageBinding
+                {
+                    StructSize = (uint)Unsafe.SizeOf<
+                        NativeMethods.SceneExternalImageBinding>(),
+                    ResourceId = binding.ResourceId,
+                    Generation = binding.Generation,
+                    TextureView = (nuint)binding.Texture.ViewPtr,
+                    Width = binding.Texture.Width,
+                    Height = binding.Texture.Height
+                };
+            }
+
+            fixed (NativeMethods.SceneExternalImageBinding* bindingPointer =
+                nativeBindings)
+            {
+                lock (_context.RenderLock)
+                {
+                    ThrowIfDisposed();
+                    ThrowForStatus(
+                        NativeRendererInterop.BindSceneExternalImages(
+                            _interopKind,
+                            _engine,
+                            bindingPointer,
+                            (nuint)bindings.Length));
+                }
+            }
+        }
+        finally
+        {
+            if (rented is not null)
+            {
+                ArrayPool<NativeMethods.SceneExternalImageBinding>.Shared.Return(
+                    rented);
+            }
+        }
     }
 
     /// <summary>
@@ -1543,6 +1617,35 @@ public sealed unsafe class NativeCompositor : IDisposable
         {
             throw new ArgumentException(
                 "The first external image lane requires a single-sample bindable straight-alpha RGBA/BGRA 8-bit texture.",
+                nameof(source));
+        }
+    }
+
+    private void ValidateSceneExternalImageSource(GpuTexture source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ThrowIfDisposed();
+        if (!ReferenceEquals(source.Context, _context))
+        {
+            throw new ArgumentException(
+                "The external scene image must belong to the native compositor's WebGPU device domain.",
+                nameof(source));
+        }
+        if (source.IsDisposed || source.ViewPtr == null)
+        {
+            throw new ObjectDisposedException(nameof(source));
+        }
+        if ((source.Usage & TextureUsage.TextureBinding) == 0 ||
+            source.SampleCount != 1 ||
+            source.AlphaMode != GpuTextureAlphaMode.Straight ||
+            source.Format is not (
+                TextureFormat.Rgba8Unorm or
+                TextureFormat.Bgra8Unorm or
+                TextureFormat.Rgba8UnormSrgb or
+                TextureFormat.Bgra8UnormSrgb))
+        {
+            throw new ArgumentException(
+                "External scene images require a single-sample bindable straight-alpha RGBA/BGRA 8-bit texture.",
                 nameof(source));
         }
     }
