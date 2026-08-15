@@ -250,11 +250,7 @@ bool has_fraction_actions(std::span<const unicode_scalar> input) noexcept {
 
 std::span<const open_type_tag> inactive_fraction_features(
     const open_type_shape_run_options& options,
-    bool has_fraction,
     std::array<open_type_tag, 3U>& storage) noexcept {
-    if (has_fraction) {
-        return {};
-    }
     constexpr std::array conditional{
         open_type_tag::from_chars('f', 'r', 'a', 'c'),
         open_type_tag::from_chars('n', 'u', 'm', 'r'),
@@ -266,6 +262,139 @@ std::span<const open_type_tag> inactive_fraction_features(
         }
     }
     return std::span<const open_type_tag>{storage}.first(count);
+}
+
+enum class fraction_feature_kind : std::uint8_t {
+    none,
+    fraction,
+    numerator,
+    denominator
+};
+
+bool try_get_fraction_feature_kind(
+    const open_type_layout_table_view& gsub,
+    const open_type_shape_run_options& options,
+    std::uint16_t lookup,
+    fraction_feature_kind& result,
+    font_error* error) noexcept {
+    result = fraction_feature_kind::none;
+    constexpr std::array features{
+        std::pair{open_type_tag::from_chars('f', 'r', 'a', 'c'),
+            fraction_feature_kind::fraction},
+        std::pair{open_type_tag::from_chars('n', 'u', 'm', 'r'),
+            fraction_feature_kind::numerator},
+        std::pair{open_type_tag::from_chars('d', 'n', 'o', 'm'),
+            fraction_feature_kind::denominator}};
+    for (const auto& [feature, kind] : features) {
+        if (!contains_feature(options.requested_features, feature) ||
+            contains_feature(options.explicit_features, feature)) {
+            continue;
+        }
+        bool contains = false;
+        if (!gsub.try_feature_contains_lookup(
+                options.script,
+                options.language,
+                feature,
+                lookup,
+                contains,
+                error)) {
+            return false;
+        }
+        if (contains) {
+            result = kind;
+        }
+    }
+    return true;
+}
+
+bool is_fraction_feature_enabled(
+    std::span<const unicode_scalar> input,
+    std::int32_t cluster,
+    fraction_feature_kind kind) noexcept {
+    if (cluster < 0 || kind == fraction_feature_kind::none) {
+        return false;
+    }
+    for (std::size_t slash = 1U; slash + 1U < input.size(); ++slash) {
+        if (input[slash].code_point != 0x2044U ||
+            !is_decimal_digit(input[slash - 1U].code_point) ||
+            !is_decimal_digit(input[slash + 1U].code_point)) {
+            continue;
+        }
+        std::size_t numerator = slash;
+        while (numerator > 0U &&
+            is_decimal_digit(input[numerator - 1U].code_point)) {
+            --numerator;
+        }
+        std::size_t denominator = slash + 1U;
+        while (denominator < input.size() &&
+            is_decimal_digit(input[denominator].code_point)) {
+            ++denominator;
+        }
+        for (std::size_t index = numerator; index < denominator; ++index) {
+            if (input[index].input_index != static_cast<std::uint32_t>(cluster)) {
+                continue;
+            }
+            return kind == fraction_feature_kind::fraction ||
+                (kind == fraction_feature_kind::numerator && index < slash) ||
+                (kind == fraction_feature_kind::denominator && index > slash);
+        }
+    }
+    return false;
+}
+
+bool apply_fraction_features(
+    const open_type_layout_table_view& gsub,
+    std::span<const unicode_scalar> input,
+    const open_type_shape_run_options& options,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    const open_type_gdef_view* gdef,
+    font_error* error) noexcept {
+    if (!has_fraction_actions(input)) {
+        return true;
+    }
+    for (std::uint16_t lookup = 0U; lookup < gsub.lookup_count(); ++lookup) {
+        fraction_feature_kind kind{};
+        if (!try_get_fraction_feature_kind(
+                gsub, options, lookup, kind, error)) {
+            return false;
+        }
+        if (kind == fraction_feature_kind::none) {
+            continue;
+        }
+        std::uint32_t position = 0U;
+        while (position < glyph_count) {
+            if (!is_fraction_feature_enabled(
+                    input, glyph_storage[position].cluster, kind)) {
+                ++position;
+                continue;
+            }
+            const std::uint32_t count_before = glyph_count;
+            std::uint32_t context_match_end = 0U;
+            bool applied = false;
+            if (!try_apply_open_type_gsub_lookup_at(
+                    gsub,
+                    lookup,
+                    glyph_storage,
+                    glyph_count,
+                    position,
+                    open_type_gsub_apply_options{
+                        gdef,
+                        options.alternate_value,
+                        0U,
+                        false,
+                        &context_match_end},
+                    applied,
+                    error)) {
+                return false;
+            }
+            if (glyph_count > count_before) {
+                position += glyph_count - count_before;
+            }
+            position = std::max(position + 1U, context_match_end);
+        }
+    }
+    return true;
 }
 
 bool apply_complex_feature(
@@ -858,7 +987,6 @@ bool try_shape_open_type_run(
     std::array<open_type_tag, 3U> excluded_fraction_storage{};
     const auto excluded_fraction = inactive_fraction_features(
         options,
-        has_fraction_actions(input),
         excluded_fraction_storage);
 
     if (gsub.lookup_count() != 0U) {
@@ -916,6 +1044,16 @@ bool try_shape_open_type_run(
                         error)) {
                     return false;
                 }
+            }
+            if (!apply_fraction_features(
+                    gsub,
+                    input,
+                    options,
+                    glyph_storage,
+                    glyph_count,
+                    gdef_pointer,
+                    error)) {
+                return false;
             }
         }
         if (arabic_joining) {

@@ -609,6 +609,14 @@ public:
         std::uint32_t& written,
         font_error* error = nullptr) const noexcept;
 
+    bool try_feature_contains_lookup(
+        open_type_tag script,
+        open_type_tag language,
+        open_type_tag feature,
+        std::uint16_t lookup,
+        bool& contains,
+        font_error* error = nullptr) const noexcept;
+
 private:
     std::span<const std::byte> table_{};
     std::size_t script_list_offset_ = 0U;

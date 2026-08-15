@@ -216,9 +216,6 @@ apply_result replace_multiple(
     for (std::uint16_t index = 0U; index < replacement_count; ++index) {
         shaping_glyph replacement = original;
         replacement.glyph_id = read_u16(table, sequence + 2U + index * 2U);
-        replacement.flags = static_cast<shaping_glyph_flags>(
-            static_cast<std::uint32_t>(replacement.flags) |
-            static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break));
         storage[position + index] = replacement;
     }
     count = static_cast<std::uint32_t>(next_count);
@@ -262,9 +259,6 @@ apply_result replace_ligature(
 
     shaping_glyph& first = storage[position];
     first.glyph_id = ligature_glyph;
-    first.flags = static_cast<shaping_glyph_flags>(
-        static_cast<std::uint32_t>(first.flags) |
-        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break));
     std::uint32_t write = position + 1U;
     std::uint16_t component = 1U;
     for (std::uint32_t read = position + 1U; read < count; ++read) {
@@ -1085,6 +1079,8 @@ apply_result apply_subtable(
         }
 
         std::uint32_t match = position;
+        std::uint32_t match_start = position;
+        std::uint32_t match_end = position + 1U;
         for (std::uint16_t index = 0U; index < backtrack_count; ++index) {
             match = previous_eligible(
                 std::span<const shaping_glyph>{storage.data(), count},
@@ -1095,6 +1091,7 @@ apply_result apply_subtable(
             if (match >= count) {
                 return apply_result::no_match;
             }
+            match_start = std::min(match_start, match);
             bool matches = false;
             const apply_result coverage_result = match_coverage_at(
                 table,
@@ -1120,6 +1117,7 @@ apply_result apply_subtable(
             if (match >= count) {
                 return apply_result::no_match;
             }
+            match_end = std::max(match_end, match + 1U);
             bool matches = false;
             const apply_result coverage_result = match_coverage_at(
                 table,
@@ -1136,9 +1134,9 @@ apply_result apply_subtable(
         }
         storage[position].glyph_id = read_u16(
             table, cursor + static_cast<std::size_t>(coverage_index) * 2U);
-        storage[position].flags = static_cast<shaping_glyph_flags>(
-            static_cast<std::uint32_t>(storage[position].flags) |
-            static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break));
+        if (match_end > match_start) {
+            mark_gsub_dependency(storage, match_start, match_end - 1U);
+        }
         return apply_result::applied;
     }
     if (type < 1U || type > 4U || !can_read(table, subtable, 6U)) {
@@ -1165,9 +1163,6 @@ apply_result apply_subtable(
             static_cast<std::int32_t>(storage[position].glyph_id) +
             read_i16(table, subtable + 4U);
         storage[position].glyph_id = static_cast<std::uint16_t>(replacement);
-        storage[position].flags = static_cast<shaping_glyph_flags>(
-            static_cast<std::uint32_t>(storage[position].flags) |
-            static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break));
         return apply_result::applied;
     }
     if (type == 1U && format == 2U) {
@@ -1179,9 +1174,6 @@ apply_result apply_subtable(
         }
         storage[position].glyph_id = read_u16(
             table, subtable + 6U + coverage_index * 2U);
-        storage[position].flags = static_cast<shaping_glyph_flags>(
-            static_cast<std::uint32_t>(storage[position].flags) |
-            static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break));
         return apply_result::applied;
     }
     if ((type == 2U || type == 3U || type == 4U) && format == 1U) {
@@ -1215,9 +1207,6 @@ apply_result apply_subtable(
             const std::uint32_t selected =
                 std::min(options.alternate_value, static_cast<std::uint32_t>(member_count)) - 1U;
             storage[position].glyph_id = read_u16(table, set + 2U + selected * 2U);
-            storage[position].flags = static_cast<shaping_glyph_flags>(
-                static_cast<std::uint32_t>(storage[position].flags) |
-                static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break));
             return apply_result::applied;
         }
         for (std::uint16_t index = 0U; index < member_count; ++index) {

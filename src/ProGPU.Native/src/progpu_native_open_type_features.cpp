@@ -93,6 +93,7 @@ bool find_tagged_offset(
 struct selection_result final {
     std::uint32_t capacity = 0U;
     std::uint32_t written = 0U;
+    bool contains_target = false;
 };
 
 bool select_layout_lookups(
@@ -107,6 +108,7 @@ bool select_layout_lookups(
     std::span<std::uint16_t> output,
     bool include_required,
     bool write,
+    std::uint16_t target_lookup,
     selection_result& result) noexcept {
     result = {};
     std::size_t script_table = 0U;
@@ -188,13 +190,17 @@ bool select_layout_lookups(
             return false;
         }
         result.capacity += count;
-        if (!write) {
+        if (!write && target_lookup == 0xFFFFU) {
             return true;
         }
         for (std::uint16_t index = 0U; index < count; ++index) {
             const std::uint16_t lookup = read_u16(table, feature + 4U + index * 2U);
             if (lookup >= layout_lookup_count) {
                 return false;
+            }
+            result.contains_target |= lookup == target_lookup;
+            if (!write) {
+                continue;
             }
             bool duplicate = false;
             for (std::uint32_t existing = 0U;
@@ -255,6 +261,7 @@ bool open_type_layout_table_view::try_get_lookup_selection_requirements(
             {},
             true,
             false,
+            0xFFFFU,
             selected)) {
         set_error(error, font_error::invalid_face);
         return false;
@@ -295,6 +302,7 @@ bool open_type_layout_table_view::try_select_lookups(
             output,
             true,
             true,
+            0xFFFFU,
             selected)) {
         set_error(error, font_error::invalid_face);
         return false;
@@ -336,6 +344,7 @@ bool open_type_layout_table_view::try_select_lookups_excluding(
             output,
             true,
             true,
+            0xFFFFU,
             selected)) {
         set_error(error, font_error::invalid_face);
         return false;
@@ -372,11 +381,48 @@ bool open_type_layout_table_view::try_select_feature_lookups(
             output,
             false,
             true,
+            0xFFFFU,
             selected)) {
         set_error(error, font_error::invalid_face);
         return false;
     }
     written = selected.written;
+    set_error(error, font_error::none);
+    return true;
+}
+
+bool open_type_layout_table_view::try_feature_contains_lookup(
+    open_type_tag script,
+    open_type_tag language,
+    open_type_tag feature,
+    std::uint16_t lookup,
+    bool& contains,
+    font_error* error) const noexcept {
+    contains = false;
+    if (lookup >= lookup_count_) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    const std::array requested{feature};
+    selection_result selected{};
+    if (!select_layout_lookups(
+            table_,
+            script_list_offset_,
+            feature_list_offset_,
+            lookup_count_,
+            script,
+            language,
+            requested,
+            {},
+            {},
+            false,
+            false,
+            lookup,
+            selected)) {
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    contains = selected.contains_target;
     set_error(error, font_error::none);
     return true;
 }

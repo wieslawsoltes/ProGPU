@@ -422,6 +422,26 @@ public sealed class OpenTypeTextShaperTests
             Mix(ref contextualHash, (uint)glyph.Flags);
         }
         Assert.Equal(17720644002999414799UL, contextualHash);
+
+        using var fraction = new ShapingBuffer(64);
+        OpenTypeTextShaper.ShapeDesignUnits(
+            "1\u20442",
+            InterFontFamily.GetFont(500),
+            TextShapingOptions.Default,
+            fraction);
+        ulong fractionHash = 1469598103934665603UL;
+        Mix(ref fractionHash, (uint)fraction.Count);
+        foreach (ref readonly ShapingGlyph glyph in fraction.Glyphs)
+        {
+            Mix(ref fractionHash, glyph.GlyphId);
+            Mix(ref fractionHash, unchecked((uint)glyph.Cluster));
+            Mix(ref fractionHash, unchecked((uint)glyph.AdvanceX));
+            Mix(ref fractionHash, unchecked((uint)glyph.AdvanceY));
+            Mix(ref fractionHash, unchecked((uint)glyph.OffsetX));
+            Mix(ref fractionHash, unchecked((uint)glyph.OffsetY));
+            Mix(ref fractionHash, (uint)glyph.Flags);
+        }
+        Assert.Equal(13775989768008147903UL, fractionHash);
     }
 
     [Fact]

@@ -1038,7 +1038,7 @@ void open_type_gsub_context_format3_applies_bounded_nested_lookups() {
     require(applied && count == 2U && glyphs[0U].glyph_id == 5U &&
         glyphs[1U].glyph_id == 12U &&
         (static_cast<std::uint32_t>(glyphs[0U].flags) & 3U) == 0U &&
-        (static_cast<std::uint32_t>(glyphs[1U].flags) & 3U) == 1U);
+        (static_cast<std::uint32_t>(glyphs[1U].flags) & 3U) == 0U);
 
     std::array<std::byte, 86U> chaining{};
     write_u16(chaining, 0U, 1U);
@@ -6017,6 +6017,40 @@ void production_inter_shaping_is_stable_and_reusable() {
         contextual_mix(static_cast<std::uint32_t>(glyph.flags));
     }
     require(contextual_hash == 17720644002999414799ULL);
+
+    constexpr std::array fraction_input{
+        unicode_scalar{0x31U, 0U, 1U},
+        unicode_scalar{0x2044U, 1U, 1U},
+        unicode_scalar{0x32U, 2U, 1U}};
+    std::uint32_t fraction_count = 0U;
+    require(try_shape_open_type_run(
+        font,
+        fraction_input,
+        options,
+        glyphs,
+        contextual_scratch,
+        fraction_count,
+        &error,
+        &plan));
+    std::uint64_t fraction_hash = 1469598103934665603ULL;
+    const auto fraction_mix = [&fraction_hash](std::uint32_t value) {
+        for (std::uint32_t shift = 0U; shift < 32U; shift += 8U) {
+            fraction_hash ^= (value >> shift) & 0xFFU;
+            fraction_hash *= 1099511628211ULL;
+        }
+    };
+    fraction_mix(fraction_count);
+    for (std::uint32_t index = 0U; index < fraction_count; ++index) {
+        const auto& glyph = glyphs[index];
+        fraction_mix(glyph.glyph_id);
+        fraction_mix(static_cast<std::uint32_t>(glyph.cluster));
+        fraction_mix(static_cast<std::uint32_t>(glyph.advance_x));
+        fraction_mix(static_cast<std::uint32_t>(glyph.advance_y));
+        fraction_mix(static_cast<std::uint32_t>(glyph.offset_x));
+        fraction_mix(static_cast<std::uint32_t>(glyph.offset_y));
+        fraction_mix(static_cast<std::uint32_t>(glyph.flags));
+    }
+    require(fraction_hash == 13775989768008147903ULL);
 }
 
 } // namespace
