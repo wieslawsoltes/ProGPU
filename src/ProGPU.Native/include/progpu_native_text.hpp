@@ -1695,6 +1695,11 @@ struct sfnt_glyph_phantom_variation_scratch final {
     std::span<std::int16_t> y_deltas{};
 };
 
+struct sfnt_design_advance_width_requirements final {
+    std::uint32_t glyph_variation_item_count = 0U;
+    sfnt_glyph_phantom_variation_requirements phantom{};
+};
+
 struct sfnt_item_variation_store_view final {
     std::span<const std::byte> bytes{};
     std::size_t store_offset = 0U;
@@ -2140,16 +2145,24 @@ public:
     bool try_get_horizontal_glyph_metrics(
         std::uint16_t glyph_index,
         sfnt_horizontal_glyph_metrics& result) const noexcept;
-    /*
-     * Returns the managed TtfFont.GetAdvanceWidth base/HVAR value in design
-     * units. Missing horizontal metrics use the authoritative half-em
-     * fallback; supplied normalized coordinates apply HVAR without retaining
-     * state. Raw gvar phantom fallback uses its caller-scratch API separately.
-     */
+    /* Returns the managed TtfFont.GetAdvanceWidth base/HVAR value in design
+     * units. The scratch overload additionally applies raw gvar phantom-point
+     * fallback when HVAR does not own advance variation. */
     bool try_get_design_advance_width(
         std::uint16_t glyph_index,
         std::span<const std::int16_t> normalized_coordinates,
         float& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_design_advance_width_requirements(
+        std::uint16_t glyph_index,
+        std::span<const std::int16_t> normalized_coordinates,
+        sfnt_design_advance_width_requirements& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_design_advance_width(
+        std::uint16_t glyph_index,
+        std::span<const std::int16_t> normalized_coordinates,
+        float& result,
+        sfnt_glyph_phantom_variation_scratch scratch,
         font_error* error = nullptr) const noexcept;
     bool try_get_vertical_header_metrics(
         sfnt_vertical_header_metrics& result) const noexcept;
@@ -2339,6 +2352,10 @@ public:
         std::uint16_t glyph_index,
         std::uint32_t item_count,
         sfnt_glyph_phantom_variation_requirements& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_glyph_variation_item_count(
+        std::uint16_t glyph_index,
+        std::uint32_t& result,
         font_error* error = nullptr) const noexcept;
     bool try_get_glyph_phantom_advance_delta(
         std::uint16_t glyph_index,

@@ -182,6 +182,7 @@ using progpu::native::text::sfnt_glyph_kind;
 using progpu::native::text::sfnt_glyph_variation_data_view;
 using progpu::native::text::sfnt_glyph_phantom_variation_requirements;
 using progpu::native::text::sfnt_glyph_phantom_variation_scratch;
+using progpu::native::text::sfnt_design_advance_width_requirements;
 using progpu::native::text::sfnt_gvar_header;
 using progpu::native::text::sfnt_gvar_deltas;
 using progpu::native::text::sfnt_gvar_tuple_data;
@@ -4477,11 +4478,28 @@ void phantom_glyph_variations_apply_advance_delta() {
         x_deltas,
         y_deltas};
     const std::array<std::int16_t, 2U> normalized{4096, -4096};
+    std::uint32_t item_count = 0U;
+    require(font.try_get_glyph_variation_item_count(
+        4U, item_count));
+    require(item_count == 7U);
+    sfnt_design_advance_width_requirements advance_requirements{};
+    require(font.try_get_design_advance_width_requirements(
+        4U, normalized, advance_requirements));
+    require(advance_requirements.glyph_variation_item_count == 7U &&
+        advance_requirements.phantom.tuple_header_count == 1U &&
+        advance_requirements.phantom.region_coordinate_count == 6U &&
+        advance_requirements.phantom.point_number_count == 7U &&
+        advance_requirements.phantom.delta_count == 7U);
     float delta = 99.0F;
     font_error error = font_error::none;
     require(font.try_get_glyph_phantom_advance_delta(
         4U, normalized, 7U, delta, scratch, &error));
     require(error == font_error::none && delta == 3.0F);
+
+    float advance = 99.0F;
+    require(font.try_get_design_advance_width(
+        4U, normalized, advance, scratch, &error));
+    require(error == font_error::none && advance == 603.0F);
 
     delta = 99.0F;
     require(font.try_get_glyph_phantom_advance_delta(
@@ -4494,6 +4512,10 @@ void phantom_glyph_variations_apply_advance_delta() {
     require(!font.try_get_glyph_phantom_advance_delta(
         4U, normalized, 7U, delta, short_scratch, &error));
     require(error == font_error::insufficient_buffer && delta == 0.0F);
+    advance = 99.0F;
+    require(!font.try_get_design_advance_width(
+        4U, normalized, advance, short_scratch, &error));
+    require(error == font_error::insufficient_buffer && advance == 0.0F);
 
     bool uses_hvar = true;
     delta = 99.0F;
@@ -7205,6 +7227,16 @@ void production_inter_variable_font_matches_fvar_axes() {
     float varied_advance = 0.0F;
     require(font.try_get_design_advance_width(
         397U, optical_coordinates, varied_advance));
+    require(varied_advance ==
+        static_cast<float>(horizontal_metrics.advance_width) - 28.0F);
+    sfnt_design_advance_width_requirements advance_requirements{};
+    require(font.try_get_design_advance_width_requirements(
+        397U, optical_coordinates, advance_requirements));
+    require(advance_requirements.glyph_variation_item_count == 0U &&
+        advance_requirements.phantom.tuple_header_count == 0U);
+    varied_advance = 0.0F;
+    require(font.try_get_design_advance_width(
+        397U, optical_coordinates, varied_advance, {}));
     require(varied_advance ==
         static_cast<float>(horizontal_metrics.advance_width) - 28.0F);
     float x_height_delta = 99.0F;

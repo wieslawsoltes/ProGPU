@@ -386,8 +386,8 @@ and publishes their difference only after complete validation. Work is
 `A`, packed deltas `D`, and glyph item count `I`. A synthetic half-scaled tuple
 produces exact left/right deltas `2/5` and advance delta `3`; short scratch and
 item-count-under-four behavior pass normal, named-module, and ASan/UBSan
-gates. This raw `gvar` fallback remains deliberately separate from the HVAR
-precedence and item-variation-store slice.
+gates. The metric API now composes this raw evaluator with the HVAR precedence
+and item-variation-store slice through its exact caller-scratch requirements.
 
 Borrowed item-variation stores and HVAR advance precedence follow at checkpoint
 `920df3b0a2971232f84720ab384a3c2a737dd15c`. The granular
@@ -808,8 +808,16 @@ the managed midpoint-to-even rule before integer halving. Each query is
 `O(T + V)` time for `T` directory records and the bounded HVAR variation-store
 work `V`, uses `O(1)` storage, and adds no interop crossing or allocation.
 Synthetic missing-metric and vertical-shaping cases plus production variable
-font coverage protect the shared metric path. Raw `gvar` phantom advances
-remain an explicit later variation-parity slice when no HVAR table exists.
+font coverage protect the shared metric path. The bounded scratch overload now
+also directly ports `TtfFont.Variations.GetVariationAdvanceDelta` and
+`ComputeGlyphVariationItemCount` from checkpoint `5abc583db`: HVAR remains the
+preferred source, while fonts without a usable HVAR store evaluate the already
+ported raw `gvar` left/right phantom points. The requirements pass reports the
+exact tuple, region, point-number, and delta spans; execution is transactional,
+allocation-free, and `O(T * (A + D))` for tuples `T`, axes `A`, and decoded
+deltas `D`. Synthetic simple-glyph coverage resolves base advance `600` plus
+phantom delta `3`, rejects short scratch without publishing a partial result,
+and production Inter confirms that HVAR still wins without phantom scratch.
 
 Fallback mark placement now has a direct allocation-free native port of the
 ProGPU-owned `GlyphPositionBuffer.ApplyFallbackMarkPositioning` algorithm from

@@ -193,6 +193,7 @@ using ::progpu::native::text::sfnt_gvar_tuple_requirements;
 using ::progpu::native::text::sfnt_glyph_variation_data_view;
 using ::progpu::native::text::sfnt_glyph_phantom_variation_requirements;
 using ::progpu::native::text::sfnt_glyph_phantom_variation_scratch;
+using ::progpu::native::text::sfnt_design_advance_width_requirements;
 using ::progpu::native::text::sfnt_item_variation_data;
 using ::progpu::native::text::sfnt_item_variation_store_view;
 using ::progpu::native::text::sfnt_delta_set_index_map_view;
