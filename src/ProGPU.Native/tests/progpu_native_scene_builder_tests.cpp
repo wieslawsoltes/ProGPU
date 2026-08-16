@@ -284,6 +284,88 @@ bool semantic_scene_builder_records_general_brushes() {
         invalid.last_error() == scene_build_error::invalid_argument;
 }
 
+bool semantic_scene_builder_records_native_svg_layers() {
+    constexpr std::string_view xml =
+        "<svg><defs><linearGradient id='g'><stop offset='0' "
+        "stop-color='red'/><stop offset='1' stop-color='blue'/>"
+        "</linearGradient></defs><g id='glyph3' transform='translate(2 3)'>"
+        "<path d='M0 0L8 0L0 8Z' fill='url(#g)'/>"
+        "<rect x='10' y='0' width='5' height='6' fill='#0f0'/></g></svg>";
+    text::svg_glyph_requirements requirements{};
+    if (!text::try_get_svg_glyph_requirements(
+            xml, 3U, 1000U, requirements) ||
+        requirements.layer_count != 2U ||
+        requirements.brush_count != 2U) {
+        return false;
+    }
+    std::vector<text::svg_glyph_layer> layers(requirements.layer_count);
+    std::vector<progpu_native_path_segment> segments(
+        requirements.segment_count);
+    std::vector<progpu_native_scene_brush> brushes(
+        requirements.brush_count);
+    std::vector<progpu_native_scene_gradient_stop> stops(
+        requirements.gradient_stop_count);
+    if (!text::try_decode_svg_glyph(
+            xml, 3U, 1000U, layers, segments, brushes, stops,
+            requirements)) {
+        return false;
+    }
+
+    semantic_scene_builder builder(712U, 1U);
+    std::vector<std::uint32_t> registered;
+    registered.reserve(brushes.size());
+    for (const auto& brush : brushes) {
+        if (brush.stop_offset > stops.size() ||
+            brush.stop_count > stops.size() - brush.stop_offset) {
+            return false;
+        }
+        std::uint32_t index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder.add_brush(
+                brush,
+                std::span<const progpu_native_scene_gradient_stop>{stops}
+                    .subspan(brush.stop_offset, brush.stop_count),
+                index)) {
+            return false;
+        }
+        registered.push_back(index);
+    }
+
+    std::vector<progpu_native_scene_path_fill> paths;
+    std::vector<std::uint32_t> path_brushes;
+    paths.reserve(layers.size());
+    path_brushes.reserve(layers.size());
+    for (const auto& layer : layers) {
+        if (layer.brush_index >= registered.size()) {
+            return false;
+        }
+        progpu_native_scene_path_fill path{};
+        path.segment_offset = layer.segment_offset;
+        path.segment_count = layer.segment_count;
+        path.min_x = layer.minimum_x;
+        path.min_y = layer.minimum_y;
+        path.max_x = layer.maximum_x;
+        path.max_y = layer.maximum_y;
+        path.color = {1.0F, 1.0F, 1.0F, 1.0F};
+        path.transform = layer.transform;
+        path.fill_rule = layer.fill_rule;
+        path.sample_grid = 8U;
+        paths.push_back(path);
+        path_brushes.push_back(registered[layer.brush_index]);
+    }
+    if (!builder.draw_paths(
+            paths, segments, path_brushes, {0.0F, 0.0F, 20.0F, 12.0F})) {
+        return false;
+    }
+    std::vector<std::byte> stream;
+    if (!builder.build(stream)) {
+        return false;
+    }
+    const auto validated = scene::validate(stream.data(), stream.size());
+    return validated.status == PROGPU_NATIVE_STATUS_SUCCESS &&
+        validated.header.command_count == 1U &&
+        validated.header.resource_count == 2U;
+}
+
 bool semantic_scene_builder_rejects_invalid_state() {
     semantic_scene_builder builder(702U, 1U);
     auto state = semantic_scene_builder::identity_state();

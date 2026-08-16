@@ -541,9 +541,23 @@ full requirements pass before writing caller-owned canonical path segments,
 supports `M/L/H/V/Q/T/C/S/A/Z`, implicit and relative commands, figure closure,
 and the shared WPF fill prefix, and rejects malformed input transactionally.
 Work is `O(B + S)` time and `O(1)` internal storage for path bytes `B` and
-segments `S`. OpenType-SVG XML element/reference traversal plus solid and
-gradient paint lowering is the remaining native SVG parity slice; it will feed
-these records directly rather than construct an intermediate geometry graph.
+segments `S`.
+
+The next checkpoint ports the ProGPU-owned `OpenTypeSvgGlyphParser` element,
+state, reference, shape, color, and gradient contracts into granular native
+XML/value/layer files. It supports namespace-neutral `svg/g/defs/use`, a
+64-reference-depth bound with cycle suppression, `path/circle/ellipse/rect/
+polygon`, inherited transforms/fill/opacity/fill-opacity, CSS hex and the same
+named-color subset, and linear/radial gradients with ordered stops and
+pad/reflect/repeat spread. The public two-pass API is transactional and emits
+canonical caller-owned layer, path, brush, and gradient-stop records directly;
+it does not introduce an SVG renderer or retained XML graph. The cold parse is
+`O(B + E + A + S + G log G)` time and `O(E + A + S + G)` temporary storage for
+document bytes `B`, elements `E`, attributes `A`, path segments `S`, and stops
+`G`; retained replay uses only the emitted pointer-free records. The native
+fixture and `OpenTypeSvgManagedOracleMatchesNativeLayerFixture` assert the same
+four-layer solid/linear/radial/reference result, transforms, bounds, opacity,
+spread, and stop coordinates.
 
 CFF2 container and variable-outline parity follows the WOFF1 checkpoint. It
 ports the proven ProGPU CFF path writer and Type 2 evaluator behind an explicit

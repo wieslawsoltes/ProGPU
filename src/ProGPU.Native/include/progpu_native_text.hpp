@@ -1612,6 +1612,54 @@ bool try_decode_svg_path(
     svg_path_requirements& result,
     font_error* error = nullptr) noexcept;
 
+/*
+ * Canonical OpenType-SVG glyph output. Layers borrow ranges from the decoded
+ * segment and brush arrays. Geometry remains in element-local coordinates and
+ * carries the exact inherited SVG transform, allowing the retained scene
+ * compiler to apply placement without rewriting segment data. Brush points
+ * are already expressed in the SVG glyph coordinate system, matching the
+ * managed FontColorLayer contract.
+ */
+struct svg_glyph_layer final {
+    std::size_t segment_offset = 0U;
+    std::size_t segment_count = 0U;
+    float minimum_x = 0.0F;
+    float minimum_y = 0.0F;
+    float maximum_x = 0.0F;
+    float maximum_y = 0.0F;
+    progpu_native_affine_2d transform{1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    std::uint32_t brush_index = 0U;
+    std::uint32_t fill_rule = PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+};
+
+struct svg_glyph_requirements final {
+    std::size_t layer_count = 0U;
+    std::size_t segment_count = 0U;
+    std::size_t brush_count = 0U;
+    std::size_t gradient_stop_count = 0U;
+};
+
+using svg_brush_record = progpu_native_scene_brush;
+using svg_gradient_stop_record = progpu_native_scene_gradient_stop;
+
+bool try_get_svg_glyph_requirements(
+    std::string_view xml,
+    std::uint16_t glyph_index,
+    std::uint16_t units_per_em,
+    svg_glyph_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_decode_svg_glyph(
+    std::string_view xml,
+    std::uint16_t glyph_index,
+    std::uint16_t units_per_em,
+    std::span<svg_glyph_layer> layers,
+    std::span<progpu_native_path_segment> segments,
+    std::span<svg_brush_record> brushes,
+    std::span<svg_gradient_stop_record> gradient_stops,
+    svg_glyph_requirements& result,
+    font_error* error = nullptr) noexcept;
+
 bool try_decode_svg_glyph_document(
     const sfnt_svg_glyph_document_view& document,
     std::span<std::byte> output,

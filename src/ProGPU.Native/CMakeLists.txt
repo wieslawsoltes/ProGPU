@@ -619,9 +619,14 @@ add_library(progpu_native_text STATIC
     src/Text/progpu_native_cpal.cpp
     src/Text/progpu_native_colr_internal.hpp
     src/Text/progpu_native_svg_glyph.cpp
+    src/Text/progpu_native_svg_glyph_decode.cpp
+    src/Text/progpu_native_svg_glyph_layers.cpp
     src/Text/progpu_native_svg_arc.cpp
+    src/Text/progpu_native_svg_document_internal.hpp
     src/Text/progpu_native_svg_path.cpp
     src/Text/progpu_native_svg_path_internal.hpp
+    src/Text/progpu_native_svg_values.cpp
+    src/Text/progpu_native_svg_xml.cpp
     src/Text/progpu_native_woff1.cpp
     src/Text/progpu_native_sfnt.cpp
     src/Text/progpu_native_true_type_composite.cpp
@@ -1048,7 +1053,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
         ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})
     target_link_libraries(progpu_native_internal_tests PRIVATE
-        progpu_native_scene_builder)
+        progpu_native_scene_builder
+        progpu_native_text)
     progpu_native_enable_warnings(progpu_native_internal_tests)
     progpu_native_enable_sanitizers(progpu_native_internal_tests)
     add_test(

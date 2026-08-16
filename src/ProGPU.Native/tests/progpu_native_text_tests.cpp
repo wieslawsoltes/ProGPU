@@ -151,9 +151,13 @@ using progpu::native::text::sfnt_cff2_top_dictionary;
 using progpu::native::text::sfnt_bitmap_glyph_data_view;
 using progpu::native::text::sfnt_color_glyph_layer;
 using progpu::native::text::sfnt_svg_glyph_document_view;
+using progpu::native::text::svg_glyph_layer;
+using progpu::native::text::svg_glyph_requirements;
 using progpu::native::text::svg_path_requirements;
+using progpu::native::text::try_decode_svg_glyph;
 using progpu::native::text::try_decode_svg_path;
 using progpu::native::text::try_decode_svg_glyph_document;
+using progpu::native::text::try_get_svg_glyph_requirements;
 using progpu::native::text::try_get_svg_glyph_document_size;
 using progpu::native::text::try_get_svg_path_requirements;
 using progpu::native::text::sfnt_expanded_glyph_requirements;
@@ -5171,6 +5175,116 @@ void svg_path_decode_is_transactional_and_bounded() {
         arc_segments[1U].kind == PROGPU_NATIVE_PATH_SEGMENT_LINE);
 }
 
+void svg_glyph_layers_match_managed_shapes_references_and_paints() {
+    constexpr std::string_view xml = R"svg(
+        <?xml version="1.0"?>
+        <svg xmlns="http://www.w3.org/2000/svg"
+             fill="red" transform="translate(1 2)">
+          <defs>
+            <linearGradient id="gradient" gradientTransform="scale(2)"
+                            spreadMethod="reflect">
+              <stop offset="0%" stop-color="#000"/>
+              <stop offset="100%" stop-color="#fff" stop-opacity="50%"/>
+            </linearGradient>
+            <radialGradient id="radial" cx="20" cy="20" r="5"
+                            fx="18" fy="19" spreadMethod="repeat">
+              <stop offset="0" stop-color="red"/>
+              <stop offset="1" stop-color="blue"/>
+            </radialGradient>
+            <rect id="box" x="0" y="0" width="5" height="6"
+                  fill="url(#gradient)"/>
+          </defs>
+          <g id="glyph7" opacity="50%" transform="translate(10 20)">
+            <path d="M0 0L10 0L0 10Z" fill="#0f08"
+                  fill-rule="evenodd"/>
+            <use href="#box" x="3" y="4"/>
+            <circle cx="20" cy="20" r="5" fill="url(#radial)"/>
+            <polygon points="30,0 40,0 35,10" fill="currentColor"/>
+          </g>
+        </svg>)svg";
+
+    svg_glyph_requirements requirements{};
+    font_error error = font_error::none;
+    require(try_get_svg_glyph_requirements(
+        xml, 7U, 1000U, requirements, &error));
+    require(error == font_error::none);
+    require(requirements.layer_count == 4U);
+    require(requirements.segment_count == 14U);
+    require(requirements.brush_count == 4U);
+    require(requirements.gradient_stop_count == 4U);
+
+    std::vector<svg_glyph_layer> layers(requirements.layer_count);
+    std::vector<progpu_native_path_segment> segments(
+        requirements.segment_count);
+    std::vector<progpu_native_scene_brush> brushes(
+        requirements.brush_count);
+    std::vector<progpu_native_scene_gradient_stop> stops(
+        requirements.gradient_stop_count);
+    require(try_decode_svg_glyph(
+        xml, 7U, 1000U, layers, segments, brushes, stops,
+        requirements, &error));
+    require(error == font_error::none);
+    require(layers[0U].segment_offset == 0U &&
+        layers[0U].segment_count == 3U &&
+        layers[0U].fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD);
+    require(layers[0U].transform.m31 == 11.0F &&
+        layers[0U].transform.m32 == 22.0F);
+    require(brushes[0U].type == PROGPU_NATIVE_SCENE_BRUSH_SOLID);
+    require(std::abs(brushes[0U].colors[0U].g - 1.0F) < 0.0001F);
+    require(std::abs(brushes[0U].colors[0U].a - (4.0F / 15.0F)) <
+        0.0001F);
+
+    require(layers[1U].segment_offset == 3U &&
+        layers[1U].segment_count == 4U &&
+        layers[1U].transform.m31 == 14.0F &&
+        layers[1U].transform.m32 == 26.0F);
+    require(brushes[1U].type ==
+        PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT);
+    require(brushes[1U].spread_method ==
+        PROGPU_NATIVE_SCENE_GRADIENT_REFLECT);
+    require(brushes[1U].stop_count == 2U &&
+        brushes[1U].stop_offset == 0U);
+    require(brushes[1U].start_point.x == 14.0F &&
+        brushes[1U].start_point.y == 26.0F &&
+        brushes[1U].end_point.x == 2014.0F &&
+        brushes[1U].end_point.y == 26.0F);
+    require(stops[0U].offset == 0.0F && stops[1U].offset == 1.0F);
+    require(std::abs(stops[1U].color.a - 0.25F) < 0.0001F);
+
+    require(layers[2U].segment_count == 4U &&
+        segments[layers[2U].segment_offset].kind ==
+            PROGPU_NATIVE_PATH_SEGMENT_ARC);
+    require(brushes[2U].type ==
+        PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT);
+    require(brushes[2U].spread_method ==
+        PROGPU_NATIVE_SCENE_GRADIENT_REPEAT);
+    require(brushes[2U].stop_offset == 2U &&
+        brushes[2U].stop_count == 2U);
+    require(brushes[2U].center.x == 31.0F &&
+        brushes[2U].center.y == 42.0F &&
+        brushes[2U].start_point.x == 29.0F &&
+        brushes[2U].start_point.y == 41.0F &&
+        brushes[2U].radius == 5.0F && brushes[2U].radius_y == 5.0F);
+    require(layers[3U].segment_count == 3U &&
+        segments[layers[3U].segment_offset + 2U].p1.x == 30.0F);
+
+    std::array<svg_glyph_layer, 3U> short_layers{};
+    short_layers[0U].minimum_x = 123.0F;
+    require(!try_decode_svg_glyph(
+        xml, 7U, 1000U, short_layers, segments, brushes, stops,
+        requirements, &error));
+    require(error == font_error::insufficient_buffer &&
+        requirements.layer_count == 4U &&
+        short_layers[0U].minimum_x == 123.0F);
+
+    constexpr std::string_view cyclic =
+        "<svg><defs><g id='a'><use href='#a'/></g></defs>"
+        "<g id='glyph1'><use href='#a'/></g></svg>";
+    require(!try_get_svg_glyph_requirements(
+        cyclic, 1U, 1000U, requirements, &error));
+    require(error == font_error::invalid_glyph);
+}
+
 void cbdt_index_and_image_formats_remain_borrowed_and_bounded() {
     for (std::uint16_t index_format = 1U; index_format <= 5U;
         ++index_format) {
@@ -6236,6 +6350,7 @@ int main() {
     svg_glyph_documents_remain_borrowed_and_bounded();
     svg_path_data_matches_managed_canonical_segments();
     svg_path_decode_is_transactional_and_bounded();
+    svg_glyph_layers_match_managed_shapes_references_and_paints();
     cbdt_index_and_image_formats_remain_borrowed_and_bounded();
     colr_layers_and_cpal_palettes_are_transactional();
     production_noto_cff1_container_matches_sfnt_glyph_count();

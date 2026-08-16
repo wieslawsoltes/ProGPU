@@ -755,6 +755,8 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_builder_records_general_brushes());
     require(progpu::native::tests::
+        semantic_scene_builder_records_native_svg_layers());
+    require(progpu::native::tests::
         semantic_scene_builder_rejects_invalid_state());
     require(progpu::native::tests::
         semantic_scene_builder_reuses_retained_images());

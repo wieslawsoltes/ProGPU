@@ -95,6 +95,25 @@ int main() {
         svg_path.segment_count != 3U) {
         return 1;
     }
+    progpu::native::text::svg_glyph_requirements svg_layers{};
+    if (!progpu::native::text::try_get_svg_glyph_requirements(
+            "<svg><path id='glyph2' d='M0 0L4 0L0 4Z'/></svg>",
+            2U, 1000U, svg_layers) ||
+        svg_layers.layer_count != 1U ||
+        svg_layers.segment_count != 3U) {
+        return 1;
+    }
+    progpu::native::text::svg_glyph_layer svg_layer_output[1]{};
+    progpu_native_path_segment svg_segment_output[3]{};
+    progpu::native::text::svg_brush_record svg_brush_output[1]{};
+    if (!progpu::native::text::try_decode_svg_glyph(
+            "<svg><path id='glyph2' d='M0 0L4 0L0 4Z'/></svg>",
+            2U, 1000U, svg_layer_output, svg_segment_output,
+            svg_brush_output, {}, svg_layers) ||
+        svg_layer_output[0].segment_count != 3U ||
+        svg_brush_output[0].type != 0U) {
+        return 1;
+    }
     return tag.value == 0x636D6170U &&
         latin_script.value == 0x6C61746EU &&
         shaping_glyph.advance_x == 600 ? 0 : 1;

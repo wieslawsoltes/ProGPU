@@ -238,8 +238,15 @@ retained path ABI. Its two-pass caller-buffer surface matches the managed
 `PathGeometry.Parse` and fill compiler for `M/L/H/V/Q/T/C/S/A/Z`, implicit and
 relative commands, figure closure, resolved elliptical arcs, and control/arc
 bounds. Parsing is `O(B + S)` time and `O(1)` internal storage for input bytes
-`B` and output segments `S`; OpenType-SVG XML element, reference, and paint
-lowering remains the next native parity slice.
+`B` and output segments `S`. The companion OpenType-SVG glyph decoder now
+matches the managed `OpenTypeSvgGlyphParser` surface: namespace-neutral
+`svg/g/defs/use`, bounded references and cycles, path/circle/ellipse/rect/
+polygon geometry, inherited transforms/fill/opacity, solid colors, and linear
+or radial gradients with ordered stops and pad/reflect/repeat spread. It emits
+caller-owned canonical layer/path/brush/stop records transactionally, so the
+retained scene consumes the same material and path ABI without an SVG-specific
+renderer. XML indexing is bounded one-time font-cache work; stable glyph replay
+does not parse XML or allocate.
 
 The first consumer is the standalone `progpu_native_image` C++20 library and
 `progpu.native.image` module. Its dependency-free PNG path validates the
