@@ -955,10 +955,15 @@ void open_type_gsub_basic_lookups_use_caller_owned_storage() {
     count = 3U;
     open_type_gsub_apply_options ligature_options{};
     ligature_options.gdef = &gdef;
+    ligature_options.track_fallback_mark_metadata = true;
     require(try_apply_open_type_gsub_lookup(
         gsub, 0U, glyphs, count, ligature_options, applied, &error));
     require(applied && count == 2U && glyphs[0U].glyph_id == 12U &&
         glyphs[1U].glyph_id == 11U);
+    require(((static_cast<std::uint32_t>(glyphs[0U].flags) >> 3U) &
+            0xFFU) == 2U);
+    require(((static_cast<std::uint32_t>(glyphs[1U].flags) >> 11U) &
+            0xFFU) == 1U);
 
     auto malformed = single;
     write_u16(malformed, 28U, 0xFFFFU);
@@ -1576,7 +1581,8 @@ void open_type_gpos_attachments_are_caller_owned_and_resolved() {
     require(applied && glyphs[1U].offset_x == 6 &&
         glyphs[1U].offset_y == 7);
     require(attachments[1U].target == 0 &&
-        attachments[1U].kind == shaping_attachment_kind::mark);
+        attachments[1U].kind == shaping_attachment_kind::mark &&
+        attachments[1U].reserved2 == 1U);
     std::array<std::uint8_t, 2U> states{};
     require(try_resolve_open_type_attachments(
         glyphs,
@@ -5061,6 +5067,38 @@ void fallback_mark_positioning_matches_managed_policy() {
     require(error == font_error::invalid_argument &&
         glyphs[1U].offset_x == -470 && glyphs[1U].offset_y == 102 &&
         glyphs[2U].offset_x == -170 && glyphs[2U].offset_y == 102);
+
+    constexpr std::array mappings{
+        std::pair{0x41U, 4U}, std::pair{0x0301U, 4U}};
+    const auto cmap = make_cmap_groups(mappings);
+    const auto shaping_data = make_font(
+        0U, 22U, 0U, false, false, false, {}, cmap);
+    require(sfnt_font_view::try_create(shaping_data, 0U, font, &error));
+    const std::array<unicode_scalar, 2U> input{
+        unicode_scalar{0x41U, 0U, 1U},
+        unicode_scalar{0x0301U, 1U, 1U}};
+    open_type_shape_run_requirements requirements{};
+    require(try_get_open_type_shape_run_requirements(
+        font, input, requirements, &error));
+    std::array<shaping_glyph, 6U> shaped{};
+    std::array<unicode_grapheme_cluster, 2U> graphemes{};
+    std::array<shaping_attachment, 6U> attachments{};
+    std::array<std::uint8_t, 6U> states{};
+    std::uint32_t glyph_count = 0U;
+    const open_type_shape_run_options options{
+        open_type_tag::from_chars('l', 'a', 't', 'n')};
+    require(try_shape_open_type_run(
+        font,
+        input,
+        options,
+        shaped,
+        open_type_shape_run_scratch{
+            graphemes, {}, {}, attachments, states},
+        glyph_count,
+        &error));
+    require(glyph_count == 2U && shaped[0U].advance_x == 600 &&
+        shaped[1U].advance_x == 0 && shaped[1U].advance_y == 0 &&
+        shaped[1U].offset_x == -320 && shaped[1U].offset_y == 102);
 }
 
 void legacy_kern_shaping_matches_managed_policy() {

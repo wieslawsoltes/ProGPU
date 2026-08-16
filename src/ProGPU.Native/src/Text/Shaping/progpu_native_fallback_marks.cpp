@@ -1,5 +1,6 @@
 #include "progpu_native_text.hpp"
 
+#include "progpu_native_fallback_marks_internal.hpp"
 #include "progpu_native_open_type_complex_internal.hpp"
 
 #include <algorithm>
@@ -21,6 +22,33 @@ struct glyph_extents final {
     std::int32_t y_bearing = 0;
     std::int32_t width = 0;
     std::int32_t height = 0;
+};
+
+struct metadata_view final {
+    std::span<const fallback_mark_metadata> direct{};
+    std::span<const shaping_attachment> attachments{};
+
+    bool empty() const noexcept {
+        return direct.empty() && attachments.empty();
+    }
+
+    std::uint8_t component_count(std::size_t index) const noexcept {
+        return !direct.empty()
+            ? direct[index].ligature_component_count
+            : attachments[index].reserved0;
+    }
+
+    std::uint8_t component(std::size_t index) const noexcept {
+        return !direct.empty()
+            ? direct[index].ligature_component
+            : attachments[index].reserved1;
+    }
+
+    bool positioned(std::size_t index) const noexcept {
+        return !direct.empty()
+            ? direct[index].positioned
+            : attachments[index].reserved2 != 0U;
+    }
 };
 
 void set_error(font_error* destination, font_error value) noexcept {
@@ -236,7 +264,7 @@ bool try_position_base_marks(
     const sfnt_font_view& font,
     std::span<shaping_glyph> glyphs,
     shaping_direction direction,
-    std::span<const fallback_mark_metadata> metadata,
+    metadata_view metadata,
     std::span<const std::int16_t> coordinates,
     std::size_t base_index,
     std::size_t end,
@@ -277,9 +305,9 @@ bool try_position_base_marks(
     glyph_extents component_extents = base;
     const std::uint8_t component_count = metadata.empty()
         ? 0U
-        : metadata[base_index].ligature_component_count;
+        : metadata.component_count(base_index);
     for (std::size_t index = base_index + 1U; index < end; ++index) {
-        if (!metadata.empty() && metadata[index].positioned) continue;
+        if (!metadata.empty() && metadata.positioned(index)) continue;
         const std::int32_t combining_class = recategorize_combining_class(
             glyphs[index].code_point,
             complex_detail::modified_combining_class(
@@ -293,7 +321,7 @@ bool try_position_base_marks(
             continue;
         }
         if (component_count > 1U) {
-            const std::uint8_t raw_component = metadata[index].ligature_component;
+            const std::uint8_t raw_component = metadata.component(index);
             const std::int32_t component = raw_component == 0xFFU
                 ? component_count - 1
                 : std::min<std::int32_t>(
@@ -334,18 +362,15 @@ bool try_position_base_marks(
     return true;
 }
 
-} // namespace
-
-bool try_apply_fallback_mark_positioning(
+bool try_apply_fallback_mark_positioning_core(
     const sfnt_font_view& font,
     std::span<shaping_glyph> glyphs,
     shaping_direction direction,
-    std::span<const fallback_mark_metadata> metadata,
+    metadata_view metadata,
     std::span<const std::int16_t> normalized_coordinates,
     font_error* error) noexcept {
     set_error(error, font_error::none);
-    if ((!metadata.empty() && metadata.size() < glyphs.size()) ||
-        direction == shaping_direction::unspecified) {
+    if (direction == shaping_direction::unspecified) {
         set_error(error, font_error::invalid_argument);
         return false;
     }
@@ -400,6 +425,48 @@ bool try_apply_fallback_mark_positioning(
     }
     set_error(error, font_error::none);
     return true;
+}
+
+} // namespace
+
+bool try_apply_fallback_mark_positioning(
+    const sfnt_font_view& font,
+    std::span<shaping_glyph> glyphs,
+    shaping_direction direction,
+    std::span<const fallback_mark_metadata> metadata,
+    std::span<const std::int16_t> normalized_coordinates,
+    font_error* error) noexcept {
+    if (!metadata.empty() && metadata.size() < glyphs.size()) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    return try_apply_fallback_mark_positioning_core(
+        font,
+        glyphs,
+        direction,
+        metadata_view{metadata, {}},
+        normalized_coordinates,
+        error);
+}
+
+bool detail::try_apply_fallback_mark_positioning_from_attachments(
+    const sfnt_font_view& font,
+    std::span<shaping_glyph> glyphs,
+    shaping_direction direction,
+    std::span<const shaping_attachment> metadata,
+    std::span<const std::int16_t> normalized_coordinates,
+    font_error* error) noexcept {
+    if (metadata.size() < glyphs.size()) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    return try_apply_fallback_mark_positioning_core(
+        font,
+        glyphs,
+        direction,
+        metadata_view{{}, metadata},
+        normalized_coordinates,
+        error);
 }
 
 } // namespace progpu::native::text

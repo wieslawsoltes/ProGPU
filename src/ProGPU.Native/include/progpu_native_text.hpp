@@ -767,6 +767,9 @@ struct open_type_gsub_apply_options final {
      * lookups write the exclusive input end so a caller can avoid feeding a
      * matched input sequence back through the same lookup. */
     std::uint32_t* context_match_end = nullptr;
+    /* Enables transient ligature-component metadata for the later managed-
+     * parity fallback mark stage. The full-run shaper strips it before return. */
+    bool track_fallback_mark_metadata = false;
 };
 
 /*
@@ -806,8 +809,10 @@ enum class shaping_attachment_kind : std::uint8_t {
 struct shaping_attachment final {
     std::int32_t target = -1;
     shaping_attachment_kind kind = shaping_attachment_kind::none;
+    /* During full-run shaping these bytes carry fallback-mark ligature count,
+     * component (0xFF means unspecified), and prior-positioned state. */
     std::uint8_t reserved0 = 0U;
-    std::uint8_t reserved1 = 0U;
+    std::uint8_t reserved1 = 0xFFU;
     std::uint8_t reserved2 = 0U;
 };
 

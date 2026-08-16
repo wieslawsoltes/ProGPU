@@ -568,12 +568,14 @@ add_library(progpu_native_text STATIC
     src/Text/Shaping/progpu_native_open_type_feature_values_internal.hpp
     src/Text/Shaping/progpu_native_open_type_gdef.cpp
     src/Text/Shaping/progpu_native_open_type_gsub.cpp
+    src/Text/Shaping/progpu_native_open_type_gsub_internal.hpp
     src/Text/Shaping/progpu_native_open_type_gpos.cpp
     src/Text/Shaping/progpu_native_open_type_gpos_context.cpp
     src/Text/Shaping/progpu_native_open_type_gpos_internal.hpp
     src/Text/Shaping/progpu_native_legacy_kern.cpp
     src/Text/Shaping/progpu_native_legacy_kern_internal.hpp
     src/Text/Shaping/progpu_native_fallback_marks.cpp
+    src/Text/Shaping/progpu_native_fallback_marks_internal.hpp
     src/Text/Shaping/progpu_native_open_type_plan.cpp
     src/Text/Shaping/progpu_native_open_type_shaper.cpp
     src/Text/Shaping/progpu_native_open_type_complex_internal.hpp

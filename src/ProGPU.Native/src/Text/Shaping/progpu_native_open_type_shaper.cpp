@@ -2,7 +2,9 @@
 
 #include "progpu_native_open_type_complex_internal.hpp"
 #include "progpu_native_open_type_feature_values_internal.hpp"
+#include "progpu_native_open_type_gsub_internal.hpp"
 #include "progpu_native_legacy_kern_internal.hpp"
+#include "progpu_native_fallback_marks_internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -45,6 +47,52 @@ constexpr auto kern_feature =
     open_type_tag::from_chars('k', 'e', 'r', 'n');
 constexpr auto distance_feature =
     open_type_tag::from_chars('d', 'i', 's', 't');
+
+bool is_default_ignorable(std::uint32_t value) noexcept {
+    return value == 0x00ADU || value == 0x034FU || value == 0x061CU ||
+        value == 0x115FU || value == 0x1160U || value == 0x17B4U ||
+        value == 0x17B5U || (value >= 0x180BU && value <= 0x180FU) ||
+        (value >= 0x200BU && value <= 0x200FU) ||
+        (value >= 0x202AU && value <= 0x202EU) ||
+        (value >= 0x2060U && value <= 0x206FU) || value == 0x3164U ||
+        value == 0xFEFFU || value == 0xFFA0U ||
+        (value >= 0xFFF0U && value <= 0xFFF8U) ||
+        (value >= 0xFE00U && value <= 0xFE0FU) ||
+        (value >= 0x1BCA0U && value <= 0x1BCAFU) ||
+        (value >= 0x1D173U && value <= 0x1D17AU) ||
+        (value >= 0xE0000U && value <= 0xE0FFFU);
+}
+
+bool is_unicode_mark(std::uint32_t code_point) noexcept {
+    const auto grapheme = get_unicode_grapheme_break_class(code_point);
+    return get_unicode_bidi_class(code_point) ==
+            unicode_bidi_class::nonspacing_mark ||
+        grapheme == unicode_grapheme_break_class::spacing_mark ||
+        get_unicode_canonical_combining_class(code_point) != 0U;
+}
+
+bool is_positioning_mark(
+    const shaping_glyph& glyph,
+    const open_type_gdef_view* gdef) noexcept {
+    if (gdef != nullptr && glyph.glyph_id <= 0xFFFFU) {
+        const auto glyph_class = gdef->glyph_class(
+            static_cast<std::uint16_t>(glyph.glyph_id));
+        if (glyph_class != open_type_glyph_class::unclassified) {
+            return glyph_class == open_type_glyph_class::mark;
+        }
+    }
+    return !is_default_ignorable(glyph.code_point) &&
+        is_unicode_mark(glyph.code_point);
+}
+
+bool uses_fallback_mark_positioning(
+    const open_type_shape_run_options& options) noexcept {
+    if (options.complex_script != open_type_complex_script::none) return false;
+    return options.script != open_type_tag::from_chars('t', 'h', 'a', 'i') &&
+        options.script != open_type_tag::from_chars('l', 'a', 'o', ' ') &&
+        options.script != open_type_tag::from_chars('m', 'y', 'm', 'r') &&
+        options.script != open_type_tag::from_chars('q', 'a', 'a', 'g');
+}
 
 std::int32_t clamp_i16(std::int64_t value) noexcept {
     return static_cast<std::int32_t>(std::clamp<std::int64_t>(
@@ -780,6 +828,11 @@ bool try_shape_open_type_run(
     const bool hangul = uses_hangul(options.script);
     const bool complex_script =
         options.complex_script != open_type_complex_script::none;
+    const bool fallback_mark_positioning =
+        options.zero_mark_advances && uses_fallback_mark_positioning(options);
+    const bool zero_mark_advances_early = options.zero_mark_advances &&
+        (options.complex_script == open_type_complex_script::use ||
+            options.complex_script == open_type_complex_script::myanmar);
     if (static_cast<std::uint8_t>(options.complex_script) >
         static_cast<std::uint8_t>(open_type_complex_script::khmer)) {
         set_error(error, font_error::invalid_argument);
@@ -1052,7 +1105,12 @@ bool try_shape_open_type_run(
         }
         if (arabic_joining) {
             const open_type_gsub_apply_options apply_options{
-                gdef_pointer, options.alternate_value};
+                gdef_pointer,
+                options.alternate_value,
+                0U,
+                false,
+                nullptr,
+                fallback_mark_positioning};
             constexpr std::array form_features{
                 std::pair{open_type_tag::from_chars('i', 's', 'o', 'l'),
                     open_type_arabic_action::isolated},
@@ -1088,7 +1146,12 @@ bool try_shape_open_type_run(
         }
         if (hangul) {
             const open_type_gsub_apply_options apply_options{
-                gdef_pointer, options.alternate_value};
+                gdef_pointer,
+                options.alternate_value,
+                0U,
+                false,
+                nullptr,
+                fallback_mark_positioning};
             constexpr std::array jamo_features{
                 std::pair{open_type_tag::from_chars('l', 'j', 'm', 'o'),
                     hangul_feature::leading},
@@ -1165,6 +1228,14 @@ bool try_shape_open_type_run(
     sfnt_table_view gpos_table{};
     const bool has_gpos_table = font.try_get_table(gpos_tag, gpos_table);
     for (std::uint32_t index = 0U; index < glyph_count; ++index) {
+        scratch.attachments[index] = {};
+        if (fallback_mark_positioning) {
+            scratch.attachments[index].reserved0 =
+                detail::fallback_ligature_count(glyph_storage[index]);
+            scratch.attachments[index].reserved1 =
+                detail::fallback_ligature_component(glyph_storage[index]);
+            detail::clear_fallback_ligature_metadata(glyph_storage[index]);
+        }
         if (glyph_storage[index].glyph_id > 0xFFFFU) {
             set_error(error, font_error::invalid_glyph);
             return false;
@@ -1201,10 +1272,8 @@ bool try_shape_open_type_run(
             glyph_storage[index].offset_x = 0;
             glyph_storage[index].offset_y = 0;
         }
-        if (options.zero_mark_advances && gdef_pointer != nullptr &&
-            gdef_pointer->glyph_class(
-                static_cast<std::uint16_t>(glyph_storage[index].glyph_id)) ==
-                open_type_glyph_class::mark) {
+        if (zero_mark_advances_early &&
+            is_positioning_mark(glyph_storage[index], gdef_pointer)) {
             if (!has_gpos_table &&
                 (options.direction == shaping_direction::left_to_right ||
                  options.direction == shaping_direction::top_to_bottom)) {
@@ -1218,7 +1287,6 @@ bool try_shape_open_type_run(
             glyph_storage[index].advance_x = 0;
             glyph_storage[index].advance_y = 0;
         }
-        scratch.attachments[index] = {};
     }
 
     bool has_gpos_kerning = false;
@@ -1291,6 +1359,30 @@ bool try_shape_open_type_run(
         detail::apply_legacy_kern(
             font, glyph_storage.first(glyph_count), gdef_pointer);
     }
+    const bool zero_mark_advances_late = options.zero_mark_advances &&
+        (fallback_mark_positioning ||
+            options.script == open_type_tag::from_chars('t', 'h', 'a', 'i') ||
+            options.script == open_type_tag::from_chars('l', 'a', 'o', ' '));
+    if (zero_mark_advances_late) {
+        const bool adjust_offsets = !has_gpos_table &&
+            (options.direction == shaping_direction::left_to_right ||
+                options.direction == shaping_direction::top_to_bottom);
+        for (std::uint32_t index = 0U; index < glyph_count; ++index) {
+            if (!is_positioning_mark(glyph_storage[index], gdef_pointer)) {
+                continue;
+            }
+            if (adjust_offsets) {
+                glyph_storage[index].offset_x = clamp_i16(
+                    static_cast<std::int64_t>(glyph_storage[index].offset_x) -
+                    glyph_storage[index].advance_x);
+                glyph_storage[index].offset_y = clamp_i16(
+                    static_cast<std::int64_t>(glyph_storage[index].offset_y) -
+                    glyph_storage[index].advance_y);
+            }
+            glyph_storage[index].advance_x = 0;
+            glyph_storage[index].advance_y = 0;
+        }
+    }
     if (gpos.lookup_count() != 0U) {
         const auto glyphs = glyph_storage.first(glyph_count);
         const auto attachments = scratch.attachments.first(glyph_count);
@@ -1302,6 +1394,16 @@ bool try_shape_open_type_run(
                 error)) {
             return false;
         }
+    }
+    if (fallback_mark_positioning &&
+        !detail::try_apply_fallback_mark_positioning_from_attachments(
+            font,
+            glyph_storage.first(glyph_count),
+            options.direction,
+            scratch.attachments.first(glyph_count),
+            options.normalized_coordinates,
+            error)) {
+        return false;
     }
     if (options.direction == shaping_direction::right_to_left ||
         options.direction == shaping_direction::bottom_to_top) {

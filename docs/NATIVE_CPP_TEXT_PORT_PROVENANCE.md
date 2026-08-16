@@ -821,9 +821,15 @@ center alignment, one-sixteenth-em vertical gap, same-class stacking,
 directional advance compensation, component subdivision, and unsafe-boundary
 flags. Work is `O(G * T)` over `G` glyphs and `T` borrowed face tables with
 `O(1)` internal storage and no allocation. Synthetic stacked, prior-positioned,
-ligature-component, and failure-transaction cases cover the new API. Full-run
-integration will next carry transient metadata through GSUB/GPOS; CFF and
-active-variable outline extents remain the adjacent bounds parity slice.
+ligature-component, and failure-transaction cases cover the direct API. The
+same stage is now integrated into ordinary full-run shaping: GSUB carries
+bounded ligature count/component metadata in private flag bits, GPOS records
+which glyphs it positioned in the caller-owned attachment scratch, and the
+shaper strips the private bits before returning the stable public glyph span.
+The integrated Latin mark fixture covers managed advance zeroing and fallback
+offsets; low-level GSUB/GPOS fixtures cover the transient metadata boundaries.
+CFF and active-variable outline extents remain the adjacent bounds parity
+slice.
 
 Legacy kerning fallback now directly ports the ProGPU-owned
 `GlyphPositionBuffer.ApplyLegacyKern` policy from checkpoint `34b76eeb`.

@@ -1,5 +1,7 @@
 #include "progpu_native_text.hpp"
 
+#include "progpu_native_open_type_gsub_internal.hpp"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -230,7 +232,8 @@ apply_result replace_ligature(
     std::uint32_t position,
     std::uint16_t lookup_flags,
     std::uint16_t mark_filtering_set,
-    const open_type_gdef_view* gdef) noexcept {
+    const open_type_gdef_view* gdef,
+    bool track_fallback_mark_metadata) noexcept {
     if (!can_read(table, ligature, 4U)) {
         return apply_result::malformed;
     }
@@ -259,6 +262,9 @@ apply_result replace_ligature(
 
     shaping_glyph& first = storage[position];
     first.glyph_id = ligature_glyph;
+    if (track_fallback_mark_metadata) {
+        detail::set_fallback_ligature_count(first, component_count);
+    }
     std::uint32_t write = position + 1U;
     std::uint16_t component = 1U;
     for (std::uint32_t read = position + 1U; read < count; ++read) {
@@ -270,6 +276,11 @@ apply_result replace_ligature(
         if (remove) {
             ++component;
         } else {
+            if (track_fallback_mark_metadata && component < component_count) {
+                detail::set_fallback_ligature_component(
+                    storage[read],
+                    static_cast<std::uint16_t>(component - 1U));
+            }
             storage[write++] = storage[read];
         }
     }
@@ -1225,7 +1236,8 @@ apply_result apply_subtable(
                 position,
                 lookup_flags,
                 mark_filtering_set,
-                options.gdef);
+                options.gdef,
+                options.track_fallback_mark_metadata);
             if (result != apply_result::no_match) {
                 return result;
             }

@@ -12,6 +12,19 @@
 
 namespace progpu::native::text::feature_detail {
 
+namespace {
+
+bool tracks_fallback_mark_metadata(
+    const open_type_shape_run_options& options) noexcept {
+    return options.complex_script == open_type_complex_script::none &&
+        options.script != open_type_tag::from_chars('t', 'h', 'a', 'i') &&
+        options.script != open_type_tag::from_chars('l', 'a', 'o', ' ') &&
+        options.script != open_type_tag::from_chars('m', 'y', 'm', 'r') &&
+        options.script != open_type_tag::from_chars('q', 'a', 'a', 'g');
+}
+
+} // namespace
+
 bool contains_feature(
     std::span<const open_type_tag> features,
     open_type_tag feature) noexcept {
@@ -331,7 +344,8 @@ bool apply_fraction_lookup(
                         options, feature, glyph_storage[position].cluster),
                     0U,
                     false,
-                    &context_match_end},
+                    &context_match_end,
+                    tracks_fallback_mark_metadata(options)},
                 applied,
                 error)) {
             return false;
@@ -360,7 +374,12 @@ bool apply_gsub_lookup_with_feature_values(
             glyph_storage,
             glyph_count,
             open_type_gsub_apply_options{
-                gdef, options.alternate_value},
+                gdef,
+                options.alternate_value,
+                0U,
+                false,
+                nullptr,
+                tracks_fallback_mark_metadata(options)},
             applied,
             error);
     }
@@ -378,7 +397,12 @@ bool apply_gsub_lookup_with_feature_values(
             glyph_storage,
             glyph_count,
             open_type_gsub_apply_options{
-                gdef, options.alternate_value},
+                gdef,
+                options.alternate_value,
+                0U,
+                false,
+                nullptr,
+                tracks_fallback_mark_metadata(options)},
             applied,
             error);
     }
@@ -413,7 +437,8 @@ bool apply_gsub_lookup_with_feature_values(
                     feature_value,
                     0U,
                     false,
-                    &context_match_end},
+                    &context_match_end,
+                    tracks_fallback_mark_metadata(options)},
                 applied,
                 error)) {
             return false;

@@ -214,6 +214,14 @@ void apply_value(shaping_glyph& glyph, const value_adjustment& value) noexcept {
     glyph.advance_y += value.advance_y;
 }
 
+void mark_positioned(
+    const open_type_gpos_apply_options& options,
+    std::size_t index) noexcept {
+    if (index < options.attachments.size()) {
+        options.attachments[index].reserved2 = 1U;
+    }
+}
+
 bool is_eligible(
     const shaping_glyph& glyph,
     std::uint16_t flags,
@@ -455,8 +463,8 @@ apply_result apply_cursive(
     }
     if (options.attachments[parent].target == static_cast<std::int32_t>(child) &&
         options.attachments[parent].kind == options.attachments[child].kind) {
-        options.attachments[parent] = {};
         options.attachments[parent].target = -1;
+        options.attachments[parent].kind = shaping_attachment_kind::none;
         if (horizontal) {
             glyphs[parent].offset_y = 0;
         } else {
@@ -467,6 +475,8 @@ apply_result apply_cursive(
         glyphs,
         previous < position ? previous : position,
         previous < position ? position : previous);
+    mark_positioned(options, previous);
+    mark_positioned(options, position);
     return apply_result::applied;
 }
 
@@ -573,6 +583,7 @@ apply_result attach_mark(
     options.attachments[mark_index].target =
         static_cast<std::int32_t>(target_index);
     options.attachments[mark_index].kind = shaping_attachment_kind::mark;
+    mark_positioned(options, mark_index);
     return apply_result::applied;
 }
 
@@ -624,6 +635,7 @@ apply_result apply_single(
         return apply_result::malformed;
     }
     apply_value(glyphs[position], value);
+    mark_positioned(options, position);
     return apply_result::applied;
 }
 
@@ -767,6 +779,8 @@ apply_result apply_pair(
     }
     apply_value(glyphs[position], value1);
     apply_value(glyphs[second], value2);
+    mark_positioned(options, position);
+    mark_positioned(options, second);
     detail::mark_gpos_dependency(glyphs, position, second);
     return apply_result::applied;
 }
