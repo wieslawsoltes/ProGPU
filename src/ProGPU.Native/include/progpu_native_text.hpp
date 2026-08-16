@@ -1348,6 +1348,12 @@ struct sfnt_face_style final {
     bool italic = false;
 };
 
+struct sfnt_glyph_resident_requirements final {
+    std::size_t sbix_bytes = 0U;
+    std::size_t font_bytes = 0U;
+    std::uint32_t strike_count = 0U;
+};
+
 struct sfnt_glyph_data_view final {
     std::int16_t contour_count = 0;
     std::int16_t x_min = 0;
@@ -2019,6 +2025,22 @@ public:
         font_error* error = nullptr) const noexcept;
     bool try_get_face_style(sfnt_face_style& result) const noexcept;
     bool try_get_embedding_rights(std::uint16_t& result) const noexcept;
+    bool try_get_glyph_resident_requirements(
+        std::uint16_t glyph_index,
+        sfnt_glyph_resident_requirements& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_create_glyph_resident_sbix(
+        std::uint16_t glyph_index,
+        std::span<std::byte> output,
+        std::size_t& written,
+        sfnt_glyph_resident_requirements* requirements = nullptr,
+        font_error* error = nullptr) const noexcept;
+    bool try_create_glyph_resident_font(
+        std::uint16_t glyph_index,
+        std::span<std::byte> output,
+        std::size_t& written,
+        sfnt_glyph_resident_requirements* requirements = nullptr,
+        font_error* error = nullptr) const noexcept;
     bool try_get_glyph_count(std::uint16_t& result) const noexcept;
     bool try_get_glyph_data(
         std::uint16_t glyph_index,

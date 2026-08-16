@@ -743,6 +743,20 @@ OS/2/head style flags, embedding rights, missing IDs, and transactional output.
 File discovery and fallback catalog policy remain host/provider concerns rather
 than being embedded into this allocation-free byte-view layer.
 
+The same metadata folder ports the managed glyph-resident `sbix` construction
+path. A requirements pass validates at most 4,096 strikes and tables, resolves
+each selected PNG/JPEG/TIFF record through at most 16 `dupe` links, and reports
+exact standalone `sbix` and SFNT sizes. The write pass retains every strike,
+empties non-selected glyph entries, preserves the referencing glyph's origin,
+rebuilds the selected `sbix` checksum, and copies all other source tables into
+an aligned standalone face. Work is `O(T + S * D + B)` for tables `T`, strikes
+`S`, duplicate depth `D <= 16`, and copied bytes `B`, with `O(1)` internal
+storage and one caller-owned snapshot. Short outputs remain untouched. Native
+tests reopen the resulting font, select both direct and duplicate glyph data,
+verify that unrelated glyphs are absent, and run under the module, sanitizer,
+and browser compiler gates; the established managed resident-font tests remain
+the behavioral oracle.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

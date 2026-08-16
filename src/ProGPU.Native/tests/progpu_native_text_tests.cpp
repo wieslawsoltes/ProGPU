@@ -191,6 +191,7 @@ using progpu::native::text::sfnt_subset_requirements;
 using progpu::native::text::sfnt_glyph_remap;
 using progpu::native::text::sfnt_name_requirements;
 using progpu::native::text::sfnt_face_style;
+using progpu::native::text::sfnt_glyph_resident_requirements;
 using progpu::native::text::try_create_compact_sfnt_subset;
 using progpu::native::text::try_create_glyph_id_preserving_sfnt_subset;
 using progpu::native::text::try_get_compact_sfnt_subset_requirements;
@@ -5379,6 +5380,41 @@ void sbix_strikes_and_duplicates_remain_borrowed() {
 
     require(!font.try_get_sbix_glyph(8U, 20.0F, glyph, &error));
     require(error == font_error::invalid_argument && glyph.bytes.empty());
+
+    sfnt_glyph_resident_requirements resident_requirements{};
+    require(font.try_get_glyph_resident_requirements(
+        2U, resident_requirements, &error));
+    require(error == font_error::none &&
+        resident_requirements.strike_count == 2U &&
+        resident_requirements.sbix_bytes == 118U &&
+        resident_requirements.font_bytes > resident_requirements.sbix_bytes);
+    std::vector<std::byte> short_font(
+        resident_requirements.font_bytes - 1U, std::byte{0xA5U});
+    std::size_t written = 99U;
+    require(!font.try_create_glyph_resident_font(
+        2U, short_font, written, nullptr, &error));
+    require(error == font_error::insufficient_buffer && written == 0U &&
+        short_font.front() == std::byte{0xA5U});
+
+    std::vector<std::byte> resident_font(resident_requirements.font_bytes);
+    require(font.try_create_glyph_resident_font(
+        2U, resident_font, written, &resident_requirements, &error));
+    require(written == resident_font.size());
+    sfnt_font_view resident{};
+    require(sfnt_font_view::try_create(
+        resident_font, 0U, resident, &error));
+    require(resident.try_get_sbix_glyph(2U, 19.0F, glyph, &error));
+    require(glyph.pixels_per_em == 20U &&
+        glyph.origin_offset_x == 7 && glyph.origin_offset_y == 8 &&
+        glyph.bytes.size() == 3U && glyph.bytes[0U] == std::byte{20U});
+    require(!resident.try_get_sbix_glyph(1U, 20.0F, glyph, &error));
+
+    std::vector<std::byte> resident_sbix(resident_requirements.sbix_bytes);
+    require(font.try_create_glyph_resident_sbix(
+        2U, resident_sbix, written, nullptr, &error));
+    require(written == resident_sbix.size() &&
+        resident_sbix[7U] == std::byte{2U} &&
+        resident_sbix[11U] == std::byte{16U});
 }
 
 void svg_glyph_documents_remain_borrowed_and_bounded() {

@@ -281,6 +281,10 @@ The borrowed SFNT view also exposes canonical family/full-name selection into
 exact caller-owned UTF-8 spans, OS/2/head weight-width-italic metadata, and
 embedding rights. These APIs directly match the managed ProGPU metadata rules,
 remain locale independent, and perform no file I/O or heap allocation.
+The adjacent glyph-resident builder can retain one requested `sbix` glyph over
+all strikes in either an exact standalone table or rebuilt SFNT snapshot. It
+resolves bounded duplicate chains, preserves reference origins, removes other
+bitmap records, and writes transactionally into a caller-owned buffer.
 
 The same text library now opens borrowed CFF2 tables with uint32 INDEX counts,
 required TopDICT/FontDICT/PrivateDICT ownership, optional FDSelect, and a
