@@ -1322,6 +1322,21 @@ bool try_hit_test_text(
     text_hit_test_result& result,
     font_error* error = nullptr) noexcept;
 
+bool try_get_text_caret_stop(
+    std::span<const text_caret_stop> caret_stops,
+    std::int32_t input_position,
+    bool trailing_affinity,
+    text_caret_stop& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_move_text_caret_visually(
+    std::span<const text_caret_stop> caret_stops,
+    std::int32_t input_position,
+    bool trailing_affinity,
+    std::int32_t direction,
+    text_caret_stop& result,
+    font_error* error = nullptr) noexcept;
+
 bool try_get_text_selection_rectangles(
     std::span<const text_cluster_box> cluster_boxes,
     std::int32_t input_start,

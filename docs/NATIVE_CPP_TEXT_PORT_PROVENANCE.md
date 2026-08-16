@@ -825,6 +825,16 @@ unique tags with no heap allocation. Synthetic fixtures cover cross-table
 duplicates, sorting, missing tables, malformed trailing declarations, and
 transactional insufficient output.
 
+Caret selection and visual movement now directly port the ProGPU-owned
+`TextLayout.GetCaretStop` and `MoveCaretVisually` rules from checkpoint
+`288e9f74`. The native APIs scan the already built physical-order caret span,
+preserve the managed nearest-logical-position and affinity tie break, then move
+by one clamped visual index across mixed LTR/RTL lines. Each query is `O(C)`
+time and `O(1)` storage for `C` caret stops, performs no allocation, and adds no
+managed/native crossing when used inside the native editor/layout path.
+Synthetic mixed-direction wrapped-line fixtures cover leading/trailing
+affinity, forward/backward motion, endpoint clamping, and empty input.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

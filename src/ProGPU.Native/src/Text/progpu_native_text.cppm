@@ -146,6 +146,8 @@ using ::progpu::native::text::text_interaction_requirements;
 using ::progpu::native::text::try_get_text_interaction_requirements;
 using ::progpu::native::text::try_build_text_interaction;
 using ::progpu::native::text::try_hit_test_text;
+using ::progpu::native::text::try_get_text_caret_stop;
+using ::progpu::native::text::try_move_text_caret_visually;
 using ::progpu::native::text::try_get_text_selection_rectangles;
 using ::progpu::native::text::sfnt_font_view;
 using ::progpu::native::text::sfnt_bitmap_glyph_data_view;

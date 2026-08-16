@@ -141,6 +141,8 @@ using progpu::native::text::text_interaction_requirements;
 using progpu::native::text::try_get_text_interaction_requirements;
 using progpu::native::text::try_build_text_interaction;
 using progpu::native::text::try_hit_test_text;
+using progpu::native::text::try_get_text_caret_stop;
+using progpu::native::text::try_move_text_caret_visually;
 using progpu::native::text::try_get_text_selection_rectangles;
 using progpu::native::text::sfnt_container_requirements;
 using progpu::native::text::try_get_sfnt_container_requirements;
@@ -3696,6 +3698,30 @@ void native_positioned_text_layout_wraps_without_allocation() {
         boxes[2U].line_index == 1U && boxes[2U].bidi_level == 1);
     require(carets[4U].input_position == 3 && carets[4U].trailing &&
         carets[5U].input_position == 2 && !carets[5U].trailing);
+
+    text_caret_stop caret{};
+    require(try_get_text_caret_stop(
+        carets, 1, true, caret, &error));
+    require(caret.input_position == 1 && caret.trailing &&
+        caret.line_index == 0U && caret.x == 10.0F);
+    require(try_get_text_caret_stop(
+        carets, 1, false, caret, &error));
+    require(caret.input_position == 1 && !caret.trailing &&
+        caret.line_index == 0U && caret.x == 10.0F);
+    require(try_move_text_caret_visually(
+        carets, 1, false, 1, caret, &error));
+    require(caret.input_position == 2 && caret.trailing &&
+        caret.line_index == 0U && caret.x == 20.0F);
+    require(try_move_text_caret_visually(
+        carets, 1, false, -1, caret, &error));
+    require(caret.input_position == 1 && caret.trailing &&
+        caret.line_index == 0U && caret.x == 10.0F);
+    require(try_move_text_caret_visually(
+        carets, 4, true, 1, caret, &error));
+    require(caret.input_position == 3 && !caret.trailing &&
+        caret.line_index == 1U && caret.x == 20.0F);
+    require(!try_get_text_caret_stop({}, 0, false, caret, &error));
+    require(error == font_error::invalid_argument);
 
     text_hit_test_result hit{};
     require(try_hit_test_text(boxes, 16.0F, 2.0F, hit, &error));

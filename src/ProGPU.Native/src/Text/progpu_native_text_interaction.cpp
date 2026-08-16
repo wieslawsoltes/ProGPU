@@ -247,6 +247,83 @@ bool try_hit_test_text(
     return true;
 }
 
+bool try_get_text_caret_stop(
+    std::span<const text_caret_stop> caret_stops,
+    std::int32_t input_position,
+    bool trailing_affinity,
+    text_caret_stop& result,
+    font_error* error) noexcept {
+    result = {};
+    if (caret_stops.empty()) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    std::size_t best = 0U;
+    auto best_distance = std::numeric_limits<std::int64_t>::max();
+    for (std::size_t index = 0U; index < caret_stops.size(); ++index) {
+        const auto& candidate = caret_stops[index];
+        if (!std::isfinite(candidate.x) || !std::isfinite(candidate.y) ||
+            !std::isfinite(candidate.height) || candidate.height < 0.0F) {
+            set_error(error, font_error::invalid_argument);
+            return false;
+        }
+        const auto delta = static_cast<std::int64_t>(
+            candidate.input_position) - input_position;
+        const auto distance = delta < 0 ? -delta : delta;
+        if (distance < best_distance ||
+            (distance == best_distance &&
+                candidate.trailing == trailing_affinity &&
+                caret_stops[best].trailing != trailing_affinity)) {
+            best = index;
+            best_distance = distance;
+        }
+    }
+    result = caret_stops[best];
+    set_error(error, font_error::none);
+    return true;
+}
+
+bool try_move_text_caret_visually(
+    std::span<const text_caret_stop> caret_stops,
+    std::int32_t input_position,
+    bool trailing_affinity,
+    std::int32_t direction,
+    text_caret_stop& result,
+    font_error* error) noexcept {
+    result = {};
+    if (caret_stops.empty()) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    std::size_t current = 0U;
+    auto best_distance = std::numeric_limits<std::int64_t>::max();
+    for (std::size_t index = 0U; index < caret_stops.size(); ++index) {
+        const auto& candidate = caret_stops[index];
+        if (!std::isfinite(candidate.x) || !std::isfinite(candidate.y) ||
+            !std::isfinite(candidate.height) || candidate.height < 0.0F) {
+            set_error(error, font_error::invalid_argument);
+            return false;
+        }
+        const auto delta = static_cast<std::int64_t>(
+            candidate.input_position) - input_position;
+        const auto logical_distance = delta < 0 ? -delta : delta;
+        const auto distance = logical_distance * 4 +
+            (candidate.trailing == trailing_affinity ? 0 : 1);
+        if (distance < best_distance) {
+            best_distance = distance;
+            current = index;
+        }
+    }
+    if (direction < 0 && current != 0U) {
+        --current;
+    } else if (direction > 0 && current + 1U < caret_stops.size()) {
+        ++current;
+    }
+    result = caret_stops[current];
+    set_error(error, font_error::none);
+    return true;
+}
+
 bool try_get_text_selection_rectangles(
     std::span<const text_cluster_box> cluster_boxes,
     std::int32_t input_start,
