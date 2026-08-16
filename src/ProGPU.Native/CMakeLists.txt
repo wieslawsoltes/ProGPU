@@ -631,6 +631,7 @@ add_library(progpu_native_text STATIC
     src/Text/Metadata/progpu_native_sfnt_metadata.cpp
     src/Text/Metadata/progpu_native_sfnt_names.cpp
     src/Text/Metadata/progpu_native_sfnt_resident.cpp
+    src/Text/Metadata/progpu_native_sfnt_standalone.cpp
     src/Text/Metadata/progpu_native_sfnt_name_letter_ranges.generated.hpp
     src/Text/Subset/progpu_native_sfnt_subset.cpp
     src/Text/Subset/progpu_native_sfnt_subset_compact.cpp

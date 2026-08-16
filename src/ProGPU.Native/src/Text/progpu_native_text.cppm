@@ -14,6 +14,8 @@ using ::progpu::native::text::sfnt_name_ids;
 using ::progpu::native::text::sfnt_name_requirements;
 using ::progpu::native::text::sfnt_face_style;
 using ::progpu::native::text::sfnt_glyph_resident_requirements;
+using ::progpu::native::text::sfnt_standalone_requirements;
+using ::progpu::native::text::sfnt_directory_record;
 using ::progpu::native::text::try_get_sfnt_container_requirements;
 using ::progpu::native::text::try_normalize_sfnt_container;
 using ::progpu::native::text::try_get_glyph_id_preserving_sfnt_subset_requirements;

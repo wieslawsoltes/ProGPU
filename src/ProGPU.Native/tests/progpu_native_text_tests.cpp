@@ -192,6 +192,8 @@ using progpu::native::text::sfnt_glyph_remap;
 using progpu::native::text::sfnt_name_requirements;
 using progpu::native::text::sfnt_face_style;
 using progpu::native::text::sfnt_glyph_resident_requirements;
+using progpu::native::text::sfnt_standalone_requirements;
+using progpu::native::text::sfnt_directory_record;
 using progpu::native::text::try_create_compact_sfnt_subset;
 using progpu::native::text::try_create_glyph_id_preserving_sfnt_subset;
 using progpu::native::text::try_get_compact_sfnt_subset_requirements;
@@ -1875,6 +1877,23 @@ void write_u32(
     destination[offset + 1U] = static_cast<std::byte>(value >> 16U);
     destination[offset + 2U] = static_cast<std::byte>(value >> 8U);
     destination[offset + 3U] = static_cast<std::byte>(value);
+}
+
+std::uint16_t read_u16(
+    std::span<const std::byte> source,
+    std::size_t offset) {
+    return static_cast<std::uint16_t>(
+        (std::to_integer<std::uint16_t>(source[offset]) << 8U) |
+        std::to_integer<std::uint16_t>(source[offset + 1U]));
+}
+
+std::uint32_t read_u32(
+    std::span<const std::byte> source,
+    std::size_t offset) {
+    return (std::to_integer<std::uint32_t>(source[offset]) << 24U) |
+        (std::to_integer<std::uint32_t>(source[offset + 1U]) << 16U) |
+        (std::to_integer<std::uint32_t>(source[offset + 2U]) << 8U) |
+        std::to_integer<std::uint32_t>(source[offset + 3U]);
 }
 
 std::vector<std::byte> make_sfnt_subset_fixture() {
@@ -4485,6 +4504,101 @@ void borrowed_sfnt_view_reads_tables_metrics_and_cmap() {
     require(glyph == 0U);
 }
 
+void standalone_sfnt_snapshot_matches_managed_contract() {
+    const std::array<std::byte, 3U> cff2_bytes{
+        std::byte{0x02U}, std::byte{0x00U}, std::byte{0x05U}};
+    const std::array<table_data, 1U> extra_tables{
+        table_data{
+            open_type_tag::from_chars('C', 'F', 'F', '2'),
+            std::vector<std::byte>(cff2_bytes.begin(), cff2_bytes.end())}};
+    auto collection = make_font(
+        16U, 22U, 0U, false, false, false, extra_tables);
+    write_u32(collection, 0U, 0x74746366U);
+    write_u32(collection, 4U, 0x00010000U);
+    write_u32(collection, 8U, 1U);
+    write_u32(collection, 12U, 16U);
+
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(collection, 0U, font, &error));
+    sfnt_standalone_requirements requirements{};
+    require(font.try_get_standalone_requirements(requirements, &error));
+    require(requirements.table_scratch_count == 8U);
+    require(requirements.font_bytes == 404U);
+
+    std::vector<sfnt_directory_record> scratch(
+        requirements.table_scratch_count);
+    std::vector<std::byte> short_output(
+        requirements.font_bytes - 1U, std::byte{0xA5U});
+    std::size_t written = 99U;
+    require(!font.try_create_standalone_font(
+        short_output, scratch, written, nullptr, &error));
+    require(error == font_error::insufficient_buffer && written == 0U);
+    require(std::ranges::all_of(short_output,
+        [](std::byte value) { return value == std::byte{0xA5U}; }));
+
+    std::vector<std::byte> output(
+        requirements.font_bytes, std::byte{0xA5U});
+    const auto too_little_scratch =
+        std::span<sfnt_directory_record>(scratch).first(
+            requirements.table_scratch_count - 1U);
+    require(!font.try_create_standalone_font(
+        output, too_little_scratch, written, nullptr, &error));
+    require(error == font_error::insufficient_buffer && written == 0U);
+    require(std::ranges::all_of(output,
+        [](std::byte value) { return value == std::byte{0xA5U}; }));
+
+    sfnt_standalone_requirements reported{};
+    require(font.try_create_standalone_font(
+        output, scratch, written, &reported, &error));
+    require(error == font_error::none && written == output.size());
+    require(reported.font_bytes == requirements.font_bytes &&
+        reported.table_scratch_count == requirements.table_scratch_count);
+    require(read_u32(output, 0U) ==
+        open_type_tag::from_chars('O', 'T', 'T', 'O').value);
+    require(read_u16(output, 4U) == 8U);
+    require(read_u16(output, 6U) == 128U);
+    require(read_u16(output, 8U) == 3U);
+    require(read_u16(output, 10U) == 0U);
+    std::uint32_t prior_tag = 0U;
+    for (std::size_t index = 0U; index < 8U; ++index) {
+        const auto record = 12U + index * 16U;
+        const auto tag = read_u32(output, record);
+        require(index == 0U || prior_tag < tag);
+        require((read_u32(output, record + 8U) & 3U) == 0U);
+        prior_tag = tag;
+    }
+
+    sfnt_font_view standalone{};
+    require(sfnt_font_view::try_create(output, 0U, standalone, &error));
+    require(standalone.face_offset() == 0U &&
+        standalone.table_count() == 8U);
+    sfnt_table_view cff2{};
+    require(standalone.try_get_table(
+        open_type_tag::from_chars('C', 'F', 'F', '2'), cff2));
+    require(std::ranges::equal(cff2.bytes, cff2_bytes));
+    sfnt_header_metrics metrics{};
+    require(standalone.try_get_header_metrics(metrics));
+    require(metrics.units_per_em == 1000U && metrics.x_min == -20);
+
+    auto duplicate = make_font();
+    const auto final_record = 12U + 6U * 16U;
+    write_u32(duplicate, final_record,
+        open_type_tag::from_chars('h', 'e', 'a', 'd').value);
+    require(sfnt_font_view::try_create(duplicate, 0U, font, &error));
+    require(font.try_get_standalone_requirements(requirements, &error));
+    require(requirements.table_scratch_count == 6U);
+    output.assign(requirements.font_bytes, std::byte{});
+    scratch.assign(requirements.table_scratch_count, {});
+    require(font.try_create_standalone_font(
+        output, scratch, written, nullptr, &error));
+    require(sfnt_font_view::try_create(output, 0U, standalone, &error));
+    sfnt_table_view head{};
+    require(standalone.try_get_table(
+        open_type_tag::from_chars('h', 'e', 'a', 'd'), head));
+    require(head.checksum == 0x1006U && head.bytes.size() == 80U);
+}
+
 void variation_selector_cmap_is_borrowed_and_bounded() {
     const std::array<table_data, 1U> tables{
         table_data{
@@ -6709,6 +6823,7 @@ int main() {
     compact_sfnt_subset_matches_managed_contract();
     sfnt_metadata_matches_managed_selection_and_style();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
+    standalone_sfnt_snapshot_matches_managed_contract();
     variation_selector_cmap_is_borrowed_and_bounded();
     variation_axes_are_borrowed_bounded_and_transactional();
     variation_coordinates_apply_bounded_avar_mapping();

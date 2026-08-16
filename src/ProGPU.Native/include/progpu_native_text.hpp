@@ -1354,6 +1354,18 @@ struct sfnt_glyph_resident_requirements final {
     std::uint32_t strike_count = 0U;
 };
 
+struct sfnt_standalone_requirements final {
+    std::size_t font_bytes = 0U;
+    std::uint16_t table_scratch_count = 0U;
+};
+
+struct sfnt_directory_record final {
+    open_type_tag tag{};
+    std::uint32_t checksum = 0U;
+    std::uint32_t offset = 0U;
+    std::uint32_t length = 0U;
+};
+
 struct sfnt_glyph_data_view final {
     std::int16_t contour_count = 0;
     std::int16_t x_min = 0;
@@ -2040,6 +2052,15 @@ public:
         std::span<std::byte> output,
         std::size_t& written,
         sfnt_glyph_resident_requirements* requirements = nullptr,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_standalone_requirements(
+        sfnt_standalone_requirements& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_create_standalone_font(
+        std::span<std::byte> output,
+        std::span<sfnt_directory_record> table_scratch,
+        std::size_t& written,
+        sfnt_standalone_requirements* requirements = nullptr,
         font_error* error = nullptr) const noexcept;
     bool try_get_glyph_count(std::uint16_t& result) const noexcept;
     bool try_get_glyph_data(

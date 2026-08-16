@@ -757,6 +757,19 @@ verify that unrelated glyphs are absent, and run under the module, sanitizer,
 and browser compiler gates; the established managed resident-font tests remain
 the behavioral oracle.
 
+The generic standalone-face path directly ports
+`SfntFontFace.CreateStandaloneFontData` from checkpoint `f21d5cbf`. It extracts
+one borrowed SFNT/TTC face into a caller-owned, four-byte-aligned SFNT snapshot,
+preserves checksums and table bytes, sorts the directory by tag, selects `OTTO`
+for CFF/CFF2 faces, and matches the managed parser's last-valid-record-wins
+handling for duplicate or invalid directory entries. Requirements and write
+passes are transactional; a short output or scratch span leaves the output
+untouched. Directory discovery is `O(T^2)` worst case with `O(1)` internal
+storage for at most 4,096 source records, sorting is `O(U log U)` in the
+caller-owned scratch for `U` retained unique tables, and copying is `O(B)` for
+`B` output bytes. This cold font-boundary operation does not affect steady
+shaping or rendering paths.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with
