@@ -8,6 +8,8 @@
 
 namespace progpu::native::text::complex_detail {
 
+int modified_combining_class(std::uint32_t code_point) noexcept;
+
 inline constexpr std::uint32_t category_mask = 0x000001F8U;
 inline constexpr std::uint32_t category_shift = 3U;
 inline constexpr std::uint32_t position_mask = 0x00001E00U;

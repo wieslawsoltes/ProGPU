@@ -41,6 +41,9 @@ int main() {
     const progpu::native::text::font_style_variation_requirements
         style_requirements{};
     const progpu::native::text::font_style_variation style_variation{};
+    const progpu::native::text::sfnt_vertical_header_metrics vertical_header{};
+    const progpu::native::text::sfnt_vertical_glyph_metrics vertical_glyph{};
+    const progpu::native::text::sfnt_glyph_bounds glyph_bounds{};
     static_assert(progpu::native::text::sfnt_name_ids::family_name == 1U);
     const auto latin_script =
         progpu::native::text::get_unicode_script(0x41U);
@@ -90,7 +93,9 @@ int main() {
         resident.sbix_bytes != 0U || standalone.font_bytes != 0U ||
         directory_record.tag.value != 0U || style_request.weight != 400 ||
         style_requirements.setting_count != 0U ||
-        style_variation.tag.value != 0U) {
+        style_variation.tag.value != 0U ||
+        vertical_header.number_of_vertical_metrics != 0U ||
+        vertical_glyph.advance_height != 0U || glyph_bounds.x_min != 0) {
         return 1;
     }
     (void)sizeof(gvar_deltas);

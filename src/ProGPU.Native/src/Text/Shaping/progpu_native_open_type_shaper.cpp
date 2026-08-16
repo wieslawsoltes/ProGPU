@@ -41,6 +41,13 @@ constexpr std::uint32_t arabic_action_shift = 28U;
 constexpr std::uint32_t hangul_feature_mask = 0x30000000U;
 constexpr std::uint32_t hangul_feature_shift = 28U;
 
+std::int32_t clamp_i16(std::int64_t value) noexcept {
+    return static_cast<std::int32_t>(std::clamp<std::int64_t>(
+        value,
+        std::numeric_limits<std::int16_t>::min(),
+        std::numeric_limits<std::int16_t>::max()));
+}
+
 enum class hangul_feature : std::uint32_t {
     none = 0U,
     leading = 1U,
@@ -1116,6 +1123,11 @@ bool try_shape_open_type_run(
         clear_hangul_features(glyph_storage.first(glyph_count));
     }
 
+    const bool vertical =
+        options.direction == shaping_direction::top_to_bottom ||
+        options.direction == shaping_direction::bottom_to_top;
+    sfnt_table_view gpos_table{};
+    const bool has_gpos_table = font.try_get_table(gpos_tag, gpos_table);
     for (std::uint32_t index = 0U; index < glyph_count; ++index) {
         if (glyph_storage[index].glyph_id > 0xFFFFU) {
             set_error(error, font_error::invalid_glyph);
@@ -1128,33 +1140,60 @@ bool try_shape_open_type_run(
             set_error(error, font_error::invalid_face);
             return false;
         }
-        std::int64_t advance = metrics.advance_width;
-        if (!options.normalized_coordinates.empty()) {
-            float delta = 0.0F;
-            bool uses_hvar = false;
-            if (!font.try_get_horizontal_advance_variation(
+        if (vertical) {
+            std::int32_t advance_height = 0;
+            std::int32_t origin_y = 0;
+            if (!font.try_get_design_advance_height(
                     static_cast<std::uint16_t>(glyph_storage[index].glyph_id),
-                    options.normalized_coordinates,
-                    delta,
-                    uses_hvar,
-                    error)) {
+                    advance_height) ||
+                !font.try_get_design_vertical_origin_y(
+                    static_cast<std::uint16_t>(glyph_storage[index].glyph_id),
+                    origin_y)) {
+                set_error(error, font_error::invalid_face);
                 return false;
             }
-            advance += static_cast<std::int64_t>(std::lround(delta));
+            glyph_storage[index].advance_x = 0;
+            glyph_storage[index].advance_y = clamp_i16(-advance_height);
+            glyph_storage[index].offset_x = clamp_i16(
+                -(static_cast<std::int32_t>(metrics.advance_width) / 2));
+            glyph_storage[index].offset_y = clamp_i16(-origin_y);
+        } else {
+            std::int64_t advance = metrics.advance_width;
+            if (!options.normalized_coordinates.empty()) {
+                float delta = 0.0F;
+                bool uses_hvar = false;
+                if (!font.try_get_horizontal_advance_variation(
+                        static_cast<std::uint16_t>(
+                            glyph_storage[index].glyph_id),
+                        options.normalized_coordinates,
+                        delta,
+                        uses_hvar,
+                        error)) {
+                    return false;
+                }
+                advance += static_cast<std::int64_t>(std::lround(delta));
+            }
+            glyph_storage[index].advance_x = clamp_i16(advance);
+            glyph_storage[index].advance_y = 0;
+            glyph_storage[index].offset_x = 0;
+            glyph_storage[index].offset_y = 0;
         }
-        glyph_storage[index].advance_x = static_cast<std::int32_t>(
-            std::clamp<std::int64_t>(
-                advance,
-                std::numeric_limits<std::int32_t>::min(),
-                std::numeric_limits<std::int32_t>::max()));
-        glyph_storage[index].advance_y = 0;
-        glyph_storage[index].offset_x = 0;
-        glyph_storage[index].offset_y = 0;
         if (options.zero_mark_advances && gdef_pointer != nullptr &&
             gdef_pointer->glyph_class(
                 static_cast<std::uint16_t>(glyph_storage[index].glyph_id)) ==
                 open_type_glyph_class::mark) {
+            if (!has_gpos_table &&
+                (options.direction == shaping_direction::left_to_right ||
+                 options.direction == shaping_direction::top_to_bottom)) {
+                glyph_storage[index].offset_x = clamp_i16(
+                    static_cast<std::int64_t>(glyph_storage[index].offset_x) -
+                    glyph_storage[index].advance_x);
+                glyph_storage[index].offset_y = clamp_i16(
+                    static_cast<std::int64_t>(glyph_storage[index].offset_y) -
+                    glyph_storage[index].advance_y);
+            }
             glyph_storage[index].advance_x = 0;
+            glyph_storage[index].advance_y = 0;
         }
         scratch.attachments[index] = {};
     }
@@ -1214,6 +1253,39 @@ bool try_shape_open_type_run(
                 scratch.attachment_states.first(glyph_count),
                 error)) {
             return false;
+        }
+    }
+    if (options.direction == shaping_direction::right_to_left ||
+        options.direction == shaping_direction::bottom_to_top) {
+        auto glyphs = glyph_storage.first(glyph_count);
+        std::reverse(glyphs.begin(), glyphs.end());
+        if (options.cluster_level ==
+            shaping_cluster_level::monotone_characters) {
+            for (std::size_t start = 0U; start < glyphs.size();) {
+                while (start < glyphs.size() &&
+                    complex_detail::modified_combining_class(
+                        glyphs[start].code_point) == 0) {
+                    ++start;
+                }
+                auto end = start;
+                while (end < glyphs.size() &&
+                    complex_detail::modified_combining_class(
+                        glyphs[end].code_point) != 0) {
+                    ++end;
+                }
+                if (end > start) {
+                    auto left = start;
+                    auto right = end - 1U;
+                    while (left < right) {
+                        std::swap(
+                            glyphs[left].cluster,
+                            glyphs[right].cluster);
+                        ++left;
+                        --right;
+                    }
+                }
+                start = end < glyphs.size() ? end + 1U : end;
+            }
         }
     }
     set_error(error, font_error::none);

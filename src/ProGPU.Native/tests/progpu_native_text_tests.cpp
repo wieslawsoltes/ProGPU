@@ -30,6 +30,7 @@ using progpu::native::text::shaping_feature;
 using progpu::native::text::shaping_glyph;
 using progpu::native::text::shaping_glyph_flags;
 using progpu::native::text::shaping_cluster_level;
+using progpu::native::text::shaping_direction;
 using progpu::native::text::shaping_buffer_flags;
 using progpu::native::text::get_unicode_script;
 using progpu::native::text::get_unicode_arabic_joining_type;
@@ -182,6 +183,9 @@ using progpu::native::text::sfnt_gvar_tuple_requirements;
 using progpu::native::text::sfnt_header_metrics;
 using progpu::native::text::sfnt_horizontal_glyph_metrics;
 using progpu::native::text::sfnt_horizontal_header_metrics;
+using progpu::native::text::sfnt_vertical_header_metrics;
+using progpu::native::text::sfnt_vertical_glyph_metrics;
+using progpu::native::text::sfnt_glyph_bounds;
 using progpu::native::text::sfnt_item_variation_data;
 using progpu::native::text::sfnt_item_variation_store_view;
 using progpu::native::text::sfnt_delta_set_index_map_view;
@@ -4721,6 +4725,159 @@ void standalone_sfnt_snapshot_matches_managed_contract() {
     require(head.checksum == 0x1006U && head.bytes.size() == 80U);
 }
 
+void vertical_font_metrics_and_shaping_match_managed_policy() {
+    table_data vhea{open_type_tag::from_chars('v', 'h', 'e', 'a'),
+        std::vector<std::byte>(36U)};
+    write_i16(vhea.bytes, 4U, 1000);
+    write_i16(vhea.bytes, 6U, -500);
+    write_i16(vhea.bytes, 8U, 50);
+    write_u16(vhea.bytes, 10U, 1200U);
+    write_u16(vhea.bytes, 34U, 2U);
+    table_data vmtx{open_type_tag::from_chars('v', 'm', 't', 'x'),
+        std::vector<std::byte>(20U)};
+    write_u16(vmtx.bytes, 0U, 800U);
+    write_i16(vmtx.bytes, 2U, 40);
+    write_u16(vmtx.bytes, 4U, 900U);
+    write_i16(vmtx.bytes, 6U, 50);
+    write_i16(vmtx.bytes, 10U, 60);
+    write_i16(vmtx.bytes, 12U, 70);
+    table_data vorg{open_type_tag::from_chars('V', 'O', 'R', 'G'),
+        std::vector<std::byte>(16U)};
+    write_u16(vorg.bytes, 0U, 1U);
+    write_u16(vorg.bytes, 2U, 0U);
+    write_i16(vorg.bytes, 4U, 880);
+    write_u16(vorg.bytes, 6U, 2U);
+    write_u16(vorg.bytes, 8U, 4U);
+    write_i16(vorg.bytes, 10U, 920);
+    write_u16(vorg.bytes, 12U, 7U);
+    write_i16(vorg.bytes, 14U, 940);
+
+    const std::array<table_data, 3U> with_vorg{vhea, vmtx, vorg};
+    const auto vorg_data = make_font(
+        0U, 22U, 0U, false, false, false, with_vorg);
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(vorg_data, 0U, font, &error));
+    sfnt_vertical_header_metrics header{};
+    require(font.try_get_vertical_header_metrics(header));
+    require(header.ascender == 1000 && header.descender == -500 &&
+        header.line_gap == 50 && header.advance_height_max == 1200U &&
+        header.number_of_vertical_metrics == 2U);
+    sfnt_vertical_glyph_metrics metrics{};
+    require(font.try_get_vertical_glyph_metrics(4U, metrics));
+    require(metrics.advance_height == 900U &&
+        metrics.top_side_bearing == 70 && metrics.has_top_side_bearing);
+    sfnt_glyph_bounds bounds{};
+    require(font.try_get_glyph_bounds(4U, bounds));
+    require(bounds.x_min == 10 && bounds.y_min == 0 &&
+        bounds.x_max == 30 && bounds.y_max == 40);
+    require(!font.try_get_glyph_bounds(3U, bounds));
+    std::int32_t value = 0;
+    require(font.try_get_design_advance_height(4U, value) && value == 900);
+    require(font.try_get_design_vertical_origin_y(4U, value) && value == 920);
+    require(font.try_get_design_vertical_origin_y(5U, value) && value == 880);
+
+    constexpr std::array mappings{
+        std::pair{0x41U, 4U}, std::pair{0x42U, 4U},
+        std::pair{0x0301U, 4U}, std::pair{0x0308U, 4U}};
+    const auto cmap = make_cmap_groups(mappings);
+    const std::array<table_data, 2U> vertical_tables{vhea, vmtx};
+    const auto vertical_data = make_font(
+        0U, 22U, 0U, false, false, false, vertical_tables, cmap);
+    require(sfnt_font_view::try_create(vertical_data, 0U, font, &error));
+    require(font.try_get_design_vertical_origin_y(4U, value) && value == 110);
+    require(font.try_get_design_vertical_origin_y(3U, value) && value == 500);
+
+    const std::array<unicode_scalar, 2U> input{
+        unicode_scalar{0x41U, 0U, 1U},
+        unicode_scalar{0x42U, 1U, 1U}};
+    open_type_shape_run_requirements requirements{};
+    require(try_get_open_type_shape_run_requirements(
+        font, input, requirements, &error));
+    std::array<shaping_glyph, 6U> glyphs{};
+    std::array<unicode_grapheme_cluster, 2U> graphemes{};
+    std::array<shaping_attachment, 6U> attachments{};
+    std::array<std::uint8_t, 6U> states{};
+    open_type_shape_run_options options{
+        open_type_tag::from_chars('l', 'a', 't', 'n')};
+    options.direction = shaping_direction::top_to_bottom;
+    std::uint32_t glyph_count = 0U;
+    require(try_shape_open_type_run(
+        font,
+        input,
+        options,
+        glyphs,
+        open_type_shape_run_scratch{
+            graphemes, {}, {}, attachments, states},
+        glyph_count,
+        &error));
+    require(glyph_count == 2U && glyphs[0].glyph_id == 4U &&
+        glyphs[0].cluster == 0 && glyphs[1].cluster == 1);
+    require(glyphs[0].advance_x == 0 && glyphs[0].advance_y == -900);
+    require(glyphs[0].offset_x == -300 && glyphs[0].offset_y == -110);
+    options.direction = shaping_direction::bottom_to_top;
+    require(try_shape_open_type_run(
+        font,
+        input,
+        options,
+        glyphs,
+        open_type_shape_run_scratch{
+            graphemes, {}, {}, attachments, states},
+        glyph_count,
+        &error));
+    require(glyph_count == 2U && glyphs[0].advance_y == -900 &&
+        glyphs[0].offset_y == -110 && glyphs[0].cluster == 1 &&
+        glyphs[1].cluster == 0);
+    options.direction = shaping_direction::right_to_left;
+    require(try_shape_open_type_run(
+        font,
+        input,
+        options,
+        glyphs,
+        open_type_shape_run_scratch{
+            graphemes, {}, {}, attachments, states},
+        glyph_count,
+        &error));
+    require(glyph_count == 2U && glyphs[0].advance_x == 600 &&
+        glyphs[0].advance_y == 0 && glyphs[0].cluster == 1 &&
+        glyphs[1].cluster == 0);
+
+    const std::array<unicode_scalar, 3U> combining_input{
+        unicode_scalar{0x41U, 0U, 1U},
+        unicode_scalar{0x0301U, 1U, 1U},
+        unicode_scalar{0x0308U, 2U, 1U}};
+    std::array<shaping_glyph, 9U> combining_glyphs{};
+    std::array<unicode_grapheme_cluster, 1U> combining_graphemes{};
+    std::array<shaping_attachment, 9U> combining_attachments{};
+    std::array<std::uint8_t, 9U> combining_states{};
+    options.cluster_level = shaping_cluster_level::monotone_characters;
+    require(try_shape_open_type_run(
+        font,
+        combining_input,
+        options,
+        combining_glyphs,
+        open_type_shape_run_scratch{
+            combining_graphemes,
+            {},
+            {},
+            combining_attachments,
+            combining_states},
+        glyph_count,
+        &error));
+    require(glyph_count == 3U);
+    require(combining_glyphs[0].code_point == 0x0308U &&
+        combining_glyphs[0].cluster == 0);
+    require(combining_glyphs[1].code_point == 0x0301U &&
+        combining_glyphs[1].cluster == 0);
+    require(combining_glyphs[2].code_point == 0x41U &&
+        combining_glyphs[2].cluster == 0);
+
+    const auto horizontal_data = make_font();
+    require(sfnt_font_view::try_create(horizontal_data, 0U, font, &error));
+    require(font.try_get_design_advance_height(4U, value) && value == 1000);
+    require(font.try_get_design_vertical_origin_y(4U, value) && value == 520);
+}
+
 void variation_selector_cmap_is_borrowed_and_bounded() {
     const std::array<table_data, 1U> tables{
         table_data{
@@ -6962,6 +7119,7 @@ int main() {
     sfnt_metadata_matches_managed_selection_and_style();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     standalone_sfnt_snapshot_matches_managed_contract();
+    vertical_font_metrics_and_shaping_match_managed_policy();
     variation_selector_cmap_is_borrowed_and_bounded();
     variation_axes_are_borrowed_bounded_and_transactional();
     font_style_variations_match_managed_font_manager_policy();

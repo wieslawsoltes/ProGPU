@@ -1,4 +1,5 @@
 #include "progpu_native_text.hpp"
+#include "progpu_native_open_type_complex_internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -61,7 +62,7 @@ bool is_mark(std::uint32_t code_point) noexcept {
         get_unicode_canonical_combining_class(code_point) != 0U;
 }
 
-int modified_combining_class(std::uint32_t code_point) noexcept {
+int modified_combining_class_core(std::uint32_t code_point) noexcept {
     if (code_point == 0x1A60U || code_point == 0x0FC6U) {
         return 254;
     }
@@ -121,16 +122,16 @@ void reorder_arabic_modifiers(
     for (int canonical = 220; canonical <= 230; canonical += 10) {
         std::size_t first = start;
         while (first < end &&
-            modified_combining_class(glyphs[first].code_point) < canonical) {
+            modified_combining_class_core(glyphs[first].code_point) < canonical) {
             ++first;
         }
         if (first == end ||
-            modified_combining_class(glyphs[first].code_point) != canonical) {
+            modified_combining_class_core(glyphs[first].code_point) != canonical) {
             continue;
         }
         std::size_t last = first;
         while (last < end &&
-            modified_combining_class(glyphs[last].code_point) == canonical &&
+            modified_combining_class_core(glyphs[last].code_point) == canonical &&
             is_arabic_modifier(glyphs[last].code_point)) {
             ++last;
         }
@@ -152,22 +153,22 @@ void reorder_modified_combining_marks(
     std::size_t start = 0U;
     while (start < glyphs.size()) {
         while (start < glyphs.size() &&
-            modified_combining_class(glyphs[start].code_point) == 0) {
+            modified_combining_class_core(glyphs[start].code_point) == 0) {
             ++start;
         }
         std::size_t end = start;
         while (end < glyphs.size() &&
-            modified_combining_class(glyphs[end].code_point) != 0) {
+            modified_combining_class_core(glyphs[end].code_point) != 0) {
             ++end;
         }
         for (std::size_t index = start + 1U; index < end; ++index) {
             const shaping_glyph value = glyphs[index];
-            const int value_class = modified_combining_class(value.code_point);
+            const int value_class = modified_combining_class_core(value.code_point);
             std::size_t destination = index;
             std::int32_t crossed_cluster =
                 std::numeric_limits<std::int32_t>::max();
             while (destination > start &&
-                modified_combining_class(
+                modified_combining_class_core(
                     glyphs[destination - 1U].code_point) > value_class) {
                 crossed_cluster = std::min(
                     crossed_cluster, glyphs[destination - 1U].cluster);
@@ -362,6 +363,11 @@ bool prepare_thai_lao(
 }
 
 } // namespace
+
+int complex_detail::modified_combining_class(
+    std::uint32_t code_point) noexcept {
+    return modified_combining_class_core(code_point);
+}
 
 bool try_preprocess_open_type_glyphs(
     const sfnt_font_view& font,

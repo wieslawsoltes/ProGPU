@@ -1357,6 +1357,27 @@ struct sfnt_horizontal_glyph_metrics final {
     std::int16_t left_side_bearing = 0;
 };
 
+struct sfnt_vertical_header_metrics final {
+    std::int16_t ascender = 0;
+    std::int16_t descender = 0;
+    std::int16_t line_gap = 0;
+    std::uint16_t advance_height_max = 0U;
+    std::uint16_t number_of_vertical_metrics = 0U;
+};
+
+struct sfnt_vertical_glyph_metrics final {
+    std::uint16_t advance_height = 0U;
+    std::int16_t top_side_bearing = 0;
+    bool has_top_side_bearing = false;
+};
+
+struct sfnt_glyph_bounds final {
+    std::int16_t x_min = 0;
+    std::int16_t y_min = 0;
+    std::int16_t x_max = 0;
+    std::int16_t y_max = 0;
+};
+
 struct sfnt_name_ids final {
     static constexpr std::uint16_t family_name = 1U;
     static constexpr std::uint16_t subfamily_name = 2U;
@@ -2053,6 +2074,20 @@ public:
     bool try_get_horizontal_glyph_metrics(
         std::uint16_t glyph_index,
         sfnt_horizontal_glyph_metrics& result) const noexcept;
+    bool try_get_vertical_header_metrics(
+        sfnt_vertical_header_metrics& result) const noexcept;
+    bool try_get_vertical_glyph_metrics(
+        std::uint16_t glyph_index,
+        sfnt_vertical_glyph_metrics& result) const noexcept;
+    bool try_get_glyph_bounds(
+        std::uint16_t glyph_index,
+        sfnt_glyph_bounds& result) const noexcept;
+    bool try_get_design_advance_height(
+        std::uint16_t glyph_index,
+        std::int32_t& result) const noexcept;
+    bool try_get_design_vertical_origin_y(
+        std::uint16_t glyph_index,
+        std::int32_t& result) const noexcept;
     /*
      * Selects and decodes the same canonical SFNT name record as the managed
      * ProGPU metadata reader. The requirements pass reports exact caller-owned

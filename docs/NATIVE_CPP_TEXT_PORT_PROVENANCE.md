@@ -783,6 +783,21 @@ count and `M` is the selected `avar` map; shaping and replay remain unchanged.
 Synthetic four-axis fixtures cover all managed mappings, and production Inter
 confirms the exact `wght=700` user coordinate and normalized value `8847`.
 
+Vertical text initialization now directly ports the ProGPU-owned
+`TtfFont.GetAdvanceHeight`, `GetVerticalOriginY`, `TryGetVorgOrigin`, and
+`GetTrueTypeVerticalOrigin` policy from checkpoint `f56a73cd`. Borrowed
+`vhea`/`vmtx` records provide per-glyph vertical advances and bearings, `VORG`
+uses bounded binary search with its default origin, and TrueType bounds provide
+the managed centered fallback. Native top-to-bottom and bottom-to-top shaping
+now starts with the same negative vertical advance, horizontal centering, and
+vertical-origin offset instead of silently emitting horizontal metrics. Table
+and metric lookup is `O(T + log V)` for `T` directory records and `V` VORG
+records with `O(1)` storage; the normal per-glyph shaping loop remains `O(G)`.
+Synthetic vertical tables cover explicit/default VORG, long-metric fallback,
+centered fallback, both vertical directions, and transactional borrowed views.
+Right-to-left and bottom-to-top runs also apply the managed final visual-order
+reversal, including monotone-character combining-run cluster restoration.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with
