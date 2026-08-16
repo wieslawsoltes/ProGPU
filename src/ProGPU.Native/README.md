@@ -272,6 +272,10 @@ and aligned table payloads. Work is `O(T + I + O)` with `O(M)` caller scratch
 for tables `T`, compressed bytes `I`, output bytes `O`, and largest compressed
 table result `M`; the implementation has no heap or platform codec dependency.
 WOFF2 remains explicitly unsupported, matching the managed container contract.
+The standalone text SDK also exposes caller-owned, two-pass
+glyph-ID-preserving TrueType subsetting with transitive composite closure,
+long `loca`, DSIG removal, and rebuilt SFNT checksums. Its output is matched
+byte-for-byte against the ProGPU-owned managed subsetter fixture.
 
 The same text library now opens borrowed CFF2 tables with uint32 INDEX counts,
 required TopDICT/FontDICT/PrivateDICT ownership, optional FDSelect, and a

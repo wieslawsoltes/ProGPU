@@ -705,6 +705,22 @@ has zero pixels over 3/255, and has mean absolute channel difference
 
 ## Parallel native implementation phases
 
+### SFNT subset parity continuation
+
+The native C++20 text library now directly ports the ProGPU-owned
+`SfntFontSubsetter` glyph-ID-preserving path from checkpoint `edf3ea85`.
+The caller-owned two-pass API retains glyph zero and the transitive closure of
+TrueType composite dependencies, preserves source glyph IDs by leaving
+unselected `glyf` entries empty, removes `DSIG`, emits long `loca`, and rebuilds
+the SFNT directory checksums and `checkSumAdjustment`. This is cold font
+preparation rather than a frame path: parsing, dependency traversal, and output
+construction are `O(T + G + B)` for tables `T`, glyphs `G`, and copied bytes
+`B`; stable rendering remains unaffected. The matched managed/native fixture
+produces the same 272-byte font and FNV-1a signature
+`10017802304682166674`, including one requested composite and its otherwise
+unrequested component. Compact glyph-remapped subsetting remains the next
+explicit sub-slice.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

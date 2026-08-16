@@ -187,6 +187,9 @@ using progpu::native::text::sfnt_packed_variation_data;
 using progpu::native::text::sfnt_simple_glyph_path;
 using progpu::native::text::sfnt_simple_glyph_variation_requirements;
 using progpu::native::text::sfnt_simple_glyph_variation_scratch;
+using progpu::native::text::sfnt_subset_requirements;
+using progpu::native::text::try_create_glyph_id_preserving_sfnt_subset;
+using progpu::native::text::try_get_glyph_id_preserving_sfnt_subset_requirements;
 using progpu::native::text::sfnt_varied_glyph_requirements;
 using progpu::native::text::sfnt_varied_glyph_scratch;
 using progpu::native::text::sfnt_table_view;
@@ -1866,6 +1869,150 @@ void write_u32(
     destination[offset + 1U] = static_cast<std::byte>(value >> 16U);
     destination[offset + 2U] = static_cast<std::byte>(value >> 8U);
     destination[offset + 3U] = static_cast<std::byte>(value);
+}
+
+std::vector<std::byte> make_sfnt_subset_fixture() {
+    const auto simple = [](std::int16_t maximum, std::size_t extra = 0U) {
+        std::vector<std::byte> glyph(10U + extra);
+        write_i16(glyph, 0U, 1);
+        write_i16(glyph, 2U, 0);
+        write_i16(glyph, 4U, 0);
+        write_i16(glyph, 6U, maximum);
+        write_i16(glyph, 8U, maximum);
+        return glyph;
+    };
+    std::vector<std::byte> composite(16U);
+    write_i16(composite, 0U, -1);
+    write_i16(composite, 2U, 0);
+    write_i16(composite, 4U, 0);
+    write_i16(composite, 6U, 40);
+    write_i16(composite, 8U, 40);
+    write_u16(composite, 10U, 0x0002U);
+    write_u16(composite, 12U, 1U);
+
+    const std::array glyphs{
+        std::vector<std::byte>{}, simple(20), composite, simple(300, 768U)};
+    std::array<std::uint32_t, 5U> glyph_offsets{};
+    std::vector<std::byte> glyf;
+    for (std::size_t index = 0U; index < glyphs.size(); ++index) {
+        glyph_offsets[index] = static_cast<std::uint32_t>(glyf.size());
+        glyf.insert(glyf.end(), glyphs[index].begin(), glyphs[index].end());
+        glyf.resize((glyf.size() + 3U) & ~std::size_t{3U});
+    }
+    glyph_offsets.back() = static_cast<std::uint32_t>(glyf.size());
+
+    std::vector<std::byte> head(54U);
+    write_u32(head, 0U, 0x00010000U);
+    write_u32(head, 4U, 0x00010000U);
+    write_u16(head, 18U, 1000U);
+    write_i16(head, 50U, 1);
+    std::vector<std::byte> maxp(6U);
+    write_u32(maxp, 0U, 0x00010000U);
+    write_u16(maxp, 4U, 4U);
+    std::vector<std::byte> hhea(36U);
+    write_i16(hhea, 4U, 800);
+    write_i16(hhea, 6U, -200);
+    write_u16(hhea, 34U, 4U);
+    std::vector<std::byte> hmtx(16U);
+    for (std::size_t glyph = 0U; glyph < 4U; ++glyph) {
+        write_u16(hmtx, glyph * 4U,
+            static_cast<std::uint16_t>(500U + glyph));
+    }
+    std::vector<std::byte> loca(glyph_offsets.size() * 4U);
+    for (std::size_t index = 0U; index < glyph_offsets.size(); ++index) {
+        write_u32(loca, index * 4U, glyph_offsets[index]);
+    }
+    std::vector<std::byte> dsig(128U, std::byte{0xA5U});
+
+    struct fixture_table final {
+        std::uint32_t tag;
+        std::vector<std::byte> bytes;
+    };
+    std::array tables{
+        fixture_table{0x68656164U, std::move(head)},
+        fixture_table{0x68686561U, std::move(hhea)},
+        fixture_table{0x6D617870U, std::move(maxp)},
+        fixture_table{0x686D7478U, std::move(hmtx)},
+        fixture_table{0x6C6F6361U, std::move(loca)},
+        fixture_table{0x676C7966U, std::move(glyf)},
+        fixture_table{0x44534947U, std::move(dsig)}};
+    const std::size_t directory_bytes = 12U + tables.size() * 16U;
+    std::size_t output_size = directory_bytes;
+    for (const auto& table : tables) {
+        output_size += (table.bytes.size() + 3U) & ~std::size_t{3U};
+    }
+    std::vector<std::byte> result(output_size);
+    write_u32(result, 0U, 0x00010000U);
+    write_u16(result, 4U, static_cast<std::uint16_t>(tables.size()));
+    std::size_t table_offset = directory_bytes;
+    for (std::size_t index = 0U; index < tables.size(); ++index) {
+        const auto record = 12U + index * 16U;
+        write_u32(result, record, tables[index].tag);
+        write_u32(result, record + 8U,
+            static_cast<std::uint32_t>(table_offset));
+        write_u32(result, record + 12U,
+            static_cast<std::uint32_t>(tables[index].bytes.size()));
+        std::copy(tables[index].bytes.begin(), tables[index].bytes.end(),
+            result.begin() + static_cast<std::ptrdiff_t>(table_offset));
+        table_offset +=
+            (tables[index].bytes.size() + 3U) & ~std::size_t{3U};
+    }
+    return result;
+}
+
+void glyph_id_preserving_sfnt_subset_matches_managed_contract() {
+    const auto font_data = make_sfnt_subset_fixture();
+    constexpr std::array<std::uint16_t, 1U> requested{2U};
+    sfnt_subset_requirements requirements{};
+    font_error error = font_error::none;
+    require(try_get_glyph_id_preserving_sfnt_subset_requirements(
+        font_data, 0U, requested, requirements, &error));
+    require(error == font_error::none &&
+        requirements.font_bytes < font_data.size());
+
+    std::vector<std::byte> short_output(requirements.font_bytes - 1U,
+        std::byte{0x5AU});
+    require(!try_create_glyph_id_preserving_sfnt_subset(
+        font_data, 0U, requested, short_output, requirements, &error));
+    require(error == font_error::insufficient_buffer &&
+        short_output.front() == std::byte{0x5AU});
+
+    std::vector<std::byte> output(requirements.font_bytes);
+    require(try_create_glyph_id_preserving_sfnt_subset(
+        font_data, 0U, requested, output, requirements, &error));
+    std::uint64_t subset_hash = 1469598103934665603ULL;
+    for (const auto value : output) {
+        subset_hash ^= std::to_integer<std::uint8_t>(value);
+        subset_hash *= 1099511628211ULL;
+    }
+    require(output.size() == 272U &&
+        subset_hash == 10017802304682166674ULL);
+    sfnt_font_view subset{};
+    require(sfnt_font_view::try_create(output, 0U, subset, &error));
+    std::uint16_t glyph_count = 0U;
+    require(subset.try_get_glyph_count(glyph_count) && glyph_count == 4U);
+    sfnt_table_view table{};
+    require(!subset.try_get_table(
+        open_type_tag::from_chars('D', 'S', 'I', 'G'), table));
+    require(subset.try_get_table(
+        open_type_tag::from_chars('h', 'e', 'a', 'd'), table));
+    require(static_cast<std::int16_t>(
+        (std::to_integer<std::uint16_t>(table.bytes[50U]) << 8U) |
+        std::to_integer<std::uint16_t>(table.bytes[51U])) == 1);
+    sfnt_glyph_data_view component{};
+    sfnt_glyph_data_view composite_glyph{};
+    sfnt_glyph_data_view omitted{};
+    require(subset.try_get_glyph_data(1U, component) &&
+        component.x_max == 20);
+    require(subset.try_get_glyph_data(2U, composite_glyph) &&
+        composite_glyph.x_max == 40);
+    require(subset.try_get_glyph_data(3U, omitted) && omitted.empty());
+
+    constexpr std::array<std::byte, 3U> invalid{};
+    require(!try_get_glyph_id_preserving_sfnt_subset_requirements(
+        invalid, 0U, requested, requirements, &error));
+    require(error == font_error::invalid_face &&
+        requirements.font_bytes == 0U);
 }
 
 std::vector<std::byte> make_woff1_fixture() {
@@ -6346,6 +6493,7 @@ int main() {
     unicode_line_breaks_feed_native_layout_without_allocation();
     complex_script_properties_and_syllable_machines_are_bounded();
     woff1_normalization_is_bounded_and_transactional();
+    glyph_id_preserving_sfnt_subset_matches_managed_contract();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_selector_cmap_is_borrowed_and_bounded();
     variation_axes_are_borrowed_bounded_and_transactional();

@@ -8,8 +8,11 @@ export namespace progpu::native::text {
 
 using ::progpu::native::text::font_error;
 using ::progpu::native::text::sfnt_container_requirements;
+using ::progpu::native::text::sfnt_subset_requirements;
 using ::progpu::native::text::try_get_sfnt_container_requirements;
 using ::progpu::native::text::try_normalize_sfnt_container;
+using ::progpu::native::text::try_get_glyph_id_preserving_sfnt_subset_requirements;
+using ::progpu::native::text::try_create_glyph_id_preserving_sfnt_subset;
 using ::progpu::native::text::open_type_tag;
 using ::progpu::native::text::unicode_error;
 using ::progpu::native::text::unicode_decode_requirements;

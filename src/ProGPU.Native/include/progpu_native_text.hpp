@@ -32,6 +32,33 @@ struct sfnt_container_requirements final {
     bool requires_normalization = false;
 };
 
+struct sfnt_subset_requirements final {
+    std::size_t font_bytes = 0U;
+};
+
+/*
+ * Direct native port of ProGPU.Text.SfntFontSubsetter's glyph-ID-preserving
+ * TrueType subset. Glyph zero and transitive composite dependencies are
+ * retained, omitted glyph IDs remain empty, DSIG is removed, loca is emitted
+ * in long form, and the SFNT checksum adjustment is rebuilt. This is a cold
+ * font-preparation API: work is O(T + G + B) with bounded traversal for T
+ * tables, G glyphs, and B copied bytes. Output ownership is caller supplied.
+ */
+bool try_get_glyph_id_preserving_sfnt_subset_requirements(
+    std::span<const std::byte> font_data,
+    std::size_t directory_offset,
+    std::span<const std::uint16_t> glyphs,
+    sfnt_subset_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_create_glyph_id_preserving_sfnt_subset(
+    std::span<const std::byte> font_data,
+    std::size_t directory_offset,
+    std::span<const std::uint16_t> glyphs,
+    std::span<std::byte> output,
+    sfnt_subset_requirements& result,
+    font_error* error = nullptr) noexcept;
+
 /*
  * Dependency-free WOFF1-to-SFNT normalization. The requirements pass is O(T)
  * for T tables and reports exact caller-owned output plus maximum-table scratch
