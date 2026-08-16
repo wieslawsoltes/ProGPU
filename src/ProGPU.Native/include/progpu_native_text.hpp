@@ -974,6 +974,40 @@ enum class font_provider_slant : std::uint8_t {
     oblique = 2U
 };
 
+struct font_style_request final {
+    std::int32_t weight = 400;
+    std::int32_t width = 5;
+    font_provider_slant slant = font_provider_slant::normal;
+};
+
+struct font_style_variation_requirements final {
+    std::uint16_t setting_count = 0U;
+};
+
+struct font_style_variation final {
+    open_type_tag tag{};
+    std::int32_t user_fixed = 0;
+    std::int16_t normalized = 0;
+    std::uint16_t axis_index = 0U;
+};
+
+/* Maps the managed FontStyleRequest contract onto wght/wdth/ital/slnt axes.
+ * Requirements fully validate recognized axes before a caller-owned result is
+ * written, so short buffers and malformed variation data are transactional. */
+bool try_get_font_style_variation_requirements(
+    const sfnt_font_view& font,
+    font_style_request request,
+    font_style_variation_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_resolve_font_style_variations(
+    const sfnt_font_view& font,
+    font_style_request request,
+    std::span<font_style_variation> output,
+    std::uint16_t& written,
+    font_style_variation_requirements* requirements = nullptr,
+    font_error* error = nullptr) noexcept;
+
 /* Platform adapters expose borrowed face bytes through this neutral record.
  * `family_identity` is a provider-stable normalized family hash. */
 struct font_provider_face final {
@@ -2122,6 +2156,10 @@ public:
     bool try_decode_variation_axes(
         std::span<sfnt_variation_axis> axes,
         std::uint16_t& written,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_variation_axis(
+        std::uint16_t axis_index,
+        sfnt_variation_axis& result,
         font_error* error = nullptr) const noexcept;
     /*
      * Normalize one signed 16.16 user coordinate to F2Dot14 and apply its

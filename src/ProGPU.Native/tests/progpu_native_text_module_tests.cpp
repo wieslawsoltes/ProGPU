@@ -37,6 +37,10 @@ int main() {
     const progpu::native::text::sfnt_glyph_resident_requirements resident{};
     const progpu::native::text::sfnt_standalone_requirements standalone{};
     const progpu::native::text::sfnt_directory_record directory_record{};
+    const progpu::native::text::font_style_request style_request{};
+    const progpu::native::text::font_style_variation_requirements
+        style_requirements{};
+    const progpu::native::text::font_style_variation style_variation{};
     static_assert(progpu::native::text::sfnt_name_ids::family_name == 1U);
     const auto latin_script =
         progpu::native::text::get_unicode_script(0x41U);
@@ -84,7 +88,9 @@ int main() {
         name_requirements.utf8_bytes != 0U ||
         face_style.weight != 400U || face_style.width != 5U ||
         resident.sbix_bytes != 0U || standalone.font_bytes != 0U ||
-        directory_record.tag.value != 0U) {
+        directory_record.tag.value != 0U || style_request.weight != 400 ||
+        style_requirements.setting_count != 0U ||
+        style_variation.tag.value != 0U) {
         return 1;
     }
     (void)sizeof(gvar_deltas);

@@ -183,6 +183,42 @@ bool sfnt_font_view::try_decode_variation_axes(
     return true;
 }
 
+bool sfnt_font_view::try_get_variation_axis(
+    std::uint16_t axis_index,
+    sfnt_variation_axis& result,
+    font_error* error) const noexcept {
+    result = {};
+    sfnt_table_view table{};
+    std::uint16_t count = 0U;
+    std::uint16_t size = 0U;
+    std::size_t axes_offset = 0U;
+    if (!try_get_axis_layout(
+            *this, table, count, size, axes_offset, error)) {
+        return false;
+    }
+    if (axis_index >= count) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    const auto offset =
+        axes_offset + static_cast<std::size_t>(axis_index) * size;
+    result = {
+        {read_u32(table.bytes, offset)},
+        read_i32(table.bytes, offset + 4U),
+        read_i32(table.bytes, offset + 8U),
+        read_i32(table.bytes, offset + 12U),
+        read_u16(table.bytes, offset + 16U),
+        read_u16(table.bytes, offset + 18U)};
+    if (result.minimum_fixed > result.default_fixed ||
+        result.default_fixed > result.maximum_fixed) {
+        result = {};
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    set_error(error, font_error::none);
+    return true;
+}
+
 bool sfnt_font_view::try_normalize_variation_coordinate(
     std::uint16_t axis_index,
     std::int32_t user_fixed,

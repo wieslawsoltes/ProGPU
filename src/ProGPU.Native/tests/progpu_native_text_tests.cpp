@@ -102,6 +102,11 @@ using progpu::native::text::font_provider_view;
 using progpu::native::text::font_provider_cache_entry;
 using progpu::native::text::font_provider_result;
 using progpu::native::text::try_resolve_font_provider_face;
+using progpu::native::text::font_style_request;
+using progpu::native::text::font_style_variation_requirements;
+using progpu::native::text::font_style_variation;
+using progpu::native::text::try_get_font_style_variation_requirements;
+using progpu::native::text::try_resolve_font_style_variations;
 using progpu::native::text::try_preprocess_open_type_glyphs;
 using progpu::native::text::unicode_line_break_class;
 using progpu::native::text::text_line_break_kind;
@@ -2440,6 +2445,41 @@ std::vector<std::byte> make_fvar() {
     return result;
 }
 
+std::vector<std::byte> make_style_fvar() {
+    std::vector<std::byte> result(96U);
+    write_u16(result, 0U, 1U);
+    write_u16(result, 2U, 0U);
+    write_u16(result, 4U, 16U);
+    write_u16(result, 6U, 2U);
+    write_u16(result, 8U, 4U);
+    write_u16(result, 10U, 20U);
+    const auto write_axis = [&](std::size_t offset,
+                                open_type_tag tag,
+                                std::int32_t minimum,
+                                std::int32_t default_value,
+                                std::int32_t maximum,
+                                std::uint16_t name_id) {
+        write_u32(result, offset, tag.value);
+        write_u32(result, offset + 4U,
+            static_cast<std::uint32_t>(minimum));
+        write_u32(result, offset + 8U,
+            static_cast<std::uint32_t>(default_value));
+        write_u32(result, offset + 12U,
+            static_cast<std::uint32_t>(maximum));
+        write_u16(result, offset + 16U, 0U);
+        write_u16(result, offset + 18U, name_id);
+    };
+    write_axis(16U, open_type_tag::from_chars('w', 'g', 'h', 't'),
+        100 << 16, 400 << 16, 900 << 16, 256U);
+    write_axis(36U, open_type_tag::from_chars('w', 'd', 't', 'h'),
+        50 << 16, 100 << 16, 200 << 16, 257U);
+    write_axis(56U, open_type_tag::from_chars('i', 't', 'a', 'l'),
+        0, 0, 1 << 16, 258U);
+    write_axis(76U, open_type_tag::from_chars('s', 'l', 'n', 't'),
+        -20 * (1 << 16), 0, 0, 259U);
+    return result;
+}
+
 std::vector<std::byte> make_avar() {
     std::vector<std::byte> result(44U);
     write_u16(result, 0U, 1U);
@@ -3959,6 +3999,13 @@ void variation_axes_are_borrowed_bounded_and_transactional() {
     require(axes[1].maximum() == 900.0F);
     require(!axes[1].hidden());
     require(axes[1].name_id == 257U);
+    sfnt_variation_axis selected{};
+    require(font.try_get_variation_axis(1U, selected, &error));
+    require(selected.tag == axes[1].tag &&
+        selected.minimum_fixed == axes[1].minimum_fixed);
+    require(!font.try_get_variation_axis(2U, selected, &error));
+    require(error == font_error::invalid_argument &&
+        selected.tag.value == 0U);
 
     auto truncated = data;
     const auto table_count = static_cast<std::size_t>(
@@ -3969,6 +4016,81 @@ void variation_axes_are_borrowed_bounded_and_transactional() {
     require(sfnt_font_view::try_create(truncated, 0U, font));
     require(!font.try_get_variation_axis_count(count, &error));
     require(error == font_error::invalid_face && count == 0U);
+}
+
+void font_style_variations_match_managed_font_manager_policy() {
+    const std::array<table_data, 1U> tables{
+        table_data{
+            open_type_tag::from_chars('f', 'v', 'a', 'r'),
+            make_style_fvar()}};
+    const auto data = make_font(
+        0U, 22U, 0U, false, false, false, tables);
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+
+    const font_style_request request{
+        700, 2, font_provider_slant::italic};
+    font_style_variation_requirements requirements{};
+    require(try_get_font_style_variation_requirements(
+        font, request, requirements, &error));
+    require(requirements.setting_count == 4U);
+    std::array<font_style_variation, 3U> short_output{};
+    short_output.fill(font_style_variation{
+        open_type_tag::from_chars('x', 'x', 'x', 'x'), 1, 2, 3U});
+    std::uint16_t written = 99U;
+    require(!try_resolve_font_style_variations(
+        font, request, short_output, written, nullptr, &error));
+    require(error == font_error::insufficient_buffer && written == 0U);
+    require(short_output[0].tag ==
+        open_type_tag::from_chars('x', 'x', 'x', 'x'));
+
+    std::array<font_style_variation, 4U> output{};
+    font_style_variation_requirements reported{};
+    require(try_resolve_font_style_variations(
+        font, request, output, written, &reported, &error));
+    require(error == font_error::none && written == 4U &&
+        reported.setting_count == 4U);
+    require(output[0].tag ==
+        open_type_tag::from_chars('w', 'g', 'h', 't'));
+    require(output[0].user_fixed == 700 << 16 &&
+        output[0].normalized == 9830 && output[0].axis_index == 0U);
+    require(output[1].tag ==
+        open_type_tag::from_chars('w', 'd', 't', 'h'));
+    require(output[1].user_fixed == (62 << 16) + (1 << 15) &&
+        output[1].normalized == -12288 && output[1].axis_index == 1U);
+    require(output[2].tag ==
+        open_type_tag::from_chars('i', 't', 'a', 'l'));
+    require(output[2].user_fixed == 1 << 16 &&
+        output[2].normalized == 16384);
+    require(output[3].tag ==
+        open_type_tag::from_chars('s', 'l', 'n', 't'));
+    require(output[3].user_fixed == -20 * (1 << 16) &&
+        output[3].normalized == -16384);
+
+    require(try_resolve_font_style_variations(
+        font, font_style_request{0, 0, font_provider_slant::normal},
+        output, written, nullptr, &error));
+    require(written == 4U);
+    require(output[0].user_fixed == 400 << 16 &&
+        output[0].normalized == 0);
+    require(output[1].user_fixed == 100 << 16 &&
+        output[1].normalized == 0);
+    require(output[2].user_fixed == 0 && output[2].normalized == 0);
+    require(output[3].user_fixed == 0 && output[3].normalized == 0);
+
+    const auto invalid_slant = static_cast<font_provider_slant>(99U);
+    require(!try_get_font_style_variation_requirements(
+        font, font_style_request{400, 5, invalid_slant},
+        requirements, &error));
+    require(error == font_error::invalid_argument &&
+        requirements.setting_count == 0U);
+
+    const auto fixed_data = make_font();
+    require(sfnt_font_view::try_create(fixed_data, 0U, font, &error));
+    require(try_get_font_style_variation_requirements(
+        font, request, requirements, &error));
+    require(requirements.setting_count == 0U);
 }
 
 void variation_coordinates_apply_bounded_avar_mapping() {
@@ -6198,6 +6320,22 @@ void production_inter_variable_font_matches_fvar_axes() {
     require(font.try_normalize_variation_coordinate(
         1U, 700 * 65536, normalized));
     require(normalized == 8847);
+    font_style_variation_requirements style_requirements{};
+    require(try_get_font_style_variation_requirements(
+        font,
+        font_style_request{700, 5, font_provider_slant::normal},
+        style_requirements));
+    require(style_requirements.setting_count == 1U);
+    std::array<font_style_variation, 1U> style_setting{};
+    require(try_resolve_font_style_variations(
+        font,
+        font_style_request{700, 5, font_provider_slant::normal},
+        style_setting,
+        written));
+    require(written == 1U && style_setting[0].tag == axes[1].tag &&
+        style_setting[0].user_fixed == 700 * 65536 &&
+        style_setting[0].normalized == 8847 &&
+        style_setting[0].axis_index == 1U);
 
     sfnt_gvar_header gvar{};
     require(font.try_get_gvar_header(gvar));
@@ -6826,6 +6964,7 @@ int main() {
     standalone_sfnt_snapshot_matches_managed_contract();
     variation_selector_cmap_is_borrowed_and_bounded();
     variation_axes_are_borrowed_bounded_and_transactional();
+    font_style_variations_match_managed_font_manager_policy();
     variation_coordinates_apply_bounded_avar_mapping();
     packed_variation_streams_are_transactional_and_exact();
     glyph_variation_tuple_headers_are_bounded_and_exact();

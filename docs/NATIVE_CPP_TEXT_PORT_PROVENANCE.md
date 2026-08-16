@@ -770,6 +770,19 @@ caller-owned scratch for `U` retained unique tables, and copying is `O(B)` for
 `B` output bytes. This cold font-boundary operation does not affect steady
 shaping or rendering paths.
 
+The granular `src/Text/Font` policy layer directly ports the variable-style
+mapping in `FontManager.ApplyStyleVariations` from checkpoint `885f58c0`.
+Normalized requests map weight, width class, italic, and slant onto recognized
+`wght`, `wdth`, `ital`, and `slnt` axes while unrelated axes retain their
+defaults. The result carries exact signed 16.16 user coordinates plus the
+existing `fvar`/`avar` normalized coordinate, with no float conversion at the
+interop boundary. Requirements fully validate recognized axes before the
+caller-owned output is touched. Work is `O(A^2 + A*M)` with `O(1)` internal
+storage for the cold style-instance boundary, where `A` is the small font axis
+count and `M` is the selected `avar` map; shaping and replay remain unchanged.
+Synthetic four-axis fixtures cover all managed mappings, and production Inter
+confirms the exact `wght=700` user coordinate and normalized value `8847`.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with
