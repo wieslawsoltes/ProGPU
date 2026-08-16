@@ -678,6 +678,14 @@ public:
         bool& contains,
         font_error* error = nullptr) const noexcept;
 
+    bool try_required_feature_for_lookup(
+        open_type_tag script,
+        open_type_tag language,
+        std::uint16_t lookup,
+        open_type_tag& feature,
+        bool& contains,
+        font_error* error = nullptr) const noexcept;
+
 private:
     std::span<const std::byte> table_{};
     std::size_t script_list_offset_ = 0U;
@@ -2087,6 +2095,10 @@ public:
         std::int32_t& result) const noexcept;
     bool try_get_design_vertical_origin_y(
         std::uint16_t glyph_index,
+        std::int32_t& result) const noexcept;
+    bool try_get_design_kerning(
+        std::uint32_t left_code_point,
+        std::uint32_t right_code_point,
         std::int32_t& result) const noexcept;
     /*
      * Selects and decodes the same canonical SFNT name record as the managed

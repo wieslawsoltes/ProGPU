@@ -2,6 +2,7 @@
 
 #include "progpu_native_open_type_complex_internal.hpp"
 #include "progpu_native_open_type_feature_values_internal.hpp"
+#include "progpu_native_legacy_kern_internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -40,12 +41,32 @@ constexpr std::uint32_t arabic_action_mask = 0x70000000U;
 constexpr std::uint32_t arabic_action_shift = 28U;
 constexpr std::uint32_t hangul_feature_mask = 0x30000000U;
 constexpr std::uint32_t hangul_feature_shift = 28U;
+constexpr auto kern_feature =
+    open_type_tag::from_chars('k', 'e', 'r', 'n');
+constexpr auto distance_feature =
+    open_type_tag::from_chars('d', 'i', 's', 't');
 
 std::int32_t clamp_i16(std::int64_t value) noexcept {
     return static_cast<std::int32_t>(std::clamp<std::int64_t>(
         value,
         std::numeric_limits<std::int16_t>::min(),
         std::numeric_limits<std::int16_t>::max()));
+}
+
+bool is_run_feature_enabled(
+    const open_type_shape_run_options& options,
+    open_type_tag tag) noexcept {
+    bool enabled = std::find(
+        options.requested_features.begin(),
+        options.requested_features.end(),
+        tag) != options.requested_features.end();
+    for (const auto& setting : options.feature_settings) {
+        if (setting.tag == tag && setting.start == 0U &&
+            setting.end == 0xFFFFFFFFU) {
+            enabled = setting.value != 0U;
+        }
+    }
+    return enabled;
 }
 
 enum class hangul_feature : std::uint32_t {
@@ -1198,6 +1219,7 @@ bool try_shape_open_type_run(
         scratch.attachments[index] = {};
     }
 
+    bool has_gpos_kerning = false;
     if (gpos.lookup_count() != 0U) {
         std::uint32_t lookup_count = 0U;
         std::span<const std::uint16_t> selected_lookups{};
@@ -1236,6 +1258,18 @@ bool try_shape_open_type_run(
             &font,
             options.normalized_coordinates};
         for (std::uint32_t index = 0U; index < lookup_count; ++index) {
+            lookup_feature_resolution resolution{};
+            if (!try_resolve_lookup_feature(
+                    gpos,
+                    options,
+                    selected_lookups[index],
+                    resolution,
+                    error)) {
+                return false;
+            }
+            has_gpos_kerning |= (resolution.required || resolution.found) &&
+                (resolution.feature == kern_feature ||
+                    resolution.feature == distance_feature);
             if (!apply_gpos_lookup_with_feature_values(
                     gpos,
                     options,
@@ -1246,6 +1280,18 @@ bool try_shape_open_type_run(
                 return false;
             }
         }
+    }
+    if (!has_gpos_kerning &&
+        is_run_feature_enabled(options, kern_feature) &&
+        options.complex_script != open_type_complex_script::indic &&
+        (options.direction == shaping_direction::left_to_right ||
+            options.direction == shaping_direction::right_to_left)) {
+        detail::apply_legacy_kern(
+            font, glyph_storage.first(glyph_count), gdef_pointer);
+    }
+    if (gpos.lookup_count() != 0U) {
+        const auto glyphs = glyph_storage.first(glyph_count);
+        const auto attachments = scratch.attachments.first(glyph_count);
         if (!try_resolve_open_type_attachments(
                 glyphs,
                 attachments,

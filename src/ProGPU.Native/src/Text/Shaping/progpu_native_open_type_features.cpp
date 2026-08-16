@@ -93,6 +93,7 @@ bool find_tagged_offset(
 struct selection_result final {
     std::uint32_t capacity = 0U;
     std::uint32_t written = 0U;
+    open_type_tag target_feature{};
     bool contains_target = false;
 };
 
@@ -198,7 +199,11 @@ bool select_layout_lookups(
             if (lookup >= layout_lookup_count) {
                 return false;
             }
-            result.contains_target |= lookup == target_lookup;
+            if (lookup == target_lookup) {
+                result.contains_target = true;
+                result.target_feature = open_type_tag{
+                    read_u32(table, record)};
+            }
             if (!write) {
                 continue;
             }
@@ -456,6 +461,43 @@ bool open_type_layout_table_view::try_required_feature_contains_lookup(
         set_error(error, font_error::invalid_face);
         return false;
     }
+    contains = selected.contains_target;
+    set_error(error, font_error::none);
+    return true;
+}
+
+bool open_type_layout_table_view::try_required_feature_for_lookup(
+    open_type_tag script,
+    open_type_tag language,
+    std::uint16_t lookup,
+    open_type_tag& feature,
+    bool& contains,
+    font_error* error) const noexcept {
+    feature = {};
+    contains = false;
+    if (lookup >= lookup_count_) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    selection_result selected{};
+    if (!select_layout_lookups(
+            table_,
+            script_list_offset_,
+            feature_list_offset_,
+            lookup_count_,
+            script,
+            language,
+            {},
+            {},
+            {},
+            true,
+            false,
+            lookup,
+            selected)) {
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    feature = selected.target_feature;
     contains = selected.contains_target;
     set_error(error, font_error::none);
     return true;

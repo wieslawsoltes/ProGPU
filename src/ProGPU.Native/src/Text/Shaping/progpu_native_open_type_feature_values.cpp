@@ -97,10 +97,11 @@ bool try_resolve_lookup_feature(
     lookup_feature_resolution& result,
     font_error* error) noexcept {
     result = {};
-    if (!layout.try_required_feature_contains_lookup(
+    if (!layout.try_required_feature_for_lookup(
             options.script,
             options.language,
             lookup,
+            result.feature,
             result.required,
             error)) {
         return false;

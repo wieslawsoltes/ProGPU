@@ -798,6 +798,22 @@ centered fallback, both vertical directions, and transactional borrowed views.
 Right-to-left and bottom-to-top runs also apply the managed final visual-order
 reversal, including monotone-character combining-run cluster restoration.
 
+Legacy kerning fallback now directly ports the ProGPU-owned
+`GlyphPositionBuffer.ApplyLegacyKern` policy from checkpoint `34b76eeb`.
+The adjacent `sfnt_font_view::try_get_design_kerning` query separately mirrors
+the narrower public `TtfFont.GetKerning` format-0 contract in design units.
+Native shaping reads Microsoft and Apple `kern` table headers, format 0 sorted
+pairs, format 2 class tables, horizontal and cross-stream adjustments, GDEF
+mark skipping, signed odd-value splitting, clamped metrics, and unsafe-break
+dependencies. A selected GPOS `kern` or `dist` feature suppresses the fallback
+exactly once, while an explicitly disabled run-level `kern` baseline performs
+no legacy work. Table traversal is `O(S * (G log P))` for `S` format-0
+subtables, `G` glyphs, and `P` pairs; format-2 lookup is `O(S * G)`. Storage is
+`O(1)`, all table/glyph spans remain borrowed, and no managed/native crossing
+or heap allocation is added per pair. Synthetic fixtures cover Microsoft and
+Apple headers, both formats, cross-stream positioning, GPOS suppression, GDEF
+mark skipping, explicit disable, and negative odd adjustments.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

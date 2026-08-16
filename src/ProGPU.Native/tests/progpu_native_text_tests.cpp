@@ -4878,6 +4878,259 @@ void vertical_font_metrics_and_shaping_match_managed_policy() {
     require(font.try_get_design_vertical_origin_y(4U, value) && value == 520);
 }
 
+void legacy_kern_shaping_matches_managed_policy() {
+    constexpr auto kern = open_type_tag::from_chars('k', 'e', 'r', 'n');
+    const auto make_format_zero = [](
+        bool apple,
+        bool cross_stream,
+        std::uint16_t left,
+        std::uint16_t right,
+        std::int16_t value) {
+        const std::size_t table_header = apple ? 8U : 4U;
+        const std::size_t subtable_header = apple ? 8U : 6U;
+        const std::size_t subtable_length = subtable_header + 8U + 6U;
+        std::vector<std::byte> result(table_header + subtable_length);
+        if (apple) {
+            write_u32(result, 0U, 0x00010000U);
+            write_u32(result, 4U, 1U);
+            write_u32(result, 8U,
+                static_cast<std::uint32_t>(subtable_length));
+            result[12U] = static_cast<std::byte>(
+                cross_stream ? 0x40U : 0U);
+            result[13U] = std::byte{0U};
+        } else {
+            write_u16(result, 0U, 0U);
+            write_u16(result, 2U, 1U);
+            write_u16(result, 4U, 0U);
+            write_u16(result, 6U,
+                static_cast<std::uint16_t>(subtable_length));
+            write_u16(result, 8U,
+                static_cast<std::uint16_t>(cross_stream ? 0x0005U : 1U));
+        }
+        const auto body = table_header + subtable_header;
+        write_u16(result, body, 1U);
+        const auto record = body + 8U;
+        write_u32(result, record,
+            (static_cast<std::uint32_t>(left) << 16U) | right);
+        write_i16(result, record + 4U, value);
+        return result;
+    };
+    const auto make_format_two = [](
+        std::uint16_t left,
+        std::uint16_t right,
+        std::int16_t value) {
+        constexpr std::size_t subtable = 4U;
+        constexpr std::size_t subtable_length = 36U;
+        std::vector<std::byte> result(subtable + subtable_length);
+        write_u16(result, 0U, 0U);
+        write_u16(result, 2U, 1U);
+        write_u16(result, subtable, 0U);
+        write_u16(result, subtable + 2U,
+            static_cast<std::uint16_t>(subtable_length));
+        write_u16(result, subtable + 4U, 0x0201U);
+        write_u16(result, subtable + 6U, 4U);
+        write_u16(result, subtable + 8U, 14U);
+        write_u16(result, subtable + 10U, 22U);
+        write_u16(result, subtable + 12U, 30U);
+        write_u16(result, subtable + 14U, left);
+        write_u16(result, subtable + 16U, 1U);
+        write_u16(result, subtable + 18U, 30U);
+        write_u16(result, subtable + 22U, right);
+        write_u16(result, subtable + 24U, 1U);
+        write_u16(result, subtable + 26U, 2U);
+        write_i16(result, subtable + 32U, value);
+        return result;
+    };
+    const auto make_gdef_mark = [](std::uint16_t glyph) {
+        std::vector<std::byte> result(20U);
+        write_u16(result, 0U, 1U);
+        write_u16(result, 2U, 0U);
+        write_u16(result, 4U, 12U);
+        write_u16(result, 12U, 1U);
+        write_u16(result, 14U, glyph);
+        write_u16(result, 16U, 1U);
+        write_u16(result, 18U, 3U);
+        return result;
+    };
+    const auto make_gpos_kern = [](
+        std::uint16_t left,
+        std::uint16_t right,
+        std::int16_t adjustment,
+        bool required = false) {
+        std::vector<std::byte> result(88U);
+        write_u16(result, 0U, 1U);
+        write_u16(result, 2U, 0U);
+        write_u16(result, 4U, 10U);
+        write_u16(result, 6U, 30U);
+        write_u16(result, 8U, 44U);
+
+        write_u16(result, 10U, 1U);
+        write_u32(result, 12U,
+            open_type_tag::from_chars('l', 'a', 't', 'n').value);
+        write_u16(result, 16U, 8U);
+        write_u16(result, 18U, 4U);
+        write_u16(result, 20U, 0U);
+        write_u16(result, 22U, 0U);
+        write_u16(result, 24U, required ? 0U : 0xFFFFU);
+        write_u16(result, 26U, required ? 0U : 1U);
+        write_u16(result, 28U, 0U);
+
+        write_u16(result, 30U, 1U);
+        write_u32(result, 32U, kern.value);
+        write_u16(result, 36U, 8U);
+        write_u16(result, 38U, 0U);
+        write_u16(result, 40U, 1U);
+        write_u16(result, 42U, 0U);
+
+        write_u16(result, 44U, 1U);
+        write_u16(result, 46U, 4U);
+        write_u16(result, 48U, 2U);
+        write_u16(result, 50U, 0U);
+        write_u16(result, 52U, 1U);
+        write_u16(result, 54U, 8U);
+
+        constexpr std::size_t pair = 56U;
+        write_u16(result, pair, 1U);
+        write_u16(result, pair + 2U, 18U);
+        write_u16(result, pair + 4U, 0x0004U);
+        write_u16(result, pair + 6U, 0x0004U);
+        write_u16(result, pair + 8U, 1U);
+        write_u16(result, pair + 10U, 24U);
+        write_u16(result, pair + 18U, 1U);
+        write_u16(result, pair + 20U, 1U);
+        write_u16(result, pair + 22U, left);
+        write_u16(result, pair + 24U, 1U);
+        write_u16(result, pair + 26U, right);
+        write_i16(result, pair + 28U, adjustment);
+        write_i16(result, pair + 30U, adjustment);
+        return result;
+    };
+    const auto shape = [](
+        const sfnt_font_view& font,
+        std::span<const unicode_scalar> input,
+        const open_type_shape_run_options& options,
+        std::span<shaping_glyph> glyphs) {
+        open_type_shape_run_requirements requirements{};
+        font_error error = font_error::none;
+        require(try_get_open_type_shape_run_requirements(
+            font, input, requirements, &error));
+        std::array<unicode_grapheme_cluster, 4U> graphemes{};
+        std::array<std::uint16_t, 4U> gsub{};
+        std::array<std::uint16_t, 4U> gpos{};
+        std::array<shaping_attachment, 12U> attachments{};
+        std::array<std::uint8_t, 12U> states{};
+        std::uint32_t glyph_count = 0U;
+        require(try_shape_open_type_run(
+            font,
+            input,
+            options,
+            glyphs,
+            open_type_shape_run_scratch{
+                graphemes, gsub, gpos, attachments, states},
+            glyph_count,
+            &error));
+        return glyph_count;
+    };
+
+    constexpr std::array mappings{
+        std::pair{0x41U, 4U},
+        std::pair{0x42U, 5U},
+        std::pair{0x43U, 6U}};
+    const auto cmap = make_cmap_groups(mappings);
+    constexpr std::array requested{kern};
+    open_type_shape_run_options options{
+        open_type_tag::from_chars('l', 'a', 't', 'n')};
+    options.requested_features = requested;
+    constexpr std::array<unicode_scalar, 2U> pair_input{
+        unicode_scalar{0x41U, 0U, 1U},
+        unicode_scalar{0x42U, 1U, 1U}};
+    std::array<shaping_glyph, 12U> glyphs{};
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+
+    table_data windows_kern{kern, make_format_zero(false, false, 4U, 5U, -101)};
+    const std::array<table_data, 1U> windows_tables{windows_kern};
+    const auto windows_data = make_font(
+        0U, 22U, 0U, false, false, false, windows_tables, cmap);
+    require(sfnt_font_view::try_create(windows_data, 0U, font, &error));
+    std::int32_t design_kerning = 0;
+    require(font.try_get_design_kerning(0x41U, 0x42U, design_kerning) &&
+        design_kerning == -101);
+    require(shape(font, pair_input, options, glyphs) == 2U);
+    require(glyphs[0U].advance_x == 549 &&
+        glyphs[1U].advance_x == 550 && glyphs[1U].offset_x == -50);
+    require((static_cast<std::uint32_t>(glyphs[1U].flags) &
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break)) !=
+        0U);
+
+    table_data gpos{open_type_tag::from_chars('G', 'P', 'O', 'S'),
+        make_gpos_kern(4U, 5U, -20)};
+    const std::array<table_data, 2U> gpos_tables{windows_kern, gpos};
+    const auto gpos_data = make_font(
+        0U, 22U, 0U, false, false, false, gpos_tables, cmap);
+    require(sfnt_font_view::try_create(gpos_data, 0U, font, &error));
+    require(shape(font, pair_input, options, glyphs) == 2U);
+    require(glyphs[0U].advance_x == 580 &&
+        glyphs[1U].advance_x == 580 && glyphs[1U].offset_x == 0);
+
+    table_data required_gpos{open_type_tag::from_chars('G', 'P', 'O', 'S'),
+        make_gpos_kern(4U, 5U, -25, true)};
+    const std::array<table_data, 2U> required_tables{
+        windows_kern, required_gpos};
+    const auto required_data = make_font(
+        0U, 22U, 0U, false, false, false, required_tables, cmap);
+    require(sfnt_font_view::try_create(required_data, 0U, font, &error));
+    require(shape(font, pair_input, options, glyphs) == 2U);
+    require(glyphs[0U].advance_x == 575 &&
+        glyphs[1U].advance_x == 575 && glyphs[1U].offset_x == 0);
+
+    constexpr std::array disabled_setting{
+        shaping_feature{kern, 0U, 0U, 0xFFFFFFFFU}};
+    options.feature_settings = disabled_setting;
+    require(sfnt_font_view::try_create(windows_data, 0U, font, &error));
+    require(shape(font, pair_input, options, glyphs) == 2U);
+    require(glyphs[0U].advance_x == 600 &&
+        glyphs[1U].advance_x == 600 && glyphs[1U].offset_x == 0);
+    options.feature_settings = {};
+
+    table_data apple_kern{kern, make_format_zero(true, true, 4U, 5U, -70)};
+    const std::array<table_data, 1U> apple_tables{apple_kern};
+    const auto apple_data = make_font(
+        0U, 22U, 0U, false, false, false, apple_tables, cmap);
+    require(sfnt_font_view::try_create(apple_data, 0U, font, &error));
+    require(font.try_get_design_kerning(0x41U, 0x42U, design_kerning) &&
+        design_kerning == 0);
+    require(shape(font, pair_input, options, glyphs) == 2U);
+    require(glyphs[0U].advance_x == 600 &&
+        glyphs[1U].advance_x == 600 && glyphs[1U].offset_y == -70);
+
+    table_data class_kern{kern, make_format_two(4U, 5U, -80)};
+    const std::array<table_data, 1U> class_tables{class_kern};
+    const auto class_data = make_font(
+        0U, 22U, 0U, false, false, false, class_tables, cmap);
+    require(sfnt_font_view::try_create(class_data, 0U, font, &error));
+    require(font.try_get_design_kerning(0x41U, 0x42U, design_kerning) &&
+        design_kerning == 0);
+    require(shape(font, pair_input, options, glyphs) == 2U);
+    require(glyphs[0U].advance_x == 560 &&
+        glyphs[1U].advance_x == 560 && glyphs[1U].offset_x == -40);
+
+    table_data skip_kern{kern, make_format_zero(false, false, 4U, 6U, -60)};
+    table_data gdef{open_type_tag::from_chars('G', 'D', 'E', 'F'),
+        make_gdef_mark(5U)};
+    const std::array<table_data, 2U> skip_tables{skip_kern, gdef};
+    const auto skip_data = make_font(
+        0U, 22U, 0U, false, false, false, skip_tables, cmap);
+    require(sfnt_font_view::try_create(skip_data, 0U, font, &error));
+    constexpr std::array<unicode_scalar, 3U> skip_input{
+        unicode_scalar{0x41U, 0U, 1U},
+        unicode_scalar{0x42U, 1U, 1U},
+        unicode_scalar{0x43U, 2U, 1U}};
+    require(shape(font, skip_input, options, glyphs) == 3U);
+    require(glyphs[0U].advance_x == 570 && glyphs[1U].advance_x == 0 &&
+        glyphs[2U].advance_x == 570 && glyphs[2U].offset_x == -30);
+}
+
 void variation_selector_cmap_is_borrowed_and_bounded() {
     const std::array<table_data, 1U> tables{
         table_data{
@@ -7120,6 +7373,7 @@ int main() {
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     standalone_sfnt_snapshot_matches_managed_contract();
     vertical_font_metrics_and_shaping_match_managed_policy();
+    legacy_kern_shaping_matches_managed_policy();
     variation_selector_cmap_is_borrowed_and_bounded();
     variation_axes_are_borrowed_bounded_and_transactional();
     font_style_variations_match_managed_font_manager_policy();
