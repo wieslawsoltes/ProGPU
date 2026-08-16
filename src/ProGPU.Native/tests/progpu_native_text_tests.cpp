@@ -27,6 +27,9 @@ using progpu::native::text::unicode_scalar;
 using progpu::native::text::unicode_bidi_class;
 using progpu::native::text::unicode_bidi_bracket_kind;
 using progpu::native::text::shaping_feature;
+using progpu::native::text::open_type_feature_tag_requirements;
+using progpu::native::text::try_get_open_type_feature_tag_requirements;
+using progpu::native::text::try_decode_open_type_feature_tags;
 using progpu::native::text::shaping_glyph;
 using progpu::native::text::shaping_glyph_flags;
 using progpu::native::text::shaping_cluster_level;
@@ -5131,6 +5134,108 @@ void legacy_kern_shaping_matches_managed_policy() {
         glyphs[2U].advance_x == 570 && glyphs[2U].offset_x == -30);
 }
 
+void open_type_feature_tags_match_managed_sorted_union() {
+    const auto make_layout = [](
+        std::span<const open_type_tag> tags,
+        std::uint16_t declared_count) {
+        std::vector<std::byte> result(12U + tags.size() * 6U);
+        write_u16(result, 0U, 1U);
+        write_u16(result, 2U, 0U);
+        write_u16(result, 6U, 10U);
+        write_u16(result, 10U, declared_count);
+        for (std::size_t index = 0U; index < tags.size(); ++index) {
+            const auto record = 12U + index * 6U;
+            write_u32(result, record, tags[index].value);
+            write_u16(result, record + 4U, 0U);
+        }
+        return result;
+    };
+    constexpr auto kern = open_type_tag::from_chars('k', 'e', 'r', 'n');
+    constexpr auto liga = open_type_tag::from_chars('l', 'i', 'g', 'a');
+    constexpr auto mark = open_type_tag::from_chars('m', 'a', 'r', 'k');
+    constexpr std::array gsub_tags{liga, kern};
+    constexpr std::array gpos_tags{mark, kern};
+    const std::array tables{
+        table_data{open_type_tag::from_chars('G', 'S', 'U', 'B'),
+            make_layout(gsub_tags, 2U)},
+        table_data{open_type_tag::from_chars('G', 'P', 'O', 'S'),
+            make_layout(gpos_tags, 4U)}};
+    const auto data = make_font(
+        0U, 22U, 0U, false, false, false, tables);
+    sfnt_font_view font{};
+    font_error error = font_error::invalid_argument;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+    open_type_feature_tag_requirements requirements{};
+    require(try_get_open_type_feature_tag_requirements(
+        font, requirements, &error));
+    require(error == font_error::none && requirements.tag_capacity == 3U);
+    std::array<open_type_tag, 3U> output{};
+    std::uint32_t written = 99U;
+    require(try_decode_open_type_feature_tags(
+        font, output, written, &error));
+    require(written == 3U && output[0U] == kern && output[1U] == liga &&
+        output[2U] == mark);
+
+    std::array<open_type_tag, 2U> short_output{
+        open_type_tag{0x11111111U}, open_type_tag{0x22222222U}};
+    written = 99U;
+    require(!try_decode_open_type_feature_tags(
+        font, short_output, written, &error));
+    require(error == font_error::insufficient_buffer && written == 0U &&
+        short_output[0U].value == 0x11111111U &&
+        short_output[1U].value == 0x22222222U);
+
+    const auto empty_data = make_font();
+    require(sfnt_font_view::try_create(empty_data, 0U, font, &error));
+    require(try_get_open_type_feature_tag_requirements(
+        font, requirements, &error));
+    require(requirements.tag_capacity == 0U);
+    written = 99U;
+    require(try_decode_open_type_feature_tags(
+        font, {}, written, &error));
+    require(written == 0U && error == font_error::none);
+
+    std::ifstream stream(PROGPU_NATIVE_TEST_INTER_FONT, std::ios::binary);
+    require(stream.good());
+    const std::vector<char> source{
+        std::istreambuf_iterator<char>(stream),
+        std::istreambuf_iterator<char>()};
+    std::vector<std::byte> inter_data(source.size());
+    for (std::size_t index = 0U; index < source.size(); ++index) {
+        inter_data[index] = static_cast<std::byte>(source[index]);
+    }
+    require(sfnt_font_view::try_create(inter_data, 0U, font, &error));
+    require(try_get_open_type_feature_tag_requirements(
+        font, requirements, &error));
+    std::vector<open_type_tag> inter_tags(requirements.tag_capacity);
+    require(try_decode_open_type_feature_tags(
+        font, inter_tags, written, &error));
+    require(written == inter_tags.size() &&
+        std::is_sorted(
+            inter_tags.begin(), inter_tags.end(),
+            [](open_type_tag left, open_type_tag right) {
+                return left.value < right.value;
+            }));
+    constexpr std::array managed_documented{
+        open_type_tag::from_chars('a', 'a', 'l', 't'),
+        open_type_tag::from_chars('c', 'a', 'l', 't'),
+        open_type_tag::from_chars('c', 'c', 'm', 'p'),
+        open_type_tag::from_chars('c', 'v', '1', '4'),
+        open_type_tag::from_chars('f', 'r', 'a', 'c'),
+        open_type_tag::from_chars('k', 'e', 'r', 'n'),
+        open_type_tag::from_chars('m', 'a', 'r', 'k'),
+        open_type_tag::from_chars('m', 'k', 'm', 'k'),
+        open_type_tag::from_chars('s', 's', '0', '8'),
+        open_type_tag::from_chars('z', 'e', 'r', 'o')};
+    for (const auto expected : managed_documented) {
+        require(std::binary_search(
+            inter_tags.begin(), inter_tags.end(), expected,
+            [](open_type_tag left, open_type_tag right) {
+                return left.value < right.value;
+            }));
+    }
+}
+
 void variation_selector_cmap_is_borrowed_and_bounded() {
     const std::array<table_data, 1U> tables{
         table_data{
@@ -7374,6 +7479,7 @@ int main() {
     standalone_sfnt_snapshot_matches_managed_contract();
     vertical_font_metrics_and_shaping_match_managed_policy();
     legacy_kern_shaping_matches_managed_policy();
+    open_type_feature_tags_match_managed_sorted_union();
     variation_selector_cmap_is_borrowed_and_bounded();
     variation_axes_are_borrowed_bounded_and_transactional();
     font_style_variations_match_managed_font_manager_policy();

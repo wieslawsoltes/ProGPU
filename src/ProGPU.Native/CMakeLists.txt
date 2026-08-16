@@ -563,6 +563,7 @@ add_library(progpu_native_text STATIC
     src/Text/progpu_native_unicode_normalization.cpp
     src/Text/Shaping/progpu_native_open_type_layout.cpp
     src/Text/Shaping/progpu_native_open_type_features.cpp
+    src/Text/Shaping/progpu_native_open_type_feature_tags.cpp
     src/Text/Shaping/progpu_native_open_type_feature_values.cpp
     src/Text/Shaping/progpu_native_open_type_feature_values_internal.hpp
     src/Text/Shaping/progpu_native_open_type_gdef.cpp

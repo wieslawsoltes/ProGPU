@@ -814,6 +814,17 @@ or heap allocation is added per pair. Synthetic fixtures cover Microsoft and
 Apple headers, both formats, cross-stream positioning, GPOS suppression, GDEF
 mark skipping, explicit disable, and negative odd adjustments.
 
+OpenType feature discovery now directly ports the ProGPU-owned
+`OpenTypeTextShaper.GetFeatureTags`/`AddRawFeatureTags` behavior from checkpoint
+`064260fe`. The native two-pass API walks borrowed GSUB and GPOS feature
+records, tolerates truncated trailing records like the managed reader,
+deduplicates tags across both tables, and writes the same ordinally sorted
+union into caller-owned storage. Exact sizing is `O(F^2)` time and `O(1)`
+storage for `F` feature records; population is `O(F * U + U log U)` for `U`
+unique tags with no heap allocation. Synthetic fixtures cover cross-table
+duplicates, sorting, missing tables, malformed trailing declarations, and
+transactional insufficient output.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

@@ -212,6 +212,21 @@ struct shaping_feature final {
     }
 };
 
+struct open_type_feature_tag_requirements final {
+    std::uint32_t tag_capacity = 0U;
+};
+
+bool try_get_open_type_feature_tag_requirements(
+    const sfnt_font_view& font,
+    open_type_feature_tag_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_decode_open_type_feature_tags(
+    const sfnt_font_view& font,
+    std::span<open_type_tag> output,
+    std::uint32_t& written,
+    font_error* error = nullptr) noexcept;
+
 /*
  * The native equivalent of ProGPU.Text.Shaping.ShapingGlyph. Its fixed
  * value-only layout is suitable for bulk managed/native transfer and direct
