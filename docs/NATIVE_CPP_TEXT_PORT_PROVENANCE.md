@@ -811,6 +811,20 @@ Synthetic missing-metric and vertical-shaping cases plus production variable
 font coverage protect the shared metric path. Raw `gvar` phantom advances
 remain an explicit later variation-parity slice when no HVAR table exists.
 
+Fallback mark placement now has a direct allocation-free native port of the
+ProGPU-owned `GlyphPositionBuffer.ApplyFallbackMarkPositioning` algorithm from
+checkpoint `2b871936`. The caller-owned transient metadata span preserves
+prior-positioned marks and ligature component/count state without expanding or
+forking the stable 32-byte shaped-glyph wire record. The implementation keeps
+the same modified-combining-class recategorization, top/bottom/left/right and
+center alignment, one-sixteenth-em vertical gap, same-class stacking,
+directional advance compensation, component subdivision, and unsafe-boundary
+flags. Work is `O(G * T)` over `G` glyphs and `T` borrowed face tables with
+`O(1)` internal storage and no allocation. Synthetic stacked, prior-positioned,
+ligature-component, and failure-transaction cases cover the new API. Full-run
+integration will next carry transient metadata through GSUB/GPOS; CFF and
+active-variable outline extents remain the adjacent bounds parity slice.
+
 Legacy kerning fallback now directly ports the ProGPU-owned
 `GlyphPositionBuffer.ApplyLegacyKern` policy from checkpoint `34b76eeb`.
 The adjacent `sfnt_font_view::try_get_design_kerning` query separately mirrors

@@ -811,6 +811,29 @@ struct shaping_attachment final {
     std::uint8_t reserved2 = 0U;
 };
 
+/* Transient metadata used only while reproducing managed fallback mark
+ * placement. It is deliberately separate from the stable 32-byte glyph wire
+ * record and remains caller-owned for the duration of one shaping run. */
+struct fallback_mark_metadata final {
+    std::uint8_t ligature_component_count = 0U;
+    std::uint8_t ligature_component = 0xFFU;
+    bool positioned = false;
+};
+
+/*
+ * Direct native counterpart of GlyphPositionBuffer fallback mark placement.
+ * Glyph positions are updated in place in O(G * T) time for G glyphs and T
+ * borrowed table records, with O(1) internal storage. An empty metadata span
+ * means no prior GPOS placement or ligature-component annotations.
+ */
+bool try_apply_fallback_mark_positioning(
+    const sfnt_font_view& font,
+    std::span<shaping_glyph> glyphs,
+    shaping_direction direction,
+    std::span<const fallback_mark_metadata> metadata = {},
+    std::span<const std::int16_t> normalized_coordinates = {},
+    font_error* error = nullptr) noexcept;
+
 struct open_type_gpos_apply_options final {
     const open_type_gdef_view* gdef = nullptr;
     shaping_direction direction = shaping_direction::left_to_right;

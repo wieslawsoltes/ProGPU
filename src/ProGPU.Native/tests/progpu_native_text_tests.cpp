@@ -85,6 +85,8 @@ using progpu::native::text::shaping_attachment;
 using progpu::native::text::shaping_attachment_kind;
 using progpu::native::text::try_apply_open_type_gpos_lookup;
 using progpu::native::text::try_resolve_open_type_attachments;
+using progpu::native::text::fallback_mark_metadata;
+using progpu::native::text::try_apply_fallback_mark_positioning;
 using progpu::native::text::open_type_shape_run_options;
 using progpu::native::text::open_type_complex_script;
 using progpu::native::text::open_type_shape_run_scratch;
@@ -4989,6 +4991,78 @@ void horizontal_font_metrics_match_managed_policy() {
     require(error == font_error::invalid_face && advance == 0.0F);
 }
 
+void fallback_mark_positioning_matches_managed_policy() {
+    const auto data = make_font();
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+
+    std::array<shaping_glyph, 3U> glyphs{
+        shaping_glyph{4U, 0x41U, 0, {}, 600, 0, 0, 0},
+        shaping_glyph{4U, 0x0301U, 1, {}, 600, 0, 0, 0},
+        shaping_glyph{4U, 0x0301U, 1, {}, 600, 0, 0, 0}};
+    require(try_apply_fallback_mark_positioning(
+        font, glyphs, shaping_direction::left_to_right, {}, {}, &error));
+    require(error == font_error::none);
+    require(glyphs[0U].advance_x == 600 && glyphs[0U].offset_x == 0);
+    require(glyphs[1U].advance_x == 0 && glyphs[1U].advance_y == 0 &&
+        glyphs[1U].offset_x == -320 && glyphs[1U].offset_y == 102);
+    require(glyphs[2U].advance_x == 0 && glyphs[2U].advance_y == 0 &&
+        glyphs[2U].offset_x == -320 && glyphs[2U].offset_y == 204);
+    constexpr auto dependencies =
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break) |
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_concat);
+    require((static_cast<std::uint32_t>(glyphs[1U].flags) & dependencies) ==
+        dependencies);
+
+    glyphs = {
+        shaping_glyph{4U, 0x41U, 0, {}, 600, 0, 0, 0},
+        shaping_glyph{4U, 0x0301U, 0, {}, 0, 0, 7, 9},
+        shaping_glyph{4U, 0x0301U, 0, {}, 0, 0, 0, 0}};
+    const std::array<fallback_mark_metadata, 3U> positioned{
+        fallback_mark_metadata{},
+        fallback_mark_metadata{0U, 0xFFU, true},
+        fallback_mark_metadata{}};
+    require(try_apply_fallback_mark_positioning(
+        font,
+        glyphs,
+        shaping_direction::left_to_right,
+        positioned,
+        {},
+        &error));
+    require(glyphs[1U].offset_x == 7 && glyphs[1U].offset_y == 9);
+    require(glyphs[2U].offset_x == -320 && glyphs[2U].offset_y == 102);
+
+    glyphs = {
+        shaping_glyph{4U, 0x41U, 0, {}, 600, 0, 0, 0},
+        shaping_glyph{4U, 0x0301U, 0, {}, 0, 0, 0, 0},
+        shaping_glyph{4U, 0x0301U, 0, {}, 0, 0, 0, 0}};
+    const std::array<fallback_mark_metadata, 3U> ligature_components{
+        fallback_mark_metadata{2U, 0xFFU, false},
+        fallback_mark_metadata{0U, 0U, false},
+        fallback_mark_metadata{0U, 1U, false}};
+    require(try_apply_fallback_mark_positioning(
+        font,
+        glyphs,
+        shaping_direction::left_to_right,
+        ligature_components,
+        {},
+        &error));
+    require(glyphs[1U].offset_x == -470 && glyphs[1U].offset_y == 102);
+    require(glyphs[2U].offset_x == -170 && glyphs[2U].offset_y == 102);
+
+    require(!try_apply_fallback_mark_positioning(
+        font,
+        glyphs,
+        shaping_direction::left_to_right,
+        std::span<const fallback_mark_metadata>{ligature_components}.first(2U),
+        {},
+        &error));
+    require(error == font_error::invalid_argument &&
+        glyphs[1U].offset_x == -470 && glyphs[1U].offset_y == 102 &&
+        glyphs[2U].offset_x == -170 && glyphs[2U].offset_y == 102);
+}
+
 void legacy_kern_shaping_matches_managed_policy() {
     constexpr auto kern = open_type_tag::from_chars('k', 'e', 'r', 'n');
     const auto make_format_zero = [](
@@ -7595,6 +7669,7 @@ int main() {
     standalone_sfnt_snapshot_matches_managed_contract();
     vertical_font_metrics_and_shaping_match_managed_policy();
     horizontal_font_metrics_match_managed_policy();
+    fallback_mark_positioning_matches_managed_policy();
     legacy_kern_shaping_matches_managed_policy();
     open_type_feature_tags_match_managed_sorted_union();
     variation_selector_cmap_is_borrowed_and_bounded();
