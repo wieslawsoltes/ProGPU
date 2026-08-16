@@ -619,6 +619,9 @@ add_library(progpu_native_text STATIC
     src/Text/progpu_native_cpal.cpp
     src/Text/progpu_native_colr_internal.hpp
     src/Text/progpu_native_svg_glyph.cpp
+    src/Text/progpu_native_svg_arc.cpp
+    src/Text/progpu_native_svg_path.cpp
+    src/Text/progpu_native_svg_path_internal.hpp
     src/Text/progpu_native_woff1.cpp
     src/Text/progpu_native_sfnt.cpp
     src/Text/progpu_native_true_type_composite.cpp
@@ -650,6 +653,7 @@ progpu_native_enable_sanitizers(progpu_native_text)
 add_library(progpu_native_scene_builder STATIC
     src/Scene/Builder/progpu_native_scene_builder.cpp
     src/Scene/Builder/progpu_native_scene_builder_3d.cpp
+    src/Scene/Builder/progpu_native_scene_builder_brush.cpp
     src/Scene/Builder/progpu_native_scene_builder_geometry.cpp
     src/Scene/Builder/progpu_native_scene_builder_glyph.cpp
     src/Scene/Builder/progpu_native_scene_builder_image.cpp

@@ -753,6 +753,8 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_builder_is_deterministic_and_valid());
     require(progpu::native::tests::
+        semantic_scene_builder_records_general_brushes());
+    require(progpu::native::tests::
         semantic_scene_builder_rejects_invalid_state());
     require(progpu::native::tests::
         semantic_scene_builder_reuses_retained_images());

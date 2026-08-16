@@ -74,6 +74,10 @@ public:
         progpu_native_color color,
         float opacity,
         std::uint32_t& brush_index) noexcept;
+    bool add_brush(
+        const progpu_native_scene_brush& brush,
+        std::span<const progpu_native_scene_gradient_stop> gradient_stops,
+        std::uint32_t& brush_index) noexcept;
     bool add_state(
         const progpu_native_scene_state& state,
         std::uint32_t& resource_index) noexcept;

@@ -35,6 +35,7 @@ struct semantic_scene_builder::implementation final {
     std::vector<resource_entry> resources{};
     std::vector<command_entry> commands{};
     std::vector<progpu_native_scene_brush> brushes{};
+    std::vector<progpu_native_scene_gradient_stop> gradient_stops{};
     std::vector<progpu_native_scene_text_style> text_styles{};
     std::uint32_t brush_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
     std::uint32_t text_style_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;

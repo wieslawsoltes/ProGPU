@@ -209,6 +209,81 @@ bool semantic_scene_builder_is_deterministic_and_valid() {
         path_resource.auxiliary_size == sizeof(path_segments);
 }
 
+bool semantic_scene_builder_records_general_brushes() {
+    semantic_scene_builder builder(710U, 2U);
+    progpu_native_scene_brush linear{};
+    linear.type = PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT;
+    linear.opacity = 0.8F;
+    linear.start_point = {0.0F, 0.0F};
+    linear.end_point = {100.0F, 0.0F};
+    linear.stop_count = 3U;
+    linear.coordinate_transform0[0] = 1.0F;
+    linear.coordinate_transform1[1] = 1.0F;
+    const std::array stops{
+        progpu_native_scene_gradient_stop{
+            {1.0F, 0.0F, 0.0F, 1.0F}, 0.0F, 0U, 0U, 0U},
+        progpu_native_scene_gradient_stop{
+            {0.0F, 1.0F, 0.0F, 0.75F}, 0.4F, 0U, 0U, 0U},
+        progpu_native_scene_gradient_stop{
+            {0.0F, 0.0F, 1.0F, 1.0F}, 1.0F, 0U, 0U, 0U}};
+    std::uint32_t brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_brush(linear, stops, brush) || brush != 0U) {
+        return false;
+    }
+    std::uint32_t solid = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_solid_brush(
+            {1.0F, 0.0F, 0.0F, 1.0F}, 0.8F, solid) ||
+        solid == brush) {
+        return false;
+    }
+    const progpu_native_analytic_primitive primitive{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        0.0F,
+        0.0F,
+        100.0F,
+        20.0F,
+        0.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        semantic_scene_builder::identity_transform()};
+    if (!builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(&primitive, 1U),
+            std::span<const std::uint32_t>(&brush, 1U),
+            {0.0F, 0.0F, 100.0F, 20.0F})) {
+        return false;
+    }
+    std::vector<std::byte> stream;
+    if (!builder.build(stream)) {
+        return false;
+    }
+    const auto validated = scene::validate(stream.data(), stream.size());
+    if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        validated.header.resource_count != 2U) {
+        return false;
+    }
+    const auto resource = read<progpu_native_scene_resource>(
+        stream, validated.header.resource_offset);
+    const auto stored_linear = read<progpu_native_scene_brush>(
+        stream, resource.payload_offset);
+    const auto stored_stop = read<progpu_native_scene_gradient_stop>(
+        stream, resource.auxiliary_offset + sizeof(stops[0U]));
+    if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE ||
+        resource.payload_size != 2U * sizeof(progpu_native_scene_brush) ||
+        resource.auxiliary_size != stops.size() * sizeof(stops[0U]) ||
+        stored_linear.stop_offset != 0U ||
+        stored_stop.offset != 0.4F || stored_stop.color.g != 1.0F) {
+        return false;
+    }
+
+    semantic_scene_builder invalid(711U, 1U);
+    auto unsorted = stops;
+    unsorted[1U].offset = -1.0F;
+    unsorted[2U].offset = -2.0F;
+    return !invalid.add_brush(linear, unsorted, brush) &&
+        invalid.last_error() == scene_build_error::invalid_argument;
+}
+
 bool semantic_scene_builder_rejects_invalid_state() {
     semantic_scene_builder builder(702U, 1U);
     auto state = semantic_scene_builder::identity_state();

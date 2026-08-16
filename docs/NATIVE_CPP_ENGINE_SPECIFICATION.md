@@ -1125,7 +1125,12 @@ ordered semantic layers now own bounded backdrop input.
 ### Tranche D — native scene and platform integration
 
 - the first standalone C++20 semantic scene-builder slice is implemented as
-  `progpu_native_scene_builder`: it records/deduplicates solid brushes,
+  `progpu_native_scene_builder`: it records/deduplicates solid brushes and
+  accepts the renderer's canonical linear, radial, two-point conical, sweep,
+  hatch, cross-hatch, and Perlin brush records with caller-owned gradient/table
+  spans. It validates the complete material transaction before appending,
+  rewrites local stop offsets into one retained scene-wide auxiliary page, and
+  exposes the same API through the header and named module. It also records
   transform/opacity/rectangle-clip states, balanced save/restore scopes,
   analytic batches, general geometry primitives, and connected polyline/NURBS
   strokes with canonical point/knot/weight/dash arenas, plus retained path

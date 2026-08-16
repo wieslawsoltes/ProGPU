@@ -232,7 +232,14 @@ and SVG gzip framing remain separate consumers rather than being folded into
 the zlib decoder. The same compression module now exposes a bounded RFC 1952
 single-member gzip decoder with optional extra/name/comment/header-CRC parsing,
 payload CRC-32 and output-size validation. OpenType SVG document views use that
-path directly; uncompressed SVG remains a bounded caller-buffer copy.
+path directly; uncompressed SVG remains a bounded caller-buffer copy. The
+native text module also compiles SVG path data directly to the canonical
+retained path ABI. Its two-pass caller-buffer surface matches the managed
+`PathGeometry.Parse` and fill compiler for `M/L/H/V/Q/T/C/S/A/Z`, implicit and
+relative commands, figure closure, resolved elliptical arcs, and control/arc
+bounds. Parsing is `O(B + S)` time and `O(1)` internal storage for input bytes
+`B` and output segments `S`; OpenType-SVG XML element, reference, and paint
+lowering remains the next native parity slice.
 
 The first consumer is the standalone `progpu_native_image` C++20 library and
 `progpu.native.image` module. Its dependency-free PNG path validates the
@@ -257,7 +264,7 @@ table before touching the destination, then writes the canonical SFNT directory
 and aligned table payloads. Work is `O(T + I + O)` with `O(M)` caller scratch
 for tables `T`, compressed bytes `I`, output bytes `O`, and largest compressed
 table result `M`; the implementation has no heap or platform codec dependency.
-WOFF2 remains explicitly unsupported pending the bounded Brotli/transform slice.
+WOFF2 remains explicitly unsupported, matching the managed container contract.
 
 The same text library now opens borrowed CFF2 tables with uint32 INDEX counts,
 required TopDICT/FontDICT/PrivateDICT ownership, optional FDSelect, and a
@@ -628,6 +635,14 @@ NuGet into an isolated directory, configures a source-independent CMake
 consumer, links a scene builder, and executes a pointer-free scene build.
 Ordinary `cmake --install` produces the equivalent include/lib/CMake/module
 layout for consumers that do not use NuGet.
+
+The standalone builder accepts both convenience solid brushes and canonical
+native brush records for every renderer-supported material family. Gradient
+and exact Perlin table records are copied once from a caller span into one
+scene-wide retained stop page; local stop offsets are rewritten transactionally
+and stable replay performs no material upload after the scene generation is
+compiled. Header and `progpu.native.scene_builder` import consumers exercise
+the same implementation.
 
 Build the provider-resolved mobile C++ adapter without linking a private Dawn
 copy:

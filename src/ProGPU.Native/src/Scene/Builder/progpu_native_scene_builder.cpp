@@ -2,6 +2,7 @@
 #include "progpu_native_scene_builder_internal.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <limits>
 #include <new>
@@ -9,11 +10,9 @@
 
 namespace progpu::native {
 using scene_builder_detail::copy_bytes;
-using scene_builder_detail::finite_color;
 using scene_builder_detail::finite_primitive;
 using scene_builder_detail::finite_rect;
 using scene_builder_detail::finite_transform;
-using scene_builder_detail::same_color;
 
 namespace {
 
@@ -75,6 +74,7 @@ bool semantic_scene_builder::reset(
     implementation_->resources.clear();
     implementation_->commands.clear();
     implementation_->brushes.clear();
+    implementation_->gradient_stops.clear();
     implementation_->text_styles.clear();
     implementation_->brush_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
     implementation_->text_style_resource_index =
@@ -111,75 +111,6 @@ bool semantic_scene_builder::set_resource_identity(
     resource.generation = generation;
     implementation_->error = scene_build_error::none;
     return true;
-}
-
-bool semantic_scene_builder::add_solid_brush(
-    progpu_native_color color,
-    float opacity,
-    std::uint32_t& brush_index) noexcept {
-    brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-    if (!finite_color(color) || !std::isfinite(opacity) ||
-        opacity < 0.0F || opacity > 1.0F) {
-        return implementation_->fail(scene_build_error::invalid_argument);
-    }
-    for (std::uint32_t index = 0U;
-         index < implementation_->brushes.size();
-         ++index) {
-        const auto& existing = implementation_->brushes[index];
-        if (same_color(existing.colors[0], color) &&
-            std::bit_cast<std::uint32_t>(existing.opacity) ==
-                std::bit_cast<std::uint32_t>(opacity)) {
-            brush_index = index;
-            implementation_->error = scene_build_error::none;
-            return true;
-        }
-    }
-    if (implementation_->brushes.size() >=
-        PROGPU_NATIVE_SCENE_MAX_BRUSHES) {
-        return implementation_->fail(scene_build_error::capacity_exceeded);
-    }
-    try {
-        if (implementation_->brush_resource_index ==
-            PROGPU_NATIVE_SCENE_NO_INDEX) {
-            if (implementation_->resources.size() >=
-                PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
-                return implementation_->fail(
-                    scene_build_error::capacity_exceeded);
-            }
-            implementation_->resources.reserve(
-                implementation_->resources.size() + 1U);
-            implementation_->brushes.reserve(
-                implementation_->brushes.size() + 1U);
-            implementation::resource_entry resource{};
-            resource.record.struct_size = sizeof(resource.record);
-            resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE;
-            resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
-            resource.record.resource_id = implementation_->resources.size() + 1U;
-            resource.record.generation = implementation_->generation;
-            resource.brush_table = true;
-            implementation_->brush_resource_index =
-                static_cast<std::uint32_t>(implementation_->resources.size());
-            implementation_->resources.push_back(std::move(resource));
-        } else {
-            implementation_->brushes.reserve(
-                implementation_->brushes.size() + 1U);
-        }
-        progpu_native_scene_brush brush{};
-        brush.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
-        brush.opacity = opacity;
-        brush.colors[0] = color;
-        brush.coordinate_transform0[0] = 1.0F;
-        brush.coordinate_transform1[1] = 1.0F;
-        brush_index = static_cast<std::uint32_t>(
-            implementation_->brushes.size());
-        implementation_->brushes.push_back(brush);
-        implementation_->error = scene_build_error::none;
-        return true;
-    } catch (const std::bad_alloc&) {
-        return implementation_->fail(scene_build_error::out_of_memory);
-    } catch (...) {
-        return implementation_->fail(scene_build_error::invalid_state);
-    }
 }
 
 bool semantic_scene_builder::add_state(
@@ -453,6 +384,7 @@ bool semantic_scene_builder::build(
             const auto& source = implementation_->resources[index];
             auto resource = source.record;
             std::vector<std::byte> brush_payload{};
+            std::vector<std::byte> brush_auxiliary{};
             std::vector<std::byte> text_style_payload{};
             const std::vector<std::byte>* payload = &source.payload;
             if (source.brush_table) {
@@ -461,6 +393,10 @@ bool semantic_scene_builder::build(
                     implementation_->brushes.data(),
                     implementation_->brushes.size()));
                 payload = &brush_payload;
+                brush_auxiliary = copy_bytes(
+                    std::span<const progpu_native_scene_gradient_stop>(
+                        implementation_->gradient_stops.data(),
+                        implementation_->gradient_stops.size()));
             } else if (source.text_style_table) {
                 text_style_payload = copy_bytes(
                     std::span<const progpu_native_scene_text_style>(
@@ -473,15 +409,21 @@ bool semantic_scene_builder::build(
                     payload->size(),
                     resource.payload_offset) ||
                 !append(
-                    source.auxiliary.data(),
-                    source.auxiliary.size(),
+                    source.brush_table
+                        ? brush_auxiliary.data()
+                        : source.auxiliary.data(),
+                    source.brush_table
+                        ? brush_auxiliary.size()
+                        : source.auxiliary.size(),
                     resource.auxiliary_offset)) {
                 implementation_->error = scene_build_error::capacity_exceeded;
                 return false;
             }
             resource.payload_size = static_cast<std::uint32_t>(payload->size());
             resource.auxiliary_size = static_cast<std::uint32_t>(
-                source.auxiliary.size());
+                source.brush_table
+                    ? brush_auxiliary.size()
+                    : source.auxiliary.size());
             resources[index] = resource;
         }
         for (std::uint32_t index = 0U; index < command_count; ++index) {

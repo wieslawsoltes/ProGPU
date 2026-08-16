@@ -89,6 +89,12 @@ int main() {
         written != 2U) {
         return 1;
     }
+    progpu::native::text::svg_path_requirements svg_path{};
+    if (!progpu::native::text::try_get_svg_path_requirements(
+            "M0 0L4 0L4 4Z", svg_path) ||
+        svg_path.segment_count != 3U) {
+        return 1;
+    }
     return tag.value == 0x636D6170U &&
         latin_script.value == 0x6C61746EU &&
         shaping_glyph.advance_x == 600 ? 0 : 1;

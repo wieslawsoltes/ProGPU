@@ -151,8 +151,11 @@ using progpu::native::text::sfnt_cff2_top_dictionary;
 using progpu::native::text::sfnt_bitmap_glyph_data_view;
 using progpu::native::text::sfnt_color_glyph_layer;
 using progpu::native::text::sfnt_svg_glyph_document_view;
+using progpu::native::text::svg_path_requirements;
+using progpu::native::text::try_decode_svg_path;
 using progpu::native::text::try_decode_svg_glyph_document;
 using progpu::native::text::try_get_svg_glyph_document_size;
+using progpu::native::text::try_get_svg_path_requirements;
 using progpu::native::text::sfnt_expanded_glyph_requirements;
 using progpu::native::text::sfnt_font_view;
 using progpu::native::text::sfnt_glyph_data_view;
@@ -5088,6 +5091,86 @@ void svg_glyph_documents_remain_borrowed_and_bounded() {
     }
 }
 
+void svg_path_data_matches_managed_canonical_segments() {
+    constexpr std::string_view path =
+        "F0 M 10,10 l 20,0 v 20 h -20 z "
+        "M40 10 Q50 0 60 10 T80 10 "
+        "C90 0 100 20 110 10 S130 20 140 10 "
+        "A15 10 30 0 1 170 20 Z";
+    svg_path_requirements requirements{};
+    font_error error = font_error::none;
+    require(try_get_svg_path_requirements(
+        path, requirements, &error));
+    require(error == font_error::none);
+    require(requirements.segment_count == 10U);
+    require(requirements.fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD);
+    require(requirements.minimum_x <= 10.0F &&
+        requirements.minimum_y <= 0.0F &&
+        requirements.maximum_x >= 170.0F &&
+        requirements.maximum_y >= 20.0F);
+
+    std::vector<progpu_native_path_segment> segments(
+        requirements.segment_count);
+    svg_path_requirements decoded{};
+    require(try_decode_svg_path(path, segments, decoded, &error));
+    require(error == font_error::none);
+    require(decoded.segment_count == requirements.segment_count);
+    require(segments[0U].kind == PROGPU_NATIVE_PATH_SEGMENT_LINE &&
+        segments[0U].p0.x == 10.0F && segments[0U].p0.y == 10.0F &&
+        segments[0U].p1.x == 30.0F && segments[0U].p1.y == 10.0F);
+    require(segments[3U].kind == PROGPU_NATIVE_PATH_SEGMENT_LINE &&
+        segments[3U].p1.x == 10.0F && segments[3U].p1.y == 10.0F);
+    require(segments[4U].kind == PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC &&
+        segments[5U].kind == PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC);
+    require(segments[5U].p1.x == 70.0F &&
+        segments[5U].p1.y == 20.0F);
+    require(segments[6U].kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC &&
+        segments[7U].kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC);
+    require(segments[7U].p1.x == 120.0F &&
+        segments[7U].p1.y == 0.0F);
+    require(segments[8U].kind == PROGPU_NATIVE_PATH_SEGMENT_ARC);
+    require(std::isfinite(std::bit_cast<float>(segments[8U].pad0)) &&
+        std::isfinite(std::bit_cast<float>(segments[8U].pad1)) &&
+        std::isfinite(std::bit_cast<float>(segments[8U].pad2)));
+    require(segments[9U].kind == PROGPU_NATIVE_PATH_SEGMENT_LINE &&
+        segments[9U].p1.x == 40.0F && segments[9U].p1.y == 10.0F);
+}
+
+void svg_path_decode_is_transactional_and_bounded() {
+    constexpr std::string_view path = "M0 0 L10 0 10 10 0 10 Z";
+    svg_path_requirements requirements{};
+    font_error error = font_error::none;
+    require(try_get_svg_path_requirements(
+        path, requirements, &error));
+    require(requirements.segment_count == 4U);
+
+    std::array<progpu_native_path_segment, 3U> short_output{};
+    short_output[0U].p0 = {123.0F, 456.0F};
+    require(!try_decode_svg_path(
+        path, short_output, requirements, &error));
+    require(error == font_error::insufficient_buffer &&
+        requirements.segment_count == 4U &&
+        short_output[0U].p0.x == 123.0F &&
+        short_output[0U].p0.y == 456.0F);
+
+    constexpr std::string_view malformed = "M0 0 C 1 2 3";
+    require(!try_get_svg_path_requirements(
+        malformed, requirements, &error));
+    require(error == font_error::invalid_glyph &&
+        requirements.segment_count == 0U);
+
+    constexpr std::string_view degenerate_arc =
+        "M0 0 A0 0 0 0 1 10 0";
+    require(try_get_svg_path_requirements(
+        degenerate_arc, requirements, &error));
+    require(requirements.segment_count == 2U);
+    std::array<progpu_native_path_segment, 2U> arc_segments{};
+    require(try_decode_svg_path(
+        degenerate_arc, arc_segments, requirements, &error));
+    require(arc_segments[0U].kind == PROGPU_NATIVE_PATH_SEGMENT_LINE &&
+        arc_segments[1U].kind == PROGPU_NATIVE_PATH_SEGMENT_LINE);
+}
+
 void cbdt_index_and_image_formats_remain_borrowed_and_bounded() {
     for (std::uint16_t index_format = 1U; index_format <= 5U;
         ++index_format) {
@@ -6151,6 +6234,8 @@ int main() {
     cff2_indexes_blends_and_outlines_are_borrowed_and_bounded();
     sbix_strikes_and_duplicates_remain_borrowed();
     svg_glyph_documents_remain_borrowed_and_bounded();
+    svg_path_data_matches_managed_canonical_segments();
+    svg_path_decode_is_transactional_and_bounded();
     cbdt_index_and_image_formats_remain_borrowed_and_bounded();
     colr_layers_and_cpal_palettes_are_transactional();
     production_noto_cff1_container_matches_sfnt_glyph_count();

@@ -529,9 +529,21 @@ parameters and directory records, and then decodes/copies each aligned table.
 The result is `O(T + I + O)` time with `O(M)` caller-owned scratch and no heap,
 for tables `T`, input/output bytes `I`/`O`, and maximum table result `M`.
 Malformed compressed data is transactional. Raw SFNT/TTC remains a bounded
-pass-through, while WOFF2 is rejected explicitly pending the native
-Brotli/transform slice. Legacy symbol-page tables, COLR version-1 paint graphs,
-and SVG vector lowering remain later phase work.
+pass-through, while WOFF2 is rejected explicitly in both managed and native
+implementations. Microsoft symbol cmap precedence and `F000` remapping are
+already matched. COLR version-0/CPAL matches the managed color-layer contract;
+COLR version-1 is outside the current managed parity surface.
+
+The first OpenType-SVG vector checkpoint ports ProGPU-owned
+`PathGeometry.Parse`, `PathAtlas.CompileFillPath`, and resolved-arc bounds to
+`progpu_native_svg_path.cpp`. The public C++20 header/module surface performs a
+full requirements pass before writing caller-owned canonical path segments,
+supports `M/L/H/V/Q/T/C/S/A/Z`, implicit and relative commands, figure closure,
+and the shared WPF fill prefix, and rejects malformed input transactionally.
+Work is `O(B + S)` time and `O(1)` internal storage for path bytes `B` and
+segments `S`. OpenType-SVG XML element/reference traversal plus solid and
+gradient paint lowering is the remaining native SVG parity slice; it will feed
+these records directly rather than construct an intermediate geometry graph.
 
 CFF2 container and variable-outline parity follows the WOFF1 checkpoint. It
 ports the proven ProGPU CFF path writer and Type 2 evaluator behind an explicit

@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string_view>
 
 namespace progpu::native::text {
 
@@ -1582,6 +1583,34 @@ struct sfnt_svg_glyph_document_view final {
     std::uint16_t last_glyph = 0U;
     bool gzip_compressed = false;
 };
+
+/*
+ * Allocation-free SVG path-data compilation shared by OpenType-SVG glyph
+ * lowering and standalone native text consumers. The requirements pass
+ * validates the complete path and reports the exact canonical segment count
+ * and managed-compatible control/arc bounds. Decode performs the same bounded
+ * pass into caller-owned storage and never partially writes on malformed input
+ * or a short destination.
+ */
+struct svg_path_requirements final {
+    std::size_t segment_count = 0U;
+    float minimum_x = 0.0F;
+    float minimum_y = 0.0F;
+    float maximum_x = 0.0F;
+    float maximum_y = 0.0F;
+    std::uint32_t fill_rule = PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+};
+
+bool try_get_svg_path_requirements(
+    std::string_view path_data,
+    svg_path_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_decode_svg_path(
+    std::string_view path_data,
+    std::span<progpu_native_path_segment> segments,
+    svg_path_requirements& result,
+    font_error* error = nullptr) noexcept;
 
 bool try_decode_svg_glyph_document(
     const sfnt_svg_glyph_document_view& document,
