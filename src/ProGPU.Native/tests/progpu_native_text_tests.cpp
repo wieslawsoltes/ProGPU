@@ -4907,6 +4907,88 @@ void vertical_font_metrics_and_shaping_match_managed_policy() {
     require(font.try_get_design_vertical_origin_y(4U, value) && value == 520);
 }
 
+void horizontal_font_metrics_match_managed_policy() {
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    float advance = 0.0F;
+    const auto normal_data = make_font();
+    require(sfnt_font_view::try_create(normal_data, 0U, font, &error));
+    require(font.try_get_design_advance_width(4U, {}, advance, &error));
+    require(error == font_error::none && advance == 600.0F);
+
+    table_data missing_metrics_header{
+        open_type_tag::from_chars('h', 'h', 'e', 'a'),
+        std::vector<std::byte>(36U)};
+    write_i16(missing_metrics_header.bytes, 4U, 800);
+    write_i16(missing_metrics_header.bytes, 6U, -200);
+    const std::array<table_data, 1U> missing_metrics{
+        missing_metrics_header};
+    const auto fallback_data = make_font(
+        0U, 22U, 0U, false, false, false, missing_metrics);
+    require(sfnt_font_view::try_create(fallback_data, 0U, font, &error));
+    require(font.try_get_design_advance_width(4U, {}, advance, &error));
+    require(error == font_error::none && advance == 500.0F);
+
+    constexpr std::array mappings{std::pair{0x41U, 4U}};
+    const auto cmap = make_cmap_groups(mappings);
+    const auto fallback_shape_data = make_font(
+        0U,
+        22U,
+        0U,
+        false,
+        false,
+        false,
+        missing_metrics,
+        cmap);
+    require(sfnt_font_view::try_create(
+        fallback_shape_data, 0U, font, &error));
+    const std::array<unicode_scalar, 1U> input{
+        unicode_scalar{0x41U, 0U, 1U}};
+    open_type_shape_run_requirements requirements{};
+    require(try_get_open_type_shape_run_requirements(
+        font, input, requirements, &error));
+    std::array<shaping_glyph, 3U> glyphs{};
+    std::array<unicode_grapheme_cluster, 1U> graphemes{};
+    std::array<shaping_attachment, 3U> attachments{};
+    std::array<std::uint8_t, 3U> states{};
+    std::uint32_t glyph_count = 0U;
+    open_type_shape_run_options options{
+        open_type_tag::from_chars('l', 'a', 't', 'n')};
+    require(try_shape_open_type_run(
+        font,
+        input,
+        options,
+        glyphs,
+        open_type_shape_run_scratch{
+            graphemes, {}, {}, attachments, states},
+        glyph_count,
+        &error));
+    require(glyph_count == 1U && glyphs[0U].advance_x == 500);
+    options.direction = shaping_direction::top_to_bottom;
+    require(try_shape_open_type_run(
+        font,
+        input,
+        options,
+        glyphs,
+        open_type_shape_run_scratch{
+            graphemes, {}, {}, attachments, states},
+        glyph_count,
+        &error));
+    require(glyph_count == 1U && glyphs[0U].offset_x == -250);
+
+    table_data truncated_hmtx{
+        open_type_tag::from_chars('h', 'm', 't', 'x'),
+        std::vector<std::byte>(1U)};
+    const std::array<table_data, 1U> malformed_metrics{truncated_hmtx};
+    const auto malformed_data = make_font(
+        0U, 22U, 0U, false, false, false, malformed_metrics);
+    require(sfnt_font_view::try_create(malformed_data, 0U, font, &error));
+    advance = 99.0F;
+    require(!font.try_get_design_advance_width(
+        4U, {}, advance, &error));
+    require(error == font_error::invalid_face && advance == 0.0F);
+}
+
 void legacy_kern_shaping_matches_managed_policy() {
     constexpr auto kern = open_type_tag::from_chars('k', 'e', 'r', 'n');
     const auto make_format_zero = [](
@@ -7005,6 +7087,14 @@ void production_inter_variable_font_matches_fvar_axes() {
         horizontal_advance_delta,
         uses_hvar));
     require(uses_hvar && horizontal_advance_delta == -28.0F);
+    sfnt_horizontal_glyph_metrics horizontal_metrics{};
+    require(font.try_get_horizontal_glyph_metrics(
+        397U, horizontal_metrics));
+    float varied_advance = 0.0F;
+    require(font.try_get_design_advance_width(
+        397U, optical_coordinates, varied_advance));
+    require(varied_advance ==
+        static_cast<float>(horizontal_metrics.advance_width) - 28.0F);
     float x_height_delta = 99.0F;
     bool has_x_height_record = false;
     require(font.try_get_metric_variation(
@@ -7504,6 +7594,7 @@ int main() {
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     standalone_sfnt_snapshot_matches_managed_contract();
     vertical_font_metrics_and_shaping_match_managed_policy();
+    horizontal_font_metrics_match_managed_policy();
     legacy_kern_shaping_matches_managed_policy();
     open_type_feature_tags_match_managed_sorted_union();
     variation_selector_cmap_is_borrowed_and_bounded();

@@ -2112,6 +2112,17 @@ public:
     bool try_get_horizontal_glyph_metrics(
         std::uint16_t glyph_index,
         sfnt_horizontal_glyph_metrics& result) const noexcept;
+    /*
+     * Returns the managed TtfFont.GetAdvanceWidth base/HVAR value in design
+     * units. Missing horizontal metrics use the authoritative half-em
+     * fallback; supplied normalized coordinates apply HVAR without retaining
+     * state. Raw gvar phantom fallback uses its caller-scratch API separately.
+     */
+    bool try_get_design_advance_width(
+        std::uint16_t glyph_index,
+        std::span<const std::int16_t> normalized_coordinates,
+        float& result,
+        font_error* error = nullptr) const noexcept;
     bool try_get_vertical_header_metrics(
         sfnt_vertical_header_metrics& result) const noexcept;
     bool try_get_vertical_glyph_metrics(

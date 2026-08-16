@@ -53,6 +53,15 @@ std::int32_t clamp_i16(std::int64_t value) noexcept {
         std::numeric_limits<std::int16_t>::max()));
 }
 
+std::int64_t round_to_even(float value) noexcept {
+    const auto lower = std::floor(value);
+    const auto fraction = value - lower;
+    if (fraction < 0.5F) return static_cast<std::int64_t>(lower);
+    if (fraction > 0.5F) return static_cast<std::int64_t>(lower + 1.0F);
+    return static_cast<std::int64_t>(
+        std::fmod(lower, 2.0F) == 0.0F ? lower : lower + 1.0F);
+}
+
 bool is_run_feature_enabled(
     const open_type_shape_run_options& options,
     open_type_tag tag) noexcept {
@@ -806,10 +815,16 @@ bool try_shape_open_type_run(
             return false;
         }
         std::uint16_t glyph = 0U;
-        sfnt_horizontal_glyph_metrics metrics{};
-        if (!font.try_get_glyph_index(scalar.code_point, glyph) ||
-            !font.try_get_horizontal_glyph_metrics(glyph, metrics)) {
+        float advance_width = 0.0F;
+        if (!font.try_get_glyph_index(scalar.code_point, glyph)) {
             set_error(error, font_error::invalid_face);
+            return false;
+        }
+        if (!font.try_get_design_advance_width(
+                glyph,
+                options.normalized_coordinates,
+                advance_width,
+                error)) {
             return false;
         }
     }
@@ -1154,11 +1169,12 @@ bool try_shape_open_type_run(
             set_error(error, font_error::invalid_glyph);
             return false;
         }
-        sfnt_horizontal_glyph_metrics metrics{};
-        if (!font.try_get_horizontal_glyph_metrics(
+        float advance_width = 0.0F;
+        if (!font.try_get_design_advance_width(
                 static_cast<std::uint16_t>(glyph_storage[index].glyph_id),
-                metrics)) {
-            set_error(error, font_error::invalid_face);
+                options.normalized_coordinates,
+                advance_width,
+                error)) {
             return false;
         }
         if (vertical) {
@@ -1176,25 +1192,11 @@ bool try_shape_open_type_run(
             glyph_storage[index].advance_x = 0;
             glyph_storage[index].advance_y = clamp_i16(-advance_height);
             glyph_storage[index].offset_x = clamp_i16(
-                -(static_cast<std::int32_t>(metrics.advance_width) / 2));
+                -(round_to_even(advance_width) / 2));
             glyph_storage[index].offset_y = clamp_i16(-origin_y);
         } else {
-            std::int64_t advance = metrics.advance_width;
-            if (!options.normalized_coordinates.empty()) {
-                float delta = 0.0F;
-                bool uses_hvar = false;
-                if (!font.try_get_horizontal_advance_variation(
-                        static_cast<std::uint16_t>(
-                            glyph_storage[index].glyph_id),
-                        options.normalized_coordinates,
-                        delta,
-                        uses_hvar,
-                        error)) {
-                    return false;
-                }
-                advance += static_cast<std::int64_t>(std::lround(delta));
-            }
-            glyph_storage[index].advance_x = clamp_i16(advance);
+            glyph_storage[index].advance_x = clamp_i16(
+                static_cast<std::int64_t>(std::lround(advance_width)));
             glyph_storage[index].advance_y = 0;
             glyph_storage[index].offset_x = 0;
             glyph_storage[index].offset_y = 0;

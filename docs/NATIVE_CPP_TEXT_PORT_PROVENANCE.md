@@ -798,6 +798,19 @@ centered fallback, both vertical directions, and transactional borrowed views.
 Right-to-left and bottom-to-top runs also apply the managed final visual-order
 reversal, including monotone-character combining-run cluster restoration.
 
+Horizontal advance initialization now directly ports the ProGPU-owned
+`TtfFont.GetAdvanceWidth` policy from checkpoint `4e6ff74d`. A borrowed face
+with no usable `hmtx`/long-metric count returns the same half-em fallback
+instead of rejecting shaping; normal faces reuse their last long metric and an
+explicit native variation instance applies the existing HVAR delta. Horizontal
+shaping retains managed away-from-zero rounding, while vertical centering uses
+the managed midpoint-to-even rule before integer halving. Each query is
+`O(T + V)` time for `T` directory records and the bounded HVAR variation-store
+work `V`, uses `O(1)` storage, and adds no interop crossing or allocation.
+Synthetic missing-metric and vertical-shaping cases plus production variable
+font coverage protect the shared metric path. Raw `gvar` phantom advances
+remain an explicit later variation-parity slice when no HVAR table exists.
+
 Legacy kerning fallback now directly ports the ProGPU-owned
 `GlyphPositionBuffer.ApplyLegacyKern` policy from checkpoint `34b76eeb`.
 The adjacent `sfnt_font_view::try_get_design_kerning` query separately mirrors
