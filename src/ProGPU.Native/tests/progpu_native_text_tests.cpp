@@ -189,6 +189,8 @@ using progpu::native::text::sfnt_simple_glyph_variation_requirements;
 using progpu::native::text::sfnt_simple_glyph_variation_scratch;
 using progpu::native::text::sfnt_subset_requirements;
 using progpu::native::text::sfnt_glyph_remap;
+using progpu::native::text::sfnt_name_requirements;
+using progpu::native::text::sfnt_face_style;
 using progpu::native::text::try_create_compact_sfnt_subset;
 using progpu::native::text::try_create_glyph_id_preserving_sfnt_subset;
 using progpu::native::text::try_get_compact_sfnt_subset_requirements;
@@ -1961,6 +1963,127 @@ std::vector<std::byte> make_sfnt_subset_fixture() {
             (tables[index].bytes.size() + 3U) & ~std::size_t{3U};
     }
     return result;
+}
+
+std::vector<std::byte> make_sfnt_metadata_fixture() {
+    std::vector<std::byte> name(42U);
+    write_u16(name, 2U, 3U);
+    write_u16(name, 4U, 42U);
+    const auto append_utf16 = [&](std::u16string_view value) {
+        const auto offset = static_cast<std::uint16_t>(name.size() - 42U);
+        for (const auto code_unit : value) {
+            name.push_back(static_cast<std::byte>(code_unit >> 8U));
+            name.push_back(static_cast<std::byte>(code_unit));
+        }
+        return std::pair{offset,
+            static_cast<std::uint16_t>(value.size() * 2U)};
+    };
+    const auto arabic = append_utf16(u"\u062c\u064a\u0632\u0627");
+    const auto family = append_utf16(u"ProGPU Sans");
+    const auto full = append_utf16(
+        std::u16string_view{u" \0ProGPU Sans Regular ", 22U});
+    const auto write_record = [&](std::size_t record,
+        std::uint16_t platform, std::uint16_t encoding,
+        std::uint16_t language, std::uint16_t name_id,
+        std::pair<std::uint16_t, std::uint16_t> value) {
+        write_u16(name, record, platform);
+        write_u16(name, record + 2U, encoding);
+        write_u16(name, record + 4U, language);
+        write_u16(name, record + 6U, name_id);
+        write_u16(name, record + 8U, value.second);
+        write_u16(name, record + 10U, value.first);
+    };
+    write_record(6U, 3U, 1U, 0x0420U,
+        progpu::native::text::sfnt_name_ids::family_name, arabic);
+    write_record(18U, 0U, 4U, 0U,
+        progpu::native::text::sfnt_name_ids::family_name, family);
+    write_record(30U, 3U, 1U, 0x0409U,
+        progpu::native::text::sfnt_name_ids::full_name, full);
+
+    std::vector<std::byte> head(54U);
+    write_u16(head, 44U, 0x0002U);
+    std::vector<std::byte> os2(64U);
+    write_u16(os2, 4U, 725U);
+    write_u16(os2, 6U, 8U);
+    write_u16(os2, 8U, 0x0008U);
+    write_u16(os2, 62U, 0x0001U);
+
+    struct table final {
+        std::uint32_t tag;
+        std::vector<std::byte> bytes;
+    };
+    std::array tables{
+        table{0x6E616D65U, std::move(name)},
+        table{0x68656164U, std::move(head)},
+        table{0x4F532F32U, std::move(os2)}};
+    const std::size_t directory_bytes = 12U + tables.size() * 16U;
+    std::size_t output_size = directory_bytes;
+    for (const auto& value : tables) {
+        output_size += (value.bytes.size() + 3U) & ~std::size_t{3U};
+    }
+    std::vector<std::byte> result(output_size);
+    write_u32(result, 0U, 0x00010000U);
+    write_u16(result, 4U, static_cast<std::uint16_t>(tables.size()));
+    std::size_t table_offset = directory_bytes;
+    for (std::size_t index = 0U; index < tables.size(); ++index) {
+        const auto record = 12U + index * 16U;
+        write_u32(result, record, tables[index].tag);
+        write_u32(result, record + 8U,
+            static_cast<std::uint32_t>(table_offset));
+        write_u32(result, record + 12U,
+            static_cast<std::uint32_t>(tables[index].bytes.size()));
+        std::copy(tables[index].bytes.begin(), tables[index].bytes.end(),
+            result.begin() + static_cast<std::ptrdiff_t>(table_offset));
+        table_offset +=
+            (tables[index].bytes.size() + 3U) & ~std::size_t{3U};
+    }
+    return result;
+}
+
+void sfnt_metadata_matches_managed_selection_and_style() {
+    const auto font_data = make_sfnt_metadata_fixture();
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(font_data, 0U, font, &error));
+
+    sfnt_name_requirements requirements{};
+    require(font.try_get_name_requirements(
+        progpu::native::text::sfnt_name_ids::family_name,
+        requirements, &error));
+    require(error == font_error::none && requirements.utf8_bytes == 11U &&
+        requirements.platform_id == 0U && requirements.score == 12);
+    std::array<char, 11U> family{};
+    std::size_t written = 0U;
+    require(font.try_decode_name(
+        progpu::native::text::sfnt_name_ids::family_name,
+        family, written, &requirements, &error));
+    require(written == family.size() &&
+        std::string_view{family.data(), family.size()} == "ProGPU Sans");
+
+    std::array<char, 19U> full{};
+    require(font.try_decode_name(
+        progpu::native::text::sfnt_name_ids::full_name,
+        full, written, &requirements, &error));
+    require(written == full.size() && requirements.score == 14 &&
+        std::string_view{full.data(), full.size()} == "ProGPU Sans Regular");
+
+    std::array<char, 18U> short_output{};
+    short_output.fill('x');
+    require(!font.try_decode_name(
+        progpu::native::text::sfnt_name_ids::full_name,
+        short_output, written, nullptr, &error));
+    require(error == font_error::insufficient_buffer && written == 0U &&
+        short_output.front() == 'x');
+
+    sfnt_face_style style{};
+    require(font.try_get_face_style(style));
+    require(style.weight == 725U && style.width == 8U && style.italic);
+    std::uint16_t embedding_rights = 0U;
+    require(font.try_get_embedding_rights(embedding_rights) &&
+        embedding_rights == 0x0008U);
+    require(!font.try_get_name_requirements(
+        progpu::native::text::sfnt_name_ids::version,
+        requirements, &error));
 }
 
 void glyph_id_preserving_sfnt_subset_matches_managed_contract() {
@@ -6548,6 +6671,7 @@ int main() {
     woff1_normalization_is_bounded_and_transactional();
     glyph_id_preserving_sfnt_subset_matches_managed_contract();
     compact_sfnt_subset_matches_managed_contract();
+    sfnt_metadata_matches_managed_selection_and_style();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_selector_cmap_is_borrowed_and_bounded();
     variation_axes_are_borrowed_bounded_and_transactional();

@@ -10,3 +10,9 @@ dotnet run --project \
   "${repo_root}/src/ProGPU.Backend.Native/Generated/NativeContract.g.cs"
 
 "${repo_root}/eng/generate-native-unicode-tables.py" --verify
+
+dotnet run --project \
+  "${repo_root}/eng/ProGPU.NativeUnicodeCategoryGenerator/ProGPU.NativeUnicodeCategoryGenerator.csproj" \
+  --configuration Release -- \
+  --verify \
+  "${repo_root}/src/ProGPU.Native/src/Text/Metadata/progpu_native_sfnt_name_letter_ranges.generated.hpp"

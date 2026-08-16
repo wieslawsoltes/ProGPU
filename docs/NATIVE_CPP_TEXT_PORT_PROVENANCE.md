@@ -725,6 +725,24 @@ layout, vertical, color, math, signature, and post tables that would reference
 the old glyph domain. Its matched fixture is 264 bytes with FNV-1a signature
 `5117190155084041207`.
 
+### SFNT metadata and canonical names
+
+The granular `src/Text/Metadata` units directly port the ProGPU-owned
+`SfntFontFace` name selection/decoding and `SfntFontMetadataReader` face-style
+contracts from checkpoint `654fbd97`. The borrowed `sfnt_font_view` now exposes
+the managed SFNT name IDs, exact caller-owned UTF-8 requirements and decode
+passes, OS/2/head weight-width-italic resolution, and embedding rights. Name
+selection preserves the managed platform/language score, canonical Latin-name
+preference, first-record tie behavior, UTF-16BE/Latin-1/UTF-8 decoding, NUL
+removal, and Unicode whitespace trimming. The selected record is scanned in
+`O(B)` time and `O(1)` internal storage for `B` encoded bytes; the face search
+is `O(R + B)` for `R` name records. A short destination remains untouched.
+Managed and native fixtures cover localized Windows Arabic versus canonical
+Unicode Latin selection, embedded NUL removal, trimming, English score,
+OS/2/head style flags, embedding rights, missing IDs, and transactional output.
+File discovery and fallback catalog policy remain host/provider concerns rather
+than being embedded into this allocation-free byte-view layer.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

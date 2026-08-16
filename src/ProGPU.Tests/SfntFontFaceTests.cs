@@ -53,6 +53,17 @@ public class SfntFontFaceTests
     }
 
     [Fact]
+    public void NameDecodeRemovesNulsAndTrimsLikeNativeMetadataContract()
+    {
+        byte[] fontData = BuildSfnt("ProGPU Sans", " \0ProGPU Sans Regular ");
+
+        SfntFontFace face = SfntFontFace.Load(fontData);
+
+        Assert.True(face.TryGetName(SfntNameIds.FullName, out string fullName));
+        Assert.Equal("ProGPU Sans Regular", fullName);
+    }
+
+    [Fact]
     public void PrefersLatinCanonicalNamesOverLocalizedWindowsNames()
     {
         byte[] fontData = BuildSfnt(BuildLocalizedNameTable());

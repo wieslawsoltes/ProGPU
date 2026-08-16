@@ -277,6 +277,10 @@ glyph-ID-preserving and compact-remapped TrueType subsetting with transitive
 composite closure, component-ID rewrite, compact metrics, long `loca`, stale
 glyph-domain table removal, and rebuilt SFNT checksums. Both outputs are
 matched byte-for-byte against the ProGPU-owned managed subsetter fixtures.
+The borrowed SFNT view also exposes canonical family/full-name selection into
+exact caller-owned UTF-8 spans, OS/2/head weight-width-italic metadata, and
+embedding rights. These APIs directly match the managed ProGPU metadata rules,
+remain locale independent, and perform no file I/O or heap allocation.
 
 The same text library now opens borrowed CFF2 tables with uint32 INDEX counts,
 required TopDICT/FontDICT/PrivateDICT ownership, optional FDSelect, and a

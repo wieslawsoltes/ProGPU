@@ -1323,6 +1323,31 @@ struct sfnt_horizontal_glyph_metrics final {
     std::int16_t left_side_bearing = 0;
 };
 
+struct sfnt_name_ids final {
+    static constexpr std::uint16_t family_name = 1U;
+    static constexpr std::uint16_t subfamily_name = 2U;
+    static constexpr std::uint16_t unique_font_identifier = 3U;
+    static constexpr std::uint16_t full_name = 4U;
+    static constexpr std::uint16_t version = 5U;
+    static constexpr std::uint16_t post_script_name = 6U;
+    static constexpr std::uint16_t preferred_family_name = 16U;
+    static constexpr std::uint16_t preferred_subfamily_name = 17U;
+};
+
+struct sfnt_name_requirements final {
+    std::size_t utf8_bytes = 0U;
+    std::int32_t score = 0;
+    std::uint16_t platform_id = 0U;
+    std::uint16_t encoding_id = 0U;
+    std::uint16_t language_id = 0U;
+};
+
+struct sfnt_face_style final {
+    std::uint16_t weight = 400U;
+    std::uint16_t width = 5U;
+    bool italic = false;
+};
+
 struct sfnt_glyph_data_view final {
     std::int16_t contour_count = 0;
     std::int16_t x_min = 0;
@@ -1976,6 +2001,24 @@ public:
     bool try_get_horizontal_glyph_metrics(
         std::uint16_t glyph_index,
         sfnt_horizontal_glyph_metrics& result) const noexcept;
+    /*
+     * Selects and decodes the same canonical SFNT name record as the managed
+     * ProGPU metadata reader. The requirements pass reports exact caller-owned
+     * UTF-8 storage. No string, locale, codec, or heap ownership crosses this
+     * boundary; a short output span is left untouched.
+     */
+    bool try_get_name_requirements(
+        std::uint16_t name_id,
+        sfnt_name_requirements& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_decode_name(
+        std::uint16_t name_id,
+        std::span<char> utf8,
+        std::size_t& written,
+        sfnt_name_requirements* requirements = nullptr,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_face_style(sfnt_face_style& result) const noexcept;
+    bool try_get_embedding_rights(std::uint16_t& result) const noexcept;
     bool try_get_glyph_count(std::uint16_t& result) const noexcept;
     bool try_get_glyph_data(
         std::uint16_t glyph_index,
