@@ -623,6 +623,7 @@ add_library(progpu_native_text STATIC
     src/Text/progpu_native_svg_glyph_layers.cpp
     src/Text/progpu_native_svg_arc.cpp
     src/Text/progpu_native_svg_document_internal.hpp
+    src/Text/progpu_native_svg_number.hpp
     src/Text/progpu_native_svg_path.cpp
     src/Text/progpu_native_svg_path_internal.hpp
     src/Text/progpu_native_svg_values.cpp

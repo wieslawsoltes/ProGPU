@@ -76,8 +76,9 @@ bool valid_brush_input(
         const std::size_t expected = brush.stop_count == 0U ||
                 brush.color_interpolation_mode ==
                     PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB
-            ? 0U
-            : PROGPU_NATIVE_SCENE_PERLIN_TABLE_RECORDS;
+            ? std::size_t{0U}
+            : static_cast<std::size_t>(
+                PROGPU_NATIVE_SCENE_PERLIN_TABLE_RECORDS);
         if (outside || spread > 1U ||
             brush.stop_count > PROGPU_NATIVE_SCENE_MAX_PERLIN_OCTAVES ||
             stops.size() != expected) {

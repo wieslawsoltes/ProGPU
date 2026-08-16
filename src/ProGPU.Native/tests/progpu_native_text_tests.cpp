@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -5173,6 +5174,25 @@ void svg_path_decode_is_transactional_and_bounded() {
         degenerate_arc, arc_segments, requirements, &error));
     require(arc_segments[0U].kind == PROGPU_NATIVE_PATH_SEGMENT_LINE &&
         arc_segments[1U].kind == PROGPU_NATIVE_PATH_SEGMENT_LINE);
+
+    constexpr std::string_view decimal_exponent_path =
+        "M.5 -.25 L1e2 2E-1";
+    require(try_get_svg_path_requirements(
+        decimal_exponent_path, requirements, &error));
+    require(requirements.segment_count == 2U);
+    std::array<progpu_native_path_segment, 2U> decimal_segments{};
+    require(try_decode_svg_path(
+        decimal_exponent_path, decimal_segments, requirements, &error));
+    require(decimal_segments[0U].p0.x == 0.5F &&
+        decimal_segments[0U].p0.y == -0.25F &&
+        decimal_segments[0U].p1.x == 100.0F &&
+        decimal_segments[0U].p1.y == 0.2F);
+
+    constexpr std::string_view overflowing_number =
+        "M0 0 L1e100 0";
+    require(!try_get_svg_path_requirements(
+        overflowing_number, requirements, &error));
+    require(error == font_error::invalid_glyph);
 }
 
 void svg_glyph_layers_match_managed_shapes_references_and_paints() {

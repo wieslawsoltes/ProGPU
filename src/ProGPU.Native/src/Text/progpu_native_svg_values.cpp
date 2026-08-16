@@ -1,8 +1,8 @@
 #include "progpu_native_svg_document_internal.hpp"
+#include "progpu_native_svg_number.hpp"
 
 #include <algorithm>
 #include <cctype>
-#include <charconv>
 #include <cmath>
 #include <numbers>
 
@@ -76,11 +76,9 @@ bool read_number(
             index = exponent;
         }
     }
-    const auto parsed = std::from_chars(
-        text.data() + start, text.data() + index, result,
-        std::chars_format::general);
-    return parsed.ec == std::errc{} && parsed.ptr == text.data() + index &&
-        std::isfinite(result);
+    std::size_t parsed_index = start;
+    return svg_number_detail::try_parse(text, parsed_index, result) &&
+        parsed_index == index;
 }
 
 float percentage_or_number(
@@ -96,11 +94,7 @@ float percentage_or_number(
         scale = 0.01F;
     }
     float value = 0.0F;
-    const auto parsed = std::from_chars(
-        text.data(), text.data() + text.size(), value,
-        std::chars_format::general);
-    if (parsed.ec != std::errc{} ||
-        parsed.ptr != text.data() + text.size() || !std::isfinite(value)) {
+    if (!svg_number_detail::try_parse_exact(text, value)) {
         return default_value;
     }
     return value * scale;
@@ -179,11 +173,7 @@ float read_float(
     }
     const auto text = trim(*value);
     float result = 0.0F;
-    const auto parsed = std::from_chars(
-        text.data(), text.data() + text.size(), result,
-        std::chars_format::general);
-    if (parsed.ec != std::errc{} ||
-        parsed.ptr != text.data() + text.size() || !std::isfinite(result)) {
+    if (!svg_number_detail::try_parse_exact(text, result)) {
         return default_value;
     }
     return result;
@@ -204,12 +194,7 @@ float read_coordinate(
         percent.remove_suffix(1U);
         percent = trim(percent);
         float result = 0.0F;
-        const auto parsed = std::from_chars(
-            percent.data(), percent.data() + percent.size(), result,
-            std::chars_format::general);
-        return parsed.ec == std::errc{} &&
-                parsed.ptr == percent.data() + percent.size() &&
-                std::isfinite(result)
+        return svg_number_detail::try_parse_exact(percent, result)
             ? result * 0.01F * units_per_em
             : default_value;
     }

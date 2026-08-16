@@ -1,9 +1,9 @@
 #include "progpu_native_text.hpp"
+#include "progpu_native_svg_number.hpp"
 #include "progpu_native_svg_path_internal.hpp"
 
 #include <algorithm>
 #include <bit>
-#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -71,16 +71,10 @@ bool read_number(
     if (index >= text.size() || ascii_letter(text[index])) {
         return false;
     }
-    const char* first = text.data() + index;
-    const char* last = text.data() + text.size();
     float value = 0.0F;
-    const auto conversion = std::from_chars(
-        first, last, value, std::chars_format::general);
-    if (conversion.ec != std::errc{} || conversion.ptr == first ||
-        !std::isfinite(value)) {
+    if (!svg_number_detail::try_parse(text, index, value)) {
         return false;
     }
-    index = static_cast<std::size_t>(conversion.ptr - text.data());
     result = value;
     return true;
 }
