@@ -5,7 +5,6 @@
 #include <limits>
 
 namespace progpu::native::text::sfnt_subset_detail {
-namespace {
 
 constexpr std::uint16_t composite_more_components = 0x0020U;
 constexpr std::uint16_t composite_args_are_words = 0x0001U;
@@ -127,8 +126,6 @@ glyph_table_subset build_glyph_subset(
     }
     return {std::move(glyf), std::move(loca)};
 }
-
-} // namespace
 
 std::vector<std::byte> build_glyph_id_preserving_subset(
     std::span<const std::byte> font_data,

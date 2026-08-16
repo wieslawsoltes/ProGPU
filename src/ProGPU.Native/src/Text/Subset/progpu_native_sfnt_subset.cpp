@@ -35,6 +35,25 @@ bool build(
     }
 }
 
+bool build_compact(
+    std::span<const std::byte> font_data,
+    std::size_t directory_offset,
+    std::span<const std::uint16_t> glyphs,
+    sfnt_subset_detail::compact_subset_result& subset,
+    font_error* error) noexcept {
+    subset = {};
+    set_error(error, font_error::none);
+    try {
+        subset = sfnt_subset_detail::build_compact_subset(
+            font_data, directory_offset, glyphs);
+        return true;
+    } catch (...) {
+        subset = {};
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+}
+
 } // namespace
 
 bool try_get_glyph_id_preserving_sfnt_subset_requirements(
@@ -70,6 +89,48 @@ bool try_create_glyph_id_preserving_sfnt_subset(
         return false;
     }
     std::copy(subset.begin(), subset.end(), output.begin());
+    return true;
+}
+
+bool try_get_compact_sfnt_subset_requirements(
+    std::span<const std::byte> font_data,
+    std::size_t directory_offset,
+    std::span<const std::uint16_t> glyphs,
+    sfnt_subset_requirements& result,
+    font_error* error) noexcept {
+    result = {};
+    sfnt_subset_detail::compact_subset_result subset;
+    if (!build_compact(font_data, directory_offset, glyphs, subset, error)) {
+        return false;
+    }
+    result.font_bytes = subset.font.size();
+    result.glyph_map_count = subset.glyph_map.size();
+    return true;
+}
+
+bool try_create_compact_sfnt_subset(
+    std::span<const std::byte> font_data,
+    std::size_t directory_offset,
+    std::span<const std::uint16_t> glyphs,
+    std::span<std::byte> output,
+    std::span<sfnt_glyph_remap> glyph_map,
+    sfnt_subset_requirements& result,
+    font_error* error) noexcept {
+    result = {};
+    sfnt_subset_detail::compact_subset_result subset;
+    if (!build_compact(font_data, directory_offset, glyphs, subset, error)) {
+        return false;
+    }
+    result.font_bytes = subset.font.size();
+    result.glyph_map_count = subset.glyph_map.size();
+    if (output.size() < subset.font.size() ||
+        glyph_map.size() < subset.glyph_map.size()) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
+    }
+    std::copy(subset.font.begin(), subset.font.end(), output.begin());
+    std::copy(subset.glyph_map.begin(), subset.glyph_map.end(),
+        glyph_map.begin());
     return true;
 }
 

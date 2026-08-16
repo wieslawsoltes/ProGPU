@@ -24,6 +24,11 @@ struct glyph_table_subset final {
     std::vector<std::byte> loca;
 };
 
+struct compact_subset_result final {
+    std::vector<std::byte> font;
+    std::vector<sfnt_glyph_remap> glyph_map;
+};
+
 struct subset_failure final {};
 
 constexpr std::uint32_t tag(char a, char b, char c, char d) noexcept {
@@ -67,6 +72,18 @@ std::vector<std::byte> build_sfnt(
     std::uint32_t sfnt_version,
     std::span<const table_data> tables);
 std::vector<std::byte> build_glyph_id_preserving_subset(
+    std::span<const std::byte> font_data,
+    std::size_t directory_offset,
+    std::span<const std::uint16_t> glyphs);
+std::vector<std::uint32_t> read_loca(
+    std::span<const std::byte> loca,
+    std::uint16_t glyph_count,
+    std::int16_t format);
+void include_composite_dependencies(
+    std::span<const std::byte> glyf,
+    std::span<const std::uint32_t> offsets,
+    std::vector<bool>& included);
+compact_subset_result build_compact_subset(
     std::span<const std::byte> font_data,
     std::size_t directory_offset,
     std::span<const std::uint16_t> glyphs);

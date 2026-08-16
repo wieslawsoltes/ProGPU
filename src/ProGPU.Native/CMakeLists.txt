@@ -629,6 +629,7 @@ add_library(progpu_native_text STATIC
     src/Text/progpu_native_svg_values.cpp
     src/Text/progpu_native_svg_xml.cpp
     src/Text/Subset/progpu_native_sfnt_subset.cpp
+    src/Text/Subset/progpu_native_sfnt_subset_compact.cpp
     src/Text/Subset/progpu_native_sfnt_subset_glyphs.cpp
     src/Text/Subset/progpu_native_sfnt_subset_internal.hpp
     src/Text/Subset/progpu_native_sfnt_subset_tables.cpp

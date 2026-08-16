@@ -31,6 +31,7 @@ int main() {
     const progpu::native::text::sfnt_svg_glyph_document_view svg_glyph{};
     const progpu::native::text::sfnt_container_requirements container{};
     const progpu::native::text::sfnt_subset_requirements subset{};
+    const progpu::native::text::sfnt_glyph_remap glyph_remap{};
     const auto latin_script =
         progpu::native::text::get_unicode_script(0x41U);
     const progpu::native::text::shaping_glyph shaping_glyph{
@@ -72,7 +73,8 @@ int main() {
         bitmap_glyph.uses_horizontal_metrics ||
         color_layer.color.alpha != 255U ||
         !svg_glyph.bytes.empty() || container.requires_normalization ||
-        subset.font_bytes != 0U) {
+        subset.font_bytes != 0U || subset.glyph_map_count != 0U ||
+        glyph_remap.source_glyph_id != 0U) {
         return 1;
     }
     (void)sizeof(gvar_deltas);

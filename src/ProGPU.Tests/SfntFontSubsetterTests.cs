@@ -46,6 +46,27 @@ public class SfntFontSubsetterTests
     }
 
     [Fact]
+    public void CompactSubsetMatchesNativeByteOracle()
+    {
+        byte[] fontData = BuildTrueTypeSubsetFixtureFont();
+
+        byte[] subset = SfntFontSubsetter.CreateCompactSubset(
+            fontData,
+            0,
+            new ushort[] { 2 },
+            out SfntGlyphRemap[] glyphMap);
+
+        Assert.Equal(new[]
+        {
+            new SfntGlyphRemap(0, 0),
+            new SfntGlyphRemap(1, 1),
+            new SfntGlyphRemap(2, 2)
+        }, glyphMap);
+        Assert.Equal(264, subset.Length);
+        Assert.Equal(5117190155084041207UL, HashBytes(subset));
+    }
+
+    [Fact]
     public void CreatesCompactTrueTypeSubsetWithGlyphRemappingAndCompositeRewrite()
     {
         byte[] fontData = BuildCompactTrueTypeSubsetFixtureFont();

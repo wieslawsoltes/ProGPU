@@ -718,8 +718,12 @@ construction are `O(T + G + B)` for tables `T`, glyphs `G`, and copied bytes
 `B`; stable rendering remains unaffected. The matched managed/native fixture
 produces the same 272-byte font and FNV-1a signature
 `10017802304682166674`, including one requested composite and its otherwise
-unrequested component. Compact glyph-remapped subsetting remains the next
-explicit sub-slice.
+unrequested component. The compact path also matches the managed oracle: it
+builds ascending source-to-subset mappings, rewrites composite component IDs,
+compacts `maxp`, `hhea`, `hmtx`, `loca`, and `glyf`, and removes stale cmap,
+layout, vertical, color, math, signature, and post tables that would reference
+the old glyph domain. Its matched fixture is 264 bytes with FNV-1a signature
+`5117190155084041207`.
 
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.

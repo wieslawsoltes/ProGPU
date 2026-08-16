@@ -188,7 +188,10 @@ using progpu::native::text::sfnt_simple_glyph_path;
 using progpu::native::text::sfnt_simple_glyph_variation_requirements;
 using progpu::native::text::sfnt_simple_glyph_variation_scratch;
 using progpu::native::text::sfnt_subset_requirements;
+using progpu::native::text::sfnt_glyph_remap;
+using progpu::native::text::try_create_compact_sfnt_subset;
 using progpu::native::text::try_create_glyph_id_preserving_sfnt_subset;
+using progpu::native::text::try_get_compact_sfnt_subset_requirements;
 using progpu::native::text::try_get_glyph_id_preserving_sfnt_subset_requirements;
 using progpu::native::text::sfnt_varied_glyph_requirements;
 using progpu::native::text::sfnt_varied_glyph_scratch;
@@ -2013,6 +2016,56 @@ void glyph_id_preserving_sfnt_subset_matches_managed_contract() {
         invalid, 0U, requested, requirements, &error));
     require(error == font_error::invalid_face &&
         requirements.font_bytes == 0U);
+}
+
+void compact_sfnt_subset_matches_managed_contract() {
+    const auto font_data = make_sfnt_subset_fixture();
+    constexpr std::array<std::uint16_t, 1U> requested{2U};
+    sfnt_subset_requirements requirements{};
+    font_error error = font_error::none;
+    require(try_get_compact_sfnt_subset_requirements(
+        font_data, 0U, requested, requirements, &error));
+    require(error == font_error::none &&
+        requirements.glyph_map_count == 3U);
+    std::vector<std::byte> output(requirements.font_bytes);
+    std::vector<sfnt_glyph_remap> glyph_map(requirements.glyph_map_count);
+    require(try_create_compact_sfnt_subset(
+        font_data, 0U, requested, output, glyph_map, requirements, &error));
+    require(glyph_map == std::vector<sfnt_glyph_remap>{
+        {0U, 0U}, {1U, 1U}, {2U, 2U}});
+
+    std::uint64_t subset_hash = 1469598103934665603ULL;
+    for (const auto value : output) {
+        subset_hash ^= std::to_integer<std::uint8_t>(value);
+        subset_hash *= 1099511628211ULL;
+    }
+    require(output.size() == 264U &&
+        subset_hash == 5117190155084041207ULL);
+
+    sfnt_font_view subset{};
+    require(sfnt_font_view::try_create(output, 0U, subset, &error));
+    std::uint16_t glyph_count = 0U;
+    require(subset.try_get_glyph_count(glyph_count) && glyph_count == 3U);
+    sfnt_horizontal_glyph_metrics metrics{};
+    require(subset.try_get_horizontal_glyph_metrics(2U, metrics) &&
+        metrics.advance_width == 502U);
+    sfnt_glyph_data_view composite{};
+    require(subset.try_get_glyph_data(2U, composite) &&
+        composite.contour_count == -1 && composite.x_max == 40 &&
+        composite.bytes.size() >= 14U);
+    require((std::to_integer<std::uint16_t>(composite.bytes[12U]) << 8U |
+        std::to_integer<std::uint16_t>(composite.bytes[13U])) == 1U);
+
+    std::vector<std::byte> short_output(requirements.font_bytes - 1U,
+        std::byte{0x6BU});
+    std::vector<sfnt_glyph_remap> short_map(
+        requirements.glyph_map_count, sfnt_glyph_remap{9U, 9U});
+    require(!try_create_compact_sfnt_subset(
+        font_data, 0U, requested, short_output, short_map,
+        requirements, &error));
+    require(error == font_error::insufficient_buffer &&
+        short_output.front() == std::byte{0x6BU} &&
+        short_map.front() == sfnt_glyph_remap{9U, 9U});
 }
 
 std::vector<std::byte> make_woff1_fixture() {
@@ -6494,6 +6547,7 @@ int main() {
     complex_script_properties_and_syllable_machines_are_bounded();
     woff1_normalization_is_bounded_and_transactional();
     glyph_id_preserving_sfnt_subset_matches_managed_contract();
+    compact_sfnt_subset_matches_managed_contract();
     borrowed_sfnt_view_reads_tables_metrics_and_cmap();
     variation_selector_cmap_is_borrowed_and_bounded();
     variation_axes_are_borrowed_bounded_and_transactional();

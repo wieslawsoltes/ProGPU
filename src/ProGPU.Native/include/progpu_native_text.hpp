@@ -34,6 +34,16 @@ struct sfnt_container_requirements final {
 
 struct sfnt_subset_requirements final {
     std::size_t font_bytes = 0U;
+    std::size_t glyph_map_count = 0U;
+};
+
+struct sfnt_glyph_remap final {
+    std::uint16_t source_glyph_id = 0U;
+    std::uint16_t subset_glyph_id = 0U;
+
+    friend constexpr bool operator==(
+        sfnt_glyph_remap,
+        sfnt_glyph_remap) noexcept = default;
 };
 
 /*
@@ -56,6 +66,22 @@ bool try_create_glyph_id_preserving_sfnt_subset(
     std::size_t directory_offset,
     std::span<const std::uint16_t> glyphs,
     std::span<std::byte> output,
+    sfnt_subset_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_get_compact_sfnt_subset_requirements(
+    std::span<const std::byte> font_data,
+    std::size_t directory_offset,
+    std::span<const std::uint16_t> glyphs,
+    sfnt_subset_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_create_compact_sfnt_subset(
+    std::span<const std::byte> font_data,
+    std::size_t directory_offset,
+    std::span<const std::uint16_t> glyphs,
+    std::span<std::byte> output,
+    std::span<sfnt_glyph_remap> glyph_map,
     sfnt_subset_requirements& result,
     font_error* error = nullptr) noexcept;
 
