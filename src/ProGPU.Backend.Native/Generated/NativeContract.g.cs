@@ -177,6 +177,28 @@ public partial struct NativeTextLayoutResult
     public ulong ScratchBytesUsed;
 }
 
+// Native source: progpu_native_text_line_break_requirements.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextLineBreakRequirements
+{
+    public uint StructSize;
+    public uint BreakCapacity;
+    public uint ScratchAlignment;
+    public uint ErrorCode;
+    public ulong ScratchBytes;
+}
+
+// Native source: progpu_native_text_line_break_result.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextLineBreakResult
+{
+    public uint StructSize;
+    public uint BreakCount;
+    public uint ErrorCode;
+    public uint Reserved;
+    public ulong ScratchBytesUsed;
+}
+
 // Native source: progpu_native_point_3d.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativePoint3D

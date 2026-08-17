@@ -604,4 +604,26 @@ internal static unsafe partial class NativeMethods
         byte* scratch,
         nuint scratchSize,
         NativeTextLayoutResult* result);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_text_get_line_break_requirements")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus GetTextLineBreakRequirements(
+        NativeTextScalar* input,
+        uint inputCount,
+        NativeTextLineBreakRequirements* requirements);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_text_resolve_line_breaks")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ResolveTextLineBreaks(
+        NativeTextScalar* input,
+        uint inputCount,
+        NativeTextLineBreakKind* breaksAfter,
+        uint breakCapacity,
+        byte* scratch,
+        nuint scratchSize,
+        NativeTextLineBreakResult* result);
 }

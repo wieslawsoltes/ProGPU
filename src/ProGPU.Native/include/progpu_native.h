@@ -72,6 +72,7 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_MESH_3D_BATCH (UINT64_C(1) << 40U)
 #define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_SHAPING (UINT64_C(1) << 41U)
 #define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_LAYOUT (UINT64_C(1) << 42U)
+#define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_LINE_BREAKING (UINT64_C(1) << 43U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -532,6 +533,24 @@ typedef struct progpu_native_text_layout_result {
     float measured_height;
     uint64_t scratch_bytes_used;
 } progpu_native_text_layout_result;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextLineBreakRequirements */
+typedef struct progpu_native_text_line_break_requirements {
+    uint32_t struct_size;
+    uint32_t break_capacity;
+    uint32_t scratch_alignment;
+    uint32_t error_code;
+    uint64_t scratch_bytes;
+} progpu_native_text_line_break_requirements;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextLineBreakResult */
+typedef struct progpu_native_text_line_break_result {
+    uint32_t struct_size;
+    uint32_t break_count;
+    uint32_t error_code;
+    uint32_t reserved;
+    uint64_t scratch_bytes_used;
+} progpu_native_text_line_break_result;
 
 typedef enum progpu_native_texture_format {
     PROGPU_NATIVE_TEXTURE_FORMAT_RGBA8_UNORM = 1,
@@ -2070,6 +2089,23 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_layout(
     void* scratch,
     size_t scratch_size,
     progpu_native_text_layout_result* result);
+
+/* Unicode 17 UAX #14 default line-break resolution. The scalar records retain
+ * original UTF input ranges; canonical/script metadata is recomputed from the
+ * code point. Output bytes use progpu_native_text_line_break_kind values. */
+PROGPU_NATIVE_API progpu_native_status
+progpu_native_text_get_line_break_requirements(
+    const progpu_native_text_scalar* input,
+    uint32_t input_count,
+    progpu_native_text_line_break_requirements* requirements);
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_resolve_line_breaks(
+    const progpu_native_text_scalar* input,
+    uint32_t input_count,
+    uint8_t* breaks_after,
+    uint32_t break_capacity,
+    void* scratch,
+    size_t scratch_size,
+    progpu_native_text_line_break_result* result);
 
 #ifdef __cplusplus
 }

@@ -45,8 +45,25 @@ internal static class NativeTextShapingBenchmark
         float fontSize = 16f;
         float scale = fontSize / font.UnitsPerEm;
         float lineHeight = (font.Ascender - font.Descender + font.LineGap) * scale;
-        var breaks = new NativeTextLineBreakKind[nativeResult.GlyphCount];
-        breaks[^1] = NativeTextLineBreakKind.Mandatory;
+        EnsureSuccess(
+            NativeTextLineBreakInterop.GetRequirements(
+                scalars,
+                out NativeTextLineBreakRequirements breakRequirements),
+            (NativeTextUnicodeError)breakRequirements.ErrorCode);
+        var breaks = new NativeTextLineBreakKind[breakRequirements.BreakCapacity];
+        var breakScratch = new byte[checked((int)breakRequirements.ScratchBytes)];
+        EnsureSuccess(
+            NativeTextLineBreakInterop.Resolve(
+                scalars,
+                breaks,
+                breakScratch,
+                out NativeTextLineBreakResult breakResult),
+            (NativeTextUnicodeError)breakResult.ErrorCode);
+        if (breakResult.BreakCount != nativeResult.GlyphCount)
+        {
+            throw new InvalidOperationException(
+                "The benchmark requires one shaped glyph per decoded scalar.");
+        }
         var layoutInput = new NativeTextLayoutInput(
             nativeGlyphs.AsSpan(0, checked((int)nativeResult.GlyphCount)),
             breaks,
@@ -96,6 +113,7 @@ internal static class NativeTextShapingBenchmark
         long[] managedSamples = new long[iterations];
         long[] nativeSamples = new long[iterations];
         long[] layoutSamples = new long[iterations];
+        long[] breakSamples = new long[iterations];
         long managedAllocationStart = GC.GetAllocatedBytesForCurrentThread();
         for (int index = 0; index < iterations; index++)
         {
@@ -137,6 +155,21 @@ internal static class NativeTextShapingBenchmark
         }
         long layoutAllocations =
             GC.GetAllocatedBytesForCurrentThread() - layoutAllocationStart;
+        long breakAllocationStart = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < iterations; index++)
+        {
+            long start = Stopwatch.GetTimestamp();
+            EnsureSuccess(
+                NativeTextLineBreakInterop.Resolve(
+                    scalars,
+                    breaks,
+                    breakScratch,
+                    out breakResult),
+                (NativeTextUnicodeError)breakResult.ErrorCode);
+            breakSamples[index] = Stopwatch.GetTimestamp() - start;
+        }
+        long breakAllocations =
+            GC.GetAllocatedBytesForCurrentThread() - breakAllocationStart;
         ValidateParity(
             managed,
             nativeGlyphs.AsSpan(0, checked((int)nativeResult.GlyphCount)));
@@ -144,6 +177,7 @@ internal static class NativeTextShapingBenchmark
         Array.Sort(managedSamples);
         Array.Sort(nativeSamples);
         Array.Sort(layoutSamples);
+        Array.Sort(breakSamples);
         Console.WriteLine("ProGPU managed/C++ text shaping/layout parity: PASS");
         Console.WriteLine(string.Format(
             CultureInfo.InvariantCulture,
@@ -155,6 +189,7 @@ internal static class NativeTextShapingBenchmark
         Print("Managed", managedSamples, iterations, managedAllocations);
         Print("C++ bulk", nativeSamples, iterations, nativeAllocations);
         Print("C++ layout", layoutSamples, iterations, layoutAllocations);
+        Print("C++ breaks", breakSamples, iterations, breakAllocations);
     }
 
     private static void ValidateLayoutParity(
@@ -241,6 +276,17 @@ internal static class NativeTextShapingBenchmark
         {
             throw new InvalidOperationException(
                 $"Native text shaping failed: status={status}, error={error}.");
+        }
+    }
+
+    private static void EnsureSuccess(
+        NativeRendererStatus status,
+        NativeTextUnicodeError error)
+    {
+        if (status != NativeRendererStatus.Success)
+        {
+            throw new InvalidOperationException(
+                $"Native Unicode operation failed: status={status}, error={error}.");
         }
     }
 

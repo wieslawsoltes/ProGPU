@@ -62,6 +62,36 @@ void bulk_shape_is_deterministic_and_caller_owned() {
         1U,
         0U,
         0U};
+    progpu_native_text_line_break_requirements break_requirements{};
+    break_requirements.struct_size = sizeof(break_requirements);
+    require(progpu_native_text_get_line_break_requirements(
+                input.data(),
+                static_cast<std::uint32_t>(input.size()),
+                &break_requirements) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(break_requirements.break_capacity == input.size() &&
+        break_requirements.scratch_alignment == 1U &&
+        break_requirements.scratch_bytes != 0U);
+    std::vector<std::uint8_t> resolved_breaks(
+        break_requirements.break_capacity);
+    std::vector<std::uint8_t> break_scratch(
+        static_cast<std::size_t>(break_requirements.scratch_bytes));
+    progpu_native_text_line_break_result break_result{};
+    break_result.struct_size = sizeof(break_result);
+    require(progpu_native_text_resolve_line_breaks(
+                input.data(),
+                static_cast<std::uint32_t>(input.size()),
+                resolved_breaks.data(),
+                static_cast<std::uint32_t>(resolved_breaks.size()),
+                break_scratch.data(),
+                break_scratch.size(),
+                &break_result) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(break_result.break_count == input.size() &&
+        break_result.error_code == 0U &&
+        resolved_breaks[0U] == PROGPU_NATIVE_TEXT_LINE_BREAK_PROHIBITED &&
+        resolved_breaks[6U] == PROGPU_NATIVE_TEXT_LINE_BREAK_OPPORTUNITY &&
+        resolved_breaks[13U] == PROGPU_NATIVE_TEXT_LINE_BREAK_OPPORTUNITY &&
+        resolved_breaks.back() == PROGPU_NATIVE_TEXT_LINE_BREAK_MANDATORY);
+
     progpu_native_text_shape_requirements requirements{};
     requirements.struct_size = sizeof(requirements);
     require(progpu_native_text_get_shape_requirements(

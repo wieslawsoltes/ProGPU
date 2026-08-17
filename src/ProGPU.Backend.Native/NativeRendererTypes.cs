@@ -83,6 +83,14 @@ public enum NativeTextLineBreakKind : byte
     Mandatory = 2
 }
 
+public enum NativeTextUnicodeError : uint
+{
+    None = 0,
+    InvalidArgument = 1,
+    InvalidEncoding = 2,
+    InsufficientBuffer = 3
+}
+
 public enum NativeTextTrimming : uint
 {
     None = 0,
@@ -337,7 +345,8 @@ public enum NativeRendererCapabilities : ulong
     SemanticLine3DBatch = 1UL << 39,
     SemanticMesh3DBatch = 1UL << 40,
     BulkTextShaping = 1UL << 41,
-    BulkTextLayout = 1UL << 42
+    BulkTextLayout = 1UL << 42,
+    BulkTextLineBreaking = 1UL << 43
 }
 
 public enum NativeSceneResourceKind : uint
