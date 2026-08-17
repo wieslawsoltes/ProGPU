@@ -23,13 +23,7 @@ struct progpu_native_text_owned_font final {
     std::uint64_t identity = 0U;
 };
 
-struct progpu_native_text_context final {
-    std::vector<std::byte> font_bytes{};
-    std::vector<std::byte> normalization_bytes{};
-    progpu::native::text::sfnt_font_view font{};
-    progpu::native::text::unicode_normalization_data normalization{};
-    bool has_normalization = false;
-    std::vector<progpu_native_text_owned_font> fallback_fonts{};
+struct progpu_native_text_plan_entry final {
     std::vector<std::uint16_t> gsub_lookups{};
     std::vector<std::uint16_t> gpos_lookups{};
     std::vector<progpu::native::text::open_type_lookup_accelerator>
@@ -45,49 +39,95 @@ struct progpu_native_text_context final {
     std::vector<progpu::native::text::open_type_context_coverage_requirement>
         gpos_context_coverages{};
     progpu::native::text::open_type_shape_plan plan{};
-    bool has_plan = false;
+    std::uint64_t last_used = 0U;
+    bool valid = false;
+};
+
+struct progpu_native_text_context final {
+    static constexpr std::size_t plan_capacity = 16U;
+
+    std::vector<std::byte> font_bytes{};
+    std::vector<std::byte> normalization_bytes{};
+    progpu::native::text::sfnt_font_view font{};
+    progpu::native::text::unicode_normalization_data normalization{};
+    bool has_normalization = false;
+    std::vector<progpu_native_text_owned_font> fallback_fonts{};
+    std::vector<progpu_native_text_plan_entry> plans{};
+    std::uint64_t plan_clock = 0U;
+    std::uint32_t plan_build_count = 0U;
 
     bool try_get_plan(
         const progpu::native::text::sfnt_font_view& selected_font,
         const progpu::native::text::open_type_shape_run_options& options,
+        const progpu::native::text::open_type_shape_plan*& result,
         progpu::native::text::font_error& error) {
         using namespace progpu::native::text;
-        if (has_plan && plan.matches(selected_font, options)) return true;
+        result = nullptr;
+        ++plan_clock;
+        if (plan_clock == 0U) {
+            plan_clock = 1U;
+            for (auto& entry : plans) entry.last_used = 0U;
+        }
+        for (auto& entry : plans) {
+            if (!entry.valid || !entry.plan.matches(selected_font, options)) {
+                continue;
+            }
+            entry.last_used = plan_clock;
+            result = &entry.plan;
+            error = font_error::none;
+            return true;
+        }
         open_type_shape_plan_requirements requirements{};
         if (!try_get_open_type_shape_plan_requirements(
                 selected_font, options, requirements, &error)) {
-            has_plan = false;
             return false;
         }
-        gsub_lookups.resize(requirements.gsub_lookup_capacity);
-        gpos_lookups.resize(requirements.gpos_lookup_capacity);
-        gsub_accelerators.resize(requirements.gsub_accelerator_capacity);
-        gpos_accelerators.resize(requirements.gpos_accelerator_capacity);
-        gsub_context_subtables.resize(
+        progpu_native_text_plan_entry* entry = nullptr;
+        if (plans.size() < plan_capacity) {
+            plans.emplace_back();
+            entry = &plans.back();
+        } else {
+            entry = &*std::min_element(
+                plans.begin(),
+                plans.end(),
+                [](const auto& left, const auto& right) noexcept {
+                    return left.last_used < right.last_used;
+                });
+        }
+        entry->valid = false;
+        entry->gsub_lookups.resize(requirements.gsub_lookup_capacity);
+        entry->gpos_lookups.resize(requirements.gpos_lookup_capacity);
+        entry->gsub_accelerators.resize(requirements.gsub_accelerator_capacity);
+        entry->gpos_accelerators.resize(requirements.gpos_accelerator_capacity);
+        entry->gsub_context_subtables.resize(
             requirements.gsub_context_subtable_capacity);
-        gsub_context_coverages.resize(
+        entry->gsub_context_coverages.resize(
             requirements.gsub_context_coverage_capacity);
-        gpos_context_subtables.resize(
+        entry->gpos_context_subtables.resize(
             requirements.gpos_context_subtable_capacity);
-        gpos_context_coverages.resize(
+        entry->gpos_context_coverages.resize(
             requirements.gpos_context_coverage_capacity);
         if (!try_build_open_type_shape_plan(
                 selected_font,
                 options,
-                gsub_lookups,
-                gpos_lookups,
-                gsub_accelerators,
-                gpos_accelerators,
-                gsub_context_subtables,
-                gsub_context_coverages,
-                gpos_context_subtables,
-                gpos_context_coverages,
-                plan,
+                entry->gsub_lookups,
+                entry->gpos_lookups,
+                entry->gsub_accelerators,
+                entry->gpos_accelerators,
+                entry->gsub_context_subtables,
+                entry->gsub_context_coverages,
+                entry->gpos_context_subtables,
+                entry->gpos_context_coverages,
+                entry->plan,
                 &error)) {
-            has_plan = false;
             return false;
         }
-        has_plan = true;
+        entry->valid = true;
+        entry->last_used = plan_clock;
+        if (plan_build_count != std::numeric_limits<std::uint32_t>::max()) {
+            ++plan_build_count;
+        }
+        result = &entry->plan;
         return true;
     }
 
@@ -996,11 +1036,11 @@ progpu_native_status shape_core(
     }
     const open_type_shape_plan* plan = nullptr;
     if (context != nullptr) {
-        if (!context->try_get_plan(font, configuration.options, error)) {
+        if (!context->try_get_plan(
+                font, configuration.options, plan, error)) {
             result.error_code = static_cast<std::uint32_t>(error);
             return status_from_error(error);
         }
-        plan = &context->plan;
     }
 
     open_type_shape_verification_scratch verification{verification_glyphs};
@@ -1126,6 +1166,7 @@ progpu_native_status progpu_native_text_context_create(
     }
     try {
         auto* result = new progpu_native_text_context{};
+        result->plans.reserve(progpu_native_text_context::plan_capacity);
         result->font_bytes.assign(
             reinterpret_cast<const std::byte*>(font_data),
             reinterpret_cast<const std::byte*>(font_data) + font_size);
@@ -2110,6 +2151,9 @@ progpu_native_status progpu_native_text_context_layout_paragraph(
         }
         result->glyph_count = positioned_count;
         result->line_count = written_lines;
+        result->cached_plan_count =
+            static_cast<std::uint32_t>(context->plans.size());
+        result->plan_build_count = context->plan_build_count;
         result->content_width = metrics.content_width;
         result->content_height = metrics.content_height;
         result->measured_width = metrics.measured_width;

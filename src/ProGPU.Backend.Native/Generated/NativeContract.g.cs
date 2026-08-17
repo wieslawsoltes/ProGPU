@@ -275,6 +275,8 @@ public partial struct NativeTextParagraphResult
     public uint ErrorCode;
     public uint ErrorStage;
     public uint ShapingRunCount;
+    public uint CachedPlanCount;
+    public uint PlanBuildCount;
     public float ContentWidth;
     public float ContentHeight;
     public float MeasuredWidth;

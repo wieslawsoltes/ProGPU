@@ -627,6 +627,8 @@ typedef struct progpu_native_text_paragraph_result {
     uint32_t error_code;
     uint32_t error_stage;
     uint32_t shaping_run_count;
+    uint32_t cached_plan_count;
+    uint32_t plan_build_count;
     float content_width;
     float content_height;
     float measured_width;

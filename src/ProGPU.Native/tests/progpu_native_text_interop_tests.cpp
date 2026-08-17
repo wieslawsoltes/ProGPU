@@ -507,10 +507,31 @@ void bulk_shape_is_deterministic_and_caller_owned() {
                 &paragraph_result) == PROGPU_NATIVE_STATUS_SUCCESS);
     require(paragraph_result.glyph_count == fallback_input.size() &&
         paragraph_result.shaping_run_count == 3U &&
+        paragraph_result.cached_plan_count >= 3U &&
+        paragraph_result.plan_build_count >=
+            paragraph_result.cached_plan_count &&
         paragraph_glyphs[0U].font_index == 0U &&
         paragraph_glyphs[1U].font_index == fallback_font_index &&
         paragraph_glyphs[1U].glyph_id != 0U &&
         paragraph_glyphs[2U].font_index == 0U);
+    const std::uint32_t retained_plan_count =
+        paragraph_result.cached_plan_count;
+    const std::uint32_t retained_plan_builds =
+        paragraph_result.plan_build_count;
+    paragraph_result.struct_size = sizeof(paragraph_result);
+    require(progpu_native_text_context_layout_paragraph(
+                context,
+                &mixed_request,
+                &mixed_options,
+                paragraph_glyphs.data(),
+                static_cast<std::uint32_t>(paragraph_glyphs.size()),
+                paragraph_lines.data(),
+                static_cast<std::uint32_t>(paragraph_lines.size()),
+                paragraph_scratch.data(),
+                paragraph_scratch.size(),
+                &paragraph_result) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(paragraph_result.cached_plan_count == retained_plan_count &&
+        paragraph_result.plan_build_count == retained_plan_builds);
 
     progpu_native_text_layout_result short_layout_result{};
     short_layout_result.struct_size = sizeof(short_layout_result);
