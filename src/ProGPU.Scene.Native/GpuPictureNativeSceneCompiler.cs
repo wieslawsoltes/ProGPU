@@ -142,27 +142,93 @@ public static partial class GpuPictureNativeSceneCompiler
         int SourceCommandIndex,
         RenderCommandType SourceCommandType);
 
+    private sealed class VectorMaskNode
+    {
+        public VectorMaskNode(
+            VectorMaskNode? parent,
+            PathGeometry geometry,
+            Matrix3x2 transform)
+        {
+            Parent = parent;
+            Geometry = geometry;
+            Transform = transform;
+            Count = checked((parent?.Count ?? 0) + 1);
+        }
+
+        public VectorMaskNode(
+            VectorMaskNode? parent,
+            NativeSceneClipPath path,
+            NativePathSegment[] segments)
+        {
+            Parent = parent;
+            Path = path;
+            Segments = segments;
+            Count = checked((parent?.Count ?? 0) + 1);
+        }
+
+        public VectorMaskNode? Parent { get; }
+        public PathGeometry? Geometry { get; }
+        public Matrix3x2 Transform { get; }
+        public NativeSceneClipPath Path { get; private set; }
+        public NativePathSegment[]? Segments { get; private set; }
+        public int Count { get; }
+        public int SegmentCount => checked(
+            (Parent?.SegmentCount ?? 0) + (Segments?.Length ?? 0));
+
+        public void SetCompiled(
+            NativeSceneClipPath path,
+            NativePathSegment[] segments)
+        {
+            Path = path;
+            Segments = segments;
+        }
+    }
+
     private readonly record struct StateMaskProgram(
         int Count,
         NativeSceneLayerMask Mask0,
         NativeSceneLayerMask Mask1,
         NativeSceneLayerMask Mask2,
-        NativeSceneLayerMask Mask3)
+        NativeSceneLayerMask Mask3,
+        VectorMaskNode VectorMask)
     {
-        public StateMaskProgram(NativeSceneLayerMask mask)
-            : this(1, mask, default, default, default)
+        public StateMaskProgram(
+            NativeSceneLayerMask mask,
+            VectorMaskNode vectorMask)
+            : this(1, mask, default, default, default, vectorMask)
+        {
+        }
+
+        public StateMaskProgram(VectorMaskNode vectorMask)
+            : this(0, default, default, default, default, vectorMask)
         {
         }
 
         public bool TryAppend(
             NativeSceneLayerMask mask,
+            VectorMaskNode vectorMask,
             out StateMaskProgram result)
         {
             result = Count switch
             {
-                1 => this with { Count = 2, Mask1 = mask },
-                2 => this with { Count = 3, Mask2 = mask },
-                3 => this with { Count = 4, Mask3 = mask },
+                1 => this with
+                {
+                    Count = 2,
+                    Mask1 = mask,
+                    VectorMask = vectorMask
+                },
+                2 => this with
+                {
+                    Count = 3,
+                    Mask2 = mask,
+                    VectorMask = vectorMask
+                },
+                3 => this with
+                {
+                    Count = 4,
+                    Mask3 = mask,
+                    VectorMask = vectorMask
+                },
                 _ => this
             };
             return Count is >= 1 and < NativeSceneLayerMaskChain.MaximumMaskCount;
@@ -176,6 +242,63 @@ public static partial class GpuPictureNativeSceneCompiler
             if (Count > 2) masks[2] = Mask2;
             if (Count > 3) masks[3] = Mask3;
             return new NativeSceneLayerMaskChain(masks);
+        }
+
+        public int SerializedSize => Count > 0
+            ? Count == 1
+                ? Unsafe.SizeOf<NativeSceneLayerMask>()
+                : Unsafe.SizeOf<NativeSceneLayerMaskChain>()
+            : checked(
+                Unsafe.SizeOf<NativeSceneLayerVectorMask>() +
+                VectorMask.Count * Unsafe.SizeOf<NativeSceneClipPath>() +
+                VectorMask.SegmentCount * Unsafe.SizeOf<NativePathSegment>());
+
+        public byte[] CreateVectorAuxiliary(
+            out NativeSceneLayerVectorMask mask)
+        {
+            if (Count != 0)
+            {
+                throw new InvalidOperationException(
+                    "Only vector mask programs have a vector auxiliary span.");
+            }
+            int pathBytes = checked(
+                VectorMask.Count * Unsafe.SizeOf<NativeSceneClipPath>());
+            int segmentBytes = checked(
+                VectorMask.SegmentCount * Unsafe.SizeOf<NativePathSegment>());
+            byte[] auxiliary = GC.AllocateUninitializedArray<byte>(
+                checked(pathBytes + segmentBytes));
+            Span<NativeSceneClipPath> paths = MemoryMarshal.Cast<
+                byte,
+                NativeSceneClipPath>(auxiliary.AsSpan(0, pathBytes));
+            Span<NativePathSegment> segments = MemoryMarshal.Cast<
+                byte,
+                NativePathSegment>(auxiliary.AsSpan(pathBytes, segmentBytes));
+            VectorMaskNode? node = VectorMask;
+            int pathIndex = paths.Length;
+            int segmentIndex = segments.Length;
+            while (node is not null)
+            {
+                NativePathSegment[] nodeSegments = node.Segments ??
+                    throw new InvalidOperationException(
+                        "The vector mask chain was not compiled.");
+                pathIndex--;
+                segmentIndex -= nodeSegments.Length;
+                nodeSegments.CopyTo(segments[segmentIndex..]);
+                paths[pathIndex] = new NativeSceneClipPath(
+                    checked((ulong)segmentIndex),
+                    checked((ulong)nodeSegments.Length),
+                    node.Path.Minimum,
+                    node.Path.Maximum,
+                    node.Path.Transform,
+                    node.Path.Operation,
+                    node.Path.FillRule,
+                    node.Path.SampleGrid);
+                node = node.Parent;
+            }
+            mask = new(
+                checked((uint)paths.Length),
+                checked((uint)segments.Length));
+            return auxiliary;
         }
     }
 
@@ -476,7 +599,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 materials.GradientStopCount *
                     Unsafe.SizeOf<NativeSceneGradientStop>() +
                 states.Count * Unsafe.SizeOf<NativeSceneState>() +
-                stateMasks.Count * Unsafe.SizeOf<NativeSceneLayerMaskChain>() +
+                stateMasks.Sum(static program => program.SerializedSize) +
                 nativeCommandCount * 64 +
                 positionedGlyphs.Count * Unsafe.SizeOf<NativePositionedGlyph>() +
                 batches.Count(static batch =>
@@ -699,13 +822,24 @@ public static partial class GpuPictureNativeSceneCompiler
                         in mask,
                         out maskResourceIndices[index]);
                 }
-                else
+                else if (program.Count > 1)
                 {
                     NativeSceneLayerMaskChain chain = program.ToChain();
                     added = builder.TryAddLayerMaskChainResource(
                         resourceId,
                         generation,
                         in chain,
+                        out maskResourceIndices[index]);
+                }
+                else
+                {
+                    byte[] auxiliary = program.CreateVectorAuxiliary(
+                        out NativeSceneLayerVectorMask vectorMask);
+                    added = builder.TryAddLayerVectorMaskResource(
+                        resourceId,
+                        generation,
+                        in vectorMask,
+                        auxiliary,
                         out maskResourceIndices[index]);
                 }
                 if (!added)

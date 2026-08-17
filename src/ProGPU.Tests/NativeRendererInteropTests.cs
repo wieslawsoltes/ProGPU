@@ -737,6 +737,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             562949953421312UL,
             (ulong)NativeRendererCapabilities.ImageFrameMipmapSampling);
+        Assert.Equal(
+            1125899906842624UL,
+            (ulong)NativeRendererCapabilities.SemanticVectorClipMask);
         Assert.Equal(0U, (uint)NativeImageSampling.Nearest);
         Assert.Equal(1U, (uint)NativeImageSampling.Linear);
         Assert.Equal(2U, (uint)NativeImageSampling.Cubic);
@@ -1700,6 +1703,99 @@ public class NativeRendererInteropTests
             1U,
             1U,
             in tooShort,
+            out _));
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderWritesVectorMaskWithoutAllocation()
+    {
+        Span<byte> destination = stackalloc byte[4096];
+        Span<NativeSceneClipPath> paths = stackalloc NativeSceneClipPath[1];
+        Span<NativePathSegment> segments = stackalloc NativePathSegment[3];
+        segments[0] = new NativePathSegment(
+            NativePathSegmentKind.Line,
+            new Vector2(2f, 2f),
+            new Vector2(30f, 4f),
+            default,
+            default);
+        segments[1] = new NativePathSegment(
+            NativePathSegmentKind.Line,
+            new Vector2(30f, 4f),
+            new Vector2(14f, 24f),
+            default,
+            default);
+        segments[2] = new NativePathSegment(
+            NativePathSegmentKind.Line,
+            new Vector2(14f, 24f),
+            new Vector2(2f, 2f),
+            default,
+            default);
+        paths[0] = new NativeSceneClipPath(
+            0U,
+            3U,
+            new Vector2(2f, 2f),
+            new Vector2(30f, 24f),
+            new Matrix3x2(1f, 0.1f, -0.05f, 1f, 3f, 4f),
+            sampleGrid: 4U);
+        var mask = new NativeSceneLayerVectorMask(1U, 3U, 0.8f);
+        int pathBytes = Unsafe.SizeOf<NativeSceneClipPath>();
+        int segmentBytes = 3 * Unsafe.SizeOf<NativePathSegment>();
+        Span<byte> auxiliary = stackalloc byte[pathBytes + segmentBytes];
+        MemoryMarshal.AsBytes(paths).CopyTo(auxiliary);
+        MemoryMarshal.AsBytes(segments).CopyTo(auxiliary[pathBytes..]);
+
+        static bool Build(
+            Span<byte> bytes,
+            ReadOnlySpan<byte> payload,
+            in NativeSceneLayerVectorMask descriptor,
+            out ReadOnlySpan<byte> stream)
+        {
+            stream = default;
+            var builder = new NativeSceneStreamBuilder(
+                bytes,
+                86U,
+                1U,
+                commandCapacity: 0,
+                resourceCapacity: 1);
+            return builder.TryAddLayerVectorMaskResource(
+                    1U,
+                    1U,
+                    in descriptor,
+                    payload,
+                    out uint resourceIndex) &&
+                resourceIndex == 0U && builder.TryBuild(out stream);
+        }
+
+        Assert.True(Build(destination, auxiliary, in mask, out var stream));
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[(int)header.ResourceOffset..]);
+        var stored = MemoryMarshal.Read<NativeSceneLayerVectorMask>(
+            stream[(int)resource.PayloadOffset..]);
+        Assert.Equal(32U, resource.PayloadSize);
+        Assert.Equal((uint)auxiliary.Length, resource.AuxiliarySize);
+        Assert.Equal(NativeSceneLayerMaskKind.VectorClipChain, stored.Kind);
+        Assert.Equal(1U, stored.PathCount);
+        Assert.Equal(3U, stored.SegmentCount);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool success = true;
+        for (int iteration = 0; iteration < 10_000; ++iteration)
+        {
+            success &= Build(destination, auxiliary, in mask, out _);
+        }
+        Assert.True(success);
+        Assert.Equal(
+            0L,
+            GC.GetAllocatedBytesForCurrentThread() - before);
+
+        Span<byte> invalidAuxiliary = stackalloc byte[auxiliary.Length];
+        auxiliary.CopyTo(invalidAuxiliary);
+        invalidAuxiliary[pathBytes - 1] = 1;
+        Assert.False(Build(
+            destination,
+            invalidAuxiliary,
+            in mask,
             out _));
     }
 

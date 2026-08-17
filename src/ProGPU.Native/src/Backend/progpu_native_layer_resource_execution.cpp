@@ -769,6 +769,15 @@ bool create_semantic_layer_mask_binding(
             operation,
             texture_upload_bytes);
     }
+    if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN) {
+        return create_semantic_vector_mask_binding(
+            engine,
+            parsed,
+            resource,
+            target_extent,
+            dpi_scale,
+            operation);
+    }
     if (!create_layer_mask_resources(engine)) {
         return false;
     }

@@ -900,7 +900,10 @@ misses, bind-group churn, stable uniform uploads, or output divergence.
 ### Phase 2 retained vector clip-chain checkpoint
 
 The fifth additive ABI-v3 extension adds the arbitrary retained path portion of
-the common clip contract. A clip chain is an immutable caller-owned arena of
+the common clip contract. The public C scene stream stores one 32-byte vector
+mask header followed by 72-byte clip-path records and 64-byte path-segment
+records, all referenced by fixed-width offsets and counts. A clip chain is an
+immutable caller-owned arena of
 line, quadratic, cubic, and analytic-arc segments plus ordered path nodes. Each
 node carries exact local extrema bounds, an independent affine transform, a
 nonzero/even-odd fill rule, a 4x4 or 8x8 coverage grid, and intersection or
@@ -920,6 +923,18 @@ the existing group-composite mask binding. This clean-room design adopts
 WebRender's retained clip identity and complex mask-cache split, Vello's
 explicit ordered layer/clip model, Skia's transformed clip-stack behavior, and
 Direct2D's group-layer mask boundary without copying any implementation.
+
+The concrete algorithms are direct ports of the repository-owned C#
+`Compositor.PushGeometryMask` and `PathAtlas.CompileFillPath` contracts, while
+both languages consume the same ProGPU WGSL files. The managed
+`GpuPictureNativeSceneCompiler` keeps canonical one-to-four rectangle/rounded
+rectangle chains on the analytic route and lowers every supported general or
+five-to-sixty-four-node chain to this vector resource. Combined
+`PathGeometry`, non-finite/non-invertible transforms, malformed offsets, and a
+depth above 64 fail with a typed compile or validation result. The native atlas
+stores pixel-space UV bounds during packing and normalizes all vertices only
+after the final atlas dimension is known; this is required when a later path
+grows the atlas after an earlier path has already been packed.
 
 For `C` clip nodes, `U <= C` unique paths, total segment count `S`, target area
 `W*H`, atlas coverage area `A`, and per-path sample grid `Q`, a changed revision
@@ -1567,14 +1582,17 @@ Emscripten/browser gates now execute the same layout and WGSL contract.
 rounded-rectangle `PushGeometryClip` scopes to this exact state mask or bounded
 chain. It reads each retained canonical contour without flattening, preserves
 the full finite invertible affine and corner radii, and restores the prior state
-at each pop. The native C++
+at each pop. A fifth through sixty-fourth canonical clip, or any supported
+non-canonical/general vector clip, lowers to the retained vector-mask resource
+described above. The native C++
 consumer now accepts either the analytic mask or a retained R8 coverage mask
 for vector, glyph, plain-image, and color-matrix-image draws. Text and image
 pipelines use canonical explicit layouts; a color matrix occupies an
 independent fourth bind group so it can be fused with the state mask in one
-draw. The managed picture compiler does not yet emit sampled masks. A fifth
-nested canonical clip, non-canonical/general vector clip, or isolated-layer
-chain remains typed fail-closed; none is approximated with an isolated group.
+draw. The managed picture compiler does not yet emit arbitrary sampled opacity
+masks. Combined-path clips, gradient/picture opacity-mask content, and an
+isolated-layer chain remain typed fail-closed; none is approximated with an
+isolated group.
 
 The Apple M3 Pro matched `960x540` state-mask checkpoint used one Release
 process, 100 alternating warm-up pairs, and 1,000 alternating synchronized

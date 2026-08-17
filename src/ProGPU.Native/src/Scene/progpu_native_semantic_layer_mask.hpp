@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace progpu::native::semantic {
 
@@ -12,6 +13,9 @@ struct semantic_layer_mask final {
     progpu_native_scene_layer_mask analytic{};
     progpu_native_scene_layer_coverage_mask coverage{};
     progpu_native_scene_layer_mask_chain chain{};
+    progpu_native_scene_layer_vector_mask vector{};
+    const progpu_native_scene_clip_path* vector_paths = nullptr;
+    const progpu_native_path_segment* vector_segments = nullptr;
 };
 
 bool is_valid_semantic_layer_mask(
@@ -23,6 +27,11 @@ bool is_valid_semantic_layer_coverage_mask(
 
 bool is_valid_semantic_layer_mask_chain(
     const progpu_native_scene_layer_mask_chain& chain) noexcept;
+
+bool is_valid_semantic_layer_vector_mask(
+    const progpu_native_scene_layer_vector_mask& mask,
+    std::span<const progpu_native_scene_clip_path> paths,
+    std::span<const progpu_native_path_segment> segments) noexcept;
 
 bool validate_layer_mask_resource(
     const std::byte* bytes,

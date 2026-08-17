@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 #include <new>
 #include <utility>
 
@@ -137,6 +138,61 @@ bool semantic_scene_builder::add_analytic_mask_chain(
             std::span<const progpu_native_scene_layer_mask_chain>(
                 &chain,
                 1U));
+        resource_index = static_cast<std::uint32_t>(
+            implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+bool semantic_scene_builder::add_vector_clip_mask(
+    std::span<const progpu_native_scene_clip_path> paths,
+    std::span<const progpu_native_path_segment> segments,
+    float opacity,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (paths.size() > std::numeric_limits<std::uint32_t>::max() ||
+        segments.size() > std::numeric_limits<std::uint32_t>::max() ||
+        implementation_->resources.size() >=
+            PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    progpu_native_scene_layer_vector_mask mask{};
+    mask.struct_size = sizeof(mask);
+    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN;
+    mask.path_count = static_cast<std::uint32_t>(paths.size());
+    mask.segment_count = static_cast<std::uint32_t>(segments.size());
+    mask.opacity = opacity;
+    if (!semantic::is_valid_semantic_layer_vector_mask(
+            mask, paths, segments)) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    try {
+        implementation_->resources.reserve(
+            implementation_->resources.size() + 1U);
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload = copy_bytes(
+            std::span<const progpu_native_scene_layer_vector_mask>(
+                &mask, 1U));
+        resource.auxiliary.resize(paths.size_bytes() + segments.size_bytes());
+        std::memcpy(
+            resource.auxiliary.data(),
+            paths.data(),
+            paths.size_bytes());
+        std::memcpy(
+            resource.auxiliary.data() + paths.size_bytes(),
+            segments.data(),
+            segments.size_bytes());
         resource_index = static_cast<std::uint32_t>(
             implementation_->resources.size());
         implementation_->resources.push_back(std::move(resource));

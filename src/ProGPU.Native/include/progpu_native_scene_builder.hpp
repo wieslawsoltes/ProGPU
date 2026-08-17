@@ -119,6 +119,11 @@ public:
     bool add_analytic_mask_chain(
         std::span<const progpu_native_scene_layer_mask> masks,
         std::uint32_t& resource_index) noexcept;
+    bool add_vector_clip_mask(
+        std::span<const progpu_native_scene_clip_path> paths,
+        std::span<const progpu_native_path_segment> segments,
+        float opacity,
+        std::uint32_t& resource_index) noexcept;
     bool add_effect_chain(
         std::span<const progpu_native_group_effect> effects,
         std::uint32_t revision,

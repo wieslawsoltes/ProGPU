@@ -79,6 +79,7 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_IMAGE_PATCH_BATCH (UINT64_C(1) << 47U)
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_IMAGE_MIPMAP_SAMPLING (UINT64_C(1) << 48U)
 #define PROGPU_NATIVE_CAPABILITY_IMAGE_FRAME_MIPMAP_SAMPLING (UINT64_C(1) << 49U)
+#define PROGPU_NATIVE_CAPABILITY_SEMANTIC_VECTOR_CLIP_MASK (UINT64_C(1) << 50U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -163,7 +164,8 @@ typedef enum progpu_native_scene_gradient_interpolation {
 typedef enum progpu_native_scene_layer_mask_kind {
     PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE = 1,
     PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP = 2,
-    PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN = 3
+    PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN = 3,
+    PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN = 4
 } progpu_native_scene_layer_mask_kind;
 
 enum {
@@ -1059,6 +1061,25 @@ typedef struct progpu_native_scene_layer_mask_chain {
 } progpu_native_scene_layer_mask_chain;
 
 /*
+ * Pointer-free retained vector-mask prefix. The auxiliary span contains
+ * path_count progpu_native_scene_clip_path records followed immediately by
+ * segment_count progpu_native_path_segment records. Both counts are bounded
+ * and validated before native GPU allocation. The ordered paths are composed
+ * from an initially full mask and rasterized by the shared PathRasterizer.wgsl
+ * and ClipCompose.wgsl implementation.
+ */
+typedef struct progpu_native_scene_layer_vector_mask {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint32_t flags;
+    uint32_t path_count;
+    uint32_t segment_count;
+    float opacity;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_scene_layer_vector_mask;
+
+/*
  * Version-one upload-backed or external image command payload. Sampling values
  * cover the complete ProGPU.Scene.TextureSamplingMode contract. max_anisotropy is canonical
  * one except for LINEAR_MIPMAP, where values two through sixteen select the
@@ -1682,6 +1703,26 @@ typedef struct progpu_native_clip_path {
     uint32_t operation;
     uint32_t reserved;
 } progpu_native_clip_path;
+
+/*
+ * Pointer-free semantic-scene equivalent of progpu_native_clip_path. Fixed
+ * 64-bit arena indices keep the retained byte stream identical on 32-bit and
+ * 64-bit hosts; the C++ consumer translates them once when compiling GPU
+ * coverage resources.
+ */
+typedef struct progpu_native_scene_clip_path {
+    uint64_t segment_offset;
+    uint64_t segment_count;
+    float min_x;
+    float min_y;
+    float max_x;
+    float max_y;
+    progpu_native_affine_2d transform;
+    uint32_t fill_rule;
+    uint32_t sample_grid;
+    uint32_t operation;
+    uint32_t reserved;
+} progpu_native_scene_clip_path;
 
 /*
  * Immutable caller-owned clip payload borrowed only for one render call.

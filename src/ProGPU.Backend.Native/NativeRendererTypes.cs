@@ -412,7 +412,8 @@ public enum NativeRendererCapabilities : ulong
     BulkTextVerticalLayout = 1UL << 46,
     SemanticImagePatchBatch = 1UL << 47,
     SemanticImageMipmapSampling = 1UL << 48,
-    ImageFrameMipmapSampling = 1UL << 49
+    ImageFrameMipmapSampling = 1UL << 49,
+    SemanticVectorClipMask = 1UL << 50
 }
 
 public enum NativeSceneResourceKind : uint
@@ -475,7 +476,8 @@ public enum NativeSceneLayerMaskKind : uint
 {
     RoundedRectangle = 1,
     CoverageBitmap = 2,
-    AnalyticChain = 3
+    AnalyticChain = 3,
+    VectorClipChain = 4
 }
 
 public enum NativeSceneCommandKind : uint
@@ -1613,6 +1615,42 @@ public readonly struct NativeSceneLayerMaskChain
 }
 
 /// <summary>
+/// Pointer-free prefix for an ordered retained vector coverage mask. Its
+/// auxiliary span stores <see cref="NativeSceneClipPath"/> records followed
+/// by their shared <see cref="NativePathSegment"/> arena.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneLayerVectorMask
+{
+    public NativeSceneLayerVectorMask(
+        uint pathCount,
+        uint segmentCount,
+        float opacity = 1f)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneLayerVectorMask>();
+        Kind = NativeSceneLayerMaskKind.VectorClipChain;
+        Flags = 0U;
+        PathCount = pathCount;
+        SegmentCount = segmentCount;
+        Opacity = opacity;
+        Reserved0 = 0U;
+        Reserved1 = 0U;
+    }
+
+    public readonly uint StructSize;
+    public readonly NativeSceneLayerMaskKind Kind;
+    public readonly uint Flags;
+    public readonly uint PathCount;
+    public readonly uint SegmentCount;
+    public readonly float Opacity;
+    private readonly uint Reserved0;
+    private readonly uint Reserved1;
+
+    internal bool HasCanonicalReservedFields =>
+        Reserved0 == 0U && Reserved1 == 0U;
+}
+
+/// <summary>
 /// Pointer-free descriptor for one semantic layer effect.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
@@ -2712,6 +2750,43 @@ public readonly struct NativePathFill
     public readonly Matrix3x2 Transform;
     public readonly NativeFillRule FillRule;
     public readonly uint SampleGrid;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneClipPath
+{
+    public NativeSceneClipPath(
+        ulong segmentOffset,
+        ulong segmentCount,
+        Vector2 minimum,
+        Vector2 maximum,
+        Matrix3x2 transform,
+        NativeClipOperation operation = NativeClipOperation.Intersect,
+        NativeFillRule fillRule = NativeFillRule.NonZero,
+        uint sampleGrid = 4)
+    {
+        SegmentOffset = segmentOffset;
+        SegmentCount = segmentCount;
+        Minimum = minimum;
+        Maximum = maximum;
+        Transform = transform;
+        FillRule = fillRule;
+        SampleGrid = sampleGrid;
+        Operation = operation;
+        Reserved = 0U;
+    }
+
+    public readonly ulong SegmentOffset;
+    public readonly ulong SegmentCount;
+    public readonly Vector2 Minimum;
+    public readonly Vector2 Maximum;
+    public readonly Matrix3x2 Transform;
+    public readonly NativeFillRule FillRule;
+    public readonly uint SampleGrid;
+    public readonly NativeClipOperation Operation;
+    private readonly uint Reserved;
+
+    internal bool HasCanonicalReservedField => Reserved == 0U;
 }
 
 [StructLayout(LayoutKind.Sequential)]

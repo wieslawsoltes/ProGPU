@@ -346,7 +346,8 @@ bool ensure_clip_textures(
             WGPUTextureDescriptor descriptor{};
             descriptor.label = progpu::native::webgpu::string_view(label);
             descriptor.usage = WGPUTextureUsage_RenderAttachment |
-                WGPUTextureUsage_TextureBinding;
+                WGPUTextureUsage_TextureBinding |
+                WGPUTextureUsage_CopySrc;
             descriptor.dimension = WGPUTextureDimension_2D;
             descriptor.size = {width, height, 1U};
             descriptor.format = WGPUTextureFormat_R8Unorm;

@@ -2609,3 +2609,33 @@ over `3/255`, and mean `0.000531925/255`. The automated independent-AA budget
 therefore permits at most `128/255` for an individual half-covered edge sample;
 the existing changed-pixel and whole-image mean limits remain mandatory and
 continue to reject regional geometry or coverage divergence.
+
+## Arbitrary retained vector-mask qualification
+
+The Apple M3 Pro/Metal Release gate extends the same 384-primitive matched
+picture with five nested geometry clips, including a noncanonical cubic path.
+Canonical one-to-four-node masks retain the analytic fast path; this workload
+therefore forces the general retained vector-mask resource, production path
+rasterizer, ordered GPU clip composition, and final R8 group mask.
+
+After 300 alternating warm-up frames, 1,000 synchronized frames measured native
+versus managed total p50 at `2.7728/3.8963 ms`, p95 at `4.2585/4.6375 ms`, and
+p99 at `4.4393/5.7732 ms`. CPU submission p50 was `0.1807/1.3043 ms`. Both
+routes allocated `0 B/frame`; the stable native frame executed 22 draws in one
+submission with zero vertex, index, texture, uniform, coverage, brush,
+gradient-stop, text-style, or color-glyph upload. The pointer-free snapshot is
+113,088 bytes and the one-time native update allocates only the managed
+caller's 48-byte measurement overhead.
+
+Across 518,400 pixels, maximum channel difference is `11/255`, exactly three
+pixels exceed `3/255`, and mean absolute channel difference is
+`0.000215567/255`. The JSON and PPM evidence is retained under
+`artifacts/progpu-native/benchmarks/managed-picture-vector-mask-1000.json` and
+`artifacts/progpu-native/differential/managed-picture-vector-clip/`.
+
+The provider integration additionally forces atlas growth: it packs a 400 by
+300 path before a 600 by 320 path, then composes five clips on a 640 by 360
+Dawn/Metal target. Its pixel oracle and second stable render protect the final
+atlas-denominator rule and zero-upload replay. On the managed comparator, a
+full-live-set shrink result is memoized by atlas generation, dimensions, and
+path count, so retained replay does not periodically allocate packing scratch.

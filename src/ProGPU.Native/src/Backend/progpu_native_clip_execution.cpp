@@ -304,12 +304,12 @@ bool rebuild_vector_clip_chain(
                 vertex.position[1] =
                     1.0F - 2.0F * logical_y * dpi_scale /
                         static_cast<float>(height);
-                vertex.atlas_uv[0] =
-                    atlas_points[corner].x /
-                    static_cast<float>(required_atlas_size);
-                vertex.atlas_uv[1] =
-                    atlas_points[corner].y /
-                    static_cast<float>(required_atlas_size);
+                // Keep pixel coordinates until every retained tile has been
+                // packed. A later path can grow the shared atlas, so
+                // normalizing here would leave earlier nodes using the old
+                // denominator and sample an unrelated tile region.
+                vertex.atlas_uv[0] = atlas_points[corner].x;
+                vertex.atlas_uv[1] = atlas_points[corner].y;
                 vertices.push_back(vertex);
             }
             indices.insert(
@@ -330,6 +330,13 @@ bool rebuild_vector_clip_chain(
                 compose_uniform_bytes.data() + index * 256U,
                 &compose,
                 sizeof(compose));
+        }
+
+        const float inverse_atlas_size =
+            1.0F / static_cast<float>(required_atlas_size);
+        for (auto& vertex : vertices) {
+            vertex.atlas_uv[0] *= inverse_atlas_size;
+            vertex.atlas_uv[1] *= inverse_atlas_size;
         }
 
         const std::uint64_t vertex_bytes =

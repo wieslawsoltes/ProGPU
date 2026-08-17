@@ -2282,7 +2282,7 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
-    public void CompilerFailsClosedWhenNestedGeometryMaskExceedsBoundedChain()
+    public void CompilerPromotesFifthNestedGeometryMaskToGpuVectorChain()
     {
         PathGeometry mask = PrimitivePathGeometry.CreateRectangle(
             0f, 0f, 40f, 30f);
@@ -2317,23 +2317,142 @@ public class NativePictureCompilerTests
                     Type = RenderCommandType.PushGeometryClip,
                     Path = mask,
                     Transform = Matrix4x4.Identity
-                }
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Rect = new Rect(0f, 0f, 40f, 30f),
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand { Type = RenderCommandType.PopGeometryClip },
+                new RenderCommand { Type = RenderCommandType.PopGeometryClip },
+                new RenderCommand { Type = RenderCommandType.PopGeometryClip },
+                new RenderCommand { Type = RenderCommandType.PopGeometryClip },
+                new RenderCommand { Type = RenderCommandType.PopGeometryClip }
             ],
             Array.Empty<Vector2>(),
             Array.Empty<double>(),
             Array.Empty<Line3D>(),
             Array.Empty<float>());
 
-        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
             picture,
             1U,
             1U,
             out NativeCompiledPicture? compiled,
             out NativePictureCompileFailure failure));
-        Assert.Null(compiled);
-        Assert.Equal(NativePictureCompileError.UnsupportedCommand, failure.Error);
-        Assert.Equal(4, failure.CommandIndex);
-        Assert.Equal(RenderCommandType.PushGeometryClip, failure.CommandType);
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(
+            compiled.Stream);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)header.ResourceCount *
+                        Unsafe.SizeOf<NativeMethods.SceneResource>())));
+        NativeMethods.SceneResource vectorResource = default;
+        for (int index = 0; index < resources.Length; index++)
+        {
+            NativeMethods.SceneResource resource = resources[index];
+            if (resource.Kind == NativeSceneResourceKind.LayerMask &&
+                MemoryMarshal.Read<NativeSceneLayerVectorMask>(
+                    compiled.Stream.Slice(
+                        checked((int)resource.PayloadOffset))).Kind ==
+                    NativeSceneLayerMaskKind.VectorClipChain)
+            {
+                vectorResource = resource;
+                break;
+            }
+        }
+        Assert.NotEqual(0U, vectorResource.PayloadOffset);
+        var vectorMask = MemoryMarshal.Read<NativeSceneLayerVectorMask>(
+            compiled.Stream.Slice(
+                checked((int)vectorResource.PayloadOffset)));
+        Assert.Equal(5U, vectorMask.PathCount);
+        Assert.True(vectorMask.SegmentCount >= 20U);
+        Assert.True(vectorResource.AuxiliarySize > 0U);
+    }
+
+    [Fact]
+    public void CompilerLowersGeneralCurveGeometryClipToGpuVectorMask()
+    {
+        var clip = new PathGeometry { FillRule = FillRule.EvenOdd };
+        var figure = new PathFigure(new Vector2(4f, 6f), isClosed: true);
+        figure.Segments.Add(new QuadraticBezierSegment(
+            new Vector2(32f, -2f),
+            new Vector2(48f, 18f)));
+        figure.Segments.Add(new CubicBezierSegment(
+            new Vector2(52f, 36f),
+            new Vector2(18f, 42f),
+            new Vector2(4f, 6f)));
+        clip.Figures.Add(figure);
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushGeometryClip,
+                    Path = clip,
+                    Transform = new Matrix4x4(
+                        1f, -0.08f, 0f, 0f,
+                        0.12f, 1f, 0f, 0f,
+                        0f, 0f, 1f, 0f,
+                        0f, 0f, 0f, 1f) *
+                        Matrix4x4.CreateTranslation(7f, 5f, 0f)
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Rect = new Rect(0f, 0f, 64f, 48f),
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand { Type = RenderCommandType.PopGeometryClip }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            14U,
+            3U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure), failure.ToString());
+        Assert.NotNull(compiled);
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(
+            compiled.Stream);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)header.ResourceCount *
+                        Unsafe.SizeOf<NativeMethods.SceneResource>())));
+        NativeMethods.SceneResource maskResource = default;
+        for (int index = 0; index < resources.Length; index++)
+        {
+            if (resources[index].Kind == NativeSceneResourceKind.LayerMask)
+            {
+                maskResource = resources[index];
+                break;
+            }
+        }
+        Assert.NotEqual(0U, maskResource.PayloadOffset);
+        var mask = MemoryMarshal.Read<NativeSceneLayerVectorMask>(
+            compiled.Stream.Slice(
+                checked((int)maskResource.PayloadOffset)));
+        Assert.Equal(NativeSceneLayerMaskKind.VectorClipChain, mask.Kind);
+        Assert.Equal(1U, mask.PathCount);
+        ReadOnlySpan<NativeSceneClipPath> paths = MemoryMarshal.Cast<
+            byte,
+            NativeSceneClipPath>(compiled.Stream.Slice(
+                checked((int)maskResource.AuxiliaryOffset),
+                Unsafe.SizeOf<NativeSceneClipPath>()));
+        Assert.Equal(NativeFillRule.EvenOdd, paths[0].FillRule);
+        Assert.Equal(NativeClipOperation.Intersect, paths[0].Operation);
+        Assert.Equal(4U, paths[0].SampleGrid);
     }
 
     [Fact]

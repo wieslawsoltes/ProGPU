@@ -49,6 +49,8 @@ try {
     roundedMasks: document.body.dataset.progpuNativeRoundedMasks,
     stateMasks: document.body.dataset.progpuNativeStateMasks,
     stateMaskMedia: document.body.dataset.progpuNativeStateMaskMedia,
+    vectorClipMasks:
+      document.body.dataset.progpuNativeVectorClipMasks,
     directImageSampling:
       document.body.dataset.progpuNativeDirectImageSampling,
     semanticGeometry:
@@ -75,6 +77,7 @@ try {
     roundedMasks: "passed",
     stateMasks: "passed",
     stateMaskMedia: "passed",
+    vectorClipMasks: "passed",
     directImageSampling: "passed",
     semanticGeometry: "passed",
     nativeSceneBuilder: "passed",
@@ -142,7 +145,7 @@ try {
     `ProGPU native browser contract ${contract.status}: ` +
     `${contract.semanticCommands} semantic commands, ` +
     `${contract.semanticDraws} GPU draws, exact per-draw vector/glyph/image ` +
-    `masks, retained rounded masks, coverage masks, and direct image ` +
+    `masks, retained rounded/vector masks, coverage masks, and direct image ` +
     `sampling verified.\n`);
 } finally {
   await browser.close();

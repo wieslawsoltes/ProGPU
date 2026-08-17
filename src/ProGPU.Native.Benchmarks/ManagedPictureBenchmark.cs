@@ -18,13 +18,17 @@ internal static class ManagedPictureBenchmark
 
     internal static void Run(string[] args)
     {
+        bool useVectorClipMask = HasFlag(args, "--vector-clip-mask");
         int primitiveCount = ReadPositive(args, "--rectangles", 384);
-        int warmupCount = ReadNonNegative(args, "--warmup", 60);
+        int warmupCount = ReadNonNegative(
+            args,
+            "--warmup",
+            useVectorClipMask ? 300 : 60);
         int iterationCount = ReadPositive(args, "--iterations", 300);
         string? outputJson = ReadString(args, "--output-json");
         bool writeImages = HasFlag(args, "--write-images");
 
-        using GpuPicture picture = CreatePicture(primitiveCount);
+        using GpuPicture picture = CreatePicture(primitiveCount, useVectorClipMask);
         const ulong sceneId = 0x5049435455524542UL;
         const ulong generation = 1UL;
         long compileAllocationStart = GC.GetAllocatedBytesForCurrentThread();
@@ -178,7 +182,9 @@ internal static class ManagedPictureBenchmark
         if (writeImages)
         {
             string directory = Path.GetFullPath(
-                "artifacts/progpu-native/differential/managed-picture");
+                useVectorClipMask
+                    ? "artifacts/progpu-native/differential/managed-picture-vector-clip"
+                    : "artifacts/progpu-native/differential/managed-picture");
             Directory.CreateDirectory(directory);
             nativeImagePath = Path.Combine(directory, "managed-picture-native.ppm");
             managedImagePath = Path.Combine(directory, "managed-picture-managed.ppm");
@@ -200,6 +206,7 @@ internal static class ManagedPictureBenchmark
             OperatingSystem: System.Runtime.InteropServices.RuntimeInformation.OSDescription,
             Adapter: context.AdapterName,
             Backend: context.AdapterBackendType.ToString(),
+            VectorClipMask: useVectorClipMask,
             SourceCommandCount: compiled.SourceCommandCount,
             NativeCommandCount: compiled.NativeCommandCount,
             AnalyticPrimitiveCount: compiled.AnalyticPrimitiveCount,
@@ -288,7 +295,9 @@ internal static class ManagedPictureBenchmark
         }
     }
 
-    private static GpuPicture CreatePicture(int primitiveCount)
+    private static GpuPicture CreatePicture(
+        int primitiveCount,
+        bool useVectorClipMask)
     {
         GradientStop[] coolStops =
         [
@@ -368,6 +377,68 @@ internal static class ManagedPictureBenchmark
                 30f,
                 24f);
         drawing.PushGeometryClip(roundedClip, Matrix4x4.Identity);
+        int additionalGeometryClipCount = 0;
+        if (useVectorClipMask)
+        {
+            // This is deliberately wider than the four-node analytic fast path:
+            // five ordered geometry clips plus one noncanonical curved path force
+            // the managed compiler and C++ renderer through their retained GPU
+            // vector-mask contract without changing the picture's draw families.
+            drawing.PushGeometryClip(
+                PrimitivePathGeometry.CreateRoundedRectangle(
+                    30f,
+                    24f,
+                    Width - 60f,
+                    Height - 48f,
+                    26f,
+                    20f),
+                Matrix4x4.Identity);
+            additionalGeometryClipCount++;
+
+            var curvedClip = new PathGeometry
+            {
+                FillRule = FillRule.Nonzero
+            };
+            var curvedFigure = new PathFigure(new Vector2(42f, Height * 0.52f), true);
+            curvedFigure.Segments.Add(new CubicBezierSegment(
+                new Vector2(52f, 42f),
+                new Vector2(Width * 0.35f, 32f),
+                new Vector2(Width * 0.5f, 42f)));
+            curvedFigure.Segments.Add(new CubicBezierSegment(
+                new Vector2(Width * 0.68f, 34f),
+                new Vector2(Width - 48f, 54f),
+                new Vector2(Width - 40f, Height * 0.52f)));
+            curvedFigure.Segments.Add(new CubicBezierSegment(
+                new Vector2(Width - 48f, Height - 42f),
+                new Vector2(Width * 0.68f, Height - 32f),
+                new Vector2(Width * 0.5f, Height - 42f)));
+            curvedFigure.Segments.Add(new CubicBezierSegment(
+                new Vector2(Width * 0.35f, Height - 34f),
+                new Vector2(52f, Height - 54f),
+                curvedFigure.StartPoint));
+            curvedClip.Figures.Add(curvedFigure);
+            drawing.PushGeometryClip(curvedClip, Matrix4x4.Identity);
+            additionalGeometryClipCount++;
+
+            drawing.PushGeometryClip(
+                PrimitivePathGeometry.CreateRoundedRectangle(
+                    36f,
+                    30f,
+                    Width - 72f,
+                    Height - 60f,
+                    18f,
+                    14f),
+                Matrix4x4.Identity);
+            additionalGeometryClipCount++;
+            drawing.PushGeometryClip(
+                PrimitivePathGeometry.CreateRectangle(
+                    40f,
+                    34f,
+                    Width - 80f,
+                    Height - 68f),
+                Matrix4x4.Identity);
+            additionalGeometryClipCount++;
+        }
         int pointBatchCount = Math.Min(
             primitiveCount - 1,
             Math.Max(1, primitiveCount / 12));
@@ -623,6 +694,8 @@ internal static class ManagedPictureBenchmark
             isItalic: true,
             textRenderingMode: TextRenderingMode.Grayscale,
             preferGlyphAtlas: true);
+        for (int index = 0; index < additionalGeometryClipCount; index++)
+            drawing.PopGeometryClip();
         drawing.PopGeometryClip();
         drawing.PopClip();
         drawing.PopOpacity();
@@ -767,6 +840,7 @@ internal static class ManagedPictureBenchmark
         string OperatingSystem,
         string Adapter,
         string Backend,
+        bool VectorClipMask,
         int SourceCommandCount,
         int NativeCommandCount,
         int AnalyticPrimitiveCount,

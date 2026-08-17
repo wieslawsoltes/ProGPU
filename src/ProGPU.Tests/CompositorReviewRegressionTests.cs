@@ -1448,6 +1448,24 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.Equal(1u, atlas.AtlasGrowthCount);
         Assert.Equal(0u, atlas.AtlasShrinkCount);
         Assert.Equal(1, atlas.CachedPathCount);
+
+        // The first delayed probe established that this exact full live set
+        // cannot satisfy the shrink policy. Stable retained replay must not
+        // rebuild the same packing scratch every hysteresis interval.
+        _ = GC.GetAllocatedBytesForCurrentThread();
+        long allocationStart = GC.GetAllocatedBytesForCurrentThread();
+        for (uint frame = 0;
+             frame <= PathAtlas.DefaultAtlasShrinkDelayFrames;
+             frame++)
+        {
+            atlas.MarkRetainedPathReplay();
+            atlas.CleanupFrame();
+        }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocationStart;
+
+        Assert.Equal(0L, allocated);
+        Assert.Equal(0u, atlas.AtlasShrinkCount);
     }
 
     [Fact]
@@ -1484,6 +1502,21 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.Equal(1u, atlas.AtlasShrinkCount);
         Assert.Equal(2, atlas.CachedPathCount);
         Assert.True(atlas.CachedCoverageBytes > 0);
+
+        _ = GC.GetAllocatedBytesForCurrentThread();
+        long allocationStart = GC.GetAllocatedBytesForCurrentThread();
+        for (uint frame = 0;
+             frame <= PathAtlas.DefaultAtlasShrinkDelayFrames;
+             frame++)
+        {
+            atlas.MarkRetainedPathReplay();
+            atlas.CleanupFrame();
+        }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocationStart;
+
+        Assert.Equal(0L, allocated);
+        Assert.Equal(1u, atlas.AtlasShrinkCount);
     }
 
     [Fact]

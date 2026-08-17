@@ -781,6 +781,73 @@ public ref struct NativeSceneStreamBuilder
             flags: flags);
     }
 
+    public bool TryAddLayerVectorMaskResource(
+        ulong resourceId,
+        ulong generation,
+        in NativeSceneLayerVectorMask mask,
+        scoped ReadOnlySpan<byte> auxiliary,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        int pathBytes;
+        int segmentBytes;
+        try
+        {
+            pathBytes = checked(
+                (int)mask.PathCount * Unsafe.SizeOf<NativeSceneClipPath>());
+            segmentBytes = checked(
+                (int)mask.SegmentCount * Unsafe.SizeOf<NativePathSegment>());
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+        if (mask.StructSize != Unsafe.SizeOf<NativeSceneLayerVectorMask>() ||
+            mask.Kind != NativeSceneLayerMaskKind.VectorClipChain ||
+            mask.Flags != 0U || !mask.HasCanonicalReservedFields ||
+            mask.PathCount is 0U or > 64U || mask.SegmentCount == 0U ||
+            !float.IsFinite(mask.Opacity) ||
+            mask.Opacity is < 0f or > 1f ||
+            (long)pathBytes + segmentBytes != auxiliary.Length)
+        {
+            return false;
+        }
+
+        ReadOnlySpan<NativeSceneClipPath> paths = MemoryMarshal.Cast<
+            byte,
+            NativeSceneClipPath>(auxiliary[..pathBytes]);
+        ReadOnlySpan<NativePathSegment> segments = MemoryMarshal.Cast<
+            byte,
+            NativePathSegment>(auxiliary[pathBytes..]);
+        for (int index = 0; index < paths.Length; index++)
+        {
+            if (!IsValidSceneClipPath(in paths[index], segments.Length))
+            {
+                return false;
+            }
+        }
+        for (int index = 0; index < segments.Length; index++)
+        {
+            if (!IsValidPathSegment(in segments[index]))
+            {
+                return false;
+            }
+        }
+
+        return TryAddResource(
+            NativeSceneResourceKind.LayerMask,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(
+                MemoryMarshal.CreateReadOnlySpan(
+                    ref Unsafe.AsRef(in mask),
+                    1)),
+            out resourceIndex,
+            auxiliary,
+            flags);
+    }
+
     public bool TryAddEffectChainResource(
         ulong resourceId,
         ulong generation,
@@ -2099,6 +2166,43 @@ public ref struct NativeSceneStreamBuilder
             }
         }
         return true;
+    }
+
+    private static bool IsValidSceneClipPath(
+        in NativeSceneClipPath path,
+        int segmentCount)
+    {
+        ulong available = checked((ulong)segmentCount);
+        return path.SegmentCount > 0U &&
+            path.SegmentOffset <= available &&
+            path.SegmentCount <= available - path.SegmentOffset &&
+            IsFinite(path.Minimum) && IsFinite(path.Maximum) &&
+            path.Maximum.X > path.Minimum.X &&
+            path.Maximum.Y > path.Minimum.Y &&
+            IsFinite(path.Transform) &&
+            MathF.Abs(path.Transform.GetDeterminant()) > 0.000001f &&
+            path.FillRule <= NativeFillRule.EvenOdd &&
+            path.SampleGrid is 4U or 8U &&
+            path.Operation <= NativeClipOperation.Difference &&
+            path.HasCanonicalReservedField;
+    }
+
+    private static bool IsValidPathSegment(in NativePathSegment segment)
+    {
+        bool arc = segment.Kind == NativePathSegmentKind.Arc;
+        return segment.Kind <= NativePathSegmentKind.Arc &&
+            IsFinite(segment.P0) && IsFinite(segment.P1) &&
+            IsFinite(segment.P2) && IsFinite(segment.P3) &&
+            (arc
+                ? segment.P3.X > 0f && segment.P3.Y > 0f &&
+                    float.IsFinite(BitConverter.Int32BitsToSingle(
+                        unchecked((int)segment.Pad0))) &&
+                    float.IsFinite(BitConverter.Int32BitsToSingle(
+                        unchecked((int)segment.Pad1))) &&
+                    float.IsFinite(BitConverter.Int32BitsToSingle(
+                        unchecked((int)segment.Pad2)))
+                : segment.Pad0 == 0U && segment.Pad1 == 0U &&
+                    segment.Pad2 == 0U);
     }
 
     private static bool IsValidEffect(in NativeSceneEffect effect)

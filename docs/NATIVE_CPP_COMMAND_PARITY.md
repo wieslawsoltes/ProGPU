@@ -9,7 +9,7 @@ always returns a typed failure without partially committing a scene.
 | Route | Commands | Current boundary |
 | --- | --- | --- |
 | Direct draw | Rect, path fill, exact general-path stroke, text, image, analytic geometry, polyline/spline, point/mesh/chart, glyph, and 3D line/mesh families | CPU-only combined-path materialization remains a typed payload exclusion. |
-| State scope | Clip, opacity, geometry-mask, opacity-mask, and blend push/pop | Canonical affine rectangles, bounded rounded-mask chains, and solid opacity folding are implemented; resource-backed arbitrary masks remain pending. |
+| State scope | Clip, opacity, geometry-mask, opacity-mask, and blend push/pop | Canonical affine rectangles/rounded rectangles use the 1–4-node analytic fast path. Arbitrary line/quadratic/cubic/arc geometry and 5–64 nested intersect/difference clips use retained GPU vector masks. Solid opacity folding is implemented; combined-path geometry plus gradient/picture opacity-mask content remain typed exclusions. |
 | Nested picture | `DrawPicture` | Immutable retained children are recursively flattened with state-boundary validation. |
 | Built-in extension | `DrawExtension` | Line/spline/chart/3D/hatch built-ins are selected by stable extension ID; hatch boundaries reuse retained path batches and shared hatch material kinds, while unknown or object-backed extensions fail closed. |
 | Explicitly unsupported | `DrawStaticDxf`, `DrawVisual` | Static DXF and embedded visual commands retain live managed/GPU ownership and cannot enter the pointer-free immutable scene contract. |
@@ -33,6 +33,17 @@ materialization or extra texture pass.
 This inventory distinguishes parity work from intentional ownership
 boundaries; it must not be used to convert an unsupported command into a silent
 no-op or an approximate fallback.
+
+The arbitrary clip route is a direct cross-language port of ProGPU-owned
+`Compositor.PushGeometryMask` and `PathAtlas.CompileFillPath` behavior. The
+managed compiler emits one immutable vector-mask resource and contiguous path
+and segment arenas; C++ validates those arenas once, rasterizes the unchanged
+canonical `PathRasterizer.wgsl`, composes ordered nodes with
+`ClipCompose.wgsl`, and copies the resulting R8 coverage entirely GPU-to-GPU.
+Stable replay performs one scene submission with no retained upload or managed
+allocation. The native atlas normalizes every packed UV only after the final
+atlas size is known, so a later path that grows the atlas cannot invalidate an
+earlier path's sampling coordinates.
 
 General-path strokes retain their source line, quadratic, cubic, and analytic
 arc records. The managed compiler materializes dash intervals only when the

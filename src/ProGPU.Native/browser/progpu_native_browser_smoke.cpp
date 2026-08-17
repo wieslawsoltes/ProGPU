@@ -148,6 +148,7 @@ bool finish_evidence_frame(double, void*) {
         document.body.dataset.progpuNativeRoundedMasks = "passed";
         document.body.dataset.progpuNativeStateMasks = "passed";
         document.body.dataset.progpuNativeStateMaskMedia = "passed";
+        document.body.dataset.progpuNativeVectorClipMasks = "passed";
         document.body.dataset.progpuNativeSemanticGeometry = "passed";
         document.body.dataset.progpuNativeSceneBuilder = "passed";
         document.body.dataset.progpuNativePngDecode = "passed";
@@ -158,7 +159,7 @@ bool finish_evidence_frame(double, void*) {
         document.body.dataset.progpuNativeBackendAbi = "3";
         document.body.dataset.progpuNativeExplicitTimeline = "0";
         document.getElementById("native-status").textContent =
-            "C++ / WebGPU backend active — retained scenes, masks, and direct image sampling verified";
+            "C++ / WebGPU backend active — retained scenes, GPU vector masks, and direct image sampling verified";
     });
     // The test page owns the offscreen texture until navigation releases the
     // WebAssembly instance and its Emdawnwebgpu handle table. The visible
@@ -1190,6 +1191,120 @@ bool render_browser_frame(double, void*) {
         fail_engine("The stable browser mask-chain glyph/image page was rebuilt.");
     }
 
+    progpu::native::semantic_scene_builder vector_mask_builder(105U, 1U);
+    const std::array vector_mask_segments{
+        progpu_native_path_segment{
+            {16.0F, 24.0F}, {128.0F, 8.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {128.0F, 8.0F}, {240.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {240.0F, 24.0F}, {220.0F, 144.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {220.0F, 144.0F}, {36.0F, 144.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {36.0F, 144.0F}, {16.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const progpu_native_scene_clip_path vector_mask_path{
+        0U,
+        vector_mask_segments.size(),
+        16.0F,
+        8.0F,
+        240.0F,
+        144.0F,
+        progpu::native::semantic_scene_builder::identity_transform(),
+        PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+        4U,
+        PROGPU_NATIVE_CLIP_INTERSECT,
+        0U};
+    std::uint32_t vector_mask_brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t vector_mask_resource = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t vector_mask_state = PROGPU_NATIVE_SCENE_NO_INDEX;
+    auto vector_state =
+        progpu::native::semantic_scene_builder::identity_state();
+    const progpu_native_analytic_primitive vector_mask_fill{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        0.0F,
+        0.0F,
+        static_cast<float>(width),
+        static_cast<float>(height),
+        0.0F,
+        0.0F,
+        {0.0F, 0.85F, 0.55F, 1.0F},
+        progpu::native::semantic_scene_builder::identity_transform()};
+    if (!vector_mask_builder.reserve(3U, 4U, 2048U) ||
+        !vector_mask_builder.add_solid_brush(
+            {0.0F, 0.85F, 0.55F, 1.0F},
+            1.0F,
+            vector_mask_brush) ||
+        !vector_mask_builder.add_vector_clip_mask(
+            std::span<const progpu_native_scene_clip_path>(
+                &vector_mask_path,
+                1U),
+            vector_mask_segments,
+            1.0F,
+            vector_mask_resource)) {
+        fail("The browser vector-mask scene resources could not be built.");
+    }
+    vector_state.flags = PROGPU_NATIVE_SCENE_STATE_MASK;
+    vector_state.mask_resource_index = vector_mask_resource;
+    if (!vector_mask_builder.add_state(vector_state, vector_mask_state) ||
+        !vector_mask_builder.save(vector_mask_state) ||
+        !vector_mask_builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &vector_mask_fill,
+                1U),
+            std::span<const std::uint32_t>(&vector_mask_brush, 1U),
+            {0.0F, 0.0F, static_cast<float>(width),
+                static_cast<float>(height)}) ||
+        !vector_mask_builder.restore()) {
+        fail("The browser vector-mask scene commands could not be built.");
+    }
+    std::vector<std::byte> vector_mask_scene;
+    if (!vector_mask_builder.build(vector_mask_scene)) {
+        fail("The browser vector-mask scene stream could not be built.");
+    }
+    progpu_native_scene_metrics vector_mask_scene_metrics{};
+    vector_mask_scene_metrics.struct_size =
+        sizeof(vector_mask_scene_metrics);
+    if (progpu_native_engine_update_scene(
+            resources.engine,
+            vector_mask_scene.data(),
+            vector_mask_scene.size(),
+            &vector_mask_scene_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        vector_mask_scene_metrics.command_count != 3U ||
+        vector_mask_scene_metrics.resource_count != 4U ||
+        vector_mask_scene_metrics.draw_count != 1U) {
+        fail_engine("The browser vector-mask scene update failed.");
+    }
+    semantic_frame.scene_id = 105U;
+    progpu_native_scene_frame_metrics vector_mask_metrics{};
+    vector_mask_metrics.struct_size = sizeof(vector_mask_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &vector_mask_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        vector_mask_metrics.draw_call_count != 1U ||
+        vector_mask_metrics.texture_upload_bytes != 0U ||
+        vector_mask_metrics.uniform_upload_bytes < 24U * sizeof(float)) {
+        fail_engine("The browser GPU vector-mask render failed.");
+    }
+    vector_mask_metrics = {};
+    vector_mask_metrics.struct_size = sizeof(vector_mask_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &vector_mask_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        vector_mask_metrics.texture_upload_bytes != 0U ||
+        vector_mask_metrics.vertex_upload_bytes != 0U ||
+        vector_mask_metrics.uniform_upload_bytes != 0U) {
+        fail_engine("The stable browser GPU vector mask was rebuilt.");
+    }
+
     auto coverage_scene =
         progpu::native::tests::create_semantic_coverage_mask_scene_stream(
             width,
@@ -1341,6 +1456,8 @@ int main() {
             PROGPU_NATIVE_CAPABILITY_SEMANTIC_GEOMETRY_BATCH) == 0U ||
         (info.capabilities &
             PROGPU_NATIVE_CAPABILITY_IMAGE_FRAME_MIPMAP_SAMPLING) == 0U ||
+        (info.capabilities &
+            PROGPU_NATIVE_CAPABILITY_SEMANTIC_VECTOR_CLIP_MASK) == 0U ||
         (info.capabilities &
             PROGPU_NATIVE_CAPABILITY_DEVICE_LOSS_RECREATION) == 0U ||
         (info.capabilities &

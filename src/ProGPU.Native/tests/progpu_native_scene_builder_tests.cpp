@@ -957,7 +957,7 @@ bool semantic_scene_builder_records_color_bitmap_glyphs() {
 
 bool semantic_scene_builder_records_layers_masks_and_effects() {
     semantic_scene_builder builder(706U, 7U);
-    if (!builder.reserve(3U, 6U, 2048U)) {
+    if (!builder.reserve(3U, 7U, 4096U)) {
         return false;
     }
     const auto identity = semantic_scene_builder::identity_transform();
@@ -980,6 +980,7 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
     std::uint32_t rounded_mask = PROGPU_NATIVE_SCENE_NO_INDEX;
     std::uint32_t coverage_mask = PROGPU_NATIVE_SCENE_NO_INDEX;
     std::uint32_t chain_mask = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t vector_mask = PROGPU_NATIVE_SCENE_NO_INDEX;
     if (!builder.add_rounded_rectangle_mask(left, rounded_mask)) {
         return false;
     }
@@ -997,12 +998,40 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
         std::byte{0x80}, std::byte{0xff}, std::byte{0x80}, std::byte{0x40},
         std::byte{0xff}, std::byte{0x80}, std::byte{0x40}, std::byte{0x00}};
     const std::array analytic_masks{left, right};
+    const std::array vector_segments{
+        progpu_native_path_segment{
+            {4.0F, 4.0F}, {52.0F, 8.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {52.0F, 8.0F}, {28.0F, 48.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {28.0F, 48.0F}, {4.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const progpu_native_scene_clip_path vector_path{
+        0U,
+        vector_segments.size(),
+        4.0F,
+        4.0F,
+        52.0F,
+        48.0F,
+        identity,
+        PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+        4U,
+        PROGPU_NATIVE_CLIP_INTERSECT,
+        0U};
     if (!builder.add_coverage_mask(
             coverage,
             coverage_bytes,
             coverage_mask) ||
         !builder.add_analytic_mask_chain(analytic_masks, chain_mask) ||
-        rounded_mask == coverage_mask || coverage_mask == chain_mask) {
+        !builder.add_vector_clip_mask(
+            std::span<const progpu_native_scene_clip_path>(&vector_path, 1U),
+            vector_segments,
+            1.0F,
+            vector_mask) ||
+        rounded_mask == coverage_mask || coverage_mask == chain_mask ||
+        chain_mask == vector_mask) {
         return false;
     }
 
@@ -1067,7 +1096,7 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
     scene_build_metrics metrics{};
     if (!builder.build(first, &metrics) || !builder.build(second) ||
         first != second || metrics.command_count != 3U ||
-        metrics.resource_count != 6U ||
+        metrics.resource_count != 7U ||
         metrics.maximum_stack_depth != 1U) {
         return false;
     }
@@ -1085,6 +1114,7 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
     const auto rounded_record = resource_at(rounded_mask);
     const auto coverage_record = resource_at(coverage_mask);
     const auto chain_record = resource_at(chain_mask);
+    const auto vector_record = resource_at(vector_mask);
     const auto effect_record = resource_at(effect_chain);
     const auto state_record = resource_at(state_index);
     const auto push = read<progpu_native_scene_command>(
@@ -1106,6 +1136,11 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
         chain_record.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
         chain_record.payload_size ==
             sizeof(progpu_native_scene_layer_mask_chain) &&
+        vector_record.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
+        vector_record.payload_size ==
+            sizeof(progpu_native_scene_layer_vector_mask) &&
+        vector_record.auxiliary_size ==
+            sizeof(vector_path) + sizeof(vector_segments) &&
         effect_record.kind == PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN &&
         effect_record.payload_size ==
             sizeof(progpu_native_scene_effect_chain) &&

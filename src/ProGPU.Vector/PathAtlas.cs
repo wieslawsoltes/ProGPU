@@ -276,6 +276,10 @@ public unsafe class PathAtlas : IDisposable
     private uint _frameNumber = 0;
     private uint _framesSinceAtlasResize;
     private bool _retainedPathReplayObserved;
+    private ulong _failedStableShrinkGeneration = ulong.MaxValue;
+    private uint _failedStableShrinkWidth;
+    private uint _failedStableShrinkHeight;
+    private int _failedStableShrinkPathCount = -1;
     private List<AtlasFreeRectangle>? _recoveryFreeRectangles;
 
     public struct PathInfo
@@ -2488,6 +2492,17 @@ public unsafe class PathAtlas : IDisposable
         // when the preceding frame's active set cannot fit a materially smaller
         // texture, avoiding per-frame packing work after the hysteresis interval.
         _framesSinceAtlasResize = 0;
+        int activePathCount = CountShrinkActivePaths();
+        bool allCachedPathsAreActive = activePathCount == _paths.Count;
+        if (allCachedPathsAreActive &&
+            _failedStableShrinkGeneration == Generation &&
+            _failedStableShrinkWidth == _atlasWidth &&
+            _failedStableShrinkHeight == _atlasHeight &&
+            _failedStableShrinkPathCount == activePathCount)
+        {
+            return;
+        }
+
         List<RetryPath> activePaths = CollectCurrentFramePathsForRetry();
         if (activePaths.Count == 0 && _retainedPathReplayObserved)
         {
@@ -2607,6 +2622,13 @@ public unsafe class PathAtlas : IDisposable
             desiredArea * MinimumAtlasShrinkAreaNumerator >
                 currentArea * MinimumAtlasShrinkAreaDenominator)
         {
+            if (allCachedPathsAreActive)
+            {
+                _failedStableShrinkGeneration = Generation;
+                _failedStableShrinkWidth = _atlasWidth;
+                _failedStableShrinkHeight = _atlasHeight;
+                _failedStableShrinkPathCount = activePathCount;
+            }
             return;
         }
 
@@ -2664,6 +2686,18 @@ public unsafe class PathAtlas : IDisposable
         TextureRevision++;
         Generation++;
         AtlasShrinkCount++;
+        if (allCachedPathsAreActive)
+        {
+            // The search above already exhausted every smaller candidate for
+            // this exact full live set. Remember the post-repack identity so
+            // retained replay does not allocate the same packing scratch at
+            // the next hysteresis boundary. A new path changes the count;
+            // every clear/repack changes Generation.
+            _failedStableShrinkGeneration = Generation;
+            _failedStableShrinkWidth = _atlasWidth;
+            _failedStableShrinkHeight = _atlasHeight;
+            _failedStableShrinkPathCount = activePathCount;
+        }
         oldTexture.Dispose();
         ProGpuVectorDiagnostics.WriteLine(
             $"[PathAtlas] Shrunk stable atlas residency from {oldWidth}x{oldHeight} to " +
@@ -2674,6 +2708,46 @@ public unsafe class PathAtlas : IDisposable
             ProGpuVectorDiagnostics.WriteLine(
                 $"[PathAtlas] Stable raster rectangles: {DescribeCurrentFrameRasterRectangles()}.");
         }
+    }
+
+    private int CountShrinkActivePaths()
+    {
+        int count = 0;
+        foreach (PathInfo info in _paths.Values)
+        {
+            if (info.LastUsedFrame == _frameNumber)
+            {
+                count++;
+            }
+        }
+        if (count != 0 || !_retainedPathReplayObserved)
+        {
+            return count;
+        }
+
+        uint mostRecentFrame = 0;
+        bool found = false;
+        foreach (PathInfo info in _paths.Values)
+        {
+            if (!found || info.LastUsedFrame > mostRecentFrame)
+            {
+                mostRecentFrame = info.LastUsedFrame;
+                found = true;
+            }
+        }
+        if (!found)
+        {
+            return 0;
+        }
+
+        foreach (PathInfo info in _paths.Values)
+        {
+            if (info.LastUsedFrame == mostRecentFrame)
+            {
+                count++;
+            }
+        }
+        return count;
     }
 
     private void TryRefineShrinkCandidate(

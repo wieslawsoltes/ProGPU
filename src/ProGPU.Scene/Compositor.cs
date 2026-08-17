@@ -1152,6 +1152,8 @@ public unsafe partial class Compositor : IDisposable
         float RadiusY);
 
     private const int MaximumRoundedRectanglePathCacheEntries = 256;
+    private static readonly SolidColorBrush GeometryMaskCoverageBrush =
+        new(Vector4.One);
 
     // High performance Chart GPGPU pipelines
     private RenderPipeline* _chartLinePipeline;
@@ -19742,7 +19744,7 @@ SceneStateUploadComplete:
             {
                 Type = RenderCommandType.DrawPath,
                 Path = geometry,
-                Brush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f))
+                Brush = GeometryMaskCoverageBrush
             };
             CompilePathCommand(cmd, transform);
             CommitPendingDrawCalls();

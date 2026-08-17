@@ -214,12 +214,21 @@ progpu_native_status render_scene(
                         "Nested analytic masks are currently supported for per-draw state, not isolated layer composites.");
                 }
                 semantic_layer_mask_kind = mask_kind ==
-                        PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP
+                        PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP ||
+                        mask_kind ==
+                            PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN
                     ? PROGPU_NATIVE_GROUP_MASK_TEXTURE
                     : PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE;
                 if (mask_kind ==
-                        PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP) {
-                    if (mask_resource.auxiliary_size >
+                        PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP ||
+                    mask_kind ==
+                        PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN) {
+                    const std::uint64_t mask_texture_bytes = mask_kind ==
+                            PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP
+                        ? mask_resource.auxiliary_size
+                        : static_cast<std::uint64_t>(target_extent.width) *
+                            target_extent.height;
+                    if (mask_texture_bytes >
                             PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES -
                                 semantic_layer_coverage_texture_bytes) {
                         return engine->fail(
@@ -227,7 +236,7 @@ progpu_native_status render_scene(
                             "The semantic coverage-mask textures exceed their bounded aggregate budget.");
                     }
                     semantic_layer_coverage_texture_bytes +=
-                        mask_resource.auxiliary_size;
+                        mask_texture_bytes;
                 }
             }
             const bool effected = layer.effect_resource_index !=
@@ -359,6 +368,14 @@ progpu_native_status render_scene(
         frame->width,
         frame->height,
         frame->dpi_scale);
+    std::vector<std::uint8_t> semantic_vector_masks_budgeted;
+    try {
+        semantic_vector_masks_budgeted.resize(header.resource_count, 0U);
+    } catch (const std::bad_alloc&) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+            "The semantic vector-mask budget table could not be allocated.");
+    }
     for (std::uint32_t index = 0U; index < header.command_count; ++index) {
         const auto command = read_command(index);
         const auto target_extent = preflight_target_cursor.advance(command);
@@ -401,10 +418,30 @@ progpu_native_status render_scene(
                 mask_kind !=
                     PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP &&
                 mask_kind !=
-                    PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN) {
+                    PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN &&
+                mask_kind !=
+                    PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN) {
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_UNSUPPORTED,
                     "The per-draw semantic mask kind is unsupported.");
+            }
+            if (mask_kind ==
+                    PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN &&
+                semantic_vector_masks_budgeted[
+                    state.mask_resource_index] == 0U) {
+                const std::uint64_t mask_texture_bytes =
+                    static_cast<std::uint64_t>(target_extent.width) *
+                        target_extent.height;
+                if (mask_texture_bytes >
+                        PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES -
+                            semantic_layer_coverage_texture_bytes) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                        "The semantic vector-mask textures exceed their bounded aggregate budget.");
+                }
+                semantic_layer_coverage_texture_bytes += mask_texture_bytes;
+                semantic_vector_masks_budgeted[
+                    state.mask_resource_index] = 1U;
             }
             semantic_has_state_masks = true;
             const bool mask_chain = mask_kind ==
