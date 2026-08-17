@@ -210,11 +210,19 @@ struct shaping_feature final {
     bool applies_to(std::uint32_t input_index) const noexcept {
         return input_index >= start && input_index < end;
     }
+
+    friend constexpr bool operator==(
+        shaping_feature,
+        shaping_feature) noexcept = default;
 };
 
 struct open_type_feature_setting final {
     open_type_tag tag{};
     std::uint32_t value = 1U;
+
+    friend constexpr bool operator==(
+        open_type_feature_setting,
+        open_type_feature_setting) noexcept = default;
 };
 
 struct open_type_feature_tag_requirements final {
@@ -1032,6 +1040,31 @@ struct open_type_feature_plan_requirements final {
  * ownership transfer. The storage is immutable and process-lifetime. */
 std::span<const open_type_feature_setting>
 get_default_open_type_feature_settings() noexcept;
+
+struct open_type_requested_feature_requirements final {
+    std::uint32_t base_feature_capacity = 0U;
+    std::uint32_t explicit_feature_capacity = 0U;
+    std::uint32_t ranged_feature_capacity = 0U;
+};
+
+/* Ports managed CpuOpenTypeShaper request normalization. Full-run records
+ * override the default baseline; all request tags become explicit; partial
+ * ranges remain caller-owned for later concatenation with the resolved global
+ * value records. Requirements is exact and failure is transactional. */
+bool try_get_open_type_requested_feature_requirements(
+    std::span<const shaping_feature> requested_features,
+    open_type_requested_feature_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_resolve_open_type_requested_features(
+    std::span<const shaping_feature> requested_features,
+    std::span<open_type_feature_setting> base_features_output,
+    std::span<open_type_tag> explicit_features_output,
+    std::span<shaping_feature> ranged_features_output,
+    std::uint32_t& base_features_written,
+    std::uint32_t& explicit_features_written,
+    std::uint32_t& ranged_features_written,
+    font_error* error = nullptr) noexcept;
 
 /* Resolves the same script/direction feature policy and ordering as managed
  * ProGPU. Requirements reports safe caller capacities. Resolution writes the

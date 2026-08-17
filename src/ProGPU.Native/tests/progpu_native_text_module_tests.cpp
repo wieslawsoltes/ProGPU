@@ -52,6 +52,8 @@ int main() {
     const progpu::native::text::open_type_feature_setting feature_setting{};
     const progpu::native::text::open_type_feature_plan_requirements
         feature_plan_requirements{};
+    const progpu::native::text::open_type_requested_feature_requirements
+        requested_feature_requirements{};
     const auto shaping_route_resolver =
         &progpu::native::text::try_resolve_open_type_shaping_route;
     const auto language_tag =
@@ -60,6 +62,10 @@ int main() {
         &progpu::native::text::try_get_open_type_feature_plan_requirements;
     const auto feature_plan_resolver =
         &progpu::native::text::try_resolve_open_type_feature_plan;
+    const auto requested_feature_requirements_resolver =
+        &progpu::native::text::try_get_open_type_requested_feature_requirements;
+    const auto requested_feature_resolver =
+        &progpu::native::text::try_resolve_open_type_requested_features;
     const auto default_feature_settings =
         progpu::native::text::get_default_open_type_feature_settings();
     static_assert(progpu::native::text::sfnt_name_ids::family_name == 1U);
@@ -121,8 +127,11 @@ int main() {
         language_tag.value != 0x504C4B20U ||
         feature_setting.value != 1U ||
         feature_plan_requirements.requested_feature_capacity != 0U ||
+        requested_feature_requirements.base_feature_capacity != 0U ||
         feature_plan_requirements_resolver == nullptr ||
         feature_plan_resolver == nullptr ||
+        requested_feature_requirements_resolver == nullptr ||
+        requested_feature_resolver == nullptr ||
         default_feature_settings.size() != 26U ||
         shaping_route_resolver == nullptr ||
         !shape_options.pre_context.empty() ||

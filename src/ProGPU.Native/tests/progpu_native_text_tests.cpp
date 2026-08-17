@@ -97,6 +97,9 @@ using progpu::native::text::open_type_feature_plan_requirements;
 using progpu::native::text::get_default_open_type_feature_settings;
 using progpu::native::text::try_get_open_type_feature_plan_requirements;
 using progpu::native::text::try_resolve_open_type_feature_plan;
+using progpu::native::text::open_type_requested_feature_requirements;
+using progpu::native::text::try_get_open_type_requested_feature_requirements;
+using progpu::native::text::try_resolve_open_type_requested_features;
 using progpu::native::text::open_type_shape_run_scratch;
 using progpu::native::text::open_type_shape_run_requirements;
 using progpu::native::text::try_get_open_type_shape_run_requirements;
@@ -3511,6 +3514,92 @@ void open_type_feature_plan_matches_managed_script_and_direction_policy() {
         requested_written == 0U && settings_written == 0U &&
         requested[0U] == feature('z', 'z', 'z', 'z') &&
         settings[0U].tag == feature('z', 'z', 'z', 'z'));
+}
+
+void open_type_requested_features_match_managed_cpu_shaper_normalization() {
+    constexpr auto tag = [](char a, char b, char c, char d) {
+        return open_type_tag::from_chars(a, b, c, d);
+    };
+    constexpr std::array requested{
+        shaping_feature{tag('l', 'i', 'g', 'a'), 0U, 0U, 0xFFFFFFFFU},
+        shaping_feature{tag('s', 's', '0', '1'), 0xFFFFFFFFU, 0U, 0xFFFFFFFFU},
+        shaping_feature{tag('f', 'r', 'a', 'c'), 0U, 2U, 4U},
+        shaping_feature{tag('c', 'v', '0', '1'), 2U, 1U, 3U},
+        shaping_feature{tag('c', 'v', '0', '1'), 3U, 4U, 5U},
+        shaping_feature{tag('l', 'i', 'g', 'a'), 1U, 6U, 8U}};
+    open_type_requested_feature_requirements requirements{};
+    font_error error = font_error::invalid_argument;
+    require(try_get_open_type_requested_feature_requirements(
+        requested, requirements, &error));
+    require(error == font_error::none &&
+        requirements.base_feature_capacity == 29U &&
+        requirements.explicit_feature_capacity == 4U &&
+        requirements.ranged_feature_capacity == 4U);
+
+    std::array<open_type_feature_setting, 29U> base{};
+    std::array<open_type_tag, 4U> explicit_tags{};
+    std::array<shaping_feature, 4U> ranges{};
+    std::uint32_t base_written = 0U;
+    std::uint32_t explicit_written = 0U;
+    std::uint32_t ranged_written = 0U;
+    require(try_resolve_open_type_requested_features(
+        requested,
+        base,
+        explicit_tags,
+        ranges,
+        base_written,
+        explicit_written,
+        ranged_written,
+        &error));
+    require(base_written == 29U && explicit_written == 4U &&
+        ranged_written == 4U);
+    const auto find_base = [&](open_type_tag feature) {
+        return std::find_if(
+            base.begin(),
+            base.begin() + base_written,
+            [feature](const auto& item) { return item.tag == feature; });
+    };
+    const auto liga = find_base(tag('l', 'i', 'g', 'a'));
+    const auto ss01 = find_base(tag('s', 's', '0', '1'));
+    require(liga != base.begin() + base_written && liga->value == 0U &&
+        ss01 != base.begin() + base_written &&
+        ss01->value == 0x7FFFFFFFU &&
+        base[base_written - 2U] ==
+            open_type_feature_setting{tag('c', 'v', '0', '1'), 1U} &&
+        base[base_written - 1U] ==
+            open_type_feature_setting{tag('l', 'i', 'g', 'a'), 1U});
+    require(explicit_tags == std::array{
+        tag('l', 'i', 'g', 'a'), tag('s', 's', '0', '1'),
+        tag('f', 'r', 'a', 'c'), tag('c', 'v', '0', '1')});
+    require(ranges[0U] == requested[2U] && ranges[1U] == requested[3U] &&
+        ranges[2U] == requested[4U] && ranges[3U] == requested[5U]);
+
+    std::array<open_type_feature_setting, 1U> short_base{
+        open_type_feature_setting{tag('z', 'z', 'z', 'z'), 9U}};
+    std::array<open_type_tag, 1U> short_explicit{tag('z', 'z', 'z', 'z')};
+    std::array<shaping_feature, 1U> short_ranges{
+        shaping_feature{tag('z', 'z', 'z', 'z'), 9U, 2U, 3U}};
+    base_written = explicit_written = ranged_written = 99U;
+    require(!try_resolve_open_type_requested_features(
+        requested,
+        short_base,
+        short_explicit,
+        short_ranges,
+        base_written,
+        explicit_written,
+        ranged_written,
+        &error));
+    require(error == font_error::insufficient_buffer &&
+        base_written == 0U && explicit_written == 0U &&
+        ranged_written == 0U && short_base[0U].value == 9U &&
+        short_explicit[0U] == tag('z', 'z', 'z', 'z') &&
+        short_ranges[0U].value == 9U);
+
+    constexpr std::array invalid{
+        shaping_feature{tag('l', 'i', 'g', 'a'), 1U, 8U, 4U}};
+    require(!try_get_open_type_requested_feature_requirements(
+        invalid, requirements, &error));
+    require(error == font_error::invalid_argument);
 }
 
 void open_type_common_preprocessing_matches_managed_stages() {
@@ -9090,6 +9179,7 @@ int main() {
     open_type_uniform_run_shaper_connects_unicode_font_and_metrics();
     open_type_shaping_route_matches_managed_plan_selection();
     open_type_feature_plan_matches_managed_script_and_direction_policy();
+    open_type_requested_features_match_managed_cpu_shaper_normalization();
     open_type_common_preprocessing_matches_managed_stages();
     directional_code_point_fallback_matches_managed_stages();
     special_space_fallback_matches_managed_metrics();

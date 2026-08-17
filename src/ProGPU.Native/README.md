@@ -521,6 +521,14 @@ vertical layout. One requirements call sizes caller-owned tag/value buffers;
 the write emits one bulk ordered tag span plus only non-default full-run value
 records, with no heap allocation or per-feature interop.
 
+Native `ShapingFeature` requests now pass through the same normalization as
+managed `CpuOpenTypeShaper`: global ranges override the authoritative default
+baseline with managed integer clamping, every request tag remains explicitly
+identified, and partial ranges stay as one caller-owned span. The exact
+requirements/write pair preserves duplicate enablement needed above a disabled
+baseline and lets hosts concatenate partial ranges with the feature planner's
+non-default global values without per-feature calls.
+
 Native fallback accepts a bulk span of borrowed, already-parsed SFNT faces from
 the platform provider boundary. It preserves extended graphemes, tries the
 preferred face first, coalesces adjacent face runs, reports unresolved coverage

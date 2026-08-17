@@ -228,6 +228,17 @@ uses caller-owned scratch/output only, and is covered by default, LTR, RTL,
 vertical, Khmer, Indic, Arabic, override, and short-buffer tests. Both the
 header and named-module consumers compile and link the public contract.
 
+`Text/Shaping/progpu_native_shaping_request_features.cpp` directly ports the
+feature normalization at the `CpuOpenTypeShaper.Shape` boundary from
+`src/ProGPU.Text/CpuOpenTypeShaper.cs` at checkpoint `2dad8df4`. Full-run
+records override the same default baseline with `int.MaxValue` clamping,
+explicit tags are deduplicated in request order, partial ranges remain intact,
+and a ranged positive value can add an enablement entry above a zero baseline.
+Sizing and writing use `O(F^2)` time, caller-owned output, and no allocation;
+default override, duplicate/ranged enablement, clamping, invalid-range, and
+transactional short-buffer cases are matched in the native suite and the API
+is linked through the named-module consumer.
+
 The raw GPOS executor now covers rule-, class-, and coverage-based Context and
 Chaining Context formats 1-3. Nested position records reuse the same borrowed
 lookup table and caller glyph/attachment buffers with a fixed 64-level cycle
