@@ -92,6 +92,48 @@ void bulk_shape_is_deterministic_and_caller_owned() {
         resolved_breaks[13U] == PROGPU_NATIVE_TEXT_LINE_BREAK_OPPORTUNITY &&
         resolved_breaks.back() == PROGPU_NATIVE_TEXT_LINE_BREAK_MANDATORY);
 
+    progpu_native_text_bidi_requirements bidi_requirements{};
+    bidi_requirements.struct_size = sizeof(bidi_requirements);
+    require(progpu_native_text_get_bidi_requirements(
+                input.data(),
+                static_cast<std::uint32_t>(input.size()),
+                &bidi_requirements) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(bidi_requirements.level_capacity == input.size() &&
+        bidi_requirements.scratch_alignment == 1U &&
+        bidi_requirements.scratch_bytes != 0U);
+    std::vector<progpu_native_text_bidi_level> bidi_levels(
+        bidi_requirements.level_capacity);
+    std::vector<std::uint8_t> bidi_scratch(
+        static_cast<std::size_t>(bidi_requirements.scratch_bytes));
+    progpu_native_text_bidi_result bidi_result{};
+    bidi_result.struct_size = sizeof(bidi_result);
+    require(progpu_native_text_resolve_bidi(
+                input.data(),
+                static_cast<std::uint32_t>(input.size()),
+                -1,
+                bidi_levels.data(),
+                static_cast<std::uint32_t>(bidi_levels.size()),
+                bidi_scratch.data(),
+                bidi_scratch.size(),
+                &bidi_result) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(bidi_result.level_count == input.size() &&
+        bidi_result.paragraph_level == 0 &&
+        bidi_result.error_code == 0U &&
+        bidi_levels.front().level == 0 &&
+        bidi_levels.back().level == 0);
+    bidi_result.struct_size = sizeof(bidi_result);
+    require(progpu_native_text_resolve_bidi(
+                input.data(),
+                static_cast<std::uint32_t>(input.size()),
+                1,
+                bidi_levels.data(),
+                static_cast<std::uint32_t>(bidi_levels.size()),
+                bidi_scratch.data(),
+                bidi_scratch.size(),
+                &bidi_result) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(bidi_result.paragraph_level == 1 &&
+        bidi_levels.front().level == 2);
+
     progpu_native_text_shape_requirements requirements{};
     requirements.struct_size = sizeof(requirements);
     require(progpu_native_text_get_shape_requirements(

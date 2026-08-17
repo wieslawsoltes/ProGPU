@@ -626,4 +626,25 @@ internal static unsafe partial class NativeMethods
         byte* scratch,
         nuint scratchSize,
         NativeTextLineBreakResult* result);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_text_get_bidi_requirements")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus GetTextBidiRequirements(
+        NativeTextScalar* input,
+        uint inputCount,
+        NativeTextBidiRequirements* requirements);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_resolve_bidi")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ResolveTextBidi(
+        NativeTextScalar* input,
+        uint inputCount,
+        int requestedParagraphLevel,
+        NativeTextBidiLevel* levels,
+        uint levelCapacity,
+        byte* scratch,
+        nuint scratchSize,
+        NativeTextBidiResult* result);
 }

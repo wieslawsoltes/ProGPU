@@ -73,6 +73,7 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_SHAPING (UINT64_C(1) << 41U)
 #define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_LAYOUT (UINT64_C(1) << 42U)
 #define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_LINE_BREAKING (UINT64_C(1) << 43U)
+#define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_BIDI (UINT64_C(1) << 44U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -551,6 +552,32 @@ typedef struct progpu_native_text_line_break_result {
     uint32_t reserved;
     uint64_t scratch_bytes_used;
 } progpu_native_text_line_break_result;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextBidiLevel */
+typedef struct progpu_native_text_bidi_level {
+    uint32_t input_index;
+    uint16_t input_length;
+    int8_t level;
+    uint8_t reserved;
+} progpu_native_text_bidi_level;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextBidiRequirements */
+typedef struct progpu_native_text_bidi_requirements {
+    uint32_t struct_size;
+    uint32_t level_capacity;
+    uint32_t scratch_alignment;
+    uint32_t error_code;
+    uint64_t scratch_bytes;
+} progpu_native_text_bidi_requirements;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextBidiResult */
+typedef struct progpu_native_text_bidi_result {
+    uint32_t struct_size;
+    uint32_t level_count;
+    int32_t paragraph_level;
+    uint32_t error_code;
+    uint64_t scratch_bytes_used;
+} progpu_native_text_bidi_result;
 
 typedef enum progpu_native_texture_format {
     PROGPU_NATIVE_TEXTURE_FORMAT_RGBA8_UNORM = 1,
@@ -2106,6 +2133,22 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_resolve_line_breaks(
     void* scratch,
     size_t scratch_size,
     progpu_native_text_line_break_result* result);
+
+/* Unicode 17 UAX #9 paragraph resolution. requested_paragraph_level accepts
+ * -1 for first-strong auto resolution, 0 for LTR, or 1 for RTL. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_get_bidi_requirements(
+    const progpu_native_text_scalar* input,
+    uint32_t input_count,
+    progpu_native_text_bidi_requirements* requirements);
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_resolve_bidi(
+    const progpu_native_text_scalar* input,
+    uint32_t input_count,
+    int32_t requested_paragraph_level,
+    progpu_native_text_bidi_level* levels,
+    uint32_t level_capacity,
+    void* scratch,
+    size_t scratch_size,
+    progpu_native_text_bidi_result* result);
 
 #ifdef __cplusplus
 }

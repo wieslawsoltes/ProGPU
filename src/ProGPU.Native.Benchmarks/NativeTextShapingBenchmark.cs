@@ -64,6 +64,24 @@ internal static class NativeTextShapingBenchmark
             throw new InvalidOperationException(
                 "The benchmark requires one shaped glyph per decoded scalar.");
         }
+        EnsureSuccess(
+            NativeTextBidiInterop.GetRequirements(
+                scalars,
+                out NativeTextBidiRequirements bidiRequirements),
+            (NativeTextUnicodeError)bidiRequirements.ErrorCode);
+        var bidiLevels = new NativeTextBidiLevel[bidiRequirements.LevelCapacity];
+        var bidiScratch = new byte[checked((int)bidiRequirements.ScratchBytes)];
+        EnsureSuccess(
+            NativeTextBidiInterop.Resolve(
+                scalars,
+                -1,
+                bidiLevels,
+                bidiScratch,
+                out NativeTextBidiResult bidiResult),
+            (NativeTextUnicodeError)bidiResult.ErrorCode);
+        ValidateBidiLevels(
+            bidiLevels.AsSpan(0, checked((int)bidiResult.LevelCount)),
+            bidiResult);
         var layoutInput = new NativeTextLayoutInput(
             nativeGlyphs.AsSpan(0, checked((int)nativeResult.GlyphCount)),
             breaks,
@@ -114,6 +132,7 @@ internal static class NativeTextShapingBenchmark
         long[] nativeSamples = new long[iterations];
         long[] layoutSamples = new long[iterations];
         long[] breakSamples = new long[iterations];
+        long[] bidiSamples = new long[iterations];
         long managedAllocationStart = GC.GetAllocatedBytesForCurrentThread();
         for (int index = 0; index < iterations; index++)
         {
@@ -170,6 +189,22 @@ internal static class NativeTextShapingBenchmark
         }
         long breakAllocations =
             GC.GetAllocatedBytesForCurrentThread() - breakAllocationStart;
+        long bidiAllocationStart = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < iterations; index++)
+        {
+            long start = Stopwatch.GetTimestamp();
+            EnsureSuccess(
+                NativeTextBidiInterop.Resolve(
+                    scalars,
+                    -1,
+                    bidiLevels,
+                    bidiScratch,
+                    out bidiResult),
+                (NativeTextUnicodeError)bidiResult.ErrorCode);
+            bidiSamples[index] = Stopwatch.GetTimestamp() - start;
+        }
+        long bidiAllocations =
+            GC.GetAllocatedBytesForCurrentThread() - bidiAllocationStart;
         ValidateParity(
             managed,
             nativeGlyphs.AsSpan(0, checked((int)nativeResult.GlyphCount)));
@@ -178,6 +213,7 @@ internal static class NativeTextShapingBenchmark
         Array.Sort(nativeSamples);
         Array.Sort(layoutSamples);
         Array.Sort(breakSamples);
+        Array.Sort(bidiSamples);
         Console.WriteLine("ProGPU managed/C++ text shaping/layout parity: PASS");
         Console.WriteLine(string.Format(
             CultureInfo.InvariantCulture,
@@ -190,6 +226,7 @@ internal static class NativeTextShapingBenchmark
         Print("C++ bulk", nativeSamples, iterations, nativeAllocations);
         Print("C++ layout", layoutSamples, iterations, layoutAllocations);
         Print("C++ breaks", breakSamples, iterations, breakAllocations);
+        Print("C++ bidi", bidiSamples, iterations, bidiAllocations);
     }
 
     private static void ValidateLayoutParity(
@@ -216,6 +253,26 @@ internal static class NativeTextShapingBenchmark
             {
                 throw new InvalidOperationException(
                     $"Text layout parity mismatch at glyph {index}.");
+            }
+        }
+    }
+
+    private static void ValidateBidiLevels(
+        ReadOnlySpan<NativeTextBidiLevel> levels,
+        NativeTextBidiResult result)
+    {
+        if (result.ParagraphLevel != 0 || result.LevelCount != levels.Length)
+        {
+            throw new InvalidOperationException("Unexpected native bidi paragraph result.");
+        }
+        for (int index = 0; index < levels.Length; index++)
+        {
+            if (levels[index].InputIndex != (uint)index ||
+                levels[index].InputLength != 1 || levels[index].Level != 0 ||
+                levels[index].Reserved != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Unexpected native bidi level at scalar {index}.");
             }
         }
     }

@@ -199,6 +199,38 @@ public partial struct NativeTextLineBreakResult
     public ulong ScratchBytesUsed;
 }
 
+// Native source: progpu_native_text_bidi_level.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextBidiLevel
+{
+    public uint InputIndex;
+    public ushort InputLength;
+    public sbyte Level;
+    public byte Reserved;
+}
+
+// Native source: progpu_native_text_bidi_requirements.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextBidiRequirements
+{
+    public uint StructSize;
+    public uint LevelCapacity;
+    public uint ScratchAlignment;
+    public uint ErrorCode;
+    public ulong ScratchBytes;
+}
+
+// Native source: progpu_native_text_bidi_result.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextBidiResult
+{
+    public uint StructSize;
+    public uint LevelCount;
+    public int ParagraphLevel;
+    public uint ErrorCode;
+    public ulong ScratchBytesUsed;
+}
+
 // Native source: progpu_native_point_3d.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativePoint3D

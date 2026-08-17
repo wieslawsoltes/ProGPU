@@ -346,7 +346,8 @@ public enum NativeRendererCapabilities : ulong
     SemanticMesh3DBatch = 1UL << 40,
     BulkTextShaping = 1UL << 41,
     BulkTextLayout = 1UL << 42,
-    BulkTextLineBreaking = 1UL << 43
+    BulkTextLineBreaking = 1UL << 43,
+    BulkTextBidi = 1UL << 44
 }
 
 public enum NativeSceneResourceKind : uint

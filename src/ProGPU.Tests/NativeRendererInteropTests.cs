@@ -47,6 +47,9 @@ public class NativeRendererInteropTests
         Assert.Equal(40, Unsafe.SizeOf<NativeTextLayoutResult>());
         Assert.Equal(24, Unsafe.SizeOf<NativeTextLineBreakRequirements>());
         Assert.Equal(24, Unsafe.SizeOf<NativeTextLineBreakResult>());
+        Assert.Equal(8, Unsafe.SizeOf<NativeTextBidiLevel>());
+        Assert.Equal(24, Unsafe.SizeOf<NativeTextBidiRequirements>());
+        Assert.Equal(24, Unsafe.SizeOf<NativeTextBidiResult>());
         Assert.Equal(40, Unsafe.SizeOf<NativeMethods.EngineOptions>());
         Assert.Equal(72, Unsafe.SizeOf<NativeDawnMethods.EngineOptions>());
         Assert.Equal(24, Unsafe.SizeOf<DawnNativeDeviceHandles>());

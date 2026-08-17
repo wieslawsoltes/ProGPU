@@ -537,6 +537,33 @@ bool try_get_line_break_scratch_bytes(
     return true;
 }
 
+bool try_get_bidi_scratch_bytes(
+    std::uint32_t input_count,
+    std::size_t& result) noexcept {
+    if (input_count == 0U) {
+        result = 0U;
+        return true;
+    }
+    if (input_count > std::numeric_limits<std::uint32_t>::max() / 4U) {
+        return false;
+    }
+    scratch_size_builder size{};
+    if (!size.add<unicode_scalar>(input_count) ||
+        !size.add<unicode_bidi_unit>(input_count) ||
+        !size.add<std::uint32_t>(static_cast<std::size_t>(input_count) * 4U) ||
+        !size.add<unicode_bidi_level_run>(input_count) ||
+        !size.add<unicode_bidi_bracket_pair>(input_count / 2U) ||
+        !size.add<unicode_bidi_level>(input_count)) {
+        return false;
+    }
+    if (size.size() > std::numeric_limits<std::size_t>::max() -
+            (alignof(std::max_align_t) - 1U)) {
+        return false;
+    }
+    result = size.size() + alignof(std::max_align_t) - 1U;
+    return true;
+}
+
 progpu_native_status status_from_unicode_error(unicode_error error) noexcept {
     switch (error) {
         case unicode_error::none:
@@ -1231,6 +1258,116 @@ progpu_native_status progpu_native_text_resolve_line_breaks(
         breaks_after[index] = static_cast<std::uint8_t>(native_breaks[index]);
     }
     result->break_count = input_count;
+    result->scratch_bytes_used = arena.used();
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_text_get_bidi_requirements(
+    const progpu_native_text_scalar* input,
+    std::uint32_t input_count,
+    progpu_native_text_bidi_requirements* requirements) {
+    if (requirements == nullptr ||
+        requirements->struct_size <
+            sizeof(progpu_native_text_bidi_requirements)) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    *requirements = {};
+    requirements->struct_size = sizeof(*requirements);
+    if (!valid_wire_scalars(input, input_count)) {
+        requirements->error_code =
+            static_cast<std::uint32_t>(unicode_error::invalid_argument);
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    std::size_t scratch_bytes = 0U;
+    if (!try_get_bidi_scratch_bytes(input_count, scratch_bytes)) {
+        requirements->error_code =
+            static_cast<std::uint32_t>(unicode_error::invalid_argument);
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    requirements->level_capacity = input_count;
+    requirements->scratch_alignment = 1U;
+    requirements->scratch_bytes = scratch_bytes;
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_text_resolve_bidi(
+    const progpu_native_text_scalar* input,
+    std::uint32_t input_count,
+    std::int32_t requested_paragraph_level,
+    progpu_native_text_bidi_level* levels,
+    std::uint32_t level_capacity,
+    void* scratch,
+    std::size_t scratch_size,
+    progpu_native_text_bidi_result* result) {
+    if (result == nullptr ||
+        result->struct_size < sizeof(progpu_native_text_bidi_result)) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    *result = {};
+    result->struct_size = sizeof(*result);
+    if (!valid_wire_scalars(input, input_count) ||
+        requested_paragraph_level < -1 || requested_paragraph_level > 1 ||
+        level_capacity < input_count ||
+        !has_aligned_pointer(levels, input_count) ||
+        (input_count != 0U && scratch == nullptr)) {
+        result->error_code =
+            static_cast<std::uint32_t>(unicode_error::invalid_argument);
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    result->paragraph_level = requested_paragraph_level == 1 ? 1 : 0;
+    if (input_count == 0U) {
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    }
+    std::size_t required_scratch = 0U;
+    if (!try_get_bidi_scratch_bytes(input_count, required_scratch) ||
+        scratch_size < required_scratch) {
+        result->error_code =
+            static_cast<std::uint32_t>(unicode_error::insufficient_buffer);
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    scratch_arena arena{scratch, scratch_size};
+    std::span<unicode_scalar> native_input{};
+    std::span<unicode_bidi_unit> units{};
+    std::span<std::uint32_t> indices{};
+    std::span<unicode_bidi_level_run> runs{};
+    std::span<unicode_bidi_bracket_pair> bracket_pairs{};
+    std::span<unicode_bidi_level> native_levels{};
+    if (!arena.take(input_count, native_input) ||
+        !arena.take(input_count, units) ||
+        !arena.take(static_cast<std::size_t>(input_count) * 4U, indices) ||
+        !arena.take(input_count, runs) ||
+        !arena.take(input_count / 2U, bracket_pairs) ||
+        !arena.take(input_count, native_levels)) {
+        result->error_code =
+            static_cast<std::uint32_t>(unicode_error::insufficient_buffer);
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    copy_scalars(input, native_input);
+    unicode_bidi_scratch bidi_scratch{units, indices, runs, bracket_pairs};
+    std::int8_t paragraph_level = 0;
+    std::uint32_t written = 0U;
+    unicode_error error = unicode_error::none;
+    if (!try_resolve_unicode_bidi(
+            native_input,
+            static_cast<std::int8_t>(requested_paragraph_level),
+            bidi_scratch,
+            native_levels,
+            paragraph_level,
+            written,
+            &error)) {
+        result->error_code = static_cast<std::uint32_t>(error);
+        return status_from_unicode_error(error);
+    }
+    for (std::uint32_t index = 0U; index < written; ++index) {
+        const auto& source = native_levels[index];
+        levels[index] = progpu_native_text_bidi_level{
+            source.input_index,
+            source.input_length,
+            source.level,
+            0U};
+    }
+    result->level_count = written;
+    result->paragraph_level = paragraph_level;
     result->scratch_bytes_used = arena.used();
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }
