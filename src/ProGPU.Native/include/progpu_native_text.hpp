@@ -11,6 +11,7 @@
 namespace progpu::native::text {
 
 class sfnt_font_view;
+struct sfnt_glyph_phantom_variation_scratch;
 
 enum class font_error : std::uint32_t {
     none = 0U,
@@ -1644,6 +1645,13 @@ struct text_vertical_layout_requirements final {
     std::uint32_t column_capacity = 0U;
 };
 
+struct text_vertical_open_type_metrics final {
+    float advance_x = 0.0F;
+    float advance_y = 0.0F;
+    float offset_x = 0.0F;
+    float offset_y = 0.0F;
+};
+
 struct text_layout_metrics final {
     float content_width = 0.0F;
     float content_height = 0.0F;
@@ -1682,6 +1690,24 @@ bool try_layout_vertical_shaped_text(
     std::span<positioned_text_column> columns,
     std::uint32_t& glyph_count,
     std::uint32_t& column_count,
+    font_error* error = nullptr) noexcept;
+
+/* Consumes try_shape_open_type_run output directly. The metric scratch stores
+ * the managed public Shape conversion, including vertical sign and integer
+ * scaling order, before the transactional positioned-column write. Optional
+ * phantom scratch is required only for active gvar advance fallback. */
+bool try_layout_vertical_open_type_text(
+    const sfnt_font_view& font,
+    std::span<const std::int16_t> normalized_coordinates,
+    std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks_after,
+    const text_layout_options& options,
+    std::span<text_vertical_open_type_metrics> metric_scratch,
+    std::span<positioned_text_glyph> positioned_glyphs,
+    std::span<positioned_text_column> columns,
+    std::uint32_t& glyph_count,
+    std::uint32_t& column_count,
+    sfnt_glyph_phantom_variation_scratch* advance_scratch = nullptr,
     font_error* error = nullptr) noexcept;
 
 struct text_visual_cluster_group final {

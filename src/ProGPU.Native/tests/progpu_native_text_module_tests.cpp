@@ -53,6 +53,8 @@ int main() {
     const progpu::native::text::positioned_text_column positioned_column{};
     const progpu::native::text::text_vertical_layout_requirements
         vertical_layout_requirements{};
+    const progpu::native::text::text_vertical_open_type_metrics
+        vertical_open_type_metrics{};
     const progpu::native::text::text_layout_metrics layout_metrics{};
     const progpu::native::text::text_vertical_cluster_box
         vertical_cluster_box{};
@@ -121,6 +123,8 @@ int main() {
         &progpu::native::text::try_get_vertical_text_layout_requirements;
     const auto vertical_layout_resolver =
         &progpu::native::text::try_layout_vertical_shaped_text;
+    const auto vertical_open_type_layout_resolver =
+        &progpu::native::text::try_layout_vertical_open_type_text;
     const auto line_metrics_resolver =
         &progpu::native::text::try_measure_positioned_text_lines;
     const auto column_metrics_resolver =
@@ -250,6 +254,7 @@ int main() {
         logical_layout_resolver == nullptr ||
         vertical_layout_requirements_resolver == nullptr ||
         vertical_layout_resolver == nullptr ||
+        vertical_open_type_layout_resolver == nullptr ||
         line_metrics_resolver == nullptr ||
         column_metrics_resolver == nullptr ||
         vertical_interaction_requirements_resolver == nullptr ||
@@ -269,6 +274,7 @@ int main() {
         shaping_route_resolver == nullptr ||
         !shape_options.pre_context.empty() ||
         !shape_options.post_context.empty() ||
+        vertical_open_type_metrics.advance_y != 0.0F ||
         fallback_mark.positioned) {
         return 1;
     }

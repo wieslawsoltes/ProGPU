@@ -666,6 +666,11 @@ clipped. Requirements and population are `O(G)` with `O(1)` internal storage;
 vertical ellipsis is rejected because the authoritative managed layout does not
 define it. Horizontal layout rejects vertical directions so callers cannot
 silently receive horizontal placement for an accepted vertical request.
+The font-aware OpenType overload consumes native `try_shape_open_type_run`
+output directly and applies the managed public `Shape` sign and scaling order
+before placement. One caller-owned four-float record per retained glyph keeps
+the conversion allocation-free; optional reusable phantom-point scratch makes
+active gvar advance fallback exact without a per-glyph boundary call.
 Allocation-free line and column metric reducers publish the managed
 `ContentSize`/`MeasuredSize` equivalents from retained layout metadata. They
 scan only `L` lines or `C` columns, preserve the finite maximum-width contract,

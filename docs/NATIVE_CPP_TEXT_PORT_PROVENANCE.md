@@ -1247,6 +1247,20 @@ allocation. Direct and named-module fixtures cover ordinary feature tags,
 space-padded script tags, length/control rejection, byte order, and
 transactionality.
 
+The font-aware vertical shape-to-layout boundary now directly ports the
+size-dependent conversion in ProGPU-owned `OpenTypeTextShaper.Shape` from
+checkpoint `59313ee5`. Native shaping retains its internal OpenType convention
+of negative vertical advances/origins; the bulk layout overload converts them
+to the managed public Y-down convention, preserves GPOS deltas, and performs
+the same midpoint-to-even advance, centering, and origin scaling order before
+column placement. A caller-owned four-float record per retained glyph avoids
+an intermediate allocation, and the existing reusable phantom-point scratch
+is required only for active gvar advance fallback. Work is `O(G * M)` for
+glyphs `G` and bounded borrowed metric lookup `M`, with `O(G)` caller scratch
+and `O(1)` internal storage. The direct shape-to-layout fixture covers both
+top-to-bottom and bottom-to-top ordering, half-scale metrics, sign conversion,
+offsets, placement, and transactional short scratch.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

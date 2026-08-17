@@ -174,8 +174,10 @@ using progpu::native::text::text_logical_layout_scratch;
 using progpu::native::text::try_layout_logical_shaped_text;
 using progpu::native::text::positioned_text_column;
 using progpu::native::text::text_vertical_layout_requirements;
+using progpu::native::text::text_vertical_open_type_metrics;
 using progpu::native::text::try_get_vertical_text_layout_requirements;
 using progpu::native::text::try_layout_vertical_shaped_text;
+using progpu::native::text::try_layout_vertical_open_type_text;
 using progpu::native::text::text_layout_metrics;
 using progpu::native::text::try_measure_positioned_text_lines;
 using progpu::native::text::try_measure_positioned_text_columns;
@@ -7512,6 +7514,62 @@ void vertical_font_metrics_and_shaping_match_managed_policy() {
         glyphs[0].cluster == 0 && glyphs[1].cluster == 1);
     require(glyphs[0].advance_x == 0 && glyphs[0].advance_y == -900);
     require(glyphs[0].offset_x == -300 && glyphs[0].offset_y == -110);
+
+    constexpr std::array<text_line_break_kind, 2U> vertical_breaks{
+        text_line_break_kind::prohibited,
+        text_line_break_kind::mandatory};
+    const text_layout_options vertical_layout_options{
+        0.5F,
+        1000.0F,
+        20.0F,
+        0U,
+        shaping_direction::top_to_bottom,
+        text_trimming::none,
+        text_alignment::left};
+    std::array<text_vertical_open_type_metrics, 2U> metric_scratch{};
+    std::array<positioned_text_glyph, 2U> positioned{};
+    std::array<positioned_text_column, 1U> columns{};
+    std::uint32_t positioned_count = 0U;
+    std::uint32_t column_count = 0U;
+    require(try_layout_vertical_open_type_text(
+        font,
+        {},
+        std::span<const shaping_glyph>{glyphs}.first(glyph_count),
+        vertical_breaks,
+        vertical_layout_options,
+        metric_scratch,
+        positioned,
+        columns,
+        positioned_count,
+        column_count,
+        nullptr,
+        &error));
+    require(positioned_count == 2U && column_count == 1U &&
+        metric_scratch[0U].advance_y == 450.0F &&
+        metric_scratch[0U].offset_x == -150.0F &&
+        metric_scratch[0U].offset_y == 55.0F &&
+        positioned[0U].x == -140.0F && positioned[0U].y == 55.0F &&
+        positioned[1U].y == 505.0F && columns[0U].height == 900.0F);
+    positioned[0U].glyph_index = 99U;
+    positioned_count = 99U;
+    column_count = 99U;
+    require(!try_layout_vertical_open_type_text(
+        font,
+        {},
+        std::span<const shaping_glyph>{glyphs}.first(glyph_count),
+        vertical_breaks,
+        vertical_layout_options,
+        std::span<text_vertical_open_type_metrics>{metric_scratch}.first(1U),
+        positioned,
+        columns,
+        positioned_count,
+        column_count,
+        nullptr,
+        &error));
+    require(error == font_error::insufficient_buffer &&
+        positioned_count == 0U && column_count == 0U &&
+        positioned[0U].glyph_index == 99U);
+
     options.direction = shaping_direction::bottom_to_top;
     require(try_shape_open_type_run(
         font,
@@ -7525,6 +7583,26 @@ void vertical_font_metrics_and_shaping_match_managed_policy() {
     require(glyph_count == 2U && glyphs[0].advance_y == -900 &&
         glyphs[0].offset_y == -110 && glyphs[0].cluster == 1 &&
         glyphs[1].cluster == 0);
+    auto bottom_to_top_layout_options = vertical_layout_options;
+    bottom_to_top_layout_options.direction =
+        shaping_direction::bottom_to_top;
+    require(try_layout_vertical_open_type_text(
+        font,
+        {},
+        std::span<const shaping_glyph>{glyphs}.first(glyph_count),
+        vertical_breaks,
+        bottom_to_top_layout_options,
+        metric_scratch,
+        positioned,
+        columns,
+        positioned_count,
+        column_count,
+        nullptr,
+        &error));
+    require(positioned_count == 2U && column_count == 1U &&
+        positioned[0U].cluster == 1 && positioned[1U].cluster == 0 &&
+        positioned[0U].advance_y == 450.0F &&
+        positioned[1U].y == 505.0F);
     options.direction = shaping_direction::right_to_left;
     require(try_shape_open_type_run(
         font,
