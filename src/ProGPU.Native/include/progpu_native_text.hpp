@@ -463,14 +463,34 @@ struct unicode_syllable_transition final {
     std::uint8_t reserved = 0U;
 };
 
+struct unicode_vowel_constraint final {
+    open_type_tag script{};
+    std::uint32_t first = 0U;
+    std::uint32_t second = 0U;
+    std::uint32_t third = 0U;
+};
+
 unicode_indic_shaping_properties get_unicode_indic_shaping_properties(
     std::uint32_t code_point) noexcept;
 std::uint8_t get_unicode_use_shaping_category(
     std::uint32_t code_point) noexcept;
+bool is_unicode_mark(std::uint32_t code_point) noexcept;
+std::uint32_t get_unicode_vowel_constraint_count() noexcept;
+bool try_get_unicode_vowel_constraint(
+    std::uint32_t index,
+    unicode_vowel_constraint& result) noexcept;
 std::uint16_t get_unicode_syllable_machine_state_count(
     unicode_syllable_machine machine) noexcept;
 std::uint16_t get_unicode_syllable_machine_start_state(
     unicode_syllable_machine machine) noexcept;
+bool try_get_unicode_syllable_to_state_action(
+    unicode_syllable_machine machine,
+    std::uint16_t state,
+    std::uint8_t& action) noexcept;
+bool try_get_unicode_syllable_from_state_action(
+    unicode_syllable_machine machine,
+    std::uint16_t state,
+    std::uint8_t& action) noexcept;
 bool try_get_unicode_syllable_transition(
     unicode_syllable_machine machine,
     std::uint16_t state,

@@ -55,6 +55,7 @@ int main() {
         vertical_layout_requirements{};
     const progpu::native::text::text_vertical_open_type_metrics
         vertical_open_type_metrics{};
+    const progpu::native::text::unicode_vowel_constraint vowel_constraint{};
     const progpu::native::text::text_layout_metrics layout_metrics{};
     const progpu::native::text::text_vertical_cluster_box
         vertical_cluster_box{};
@@ -155,6 +156,12 @@ int main() {
         &progpu::native::text::infer_open_type_script;
     const auto universal_shaper_resolver =
         &progpu::native::text::uses_universal_shaping_engine;
+    const auto vowel_constraint_resolver =
+        &progpu::native::text::try_get_unicode_vowel_constraint;
+    const auto to_state_action_resolver =
+        &progpu::native::text::try_get_unicode_syllable_to_state_action;
+    const auto from_state_action_resolver =
+        &progpu::native::text::try_get_unicode_syllable_from_state_action;
     const auto default_feature_settings =
         progpu::native::text::get_default_open_type_feature_settings();
     static_assert(progpu::native::text::sfnt_name_ids::family_name == 1U);
@@ -270,6 +277,11 @@ int main() {
         simple_advance_resolver == nullptr ||
         script_infer_resolver == nullptr ||
         universal_shaper_resolver == nullptr ||
+        vowel_constraint_resolver == nullptr ||
+        to_state_action_resolver == nullptr ||
+        from_state_action_resolver == nullptr ||
+        progpu::native::text::get_unicode_vowel_constraint_count() != 103U ||
+        vowel_constraint.script.value != 0U ||
         default_feature_settings.size() != 26U ||
         shaping_route_resolver == nullptr ||
         !shape_options.pre_context.empty() ||

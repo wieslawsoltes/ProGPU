@@ -113,6 +113,35 @@ std::uint8_t get_unicode_use_shaping_category(
     return data8[2953U + (level3 << 1U) + (code_point & 1U)];
 }
 
+bool is_unicode_mark(std::uint32_t code_point) noexcept {
+    const auto category = get_unicode_general_category(code_point);
+    return category == unicode_general_category::nonspacing_mark ||
+        category == unicode_general_category::spacing_combining_mark ||
+        category == unicode_general_category::enclosing_mark;
+}
+
+std::uint32_t get_unicode_vowel_constraint_count() noexcept {
+    return static_cast<std::uint32_t>(
+        detail::unicode_vowel_constraints.size() / 4U);
+}
+
+bool try_get_unicode_vowel_constraint(
+    std::uint32_t index,
+    unicode_vowel_constraint& result) noexcept {
+    result = {};
+    constexpr std::size_t stride = 4U;
+    const auto offset = static_cast<std::size_t>(index) * stride;
+    if (offset >= detail::unicode_vowel_constraints.size()) {
+        return false;
+    }
+    result = unicode_vowel_constraint{
+        open_type_tag{detail::unicode_vowel_constraints[offset]},
+        detail::unicode_vowel_constraints[offset + 1U],
+        detail::unicode_vowel_constraints[offset + 2U],
+        detail::unicode_vowel_constraints[offset + 3U]};
+    return true;
+}
+
 std::uint16_t get_unicode_syllable_machine_state_count(
     unicode_syllable_machine machine) noexcept {
     switch (machine) {
@@ -142,6 +171,61 @@ std::uint16_t get_unicode_syllable_machine_start_state(
     }
     return 0U;
 }
+
+template<typename Actions>
+bool try_get_state_action(
+    std::uint16_t state,
+    const Actions& actions,
+    std::uint8_t& action) noexcept {
+    action = 0U;
+    if (state >= actions.size()) {
+        return false;
+    }
+    action = actions[state];
+    return true;
+}
+
+#define PROGPU_MACHINE_STATE_ACTION(direction, name) \
+    return try_get_state_action( \
+        state, detail::unicode_##name##_##direction##_state_actions, action)
+
+bool try_get_unicode_syllable_to_state_action(
+    unicode_syllable_machine machine,
+    std::uint16_t state,
+    std::uint8_t& action) noexcept {
+    action = 0U;
+    switch (machine) {
+        case unicode_syllable_machine::indic:
+            PROGPU_MACHINE_STATE_ACTION(to, indic);
+        case unicode_syllable_machine::use:
+            PROGPU_MACHINE_STATE_ACTION(to, use);
+        case unicode_syllable_machine::myanmar:
+            PROGPU_MACHINE_STATE_ACTION(to, myanmar);
+        case unicode_syllable_machine::khmer:
+            PROGPU_MACHINE_STATE_ACTION(to, khmer);
+    }
+    return false;
+}
+
+bool try_get_unicode_syllable_from_state_action(
+    unicode_syllable_machine machine,
+    std::uint16_t state,
+    std::uint8_t& action) noexcept {
+    action = 0U;
+    switch (machine) {
+        case unicode_syllable_machine::indic:
+            PROGPU_MACHINE_STATE_ACTION(from, indic);
+        case unicode_syllable_machine::use:
+            PROGPU_MACHINE_STATE_ACTION(from, use);
+        case unicode_syllable_machine::myanmar:
+            PROGPU_MACHINE_STATE_ACTION(from, myanmar);
+        case unicode_syllable_machine::khmer:
+            PROGPU_MACHINE_STATE_ACTION(from, khmer);
+    }
+    return false;
+}
+
+#undef PROGPU_MACHINE_STATE_ACTION
 
 #define PROGPU_MACHINE_TRANSITION(name) \
     return transition(state, category, \

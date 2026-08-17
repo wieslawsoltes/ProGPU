@@ -152,10 +152,16 @@ using progpu::native::text::text_alignment;
 using progpu::native::text::unicode_indic_shaping_properties;
 using progpu::native::text::unicode_syllable_machine;
 using progpu::native::text::unicode_syllable_transition;
+using progpu::native::text::unicode_vowel_constraint;
 using progpu::native::text::get_unicode_indic_shaping_properties;
 using progpu::native::text::get_unicode_use_shaping_category;
+using progpu::native::text::is_unicode_mark;
+using progpu::native::text::get_unicode_vowel_constraint_count;
+using progpu::native::text::try_get_unicode_vowel_constraint;
 using progpu::native::text::get_unicode_syllable_machine_state_count;
 using progpu::native::text::get_unicode_syllable_machine_start_state;
+using progpu::native::text::try_get_unicode_syllable_to_state_action;
+using progpu::native::text::try_get_unicode_syllable_from_state_action;
 using progpu::native::text::try_get_unicode_syllable_transition;
 using progpu::native::text::try_get_unicode_syllable_eof_transition;
 using progpu::native::text::try_assign_unicode_syllables;
@@ -6552,6 +6558,7 @@ void unicode_line_breaks_feed_native_layout_without_allocation() {
 void complex_script_properties_and_syllable_machines_are_bounded() {
     static_assert(sizeof(unicode_indic_shaping_properties) == 2U);
     static_assert(sizeof(unicode_syllable_transition) == 4U);
+    static_assert(sizeof(unicode_vowel_constraint) == 16U);
 
     const auto consonant = get_unicode_indic_shaping_properties(0x0915U);
     require(consonant.category == 1U && consonant.position == 4U);
@@ -6572,6 +6579,25 @@ void complex_script_properties_and_syllable_machines_are_bounded() {
     require(get_unicode_use_shaping_category(0x1031U) == 22U);
     require(get_unicode_use_shaping_category(0x25CCU) == 1U);
     require(get_unicode_use_shaping_category(0x110000U) == 0U);
+    require(is_unicode_mark(0x093FU));
+    require(is_unicode_mark(0x20DDU));
+    require(!is_unicode_mark(0x0915U));
+    require(!is_unicode_mark(0x110000U));
+
+    require(get_unicode_vowel_constraint_count() == 103U);
+    unicode_vowel_constraint constraint{};
+    require(try_get_unicode_vowel_constraint(0U, constraint));
+    require(constraint.script == open_type_tag::from_chars('b', 'e', 'n', 'g') &&
+        constraint.first == 0x985U && constraint.second == 0x9BEU &&
+        constraint.third == 0U);
+    require(try_get_unicode_vowel_constraint(27U, constraint));
+    require(constraint.script == open_type_tag::from_chars('d', 'e', 'v', 'a') &&
+        constraint.first == 0x930U && constraint.second == 0x94DU &&
+        constraint.third == 0x907U);
+    constraint = {open_type_tag{1U}, 1U, 1U, 1U};
+    require(!try_get_unicode_vowel_constraint(103U, constraint));
+    require(constraint.script.value == 0U && constraint.first == 0U &&
+        constraint.second == 0U && constraint.third == 0U);
 
     struct machine_expectation final {
         unicode_syllable_machine machine;
@@ -6591,6 +6617,22 @@ void complex_script_properties_and_syllable_machines_are_bounded() {
             expected.state_count);
         require(get_unicode_syllable_machine_start_state(expected.machine) ==
             expected.start_state);
+        std::uint8_t state_action = 99U;
+        require(try_get_unicode_syllable_to_state_action(
+            expected.machine, expected.start_state, state_action));
+        require(state_action <= 10U);
+        state_action = 99U;
+        require(try_get_unicode_syllable_from_state_action(
+            expected.machine, expected.start_state, state_action));
+        require(state_action <= 10U);
+        state_action = 99U;
+        require(!try_get_unicode_syllable_to_state_action(
+            expected.machine, expected.state_count, state_action));
+        require(state_action == 0U);
+        state_action = 99U;
+        require(!try_get_unicode_syllable_from_state_action(
+            expected.machine, expected.state_count, state_action));
+        require(state_action == 0U);
         unicode_syllable_transition transition{99U, 99U, 99U};
         require(try_get_unicode_syllable_transition(
             expected.machine, expected.start_state, 1U, transition));

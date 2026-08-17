@@ -309,6 +309,13 @@ storage. Script and combining-class tables are generated from the same managed
 packed data and are verified by the native contract CI gate; the native text
 library does not maintain a handwritten Unicode table fork.
 
+The public C++20 shaping-property surface also exposes the complete managed
+`UnicodeShapingProperties` contract over those same generated records:
+Indic/USE categories, mark classification, all 103 vowel constraints, and
+to/from/ordinary/EOF transitions for the Indic, USE, Myanmar, and Khmer
+syllable machines. Invalid indices fail transactionally and no second native
+table representation is maintained.
+
 Canonical normalization consumes the same
 `UnicodeNormalizationData.bin` resource as managed ProGPU through a validated,
 borrowed view. A requirements pass reports maximum FormD capacity; the write

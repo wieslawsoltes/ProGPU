@@ -1261,6 +1261,18 @@ and `O(1)` internal storage. The direct shape-to-layout fixture covers both
 top-to-bottom and bottom-to-top ordering, half-scale metrics, sign conversion,
 offsets, placement, and transactional short scratch.
 
+The public Unicode shaping-property surface now completes the direct native
+port of ProGPU-owned `UnicodeShapingProperties` from checkpoint `cbd37670`.
+The existing generated Indic/USE properties, vowel constraints, and
+Indic/USE/Myanmar/Khmer syllable machines remain the single native data
+source; the new C++20 API exposes mark classification, indexed vowel
+constraints, and to/from-state actions without duplicating or translating the
+tables. Property and machine queries are fixed `O(1)`, indexed access resets
+caller output on failure, and no allocation or callback is introduced. Direct
+and named-module fixtures cover mark categories, first/three-scalar vowel
+constraints, all four machines, invalid indices/states, and the exact 103
+managed constraint count.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with
