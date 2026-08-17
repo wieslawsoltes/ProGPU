@@ -212,6 +212,7 @@ using ::progpu::native::text::try_get_vertical_text_selection_rectangles;
 using ::progpu::native::text::sfnt_font_view;
 using ::progpu::native::text::sfnt_bitmap_glyph_data_view;
 using ::progpu::native::text::sfnt_color_glyph_layer;
+using ::progpu::native::text::sfnt_color_palette_override;
 using ::progpu::native::text::sfnt_color_rgba8;
 using ::progpu::native::text::sfnt_svg_glyph_document_view;
 using ::progpu::native::text::svg_glyph_layer;

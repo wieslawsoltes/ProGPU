@@ -1227,6 +1227,17 @@ Hiragana/Lao tags, empty/common-prefix inference, upper/lowercase generation-3
 and USE tags, Latin exclusion, invalid scalar-reader indices, and sanitizer
 execution.
 
+Managed color-palette overrides now directly port ProGPU-owned
+`TtfFont.WithColorPalette` from checkpoint `0db90a63` into the native COLR/CPAL
+decoder. The caller supplies a borrowed packed-ARGB override span; out-of-range
+entries are ignored, duplicate entries retain the managed last-wins behavior,
+foreground layers remain foreground, and fonts without CPAL ignore overrides
+like the managed immutable-font path. Decoding is `O(L * O)` for layers `L`
+and overrides `O`, uses `O(1)` internal storage, and avoids cloning the full
+palette or font. Direct and module fixtures cover channel order, alpha,
+duplicates, invalid entries, foreground preservation, selected/default
+palettes, and the no-CPAL path.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

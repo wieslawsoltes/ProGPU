@@ -118,6 +118,22 @@ bool sfnt_font_view::try_decode_colr_layers(
     std::span<sfnt_color_glyph_layer> layers,
     std::uint16_t& written,
     font_error* error) const noexcept {
+    return try_decode_colr_layers(
+        glyph_index,
+        palette_index,
+        std::span<const sfnt_color_palette_override>{},
+        layers,
+        written,
+        error);
+}
+
+bool sfnt_font_view::try_decode_colr_layers(
+    std::uint16_t glyph_index,
+    std::uint16_t palette_index,
+    std::span<const sfnt_color_palette_override> palette_overrides,
+    std::span<sfnt_color_glyph_layer> layers,
+    std::uint16_t& written,
+    font_error* error) const noexcept {
     written = 0U;
     set_error(error, font_error::none);
     detail::colr_layer_range range{};
@@ -144,6 +160,24 @@ bool sfnt_font_view::try_decode_colr_layers(
         if (has_palette) {
             detail::resolve_cpal_color(
                 palette, palette_index, entry, color, foreground);
+            if (!foreground && entry < palette.entries_per_palette) {
+                for (auto override_index = palette_overrides.size();
+                    override_index > 0U;
+                    --override_index) {
+                    const auto& palette_override =
+                        palette_overrides[override_index - 1U];
+                    if (palette_override.palette_entry_index != entry) {
+                        continue;
+                    }
+                    const auto argb = palette_override.argb;
+                    color = {
+                        static_cast<std::uint8_t>((argb >> 16U) & 0xFFU),
+                        static_cast<std::uint8_t>((argb >> 8U) & 0xFFU),
+                        static_cast<std::uint8_t>(argb & 0xFFU),
+                        static_cast<std::uint8_t>((argb >> 24U) & 0xFFU)};
+                    break;
+                }
+            }
         }
         layers[index] = {
             detail::read_u16(range.colr, layer), entry, color, foreground};

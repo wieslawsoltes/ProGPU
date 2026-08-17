@@ -2545,6 +2545,11 @@ struct sfnt_color_rgba8 final {
     std::uint8_t alpha = 255U;
 };
 
+struct sfnt_color_palette_override final {
+    std::uint16_t palette_entry_index = 0U;
+    std::uint32_t argb = 0U;
+};
+
 struct sfnt_color_glyph_layer final {
     std::uint16_t glyph_index = 0U;
     std::uint16_t palette_entry_index = 0U;
@@ -3095,6 +3100,13 @@ public:
     bool try_decode_colr_layers(
         std::uint16_t glyph_index,
         std::uint16_t palette_index,
+        std::span<sfnt_color_glyph_layer> layers,
+        std::uint16_t& written,
+        font_error* error = nullptr) const noexcept;
+    bool try_decode_colr_layers(
+        std::uint16_t glyph_index,
+        std::uint16_t palette_index,
+        std::span<const sfnt_color_palette_override> palette_overrides,
         std::span<sfnt_color_glyph_layer> layers,
         std::uint16_t& written,
         font_error* error = nullptr) const noexcept;

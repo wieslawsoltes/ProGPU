@@ -215,6 +215,7 @@ using progpu::native::text::sfnt_cff2_outline_requirements;
 using progpu::native::text::sfnt_cff2_top_dictionary;
 using progpu::native::text::sfnt_bitmap_glyph_data_view;
 using progpu::native::text::sfnt_color_glyph_layer;
+using progpu::native::text::sfnt_color_palette_override;
 using progpu::native::text::sfnt_svg_glyph_document_view;
 using progpu::native::text::svg_glyph_layer;
 using progpu::native::text::svg_glyph_requirements;
@@ -9563,6 +9564,25 @@ void colr_layers_and_cpal_palettes_are_transactional() {
     require(layers[0U].color.red == 255U &&
         layers[0U].color.green == 0U);
 
+    constexpr std::array<sfnt_color_palette_override, 4U> overrides{{
+        {0U, 0xFF010203U},
+        {9U, 0xFFFFFFFFU},
+        {1U, 0xFF112233U},
+        {0U, 0x80402010U}}};
+    require(font.try_decode_colr_layers(
+        1U, 1U, overrides, layers, written, &error));
+    require(written == 3U &&
+        layers[0U].color.red == 0x40U &&
+        layers[0U].color.green == 0x20U &&
+        layers[0U].color.blue == 0x10U &&
+        layers[0U].color.alpha == 0x80U &&
+        layers[1U].color.red == 0x11U &&
+        layers[1U].color.green == 0x22U &&
+        layers[1U].color.blue == 0x33U &&
+        layers[1U].color.alpha == 0xFFU &&
+        layers[2U].uses_foreground_color &&
+        layers[2U].color.red == 255U);
+
     std::array<sfnt_color_glyph_layer, 2U> short_layers{};
     short_layers[0U].glyph_index = 99U;
     written = 99U;
@@ -9582,7 +9602,7 @@ void colr_layers_and_cpal_palettes_are_transactional() {
     require(sfnt_font_view::try_create(
         colr_only_data, 0U, colr_only_font));
     require(colr_only_font.try_decode_colr_layers(
-        1U, 0U, layers, written, &error));
+        1U, 0U, overrides, layers, written, &error));
     require(written == 3U && layers[0U].color.red == 255U &&
         layers[0U].color.green == 255U &&
         layers[0U].color.blue == 255U &&
