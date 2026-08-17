@@ -70,7 +70,8 @@ bool apply_gsub_lookup_with_feature_values(
     const open_type_gdef_view* gdef,
     font_error* error,
     std::uint32_t* random_state = nullptr,
-    const open_type_glyph_set_digest* lookup_digest = nullptr) noexcept;
+    const open_type_glyph_set_digest* lookup_digest = nullptr,
+    const lookup_feature_resolution* cached_resolution = nullptr) noexcept;
 
 bool apply_gpos_lookup_with_feature_values(
     const open_type_layout_table_view& gpos,
@@ -78,6 +79,7 @@ bool apply_gpos_lookup_with_feature_values(
     std::uint16_t lookup,
     std::span<shaping_glyph> glyphs,
     const open_type_gpos_apply_options& apply_options,
-    font_error* error) noexcept;
+    font_error* error,
+    const lookup_feature_resolution* cached_resolution = nullptr) noexcept;
 
 } // namespace progpu::native::text::feature_detail

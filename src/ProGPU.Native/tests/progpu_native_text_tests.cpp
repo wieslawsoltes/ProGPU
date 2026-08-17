@@ -11057,6 +11057,45 @@ void production_inter_shaping_is_stable_and_reusable() {
             plan_requirements.gpos_context_subtable_capacity &&
         plan.gpos_context_coverages.size() <=
             plan_requirements.gpos_context_coverage_capacity);
+    const auto require_cached_features = [&](
+        const open_type_layout_table_view& layout,
+        std::span<const std::uint16_t> lookups,
+        std::span<const open_type_lookup_accelerator> accelerators) {
+        for (std::size_t index = 0U; index < lookups.size(); ++index) {
+            open_type_tag required_feature{};
+            bool required = false;
+            require(layout.try_required_feature_for_lookup(
+                options.script,
+                options.language,
+                lookups[index],
+                options.normalized_coordinates,
+                required_feature,
+                required,
+                &error));
+            require(accelerators[index].feature_required == required);
+            if (required) {
+                require(accelerators[index].feature == required_feature &&
+                    !accelerators[index].feature_found);
+                continue;
+            }
+            if (accelerators[index].feature_found) {
+                bool contains = false;
+                require(layout.try_feature_contains_lookup(
+                    options.script,
+                    options.language,
+                    accelerators[index].feature,
+                    lookups[index],
+                    options.normalized_coordinates,
+                    contains,
+                    &error));
+                require(contains);
+            }
+        }
+    };
+    require_cached_features(
+        plan.gsub, plan.gsub_lookups, plan.gsub_accelerators);
+    require_cached_features(
+        plan.gpos, plan.gpos_lookups, plan.gpos_accelerators);
 
     std::array<shaping_glyph, 64U> glyphs{};
     std::array<unicode_grapheme_cluster, 16U> graphemes{};

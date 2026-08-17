@@ -252,6 +252,9 @@ int main() {
         context_coverage.digest.shift0 != 0U ||
         context_subtable.coverage_count != 0U ||
         context_requirements.supported || lookup_accelerator.has_digest ||
+        lookup_accelerator.feature.value != 0U ||
+        lookup_accelerator.feature_found ||
+        lookup_accelerator.feature_required ||
         shape_options.normalization_data != nullptr ||
         !shape_verification.glyphs.empty() ||
         shape_options.unicode_script.value != 0U ||

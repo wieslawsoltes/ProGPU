@@ -374,7 +374,8 @@ bool apply_gsub_lookup_with_feature_values(
     const open_type_gdef_view* gdef,
     font_error* error,
     std::uint32_t* random_state,
-    const open_type_glyph_set_digest* lookup_digest) noexcept {
+    const open_type_glyph_set_digest* lookup_digest,
+    const lookup_feature_resolution* cached_resolution) noexcept {
     if (options.feature_settings.empty()) {
         bool applied = false;
         open_type_gsub_apply_options apply_options{
@@ -395,8 +396,10 @@ bool apply_gsub_lookup_with_feature_values(
             error);
     }
     lookup_feature_resolution resolution{};
-    if (!try_resolve_lookup_feature(
-            gsub, options, lookup, resolution, error)) {
+    if (cached_resolution != nullptr) {
+        resolution = *cached_resolution;
+    } else if (!try_resolve_lookup_feature(
+                   gsub, options, lookup, resolution, error)) {
         return false;
     }
     if (resolution.required || !resolution.found ||
@@ -487,15 +490,18 @@ bool apply_gpos_lookup_with_feature_values(
     std::uint16_t lookup,
     std::span<shaping_glyph> glyphs,
     const open_type_gpos_apply_options& apply_options,
-    font_error* error) noexcept {
+    font_error* error,
+    const lookup_feature_resolution* cached_resolution) noexcept {
     if (options.feature_settings.empty()) {
         bool applied = false;
         return try_apply_open_type_gpos_lookup(
             gpos, lookup, glyphs, apply_options, applied, error);
     }
     lookup_feature_resolution resolution{};
-    if (!try_resolve_lookup_feature(
-            gpos, options, lookup, resolution, error)) {
+    if (cached_resolution != nullptr) {
+        resolution = *cached_resolution;
+    } else if (!try_resolve_lookup_feature(
+                   gpos, options, lookup, resolution, error)) {
         return false;
     }
     if (resolution.required || !resolution.found ||

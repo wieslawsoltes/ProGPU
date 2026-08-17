@@ -423,6 +423,10 @@ Disjoint required coverages reject the lookup first; flag-zero lookups then use
 an exact ordered backtrack/input/lookahead preflight. Unsupported formats,
 mark-filtering, ignore flags, and malformed cache metadata always fail open to
 the authoritative exact executor.
+Each selected plan entry also caches the managed `EnabledLookup` feature tag
+and required/found state. Ranged GSUB/GPOS replay and GPOS kerning detection
+reuse that metadata rather than walking Script/LangSys/Feature membership on
+every run; per-cluster feature values remain caller-owned run input.
 GSUB adds newly produced glyph IDs to the run digest
 after each applied lookup, preserving later-lookup dependencies without a
 rescan allocation. A plan is keyed by the exact font

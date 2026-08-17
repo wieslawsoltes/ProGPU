@@ -1318,8 +1318,9 @@ fall-through.
 
 Reusable native GSUB/GPOS lookup acceleration directly ports ProGPU-owned
 `OpenTypeTextShaper.GlyphSetDigest`, `TryCreateRawLookupDigest`,
-`CreateGlyphDigest`, `AddGlyphs`, `RawContextRequirements`, and
-`TryCreateRawContextRequirements` from checkpoint `e7374eb1`. The native
+`CreateGlyphDigest`, `AddGlyphs`, `RawContextRequirements`,
+`TryCreateRawContextRequirements`, and the feature metadata retained by
+`EnabledLookup` from checkpoint `e7374eb1`. The native
 layout view builds the same three 64-bit approximate masks from Coverage format
 1 glyphs and format 2 ranges, including Extension lookup indirection. Shape
 plans retain one caller-owned digest record per selected lookup. A planned run
@@ -1338,11 +1339,16 @@ Plan requirements conservatively report capacities across the table once, and
 only selected supported lookups populate those spans. Storage is `O(L + C)`
 caller-owned records for `L` selected lookups and `C` cached coverage records,
 with `O(1)` internal state; there is no per-run allocation, parser graph, or
-managed/native crossing.
+managed/native crossing. Each selected plan entry also retains its resolved
+feature tag plus required/found state. Stable replay therefore does not rescan
+Script/LangSys/Feature membership to recover ranged feature values or detect
+GPOS kerning; changing range values remains valid because lookup selection and
+the cached tag depend on the ordered requested tags, not per-cluster values.
 Direct fixtures cover format-1 digest construction, intended hash false
 positives, whole-lookup and per-candidate GSUB/GPOS negative rejection,
 format-3 contextual digest and exact ordered rejection, lookup-flag fail-open,
-range endpoints, invalid lookup
+cached selected-feature provenance including required features, range
+endpoints, invalid lookup
 transactionality, optional-plan compatibility, production-font stable replay,
 the C++20 named-module consumer, and ASan/UBSan execution.
 

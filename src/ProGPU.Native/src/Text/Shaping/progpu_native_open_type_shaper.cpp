@@ -1821,6 +1821,13 @@ bool try_shape_open_type_run(
                     plan->gsub_accelerators[index].has_digest
                     ? &plan->gsub_accelerators[index].digest
                     : nullptr;
+                lookup_feature_resolution cached_resolution{};
+                if (has_accelerators) {
+                    cached_resolution = lookup_feature_resolution{
+                        plan->gsub_accelerators[index].feature,
+                        plan->gsub_accelerators[index].feature_found,
+                        plan->gsub_accelerators[index].feature_required};
+                }
                 if (!apply_gsub_lookup_with_feature_values(
                         gsub,
                         options,
@@ -1830,7 +1837,8 @@ bool try_shape_open_type_run(
                         gdef_pointer,
                         error,
                         &random_alternate_state,
-                        lookup_digest)) {
+                        lookup_digest,
+                        has_accelerators ? &cached_resolution : nullptr)) {
                     return false;
                 }
                 if (has_accelerators) {
@@ -2113,13 +2121,20 @@ bool try_shape_open_type_run(
             : open_type_glyph_set_digest{};
         for (std::uint32_t index = 0U; index < lookup_count; ++index) {
             lookup_feature_resolution resolution{};
-            if (!try_resolve_lookup_feature(
-                    gpos,
-                    options,
-                    selected_lookups[index],
-                    resolution,
-                    error)) {
-                return false;
+            if (has_accelerators) {
+                resolution = lookup_feature_resolution{
+                    plan->gpos_accelerators[index].feature,
+                    plan->gpos_accelerators[index].feature_found,
+                    plan->gpos_accelerators[index].feature_required};
+            } else {
+                if (!try_resolve_lookup_feature(
+                        gpos,
+                        options,
+                        selected_lookups[index],
+                        resolution,
+                        error)) {
+                    return false;
+                }
             }
             has_gpos_kerning |= (resolution.required || resolution.found) &&
                 (resolution.feature == kern_feature ||
@@ -2146,7 +2161,8 @@ bool try_shape_open_type_run(
                     selected_lookups[index],
                     glyphs,
                     lookup_apply_options,
-                    error)) {
+                    error,
+                    has_accelerators ? &resolution : nullptr)) {
                 return false;
             }
         }

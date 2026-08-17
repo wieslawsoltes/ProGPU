@@ -1423,11 +1423,14 @@ struct open_type_shape_plan_requirements final {
 
 struct open_type_lookup_accelerator final {
     open_type_glyph_set_digest digest{};
+    open_type_tag feature{};
     std::uint32_t context_subtable_offset = 0U;
     std::uint32_t context_subtable_count = 0U;
     std::uint16_t lookup_flags = 0U;
     bool has_digest = false;
     bool has_context = false;
+    bool feature_found = false;
+    bool feature_required = false;
 };
 
 /* Borrowed reusable shaping plan. The font bytes and caller-owned lookup

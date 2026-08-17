@@ -1,4 +1,5 @@
 #include "progpu_native_text.hpp"
+#include "progpu_native_open_type_feature_values_internal.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -6,11 +7,16 @@
 #include <span>
 
 // Reusable borrowed shaping-plan ownership around the allocation-free GSUB and
-// GPOS executors. Font bytes and lookup arrays stay caller-owned; building a
-// plan parses and selects once, while compatible run shaping reuses the views.
+// GPOS executors. This directly ports the selected feature metadata retained by
+// ProGPU-owned OpenTypeTextShaper.EnabledLookup at checkpoint e7374eb1. Font
+// bytes and lookup arrays stay caller-owned; building a plan parses and selects
+// once, while compatible run shaping reuses the views.
 
 namespace progpu::native::text {
 namespace {
+
+using feature_detail::lookup_feature_resolution;
+using feature_detail::try_resolve_lookup_feature;
 
 constexpr open_type_tag gdef_tag =
     open_type_tag::from_chars('G', 'D', 'E', 'F');
@@ -132,6 +138,7 @@ bool try_get_context_capacities(
 
 bool try_build_accelerators(
     const open_type_layout_table_view& layout,
+    const open_type_shape_run_options& options,
     std::span<const std::uint16_t> lookups,
     std::uint16_t extension_lookup_type,
     std::span<open_type_lookup_accelerator> storage,
@@ -145,6 +152,14 @@ bool try_build_accelerators(
     context_coverage_count = 0U;
     for (std::size_t index = 0U; index < lookups.size(); ++index) {
         storage[index] = {};
+        lookup_feature_resolution resolution{};
+        if (!try_resolve_lookup_feature(
+                layout, options, lookups[index], resolution, error)) {
+            return false;
+        }
+        storage[index].feature = resolution.feature;
+        storage[index].feature_found = resolution.found;
+        storage[index].feature_required = resolution.required;
         if (!layout.try_get_lookup_digest(
                 lookups[index],
                 extension_lookup_type,
@@ -479,6 +494,7 @@ bool try_build_shape_plan(
     if (build_accelerators &&
         (!try_build_accelerators(
                 gsub,
+                options,
                 gsub_lookups,
                 7U,
                 gsub_accelerators,
@@ -490,6 +506,7 @@ bool try_build_shape_plan(
                 error) ||
             !try_build_accelerators(
                 gpos,
+                options,
                 gpos_lookups,
                 9U,
                 gpos_accelerators,
