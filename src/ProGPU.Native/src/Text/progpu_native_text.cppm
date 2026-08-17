@@ -151,6 +151,7 @@ using ::progpu::native::text::font_provider_view;
 using ::progpu::native::text::font_provider_cache_entry;
 using ::progpu::native::text::font_provider_result;
 using ::progpu::native::text::try_resolve_font_provider_face;
+using ::progpu::native::text::try_resolve_font_provider_fallback_face;
 using ::progpu::native::text::font_style_request;
 using ::progpu::native::text::font_style_variation_requirements;
 using ::progpu::native::text::font_style_variation;

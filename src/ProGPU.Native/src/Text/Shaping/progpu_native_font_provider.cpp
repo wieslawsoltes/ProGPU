@@ -55,6 +55,7 @@ bool try_open_candidate(
     const font_provider_view& provider,
     std::uint32_t index,
     std::uint64_t family,
+    std::uint64_t excluded_identity,
     std::uint32_t code_point,
     font_provider_face& face,
     sfnt_font_view& font,
@@ -64,7 +65,8 @@ bool try_open_candidate(
     glyph = 0U;
     if (!provider.try_get_face(provider.context, index, face) ||
         face.data.empty() ||
-        (family != 0U && face.family_identity != family)) {
+        (family != 0U && face.family_identity != family) ||
+        (excluded_identity != 0U && face.identity == excluded_identity)) {
         return false;
     }
     font_error ignored = font_error::none;
@@ -172,7 +174,7 @@ bool try_resolve_font_provider_face(
         font_provider_face face{};
         sfnt_font_view font{};
         std::uint16_t glyph = 0U;
-        if (try_open_candidate(provider, entry.face_index, family_identity,
+        if (try_open_candidate(provider, entry.face_index, family_identity, 0U,
                 code_point, face, font, glyph)) {
             result = font_provider_result{
                 face, entry.face_index, glyph, true};
@@ -192,8 +194,8 @@ bool try_resolve_font_provider_face(
         font_provider_face face{};
         sfnt_font_view font{};
         std::uint16_t glyph = 0U;
-        if (!try_open_candidate(provider, index, family_identity, code_point,
-                face, font, glyph)) {
+        if (!try_open_candidate(provider, index, family_identity, 0U,
+                code_point, face, font, glyph)) {
             continue;
         }
         const auto score = style_score(face, weight, stretch, slant);
@@ -213,6 +215,74 @@ bool try_resolve_font_provider_face(
     if (found) {
         result = font_provider_result{
             best_face, best_index, best_glyph, true};
+    }
+    set_error(error, font_error::none);
+    return true;
+}
+
+bool try_resolve_font_provider_fallback_face(
+    const font_provider_view& provider,
+    std::span<const std::uint64_t> ordered_family_identities,
+    std::uint16_t weight,
+    std::uint8_t stretch,
+    font_provider_slant slant,
+    std::uint32_t code_point,
+    std::uint64_t excluded_face_identity,
+    font_provider_result& result,
+    font_error* error) noexcept {
+    result = {};
+    if (provider.get_face_count == nullptr || provider.try_get_face == nullptr ||
+        stretch == 0U || stretch > 9U || code_point > 0x10FFFFU ||
+        static_cast<std::uint8_t>(slant) >
+            static_cast<std::uint8_t>(font_provider_slant::oblique)) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+
+    std::uint8_t best_tier = 3U;
+    std::size_t best_family_rank = ordered_family_identities.size();
+    std::uint64_t best_style = std::numeric_limits<std::uint64_t>::max();
+    const auto count = provider.get_face_count(provider.context);
+    for (std::uint32_t index = 0U; index < count; ++index) {
+        font_provider_face face{};
+        sfnt_font_view font{};
+        std::uint16_t glyph = 0U;
+        if (!try_open_candidate(
+                provider,
+                index,
+                0U,
+                excluded_face_identity,
+                code_point,
+                face,
+                font,
+                glyph)) {
+            continue;
+        }
+
+        std::size_t family_rank = ordered_family_identities.size();
+        for (std::size_t candidate = 0U;
+             candidate < ordered_family_identities.size(); ++candidate) {
+            if (ordered_family_identities[candidate] != 0U &&
+                ordered_family_identities[candidate] == face.family_identity) {
+                family_rank = candidate;
+                break;
+            }
+        }
+        const std::uint8_t tier = family_rank < ordered_family_identities.size()
+            ? 0U
+            : face.is_fallback ? 1U : 2U;
+        const auto score = style_score(face, weight, stretch, slant);
+        const bool better = tier < best_tier ||
+            (tier == best_tier && tier == 0U &&
+                family_rank < best_family_rank) ||
+            (tier == best_tier &&
+                (tier != 0U || family_rank == best_family_rank) &&
+                score < best_style);
+        if (!better) continue;
+        best_tier = tier;
+        best_family_rank = family_rank;
+        best_style = score;
+        result = font_provider_result{face, index, glyph, true};
     }
     set_error(error, font_error::none);
     return true;

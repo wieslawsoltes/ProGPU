@@ -130,6 +130,7 @@ using progpu::native::text::font_provider_view;
 using progpu::native::text::font_provider_cache_entry;
 using progpu::native::text::font_provider_result;
 using progpu::native::text::try_resolve_font_provider_face;
+using progpu::native::text::try_resolve_font_provider_fallback_face;
 using progpu::native::text::font_style_request;
 using progpu::native::text::font_style_variation_requirements;
 using progpu::native::text::font_style_variation;
@@ -5535,6 +5536,56 @@ void native_font_provider_cache_is_borrowed_and_generation_safe() {
         coverage_cache, coverage_cursor, result, &error));
     require(result.found && result.face.identity == 22U &&
         result.glyph_index == 2U);
+
+    struct priority_provider_context final {
+        std::array<font_provider_face, 3U> faces{};
+        std::uint32_t reads = 0U;
+    } priority_context{
+        std::array{
+            font_provider_face{regular, 30U, 30U, 0U, 700U, 5U,
+                font_provider_slant::normal, false},
+            font_provider_face{regular, 31U, 31U, 0U, 400U, 5U,
+                font_provider_slant::normal, false},
+            font_provider_face{regular, 32U, 32U, 0U, 400U, 5U,
+                font_provider_slant::normal, true}}};
+    const auto priority_count = +[](void* value) noexcept -> std::uint32_t {
+        return static_cast<std::uint32_t>(
+            static_cast<priority_provider_context*>(value)->faces.size());
+    };
+    const auto priority_get =
+        +[](void* value, std::uint32_t index,
+            font_provider_face& face) noexcept -> bool {
+        auto& source = *static_cast<priority_provider_context*>(value);
+        ++source.reads;
+        if (index >= source.faces.size()) return false;
+        face = source.faces[index];
+        return true;
+    };
+    const font_provider_view priority_provider{
+        &priority_context, 1U, priority_count, priority_get};
+    constexpr std::array<std::uint64_t, 2U> preferred_families{30U, 31U};
+    require(try_resolve_font_provider_fallback_face(
+        priority_provider,
+        preferred_families,
+        400U,
+        5U,
+        font_provider_slant::normal,
+        0x41U,
+        0U,
+        result,
+        &error));
+    require(result.found && result.face.identity == 30U &&
+        result.glyph_index == 4U && priority_context.reads == 3U);
+    require(try_resolve_font_provider_fallback_face(
+        priority_provider, {}, 400U, 5U, font_provider_slant::normal,
+        0x41U, 0U, result, &error));
+    require(result.found && result.face.identity == 32U &&
+        priority_context.reads == 6U);
+    require(try_resolve_font_provider_fallback_face(
+        priority_provider, {}, 400U, 5U, font_provider_slant::normal,
+        0x41U, 32U, result, &error));
+    require(result.found && result.face.identity == 31U &&
+        priority_context.reads == 9U);
 }
 
 void native_positioned_text_layout_wraps_without_allocation() {

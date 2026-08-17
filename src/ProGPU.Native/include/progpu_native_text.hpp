@@ -1405,6 +1405,7 @@ struct font_provider_face final {
     std::uint16_t weight = 400U;
     std::uint8_t stretch = 5U;
     font_provider_slant slant = font_provider_slant::normal;
+    bool is_fallback = false;
 };
 
 using font_provider_count_callback = std::uint32_t(*)(void*) noexcept;
@@ -1451,6 +1452,20 @@ bool try_resolve_font_provider_face(
     std::uint32_t code_point,
     std::span<font_provider_cache_entry> cache,
     std::uint32_t& replacement_cursor,
+    font_provider_result& result,
+    font_error* error = nullptr) noexcept;
+
+/* Performs the managed FontManager fallback priority in one provider pass:
+ * ordered family identities, registered fallback faces, then all remaining
+ * faces. The excluded identity is skipped without changing catalog state. */
+bool try_resolve_font_provider_fallback_face(
+    const font_provider_view& provider,
+    std::span<const std::uint64_t> ordered_family_identities,
+    std::uint16_t weight,
+    std::uint8_t stretch,
+    font_provider_slant slant,
+    std::uint32_t code_point,
+    std::uint64_t excluded_face_identity,
     font_provider_result& result,
     font_error* error = nullptr) noexcept;
 

@@ -87,6 +87,8 @@ int main() {
         &progpu::native::text::try_get_font_fallback_family_preference_count;
     const auto fallback_preference_writer =
         &progpu::native::text::try_get_font_fallback_family_preferences;
+    const auto fallback_face_resolver =
+        &progpu::native::text::try_resolve_font_provider_fallback_face;
     const auto default_feature_settings =
         progpu::native::text::get_default_open_type_feature_settings();
     static_assert(progpu::native::text::sfnt_name_ids::family_name == 1U);
@@ -165,6 +167,7 @@ int main() {
         arabic_joining_flag_resolver == nullptr ||
         fallback_preference_counter == nullptr ||
         fallback_preference_writer == nullptr ||
+        fallback_face_resolver == nullptr ||
         default_feature_settings.size() != 26U ||
         shaping_route_resolver == nullptr ||
         !shape_options.pre_context.empty() ||

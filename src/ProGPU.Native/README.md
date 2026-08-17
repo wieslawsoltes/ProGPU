@@ -612,6 +612,12 @@ outlines, COLR/OpenType-SVG layers, or sbix/CBDT bitmap data and retains the
 managed no-outline allowance for control, format, and separator scalars.
 The successful bulk result carries the validated glyph index together with the
 borrowed face, eliminating a second cmap search before shaping.
+A one-pass fallback resolver consumes provider identities mapped from the
+ordered family names, then ranks registered fallback faces ahead of the rest
+of the catalog. Family priority dominates style distance exactly as in managed
+`FontManager`; an explicit face identity can be excluded. The provider is
+traversed once, each candidate is validated once, and no temporary candidate
+list or per-family callback loop is created.
 
 Positioned native line layout consumes already-shaped visual-order glyphs and
 caller-supplied break decisions, preserving the managed ProGPU separation

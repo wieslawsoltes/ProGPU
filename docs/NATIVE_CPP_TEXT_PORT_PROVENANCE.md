@@ -380,6 +380,16 @@ The provider result publishes that validated glyph index, matching the managed
 `TryMatchCharacter` output and avoiding a duplicate cmap lookup at the native
 fallback-to-shaping boundary. Cache hits recompute it during the already
 required borrowed-face validation and add no provider callback or allocation.
+The one-pass `try_resolve_font_provider_fallback_face` stage ports the managed
+`TryMatchCharacterCore` priority contract after a host maps the static family
+preference views to provider identities: ordered requested/language families
+win in list order, provider faces marked as registered fallbacks win next, and
+all remaining faces form the final tier. Style distance breaks ties only
+inside a tier/family, and an explicitly excluded face identity is skipped.
+Unlike repeated family resolution this is `O(F * (T + P))` time for `F` faces,
+bounded borrowed-table validation `T`, and `P` preferred identities, with one
+provider traversal and `O(1)` storage. Tests distinguish family order from a
+closer style, fallback priority from ordinary faces, and excluded-face retry.
 
 ## Delivered borrowed SFNT/TTC foundation
 
