@@ -89,6 +89,8 @@ using progpu::native::text::fallback_mark_metadata;
 using progpu::native::text::try_apply_fallback_mark_positioning;
 using progpu::native::text::open_type_shape_run_options;
 using progpu::native::text::open_type_complex_script;
+using progpu::native::text::open_type_shaping_route;
+using progpu::native::text::try_resolve_open_type_shaping_route;
 using progpu::native::text::open_type_shape_run_scratch;
 using progpu::native::text::open_type_shape_run_requirements;
 using progpu::native::text::try_get_open_type_shape_run_requirements;
@@ -3167,6 +3169,124 @@ void open_type_uniform_run_shaper_connects_unicode_font_and_metrics() {
         &error));
     require(error == font_error::insufficient_buffer && glyph_count == 0U &&
         glyphs[0U].glyph_id == 99U);
+}
+
+void open_type_shaping_route_matches_managed_plan_selection() {
+    const auto make_script_table = [](
+                                       std::span<const open_type_tag> scripts) {
+        std::vector<std::byte> table(12U + scripts.size() * 6U);
+        write_u16(table, 0U, 1U);
+        write_u16(table, 2U, 0U);
+        write_u16(table, 4U, 10U);
+        write_u16(table, 10U, static_cast<std::uint16_t>(scripts.size()));
+        for (std::size_t index = 0U; index < scripts.size(); ++index) {
+            write_u32(table, 12U + index * 6U, scripts[index].value);
+        }
+        return table;
+    };
+    constexpr auto deva = open_type_tag::from_chars('d', 'e', 'v', 'a');
+    constexpr auto dev2 = open_type_tag::from_chars('d', 'e', 'v', '2');
+    constexpr auto dev3 = open_type_tag::from_chars('d', 'e', 'v', '3');
+    constexpr std::array all_devanagari_generations{dev2, dev3};
+    const std::array all_tables{table_data{
+        open_type_tag::from_chars('G', 'S', 'U', 'B'),
+        make_script_table(all_devanagari_generations)}};
+    const auto all_data = make_font(
+        0U, 22U, 0U, false, false, false, all_tables);
+    sfnt_font_view all_font{};
+    font_error error = font_error::invalid_argument;
+    require(sfnt_font_view::try_create(all_data, 0U, all_font, &error));
+    open_type_shaping_route route{};
+    require(try_resolve_open_type_shaping_route(
+        all_font, deva, shaping_direction::unspecified, route, &error));
+    require(error == font_error::none && route.unicode_script == deva &&
+        route.layout_script == dev3 &&
+        route.direction == shaping_direction::left_to_right &&
+        route.complex_script == open_type_complex_script::use &&
+        route.use_shaper && !route.indic_shaper && !route.khmer_shaper &&
+        !route.myanmar_shaper && !route.arabic_shaper);
+
+    constexpr std::array second_only{dev2};
+    const std::array second_tables{table_data{
+        open_type_tag::from_chars('G', 'S', 'U', 'B'),
+        make_script_table(second_only)}};
+    const auto second_data = make_font(
+        0U, 22U, 0U, false, false, false, second_tables);
+    sfnt_font_view second_font{};
+    require(sfnt_font_view::try_create(
+        second_data, 0U, second_font, &error));
+    require(try_resolve_open_type_shaping_route(
+        second_font, deva, shaping_direction::unspecified, route, &error));
+    require(route.layout_script == dev2 && !route.use_shaper &&
+        route.indic_shaper &&
+        route.complex_script == open_type_complex_script::indic);
+
+    const auto plain_data = make_font();
+    sfnt_font_view plain_font{};
+    require(sfnt_font_view::try_create(
+        plain_data, 0U, plain_font, &error));
+    require(try_resolve_open_type_shaping_route(
+        plain_font,
+        open_type_tag::from_chars('s', 'i', 'n', 'h'),
+        shaping_direction::unspecified,
+        route,
+        &error));
+    require(route.use_shaper &&
+        route.complex_script == open_type_complex_script::use);
+    require(try_resolve_open_type_shaping_route(
+        plain_font,
+        open_type_tag::from_chars('k', 'h', 'm', 'r'),
+        shaping_direction::unspecified,
+        route,
+        &error));
+    require(route.khmer_shaper &&
+        route.complex_script == open_type_complex_script::khmer);
+    require(try_resolve_open_type_shaping_route(
+        plain_font,
+        open_type_tag::from_chars('m', 'y', 'm', 'r'),
+        shaping_direction::unspecified,
+        route,
+        &error));
+    require(route.myanmar_shaper &&
+        route.complex_script == open_type_complex_script::myanmar);
+    require(try_resolve_open_type_shaping_route(
+        plain_font,
+        open_type_tag::from_chars('a', 'r', 'a', 'b'),
+        shaping_direction::unspecified,
+        route,
+        &error));
+    require(route.arabic_shaper && !route.use_shaper &&
+        route.direction == shaping_direction::right_to_left &&
+        route.complex_script == open_type_complex_script::none);
+    require(try_resolve_open_type_shaping_route(
+        plain_font,
+        open_type_tag::from_chars('a', 'd', 'l', 'm'),
+        shaping_direction::top_to_bottom,
+        route,
+        &error));
+    require(route.arabic_shaper && route.use_shaper &&
+        route.direction == shaping_direction::top_to_bottom &&
+        route.complex_script == open_type_complex_script::use);
+    require(try_resolve_open_type_shaping_route(
+        plain_font,
+        open_type_tag::from_chars('h', 'i', 'r', 'a'),
+        shaping_direction::unspecified,
+        route,
+        &error));
+    require(route.unicode_script ==
+            open_type_tag::from_chars('k', 'a', 'n', 'a') &&
+        route.layout_script == route.unicode_script);
+
+    const auto untouched = route;
+    require(!try_resolve_open_type_shaping_route(
+        plain_font,
+        deva,
+        static_cast<shaping_direction>(99U),
+        route,
+        &error));
+    require(error == font_error::invalid_argument &&
+        route.unicode_script.value == 0U &&
+        untouched.unicode_script.value != 0U);
 }
 
 void open_type_common_preprocessing_matches_managed_stages() {
@@ -8744,6 +8864,7 @@ int main() {
     open_type_gpos_context_format3_applies_nested_lookup();
     open_type_gpos_rule_and_chain_contexts_are_bounded();
     open_type_uniform_run_shaper_connects_unicode_font_and_metrics();
+    open_type_shaping_route_matches_managed_plan_selection();
     open_type_common_preprocessing_matches_managed_stages();
     directional_code_point_fallback_matches_managed_stages();
     special_space_fallback_matches_managed_metrics();

@@ -989,6 +989,29 @@ enum class open_type_complex_script : std::uint8_t {
     khmer = 4U
 };
 
+struct open_type_shaping_route final {
+    open_type_tag unicode_script{};
+    open_type_tag layout_script{};
+    shaping_direction direction = shaping_direction::left_to_right;
+    open_type_complex_script complex_script = open_type_complex_script::none;
+    bool use_shaper = false;
+    bool indic_shaper = false;
+    bool khmer_shaper = false;
+    bool myanmar_shaper = false;
+    bool arabic_shaper = false;
+};
+
+/* Resolves the same Unicode-script to OpenType-layout route as managed
+ * ProGPU, including third-/second-generation Indic tags, USE selection, and
+ * default bidi direction. The font and GSUB bytes remain borrowed. Work is
+ * bounded O(S) for S ScriptList records with O(1) internal storage. */
+bool try_resolve_open_type_shaping_route(
+    const sfnt_font_view& font,
+    open_type_tag unicode_script,
+    shaping_direction requested_direction,
+    open_type_shaping_route& result,
+    font_error* error = nullptr) noexcept;
+
 struct open_type_shape_run_options final {
     open_type_tag script{};
     open_type_tag language{};

@@ -48,6 +48,9 @@ int main() {
     const progpu::native::text::sfnt_glyph_bounds glyph_bounds{};
     const progpu::native::text::fallback_mark_metadata fallback_mark{};
     const progpu::native::text::open_type_shape_run_options shape_options{};
+    const progpu::native::text::open_type_shaping_route shaping_route{};
+    const auto shaping_route_resolver =
+        &progpu::native::text::try_resolve_open_type_shaping_route;
     static_assert(progpu::native::text::sfnt_name_ids::family_name == 1U);
     const auto latin_script =
         progpu::native::text::get_unicode_script(0x41U);
@@ -103,6 +106,8 @@ int main() {
         vertical_glyph.advance_height != 0U || glyph_bounds.x_min != 0 ||
         fallback_mark.ligature_component != 0xFFU ||
         shape_options.normalization_data != nullptr ||
+        shaping_route.layout_script.value != 0U ||
+        shaping_route_resolver == nullptr ||
         !shape_options.pre_context.empty() ||
         !shape_options.post_context.empty() ||
         fallback_mark.positioned) {

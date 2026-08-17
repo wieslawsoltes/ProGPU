@@ -190,6 +190,23 @@ Work is `O(N log R + D log C)` for input scalars `N`, normalization records
 no per-glyph boundary calls, and matched decomposition, split-matra,
 non-breaking-hyphen, and short-buffer tests.
 
+Native shaping-route selection is isolated in
+`Text/Shaping/progpu_native_shaping_route.cpp` and directly ports ProGPU-owned
+`CreateShapingPlan`, `ResolveDirection`, `ResolveLayoutScript`,
+`IsIndicShaperScript`, and `UsesArabicJoiningScript` from
+`src/ProGPU.Text/OpenTypeTextShaper.cs` at checkpoint `2a47eec0`. Given one
+borrowed font and Unicode script tag, it applies the exact third-generation
+then second-generation Indic GSUB ScriptList preference, falls back to the
+managed USE script set, selects the matching Indic/USE/Khmer/Myanmar route,
+retains Arabic-joining evidence, canonicalizes `hira`/`laoo`, and resolves the
+same default LTR/RTL direction. Script discovery deliberately preserves the
+managed tolerant bounded record scan; later strict layout construction still
+owns malformed-table rejection. Work is `O(S)` for `S` ScriptList records with
+`O(1)` storage and no font-table copy. Synthetic fonts cover generation
+priority, fallback routes, direction overrides, canonical tags, and invalid
+direction failure in the header-path suite; the public type and resolver are
+also compiled and linked through the named-module consumer.
+
 The raw GPOS executor now covers rule-, class-, and coverage-based Context and
 Chaining Context formats 1-3. Nested position records reuse the same borrowed
 lookup table and caller glyph/attachment buffers with a fixed 64-level cycle

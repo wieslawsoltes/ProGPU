@@ -499,6 +499,14 @@ scratch capacity before output mutation. Mapping is `O(N log R + D log C)` for
 `N` input scalars, normalization records `R`, written components `D`, and cmap
 records `C`, with `O(1)` internal storage and one bulk shaping call.
 
+Pure C++ hosts can now resolve the managed shaping route directly from a
+Unicode script and borrowed font. The resolver applies the exact third- then
+second-generation Indic GSUB tag preference, USE/Indic/Khmer/Myanmar shaper
+selection, Arabic-joining classification, `hira`/`laoo` canonical tags, and
+default LTR/RTL direction. ScriptList discovery is a bounded `O(S)` scan for
+`S` font script records with `O(1)` storage, so hosts no longer duplicate this
+managed policy before constructing a native shaping plan.
+
 Native fallback accepts a bulk span of borrowed, already-parsed SFNT faces from
 the platform provider boundary. It preserves extended graphemes, tries the
 preferred face first, coalesces adjacent face runs, reports unresolved coverage
