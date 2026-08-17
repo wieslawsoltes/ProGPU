@@ -156,7 +156,7 @@ bool try_resolve_font_provider_face(
     font_error* error) noexcept {
     result = {};
     if (provider.get_face_count == nullptr || provider.try_get_face == nullptr ||
-        stretch == 0U || stretch > 9U ||
+        stretch == 0U || stretch > 9U || code_point > 0x10FFFFU ||
         static_cast<std::uint8_t>(slant) >
             static_cast<std::uint8_t>(font_provider_slant::oblique)) {
         set_error(error, font_error::invalid_argument);

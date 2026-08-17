@@ -5598,6 +5598,13 @@ void native_font_provider_cache_is_borrowed_and_generation_safe() {
         0x41U, 32U, result, &error));
     require(result.found && result.face.identity == 31U &&
         priority_context.reads == 9U);
+
+    result = font_provider_result{priority_context.faces[0U], 0U, 4U, true};
+    require(!try_resolve_font_provider_face(
+        priority_provider, 30U, 400U, 5U, font_provider_slant::normal,
+        0x110000U, {}, cursor, result, &error));
+    require(error == font_error::invalid_argument && !result.found &&
+        priority_context.reads == 9U);
 }
 
 void native_positioned_text_layout_wraps_without_allocation() {

@@ -618,6 +618,8 @@ of the catalog. Family priority dominates style distance exactly as in managed
 `FontManager`; an explicit face identity can be excluded. The provider is
 traversed once, each candidate is validated once, and no temporary candidate
 list or per-family callback loop is created.
+Both direct-family and fallback provider entry points reject values above the
+Unicode scalar range before touching provider callbacks or cache state.
 
 Positioned native line layout consumes already-shaped visual-order glyphs and
 caller-supplied break decisions, preserving the managed ProGPU separation

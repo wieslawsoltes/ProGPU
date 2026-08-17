@@ -1169,6 +1169,11 @@ state and caller-owned outputs. Tests cover both advance directions, two
 columns, center alignment, bounded-column clipping, invalid direction, and
 transactional short output.
 
+The direct-family provider now matches the fallback provider's Unicode input
+boundary at checkpoint `139e2df0`: values above `U+10FFFF` fail before cache
+lookup or a provider callback. The constant-time validation allocates nothing;
+a regression fixture verifies transactional output and zero catalog reads.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with
