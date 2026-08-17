@@ -1,5 +1,6 @@
 #include "progpu_native_text.hpp"
 #include "progpu_native_open_type_complex_internal.hpp"
+#include "progpu_native_vowel_constraints_internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -394,6 +395,8 @@ bool try_preprocess_open_type_glyphs(
             ++additions;
         }
     }
+    additions += detail::count_vowel_constraint_insertions(
+        script, glyph_storage.first(glyph_count));
     std::uint16_t dotted_circle = 0U;
     const bool insert_dotted_circle = glyph_count != 0U &&
         has_flag(buffer_flags, shaping_buffer_flags::beginning_of_text) &&
@@ -431,6 +434,10 @@ bool try_preprocess_open_type_glyphs(
     if (script == hebrew && compose_hebrew_presentation_forms &&
         !compose_hebrew_forms(font, glyph_storage, glyph_count)) {
         set_error(error, font_error::invalid_face);
+        return false;
+    }
+    if (!detail::try_apply_vowel_constraints(
+            font, script, glyph_storage, glyph_count, error)) {
         return false;
     }
     if (!prepare_thai_lao(

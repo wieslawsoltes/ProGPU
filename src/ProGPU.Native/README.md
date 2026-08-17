@@ -469,6 +469,11 @@ Special Unicode spaces missing from cmap borrow the ordinary-space glyph while
 retaining their original code point, then receive exact em-fraction,
 figure/punctuation, narrow, or vertical metrics. Both stages are allocation-free
 and remain inactive when the font does not contain the required fallback glyph.
+Indic invalid-vowel constraints are generated from the same ProGPU-owned table
+as managed shaping. The common preprocessing pass preflights caller capacity
+and inserts the font's dotted-circle glyph immediately before the final scalar
+of every matched two- or three-scalar sequence while preserving that scalar's
+source cluster. The fixed-table scan is bounded `O(G * R)` with no allocation.
 
 Native fallback accepts a bulk span of borrowed, already-parsed SFNT faces from
 the platform provider boundary. It preserves extended graphemes, tries the

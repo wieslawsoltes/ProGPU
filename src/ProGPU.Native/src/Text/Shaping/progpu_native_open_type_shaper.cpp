@@ -9,6 +9,7 @@
 #include "progpu_native_arabic_actions_internal.hpp"
 #include "progpu_native_arabic_fallback_internal.hpp"
 #include "progpu_native_space_fallback_internal.hpp"
+#include "progpu_native_vowel_constraints_internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -188,7 +189,8 @@ bool may_expand_preprocessing(
                 shaping_buffer_flags::beginning_of_text)) != 0U;
     return beginning || uses_hangul(script) ||
         script == open_type_tag::from_chars('t', 'h', 'a', 'i') ||
-        script == open_type_tag::from_chars('l', 'a', 'o', ' ');
+        script == open_type_tag::from_chars('l', 'a', 'o', ' ') ||
+        detail::has_vowel_constraints(script);
 }
 
 bool is_variation_selector(std::uint32_t code_point) noexcept {

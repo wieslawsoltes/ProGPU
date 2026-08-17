@@ -3121,6 +3121,8 @@ void open_type_common_preprocessing_matches_managed_stages() {
     constexpr std::array mappings{
         std::pair{0x05BCU, 2U},
         std::pair{0x05E9U, 6U},
+        std::pair{0x0905U, 3U},
+        std::pair{0x093AU, 4U},
         std::pair{0x0E31U, 2U},
         std::pair{0x0E32U, 3U},
         std::pair{0x0E33U, 4U},
@@ -3202,6 +3204,42 @@ void open_type_common_preprocessing_matches_managed_stages() {
     require(error == font_error::insufficient_buffer && count == 2U &&
         short_storage[0U].code_point == 0x0301U &&
         short_storage[1U].code_point == 0x0316U);
+
+    std::array<shaping_glyph, 3U> constrained{
+        shaping_glyph{3U, 0x0905U, 10},
+        shaping_glyph{4U, 0x093AU, 11}};
+    count = 2U;
+    require(try_preprocess_open_type_glyphs(
+        font,
+        open_type_tag::from_chars('d', 'e', 'v', 'a'),
+        shaping_cluster_level::monotone_graphemes,
+        shaping_buffer_flags::none,
+        true,
+        constrained,
+        count,
+        &error));
+    require(count == 3U && constrained[0U].code_point == 0x0905U &&
+        constrained[1U].code_point == 0x25CCU &&
+        constrained[1U].glyph_id == 1U &&
+        constrained[1U].cluster == 11 &&
+        constrained[2U].code_point == 0x093AU);
+
+    std::array<shaping_glyph, 2U> constrained_short{
+        shaping_glyph{3U, 0x0905U, 10},
+        shaping_glyph{4U, 0x093AU, 11}};
+    count = 2U;
+    require(!try_preprocess_open_type_glyphs(
+        font,
+        open_type_tag::from_chars('d', 'e', 'v', 'a'),
+        shaping_cluster_level::monotone_graphemes,
+        shaping_buffer_flags::none,
+        true,
+        constrained_short,
+        count,
+        &error));
+    require(error == font_error::insufficient_buffer && count == 2U &&
+        constrained_short[0U].code_point == 0x0905U &&
+        constrained_short[1U].code_point == 0x093AU);
 }
 
 void directional_code_point_fallback_matches_managed_stages() {

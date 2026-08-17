@@ -163,6 +163,7 @@ def generate(root: Path) -> str:
     joining_fallback_path = root / "src/ProGPU.Text/UnicodeJoiningFallbackData.Generated.cs"
     directional_path = root / "src/ProGPU.Text/UnicodeDirectionalData.Generated.cs"
     arabic_fallback_path = root / "src/ProGPU.Text/ArabicFallbackData.Generated.cs"
+    vowel_constraint_path = root / "src/ProGPU.Text/VowelConstraintData.Generated.cs"
     line_break_path = root / "src/ProGPU.Text/UnicodeLineBreakData.Generated.cs"
     indic_shaping_path = root / "src/ProGPU.Text/IndicShapingData.Generated.cs"
     use_shaping_path = root / "src/ProGPU.Text/UseShapingData.Generated.cs"
@@ -174,6 +175,7 @@ def generate(root: Path) -> str:
     joining_fallback_source = joining_fallback_path.read_text(encoding="utf-8")
     directional_source = directional_path.read_text(encoding="utf-8")
     arabic_fallback_source = arabic_fallback_path.read_text(encoding="utf-8")
+    vowel_constraint_source = vowel_constraint_path.read_text(encoding="utf-8")
     line_break_source = line_break_path.read_text(encoding="utf-8")
     indic_shaping_source = indic_shaping_path.read_text(encoding="utf-8")
     use_shaping_source = use_shaping_path.read_text(encoding="utf-8")
@@ -222,6 +224,20 @@ def generate(root: Path) -> str:
     arabic_mark_ligatures = parse_hex_uint_span(
         arabic_fallback_source, "MarkLigatures"
     )
+    vowel_constraints = [
+        value
+        for script, first, second, third in re.findall(
+            r'new\("([^"]+)",\s*0x([0-9A-Fa-f]+)u,\s*'
+            r'0x([0-9A-Fa-f]+)u,\s*0x([0-9A-Fa-f]+)u\)',
+            vowel_constraint_source,
+        )
+        for value in (
+            pack_tag(script),
+            int(first, 16),
+            int(second, 16),
+            int(third, 16),
+        )
+    ]
     line_break_ranges = parse_uint_array(line_break_source, "s_ranges")
     line_break_quotation_categories = parse_uint_array(
         line_break_source, "s_quotationCategories"
@@ -245,7 +261,8 @@ def generate(root: Path) -> str:
             len(arabic_shaping_forms) != (0x06D3 - 0x0621 + 1) * 4 or
             len(arabic_three_component_ligatures) % 4 != 0 or
             len(arabic_two_component_ligatures) % 3 != 0 or
-            len(arabic_mark_ligatures) % 3 != 0):
+            len(arabic_mark_ligatures) % 3 != 0 or
+            len(vowel_constraints) % 4 != 0):
         raise RuntimeError("Managed Unicode range tables are malformed")
     highest_script_index = max(script_ranges[2::3], default=0)
     if highest_script_index >= len(scripts):
@@ -260,7 +277,7 @@ def generate(root: Path) -> str:
 // ProGPU syllable-machine generated sources,
 // ArabicJoiningData.Generated.cs, UnicodeJoiningFallbackData.Generated.cs,
 // UnicodeDirectionalData.Generated.cs, ArabicFallbackData.Generated.cs, and
-// Bidi/UnicodeBidiData.Generated.cs.
+// VowelConstraintData.Generated.cs, and Bidi/UnicodeBidiData.Generated.cs.
 // Regenerate with: ./eng/generate-native-unicode-tables.py --write
 
 #ifndef PROGPU_NATIVE_UNICODE_DATA_GENERATED_HPP
@@ -333,6 +350,10 @@ inline constexpr std::array<std::uint16_t, {len(arabic_two_component_ligatures)}
 
 inline constexpr std::array<std::uint16_t, {len(arabic_mark_ligatures)}> arabic_fallback_mark_ligatures{{
 {format_values(arabic_mark_ligatures)}
+}};
+
+inline constexpr std::array<std::uint32_t, {len(vowel_constraints)}> unicode_vowel_constraints{{
+{format_values(vowel_constraints)}
 }};
 
 inline constexpr std::array<std::uint32_t, {len(line_break_ranges)}> unicode_line_break_ranges{{

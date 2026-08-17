@@ -584,6 +584,7 @@ add_library(progpu_native_text STATIC
     src/Text/Shaping/progpu_native_open_type_plan.cpp
     src/Text/Shaping/progpu_native_open_type_shaper.cpp
     src/Text/Shaping/progpu_native_space_fallback.cpp
+    src/Text/Shaping/progpu_native_vowel_constraints.cpp
     src/Text/Shaping/progpu_native_open_type_complex_internal.hpp
     src/Text/Shaping/progpu_native_open_type_khmer.cpp
     src/Text/Shaping/progpu_native_open_type_indic.cpp
