@@ -1843,7 +1843,7 @@ void open_type_script_language_feature_selection_is_bounded() {
     require(requirements.lookup_capacity == 0U);
 }
 
-void open_type_lookup_digest_matches_managed_negative_filter() {
+void open_type_lookup_digest_extends_managed_negative_filter() {
     std::array<std::byte, 40U> layout{};
     write_u16(layout, 0U, 1U);
     write_u16(layout, 4U, 10U);
@@ -1887,7 +1887,9 @@ void open_type_lookup_digest_matches_managed_negative_filter() {
     require(!table.try_get_lookup_digest(
         1U, 7U, digest, has_digest, &error));
     require(error == font_error::invalid_argument && !has_digest &&
-        digest.shift0 == 0U && digest.shift4 == 0U && digest.shift6 == 0U);
+        digest.shift0 == 0U && digest.shift2 == 0U &&
+        digest.shift4 == 0U && digest.shift6 == 0U &&
+        digest.shift10 == 0U);
 }
 
 void open_type_feature_variations_match_managed_lookup_selection() {
@@ -11308,7 +11310,7 @@ int main() {
     open_type_gsub_context_glyph_and_class_rules_are_bounded();
     open_type_gsub_chaining_glyph_rules_apply_nested_lookup();
     open_type_script_language_feature_selection_is_bounded();
-    open_type_lookup_digest_matches_managed_negative_filter();
+    open_type_lookup_digest_extends_managed_negative_filter();
     open_type_feature_variations_match_managed_lookup_selection();
     open_type_gpos_single_and_pair_adjustments_are_bounded();
     open_type_gpos_attachments_are_caller_owned_and_resolved();

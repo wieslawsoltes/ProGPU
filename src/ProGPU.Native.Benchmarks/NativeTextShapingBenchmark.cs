@@ -15,6 +15,12 @@ internal static class NativeTextShapingBenchmark
         int warmups = ReadPositive(args, "--warmup", 100);
         int iterations = ReadPositive(args, "--iterations", 2_000);
         int repeats = ReadPositive(args, "--text-repeats", 8);
+        bool profileNativeOnly = Array.Exists(
+            args,
+            static value => string.Equals(
+                value,
+                "--profile-native-only",
+                StringComparison.OrdinalIgnoreCase));
         string text = string.Concat(Enumerable.Repeat(Sample, repeats));
         TtfFont font = InterFontFamily.Regular;
         NativeTextScalar[] scalars = Decode(text);
@@ -164,6 +170,29 @@ internal static class NativeTextShapingBenchmark
                     paragraphScratch,
                     out paragraphResult),
                 (NativeTextFontError)paragraphResult.ErrorCode);
+        }
+
+        if (profileNativeOnly)
+        {
+            long start = Stopwatch.GetTimestamp();
+            for (int index = 0; index < iterations; index++)
+            {
+                EnsureSuccess(
+                    nativeContext.Shape(
+                        input,
+                        nativeGlyphs,
+                        scratch,
+                        out nativeResult),
+                    (NativeTextFontError)nativeResult.ErrorCode);
+            }
+            double elapsedSeconds = Stopwatch.GetElapsedTime(start).TotalSeconds;
+            Console.WriteLine(string.Format(
+                CultureInfo.InvariantCulture,
+                "C++ native-only profile: iterations={0:N0}, elapsed={1:F3} s, mean={2:F3} us",
+                iterations,
+                elapsedSeconds,
+                elapsedSeconds * 1_000_000d / iterations));
+            return;
         }
 
         long[] managedSamples = new long[iterations];

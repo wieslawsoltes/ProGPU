@@ -260,9 +260,11 @@ bool try_parse_context_subtable(
 } // namespace
 
 void open_type_glyph_set_digest::add(std::uint16_t glyph) noexcept {
+    shift2 |= 1ULL << ((glyph >> 2U) & 63U);
     shift4 |= 1ULL << ((glyph >> 4U) & 63U);
     shift0 |= 1ULL << (glyph & 63U);
     shift6 |= 1ULL << ((glyph >> 6U) & 63U);
+    shift10 |= 1ULL << ((glyph >> 10U) & 63U);
 }
 
 void open_type_glyph_set_digest::add_range(
@@ -271,22 +273,28 @@ void open_type_glyph_set_digest::add_range(
     if (last < first) {
         return;
     }
+    add_mask_range(shift2, first, last, 2U);
     add_mask_range(shift4, first, last, 4U);
     add_mask_range(shift0, first, last, 0U);
     add_mask_range(shift6, first, last, 6U);
+    add_mask_range(shift10, first, last, 10U);
 }
 
 bool open_type_glyph_set_digest::may_have(std::uint16_t glyph) const noexcept {
-    return (shift4 & (1ULL << ((glyph >> 4U) & 63U))) != 0U &&
+    return (shift2 & (1ULL << ((glyph >> 2U) & 63U))) != 0U &&
+        (shift4 & (1ULL << ((glyph >> 4U) & 63U))) != 0U &&
         (shift0 & (1ULL << (glyph & 63U))) != 0U &&
-        (shift6 & (1ULL << ((glyph >> 6U) & 63U))) != 0U;
+        (shift6 & (1ULL << ((glyph >> 6U) & 63U))) != 0U &&
+        (shift10 & (1ULL << ((glyph >> 10U) & 63U))) != 0U;
 }
 
 bool open_type_glyph_set_digest::may_intersect(
     const open_type_glyph_set_digest& other) const noexcept {
-    return (shift4 & other.shift4) != 0U &&
+    return (shift2 & other.shift2) != 0U &&
+        (shift4 & other.shift4) != 0U &&
         (shift0 & other.shift0) != 0U &&
-        (shift6 & other.shift6) != 0U;
+        (shift6 & other.shift6) != 0U &&
+        (shift10 & other.shift10) != 0U;
 }
 
 bool open_type_layout_table_view::try_get_lookup_digest(

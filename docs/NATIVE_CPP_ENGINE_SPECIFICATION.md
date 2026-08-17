@@ -2178,6 +2178,18 @@ parser/shaper/layout plan are recorded in
 parallel implementation and is not used as a prerequisite for scene
 substitution.
 
+The parallel text implementation retains immutable borrowed views of the
+frequently queried SFNT metric tables and augments the authoritative managed
+three-mask GSUB negative filter with two additional native-only masks. This is
+a backend layout optimization, not a semantic fork: negative results prove
+disjointness, while all positive results still use the exact ProGPU OpenType
+coverage executor. A matched Release checkpoint reduced the 130-scalar native
+median from `366.333 us` to a three-repeat median of `344.000 us` with exact
+output and zero managed allocation, but it remains about `4.3x` slower than
+the `79.542 us` managed comparator. Native text substitution therefore remains
+gated on further exact GSUB acceleration, complex-script differential coverage,
+final package/host qualification, and manual desktop/browser inspection.
+
 ### Delivery and evidence gates
 
 The counted M2.4d3b milestone is delivered through four tracked sub-slices:

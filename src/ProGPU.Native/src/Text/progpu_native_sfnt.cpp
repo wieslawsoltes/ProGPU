@@ -280,6 +280,20 @@ bool sfnt_font_view::try_create(
     result.directory_offset_ = directory_offset;
     result.table_count_ = table_count;
 
+    sfnt_table_view retained{};
+    if (result.try_get_table(head_tag, retained)) {
+        result.head_table_ = retained.bytes;
+    }
+    if (result.try_get_table(hhea_tag, retained)) {
+        result.hhea_table_ = retained.bytes;
+    }
+    if (result.try_get_table(hmtx_tag, retained)) {
+        result.hmtx_table_ = retained.bytes;
+    }
+    if (result.try_get_table(maxp_tag, retained)) {
+        result.maxp_table_ = retained.bytes;
+    }
+
     sfnt_table_view cmap{};
     if (!result.try_get_table(cmap_tag, cmap) || cmap.bytes.size() < 4U) {
         return true;
@@ -358,33 +372,31 @@ bool sfnt_font_view::try_get_table(
 bool sfnt_font_view::try_get_header_metrics(
     sfnt_header_metrics& result) const noexcept {
     result = {};
-    sfnt_table_view table{};
-    if (!try_get_table(head_tag, table) || table.bytes.size() < 52U) {
+    if (head_table_.size() < 52U) {
         return false;
     }
     result = sfnt_header_metrics{
-        read_u16(table.bytes, 18U),
-        read_i16(table.bytes, 36U),
-        read_i16(table.bytes, 38U),
-        read_i16(table.bytes, 40U),
-        read_i16(table.bytes, 42U),
-        read_i16(table.bytes, 50U)};
+        read_u16(head_table_, 18U),
+        read_i16(head_table_, 36U),
+        read_i16(head_table_, 38U),
+        read_i16(head_table_, 40U),
+        read_i16(head_table_, 42U),
+        read_i16(head_table_, 50U)};
     return true;
 }
 
 bool sfnt_font_view::try_get_horizontal_header_metrics(
     sfnt_horizontal_header_metrics& result) const noexcept {
     result = {};
-    sfnt_table_view table{};
-    if (!try_get_table(hhea_tag, table) || table.bytes.size() < 36U) {
+    if (hhea_table_.size() < 36U) {
         return false;
     }
     result = sfnt_horizontal_header_metrics{
-        read_i16(table.bytes, 4U),
-        read_i16(table.bytes, 6U),
-        read_i16(table.bytes, 8U),
-        read_u16(table.bytes, 10U),
-        read_u16(table.bytes, 34U)};
+        read_i16(hhea_table_, 4U),
+        read_i16(hhea_table_, 6U),
+        read_i16(hhea_table_, 8U),
+        read_u16(hhea_table_, 10U),
+        read_u16(hhea_table_, 34U)};
     return true;
 }
 
@@ -393,9 +405,8 @@ bool sfnt_font_view::try_get_horizontal_glyph_metrics(
     sfnt_horizontal_glyph_metrics& result) const noexcept {
     result = {};
     sfnt_horizontal_header_metrics header{};
-    sfnt_table_view hmtx{};
     if (!try_get_horizontal_header_metrics(header) ||
-        !try_get_table(hmtx_tag, hmtx)) {
+        hmtx_table_.empty()) {
         return false;
     }
     const auto count = header.number_of_horizontal_metrics;
@@ -409,23 +420,22 @@ bool sfnt_font_view::try_get_horizontal_glyph_metrics(
         ? advance_offset + 2U
         : static_cast<std::size_t>(count) * 4U +
             static_cast<std::size_t>(glyph_index - count) * 2U;
-    if (!can_read(hmtx.bytes, advance_offset, 2U)) {
+    if (!can_read(hmtx_table_, advance_offset, 2U)) {
         return false;
     }
-    result.advance_width = read_u16(hmtx.bytes, advance_offset);
-    result.left_side_bearing = can_read(hmtx.bytes, bearing_offset, 2U)
-        ? read_i16(hmtx.bytes, bearing_offset)
+    result.advance_width = read_u16(hmtx_table_, advance_offset);
+    result.left_side_bearing = can_read(hmtx_table_, bearing_offset, 2U)
+        ? read_i16(hmtx_table_, bearing_offset)
         : 0;
     return true;
 }
 
 bool sfnt_font_view::try_get_glyph_count(std::uint16_t& result) const noexcept {
     result = 0U;
-    sfnt_table_view table{};
-    if (!try_get_table(maxp_tag, table) || table.bytes.size() < 6U) {
+    if (maxp_table_.size() < 6U) {
         return false;
     }
-    result = read_u16(table.bytes, 4U);
+    result = read_u16(maxp_table_, 4U);
     return true;
 }
 

@@ -1321,8 +1321,12 @@ Reusable native GSUB/GPOS lookup acceleration directly ports ProGPU-owned
 `CreateGlyphDigest`, `AddGlyphs`, `RawContextRequirements`,
 `TryCreateRawContextRequirements`, and the feature metadata retained by
 `EnabledLookup` from checkpoint `e7374eb1`. The native
-layout view builds the same three 64-bit approximate masks from Coverage format
-1 glyphs and format 2 ranges, including Extension lookup indirection. Shape
+layout view starts with the same three 64-bit approximate masks from Coverage
+format 1 glyphs and format 2 ranges, including Extension lookup indirection,
+and adds two independent native masks to reduce measured false positives. This
+is a native storage/performance extension of the ProGPU-owned algorithm:
+negative results still prove disjointness and positives still fall through to
+the exact coverage executor. Shape
 plans retain one caller-owned digest record per selected lookup. A planned run
 builds one `O(G)` digest for `G` current glyphs, rejects a disjoint lookup in
 fixed `O(1)` time, rejects an absent candidate start glyph with the same fixed
@@ -1352,7 +1356,16 @@ format-3 contextual digest and exact ordered rejection, lookup-flag fail-open,
 cached selected-feature provenance including required features, range
 endpoints, invalid lookup
 transactionality, optional-plan compatibility, production-font stable replay,
-the C++20 named-module consumer, and ASan/UBSan execution.
+the C++20 named-module consumer, and ASan/UBSan execution. Common `head`,
+`hhea`, `hmtx`, and `maxp` table spans are also retained as immutable borrowed
+views when the font view is created, eliminating repeated directory scans
+without changing ownership or malformed-table behavior. A symbolized Release
+profile attributed about `63.6%` of process samples to GSUB feature-value and
+exact lookup matching; the retained views plus five-mask filter reduced the
+130-scalar native median from `366.333 us` to a three-repeat median of
+`344.000 us`. Exact output and zero managed allocation were preserved, but the
+remaining `4.3x` gap to the `79.542 us` managed comparator keeps native
+shaping performance open.
 
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.

@@ -769,13 +769,16 @@ struct open_type_lookup_view final {
         font_error* error = nullptr) const noexcept;
 };
 
-/* Three-mask negative-only glyph-set accelerator matching the managed
- * OpenType shaper. Positive results require exact coverage evaluation; a
- * negative result proves a glyph or glyph set cannot intersect. */
+/* Five-mask negative-only glyph-set accelerator derived from the managed
+ * OpenType shaper. The additional native masks reduce false positives
+ * without changing the contract: positive results still require exact
+ * coverage evaluation, while a negative result proves disjointness. */
 struct open_type_glyph_set_digest final {
+    std::uint64_t shift2 = 0U;
     std::uint64_t shift4 = 0U;
     std::uint64_t shift0 = 0U;
     std::uint64_t shift6 = 0U;
+    std::uint64_t shift10 = 0U;
 
     void add(std::uint16_t glyph) noexcept;
     void add_range(std::uint16_t first, std::uint16_t last) noexcept;
@@ -3415,6 +3418,10 @@ private:
     std::span<const std::byte> cmap_format12_{};
     std::span<const std::byte> cmap_format13_{};
     std::span<const std::byte> cmap_format14_{};
+    std::span<const std::byte> head_table_{};
+    std::span<const std::byte> hhea_table_{};
+    std::span<const std::byte> hmtx_table_{};
+    std::span<const std::byte> maxp_table_{};
     std::uint32_t face_index_ = 0U;
     std::uint32_t face_offset_ = 0U;
     std::size_t directory_offset_ = 0U;

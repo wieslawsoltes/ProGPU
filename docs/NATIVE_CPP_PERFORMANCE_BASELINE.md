@@ -2682,3 +2682,34 @@ are respectively `00818eafe791a9fd5e09312bc373ab7ccbbafb36bee400b8b285008ae1ca18
 `7b8aa3ec712b0456c5c2dca441d98212d5416df369b9d3f06e5f231e864d3d48`,
 `bb355d0551464352ce8fdcdca887495101cd5343734fc74589f3cf4fbead813d`,
 and `104a10fe1ce6a99fa283af9166a0c084d8237dd89777e09c961490324d9bd61c`.
+
+## Native shaping GSUB profile and optimization checkpoint
+
+The Apple M3 Pro Release text benchmark shapes 130 decoded scalars through
+the same production Inter face and retained native shaping context. A matched
+pre-change run measured native shaping at `366.333 us` median. Retaining the
+commonly queried `head`, `hhea`, `hmtx`, and `maxp` table views and extending
+the native negative-only GSUB digest from three to five independent masks
+reduced the median of three final 6,000-iteration repeats to `344.000 us`, or
+about `6.1%`. The matching three-repeat managed median was `79.542 us`; the
+remaining native CPU gap is about `4.3x` and is explicitly still open. Native
+shaping retained exact glyph, cluster, advance, offset, and flag parity and
+allocated `0 B/run` on the managed heap; the managed comparator allocated
+`4,344 B/run`.
+
+A symbolized native-only sample attributed about `63.6%` of process samples to
+GSUB feature-value application and its exact lookup/subtable/coverage matching.
+Interop, cmap lookup, glyph metrics, and allocation were not material parts of
+the gap. The two added digest masks remain a negative-only accelerator:
+construction is `O(G + L)` for `G` glyphs and `L` planned lookup coverages,
+each rejection remains fixed `O(1)`, and every positive still executes exact
+OpenType coverage evaluation. The extension adds 16 bytes to each native
+digest; the four retained table spans are immutable borrowed views created
+with the font view and add no per-run allocation. The benchmark's
+`--profile-native-only` mode isolates repeated bulk shaping for Instruments or
+sampling without running the managed comparator.
+
+This is an optimization checkpoint, not closure of the text-performance
+milestone. The next native text slice must reduce exact GSUB positive-path and
+false-positive traversal while preserving bounded caller-owned storage,
+complex-script output parity, and one bulk managed/native crossing per run.
