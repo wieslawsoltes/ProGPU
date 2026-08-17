@@ -1544,6 +1544,7 @@ bool try_shape_open_type_run(
     std::size_t gpos_length = 0U;
     open_type_gdef_view gdef{};
     bool has_gdef = false;
+    std::uint32_t random_alternate_state = 1U;
     if (plan != nullptr) {
         gsub = plan->gsub;
         gpos = plan->gpos;
@@ -1774,7 +1775,8 @@ bool try_shape_open_type_run(
                         glyph_storage,
                         glyph_count,
                         gdef_pointer,
-                        error)) {
+                        error,
+                        &random_alternate_state)) {
                     return false;
                 }
             }

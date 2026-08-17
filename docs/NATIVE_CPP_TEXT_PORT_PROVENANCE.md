@@ -290,6 +290,17 @@ allocation or managed/native crossing. Focused LTR, RTL, corruption,
 insufficient-buffer, non-monotone early-exit, public-header, and named-module
 tests cover the diagnostic contract.
 
+Random AlternateSubst selection ports
+`GlyphSubstitutionBuffer.NextRandomAlternate` and the `rand` branch of
+`ApplyAlternateLookup` from `src/ProGPU.Text/OpenTypeTextShaper.cs` at
+checkpoint `d1b15946`. A one-word run-local state uses identical unsigned
+overflow and modulo behavior, advances only for matched top-level alternate
+sets, and marks non-minimum clusters unsafe-to-break/concat before replacing
+glyph IDs. Work remains `O(G)` for `G` eligible glyphs with `O(1)` internal
+storage and no allocation. Synthetic raw-GSUB and full uniform-run fixtures
+verify the first two managed selections, final dependency flags, and seed
+reset across independent runs; numbered alternate selection remains covered.
+
 The raw GPOS executor now covers rule-, class-, and coverage-based Context and
 Chaining Context formats 1-3. Nested position records reuse the same borrowed
 lookup table and caller glyph/attachment buffers with a fixed 64-level cycle

@@ -1085,6 +1085,25 @@ void open_type_gsub_basic_lookups_use_caller_owned_storage() {
         gsub, 0U, glyphs, count, alternate, applied, &error));
     require(applied && count == 1U && glyphs[0U].glyph_id == 9U);
 
+    glyphs = {shaping_glyph{5U, 0x66U, 0},
+        shaping_glyph{5U, 0x66U, 1}};
+    count = 2U;
+    std::uint32_t random_state = 1U;
+    alternate.alternate_value =
+        std::numeric_limits<std::uint16_t>::max();
+    alternate.random_state = &random_state;
+    alternate.random_alternate = true;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, alternate, applied, &error));
+    constexpr auto unsafe_break_and_concat =
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break) |
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_concat);
+    require(applied && count == 2U && glyphs[0U].glyph_id == 9U &&
+        glyphs[1U].glyph_id == 8U && random_state == 182605794U &&
+        glyphs[0U].flags == shaping_glyph_flags::none &&
+        static_cast<std::uint32_t>(glyphs[1U].flags) ==
+            unsafe_break_and_concat);
+
     // Ligature lookup ignores a GDEF mark between matching components.
     std::array<std::byte, 50U> ligature{};
     write_u16(ligature, 0U, 1U);
@@ -3961,6 +3980,99 @@ void open_type_printable_ascii_matches_managed_fast_path() {
         glyph_count,
         &error));
     require(error == font_error::none && glyph_count == input.size());
+}
+
+void open_type_random_alternates_match_managed_run_state() {
+    std::vector<std::byte> gsub(80U);
+    write_u16(gsub, 0U, 1U);
+    write_u16(gsub, 4U, 10U);
+    write_u16(gsub, 6U, 30U);
+    write_u16(gsub, 8U, 44U);
+    write_u16(gsub, 10U, 1U);
+    write_u32(gsub, 12U,
+        open_type_tag::from_chars('l', 'a', 't', 'n').value);
+    write_u16(gsub, 16U, 8U);
+    write_u16(gsub, 18U, 4U);
+    write_u16(gsub, 22U, 0U);
+    write_u16(gsub, 24U, 0xFFFFU);
+    write_u16(gsub, 26U, 1U);
+    write_u16(gsub, 28U, 0U);
+    write_u16(gsub, 30U, 1U);
+    write_u32(gsub, 32U,
+        open_type_tag::from_chars('r', 'a', 'n', 'd').value);
+    write_u16(gsub, 36U, 8U);
+    write_u16(gsub, 38U, 0U);
+    write_u16(gsub, 40U, 1U);
+    write_u16(gsub, 42U, 0U);
+    write_u16(gsub, 44U, 1U);
+    write_u16(gsub, 46U, 6U);
+    write_u16(gsub, 50U, 3U);
+    write_u16(gsub, 52U, 0U);
+    write_u16(gsub, 54U, 1U);
+    write_u16(gsub, 56U, 8U);
+    write_u16(gsub, 58U, 1U);
+    write_u16(gsub, 60U, 10U);
+    write_u16(gsub, 62U, 1U);
+    write_u16(gsub, 64U, 16U);
+    write_u16(gsub, 68U, 1U);
+    write_u16(gsub, 70U, 1U);
+    write_u16(gsub, 72U, 2U);
+    write_u16(gsub, 74U, 2U);
+    write_u16(gsub, 76U, 4U);
+    write_u16(gsub, 78U, 5U);
+    constexpr std::array mappings{
+        std::pair{0x41U, 2U}, std::pair{0x42U, 2U}};
+    const auto cmap = make_cmap_groups(mappings);
+    const std::array tables{
+        table_data{open_type_tag::from_chars('G', 'S', 'U', 'B'), gsub}};
+    const auto data = make_font(
+        0U, 22U, 0U, false, false, false, tables, cmap);
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+
+    constexpr std::array input{
+        unicode_scalar{0x41U, 0U, 1U},
+        unicode_scalar{0x42U, 1U, 1U}};
+    constexpr auto random_feature =
+        open_type_tag::from_chars('r', 'a', 'n', 'd');
+    constexpr std::array requested{random_feature};
+    constexpr std::array settings{shaping_feature{
+        random_feature,
+        std::numeric_limits<std::uint16_t>::max(),
+        0U,
+        std::numeric_limits<std::uint32_t>::max()}};
+    open_type_shape_run_options options{
+        open_type_tag::from_chars('l', 'a', 't', 'n')};
+    options.requested_features = requested;
+    options.feature_settings = settings;
+    open_type_shape_run_requirements requirements{};
+    require(try_get_open_type_shape_run_requirements(
+        font, input, options, requirements, &error));
+    std::array<shaping_glyph, 6U> glyphs{};
+    std::array<unicode_grapheme_cluster, 2U> graphemes{};
+    std::array<std::uint16_t, 1U> gsub_lookups{};
+    std::array<shaping_attachment, 6U> attachments{};
+    std::array<std::uint8_t, 6U> states{};
+    const open_type_shape_run_scratch scratch{
+        graphemes, gsub_lookups, {}, attachments, states};
+    std::uint32_t glyph_count = 0U;
+    require(try_shape_open_type_run(
+        font, input, options, glyphs, scratch, glyph_count, &error));
+    constexpr auto unsafe_break_and_concat =
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break) |
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_concat);
+    require(error == font_error::none && glyph_count == 2U &&
+        glyphs[0U].glyph_id == 5U && glyphs[1U].glyph_id == 4U &&
+        glyphs[0U].flags == shaping_glyph_flags::none &&
+        static_cast<std::uint32_t>(glyphs[1U].flags) ==
+            unsafe_break_and_concat);
+
+    glyphs.fill({});
+    require(try_shape_open_type_run(
+        font, input, options, glyphs, scratch, glyph_count, &error));
+    require(glyph_count == 2U && glyphs[0U].glyph_id == 5U &&
+        glyphs[1U].glyph_id == 4U);
 }
 
 void open_type_common_preprocessing_matches_managed_stages() {
@@ -9598,6 +9710,7 @@ int main() {
     open_type_requested_features_match_managed_cpu_shaper_normalization();
     open_type_shape_configuration_connects_managed_planning_stages();
     open_type_printable_ascii_matches_managed_fast_path();
+    open_type_random_alternates_match_managed_run_state();
     open_type_common_preprocessing_matches_managed_stages();
     directional_code_point_fallback_matches_managed_stages();
     special_space_fallback_matches_managed_metrics();

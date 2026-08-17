@@ -573,6 +573,15 @@ intentionally excluding diagnostic flags. Non-monotone runs perform no verify
 work, matching the managed early exit; insufficient scratch and reconstructed
 output mismatches remain explicit transactional failures.
 
+The `rand` OpenType feature now uses the same deterministic per-run state as
+managed shaping instead of clamping `ushort.MaxValue` to the last alternate.
+One native state word starts at one, advances with the ProGPU-owned 48271/
+2147483647 recurrence only after a matched top-level AlternateSubst, and is
+shared by every random lookup in that run. Random output marks all interior
+clusters unsafe-to-break/concat so safe-fragment verification never attempts
+to reconstruct a different PRNG prefix. Normal numbered alternates retain the
+existing allocation-free path.
+
 Native fallback accepts a bulk span of borrowed, already-parsed SFNT faces from
 the platform provider boundary. It preserves extended graphemes, tries the
 preferred face first, coalesces adjacent face runs, reports unresolved coverage

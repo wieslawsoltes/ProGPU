@@ -886,6 +886,10 @@ struct open_type_gsub_apply_options final {
      * Arabic stch stage. This metadata is private to native shaping and must
      * be cleared before publishing the stable shaped-glyph span. */
     bool track_arabic_stretch_metadata = false;
+    /* Managed `rand` parity: one caller/run-owned state advances only for a
+     * matched AlternateSubst at top-level lookup depth. */
+    std::uint32_t* random_state = nullptr;
+    bool random_alternate = false;
 };
 
 /*

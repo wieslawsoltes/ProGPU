@@ -1225,8 +1225,16 @@ apply_result apply_subtable(
             if (member_count == 0U || options.alternate_value == 0U) {
                 return apply_result::no_match;
             }
-            const std::uint32_t selected =
-                std::min(options.alternate_value, static_cast<std::uint32_t>(member_count)) - 1U;
+            std::uint32_t selected =
+                std::min(options.alternate_value,
+                    static_cast<std::uint32_t>(member_count)) - 1U;
+            if (depth == 0U && options.random_alternate &&
+                options.random_state != nullptr) {
+                mark_gsub_dependency(storage, 0U, count - 1U);
+                *options.random_state =
+                    (*options.random_state * 48271U) % 2147483647U;
+                selected = *options.random_state % member_count;
+            }
             storage[position].glyph_id = read_u16(table, set + 2U + selected * 2U);
             return apply_result::applied;
         }

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <utility>
 
@@ -368,7 +369,8 @@ bool apply_gsub_lookup_with_feature_values(
     std::span<shaping_glyph> glyph_storage,
     std::uint32_t& glyph_count,
     const open_type_gdef_view* gdef,
-    font_error* error) noexcept {
+    font_error* error,
+    std::uint32_t* random_state) noexcept {
     if (options.feature_settings.empty()) {
         bool applied = false;
         return try_apply_open_type_gsub_lookup(
@@ -429,19 +431,25 @@ bool apply_gsub_lookup_with_feature_values(
         const std::uint32_t count_before = glyph_count;
         std::uint32_t context_match_end = 0U;
         bool applied = false;
+        open_type_gsub_apply_options apply_options{
+            gdef,
+            feature_value,
+            0U,
+            false,
+            &context_match_end,
+            tracks_fallback_mark_metadata(options)};
+        apply_options.random_state = random_state;
+        apply_options.random_alternate =
+            resolution.feature ==
+                open_type_tag::from_chars('r', 'a', 'n', 'd') &&
+            feature_value == std::numeric_limits<std::uint16_t>::max();
         if (!try_apply_open_type_gsub_lookup_at(
                 gsub,
                 lookup,
                 glyph_storage,
                 glyph_count,
                 position,
-                open_type_gsub_apply_options{
-                    gdef,
-                    feature_value,
-                    0U,
-                    false,
-                    &context_match_end,
-                    tracks_fallback_mark_metadata(options)},
+                apply_options,
                 applied,
                 error)) {
             return false;

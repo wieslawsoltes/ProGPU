@@ -68,7 +68,8 @@ bool apply_gsub_lookup_with_feature_values(
     std::span<shaping_glyph> glyph_storage,
     std::uint32_t& glyph_count,
     const open_type_gdef_view* gdef,
-    font_error* error) noexcept;
+    font_error* error,
+    std::uint32_t* random_state = nullptr) noexcept;
 
 bool apply_gpos_lookup_with_feature_values(
     const open_type_layout_table_view& gpos,
