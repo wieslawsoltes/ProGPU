@@ -9,6 +9,7 @@
 #include <new>
 #include <span>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 // Stable C ABI adapter for the ProGPU-owned native text stack. The shaping
@@ -16,12 +17,19 @@
 // wire records, partitions caller-owned scratch, and performs bulk copies at
 // the language boundary. No supplied pointer is retained.
 
+struct progpu_native_text_owned_font final {
+    std::vector<std::byte> bytes{};
+    progpu::native::text::sfnt_font_view font{};
+    std::uint64_t identity = 0U;
+};
+
 struct progpu_native_text_context final {
     std::vector<std::byte> font_bytes{};
     std::vector<std::byte> normalization_bytes{};
     progpu::native::text::sfnt_font_view font{};
     progpu::native::text::unicode_normalization_data normalization{};
     bool has_normalization = false;
+    std::vector<progpu_native_text_owned_font> fallback_fonts{};
     std::vector<std::uint16_t> gsub_lookups{};
     std::vector<std::uint16_t> gpos_lookups{};
     std::vector<progpu::native::text::open_type_lookup_accelerator>
@@ -40,13 +48,14 @@ struct progpu_native_text_context final {
     bool has_plan = false;
 
     bool try_get_plan(
+        const progpu::native::text::sfnt_font_view& selected_font,
         const progpu::native::text::open_type_shape_run_options& options,
         progpu::native::text::font_error& error) {
         using namespace progpu::native::text;
-        if (has_plan && plan.matches(font, options)) return true;
+        if (has_plan && plan.matches(selected_font, options)) return true;
         open_type_shape_plan_requirements requirements{};
         if (!try_get_open_type_shape_plan_requirements(
-                font, options, requirements, &error)) {
+                selected_font, options, requirements, &error)) {
             has_plan = false;
             return false;
         }
@@ -63,7 +72,7 @@ struct progpu_native_text_context final {
         gpos_context_coverages.resize(
             requirements.gpos_context_coverage_capacity);
         if (!try_build_open_type_shape_plan(
-                font,
+                selected_font,
                 options,
                 gsub_lookups,
                 gpos_lookups,
@@ -80,6 +89,19 @@ struct progpu_native_text_context final {
         }
         has_plan = true;
         return true;
+    }
+
+    std::size_t font_count() const noexcept {
+        return fallback_fonts.size() + 1U;
+    }
+
+    const progpu::native::text::sfnt_font_view* font_at(
+        std::size_t index) const noexcept {
+        if (index == 0U) return &font;
+        const std::size_t fallback = index - 1U;
+        return fallback < fallback_fonts.size()
+            ? &fallback_fonts[fallback].font
+            : nullptr;
     }
 };
 
@@ -625,8 +647,7 @@ struct paragraph_capacities final {
 
 bool try_build_paragraph_capacities(
     const progpu_native_text_shape_request& request,
-    const sfnt_font_view& font,
-    const unicode_normalization_data* normalization,
+    const progpu_native_text_context& context,
     paragraph_capacities& result,
     font_error& error) noexcept {
     result = {};
@@ -634,11 +655,45 @@ bool try_build_paragraph_capacities(
         error = font_error::none;
         return true;
     }
-    if (request.input_count > std::numeric_limits<std::uint32_t>::max() / 4U ||
-        !try_build_capacities(
-            request, font, normalization, result.shaping, error)) {
-        if (error == font_error::none) error = font_error::invalid_argument;
+    if (request.input_count > std::numeric_limits<std::uint32_t>::max() / 4U) {
+        error = font_error::invalid_argument;
         return false;
+    }
+    const auto normalization = context.has_normalization
+        ? &context.normalization
+        : nullptr;
+    auto merge = [](shape_capacities& target,
+                     const shape_capacities& source) noexcept {
+        target.glyphs = std::max(target.glyphs, source.glyphs);
+        target.graphemes = std::max(target.graphemes, source.graphemes);
+        target.gsub_lookups = std::max(target.gsub_lookups, source.gsub_lookups);
+        target.gpos_lookups = std::max(target.gpos_lookups, source.gpos_lookups);
+        target.script_actions =
+            std::max(target.script_actions, source.script_actions);
+        target.complex_values =
+            std::max(target.complex_values, source.complex_values);
+        target.complex_indices =
+            std::max(target.complex_indices, source.complex_indices);
+        target.verification_glyphs =
+            std::max(target.verification_glyphs, source.verification_glyphs);
+        target.base_features =
+            std::max(target.base_features, source.base_features);
+        target.explicit_features =
+            std::max(target.explicit_features, source.explicit_features);
+        target.requested_features =
+            std::max(target.requested_features, source.requested_features);
+        target.feature_settings =
+            std::max(target.feature_settings, source.feature_settings);
+    };
+    for (std::size_t index = 0U; index < context.font_count(); ++index) {
+        const auto* font = context.font_at(index);
+        shape_capacities candidate{};
+        if (font == nullptr || !try_build_capacities(
+                request, *font, normalization, candidate, error)) {
+            if (error == font_error::none) error = font_error::invalid_argument;
+            return false;
+        }
+        merge(result.shaping, candidate);
     }
     result.shaping.complex_values = result.shaping.glyphs;
     if (result.shaping.glyphs == std::numeric_limits<std::uint32_t>::max()) {
@@ -667,10 +722,14 @@ bool try_build_paragraph_capacities(
         !size.add<unicode_bidi_bracket_pair>(input_count / 2U) ||
         !size.add<unicode_bidi_level>(input_count) ||
         !size.add<unicode_script_run>(input_count) ||
+        !size.add<unicode_grapheme_cluster>(input_count) ||
+        !size.add<font_fallback_candidate>(context.font_count()) ||
+        !size.add<font_fallback_run>(input_count) ||
         !size.add<unicode_line_break_class>(input_count) ||
         !size.add<text_line_break_kind>(input_count) ||
         !size.add<shaping_glyph>(glyph_count) ||
         !size.add<std::int8_t>(glyph_count) ||
+        !size.add<std::uint32_t>(glyph_count) ||
         !size.add<text_line_break_kind>(glyph_count) ||
         !size.add<text_visual_cluster_group>(glyph_count) ||
         !size.add<std::uint32_t>(glyph_count) ||
@@ -705,16 +764,21 @@ shaping_glyph convert_wire_glyph(
 bool append_logical_bidi_run(
     std::span<const progpu_native_text_shaping_glyph> run,
     std::int8_t level,
+    std::uint32_t font_index,
     std::span<shaping_glyph> output,
     std::span<std::int8_t> levels,
+    std::span<std::uint32_t> font_indices,
     std::uint32_t& written) noexcept {
-    if (run.size() > output.size() - std::min<std::size_t>(written, output.size())) {
+    if (font_indices.size() < output.size() ||
+        run.size() > output.size() -
+            std::min<std::size_t>(written, output.size())) {
         return false;
     }
     auto append_group = [&](std::size_t start, std::size_t end) noexcept {
         for (std::size_t index = start; index < end; ++index) {
             output[written] = convert_wire_glyph(run[index]);
             levels[written] = level;
+            font_indices[written] = font_index;
             ++written;
         }
     };
@@ -932,7 +996,7 @@ progpu_native_status shape_core(
     }
     const open_type_shape_plan* plan = nullptr;
     if (context != nullptr) {
-        if (!context->try_get_plan(configuration.options, error)) {
+        if (!context->try_get_plan(font, configuration.options, error)) {
             result.error_code = static_cast<std::uint32_t>(error);
             return status_from_error(error);
         }
@@ -1097,6 +1161,42 @@ progpu_native_status progpu_native_text_context_create(
 
 void progpu_native_text_context_destroy(progpu_native_text_context* context) {
     delete context;
+}
+
+progpu_native_status progpu_native_text_context_add_fallback_font(
+    progpu_native_text_context* context,
+    const std::uint8_t* font_data,
+    std::size_t font_size,
+    std::uint32_t face_index,
+    std::uint64_t identity,
+    std::uint32_t* font_index) {
+    if (font_index == nullptr) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    *font_index = 0U;
+    if (context == nullptr || font_data == nullptr || font_size == 0U ||
+        context->fallback_fonts.size() >=
+            std::numeric_limits<std::uint32_t>::max() - 1U) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    try {
+        progpu_native_text_owned_font owned{};
+        owned.bytes.assign(
+            reinterpret_cast<const std::byte*>(font_data),
+            reinterpret_cast<const std::byte*>(font_data) + font_size);
+        owned.identity = identity;
+        font_error error = font_error::none;
+        if (!sfnt_font_view::try_create(
+                owned.bytes, face_index, owned.font, &error)) {
+            return status_from_error(error);
+        }
+        context->fallback_fonts.push_back(std::move(owned));
+        *font_index =
+            static_cast<std::uint32_t>(context->fallback_fonts.size());
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) {
+        return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
+    } catch (...) {
+        return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+    }
 }
 
 progpu_native_status progpu_native_text_context_get_shape_requirements(
@@ -1349,6 +1449,7 @@ progpu_native_status progpu_native_text_layout(
         glyphs[index] = progpu_native_positioned_text_glyph{
             source.glyph_index,
             source.glyph_id,
+            0U,
             source.cluster,
             source.x,
             source.y,
@@ -1609,8 +1710,7 @@ progpu_native_status progpu_native_text_context_get_paragraph_requirements(
     font_error error = font_error::none;
     if (!try_build_paragraph_capacities(
             *shaping,
-            context->font,
-            context->has_normalization ? &context->normalization : nullptr,
+            *context,
             capacities,
             error)) {
         requirements->error_code = static_cast<std::uint32_t>(error);
@@ -1660,8 +1760,7 @@ progpu_native_status progpu_native_text_context_layout_paragraph(
     font_error font_result = font_error::none;
     if (!try_build_paragraph_capacities(
             *shaping,
-            context->font,
-            context->has_normalization ? &context->normalization : nullptr,
+            *context,
             capacities,
             font_result)) {
         result->error_code = static_cast<std::uint32_t>(font_result);
@@ -1692,10 +1791,14 @@ progpu_native_status progpu_native_text_context_layout_paragraph(
         std::span<unicode_bidi_bracket_pair> bidi_pairs{};
         std::span<unicode_bidi_level> scalar_levels{};
         std::span<unicode_script_run> script_runs{};
+        std::span<unicode_grapheme_cluster> graphemes{};
+        std::span<font_fallback_candidate> fallback_candidates{};
+        std::span<font_fallback_run> fallback_runs{};
         std::span<unicode_line_break_class> line_classes{};
         std::span<text_line_break_kind> scalar_breaks{};
         std::span<shaping_glyph> logical_glyphs{};
         std::span<std::int8_t> glyph_levels{};
+        std::span<std::uint32_t> glyph_font_indices{};
         std::span<text_line_break_kind> glyph_breaks{};
         std::span<text_visual_cluster_group> visual_groups{};
         std::span<std::uint32_t> visual_indices{};
@@ -1710,10 +1813,14 @@ progpu_native_status progpu_native_text_context_layout_paragraph(
             !arena.take(input_count / 2U, bidi_pairs) ||
             !arena.take(input_count, scalar_levels) ||
             !arena.take(input_count, script_runs) ||
+            !arena.take(input_count, graphemes) ||
+            !arena.take(context->font_count(), fallback_candidates) ||
+            !arena.take(input_count, fallback_runs) ||
             !arena.take(input_count, line_classes) ||
             !arena.take(input_count, scalar_breaks) ||
             !arena.take(glyph_limit, logical_glyphs) ||
             !arena.take(glyph_limit, glyph_levels) ||
+            !arena.take(glyph_limit, glyph_font_indices) ||
             !arena.take(glyph_limit, glyph_breaks) ||
             !arena.take(glyph_limit, visual_groups) ||
             !arena.take(glyph_limit, visual_indices) ||
@@ -1777,6 +1884,35 @@ progpu_native_status progpu_native_text_context_layout_paragraph(
                     native_input.front().input_index),
                 open_type_tag{shaping->unicode_script}};
         }
+        std::uint32_t grapheme_count = 0U;
+        if (!try_segment_unicode_graphemes(
+                native_input, graphemes, grapheme_count, &unicode_result)) {
+            result->error_code = static_cast<std::uint32_t>(unicode_result);
+            result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
+            return status_from_unicode_error(unicode_result);
+        }
+        fallback_candidates[0U] = font_fallback_candidate{
+            &context->font, 0U};
+        for (std::size_t index = 0U;
+             index < context->fallback_fonts.size();
+             ++index) {
+            const auto& fallback = context->fallback_fonts[index];
+            fallback_candidates[index + 1U] = font_fallback_candidate{
+                &fallback.font, fallback.identity};
+        }
+        std::uint32_t fallback_run_count = 0U;
+        if (!try_itemize_font_fallback(
+                native_input,
+                graphemes.first(grapheme_count),
+                fallback_candidates,
+                0U,
+                fallback_runs,
+                fallback_run_count,
+                &font_result)) {
+            result->error_code = static_cast<std::uint32_t>(font_result);
+            result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
+            return status_from_error(font_result);
+        }
         if (!try_resolve_unicode_line_breaks(
                 native_input,
                 line_classes,
@@ -1791,6 +1927,7 @@ progpu_native_status progpu_native_text_context_layout_paragraph(
         std::uint32_t logical_count = 0U;
         std::size_t scalar_start = 0U;
         std::size_t script_run_index = 0U;
+        std::size_t fallback_run_index = 0U;
         while (scalar_start < input_count) {
             while (script_run_index < script_run_count &&
                 scalar_start >= static_cast<std::size_t>(
@@ -1809,9 +1946,36 @@ progpu_native_status progpu_native_text_context_layout_paragraph(
             const std::size_t script_end =
                 static_cast<std::size_t>(script_run.scalar_start) +
                 script_run.scalar_count;
+            while (fallback_run_index < fallback_run_count &&
+                scalar_start >= static_cast<std::size_t>(
+                    fallback_runs[fallback_run_index].scalar_index) +
+                    fallback_runs[fallback_run_index].scalar_count) {
+                ++fallback_run_index;
+            }
+            if (fallback_run_index >= fallback_run_count) {
+                result->error_code =
+                    static_cast<std::uint32_t>(font_error::invalid_argument);
+                result->error_stage =
+                    PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
+                return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+            }
+            const auto& fallback_run = fallback_runs[fallback_run_index];
+            const std::size_t fallback_end =
+                static_cast<std::size_t>(fallback_run.scalar_index) +
+                fallback_run.scalar_count;
+            const auto* selected_font =
+                context->font_at(fallback_run.font_index);
+            if (selected_font == nullptr) {
+                result->error_code =
+                    static_cast<std::uint32_t>(font_error::invalid_argument);
+                result->error_stage =
+                    PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
+                return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+            }
             const std::int8_t level = scalar_levels[scalar_start].level;
             std::size_t scalar_end = scalar_start + 1U;
             while (scalar_end < input_count && scalar_end < script_end &&
+                scalar_end < fallback_end &&
                 scalar_levels[scalar_end].level == level) {
                 ++scalar_end;
             }
@@ -1840,7 +2004,7 @@ progpu_native_status progpu_native_text_context_layout_paragraph(
             shape_result.struct_size = sizeof(shape_result);
             const auto shape_status = shape_core(
                 run_request,
-                context->font,
+                *selected_font,
                 context->has_normalization ? &context->normalization : nullptr,
                 capacities.shaping,
                 run_glyphs.data(),
@@ -1858,8 +2022,10 @@ progpu_native_status progpu_native_text_context_layout_paragraph(
             if (!append_logical_bidi_run(
                     run_glyphs.first(shape_result.glyph_count),
                     level,
+                    fallback_run.font_index,
                     logical_glyphs,
                     glyph_levels,
+                    glyph_font_indices,
                     logical_count)) {
                 result->error_code =
                     static_cast<std::uint32_t>(font_error::insufficient_buffer);
@@ -1910,6 +2076,7 @@ progpu_native_status progpu_native_text_context_layout_paragraph(
             glyphs[index] = progpu_native_positioned_text_glyph{
                 source.glyph_index,
                 source.glyph_id,
+                glyph_font_indices[source.glyph_index],
                 source.cluster,
                 source.x,
                 source.y,

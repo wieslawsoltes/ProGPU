@@ -14,12 +14,16 @@ void require(bool condition) {
     if (!condition) throw std::runtime_error("native text interop assertion failed");
 }
 
-std::vector<std::uint8_t> read_font() {
-    std::ifstream stream(PROGPU_NATIVE_TEST_INTER_FONT, std::ios::binary);
+std::vector<std::uint8_t> read_file(const char* path) {
+    std::ifstream stream(path, std::ios::binary);
     require(stream.good());
     return std::vector<std::uint8_t>(
         std::istreambuf_iterator<char>(stream),
         std::istreambuf_iterator<char>());
+}
+
+std::vector<std::uint8_t> read_font() {
+    return read_file(PROGPU_NATIVE_TEST_INTER_FONT);
 }
 
 std::vector<progpu_native_text_scalar> ascii_scalars(std::string_view text) {
@@ -461,6 +465,52 @@ void bulk_shape_is_deterministic_and_caller_owned() {
         require(paragraph_glyphs[index].cluster ==
             static_cast<std::int32_t>(index));
     }
+
+    const auto fallback_font = read_file(PROGPU_NATIVE_TEST_NOTO_CFF_FONT);
+    std::uint32_t fallback_font_index = 0U;
+    require(progpu_native_text_context_add_fallback_font(
+                context,
+                fallback_font.data(),
+                fallback_font.size(),
+                0U,
+                0x4E6F746F434A4BULL,
+                &fallback_font_index) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(fallback_font_index == 1U);
+    const std::vector<progpu_native_text_scalar> fallback_input{
+        {0x61U, 0U, 1U, 0U, 0U, 0U},
+        {0x65E5U, 1U, 1U, 0U, 0U, 0U},
+        {0x62U, 2U, 1U, 0U, 0U, 0U}};
+    mixed_request.input = fallback_input.data();
+    mixed_request.input_count =
+        static_cast<std::uint32_t>(fallback_input.size());
+    paragraph_requirements.struct_size = sizeof(paragraph_requirements);
+    require(progpu_native_text_context_get_paragraph_requirements(
+                context,
+                &mixed_request,
+                &mixed_options,
+                &paragraph_requirements) == PROGPU_NATIVE_STATUS_SUCCESS);
+    paragraph_glyphs.resize(paragraph_requirements.glyph_capacity);
+    paragraph_lines.resize(paragraph_requirements.line_capacity);
+    paragraph_scratch.resize(
+        static_cast<std::size_t>(paragraph_requirements.scratch_bytes));
+    paragraph_result.struct_size = sizeof(paragraph_result);
+    require(progpu_native_text_context_layout_paragraph(
+                context,
+                &mixed_request,
+                &mixed_options,
+                paragraph_glyphs.data(),
+                static_cast<std::uint32_t>(paragraph_glyphs.size()),
+                paragraph_lines.data(),
+                static_cast<std::uint32_t>(paragraph_lines.size()),
+                paragraph_scratch.data(),
+                paragraph_scratch.size(),
+                &paragraph_result) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(paragraph_result.glyph_count == fallback_input.size() &&
+        paragraph_result.shaping_run_count == 3U &&
+        paragraph_glyphs[0U].font_index == 0U &&
+        paragraph_glyphs[1U].font_index == fallback_font_index &&
+        paragraph_glyphs[1U].glyph_id != 0U &&
+        paragraph_glyphs[2U].font_index == 0U);
 
     progpu_native_text_layout_result short_layout_result{};
     short_layout_result.struct_size = sizeof(short_layout_result);

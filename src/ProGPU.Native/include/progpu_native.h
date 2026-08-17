@@ -490,6 +490,7 @@ typedef struct progpu_native_text_layout_request {
 typedef struct progpu_native_positioned_text_glyph {
     uint32_t glyph_index;
     uint32_t glyph_id;
+    uint32_t font_index;
     int32_t cluster;
     float x;
     float y;
@@ -2139,6 +2140,16 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_create(
     progpu_native_text_context** context);
 PROGPU_NATIVE_API void progpu_native_text_context_destroy(
     progpu_native_text_context* context);
+/* Adds one immutable fallback face snapshot during context initialization.
+ * Returned indices start at one; zero always identifies the primary face. */
+PROGPU_NATIVE_API progpu_native_status
+progpu_native_text_context_add_fallback_font(
+    progpu_native_text_context* context,
+    const uint8_t* font_data,
+    size_t font_size,
+    uint32_t face_index,
+    uint64_t identity,
+    uint32_t* font_index);
 PROGPU_NATIVE_API progpu_native_status
 progpu_native_text_context_get_shape_requirements(
     progpu_native_text_context* context,

@@ -41,7 +41,7 @@ public class NativeRendererInteropTests
         Assert.Equal(24, Unsafe.SizeOf<NativeTextShapeRequirements>());
         Assert.Equal(24, Unsafe.SizeOf<NativeTextShapeResult>());
         Assert.Equal(IntPtr.Size == 8 ? 80 : 64, Unsafe.SizeOf<NativeTextLayoutRequest>());
-        Assert.Equal(28, Unsafe.SizeOf<NativePositionedTextGlyph>());
+        Assert.Equal(32, Unsafe.SizeOf<NativePositionedTextGlyph>());
         Assert.Equal(32, Unsafe.SizeOf<NativePositionedTextLine>());
         Assert.Equal(32, Unsafe.SizeOf<NativeTextLayoutRequirements>());
         Assert.Equal(40, Unsafe.SizeOf<NativeTextLayoutResult>());

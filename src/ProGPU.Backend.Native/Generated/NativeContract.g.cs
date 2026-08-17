@@ -125,6 +125,7 @@ public partial struct NativePositionedTextGlyph
 {
     public uint GlyphIndex;
     public uint GlyphId;
+    public uint FontIndex;
     public int Cluster;
     public float X;
     public float Y;

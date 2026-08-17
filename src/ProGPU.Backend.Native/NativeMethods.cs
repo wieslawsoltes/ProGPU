@@ -557,6 +557,18 @@ internal static unsafe partial class NativeMethods
 
     [LibraryImport(
         LibraryName,
+        EntryPoint = "progpu_native_text_context_add_fallback_font")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus AddTextContextFallbackFont(
+        nint context,
+        byte* fontData,
+        nuint fontSize,
+        uint faceIndex,
+        ulong identity,
+        uint* fontIndex);
+
+    [LibraryImport(
+        LibraryName,
         EntryPoint = "progpu_native_text_context_get_shape_requirements")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus GetTextContextShapeRequirements(

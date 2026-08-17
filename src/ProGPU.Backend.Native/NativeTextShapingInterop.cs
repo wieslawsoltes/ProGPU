@@ -220,6 +220,31 @@ public sealed unsafe class NativeTextShapingContext : IDisposable
 
     ~NativeTextShapingContext() => DisposeCore();
 
+    /// <summary>
+    /// Copies one immutable fallback face into the retained native context.
+    /// The returned index is carried by positioned paragraph glyphs.
+    /// </summary>
+    public NativeRendererStatus AddFallbackFont(
+        ReadOnlySpan<byte> fontData,
+        out uint fontIndex,
+        uint faceIndex = 0,
+        ulong identity = 0)
+    {
+        nint handle = GetHandle();
+        fontIndex = 0;
+        fixed (byte* fontPointer = fontData)
+        fixed (uint* index = &fontIndex)
+        {
+            return NativeMethods.AddTextContextFallbackFont(
+                handle,
+                fontPointer,
+                checked((nuint)fontData.Length),
+                faceIndex,
+                identity,
+                index);
+        }
+    }
+
     public NativeRendererStatus GetRequirements(
         in NativeTextShapeInput input,
         out NativeTextShapeRequirements requirements)

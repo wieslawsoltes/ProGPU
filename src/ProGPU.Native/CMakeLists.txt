@@ -1127,7 +1127,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     target_include_directories(progpu_native_text_interop_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include")
     target_compile_definitions(progpu_native_text_interop_tests PRIVATE
-        "PROGPU_NATIVE_TEST_INTER_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Fonts.Inter/Fonts/Inter-Regular.ttf\"")
+        "PROGPU_NATIVE_TEST_INTER_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Fonts.Inter/Fonts/Inter-Regular.ttf\""
+        "PROGPU_NATIVE_TEST_NOTO_CFF_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Fonts.Noto/Fonts/NotoSansCJKjp-Regular.otf\"")
     target_link_libraries(progpu_native_text_interop_tests PRIVATE progpu_native)
     progpu_native_enable_warnings(progpu_native_text_interop_tests)
     progpu_native_enable_sanitizers(progpu_native_text_interop_tests)
