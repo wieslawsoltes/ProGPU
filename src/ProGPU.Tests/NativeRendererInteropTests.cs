@@ -2445,6 +2445,52 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void SemanticPremultipliedImageFlagNeedsNoPayloadSuffix()
+    {
+        Span<byte> destination = stackalloc byte[1024];
+        Span<byte> pixels = stackalloc byte[16];
+        var image = new NativeSceneImageDraw(
+            2,
+            2,
+            8,
+            NativeImageSampling.Linear,
+            new NativeImageRect(0f, 0f, 2f, 2f),
+            new NativeImageRect(0f, 0f, 4f, 4f),
+            Matrix3x2.Identity,
+            0.5f,
+            NativeSceneImageFlags.SourcePremultiplied |
+                NativeSceneImageFlags.SnapToPixels);
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            715U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+
+        Assert.True(builder.TryAddImageResource(
+            1U, 1U, pixels, out uint resourceIndex));
+        Assert.True(builder.TryDrawImage(
+            1U,
+            resourceIndex,
+            new NativeImageRect(0f, 0f, 4f, 4f),
+            in image));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        NativeMethods.SceneCommand command =
+            MemoryMarshal.Read<NativeMethods.SceneCommand>(
+                stream.Slice(checked((int)header.CommandOffset)));
+        NativeSceneImageDraw retained =
+            MemoryMarshal.Read<NativeSceneImageDraw>(
+                stream.Slice(checked((int)command.PayloadOffset)));
+        Assert.Equal(image.Flags, retained.Flags);
+        Assert.Equal(
+            (uint)Unsafe.SizeOf<NativeSceneImageDraw>(),
+            command.PayloadSize);
+    }
+
+    [Fact]
     public void SemanticImageColorMatrixCombinesWithCubicWithoutAllocation()
     {
         Span<byte> destination = stackalloc byte[2048];

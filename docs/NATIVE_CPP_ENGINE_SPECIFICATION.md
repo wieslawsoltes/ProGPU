@@ -718,8 +718,10 @@ submission token is the consumer fence for every bound view. Optional image
 pixel snapping transforms each destination corner first, then rounds its
 logical coordinate on the current physical-DPI grid, exactly matching the
 authoritative managed `Compositor.AppendTextureQuad` contract. Premultiplied
-input, mipmaps/anisotropy, and tiling/patch draws remain explicit typed
-failures rather than approximations. The retained effect suffix now shares the
+source identity reuses the same shader's existing opacity-scale path without
+copying or converting the texture. Mipmaps/anisotropy and tiling/patch draws
+remain explicit typed failures rather than approximations. The retained effect
+suffix now shares the
 production image-effect shader for bounded blur, spherical mapping, luminance
 conversion, zero-copy paired luma/chroma views, and explicit R8 effect masks.
 Larger filterable RGB and R8/RG8 planar blur footprints use the same embedded
@@ -1612,15 +1614,18 @@ color/vector/bitmap glyphs, text decorations, text masks, typed 2D/3D geometry,
 advanced blend isolation, and ordinary straight-alpha image draws are now
 retained. Images preserve source rectangles, nearest/linear/custom-cubic
 sampling, a same-device external view, a fused affine color transform, and
-submission-token lifetime fencing. A pointer-free image flag now preserves
+submission-token lifetime fencing. Pointer-free image flags now preserve
 managed `SnapTextureToPixels`; C++ performs the final per-corner DPI-grid
 rounding without a payload suffix, shader fork, or additional managed/native
 call, while the managed lowering conservatively inflates retained bounds by
-half a physical pixel. The remaining explicit exclusions are
+half a physical pixel. They also preserve premultiplied source identity and
+reuse the canonical `Texture.wgsl` RGB opacity-scale path, so source RGB and
+alpha receive retained opacity exactly once without an unpremultiply/reupload
+pass. The remaining explicit exclusions are
 combined geometry, opaque static-DXF
 extension objects, mutable embedded `Visual` instances, texture patches,
-premultiplied sources, mipmaps/anisotropy, and non-affine image
-effects. Those records fail with a typed source-command diagnostic; no managed
+mipmaps/anisotropy, and non-affine image effects. Those records fail with a
+typed source-command diagnostic; no managed
 fallback or semantic approximation is inserted.
 
 Glyph compilation is explicitly target-DPI-sensitive. The public

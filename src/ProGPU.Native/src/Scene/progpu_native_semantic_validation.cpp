@@ -206,7 +206,8 @@ bool is_valid_semantic_image(
     const std::uint32_t known_flags =
         PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX |
         PROGPU_NATIVE_SCENE_IMAGE_EFFECT |
-        PROGPU_NATIVE_SCENE_IMAGE_SNAP_TO_PIXELS;
+        PROGPU_NATIVE_SCENE_IMAGE_SNAP_TO_PIXELS |
+        PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
     return image.struct_size >= sizeof(image) &&
         (image.flags & ~known_flags) == 0U &&
         (image.flags & known_flags) != known_flags &&

@@ -24,4 +24,9 @@ bool validate_image_draw_payload(
     std::uint64_t pixel_bytes,
     semantic_image_options& options) noexcept;
 
+void resolve_image_vertex_color(
+    const progpu_native_scene_image_draw& image,
+    bool has_effect,
+    float (&color)[4]) noexcept;
+
 } // namespace progpu::native::semantic

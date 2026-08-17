@@ -241,7 +241,8 @@ public enum NativeSceneImageFlags : uint
     None = 0,
     ColorMatrix = 1U << 0,
     Effect = 1U << 1,
-    SnapToPixels = 1U << 2
+    SnapToPixels = 1U << 2,
+    SourcePremultiplied = 1U << 3
 }
 
 [Flags]

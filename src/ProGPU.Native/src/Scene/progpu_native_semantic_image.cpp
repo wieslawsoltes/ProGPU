@@ -69,4 +69,18 @@ bool validate_image_draw_payload(
     return command.payload_size == expected_size;
 }
 
+void resolve_image_vertex_color(
+    const progpu_native_scene_image_draw& image,
+    bool has_effect,
+    float (&color)[4]) noexcept {
+    const bool premultiplied_source = has_effect ||
+        (image.flags & PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED) != 0U;
+    color[0] = premultiplied_source ? image.opacity : 1.0F;
+    color[1] = premultiplied_source ? 1.0F : 0.0F;
+    color[2] = premultiplied_source ? image.opacity : 1.0F;
+    color[3] = image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
+        ? -image.opacity
+        : image.opacity;
+}
+
 } // namespace progpu::native::semantic

@@ -3270,7 +3270,6 @@ public static partial class GpuPictureNativeSceneCompiler
     {
         GpuTexture? texture = command.Texture;
         if (texture is null || texture.IsDisposed ||
-            texture.AlphaMode != GpuTextureAlphaMode.Straight ||
             texture.Width == 0U || texture.Height == 0U ||
             texture.Width > 16_384U || texture.Height > 16_384U ||
             command.TexturePatches is not null ||
@@ -3390,6 +3389,10 @@ public static partial class GpuPictureNativeSceneCompiler
         if (command.SnapTextureToPixels)
         {
             flags |= NativeSceneImageFlags.SnapToPixels;
+        }
+        if (texture.AlphaMode == GpuTextureAlphaMode.Premultiplied)
+        {
+            flags |= NativeSceneImageFlags.SourcePremultiplied;
         }
         var draw = new NativeSceneImageDraw(
             texture.Width,

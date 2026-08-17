@@ -163,8 +163,29 @@ bool semantic_image_sampling_payload_is_exact_and_bounded() {
     effect.flags0[0] = 0.0F;
     effect.spherical0[0] = 0.5F;
     std::memcpy(bytes.data() + base_size, &effect, sizeof(effect));
-    return !semantic::validate_image_draw_payload(
-        bytes.data(), command, image, 16U, parsed);
+    if (semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed)) {
+        return false;
+    }
+
+    float color[4]{};
+    image.flags = 0U;
+    image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+    image.opacity = 0.25F;
+    semantic::resolve_image_vertex_color(image, false, color);
+    if (color[0] != 1.0F || color[1] != 0.0F || color[2] != 1.0F ||
+        color[3] != 0.25F) {
+        return false;
+    }
+    image.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
+    semantic::resolve_image_vertex_color(image, false, color);
+    if (color[0] != 0.25F || color[1] != 1.0F || color[2] != 0.25F ||
+        color[3] != 0.25F) {
+        return false;
+    }
+    image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC;
+    semantic::resolve_image_vertex_color(image, false, color);
+    return color[3] == -0.25F;
 }
 
 } // namespace progpu::native::tests

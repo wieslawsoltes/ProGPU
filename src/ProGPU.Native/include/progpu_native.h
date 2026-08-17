@@ -208,7 +208,9 @@ enum {
     PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX = 1U << 0U,
     PROGPU_NATIVE_SCENE_IMAGE_EFFECT = 1U << 1U,
     /* Snap each fully transformed destination corner to the target DPI grid. */
-    PROGPU_NATIVE_SCENE_IMAGE_SNAP_TO_PIXELS = 1U << 2U
+    PROGPU_NATIVE_SCENE_IMAGE_SNAP_TO_PIXELS = 1U << 2U,
+    /* Source RGB channels are already multiplied by source alpha. */
+    PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED = 1U << 3U
 };
 
 enum {

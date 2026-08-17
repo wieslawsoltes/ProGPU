@@ -2271,12 +2271,10 @@ progpu_native_status render_scene(
                             vertex.position[1],
                             frame->dpi_scale);
                     }
-                    vertex.color[0] = 1.0F;
-                    vertex.color[1] = image_options.has_effect ? 1.0F : 0.0F;
-                    vertex.color[2] = 1.0F;
-                    vertex.color[3] = cubic_sampling
-                        ? -image.opacity
-                        : image.opacity;
+                    semantic::resolve_image_vertex_color(
+                        image,
+                        image_options.has_effect,
+                        vertex.color);
                     vertex.texture_coordinate[0] =
                         corner[0] == 0U ? u0 : u1;
                     vertex.texture_coordinate[1] =
