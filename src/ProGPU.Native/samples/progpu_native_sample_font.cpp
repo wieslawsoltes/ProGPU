@@ -56,6 +56,8 @@ const char* error_name(text::font_error error) noexcept {
             return "invalid container";
         case text::font_error::invalid_compressed_data:
             return "invalid compressed data";
+        case text::font_error::verification_failed:
+            return "shaping verification failed";
     }
     return "unknown font error";
 }

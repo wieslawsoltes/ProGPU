@@ -106,8 +106,10 @@ using progpu::native::text::open_type_shape_configuration;
 using progpu::native::text::try_get_open_type_shape_configuration_requirements;
 using progpu::native::text::try_prepare_open_type_shape_configuration;
 using progpu::native::text::open_type_shape_run_scratch;
+using progpu::native::text::open_type_shape_verification_scratch;
 using progpu::native::text::open_type_shape_run_requirements;
 using progpu::native::text::try_get_open_type_shape_run_requirements;
+using progpu::native::text::try_verify_open_type_shape_result;
 using progpu::native::text::open_type_shape_plan_requirements;
 using progpu::native::text::open_type_shape_plan;
 using progpu::native::text::try_get_open_type_shape_plan_requirements;
@@ -3816,6 +3818,100 @@ void open_type_printable_ascii_matches_managed_fast_path() {
     require(!try_get_open_type_shape_run_requirements(
         font, input, invalid_options, requirements, &error));
     require(error == font_error::invalid_argument);
+
+    options.buffer_flags = shaping_buffer_flags::verify;
+    require(try_get_open_type_shape_run_requirements(
+        font, input, options, requirements, &error));
+    require(requirements.verification_glyph_capacity ==
+        requirements.glyph_capacity);
+    glyphs.assign(requirements.glyph_capacity, {});
+    graphemes.assign(requirements.grapheme_capacity, {});
+    attachments.assign(requirements.glyph_capacity, {});
+    states.assign(requirements.glyph_capacity, 0U);
+    std::vector<shaping_glyph> verification_glyphs(
+        requirements.verification_glyph_capacity);
+    open_type_shape_verification_scratch verification{
+        verification_glyphs};
+    auto scratch = open_type_shape_run_scratch{};
+    scratch.grapheme_clusters = graphemes;
+    scratch.attachments = attachments;
+    scratch.attachment_states = states;
+    scratch.verification = &verification;
+    require(try_shape_open_type_run(
+        font,
+        input,
+        options,
+        glyphs,
+        scratch,
+        glyph_count,
+        &error));
+    require(error == font_error::none && glyph_count == input.size());
+
+    auto corrupted = glyphs;
+    ++corrupted[1U].advance_x;
+    require(!try_verify_open_type_shape_result(
+        font,
+        input,
+        options,
+        std::span<const shaping_glyph>{corrupted}.first(glyph_count),
+        verification_glyphs,
+        scratch,
+        &error));
+    require(error == font_error::verification_failed);
+    require(!try_verify_open_type_shape_result(
+        font,
+        input,
+        options,
+        std::span<const shaping_glyph>{glyphs}.first(glyph_count),
+        std::span<shaping_glyph>{verification_glyphs}.first(
+            verification_glyphs.size() - 1U),
+        scratch,
+        &error));
+    require(error == font_error::insufficient_buffer);
+
+    verification.glyphs = std::span<shaping_glyph>{verification_glyphs}.first(
+        verification_glyphs.size() - 1U);
+    glyph_count = 99U;
+    require(!try_shape_open_type_run(
+        font,
+        input,
+        options,
+        glyphs,
+        scratch,
+        glyph_count,
+        &error));
+    require(error == font_error::insufficient_buffer && glyph_count == 0U);
+
+    verification.glyphs = verification_glyphs;
+    options.direction = shaping_direction::right_to_left;
+    require(try_get_open_type_shape_run_requirements(
+        font, input, options, requirements, &error));
+    require(try_shape_open_type_run(
+        font,
+        input,
+        options,
+        glyphs,
+        scratch,
+        glyph_count,
+        &error));
+    require(error == font_error::none && glyph_count == input.size() &&
+        glyphs[0U].cluster == 2 && glyphs[1U].cluster == 1 &&
+        glyphs[2U].cluster == 0);
+
+    options.cluster_level = shaping_cluster_level::characters;
+    require(try_get_open_type_shape_run_requirements(
+        font, input, options, requirements, &error));
+    require(requirements.verification_glyph_capacity == 0U);
+    scratch.verification = nullptr;
+    require(try_shape_open_type_run(
+        font,
+        input,
+        options,
+        glyphs,
+        scratch,
+        glyph_count,
+        &error));
+    require(error == font_error::none && glyph_count == input.size());
 }
 
 void open_type_common_preprocessing_matches_managed_stages() {

@@ -858,7 +858,276 @@ bool try_get_gdef(
     return true;
 }
 
+bool has_glyph_flag(
+    const shaping_glyph& glyph,
+    shaping_glyph_flags flag) noexcept {
+    return (static_cast<std::uint32_t>(glyph.flags) &
+        static_cast<std::uint32_t>(flag)) != 0U;
+}
+
+std::span<const unicode_scalar> write_pre_context(
+    std::span<const unicode_scalar> outer,
+    std::span<const unicode_scalar> prefix,
+    std::array<unicode_scalar, 5U>& storage) noexcept {
+    const auto prefix_count =
+        std::min<std::size_t>(storage.size(), prefix.size());
+    const auto outer_count = std::min<std::size_t>(
+        storage.size() - prefix_count, outer.size());
+    const auto count = outer_count + prefix_count;
+    std::copy(
+        outer.end() - static_cast<std::ptrdiff_t>(outer_count),
+        outer.end(),
+        storage.begin());
+    std::copy(
+        prefix.end() - static_cast<std::ptrdiff_t>(prefix_count),
+        prefix.end(),
+        storage.begin() + static_cast<std::ptrdiff_t>(outer_count));
+    return std::span<const unicode_scalar>{storage}.first(count);
+}
+
+std::span<const unicode_scalar> write_post_context(
+    std::span<const unicode_scalar> suffix,
+    std::span<const unicode_scalar> outer,
+    std::array<unicode_scalar, 5U>& storage) noexcept {
+    const auto suffix_count =
+        std::min<std::size_t>(storage.size(), suffix.size());
+    const auto outer_count = std::min<std::size_t>(
+        storage.size() - suffix_count, outer.size());
+    const auto count = suffix_count + outer_count;
+    std::copy_n(suffix.begin(), suffix_count, storage.begin());
+    std::copy_n(
+        outer.begin(),
+        outer_count,
+        storage.begin() + static_cast<std::ptrdiff_t>(suffix_count));
+    return std::span<const unicode_scalar>{storage}.first(count);
+}
+
+bool verify_open_type_shape_result(
+    const sfnt_font_view& font,
+    std::span<const unicode_scalar> input,
+    const open_type_shape_run_options& options,
+    std::span<const shaping_glyph> expected,
+    std::span<shaping_glyph> fragment_glyphs,
+    open_type_shape_run_scratch scratch,
+    const open_type_shape_plan* plan,
+    font_error* error) noexcept {
+    if (expected.empty()) {
+        return true;
+    }
+    if (input.empty()) {
+        set_error(error, font_error::verification_failed);
+        return false;
+    }
+    const bool monotone =
+        options.cluster_level == shaping_cluster_level::monotone_graphemes ||
+        options.cluster_level == shaping_cluster_level::monotone_characters;
+    if (!monotone) {
+        return true;
+    }
+    const bool forward =
+        options.direction == shaping_direction::left_to_right ||
+        options.direction == shaping_direction::top_to_bottom;
+    for (std::size_t index = 1U; index < expected.size(); ++index) {
+        const auto previous = expected[index - 1U].cluster;
+        const auto current = expected[index].cluster;
+        if (previous != current && ((previous < current) != forward)) {
+            set_error(error, font_error::verification_failed);
+            return false;
+        }
+    }
+
+    const auto run_start = input.front().input_index;
+    const auto run_end_value =
+        static_cast<std::uint64_t>(input.back().input_index) +
+        input.back().input_length;
+    if (run_end_value > std::numeric_limits<std::uint32_t>::max()) {
+        set_error(error, font_error::verification_failed);
+        return false;
+    }
+    const auto run_end = static_cast<std::uint32_t>(run_end_value);
+    std::size_t output_start = 0U;
+    std::uint32_t logical_edge = forward ? run_start : run_end;
+    for (std::size_t output_end = 1U;
+         output_end <= expected.size();
+         ++output_end) {
+        const bool at_end = output_end == expected.size();
+        if (!at_end) {
+            const auto& left = expected[output_end - 1U];
+            const auto& right = expected[output_end];
+            if (left.cluster == right.cluster) continue;
+            const auto& boundary = forward ? right : left;
+            if (has_glyph_flag(
+                    boundary, shaping_glyph_flags::unsafe_to_break)) {
+                continue;
+            }
+        }
+
+        const auto fragment_cluster = [&](std::size_t index,
+                                          std::uint32_t& value) {
+            const auto cluster = expected[index].cluster;
+            if (cluster < 0) return false;
+            value = static_cast<std::uint32_t>(cluster);
+            return true;
+        };
+        std::uint32_t fragment_start = 0U;
+        std::uint32_t fragment_end = 0U;
+        if (forward) {
+            fragment_start = logical_edge;
+            if (at_end) {
+                fragment_end = run_end;
+            } else if (!fragment_cluster(output_end, fragment_end)) {
+                set_error(error, font_error::verification_failed);
+                return false;
+            }
+            logical_edge = fragment_end;
+        } else {
+            if (at_end) {
+                fragment_start = run_start;
+            } else if (!fragment_cluster(
+                           output_end - 1U, fragment_start)) {
+                set_error(error, font_error::verification_failed);
+                return false;
+            }
+            fragment_end = logical_edge;
+            logical_edge = fragment_start;
+        }
+        if (fragment_start >= fragment_end) {
+            set_error(error, font_error::verification_failed);
+            return false;
+        }
+
+        const auto scalar_at_or_after = [&](std::uint32_t source_index) {
+            return std::lower_bound(
+                input.begin(),
+                input.end(),
+                source_index,
+                [](const unicode_scalar& scalar, std::uint32_t value) {
+                    return scalar.input_index < value;
+                });
+        };
+        const auto fragment_first = scalar_at_or_after(fragment_start);
+        const auto fragment_last = scalar_at_or_after(fragment_end);
+        if (fragment_first == fragment_last ||
+            fragment_first == input.end() ||
+            fragment_first->input_index != fragment_start ||
+            (fragment_last != input.end() &&
+                fragment_last->input_index != fragment_end)) {
+            set_error(error, font_error::verification_failed);
+            return false;
+        }
+        const auto first_index = static_cast<std::size_t>(
+            fragment_first - input.begin());
+        const auto last_index = static_cast<std::size_t>(
+            fragment_last - input.begin());
+        const auto fragment_input = input.subspan(
+            first_index, last_index - first_index);
+
+        auto fragment_options = options;
+        auto flags = static_cast<std::uint8_t>(options.buffer_flags);
+        flags &= static_cast<std::uint8_t>(
+            ~static_cast<std::uint8_t>(shaping_buffer_flags::verify));
+        if (fragment_start != run_start) {
+            flags &= static_cast<std::uint8_t>(
+                ~static_cast<std::uint8_t>(
+                    shaping_buffer_flags::beginning_of_text));
+        }
+        if (fragment_end != run_end) {
+            flags &= static_cast<std::uint8_t>(
+                ~static_cast<std::uint8_t>(
+                    shaping_buffer_flags::end_of_text));
+        }
+        fragment_options.buffer_flags =
+            static_cast<shaping_buffer_flags>(flags);
+        std::array<unicode_scalar, 5U> pre_storage{};
+        std::array<unicode_scalar, 5U> post_storage{};
+        fragment_options.pre_context = write_pre_context(
+            options.pre_context,
+            input.first(first_index),
+            pre_storage);
+        fragment_options.post_context = write_post_context(
+            input.subspan(last_index),
+            options.post_context,
+            post_storage);
+        scratch.verification = nullptr;
+        std::uint32_t actual_count = 0U;
+        if (!try_shape_open_type_run(
+                font,
+                fragment_input,
+                fragment_options,
+                fragment_glyphs,
+                scratch,
+                actual_count,
+                error,
+                plan)) {
+            if (error == nullptr || *error != font_error::insufficient_buffer) {
+                set_error(error, font_error::verification_failed);
+            }
+            return false;
+        }
+        const auto expected_count = output_end - output_start;
+        if (actual_count != expected_count) {
+            set_error(error, font_error::verification_failed);
+            return false;
+        }
+        for (std::size_t index = 0U; index < expected_count; ++index) {
+            const auto& left = expected[output_start + index];
+            const auto& right = fragment_glyphs[index];
+            if (left.glyph_id != right.glyph_id ||
+                left.cluster != right.cluster ||
+                left.code_point != right.code_point ||
+                left.advance_x != right.advance_x ||
+                left.advance_y != right.advance_y ||
+                left.offset_x != right.offset_x ||
+                left.offset_y != right.offset_y) {
+                set_error(error, font_error::verification_failed);
+                return false;
+            }
+        }
+        output_start = output_end;
+    }
+    return true;
+}
+
 } // namespace
+
+bool try_verify_open_type_shape_result(
+    const sfnt_font_view& font,
+    std::span<const unicode_scalar> input,
+    const open_type_shape_run_options& options,
+    std::span<const shaping_glyph> expected,
+    std::span<shaping_glyph> fragment_glyph_storage,
+    open_type_shape_run_scratch scratch,
+    font_error* error,
+    const open_type_shape_plan* plan) noexcept {
+    auto fragment_options = options;
+    fragment_options.buffer_flags = static_cast<shaping_buffer_flags>(
+        static_cast<std::uint8_t>(options.buffer_flags) &
+        static_cast<std::uint8_t>(
+            ~static_cast<std::uint8_t>(shaping_buffer_flags::verify)));
+    open_type_shape_run_requirements requirements{};
+    if (!try_get_open_type_shape_run_requirements(
+            font, input, fragment_options, requirements, error)) {
+        return false;
+    }
+    if (fragment_glyph_storage.size() < requirements.glyph_capacity) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
+    }
+    scratch.verification = nullptr;
+    const bool verified = verify_open_type_shape_result(
+        font,
+        input,
+        options,
+        expected,
+        fragment_glyph_storage.first(requirements.glyph_capacity),
+        scratch,
+        plan,
+        error);
+    if (verified) {
+        set_error(error, font_error::none);
+    }
+    return verified;
+}
 
 bool try_apply_directional_code_point_fallback(
     const sfnt_font_view& font,
@@ -1035,6 +1304,14 @@ bool try_get_open_type_shape_run_requirements(
         result.complex_script_capacity = result.glyph_capacity;
         result.complex_script_index_capacity = result.glyph_capacity + 1U;
     }
+    const bool monotone_clusters =
+        options.cluster_level == shaping_cluster_level::monotone_graphemes ||
+        options.cluster_level == shaping_cluster_level::monotone_characters;
+    if (monotone_clusters &&
+        (static_cast<std::uint8_t>(options.buffer_flags) &
+            static_cast<std::uint8_t>(shaping_buffer_flags::verify)) != 0U) {
+        result.verification_glyph_capacity = result.glyph_capacity;
+    }
     set_error(error, font_error::none);
     return true;
 }
@@ -1076,6 +1353,8 @@ bool try_shape_open_type_run(
     const bool hangul = uses_hangul(unicode_script);
     const bool complex_script =
         options.complex_script != open_type_complex_script::none;
+    const bool verify =
+        requirements.verification_glyph_capacity != 0U;
     const bool fallback_mark_positioning =
         options.zero_mark_advances && uses_fallback_mark_positioning(options);
     const bool zero_mark_advances_early = options.zero_mark_advances &&
@@ -1104,6 +1383,10 @@ bool try_shape_open_type_run(
                 (options.complex_script == open_type_complex_script::use &&
                     scratch.script_indices.size() <
                         requirements.complex_script_index_capacity))) ||
+        (verify &&
+            (scratch.verification == nullptr ||
+                scratch.verification->glyphs.size() <
+                    requirements.verification_glyph_capacity)) ||
         scratch.attachments.size() < glyph_storage.size() ||
         scratch.attachment_states.size() < glyph_storage.size()) {
         set_error(error, font_error::insufficient_buffer);
@@ -1873,6 +2156,19 @@ bool try_shape_open_type_run(
     }
     if (arabic_joining) {
         clear_arabic_actions(glyph_storage.first(glyph_count));
+    }
+    if (verify && !try_verify_open_type_shape_result(
+            font,
+            input,
+            options,
+            glyph_storage.first(glyph_count),
+            scratch.verification->glyphs.first(
+                requirements.verification_glyph_capacity),
+            scratch,
+            error,
+            plan)) {
+        glyph_count = 0U;
+        return false;
     }
     set_error(error, font_error::none);
     return true;

@@ -22,7 +22,8 @@ enum class font_error : std::uint32_t {
     invalid_glyph,
     insufficient_buffer,
     invalid_container,
-    invalid_compressed_data
+    invalid_compressed_data,
+    verification_failed
 };
 
 struct sfnt_container_requirements final {
@@ -1184,6 +1185,12 @@ bool try_prepare_open_type_shape_configuration(
     open_type_shape_configuration& result,
     font_error* error = nullptr) noexcept;
 
+struct open_type_shape_verification_scratch final {
+    /* Separate glyph output preserves the completed run while each advertised
+     * safe fragment is reshaped. All other shaping scratch is reused. */
+    std::span<shaping_glyph> glyphs{};
+};
+
 struct open_type_shape_run_scratch final {
     std::span<unicode_grapheme_cluster> grapheme_clusters{};
     std::span<std::uint16_t> gsub_lookups{};
@@ -1199,6 +1206,9 @@ struct open_type_shape_run_scratch final {
      * ordinary run metrics and fallback marks to active gvar/CFF parity; the
      * pointer is borrowed synchronously and is never retained. */
     fallback_mark_positioning_scratch* fallback_marks = nullptr;
+    /* Required only when ShapingBufferFlags.Verify is set. Diagnostic
+     * verification is allocation-free and never retained. */
+    open_type_shape_verification_scratch* verification = nullptr;
 };
 
 struct open_type_shape_run_requirements final {
@@ -1210,6 +1220,7 @@ struct open_type_shape_run_requirements final {
     std::uint32_t script_action_capacity = 0U;
     std::uint32_t complex_script_capacity = 0U;
     std::uint32_t complex_script_index_capacity = 0U;
+    std::uint32_t verification_glyph_capacity = 0U;
 };
 
 struct open_type_shape_plan_requirements final {
@@ -1675,6 +1686,20 @@ bool try_get_open_type_shape_run_requirements(
     const open_type_shape_run_options& options,
     open_type_shape_run_requirements& result,
     font_error* error = nullptr) noexcept;
+
+/* Diagnostic equivalent of managed ShapingBufferFlags.Verify. The completed
+ * result is preserved while each advertised safe fragment is reshaped into
+ * caller-owned glyph storage. Other shaping scratch is reused synchronously;
+ * glyph flags are intentionally excluded from reconstruction comparison. */
+bool try_verify_open_type_shape_result(
+    const sfnt_font_view& font,
+    std::span<const unicode_scalar> input,
+    const open_type_shape_run_options& options,
+    std::span<const shaping_glyph> expected,
+    std::span<shaping_glyph> fragment_glyph_storage,
+    open_type_shape_run_scratch scratch,
+    font_error* error = nullptr,
+    const open_type_shape_plan* plan = nullptr) noexcept;
 
 /*
  * Allocation-free uniform-run shaping orchestration. The caller supplies the

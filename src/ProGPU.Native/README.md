@@ -556,6 +556,16 @@ to one scalar/cluster record and skips Unicode grapheme classification plus the
 common preprocessing pass for LTR Latin, matching the managed bounded fast
 path while retaining the same GSUB/GPOS, metrics, and positioned result.
 
+`ShapingBufferFlags.Verify` now also has its managed diagnostic semantics in
+native shaping. Monotone runs validate cluster order and reshape every
+advertised safe fragment into separate caller-owned glyph scratch before the
+completed result is published. The fragment pass reuses all other shaping
+scratch, keeps source indices stable, carries the bounded joining context, and
+compares glyph IDs, clusters, code points, advances, and offsets exactly while
+intentionally excluding diagnostic flags. Non-monotone runs perform no verify
+work, matching the managed early exit; insufficient scratch and reconstructed
+output mismatches remain explicit transactional failures.
+
 Native fallback accepts a bulk span of borrowed, already-parsed SFNT faces from
 the platform provider boundary. It preserves extended graphemes, tries the
 preferred face first, coalesces adjacent face runs, reports unresolved coverage

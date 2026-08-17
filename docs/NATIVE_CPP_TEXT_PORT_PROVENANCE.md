@@ -274,6 +274,22 @@ Focused synthetic cmap tests cover glyph IDs, clusters, metrics, exact scratch
 requirements, invalid final direction, invalid cluster level, and conflicting
 flags without adding allocation or a separate public policy surface.
 
+The same native shaper directly ports `OpenTypeTextShaper.VerifyShapeResult`
+from `src/ProGPU.Text/OpenTypeTextShaper.cs` at checkpoint `32bdf76b`.
+Monotone output is checked in direction order, then each boundary not marked
+unsafe-to-break is reshaped and compared with the completed run. Native keeps
+the decoded scalars' original input indices, so range features remain
+equivalent without allocating remapped feature lists; it materializes only the
+five nearest pre/post-context scalars that the ProGPU joining implementation
+can inspect. One caller-owned glyph span preserves the completed output while
+the other existing shaping scratch is reused synchronously. Verification takes
+`O(G + S)` comparison work plus the normal shaping cost `S` of every safe
+fragment (worst-case `O(G^2)` for `G` one-glyph fragments), uses `O(G)`
+caller-owned scratch and `O(1)` internal storage, and performs no heap
+allocation or managed/native crossing. Focused LTR, RTL, corruption,
+insufficient-buffer, non-monotone early-exit, public-header, and named-module
+tests cover the diagnostic contract.
+
 The raw GPOS executor now covers rule-, class-, and coverage-based Context and
 Chaining Context formats 1-3. Nested position records reuse the same borrowed
 lookup table and caller glyph/attachment buffers with a fixed 64-level cycle

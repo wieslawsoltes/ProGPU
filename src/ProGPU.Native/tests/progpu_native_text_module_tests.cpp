@@ -48,6 +48,8 @@ int main() {
     const progpu::native::text::sfnt_glyph_bounds glyph_bounds{};
     const progpu::native::text::fallback_mark_metadata fallback_mark{};
     const progpu::native::text::open_type_shape_run_options shape_options{};
+    const progpu::native::text::open_type_shape_verification_scratch
+        shape_verification{};
     const progpu::native::text::open_type_shaping_route shaping_route{};
     const progpu::native::text::open_type_feature_setting feature_setting{};
     const progpu::native::text::open_type_feature_plan_requirements
@@ -76,6 +78,8 @@ int main() {
         &progpu::native::text::try_get_open_type_shape_configuration_requirements;
     const auto shape_configuration_resolver =
         &progpu::native::text::try_prepare_open_type_shape_configuration;
+    const auto shape_result_verifier =
+        &progpu::native::text::try_verify_open_type_shape_result;
     const auto default_feature_settings =
         progpu::native::text::get_default_open_type_feature_settings();
     static_assert(progpu::native::text::sfnt_name_ids::family_name == 1U);
@@ -133,6 +137,7 @@ int main() {
         vertical_glyph.advance_height != 0U || glyph_bounds.x_min != 0 ||
         fallback_mark.ligature_component != 0xFFU ||
         shape_options.normalization_data != nullptr ||
+        !shape_verification.glyphs.empty() ||
         shape_options.unicode_script.value != 0U ||
         shaping_route.layout_script.value != 0U ||
         language_tag.value != 0x504C4B20U ||
@@ -148,6 +153,7 @@ int main() {
         requested_feature_resolver == nullptr ||
         shape_configuration_requirements_resolver == nullptr ||
         shape_configuration_resolver == nullptr ||
+        shape_result_verifier == nullptr ||
         default_feature_settings.size() != 26U ||
         shaping_route_resolver == nullptr ||
         !shape_options.pre_context.empty() ||
