@@ -1183,6 +1183,12 @@ bool try_apply_open_type_gpos_lookup(
         return false;
     }
     for (std::size_t position = 0U; position < glyphs.size(); ++position) {
+        if (options.lookup_digest != nullptr &&
+            glyphs[position].glyph_id <= 0xFFFFU &&
+            !options.lookup_digest->may_have(static_cast<std::uint16_t>(
+                glyphs[position].glyph_id))) {
+            continue;
+        }
         if (!is_eligible(
                 glyphs[position],
                 lookup.flags,

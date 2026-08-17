@@ -1810,6 +1810,10 @@ bool try_shape_open_type_run(
                         buffer_digest)) {
                     continue;
                 }
+                const auto* lookup_digest = has_accelerators &&
+                    plan->gsub_accelerators[index].has_digest
+                    ? &plan->gsub_accelerators[index].digest
+                    : nullptr;
                 if (!apply_gsub_lookup_with_feature_values(
                         gsub,
                         options,
@@ -1818,7 +1822,8 @@ bool try_shape_open_type_run(
                         glyph_count,
                         gdef_pointer,
                         error,
-                        &random_alternate_state)) {
+                        &random_alternate_state,
+                        lookup_digest)) {
                     return false;
                 }
                 if (has_accelerators) {
@@ -2118,12 +2123,17 @@ bool try_shape_open_type_run(
                     buffer_digest)) {
                 continue;
             }
+            auto lookup_apply_options = apply_options;
+            lookup_apply_options.lookup_digest = has_accelerators &&
+                plan->gpos_accelerators[index].has_digest
+                ? &plan->gpos_accelerators[index].digest
+                : nullptr;
             if (!apply_gpos_lookup_with_feature_values(
                     gpos,
                     options,
                     selected_lookups[index],
                     glyphs,
-                    apply_options,
+                    lookup_apply_options,
                     error)) {
                 return false;
             }

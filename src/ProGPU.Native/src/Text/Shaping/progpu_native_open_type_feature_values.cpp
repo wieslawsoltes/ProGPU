@@ -373,21 +373,24 @@ bool apply_gsub_lookup_with_feature_values(
     std::uint32_t& glyph_count,
     const open_type_gdef_view* gdef,
     font_error* error,
-    std::uint32_t* random_state) noexcept {
+    std::uint32_t* random_state,
+    const open_type_glyph_set_digest* lookup_digest) noexcept {
     if (options.feature_settings.empty()) {
         bool applied = false;
+        open_type_gsub_apply_options apply_options{
+            gdef,
+            options.alternate_value,
+            0U,
+            false,
+            nullptr,
+            tracks_fallback_mark_metadata(options)};
+        apply_options.lookup_digest = lookup_digest;
         return try_apply_open_type_gsub_lookup(
             gsub,
             lookup,
             glyph_storage,
             glyph_count,
-            open_type_gsub_apply_options{
-                gdef,
-                options.alternate_value,
-                0U,
-                false,
-                nullptr,
-                tracks_fallback_mark_metadata(options)},
+            apply_options,
             applied,
             error);
     }
@@ -399,18 +402,20 @@ bool apply_gsub_lookup_with_feature_values(
     if (resolution.required || !resolution.found ||
         !has_feature_settings(options, resolution.feature)) {
         bool applied = false;
+        open_type_gsub_apply_options apply_options{
+            gdef,
+            options.alternate_value,
+            0U,
+            false,
+            nullptr,
+            tracks_fallback_mark_metadata(options)};
+        apply_options.lookup_digest = lookup_digest;
         return try_apply_open_type_gsub_lookup(
             gsub,
             lookup,
             glyph_storage,
             glyph_count,
-            open_type_gsub_apply_options{
-                gdef,
-                options.alternate_value,
-                0U,
-                false,
-                nullptr,
-                tracks_fallback_mark_metadata(options)},
+            apply_options,
             applied,
             error);
     }
@@ -423,6 +428,15 @@ bool apply_gsub_lookup_with_feature_values(
     std::uint32_t iteration = reverse ? glyph_count : 0U;
     while (reverse ? iteration != 0U : iteration < glyph_count) {
         const std::uint32_t position = reverse ? --iteration : iteration;
+        if (lookup_digest != nullptr &&
+            glyph_storage[position].glyph_id <= 0xFFFFU &&
+            !lookup_digest->may_have(static_cast<std::uint16_t>(
+                glyph_storage[position].glyph_id))) {
+            if (!reverse) {
+                ++iteration;
+            }
+            continue;
+        }
         const std::uint32_t feature_value = get_feature_value(
             options, resolution.feature, glyph_storage[position].cluster);
         if (feature_value == 0U) {
@@ -491,6 +505,12 @@ bool apply_gpos_lookup_with_feature_values(
             gpos, lookup, glyphs, apply_options, applied, error);
     }
     for (std::uint32_t position = 0U; position < glyphs.size(); ++position) {
+        if (apply_options.lookup_digest != nullptr &&
+            glyphs[position].glyph_id <= 0xFFFFU &&
+            !apply_options.lookup_digest->may_have(
+                static_cast<std::uint16_t>(glyphs[position].glyph_id))) {
+            continue;
+        }
         if (get_feature_value(
                 options, resolution.feature, glyphs[position].cluster) == 0U) {
             continue;

@@ -1018,6 +1018,9 @@ struct open_type_gsub_apply_options final {
      * matched AlternateSubst at top-level lookup depth. */
     std::uint32_t* random_state = nullptr;
     bool random_alternate = false;
+    /* Optional negative-only top-level lookup accelerator. Nested lookup-at
+     * execution remains exact and does not inherit this filter. */
+    const open_type_glyph_set_digest* lookup_digest = nullptr;
 };
 
 /*
@@ -1105,6 +1108,8 @@ struct open_type_gpos_apply_options final {
     std::span<const std::int16_t> normalized_coordinates{};
     std::uint16_t pixels_per_em_x = 0U;
     std::uint16_t pixels_per_em_y = 0U;
+    /* Optional negative-only top-level lookup accelerator. */
+    const open_type_glyph_set_digest* lookup_digest = nullptr;
 };
 
 /*

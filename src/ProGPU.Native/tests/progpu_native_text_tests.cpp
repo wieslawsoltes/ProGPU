@@ -1080,6 +1080,28 @@ void open_type_gsub_basic_lookups_use_caller_owned_storage() {
     require(applied && count == 2U && glyphs[0U].glyph_id == 9U &&
         glyphs[1U].glyph_id == 7U);
 
+    open_type_glyph_set_digest single_digest{};
+    bool has_single_digest = false;
+    require(gsub.try_get_lookup_digest(
+        0U, 7U, single_digest, has_single_digest, &error));
+    require(has_single_digest);
+    glyphs = {shaping_glyph{5U, 0x66U, 0}, shaping_glyph{7U, 0x78U, 1}};
+    count = 2U;
+    open_type_gsub_apply_options accelerated{};
+    accelerated.lookup_digest = &single_digest;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, accelerated, applied, &error));
+    require(applied && glyphs[0U].glyph_id == 9U &&
+        glyphs[1U].glyph_id == 7U);
+    open_type_glyph_set_digest disjoint_digest{};
+    disjoint_digest.add(7U);
+    accelerated.lookup_digest = &disjoint_digest;
+    glyphs = {shaping_glyph{5U, 0x66U, 0}};
+    count = 1U;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, accelerated, applied, &error));
+    require(!applied && glyphs[0U].glyph_id == 5U);
+
     glyphs = {shaping_glyph{5U, 0x66U, 0}};
     count = 1U;
     open_type_gsub_apply_options gated{};
@@ -1982,6 +2004,39 @@ void open_type_gpos_single_and_pair_adjustments_are_bounded() {
         applied, &error));
     require(applied && glyphs[0U].offset_x == 4 &&
         glyphs[0U].advance_x == 8);
+
+    open_type_glyph_set_digest single_digest{};
+    bool has_single_digest = false;
+    require(gpos.try_get_lookup_digest(
+        0U, 9U, single_digest, has_single_digest, &error));
+    require(has_single_digest);
+    glyphs[0U] = shaping_glyph{
+        5U, 0U, 0, shaping_glyph_flags::none, 10, 0, 1, 0};
+    open_type_gpos_apply_options accelerated{};
+    accelerated.lookup_digest = &single_digest;
+    require(try_apply_open_type_gpos_lookup(
+        gpos,
+        0U,
+        std::span<shaping_glyph>{glyphs}.first(1U),
+        accelerated,
+        applied,
+        &error));
+    require(applied && glyphs[0U].offset_x == 4 &&
+        glyphs[0U].advance_x == 8);
+    open_type_glyph_set_digest disjoint_digest{};
+    disjoint_digest.add(7U);
+    accelerated.lookup_digest = &disjoint_digest;
+    glyphs[0U] = shaping_glyph{
+        5U, 0U, 0, shaping_glyph_flags::none, 10, 0, 1, 0};
+    require(try_apply_open_type_gpos_lookup(
+        gpos,
+        0U,
+        std::span<shaping_glyph>{glyphs}.first(1U),
+        accelerated,
+        applied,
+        &error));
+    require(!applied && glyphs[0U].offset_x == 1 &&
+        glyphs[0U].advance_x == 10);
 
     std::array<std::byte, 52U> pair{};
     write_u16(pair, 0U, 1U);

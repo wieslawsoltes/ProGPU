@@ -1357,6 +1357,12 @@ bool try_apply_open_type_gsub_lookup(
             ? glyph_count - iteration - 1U
             : iteration;
         ++iteration;
+        if (options.lookup_digest != nullptr &&
+            glyph_storage[position].glyph_id <= 0xFFFFU &&
+            !options.lookup_digest->may_have(static_cast<std::uint16_t>(
+                glyph_storage[position].glyph_id))) {
+            continue;
+        }
         if (options.required_glyph_flags != 0U &&
             (static_cast<std::uint32_t>(glyph_storage[position].flags) &
                 options.required_glyph_flags) !=

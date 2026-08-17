@@ -415,7 +415,9 @@ Reusable native shaping plans now borrow validated GSUB, GPOS, and GDEF views
 plus caller-owned selected-lookup and optional lookup-accelerator arrays. Each
 accelerator directly ports the managed three-mask glyph-set digest: a negative
 intersection skips a GSUB/GPOS lookup, while every positive result still uses
-the exact coverage parser. GSUB adds newly produced glyph IDs to the run digest
+the exact coverage parser. Positive lookup intersections also use the matching
+`MayHave` mask at each candidate start glyph before entering subtable parsing.
+GSUB adds newly produced glyph IDs to the run digest
 after each applied lookup, preserving later-lookup dependencies without a
 rescan allocation. A plan is keyed by the exact font
 buffer/face, script, language, ordered requested-feature hash, and ordered
