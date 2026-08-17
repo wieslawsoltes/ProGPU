@@ -606,6 +606,10 @@ is bounded by the checked-in policy size.
 Provider style scoring also preserves the managed `FontManager` rule that
 italic and oblique belong to the same non-upright class; weight and width break
 ties inside that class instead of incorrectly preferring the exact slant enum.
+Provider coverage now matches `FontManager.CanRenderGlyph` rather than treating
+every nonzero cmap entry as drawable: native selection verifies TrueType/CFF
+outlines, COLR/OpenType-SVG layers, or sbix/CBDT bitmap data and retains the
+managed no-outline allowance for control, format, and separator scalars.
 
 Positioned native line layout consumes already-shaped visual-order glyphs and
 caller-supplied break decisions, preserving the managed ProGPU separation

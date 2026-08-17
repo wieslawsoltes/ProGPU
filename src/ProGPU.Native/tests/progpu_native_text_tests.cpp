@@ -5393,8 +5393,8 @@ void native_font_fallback_family_preferences_match_managed_policy() {
 }
 
 void native_font_provider_cache_is_borrowed_and_generation_safe() {
-    constexpr std::array regular_mappings{std::pair{0x41U, 2U}};
-    constexpr std::array bold_mappings{std::pair{0x41U, 3U}};
+    constexpr std::array regular_mappings{std::pair{0x41U, 4U}};
+    constexpr std::array bold_mappings{std::pair{0x41U, 4U}};
     const auto regular_cmap = make_cmap_groups(regular_mappings);
     const auto bold_cmap = make_cmap_groups(bold_mappings);
     const auto regular = make_font(
@@ -5488,6 +5488,50 @@ void native_font_provider_cache_is_borrowed_and_generation_safe() {
         slant_provider, 9U, 500U, 5U, font_provider_slant::normal, 0x41U,
         slant_cache, slant_cursor, result, &error));
     require(result.found && result.face.identity == 12U);
+
+    constexpr std::array empty_mappings{std::pair{0x41U, 2U}};
+    constexpr std::array space_mappings{std::pair{0x20U, 2U}};
+    const auto empty_cmap = make_cmap_groups(empty_mappings);
+    const auto space_cmap = make_cmap_groups(space_mappings);
+    const auto empty = make_font(
+        0U, 22U, 0U, false, false, false, {}, empty_cmap);
+    const auto space = make_font(
+        0U, 22U, 0U, false, false, false, {}, space_cmap);
+    struct coverage_provider_context final {
+        std::array<font_provider_face, 3U> faces{};
+    } coverage_context{
+        std::array{
+            font_provider_face{empty, 20U, 10U, 0U, 400U, 5U,
+                font_provider_slant::normal},
+            font_provider_face{regular, 21U, 10U, 0U, 400U, 5U,
+                font_provider_slant::normal},
+            font_provider_face{space, 22U, 11U, 0U, 400U, 5U,
+                font_provider_slant::normal}}};
+    const auto coverage_count = +[](void* value) noexcept -> std::uint32_t {
+        return static_cast<std::uint32_t>(
+            static_cast<coverage_provider_context*>(value)->faces.size());
+    };
+    const auto coverage_get =
+        +[](void* value, std::uint32_t index,
+            font_provider_face& face) noexcept -> bool {
+        const auto& source =
+            *static_cast<coverage_provider_context*>(value);
+        if (index >= source.faces.size()) return false;
+        face = source.faces[index];
+        return true;
+    };
+    const font_provider_view coverage_provider{
+        &coverage_context, 1U, coverage_count, coverage_get};
+    std::array<font_provider_cache_entry, 2U> coverage_cache{};
+    std::uint32_t coverage_cursor = 0U;
+    require(try_resolve_font_provider_face(
+        coverage_provider, 10U, 400U, 5U, font_provider_slant::normal, 0x41U,
+        coverage_cache, coverage_cursor, result, &error));
+    require(result.found && result.face.identity == 21U);
+    require(try_resolve_font_provider_face(
+        coverage_provider, 11U, 400U, 5U, font_provider_slant::normal, 0x20U,
+        coverage_cache, coverage_cursor, result, &error));
+    require(result.found && result.face.identity == 22U);
 }
 
 void native_positioned_text_layout_wraps_without_allocation() {

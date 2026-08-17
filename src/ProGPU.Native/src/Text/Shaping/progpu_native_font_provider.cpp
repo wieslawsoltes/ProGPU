@@ -71,7 +71,43 @@ bool try_open_candidate(
         return false;
     }
     std::uint16_t glyph = 0U;
-    return font.try_get_glyph_index(code_point, glyph) && glyph != 0U;
+    if (!font.try_get_glyph_index(code_point, glyph) || glyph == 0U) {
+        return false;
+    }
+
+    sfnt_glyph_data_view true_type{};
+    if (font.try_get_glyph_data(glyph, true_type) && !true_type.empty()) {
+        return true;
+    }
+    sfnt_glyph_outline_bounds_requirements outline{};
+    ignored = font_error::none;
+    if (font.try_get_outline_bounds_requirements(glyph, {}, outline, &ignored) &&
+        (outline.source == sfnt_glyph_outline_source::cff1 ||
+            outline.source == sfnt_glyph_outline_source::cff2) &&
+        outline.path_segment_count != 0U) {
+        return true;
+    }
+    std::uint16_t layer_count = 0U;
+    if (font.try_get_colr_layer_count(glyph, layer_count, &ignored) &&
+        layer_count != 0U) {
+        return true;
+    }
+    sfnt_svg_glyph_document_view svg{};
+    if (font.try_get_svg_glyph_document(glyph, svg, &ignored) &&
+        !svg.bytes.empty()) {
+        return true;
+    }
+    sfnt_bitmap_glyph_data_view bitmap{};
+    if (font.try_get_sbix_glyph(glyph, 64.0F, bitmap, &ignored) ||
+        font.try_get_cbdt_glyph(glyph, 64.0F, bitmap, &ignored)) {
+        return true;
+    }
+    const auto category = get_unicode_general_category(code_point);
+    return category == unicode_general_category::control ||
+        category == unicode_general_category::format ||
+        category == unicode_general_category::space_separator ||
+        category == unicode_general_category::line_separator ||
+        category == unicode_general_category::paragraph_separator;
 }
 
 void store_cache(

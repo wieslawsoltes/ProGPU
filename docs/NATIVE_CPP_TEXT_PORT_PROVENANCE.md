@@ -369,6 +369,13 @@ The adjacent provider score now matches `FontManager.GetStyleDistance` exactly
 for slant classification: upright differs from non-upright by 10,000, while
 italic and oblique are equivalent and defer to width/weight distance. A focused
 provider fixture distinguishes this behavior from exact-enum matching.
+Candidate coverage also ports `FontManager.CanRenderGlyph`: a nonzero cmap
+mapping is accepted only when the borrowed face exposes outline, color/SVG, or
+bitmap content, except for the same Unicode control/format/separator categories
+that intentionally have no pixels. Synthetic provider tests prove that an
+empty mapped glyph is skipped for a later drawable face while a mapped space
+remains eligible. All probes are bounded borrowed-table reads with no decode
+allocation or managed callback.
 
 ## Delivered borrowed SFNT/TTC foundation
 
