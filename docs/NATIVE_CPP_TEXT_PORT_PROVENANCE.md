@@ -1306,6 +1306,16 @@ tests and covers base selection, inclusive lower/upper axis bounds, outside
 fallback, alternate lookup membership, plan-coordinate mismatch, C++20 named
 module compilation, and ASan/UBSan execution.
 
+The managed CPU selector, managed GPU-plan compiler, and native selector also
+share the two edge rules required by the official
+[OpenType 1.9.1 common layout specification](https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2#feature-variations):
+a zero ConditionSet offset is the universal condition, while an unsupported
+FeatureTableSubstitution version rejects only that candidate and continues to
+the next variation record. This is a ProGPU conformance correction rather than
+foreign implementation reuse. Matched managed/native fixtures cover universal
+selection and the native borrowed parser additionally covers unsupported-first
+fall-through.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

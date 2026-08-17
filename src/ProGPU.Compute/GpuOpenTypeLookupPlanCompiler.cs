@@ -311,12 +311,19 @@ public static class GpuOpenTypeLookupPlanCompiler
             if (conditionRelative > int.MaxValue - featureVariations ||
                 substitutionRelative > int.MaxValue - featureVariations)
                 continue;
-            int conditionSet = featureVariations + checked((int)conditionRelative);
-            if (!MatchesFeatureVariationConditions(data, conditionSet, tableEnd, coordinates)) continue;
+            if (conditionRelative != 0 &&
+                !MatchesFeatureVariationConditions(
+                    data,
+                    featureVariations + checked((int)conditionRelative),
+                    tableEnd,
+                    coordinates))
+                continue;
+            if (substitutionRelative == 0) return [];
             int substitution = featureVariations + checked((int)substitutionRelative);
-            if (!CanReadInTable(data, substitution, 6, tableEnd) ||
-                ReadU16(data, substitution) != 1 || ReadU16(data, substitution + 2) != 0)
+            if (!CanReadInTable(data, substitution, 6, tableEnd))
                 return null;
+            if (ReadU16(data, substitution) != 1 || ReadU16(data, substitution + 2) != 0)
+                continue;
             ushort count = ReadU16(data, substitution + 4);
             if (!CanReadInTable(data, substitution + 6, count * 6, tableEnd)) return null;
             var result = new Dictionary<ushort, int>(count);

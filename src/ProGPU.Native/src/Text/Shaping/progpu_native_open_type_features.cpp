@@ -163,26 +163,36 @@ std::size_t find_feature_substitution_table(
     for (std::uint32_t index = 0U; index < count; ++index) {
         const std::size_t record = feature_variations + 8U +
             static_cast<std::size_t>(index) * 8U;
+        const std::uint32_t condition_relative = read_u32(table, record);
         std::size_t condition_set = 0U;
-        if (!try_add(
-                feature_variations,
-                read_u32(table, record),
-                condition_set) ||
-            !matches_feature_variation_conditions(
-                table,
-                condition_set,
-                normalized_coordinates)) {
+        const bool conditions_match = condition_relative == 0U ||
+            (try_add(
+                    feature_variations,
+                    condition_relative,
+                    condition_set) &&
+                matches_feature_variation_conditions(
+                    table,
+                    condition_set,
+                    normalized_coordinates));
+        if (!conditions_match) {
             continue;
+        }
+        const std::uint32_t substitution_relative =
+            read_u32(table, record + 4U);
+        if (substitution_relative == 0U) {
+            return 0U;
         }
         std::size_t substitutions = 0U;
         if (!try_add(
                 feature_variations,
-                read_u32(table, record + 4U),
+                substitution_relative,
                 substitutions) ||
-            !can_read(table, substitutions, 6U) ||
-            read_u16(table, substitutions) != 1U ||
-            read_u16(table, substitutions + 2U) != 0U) {
+            !can_read(table, substitutions, 6U)) {
             return 0U;
+        }
+        if (read_u16(table, substitutions) != 1U ||
+            read_u16(table, substitutions + 2U) != 0U) {
+            continue;
         }
         const std::uint16_t substitution_count =
             read_u16(table, substitutions + 4U);

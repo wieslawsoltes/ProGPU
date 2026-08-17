@@ -1727,22 +1727,23 @@ void open_type_feature_variations_match_managed_lookup_selection() {
     // Exact native fixture for the ProGPU-owned FeatureVariationFontFace GSUB
     // in ShapingContractsTests.cs at checkpoint bd056100.
     std::array<std::byte, 116U> layout{};
-    const auto write32 = [&layout](
+    const auto write32 = []<typename T>(
+        T& bytes,
         std::size_t offset,
         std::uint32_t value) noexcept {
-        layout[offset] = static_cast<std::byte>(value >> 24U);
-        layout[offset + 1U] = static_cast<std::byte>(value >> 16U);
-        layout[offset + 2U] = static_cast<std::byte>(value >> 8U);
-        layout[offset + 3U] = static_cast<std::byte>(value);
+        bytes[offset] = static_cast<std::byte>(value >> 24U);
+        bytes[offset + 1U] = static_cast<std::byte>(value >> 16U);
+        bytes[offset + 2U] = static_cast<std::byte>(value >> 8U);
+        bytes[offset + 3U] = static_cast<std::byte>(value);
     };
     write_u16(layout, 0U, 1U);
     write_u16(layout, 2U, 1U);
     write_u16(layout, 4U, 14U);
     write_u16(layout, 6U, 34U);
     write_u16(layout, 8U, 50U);
-    write32(10U, 68U);
+    write32(layout, 10U, 68U);
     write_u16(layout, 14U, 1U);
-    write32(16U, 0x44464C54U);
+    write32(layout, 16U, 0x44464C54U);
     write_u16(layout, 20U, 8U);
     write_u16(layout, 22U, 4U);
     write_u16(layout, 24U, 0U);
@@ -1751,7 +1752,7 @@ void open_type_feature_variations_match_managed_lookup_selection() {
     write_u16(layout, 30U, 1U);
     write_u16(layout, 32U, 0U);
     write_u16(layout, 34U, 1U);
-    write32(36U, 0x6C696761U);
+    write32(layout, 36U, 0x6C696761U);
     write_u16(layout, 40U, 10U);
     write_u16(layout, 44U, 0U);
     write_u16(layout, 46U, 1U);
@@ -1767,11 +1768,11 @@ void open_type_feature_variations_match_managed_lookup_selection() {
     write_u16(layout, 66U, 0U);
     write_u16(layout, 68U, 1U);
     write_u16(layout, 70U, 0U);
-    write32(72U, 1U);
-    write32(76U, 16U);
-    write32(80U, 30U);
+    write32(layout, 72U, 1U);
+    write32(layout, 76U, 16U);
+    write32(layout, 80U, 30U);
     write_u16(layout, 84U, 1U);
-    write32(86U, 6U);
+    write32(layout, 86U, 6U);
     write_u16(layout, 90U, 1U);
     write_u16(layout, 92U, 0U);
     write_u16(layout, 94U, 0x2000U);
@@ -1780,7 +1781,7 @@ void open_type_feature_variations_match_managed_lookup_selection() {
     write_u16(layout, 100U, 0U);
     write_u16(layout, 102U, 1U);
     write_u16(layout, 104U, 0U);
-    write32(106U, 12U);
+    write32(layout, 106U, 12U);
     write_u16(layout, 110U, 0U);
     write_u16(layout, 112U, 1U);
     write_u16(layout, 114U, 1U);
@@ -1846,6 +1847,59 @@ void open_type_feature_variations_match_managed_lookup_selection() {
         written,
         &error));
     require(written == 1U && selected[0U] == 0U);
+
+    auto universal = layout;
+    write32(universal, 76U, 0U);
+    require(open_type_layout_table_view::try_create(
+        universal, table, &error));
+    selected.fill(99U);
+    require(table.try_select_lookups(
+        open_type_tag::from_chars('D', 'F', 'L', 'T'),
+        {},
+        requested,
+        selected,
+        written,
+        &error));
+    require(written == 1U && selected[0U] == 1U);
+
+    std::array<std::byte, 130U> unsupported_first{};
+    std::copy_n(layout.begin(), 68U, unsupported_first.begin());
+    write_u16(unsupported_first, 68U, 1U);
+    write_u16(unsupported_first, 70U, 0U);
+    write32(unsupported_first, 72U, 2U);
+    write32(unsupported_first, 76U, 0U);
+    write32(unsupported_first, 80U, 56U);
+    write32(unsupported_first, 84U, 24U);
+    write32(unsupported_first, 88U, 38U);
+    write_u16(unsupported_first, 92U, 1U);
+    write32(unsupported_first, 94U, 6U);
+    write_u16(unsupported_first, 98U, 1U);
+    write_u16(unsupported_first, 100U, 0U);
+    write_u16(unsupported_first, 102U, 0x2000U);
+    write_u16(unsupported_first, 104U, 0x4000U);
+    write_u16(unsupported_first, 106U, 1U);
+    write_u16(unsupported_first, 108U, 0U);
+    write_u16(unsupported_first, 110U, 1U);
+    write_u16(unsupported_first, 112U, 0U);
+    write32(unsupported_first, 114U, 12U);
+    write_u16(unsupported_first, 118U, 0U);
+    write_u16(unsupported_first, 120U, 1U);
+    write_u16(unsupported_first, 122U, 1U);
+    write_u16(unsupported_first, 124U, 2U);
+    write_u16(unsupported_first, 126U, 0U);
+    write_u16(unsupported_first, 128U, 0U);
+    require(open_type_layout_table_view::try_create(
+        unsupported_first, table, &error));
+    selected.fill(99U);
+    require(table.try_select_lookups(
+        open_type_tag::from_chars('D', 'F', 'L', 'T'),
+        {},
+        requested,
+        matching,
+        selected,
+        written,
+        &error));
+    require(written == 1U && selected[0U] == 1U);
 }
 
 void open_type_gpos_single_and_pair_adjustments_are_bounded() {
