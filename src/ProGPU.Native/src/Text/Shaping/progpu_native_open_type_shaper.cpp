@@ -12,6 +12,7 @@
 #include "progpu_native_arabic_fallback_internal.hpp"
 #include "progpu_native_space_fallback_internal.hpp"
 #include "progpu_native_vowel_constraints_internal.hpp"
+#include "progpu_native_shaping_options_internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -206,6 +207,24 @@ bool may_expand_preprocessing(
 bool is_variation_selector(std::uint32_t code_point) noexcept {
     return (code_point >= 0xFE00U && code_point <= 0xFE0FU) ||
         (code_point >= 0xE0100U && code_point <= 0xE01EFU);
+}
+
+bool is_printable_ascii(std::span<const unicode_scalar> input) noexcept {
+    return std::all_of(input.begin(), input.end(), [](const auto& scalar) {
+        return scalar.code_point >= 0x20U && scalar.code_point <= 0x7EU;
+    });
+}
+
+void write_ascii_graphemes(
+    std::span<const unicode_scalar> input,
+    std::span<unicode_grapheme_cluster> output) noexcept {
+    for (std::size_t index = 0U; index < input.size(); ++index) {
+        output[index] = unicode_grapheme_cluster{
+            input[index].input_index,
+            input[index].input_length,
+            static_cast<std::uint32_t>(index),
+            1U};
+    }
 }
 
 hangul_feature get_hangul_feature(const shaping_glyph& glyph) noexcept {
@@ -914,14 +933,16 @@ bool try_get_open_type_shape_run_requirements(
         !try_get_layout(font, gpos_tag, gpos, gpos_length, error)) {
         return false;
     }
-    std::uint32_t grapheme_count = 0U;
-    unicode_error unicode_result = unicode_error::none;
-    if (!try_get_unicode_grapheme_cluster_count(
-            input, grapheme_count, &unicode_result)) {
-        set_error(error, font_error::invalid_argument);
-        return false;
-    }
     const std::uint32_t input_count = static_cast<std::uint32_t>(input.size());
+    std::uint32_t grapheme_count = input_count;
+    if (!is_printable_ascii(input)) {
+        unicode_error unicode_result = unicode_error::none;
+        if (!try_get_unicode_grapheme_cluster_count(
+                input, grapheme_count, &unicode_result)) {
+            set_error(error, font_error::invalid_argument);
+            return false;
+        }
+    }
     result = open_type_shape_run_requirements{
         input_count,
         input_count * 3U,
@@ -941,6 +962,15 @@ bool try_get_open_type_shape_run_requirements(
     const open_type_shape_run_options& options,
     open_type_shape_run_requirements& result,
     font_error* error) noexcept {
+    if (!detail::valid_shaping_options(
+            options.direction,
+            options.cluster_level,
+            options.buffer_flags,
+            false)) {
+        result = {};
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
     if (!try_get_open_type_shape_run_requirements(
             font, input, result, error)) {
         return false;
@@ -1037,6 +1067,11 @@ bool try_shape_open_type_run(
         return false;
     }
     const auto unicode_script = effective_unicode_script(options);
+    const bool simple_latin =
+        options.direction == shaping_direction::left_to_right &&
+        unicode_script == open_type_tag::from_chars('l', 'a', 't', 'n') &&
+        options.complex_script == open_type_complex_script::none &&
+        is_printable_ascii(input);
     const bool arabic_joining = uses_arabic_joining(unicode_script);
     const bool hangul = uses_hangul(unicode_script);
     const bool complex_script =
@@ -1118,15 +1153,22 @@ bool try_shape_open_type_run(
         }
     }
 
-    std::uint32_t grapheme_count = 0U;
-    unicode_error unicode_result = unicode_error::none;
-    if (!try_segment_unicode_graphemes(
+    std::uint32_t grapheme_count = requirements.grapheme_capacity;
+    if (is_printable_ascii(input)) {
+        write_ascii_graphemes(
             input,
-            scratch.grapheme_clusters.first(requirements.grapheme_capacity),
-            grapheme_count,
-            &unicode_result)) {
-        set_error(error, font_error::invalid_argument);
-        return false;
+            scratch.grapheme_clusters.first(requirements.grapheme_capacity));
+    } else {
+        unicode_error unicode_result = unicode_error::none;
+        if (!try_segment_unicode_graphemes(
+                input,
+                scratch.grapheme_clusters.first(
+                    requirements.grapheme_capacity),
+                grapheme_count,
+                &unicode_result)) {
+            set_error(error, font_error::invalid_argument);
+            return false;
+        }
     }
     if (arabic_joining) {
         std::uint32_t action_count = 0U;
@@ -1248,7 +1290,7 @@ bool try_shape_open_type_run(
             }
         }
     }
-    if (!try_apply_directional_code_point_fallback(
+    if (!simple_latin && !try_apply_directional_code_point_fallback(
             font,
             glyph_storage.first(glyph_count),
             options.direction,
@@ -1258,7 +1300,7 @@ bool try_shape_open_type_run(
         return false;
     }
 
-    if (!try_preprocess_open_type_glyphs(
+    if (!simple_latin && !try_preprocess_open_type_glyphs(
             font,
             unicode_script,
             options.cluster_level,

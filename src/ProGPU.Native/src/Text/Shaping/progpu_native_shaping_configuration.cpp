@@ -1,5 +1,7 @@
 #include "progpu_native_text.hpp"
 
+#include "progpu_native_shaping_options_internal.hpp"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -52,6 +54,14 @@ bool try_get_open_type_shape_configuration_requirements(
     open_type_shape_configuration_requirements& result,
     font_error* error) noexcept {
     result = {};
+    if (!detail::valid_shaping_options(
+            request.direction,
+            request.cluster_level,
+            request.buffer_flags,
+            true)) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
     open_type_requested_feature_requirements feature_requirements{};
     if (!try_get_open_type_requested_feature_requirements(
             request.features, feature_requirements, error)) return false;

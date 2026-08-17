@@ -3720,6 +3720,102 @@ void open_type_shape_configuration_connects_managed_planning_stages() {
         explicit_tags.front() == tag('z', 'z', 'z', 'z') &&
         requested.front() == tag('z', 'z', 'z', 'z') &&
         settings.front().value == 9U);
+
+    auto invalid_request = request;
+    invalid_request.cluster_level =
+        static_cast<shaping_cluster_level>(99U);
+    requirements = open_type_shape_configuration_requirements{
+        99U, 99U, 99U, 99U};
+    require(!try_get_open_type_shape_configuration_requirements(
+        font, input, invalid_request, requirements, &error));
+    require(error == font_error::invalid_argument &&
+        requirements.base_feature_capacity == 0U);
+    invalid_request = request;
+    invalid_request.buffer_flags = static_cast<shaping_buffer_flags>(
+        static_cast<std::uint8_t>(
+            shaping_buffer_flags::preserve_default_ignorables) |
+        static_cast<std::uint8_t>(
+            shaping_buffer_flags::remove_default_ignorables));
+    require(!try_get_open_type_shape_configuration_requirements(
+        font, input, invalid_request, requirements, &error));
+    require(error == font_error::invalid_argument);
+}
+
+void open_type_printable_ascii_matches_managed_fast_path() {
+    constexpr auto tag = [](char a, char b, char c, char d) {
+        return open_type_tag::from_chars(a, b, c, d);
+    };
+    constexpr std::array mappings{
+        std::pair{0x20U, 1U},
+        std::pair{0x41U, 2U},
+        std::pair{0x56U, 3U}};
+    const auto cmap = make_cmap_groups(mappings);
+    const auto data = make_font(
+        0U, 22U, 0U, false, false, false, {}, cmap);
+    sfnt_font_view font{};
+    font_error error = font_error::invalid_argument;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+    constexpr std::array input{
+        unicode_scalar{0x41U, 0U, 1U},
+        unicode_scalar{0x20U, 1U, 1U},
+        unicode_scalar{0x56U, 2U, 1U}};
+    auto options = open_type_shape_run_options{};
+    options.script = tag('l', 'a', 't', 'n');
+    options.unicode_script = tag('l', 'a', 't', 'n');
+    open_type_shape_run_requirements requirements{};
+    require(try_get_open_type_shape_run_requirements(
+        font, input, options, requirements, &error));
+    require(error == font_error::none &&
+        requirements.initial_glyph_count == input.size() &&
+        requirements.grapheme_capacity == input.size());
+
+    std::vector<shaping_glyph> glyphs(requirements.glyph_capacity);
+    std::vector<unicode_grapheme_cluster> graphemes(
+        requirements.grapheme_capacity);
+    std::vector<shaping_attachment> attachments(
+        requirements.glyph_capacity);
+    std::vector<std::uint8_t> states(requirements.glyph_capacity);
+    std::uint32_t glyph_count = 0U;
+    require(try_shape_open_type_run(
+        font,
+        input,
+        options,
+        glyphs,
+        open_type_shape_run_scratch{
+            graphemes, {}, {}, attachments, states},
+        glyph_count,
+        &error));
+    require(error == font_error::none && glyph_count == input.size() &&
+        glyphs[0U].glyph_id == 2U && glyphs[0U].code_point == 0x41U &&
+        glyphs[0U].cluster == 0 && glyphs[0U].advance_x == 600 &&
+        glyphs[1U].glyph_id == 1U && glyphs[1U].code_point == 0x20U &&
+        glyphs[1U].cluster == 1 && glyphs[1U].advance_x == 600 &&
+        glyphs[2U].glyph_id == 3U && glyphs[2U].code_point == 0x56U &&
+        glyphs[2U].cluster == 2 && glyphs[2U].advance_x == 600 &&
+        graphemes[0U].input_index == 0U &&
+        graphemes[0U].input_length == 1U &&
+        graphemes[0U].scalar_index == 0U &&
+        graphemes[0U].scalar_count == 1U &&
+        graphemes[1U].input_index == 1U &&
+        graphemes[1U].scalar_index == 1U &&
+        graphemes[2U].input_index == 2U &&
+        graphemes[2U].scalar_index == 2U);
+
+    auto invalid_options = options;
+    invalid_options.direction = shaping_direction::unspecified;
+    require(!try_get_open_type_shape_run_requirements(
+        font, input, invalid_options, requirements, &error));
+    require(error == font_error::invalid_argument &&
+        requirements.glyph_capacity == 0U);
+    invalid_options = options;
+    invalid_options.buffer_flags = static_cast<shaping_buffer_flags>(
+        static_cast<std::uint8_t>(
+            shaping_buffer_flags::preserve_default_ignorables) |
+        static_cast<std::uint8_t>(
+            shaping_buffer_flags::remove_default_ignorables));
+    require(!try_get_open_type_shape_run_requirements(
+        font, input, invalid_options, requirements, &error));
+    require(error == font_error::invalid_argument);
 }
 
 void open_type_common_preprocessing_matches_managed_stages() {
@@ -9332,6 +9428,7 @@ int main() {
     open_type_feature_plan_matches_managed_script_and_direction_policy();
     open_type_requested_features_match_managed_cpu_shaper_normalization();
     open_type_shape_configuration_connects_managed_planning_stages();
+    open_type_printable_ascii_matches_managed_fast_path();
     open_type_common_preprocessing_matches_managed_stages();
     directional_code_point_fallback_matches_managed_stages();
     special_space_fallback_matches_managed_metrics();

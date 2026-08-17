@@ -262,6 +262,18 @@ decoded scalars, the small feature set `F`, and `S` ScriptList records, with
 inactive-zero-range, exact-capacity, short-buffer, header, named-module, and
 Emscripten link tests cover the composed boundary.
 
+`Text/Shaping/progpu_native_open_type_shaper.cpp` also ports the printable-
+ASCII construction and `ShapeCore` fast-path decision from
+`src/ProGPU.Text/OpenTypeTextShaper.cs` at checkpoint `6080ae0f`. ASCII input
+is mapped directly to one caller-owned grapheme record per decoded scalar in
+`O(U)` time, and LTR `latn` runs skip common Unicode preprocessing exactly as
+managed shaping does; GSUB/GPOS, advances, and positioning remain unchanged.
+The adjacent internal validation helper ports the managed `ShapingRequest`
+direction, cluster-level, and mutually exclusive default-ignorable policy.
+Focused synthetic cmap tests cover glyph IDs, clusters, metrics, exact scratch
+requirements, invalid final direction, invalid cluster level, and conflicting
+flags without adding allocation or a separate public policy surface.
+
 The raw GPOS executor now covers rule-, class-, and coverage-based Context and
 Chaining Context formats 1-3. Nested position records reuse the same borrowed
 lookup table and caller glyph/attachment buffers with a fixed 64-level cycle

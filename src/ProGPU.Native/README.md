@@ -547,6 +547,15 @@ The implementation directly composes the ProGPU-owned managed planning code
 and granular native ports at checkpoint `9089d6ca`; it does not introduce a
 parallel shaping policy or per-feature managed/native crossings.
 
+Native shaping now also shares the managed request validation and printable-
+ASCII fast path. Final run options reject an unresolved direction, an unknown
+cluster level, or simultaneous preserve/remove-default-ignorable flags before
+touching output; the higher-level configuration request may still ask route
+selection to resolve an unspecified direction. Printable ASCII maps directly
+to one scalar/cluster record and skips Unicode grapheme classification plus the
+common preprocessing pass for LTR Latin, matching the managed bounded fast
+path while retaining the same GSUB/GPOS, metrics, and positioned result.
+
 Native fallback accepts a bulk span of borrowed, already-parsed SFNT faces from
 the platform provider boundary. It preserves extended graphemes, tries the
 preferred face first, coalesces adjacent face runs, reports unresolved coverage
