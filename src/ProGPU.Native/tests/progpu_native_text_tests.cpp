@@ -91,6 +91,11 @@ using progpu::native::text::open_type_shape_run_options;
 using progpu::native::text::open_type_complex_script;
 using progpu::native::text::open_type_shaping_route;
 using progpu::native::text::try_resolve_open_type_shaping_route;
+using progpu::native::text::open_type_feature_setting;
+using progpu::native::text::open_type_feature_plan_requirements;
+using progpu::native::text::get_default_open_type_feature_settings;
+using progpu::native::text::try_get_open_type_feature_plan_requirements;
+using progpu::native::text::try_resolve_open_type_feature_plan;
 using progpu::native::text::open_type_shape_run_scratch;
 using progpu::native::text::open_type_shape_run_requirements;
 using progpu::native::text::try_get_open_type_shape_run_requirements;
@@ -3287,6 +3292,183 @@ void open_type_shaping_route_matches_managed_plan_selection() {
     require(error == font_error::invalid_argument &&
         route.unicode_script.value == 0U &&
         untouched.unicode_script.value != 0U);
+}
+
+void open_type_feature_plan_matches_managed_script_and_direction_policy() {
+    constexpr auto feature = [](char a, char b, char c, char d) {
+        return open_type_tag::from_chars(a, b, c, d);
+    };
+    const auto defaults = get_default_open_type_feature_settings();
+    require(defaults.size() == 26U &&
+        defaults.front().tag == feature('r', 'v', 'r', 'n') &&
+        defaults.back().tag == feature('r', 'a', 'n', 'd') &&
+        defaults.back().value == 0xFFFFU);
+
+    std::array<open_type_tag, 128U> requested{};
+    std::array<shaping_feature, 128U> settings{};
+    std::uint32_t requested_written = 0U;
+    std::uint32_t settings_written = 0U;
+    font_error error = font_error::invalid_argument;
+    open_type_feature_plan_requirements requirements{};
+    open_type_shaping_route route{
+        feature('l', 'a', 't', 'n'),
+        feature('l', 'a', 't', 'n'),
+        shaping_direction::left_to_right};
+    require(try_get_open_type_feature_plan_requirements(
+        route, defaults, requirements, &error));
+    require(requirements.requested_feature_capacity == 28U &&
+        requirements.feature_setting_capacity == 28U);
+    require(try_resolve_open_type_feature_plan(
+        route,
+        defaults,
+        {},
+        requested,
+        settings,
+        requested_written,
+        settings_written,
+        &error));
+    require(error == font_error::none && requested_written == 28U &&
+        settings_written == 1U &&
+        requested[0U] == feature('l', 't', 'r', 'a') &&
+        requested[1U] == feature('l', 't', 'r', 'm') &&
+        requested[2U] == feature('r', 'v', 'r', 'n') &&
+        settings[0U].tag == feature('r', 'a', 'n', 'd') &&
+        settings[0U].value == 0xFFFFU);
+
+    route.direction = shaping_direction::top_to_bottom;
+    require(try_resolve_open_type_feature_plan(
+        route,
+        defaults,
+        {},
+        requested,
+        settings,
+        requested_written,
+        settings_written,
+        &error));
+    require(requested_written == 28U && settings_written == 1U &&
+        requested[0U] == feature('v', 'e', 'r', 't') &&
+        requested[1U] == feature('v', 'r', 't', '2') &&
+        requested[2U] == feature('v', 'k', 'r', 'n') &&
+        std::find(requested.begin(), requested.begin() + requested_written,
+            feature('k', 'e', 'r', 'n')) ==
+            requested.begin() + requested_written);
+
+    route = open_type_shaping_route{
+        feature('k', 'h', 'm', 'r'),
+        feature('k', 'h', 'm', 'r'),
+        shaping_direction::left_to_right,
+        open_type_complex_script::khmer,
+        false,
+        false,
+        true};
+    require(try_resolve_open_type_feature_plan(
+        route,
+        defaults,
+        {},
+        requested,
+        settings,
+        requested_written,
+        settings_written,
+        &error));
+    const auto find_setting = [&](open_type_tag tag) {
+        return std::find_if(
+            settings.begin(),
+            settings.begin() + settings_written,
+            [tag](const shaping_feature& item) { return item.tag == tag; });
+    };
+    require(requested[0U] == feature('l', 't', 'r', 'a') &&
+        requested[2U] == feature('r', 'v', 'r', 'n') &&
+        std::find(requested.begin(), requested.begin() + requested_written,
+            feature('c', 'f', 'a', 'r')) !=
+            requested.begin() + requested_written);
+    const auto disabled_khmer_liga = find_setting(feature('l', 'i', 'g', 'a'));
+    require(disabled_khmer_liga != settings.begin() + settings_written &&
+        disabled_khmer_liga->value == 0U);
+
+    constexpr std::array explicit_liga{feature('l', 'i', 'g', 'a')};
+    require(try_resolve_open_type_feature_plan(
+        route,
+        defaults,
+        explicit_liga,
+        requested,
+        settings,
+        requested_written,
+        settings_written,
+        &error));
+    require(find_setting(feature('l', 'i', 'g', 'a')) ==
+        settings.begin() + settings_written);
+
+    constexpr std::array indic_base{
+        open_type_feature_setting{feature('l', 'i', 'g', 'a'), 7U},
+        open_type_feature_setting{feature('k', 'e', 'r', 'n'), 3U}};
+    route = open_type_shaping_route{
+        feature('d', 'e', 'v', 'a'),
+        feature('d', 'e', 'v', '2'),
+        shaping_direction::left_to_right,
+        open_type_complex_script::indic,
+        false,
+        true};
+    require(try_resolve_open_type_feature_plan(
+        route,
+        indic_base,
+        explicit_liga,
+        requested,
+        settings,
+        requested_written,
+        settings_written,
+        &error));
+    const auto disabled_indic_liga = find_setting(feature('l', 'i', 'g', 'a'));
+    require(disabled_indic_liga != settings.begin() + settings_written &&
+        disabled_indic_liga->value == 0U);
+
+    constexpr std::array arabic_base{
+        open_type_feature_setting{feature('s', 't', 'c', 'h'), 4U},
+        open_type_feature_setting{feature('k', 'e', 'r', 'n'), 1U}};
+    route = open_type_shaping_route{
+        feature('a', 'r', 'a', 'b'),
+        feature('a', 'r', 'a', 'b'),
+        shaping_direction::right_to_left,
+        open_type_complex_script::none,
+        false,
+        false,
+        false,
+        false,
+        true};
+    require(try_resolve_open_type_feature_plan(
+        route,
+        arabic_base,
+        {},
+        requested,
+        settings,
+        requested_written,
+        settings_written,
+        &error));
+    const auto custom_stch = find_setting(feature('s', 't', 'c', 'h'));
+    require(requested[0U] == feature('r', 't', 'l', 'a') &&
+        requested[1U] == feature('r', 't', 'l', 'm') &&
+        custom_stch != settings.begin() + settings_written &&
+        custom_stch->value == 4U &&
+        std::find(requested.begin(), requested.begin() + requested_written,
+            feature('m', 's', 'e', 't')) !=
+            requested.begin() + requested_written);
+
+    requested.fill(feature('z', 'z', 'z', 'z'));
+    settings.fill(shaping_feature{feature('z', 'z', 'z', 'z'), 9U, 2U, 3U});
+    requested_written = 99U;
+    settings_written = 99U;
+    require(!try_resolve_open_type_feature_plan(
+        route,
+        arabic_base,
+        {},
+        std::span<open_type_tag>{requested}.first(1U),
+        std::span<shaping_feature>{settings}.first(1U),
+        requested_written,
+        settings_written,
+        &error));
+    require(error == font_error::insufficient_buffer &&
+        requested_written == 0U && settings_written == 0U &&
+        requested[0U] == feature('z', 'z', 'z', 'z') &&
+        settings[0U].tag == feature('z', 'z', 'z', 'z'));
 }
 
 void open_type_common_preprocessing_matches_managed_stages() {
@@ -8865,6 +9047,7 @@ int main() {
     open_type_gpos_rule_and_chain_contexts_are_bounded();
     open_type_uniform_run_shaper_connects_unicode_font_and_metrics();
     open_type_shaping_route_matches_managed_plan_selection();
+    open_type_feature_plan_matches_managed_script_and_direction_policy();
     open_type_common_preprocessing_matches_managed_stages();
     directional_code_point_fallback_matches_managed_stages();
     special_space_fallback_matches_managed_metrics();

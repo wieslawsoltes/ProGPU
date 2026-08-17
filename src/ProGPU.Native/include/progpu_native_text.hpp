@@ -212,6 +212,11 @@ struct shaping_feature final {
     }
 };
 
+struct open_type_feature_setting final {
+    open_type_tag tag{};
+    std::uint32_t value = 1U;
+};
+
 struct open_type_feature_tag_requirements final {
     std::uint32_t tag_capacity = 0U;
 };
@@ -1010,6 +1015,39 @@ bool try_resolve_open_type_shaping_route(
     open_type_tag unicode_script,
     shaping_direction requested_direction,
     open_type_shaping_route& result,
+    font_error* error = nullptr) noexcept;
+
+struct open_type_feature_plan_requirements final {
+    std::uint32_t requested_feature_capacity = 0U;
+    std::uint32_t feature_setting_capacity = 0U;
+};
+
+/* Returns the authoritative managed ProGPU default feature baseline without
+ * ownership transfer. The storage is immutable and process-lifetime. */
+std::span<const open_type_feature_setting>
+get_default_open_type_feature_settings() noexcept;
+
+/* Resolves the same script/direction feature policy and ordering as managed
+ * ProGPU. Requirements reports safe caller capacities. Resolution writes the
+ * ordered requested tags and only non-default full-run value records; value
+ * one is represented by tag presence so conditional features remain distinct
+ * from explicit ranged settings. Explicit tags distinguish caller intent for
+ * defaults such as Khmer liga. Work is O(F^2) for the small feature set F with
+ * O(1) internal space. */
+bool try_get_open_type_feature_plan_requirements(
+    const open_type_shaping_route& route,
+    std::span<const open_type_feature_setting> base_features,
+    open_type_feature_plan_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_resolve_open_type_feature_plan(
+    const open_type_shaping_route& route,
+    std::span<const open_type_feature_setting> base_features,
+    std::span<const open_type_tag> explicit_features,
+    std::span<open_type_tag> requested_features_output,
+    std::span<shaping_feature> feature_settings_output,
+    std::uint32_t& requested_features_written,
+    std::uint32_t& feature_settings_written,
     font_error* error = nullptr) noexcept;
 
 struct open_type_shape_run_options final {

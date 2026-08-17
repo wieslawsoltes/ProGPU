@@ -207,6 +207,20 @@ priority, fallback routes, direction overrides, canonical tags, and invalid
 direction failure in the header-path suite; the public type and resolver are
 also compiled and linked through the named-module consumer.
 
+Native feature-plan construction is isolated in
+`Text/Shaping/progpu_native_shaping_features.cpp` and directly ports the
+ProGPU-owned `TextShapingOptions` default feature baseline,
+`AddScriptFeatures`, and `AddDirectionalFeatures` from
+`src/ProGPU.Text/OpenTypeTextShaper.cs` at checkpoint `25762bb8`. It preserves
+the managed feature order and last-value behavior, Khmer/Indic `liga` policy,
+Arabic `stch`/`mset`, Hangul/USE/Indic stage tags, direction features, and
+vertical `kern` removal. The bounded API emits ordered tags separately from
+non-default global value records so value-one defaults do not become explicit
+ranged features. Work is `O(F^2)` for the deliberately small feature set `F`,
+uses caller-owned scratch/output only, and is covered by default, LTR, RTL,
+vertical, Khmer, Indic, Arabic, override, and short-buffer tests. Both the
+header and named-module consumers compile and link the public contract.
+
 The raw GPOS executor now covers rule-, class-, and coverage-based Context and
 Chaining Context formats 1-3. Nested position records reuse the same borrowed
 lookup table and caller glyph/attachment buffers with a fixed 64-level cycle

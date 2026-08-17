@@ -11,6 +11,7 @@
 #include "progpu_native_semantic_rounded_mask_scene.hpp"
 #include "progpu_native_semantic_state_mask_scene.hpp"
 #include "progpu_native_semantic_text_scene.hpp"
+#include "progpu_native_text.hpp"
 
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -71,6 +72,40 @@ bool verify_native_png_decode() {
         rgba == std::array{
             std::byte{10U}, std::byte{20U},
             std::byte{30U}, std::byte{40U}};
+}
+
+bool verify_native_text_feature_plan() {
+    using namespace progpu::native::text;
+    const auto defaults = get_default_open_type_feature_settings();
+    const open_type_shaping_route route{
+        open_type_tag::from_chars('l', 'a', 't', 'n'),
+        open_type_tag::from_chars('l', 'a', 't', 'n'),
+        shaping_direction::left_to_right};
+    open_type_feature_plan_requirements requirements{};
+    font_error error{};
+    if (!try_get_open_type_feature_plan_requirements(
+            route, defaults, requirements, &error) ||
+        requirements.requested_feature_capacity != 28U) {
+        return false;
+    }
+    std::array<open_type_tag, 28U> requested{};
+    std::array<shaping_feature, 28U> settings{};
+    std::uint32_t requested_written = 0U;
+    std::uint32_t settings_written = 0U;
+    return try_resolve_open_type_feature_plan(
+            route,
+            defaults,
+            {},
+            requested,
+            settings,
+            requested_written,
+            settings_written,
+            &error) &&
+        requested_written == 28U && settings_written == 1U &&
+        requested[0U] == open_type_tag::from_chars('l', 't', 'r', 'a') &&
+        requested[1U] == open_type_tag::from_chars('l', 't', 'r', 'm') &&
+        settings[0U].tag == open_type_tag::from_chars('r', 'a', 'n', 'd') &&
+        settings[0U].value == 0xFFFFU;
 }
 
 [[noreturn]] void fail(const char* message) {
@@ -1189,6 +1224,9 @@ bool render_browser_frame(double, void*) {
 int main() {
     if (!verify_native_png_decode()) {
         fail("The dependency-free native PNG decoder contract is invalid.");
+    }
+    if (!verify_native_text_feature_plan()) {
+        fail("The native text feature-plan contract is invalid.");
     }
     progpu_native_engine_info info{};
     info.struct_size = sizeof(info);

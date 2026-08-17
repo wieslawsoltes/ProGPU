@@ -507,6 +507,15 @@ default LTR/RTL direction. ScriptList discovery is a bounded `O(S)` scan for
 `S` font script records with `O(1)` storage, so hosts no longer duplicate this
 managed policy before constructing a native shaping plan.
 
+The adjacent native feature-plan resolver ports the authoritative managed
+default baseline and exact script/direction ordering for Khmer, Indic, USE,
+Arabic-joining, Myanmar, and Hangul runs. It preserves caller values and
+explicit-feature intent, disables Khmer/Indic `liga` under the same rules,
+inserts LTR/RTL/vertical features, and suppresses horizontal `kern` for
+vertical layout. One requirements call sizes caller-owned tag/value buffers;
+the write emits one bulk ordered tag span plus only non-default full-run value
+records, with no heap allocation or per-feature interop.
+
 Native fallback accepts a bulk span of borrowed, already-parsed SFNT faces from
 the platform provider boundary. It preserves extended graphemes, tries the
 preferred face first, coalesces adjacent face runs, reports unresolved coverage
