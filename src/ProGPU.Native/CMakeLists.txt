@@ -555,11 +555,13 @@ progpu_native_enable_sanitizers(progpu_native_image)
 
 add_library(progpu_native_text STATIC
     src/Text/progpu_native_unicode.cpp
+    src/Text/Unicode/progpu_native_unicode_category.cpp
     src/Text/Bidi/progpu_native_unicode_bidi.cpp
     src/Text/progpu_native_unicode_grapheme.cpp
     src/Text/Shaping/progpu_native_unicode_shaping.cpp
     src/Text/Shaping/progpu_native_unicode_syllables.cpp
     src/Text/Shaping/progpu_native_unicode_arabic.cpp
+    src/Text/Shaping/progpu_native_arabic_stretch.cpp
     src/Text/progpu_native_unicode_normalization.cpp
     src/Text/Shaping/progpu_native_open_type_layout.cpp
     src/Text/Shaping/progpu_native_open_type_features.cpp
@@ -643,7 +645,7 @@ add_library(progpu_native_text STATIC
     src/Text/Metadata/progpu_native_sfnt_names.cpp
     src/Text/Metadata/progpu_native_sfnt_resident.cpp
     src/Text/Metadata/progpu_native_sfnt_standalone.cpp
-    src/Text/Metadata/progpu_native_sfnt_name_letter_ranges.generated.hpp
+    src/Text/Unicode/progpu_native_unicode_categories.generated.hpp
     src/Text/Subset/progpu_native_sfnt_subset.cpp
     src/Text/Subset/progpu_native_sfnt_subset_compact.cpp
     src/Text/Subset/progpu_native_sfnt_subset_glyphs.cpp

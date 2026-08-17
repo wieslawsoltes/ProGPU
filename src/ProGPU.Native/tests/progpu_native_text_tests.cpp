@@ -183,6 +183,12 @@ using progpu::native::text::sfnt_glyph_outline_source;
 using progpu::native::text::sfnt_glyph_outline_bounds_requirements;
 using progpu::native::text::sfnt_glyph_outline_bounds_scratch;
 using progpu::native::text::fallback_mark_positioning_scratch;
+using progpu::native::text::unicode_general_category;
+using progpu::native::text::get_unicode_general_category;
+using progpu::native::text::arabic_stretch_run;
+using progpu::native::text::arabic_stretch_requirements;
+using progpu::native::text::try_get_arabic_stretch_requirements;
+using progpu::native::text::try_apply_arabic_stretch;
 using progpu::native::text::sfnt_glyph_variation_data_view;
 using progpu::native::text::sfnt_glyph_phantom_variation_requirements;
 using progpu::native::text::sfnt_glyph_phantom_variation_scratch;
@@ -304,6 +310,18 @@ void unicode_contract_and_strict_decoders_are_transactional() {
         open_type_tag::from_chars('D', 'F', 'L', 'T'));
     require(get_unicode_canonical_combining_class(0x0301U) == 230U);
     require(get_unicode_canonical_combining_class(0x41U) == 0U);
+    require(get_unicode_general_category(0x41U) ==
+        unicode_general_category::uppercase_letter);
+    require(get_unicode_general_category(0x0301U) ==
+        unicode_general_category::nonspacing_mark);
+    require(get_unicode_general_category(0x0661U) ==
+        unicode_general_category::decimal_digit_number);
+    require(get_unicode_general_category(0x1F600U) ==
+        unicode_general_category::other_symbol);
+    require(get_unicode_general_category(0xD800U) ==
+        unicode_general_category::other_not_assigned);
+    require(get_unicode_general_category(0x110000U) ==
+        unicode_general_category::other_not_assigned);
 
     constexpr std::array<std::byte, 7U> utf8{
         std::byte{0x41U},
@@ -891,6 +909,26 @@ void open_type_gsub_basic_lookups_use_caller_owned_storage() {
     require(applied && count == 3U && glyphs[0U].glyph_id == 8U &&
         glyphs[1U].glyph_id == 9U && glyphs[1U].cluster == 12 &&
         glyphs[2U].glyph_id == 7U);
+
+    glyphs = {shaping_glyph{5U, 0x66U, 12},
+        shaping_glyph{7U, 0x78U, 13}};
+    count = 2U;
+    open_type_gsub_apply_options stretch_metadata{};
+    stretch_metadata.track_arabic_stretch_metadata = true;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, stretch_metadata, applied, &error));
+    const auto stretch_flags0 =
+        static_cast<std::uint32_t>(glyphs[0U].flags);
+    const auto stretch_flags1 =
+        static_cast<std::uint32_t>(glyphs[1U].flags);
+    const auto stretch_flags2 =
+        static_cast<std::uint32_t>(glyphs[2U].flags);
+    require(applied && count == 3U &&
+        (stretch_flags0 & 0x00080000U) != 0U &&
+        (stretch_flags0 & 0x0FF00000U) == 0U &&
+        (stretch_flags1 & 0x00080000U) != 0U &&
+        ((stretch_flags1 & 0x0FF00000U) >> 20U) == 1U &&
+        (stretch_flags2 & 0x00080000U) == 0U);
 
     auto insufficient = glyphs;
     count = 2U;
@@ -5144,6 +5182,64 @@ void fallback_mark_positioning_matches_managed_policy() {
         shaped[1U].offset_x == -320 && shaped[1U].offset_y == 102);
 }
 
+void arabic_stretch_matches_managed_bounded_expansion() {
+    const auto data = make_font();
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+
+    std::array<shaping_glyph, 6U> storage{
+        shaping_glyph{4U, 0x0628U, 0, {}, 600, 0, 0, 0},
+        shaping_glyph{4U, 0x0628U, 1, {}, 600, 0, 0, 0},
+        shaping_glyph{4U, 0x0628U, 2, {}, 600, 0, 0, 0},
+        shaping_glyph{4U, 0x0640U, 3, {}, 600, 0, 0, 0}};
+    constexpr std::array actions{
+        open_type_arabic_action::none,
+        open_type_arabic_action::none,
+        open_type_arabic_action::none,
+        open_type_arabic_action::stretch_repeating};
+    arabic_stretch_requirements requirements{};
+    require(try_get_arabic_stretch_requirements(
+        font,
+        std::span<const shaping_glyph>{storage}.first(4U),
+        actions,
+        true,
+        {},
+        requirements,
+        &error));
+    require(error == font_error::none &&
+        requirements.glyph_capacity == 6U &&
+        requirements.run_capacity == 1U);
+
+    auto insufficient = storage;
+    std::uint32_t insufficient_count = 4U;
+    std::array<arabic_stretch_run, 1U> runs{};
+    require(!try_apply_arabic_stretch(
+        font,
+        std::span<shaping_glyph>{insufficient}.first(5U),
+        insufficient_count,
+        actions,
+        true,
+        {},
+        runs,
+        &error));
+    require(error == font_error::insufficient_buffer &&
+        insufficient_count == 4U && insufficient[3U].advance_x == 600);
+
+    std::uint32_t count = 4U;
+    require(try_apply_arabic_stretch(
+        font, storage, count, actions, true, {}, runs, &error));
+    require(error == font_error::none && count == 6U &&
+        storage[3U].advance_x == 0 && storage[3U].offset_x == -900 &&
+        storage[4U].advance_x == 0 && storage[4U].offset_x == -300 &&
+        storage[5U].advance_x == 0 && storage[5U].offset_x == 300);
+    constexpr auto unsafe =
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break) |
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_concat);
+    require((static_cast<std::uint32_t>(storage[0U].flags) & unsafe) ==
+        unsafe);
+}
+
 void legacy_kern_shaping_matches_managed_policy() {
     constexpr auto kern = open_type_tag::from_chars('k', 'e', 'r', 'n');
     const auto make_format_zero = [](
@@ -7816,6 +7912,7 @@ int main() {
     vertical_font_metrics_and_shaping_match_managed_policy();
     horizontal_font_metrics_match_managed_policy();
     fallback_mark_positioning_matches_managed_policy();
+    arabic_stretch_matches_managed_bounded_expansion();
     legacy_kern_shaping_matches_managed_policy();
     open_type_feature_tags_match_managed_sorted_union();
     variation_selector_cmap_is_borrowed_and_bounded();

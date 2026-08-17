@@ -247,6 +247,44 @@ struct unicode_decode_requirements final {
     std::uint32_t scalar_count = 0U;
 };
 
+/* Numeric values intentionally match System.Globalization.UnicodeCategory,
+ * the authoritative category contract used by the managed ProGPU shaper. */
+enum class unicode_general_category : std::uint8_t {
+    uppercase_letter = 0U,
+    lowercase_letter = 1U,
+    titlecase_letter = 2U,
+    modifier_letter = 3U,
+    other_letter = 4U,
+    nonspacing_mark = 5U,
+    spacing_combining_mark = 6U,
+    enclosing_mark = 7U,
+    decimal_digit_number = 8U,
+    letter_number = 9U,
+    other_number = 10U,
+    space_separator = 11U,
+    line_separator = 12U,
+    paragraph_separator = 13U,
+    control = 14U,
+    format = 15U,
+    surrogate = 16U,
+    private_use = 17U,
+    connector_punctuation = 18U,
+    dash_punctuation = 19U,
+    open_punctuation = 20U,
+    close_punctuation = 21U,
+    initial_quote_punctuation = 22U,
+    final_quote_punctuation = 23U,
+    other_punctuation = 24U,
+    math_symbol = 25U,
+    currency_symbol = 26U,
+    modifier_symbol = 27U,
+    other_symbol = 28U,
+    other_not_assigned = 29U
+};
+
+unicode_general_category get_unicode_general_category(
+    std::uint32_t code_point) noexcept;
+
 /*
  * One decoded scalar retains the original input-unit range. Script is the
  * Unicode 17 Script property translated to ProGPU's OpenType tag convention;
@@ -440,7 +478,9 @@ enum class open_type_arabic_action : std::uint8_t {
     medial = 4U,
     medial2 = 5U,
     initial = 6U,
-    none = 7U
+    none = 7U,
+    stretch_fixed = 8U,
+    stretch_repeating = 9U
 };
 
 bool try_assign_open_type_arabic_actions(
@@ -448,6 +488,38 @@ bool try_assign_open_type_arabic_actions(
     std::span<open_type_arabic_action> output,
     std::uint32_t& written,
     unicode_error* error = nullptr) noexcept;
+
+struct arabic_stretch_run final {
+    std::uint32_t start = 0U;
+    std::uint32_t end = 0U;
+    std::uint32_t copy_count = 0U;
+    std::int32_t remaining_width = 0;
+    std::int32_t extra_repeat_overlap = 0;
+};
+
+struct arabic_stretch_requirements final {
+    std::uint32_t glyph_capacity = 0U;
+    std::uint32_t run_capacity = 0U;
+};
+
+bool try_get_arabic_stretch_requirements(
+    const sfnt_font_view& font,
+    std::span<const shaping_glyph> glyphs,
+    std::span<const open_type_arabic_action> actions,
+    bool right_to_left,
+    std::span<const std::int16_t> normalized_coordinates,
+    arabic_stretch_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_apply_arabic_stretch(
+    const sfnt_font_view& font,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    std::span<const open_type_arabic_action> actions,
+    bool right_to_left,
+    std::span<const std::int16_t> normalized_coordinates,
+    std::span<arabic_stretch_run> run_scratch,
+    font_error* error = nullptr) noexcept;
 
 /*
  * Strict, transactional UTF decoding. The requirements pass validates the
@@ -770,6 +842,10 @@ struct open_type_gsub_apply_options final {
     /* Enables transient ligature-component metadata for the later managed-
      * parity fallback mark stage. The full-run shaper strips it before return. */
     bool track_fallback_mark_metadata = false;
+    /* Marks MultipleSubst outputs with their bounded component index for the
+     * Arabic stch stage. This metadata is private to native shaping and must
+     * be cleared before publishing the stable shaped-glyph span. */
+    bool track_arabic_stretch_metadata = false;
 };
 
 /*

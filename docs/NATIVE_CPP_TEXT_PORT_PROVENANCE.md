@@ -851,6 +851,22 @@ static/variable and Noto CFF fixtures cover source selection and successful
 bounds reduction, while the synthetic mark fixture covers equivalent output
 through both direct overloads.
 
+Arabic `stch` parity now has its allocation-free native expansion kernel,
+directly ported from the ProGPU-owned managed `ApplyArabicStretch` stage at
+checkpoint `c483e175`. Multiple substitution can opt into private multiplied
+and component-index metadata without changing the stable 32-byte glyph wire
+record. The exact .NET 10 Unicode general categories used by managed word
+context discovery are generated into deterministic C++20 ranges and verified
+by the native contract gate. A requirements pass computes the exact output and
+run capacities; execution uses caller-owned run scratch and expands backward
+in place, preserving direction, fixed/repeating widths, overlap distribution,
+the 256-glyph-per-run cap, the 1,048,576-glyph global cap, and unsafe break and
+concatenation flags. Work is `O(G log C + G * T)` for glyphs `G`, generated
+category ranges `C`, and borrowed font tables `T`; internal storage is `O(1)`.
+The current checkpoint exposes the kernel and GSUB metadata seam independently;
+full-run `stch` stage ordering and action lifetime are the next integration
+slice and are not claimed complete here.
+
 Legacy kerning fallback now directly ports the ProGPU-owned
 `GlyphPositionBuffer.ApplyLegacyKern` policy from checkpoint `34b76eeb`.
 The adjacent `sfnt_font_view::try_get_design_kerning` query separately mirrors

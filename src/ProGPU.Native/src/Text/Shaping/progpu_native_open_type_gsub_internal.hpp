@@ -14,6 +14,11 @@ inline constexpr std::uint32_t fallback_ligature_component_mask = 0x0007F800U;
 inline constexpr std::uint32_t fallback_ligature_component_shift = 11U;
 inline constexpr std::uint32_t fallback_ligature_metadata_mask =
     fallback_ligature_count_mask | fallback_ligature_component_mask;
+inline constexpr std::uint32_t arabic_stretch_multiplied_mask = 0x00080000U;
+inline constexpr std::uint32_t arabic_stretch_component_mask = 0x0FF00000U;
+inline constexpr std::uint32_t arabic_stretch_component_shift = 20U;
+inline constexpr std::uint32_t arabic_stretch_metadata_mask =
+    arabic_stretch_multiplied_mask | arabic_stretch_component_mask;
 
 inline std::uint32_t raw_glyph_flags(const shaping_glyph& glyph) noexcept {
     return static_cast<std::uint32_t>(glyph.flags);
@@ -59,6 +64,35 @@ inline void clear_fallback_ligature_metadata(
     shaping_glyph& glyph) noexcept {
     glyph.flags = static_cast<shaping_glyph_flags>(
         raw_glyph_flags(glyph) & ~fallback_ligature_metadata_mask);
+}
+
+inline void set_arabic_stretch_component(
+    shaping_glyph& glyph,
+    std::uint16_t component) noexcept {
+    const auto bounded = std::min<std::uint16_t>(component, 0xFFU);
+    glyph.flags = static_cast<shaping_glyph_flags>(
+        (raw_glyph_flags(glyph) & ~arabic_stretch_metadata_mask) |
+        arabic_stretch_multiplied_mask |
+        (static_cast<std::uint32_t>(bounded) <<
+            arabic_stretch_component_shift));
+}
+
+inline bool is_arabic_stretch_multiplied(
+    const shaping_glyph& glyph) noexcept {
+    return (raw_glyph_flags(glyph) & arabic_stretch_multiplied_mask) != 0U;
+}
+
+inline std::uint8_t arabic_stretch_component(
+    const shaping_glyph& glyph) noexcept {
+    return static_cast<std::uint8_t>(
+        (raw_glyph_flags(glyph) & arabic_stretch_component_mask) >>
+        arabic_stretch_component_shift);
+}
+
+inline void clear_arabic_stretch_metadata(
+    shaping_glyph& glyph) noexcept {
+    glyph.flags = static_cast<shaping_glyph_flags>(
+        raw_glyph_flags(glyph) & ~arabic_stretch_metadata_mask);
 }
 
 } // namespace progpu::native::text::detail

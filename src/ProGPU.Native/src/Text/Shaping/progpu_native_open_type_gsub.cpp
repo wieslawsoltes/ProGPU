@@ -190,7 +190,8 @@ apply_result replace_multiple(
     std::size_t sequence,
     std::span<shaping_glyph> storage,
     std::uint32_t& count,
-    std::uint32_t position) noexcept {
+    std::uint32_t position,
+    bool track_arabic_stretch_metadata) noexcept {
     if (!can_read(table, sequence, 2U)) {
         return apply_result::malformed;
     }
@@ -218,6 +219,9 @@ apply_result replace_multiple(
     for (std::uint16_t index = 0U; index < replacement_count; ++index) {
         shaping_glyph replacement = original;
         replacement.glyph_id = read_u16(table, sequence + 2U + index * 2U);
+        if (track_arabic_stretch_metadata) {
+            detail::set_arabic_stretch_component(replacement, index);
+        }
         storage[position + index] = replacement;
     }
     count = static_cast<std::uint32_t>(next_count);
@@ -1201,7 +1205,13 @@ apply_result apply_subtable(
             return apply_result::malformed;
         }
         if (type == 2U) {
-            return replace_multiple(table, set, storage, count, position);
+            return replace_multiple(
+                table,
+                set,
+                storage,
+                count,
+                position,
+                options.track_arabic_stretch_metadata);
         }
         if (!can_read(table, set, 2U)) {
             return apply_result::malformed;

@@ -1,6 +1,6 @@
 #include "progpu_native_text.hpp"
 #include "../progpu_native_font_bytes.hpp"
-#include "progpu_native_sfnt_name_letter_ranges.generated.hpp"
+#include "../Unicode/progpu_native_unicode_categories.generated.hpp"
 
 #include <algorithm>
 #include <cstddef>

@@ -15,4 +15,4 @@ dotnet run --project \
   "${repo_root}/eng/ProGPU.NativeUnicodeCategoryGenerator/ProGPU.NativeUnicodeCategoryGenerator.csproj" \
   --configuration Release -- \
   --verify \
-  "${repo_root}/src/ProGPU.Native/src/Text/Metadata/progpu_native_sfnt_name_letter_ranges.generated.hpp"
+  "${repo_root}/src/ProGPU.Native/src/Text/Unicode/progpu_native_unicode_categories.generated.hpp"
