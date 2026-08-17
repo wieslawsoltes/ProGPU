@@ -132,9 +132,9 @@ std::vector<std::byte> build_compact_hmtx(
             : static_cast<std::size_t>(metric_count) * 4U +
                 static_cast<std::size_t>(glyph - metric_count) * 2U;
         const auto advance = read_u16(hmtx, advance_offset);
-        const auto bearing = can_read(hmtx, bearing_offset, 2U)
+        const std::int16_t bearing = can_read(hmtx, bearing_offset, 2U)
             ? read_i16(hmtx, bearing_offset)
-            : 0;
+            : static_cast<std::int16_t>(0);
         write_u16(result, index * 4U, advance);
         write_i16(result, index * 4U + 2U, bearing);
     }
