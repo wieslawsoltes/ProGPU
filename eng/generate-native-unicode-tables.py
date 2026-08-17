@@ -19,6 +19,20 @@ def parse_uint_array(source: str, name: str) -> list[int]:
     return [int(value) for value in re.findall(r"\b\d+\b", match.group("body"))]
 
 
+def parse_hex_uint_array(source: str, name: str) -> list[int]:
+    match = re.search(
+        rf"{re.escape(name)}\s*=\s*\[(?P<body>.*?)\];",
+        source,
+        re.DOTALL,
+    )
+    if match is None:
+        raise RuntimeError(f"Could not find managed array {name}")
+    return [
+        int(value, 16)
+        for value in re.findall(r"0x([0-9A-Fa-f]+)", match.group("body"))
+    ]
+
+
 def parse_int_array(source: str, name: str) -> list[int]:
     match = re.search(
         rf"{re.escape(name)}\s*=\s*\[(?P<body>.*?)\];",
@@ -133,6 +147,7 @@ def generate(root: Path) -> str:
     grapheme_path = root / "src/ProGPU.Text/UnicodeGraphemeData.Generated.cs"
     arabic_path = root / "src/ProGPU.Text/ArabicJoiningData.Generated.cs"
     joining_fallback_path = root / "src/ProGPU.Text/UnicodeJoiningFallbackData.Generated.cs"
+    directional_path = root / "src/ProGPU.Text/UnicodeDirectionalData.Generated.cs"
     line_break_path = root / "src/ProGPU.Text/UnicodeLineBreakData.Generated.cs"
     indic_shaping_path = root / "src/ProGPU.Text/IndicShapingData.Generated.cs"
     use_shaping_path = root / "src/ProGPU.Text/UseShapingData.Generated.cs"
@@ -142,6 +157,7 @@ def generate(root: Path) -> str:
     grapheme_source = grapheme_path.read_text(encoding="utf-8")
     arabic_source = arabic_path.read_text(encoding="utf-8")
     joining_fallback_source = joining_fallback_path.read_text(encoding="utf-8")
+    directional_source = directional_path.read_text(encoding="utf-8")
     line_break_source = line_break_path.read_text(encoding="utf-8")
     indic_shaping_source = indic_shaping_path.read_text(encoding="utf-8")
     use_shaping_source = use_shaping_path.read_text(encoding="utf-8")
@@ -176,6 +192,8 @@ def generate(root: Path) -> str:
     )
     arabic_joining_packed = parse_uint_span(arabic_source, "Packed")
     joining_fallback_ranges = parse_uint_span(joining_fallback_source, "s_ranges")
+    mirror_pairs = parse_hex_uint_array(directional_source, "s_mirrorPairs")
+    vertical_pairs = parse_hex_uint_array(directional_source, "s_verticalPairs")
     line_break_ranges = parse_uint_array(line_break_source, "s_ranges")
     line_break_quotation_categories = parse_uint_array(
         line_break_source, "s_quotationCategories"
@@ -194,7 +212,8 @@ def generate(root: Path) -> str:
     machine_data = "\n\n".join(
         format_machine(name, source) for name, source in machine_sources.items()
     )
-    if len(script_ranges) % 3 != 0 or len(combining_ranges) % 3 != 0:
+    if (len(script_ranges) % 3 != 0 or len(combining_ranges) % 3 != 0 or
+            len(mirror_pairs) % 2 != 0 or len(vertical_pairs) % 2 != 0):
         raise RuntimeError("Managed Unicode range tables are malformed")
     highest_script_index = max(script_ranges[2::3], default=0)
     if highest_script_index >= len(scripts):
@@ -208,7 +227,7 @@ def generate(root: Path) -> str:
 // IndicShapingData.Generated.cs, UseShapingData.Generated.cs, the four
 // ProGPU syllable-machine generated sources,
 // ArabicJoiningData.Generated.cs, UnicodeJoiningFallbackData.Generated.cs,
-// and Bidi/UnicodeBidiData.Generated.cs.
+// UnicodeDirectionalData.Generated.cs, and Bidi/UnicodeBidiData.Generated.cs.
 // Regenerate with: ./eng/generate-native-unicode-tables.py --write
 
 #ifndef PROGPU_NATIVE_UNICODE_DATA_GENERATED_HPP
@@ -257,6 +276,14 @@ inline constexpr std::array<std::uint8_t, {len(arabic_joining_packed)}> unicode_
 
 inline constexpr std::array<std::uint32_t, {len(joining_fallback_ranges)}> unicode_joining_fallback_ranges{{
 {format_values(joining_fallback_ranges)}
+}};
+
+inline constexpr std::array<std::uint32_t, {len(mirror_pairs)}> unicode_mirror_pairs{{
+{format_values(mirror_pairs)}
+}};
+
+inline constexpr std::array<std::uint32_t, {len(vertical_pairs)}> unicode_vertical_pairs{{
+{format_values(vertical_pairs)}
 }};
 
 inline constexpr std::array<std::uint32_t, {len(line_break_ranges)}> unicode_line_break_ranges{{

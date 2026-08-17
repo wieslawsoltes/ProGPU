@@ -831,6 +831,57 @@ bool try_get_gdef(
 
 } // namespace
 
+bool try_apply_directional_code_point_fallback(
+    const sfnt_font_view& font,
+    std::span<shaping_glyph> glyphs,
+    shaping_direction direction,
+    bool has_vertical_substitution,
+    font_error* error) noexcept {
+    const bool backward = direction == shaping_direction::right_to_left ||
+        direction == shaping_direction::bottom_to_top;
+    const bool vertical_fallback = !has_vertical_substitution &&
+        (direction == shaping_direction::top_to_bottom ||
+            direction == shaping_direction::bottom_to_top);
+    if (!backward && !vertical_fallback) {
+        set_error(error, font_error::none);
+        return true;
+    }
+
+    for (auto& glyph : glyphs) {
+        std::uint32_t code_point = glyph.code_point;
+        std::uint16_t mapped_glyph = 0U;
+        if (backward) {
+            const auto mirrored = get_unicode_mirrored_code_point(code_point);
+            if (mirrored != code_point) {
+                if (!font.try_get_glyph_index(mirrored, mapped_glyph)) {
+                    set_error(error, font_error::invalid_face);
+                    return false;
+                }
+                if (mapped_glyph != 0U) code_point = mirrored;
+            }
+        }
+        if (vertical_fallback) {
+            const auto vertical = get_unicode_vertical_code_point(code_point);
+            if (vertical != code_point) {
+                if (!font.try_get_glyph_index(vertical, mapped_glyph)) {
+                    set_error(error, font_error::invalid_face);
+                    return false;
+                }
+                if (mapped_glyph != 0U) code_point = vertical;
+            }
+        }
+        if (code_point == glyph.code_point) continue;
+        if (!font.try_get_glyph_index(code_point, mapped_glyph)) {
+            set_error(error, font_error::invalid_face);
+            return false;
+        }
+        glyph.code_point = code_point;
+        glyph.glyph_id = mapped_glyph;
+    }
+    set_error(error, font_error::none);
+    return true;
+}
+
 bool try_get_open_type_shape_run_requirements(
     const sfnt_font_view& font,
     std::span<const unicode_scalar> input,
@@ -1028,6 +1079,63 @@ bool try_shape_open_type_run(
     }
     glyph_count = mapped_count;
 
+    open_type_layout_table_view gsub{};
+    open_type_layout_table_view gpos{};
+    std::size_t gsub_length = 0U;
+    std::size_t gpos_length = 0U;
+    open_type_gdef_view gdef{};
+    bool has_gdef = false;
+    if (plan != nullptr) {
+        gsub = plan->gsub;
+        gpos = plan->gpos;
+        gdef = plan->gdef;
+        has_gdef = plan->has_gdef;
+    } else {
+        if (!try_get_layout(font, gsub_tag, gsub, gsub_length, error) ||
+            !try_get_layout(font, gpos_tag, gpos, gpos_length, error) ||
+            !try_get_gdef(
+                font, gsub_length, gpos_length, gdef, has_gdef, error)) {
+            return false;
+        }
+    }
+
+    const bool is_vertical_run =
+        options.direction == shaping_direction::top_to_bottom ||
+        options.direction == shaping_direction::bottom_to_top;
+    bool has_vertical_substitution = false;
+    constexpr std::array vertical_features{
+        open_type_tag::from_chars('v', 'e', 'r', 't'),
+        open_type_tag::from_chars('v', 'r', 't', '2')};
+    if (is_vertical_run) {
+        for (const auto feature : vertical_features) {
+            if (!is_run_feature_enabled(options, feature)) continue;
+            std::uint32_t lookup_count = 0U;
+            if (!gsub.try_select_feature_lookups(
+                    options.script,
+                    options.language,
+                    feature,
+                    scratch.gsub_lookups.first(gsub.lookup_count()),
+                    lookup_count,
+                    error)) {
+                glyph_count = 0U;
+                return false;
+            }
+            if (lookup_count != 0U) {
+                has_vertical_substitution = true;
+                break;
+            }
+        }
+    }
+    if (!try_apply_directional_code_point_fallback(
+            font,
+            glyph_storage.first(glyph_count),
+            options.direction,
+            has_vertical_substitution,
+            error)) {
+        glyph_count = 0U;
+        return false;
+    }
+
     if (!try_preprocess_open_type_glyphs(
             font,
             options.script,
@@ -1097,25 +1205,6 @@ bool try_shape_open_type_run(
         return false;
     }
 
-    open_type_layout_table_view gsub{};
-    open_type_layout_table_view gpos{};
-    std::size_t gsub_length = 0U;
-    std::size_t gpos_length = 0U;
-    open_type_gdef_view gdef{};
-    bool has_gdef = false;
-    if (plan != nullptr) {
-        gsub = plan->gsub;
-        gpos = plan->gpos;
-        gdef = plan->gdef;
-        has_gdef = plan->has_gdef;
-    } else {
-        if (!try_get_layout(font, gsub_tag, gsub, gsub_length, error) ||
-            !try_get_layout(font, gpos_tag, gpos, gpos_length, error) ||
-            !try_get_gdef(
-                font, gsub_length, gpos_length, gdef, has_gdef, error)) {
-            return false;
-        }
-    }
     const open_type_gdef_view* gdef_pointer = has_gdef ? &gdef : nullptr;
     std::array<open_type_tag, 3U> excluded_fraction_storage{};
     const auto excluded_fraction = inactive_fraction_features(

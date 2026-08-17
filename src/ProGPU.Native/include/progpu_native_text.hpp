@@ -304,6 +304,10 @@ open_type_tag get_unicode_script(std::uint32_t code_point) noexcept;
 std::uint8_t get_unicode_canonical_combining_class(
     std::uint32_t code_point) noexcept;
 unicode_bidi_class get_unicode_bidi_class(std::uint32_t code_point) noexcept;
+std::uint32_t get_unicode_mirrored_code_point(
+    std::uint32_t code_point) noexcept;
+std::uint32_t get_unicode_vertical_code_point(
+    std::uint32_t code_point) noexcept;
 bool try_get_unicode_bidi_bracket(
     std::uint32_t code_point,
     std::uint32_t& paired_code_point,
@@ -1076,6 +1080,18 @@ bool try_prepare_open_type_hangul(
     const sfnt_font_view& font,
     std::span<shaping_glyph> glyph_storage,
     std::uint32_t& glyph_count,
+    font_error* error = nullptr) noexcept;
+
+/* Applies the ProGPU directional code-point fallback in place. Backward runs
+ * use mirrored forms when the font maps them; vertical runs without a selected
+ * vert/vrt2 feature then use vertical presentation forms. Work is O(G log P)
+ * for G glyphs and P generated mappings, allocation-free, and preserves a
+ * glyph when the font does not contain its mapped form. */
+bool try_apply_directional_code_point_fallback(
+    const sfnt_font_view& font,
+    std::span<shaping_glyph> glyphs,
+    shaping_direction direction,
+    bool has_vertical_substitution,
     font_error* error = nullptr) noexcept;
 
 /* Ports ProGPU's common pre-GSUB glyph preparation: optional start-of-text

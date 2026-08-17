@@ -98,6 +98,9 @@ using progpu::native::text::try_get_open_type_shape_plan_requirements;
 using progpu::native::text::try_build_open_type_shape_plan;
 using progpu::native::text::try_shape_open_type_run;
 using progpu::native::text::try_prepare_open_type_hangul;
+using progpu::native::text::try_apply_directional_code_point_fallback;
+using progpu::native::text::get_unicode_mirrored_code_point;
+using progpu::native::text::get_unicode_vertical_code_point;
 using progpu::native::text::font_fallback_candidate;
 using progpu::native::text::font_fallback_run;
 using progpu::native::text::try_get_font_fallback_run_count;
@@ -264,6 +267,12 @@ void unicode_contract_and_strict_decoders_are_transactional() {
         600, 0, 4, -2};
     require(glyph.glyph_id == 42U && glyph.advance_x == 600 &&
         glyph.offset_y == -2);
+
+    require(get_unicode_mirrored_code_point(0x28U) == 0x29U);
+    require(get_unicode_mirrored_code_point(0x2208U) == 0x220BU);
+    require(get_unicode_mirrored_code_point(0x41U) == 0x41U);
+    require(get_unicode_vertical_code_point(0x3001U) == 0xFE11U);
+    require(get_unicode_vertical_code_point(0x41U) == 0x41U);
 
     require(get_unicode_script(0x41U) ==
         open_type_tag::from_chars('l', 'a', 't', 'n'));
@@ -3193,6 +3202,142 @@ void open_type_common_preprocessing_matches_managed_stages() {
     require(error == font_error::insufficient_buffer && count == 2U &&
         short_storage[0U].code_point == 0x0301U &&
         short_storage[1U].code_point == 0x0316U);
+}
+
+void directional_code_point_fallback_matches_managed_stages() {
+    constexpr std::array mappings{
+        std::pair{0x28U, 1U},
+        std::pair{0x29U, 2U},
+        std::pair{0x41U, 5U},
+        std::pair{0x3001U, 3U},
+        std::pair{0xFE11U, 4U}};
+    const auto cmap = make_cmap_groups(mappings);
+    const auto data = make_font(
+        0U, 22U, 0U, false, false, false, {}, cmap);
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+
+    std::array<shaping_glyph, 3U> glyphs{
+        shaping_glyph{1U, 0x28U, 0},
+        shaping_glyph{3U, 0x3001U, 1},
+        shaping_glyph{5U, 0x41U, 2}};
+    require(try_apply_directional_code_point_fallback(
+        font,
+        glyphs,
+        shaping_direction::right_to_left,
+        false,
+        &error));
+    require(glyphs[0U].code_point == 0x29U &&
+        glyphs[0U].glyph_id == 2U &&
+        glyphs[1U].code_point == 0x3001U &&
+        glyphs[2U].code_point == 0x41U);
+
+    glyphs[1U] = shaping_glyph{3U, 0x3001U, 1};
+    require(try_apply_directional_code_point_fallback(
+        font,
+        std::span<shaping_glyph>{glyphs}.subspan(1U, 1U),
+        shaping_direction::top_to_bottom,
+        false,
+        &error));
+    require(glyphs[1U].code_point == 0xFE11U &&
+        glyphs[1U].glyph_id == 4U);
+
+    glyphs[1U] = shaping_glyph{3U, 0x3001U, 1};
+    require(try_apply_directional_code_point_fallback(
+        font,
+        std::span<shaping_glyph>{glyphs}.subspan(1U, 1U),
+        shaping_direction::top_to_bottom,
+        true,
+        &error));
+    require(glyphs[1U].code_point == 0x3001U &&
+        glyphs[1U].glyph_id == 3U);
+
+    const std::array<unicode_scalar, 1U> input{
+        unicode_scalar{0x28U, 0U, 1U}};
+    std::array<shaping_glyph, 1U> shaped{};
+    std::array<unicode_grapheme_cluster, 1U> graphemes{};
+    std::array<shaping_attachment, 1U> attachments{};
+    std::array<std::uint8_t, 1U> states{};
+    std::uint32_t glyph_count = 0U;
+    auto options = open_type_shape_run_options{};
+    options.direction = shaping_direction::right_to_left;
+    require(try_shape_open_type_run(
+        font,
+        input,
+        options,
+        shaped,
+        open_type_shape_run_scratch{
+            graphemes, {}, {}, attachments, states},
+        glyph_count,
+        &error));
+    require(glyph_count == 1U && shaped[0U].code_point == 0x29U &&
+        shaped[0U].glyph_id == 2U);
+
+    const auto make_vertical_gsub = [] {
+        std::vector<std::byte> table(70U);
+        write_u16(table, 0U, 1U);
+        write_u16(table, 4U, 10U);
+        write_u16(table, 6U, 30U);
+        write_u16(table, 8U, 44U);
+        write_u16(table, 10U, 1U);
+        write_u32(table, 12U,
+            open_type_tag::from_chars('h', 'a', 'n', 'i').value);
+        write_u16(table, 16U, 8U);
+        write_u16(table, 18U, 4U);
+        write_u16(table, 22U, 0U);
+        write_u16(table, 24U, 0xFFFFU);
+        write_u16(table, 26U, 1U);
+        write_u16(table, 28U, 0U);
+        write_u16(table, 30U, 1U);
+        write_u32(table, 32U,
+            open_type_tag::from_chars('v', 'e', 'r', 't').value);
+        write_u16(table, 36U, 8U);
+        write_u16(table, 38U, 0U);
+        write_u16(table, 40U, 1U);
+        write_u16(table, 42U, 0U);
+        write_u16(table, 44U, 1U);
+        write_u16(table, 46U, 4U);
+        write_u16(table, 48U, 1U);
+        write_u16(table, 50U, 0U);
+        write_u16(table, 52U, 1U);
+        write_u16(table, 54U, 8U);
+        write_u16(table, 56U, 2U);
+        write_u16(table, 58U, 8U);
+        write_u16(table, 60U, 1U);
+        write_u16(table, 62U, 6U);
+        write_u16(table, 64U, 1U);
+        write_u16(table, 66U, 1U);
+        write_u16(table, 68U, 3U);
+        return table;
+    };
+    const std::array vertical_tables{
+        table_data{open_type_tag::from_chars('G', 'S', 'U', 'B'),
+            make_vertical_gsub()}};
+    const auto vertical_data = make_font(
+        0U, 22U, 0U, false, false, false, vertical_tables, cmap);
+    require(sfnt_font_view::try_create(vertical_data, 0U, font, &error));
+    constexpr std::array vertical_input{
+        unicode_scalar{0x3001U, 0U, 1U}};
+    constexpr std::array vertical_features{
+        open_type_tag::from_chars('v', 'e', 'r', 't')};
+    options = open_type_shape_run_options{
+        open_type_tag::from_chars('h', 'a', 'n', 'i'),
+        {},
+        shaping_direction::top_to_bottom,
+        vertical_features};
+    std::array<std::uint16_t, 1U> gsub_lookups{};
+    require(try_shape_open_type_run(
+        font,
+        vertical_input,
+        options,
+        shaped,
+        open_type_shape_run_scratch{
+            graphemes, gsub_lookups, {}, attachments, states},
+        glyph_count,
+        &error));
+    require(glyph_count == 1U && shaped[0U].code_point == 0x3001U &&
+        shaped[0U].glyph_id == 6U);
 }
 
 void open_type_khmer_preparation_reorders_prebase_vowels() {
@@ -7989,6 +8134,7 @@ int main() {
     open_type_gpos_rule_and_chain_contexts_are_bounded();
     open_type_uniform_run_shaper_connects_unicode_font_and_metrics();
     open_type_common_preprocessing_matches_managed_stages();
+    directional_code_point_fallback_matches_managed_stages();
     open_type_khmer_preparation_reorders_prebase_vowels();
     open_type_myanmar_preparation_reorders_prebase_vowels();
     open_type_use_preparation_reorders_prebase_vowels();
