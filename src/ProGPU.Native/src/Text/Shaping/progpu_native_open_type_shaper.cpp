@@ -5,6 +5,7 @@
 #include "progpu_native_open_type_gsub_internal.hpp"
 #include "progpu_native_legacy_kern_internal.hpp"
 #include "progpu_native_fallback_marks_internal.hpp"
+#include "progpu_native_arabic_stretch_internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -39,7 +40,7 @@ constexpr open_type_tag gsub_tag =
     open_type_tag::from_chars('G', 'S', 'U', 'B');
 constexpr open_type_tag gpos_tag =
     open_type_tag::from_chars('G', 'P', 'O', 'S');
-constexpr std::uint32_t arabic_action_mask = 0x70000000U;
+constexpr std::uint32_t arabic_action_mask = 0xF0000000U;
 constexpr std::uint32_t arabic_action_shift = 28U;
 constexpr std::uint32_t hangul_feature_mask = 0x30000000U;
 constexpr std::uint32_t hangul_feature_shift = 28U;
@@ -47,6 +48,8 @@ constexpr auto kern_feature =
     open_type_tag::from_chars('k', 'e', 'r', 'n');
 constexpr auto distance_feature =
     open_type_tag::from_chars('d', 'i', 's', 't');
+constexpr auto stretch_feature =
+    open_type_tag::from_chars('s', 't', 'c', 'h');
 
 bool is_default_ignorable(std::uint32_t value) noexcept {
     return value == 0x00ADU || value == 0x034FU || value == 0x061CU ||
@@ -273,6 +276,80 @@ bool apply_arabic_form_feature(
                 ? glyph_count - count_before
                 : 0U);
         }
+    }
+    return true;
+}
+
+bool apply_arabic_stretch_feature(
+    const open_type_layout_table_view& gsub,
+    open_type_tag script,
+    open_type_tag language,
+    std::span<std::uint16_t> lookup_scratch,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    const open_type_shape_run_options& run_options,
+    const open_type_gdef_view* gdef,
+    bool track_fallback_marks,
+    font_error* error) noexcept {
+    if (!is_run_feature_enabled(run_options, stretch_feature)) return true;
+    std::uint32_t lookup_count = 0U;
+    if (!gsub.try_select_feature_lookups(
+            script,
+            language,
+            stretch_feature,
+            lookup_scratch,
+            lookup_count,
+            error)) {
+        return false;
+    }
+    for (std::uint32_t lookup = 0U; lookup < lookup_count; ++lookup) {
+        std::uint32_t position = 0U;
+        while (position < glyph_count) {
+            const std::uint32_t value = get_feature_value(
+                run_options,
+                stretch_feature,
+                glyph_storage[position].cluster);
+            if (value == 0U) {
+                ++position;
+                continue;
+            }
+            const std::uint32_t count_before = glyph_count;
+            std::uint32_t context_match_end = 0U;
+            bool applied = false;
+            if (!try_apply_open_type_gsub_lookup_at(
+                    gsub,
+                    lookup_scratch[lookup],
+                    glyph_storage,
+                    glyph_count,
+                    position,
+                    open_type_gsub_apply_options{
+                        gdef,
+                        value,
+                        0U,
+                        false,
+                        &context_match_end,
+                        track_fallback_marks,
+                        true},
+                    applied,
+                    error)) {
+                return false;
+            }
+            if (glyph_count > count_before) {
+                position += glyph_count - count_before;
+            }
+            position = std::max(position + 1U, context_match_end);
+        }
+    }
+    for (std::uint32_t index = 0U; index < glyph_count; ++index) {
+        if (detail::is_arabic_stretch_multiplied(glyph_storage[index])) {
+            set_arabic_action(
+                glyph_storage[index],
+                (detail::arabic_stretch_component(glyph_storage[index]) & 1U)
+                    != 0U
+                    ? open_type_arabic_action::stretch_repeating
+                    : open_type_arabic_action::stretch_fixed);
+        }
+        detail::clear_arabic_stretch_metadata(glyph_storage[index]);
     }
     return true;
 }
@@ -1036,8 +1113,32 @@ bool try_shape_open_type_run(
     const auto excluded_fraction = inactive_fraction_features(
         options,
         excluded_fraction_storage);
+    std::array<open_type_tag, 4U> excluded_gsub_storage{};
+    std::copy(excluded_fraction.begin(), excluded_fraction.end(),
+        excluded_gsub_storage.begin());
+    std::size_t excluded_gsub_count = excluded_fraction.size();
+    if (arabic_joining) {
+        excluded_gsub_storage[excluded_gsub_count++] = stretch_feature;
+    }
+    const auto excluded_gsub = std::span<const open_type_tag>{
+        excluded_gsub_storage}.first(excluded_gsub_count);
 
     if (gsub.lookup_count() != 0U) {
+        if (arabic_joining &&
+            !apply_arabic_stretch_feature(
+                gsub,
+                options.script,
+                options.language,
+                scratch.gsub_lookups.first(gsub.lookup_count()),
+                glyph_storage,
+                glyph_count,
+                options,
+                gdef_pointer,
+                fallback_mark_positioning,
+                error)) {
+            clear_arabic_actions(glyph_storage.first(glyph_count));
+            return false;
+        }
         if (complex_script) {
             if (!apply_complex_script_features(
                     font,
@@ -1054,12 +1155,12 @@ bool try_shape_open_type_run(
         } else {
             std::uint32_t lookup_count = 0U;
             std::span<const std::uint16_t> selected_lookups{};
-            if (plan != nullptr && excluded_fraction.empty()) {
+            if (plan != nullptr && excluded_gsub.empty()) {
                 selected_lookups = plan->gsub_lookups;
                 lookup_count = static_cast<std::uint32_t>(
                     selected_lookups.size());
             } else {
-                const bool selected = excluded_fraction.empty()
+                const bool selected = excluded_gsub.empty()
                     ? gsub.try_select_lookups(
                         options.script,
                         options.language,
@@ -1071,7 +1172,7 @@ bool try_shape_open_type_run(
                         options.script,
                         options.language,
                         options.requested_features,
-                        excluded_fraction,
+                        excluded_gsub,
                         scratch.gsub_lookups.first(gsub.lookup_count()),
                         lookup_count,
                         error);
@@ -1215,9 +1316,6 @@ bool try_shape_open_type_run(
         }
     }
 
-    if (arabic_joining) {
-        clear_arabic_actions(glyph_storage.first(glyph_count));
-    }
     if (hangul) {
         clear_hangul_features(glyph_storage.first(glyph_count));
     }
@@ -1437,6 +1535,21 @@ bool try_shape_open_type_run(
                 start = end < glyphs.size() ? end + 1U : end;
             }
         }
+    }
+    if (arabic_joining &&
+        !detail::try_apply_arabic_stretch_from_glyph_actions(
+            font,
+            glyph_storage,
+            glyph_count,
+            options.direction == shaping_direction::right_to_left,
+            options.normalized_coordinates,
+            scratch.arabic_stretch_runs,
+            error)) {
+        clear_arabic_actions(glyph_storage.first(glyph_count));
+        return false;
+    }
+    if (arabic_joining) {
+        clear_arabic_actions(glyph_storage.first(glyph_count));
     }
     set_error(error, font_error::none);
     return true;

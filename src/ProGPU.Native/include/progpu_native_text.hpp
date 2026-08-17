@@ -1012,6 +1012,7 @@ struct open_type_shape_run_scratch final {
     std::span<std::uint8_t> script_categories{};
     std::span<std::uint8_t> script_syllables{};
     std::span<std::uint32_t> script_indices{};
+    std::span<arabic_stretch_run> arabic_stretch_runs{};
 };
 
 struct open_type_shape_run_requirements final {

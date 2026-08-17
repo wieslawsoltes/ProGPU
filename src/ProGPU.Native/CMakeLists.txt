@@ -562,6 +562,7 @@ add_library(progpu_native_text STATIC
     src/Text/Shaping/progpu_native_unicode_syllables.cpp
     src/Text/Shaping/progpu_native_unicode_arabic.cpp
     src/Text/Shaping/progpu_native_arabic_stretch.cpp
+    src/Text/Shaping/progpu_native_arabic_stretch_internal.hpp
     src/Text/progpu_native_unicode_normalization.cpp
     src/Text/Shaping/progpu_native_open_type_layout.cpp
     src/Text/Shaping/progpu_native_open_type_features.cpp

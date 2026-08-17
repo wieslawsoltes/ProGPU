@@ -863,9 +863,16 @@ in place, preserving direction, fixed/repeating widths, overlap distribution,
 the 256-glyph-per-run cap, the 1,048,576-glyph global cap, and unsafe break and
 concatenation flags. Work is `O(G log C + G * T)` for glyphs `G`, generated
 category ranges `C`, and borrowed font tables `T`; internal storage is `O(1)`.
-The current checkpoint exposes the kernel and GSUB metadata seam independently;
-full-run `stch` stage ordering and action lifetime are the next integration
-slice and are not claimed complete here.
+The full-run shaper now executes `stch` as its own first Arabic substitution
+stage, excludes it from generic lookup replay, converts MultipleSubst component
+parity into fixed/repeating actions, retains those actions through positioning
+and directional reversal, expands after reversal, and clears every private bit
+before publishing output. Callers provide the optional run span on
+`open_type_shape_run_scratch`; runs without `stch` require no extra storage,
+while a stretching run fails explicitly with `insufficient_buffer` when either
+its exact run scratch or final glyph capacity is absent. A synthetic Arabic
+GSUB fixture covers the complete substitution-to-expansion path in addition to
+the direct kernel and transactional capacity tests.
 
 Legacy kerning fallback now directly ports the ProGPU-owned
 `GlyphPositionBuffer.ApplyLegacyKern` policy from checkpoint `34b76eeb`.

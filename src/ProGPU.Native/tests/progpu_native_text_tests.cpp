@@ -5238,6 +5238,98 @@ void arabic_stretch_matches_managed_bounded_expansion() {
         static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_concat);
     require((static_cast<std::uint32_t>(storage[0U].flags) & unsafe) ==
         unsafe);
+
+    const auto make_stretch_gsub = [] {
+        std::vector<std::byte> table(76U);
+        write_u16(table, 0U, 1U);
+        write_u16(table, 4U, 10U);
+        write_u16(table, 6U, 30U);
+        write_u16(table, 8U, 44U);
+        write_u16(table, 10U, 1U);
+        write_u32(table, 12U,
+            open_type_tag::from_chars('a', 'r', 'a', 'b').value);
+        write_u16(table, 16U, 8U);
+        write_u16(table, 18U, 4U);
+        write_u16(table, 22U, 0U);
+        write_u16(table, 24U, 0xFFFFU);
+        write_u16(table, 26U, 1U);
+        write_u16(table, 28U, 0U);
+        write_u16(table, 30U, 1U);
+        write_u32(table, 32U,
+            open_type_tag::from_chars('s', 't', 'c', 'h').value);
+        write_u16(table, 36U, 8U);
+        write_u16(table, 40U, 1U);
+        write_u16(table, 42U, 0U);
+        write_u16(table, 44U, 1U);
+        write_u16(table, 46U, 4U);
+        write_u16(table, 48U, 2U);
+        write_u16(table, 50U, 0U);
+        write_u16(table, 52U, 1U);
+        write_u16(table, 54U, 8U);
+        write_u16(table, 56U, 1U);
+        write_u16(table, 58U, 8U);
+        write_u16(table, 60U, 1U);
+        write_u16(table, 62U, 14U);
+        write_u16(table, 64U, 1U);
+        write_u16(table, 66U, 1U);
+        write_u16(table, 68U, 5U);
+        write_u16(table, 70U, 2U);
+        write_u16(table, 72U, 6U);
+        write_u16(table, 74U, 7U);
+        return table;
+    };
+    constexpr std::array mappings{
+        std::pair{0x0628U, 4U}, std::pair{0x0640U, 5U}};
+    const auto cmap = make_cmap_groups(mappings);
+    const std::array stretch_tables{
+        table_data{open_type_tag::from_chars('G', 'S', 'U', 'B'),
+            make_stretch_gsub()}};
+    const auto stretch_font_data = make_font(
+        0U, 22U, 0U, false, false, false, stretch_tables, cmap);
+    require(sfnt_font_view::try_create(
+        stretch_font_data, 0U, font, &error));
+    constexpr std::array stretch_input{
+        unicode_scalar{0x0640U, 0U, 1U},
+        unicode_scalar{0x0628U, 1U, 1U},
+        unicode_scalar{0x0628U, 2U, 1U},
+        unicode_scalar{0x0628U, 3U, 1U}};
+    constexpr std::array stretch_features{
+        open_type_tag::from_chars('s', 't', 'c', 'h')};
+    std::array<shaping_glyph, 12U> shaped{};
+    std::array<unicode_grapheme_cluster, 4U> graphemes{};
+    std::array<std::uint16_t, 1U> gsub_lookups{};
+    std::array<shaping_attachment, 12U> attachments{};
+    std::array<std::uint8_t, 12U> states{};
+    std::array<open_type_arabic_action, 4U> joining_actions{};
+    open_type_shape_run_scratch shape_scratch{};
+    shape_scratch.grapheme_clusters = graphemes;
+    shape_scratch.gsub_lookups = gsub_lookups;
+    shape_scratch.attachments = attachments;
+    shape_scratch.attachment_states = states;
+    shape_scratch.arabic_actions = joining_actions;
+    shape_scratch.arabic_stretch_runs = runs;
+    const open_type_shape_run_options stretch_options{
+        open_type_tag::from_chars('a', 'r', 'a', 'b'),
+        {},
+        shaping_direction::right_to_left,
+        stretch_features};
+    count = 0U;
+    require(try_shape_open_type_run(
+        font,
+        stretch_input,
+        stretch_options,
+        shaped,
+        shape_scratch,
+        count,
+        &error));
+    std::uint32_t stretched_glyphs = 0U;
+    for (std::uint32_t index = 0U; index < count; ++index) {
+        if (shaped[index].code_point == 0x0640U) ++stretched_glyphs;
+        require((static_cast<std::uint32_t>(shaped[index].flags) &
+            0xFFF80000U) == 0U);
+    }
+    require(error == font_error::none && count == 6U &&
+        stretched_glyphs == 3U);
 }
 
 void legacy_kern_shaping_matches_managed_policy() {
