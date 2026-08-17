@@ -701,6 +701,11 @@ design metrics, zero-units-per-em fallback, and midpoint-to-even integer
 rounding. Requirements and run creation are `O(T)` plus cmap lookup for `T`
 UTF-16 code units. Advance generation is `O(T + G)` for `G` glyphs using one
 caller-owned state byte per glyph; output buffers are unchanged on failure.
+Its public scalar reader exposes the same `ReadCodePoint` supplementary and
+unpaired-code-unit behavior without allocating. Native script resolution also
+publishes the managed first-non-DFLT inference and complete case-insensitive
+universal-shaper classifier, including third-generation Indic layout tags, so
+standalone native consumers do not need to reproduce shaping-route policy.
 
 C++ clients can use the header surfaces or, on the supported LLVM
 configuration, `import progpu.native.text;`,

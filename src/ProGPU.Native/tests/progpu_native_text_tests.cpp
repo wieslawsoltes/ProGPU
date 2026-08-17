@@ -36,6 +36,8 @@ using progpu::native::text::shaping_cluster_level;
 using progpu::native::text::shaping_direction;
 using progpu::native::text::shaping_buffer_flags;
 using progpu::native::text::get_unicode_script;
+using progpu::native::text::infer_open_type_script;
+using progpu::native::text::uses_universal_shaping_engine;
 using progpu::native::text::get_unicode_arabic_joining_type;
 using progpu::native::text::open_type_arabic_action;
 using progpu::native::text::try_assign_open_type_arabic_actions;
@@ -257,6 +259,7 @@ using progpu::native::text::sfnt_simple_glyph_metrics;
 using progpu::native::text::try_get_sfnt_simple_glyph_run_requirements;
 using progpu::native::text::try_build_sfnt_simple_glyph_run;
 using progpu::native::text::is_sfnt_simple_formatting_control;
+using progpu::native::text::try_read_sfnt_simple_code_point;
 using progpu::native::text::try_fill_sfnt_simple_glyph_advances;
 using progpu::native::text::sfnt_glyph_bounds;
 using progpu::native::text::sfnt_item_variation_data;
@@ -469,6 +472,20 @@ void unicode_contract_and_strict_decoders_are_transactional() {
         open_type_tag::from_chars('l', 'a', 'o', ' '));
     require(get_unicode_script(0x0301U) ==
         open_type_tag::from_chars('D', 'F', 'L', 'T'));
+    constexpr std::array<std::uint32_t, 3U> inferred_script_input{
+        0x20U, 0x0301U, 0x0905U};
+    require(infer_open_type_script(inferred_script_input) ==
+        open_type_tag::from_chars('d', 'e', 'v', 'a'));
+    require(infer_open_type_script(std::span<const std::uint32_t>{}) ==
+        open_type_tag::from_chars('D', 'F', 'L', 'T'));
+    require(uses_universal_shaping_engine(
+        open_type_tag::from_chars('d', 'e', 'v', '3')));
+    require(uses_universal_shaping_engine(
+        open_type_tag::from_chars('D', 'E', 'V', '3')));
+    require(uses_universal_shaping_engine(
+        open_type_tag::from_chars('t', 'i', 'b', 't')));
+    require(!uses_universal_shaping_engine(
+        open_type_tag::from_chars('l', 'a', 't', 'n')));
     require(get_unicode_canonical_combining_class(0x0301U) == 230U);
     require(get_unicode_canonical_combining_class(0x41U) == 0U);
     require(get_unicode_general_category(0x41U) ==
@@ -3228,6 +3245,18 @@ void sfnt_simple_glyph_shaper_matches_managed_utf16_contract() {
         is_sfnt_simple_formatting_control(0x7FU) &&
         is_sfnt_simple_formatting_control(0x9FU) &&
         !is_sfnt_simple_formatting_control(0x20U));
+    std::uint32_t code_point = 99U;
+    std::uint32_t code_unit_count = 99U;
+    require(try_read_sfnt_simple_code_point(
+        text, 1U, code_point, code_unit_count, &error));
+    require(code_point == 0x1F600U && code_unit_count == 2U);
+    require(try_read_sfnt_simple_code_point(
+        text, 6U, code_point, code_unit_count, &error));
+    require(code_point == 0xD800U && code_unit_count == 1U);
+    require(!try_read_sfnt_simple_code_point(
+        text, text.size(), code_point, code_unit_count, &error));
+    require(error == font_error::invalid_argument && code_point == 0U &&
+        code_unit_count == 0U);
 
     std::array<std::uint16_t, 7U> cluster_map{};
     std::array<std::uint16_t, 6U> glyph_indices{};

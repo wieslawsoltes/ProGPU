@@ -315,6 +315,9 @@ struct unicode_scalar final {
 };
 
 open_type_tag get_unicode_script(std::uint32_t code_point) noexcept;
+open_type_tag infer_open_type_script(
+    std::span<const std::uint32_t> code_points) noexcept;
+bool uses_universal_shaping_engine(open_type_tag script) noexcept;
 std::uint8_t get_unicode_canonical_combining_class(
     std::uint32_t code_point) noexcept;
 unicode_bidi_class get_unicode_bidi_class(std::uint32_t code_point) noexcept;
@@ -2058,6 +2061,13 @@ bool try_build_sfnt_simple_glyph_run(
     font_error* error = nullptr) noexcept;
 
 bool is_sfnt_simple_formatting_control(std::uint32_t code_point) noexcept;
+
+bool try_read_sfnt_simple_code_point(
+    std::span<const char16_t> text,
+    std::size_t text_index,
+    std::uint32_t& code_point,
+    std::uint32_t& code_unit_count,
+    font_error* error = nullptr) noexcept;
 
 bool try_fill_sfnt_simple_glyph_advances(
     std::span<const char16_t> text,

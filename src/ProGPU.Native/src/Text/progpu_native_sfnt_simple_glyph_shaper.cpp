@@ -108,6 +108,25 @@ bool is_sfnt_simple_formatting_control(std::uint32_t code_point) noexcept {
         (code_point >= 0x7FU && code_point <= 0x9FU);
 }
 
+bool try_read_sfnt_simple_code_point(
+    std::span<const char16_t> text,
+    std::size_t text_index,
+    std::uint32_t& code_point,
+    std::uint32_t& code_unit_count,
+    font_error* error) noexcept {
+    code_point = 0U;
+    code_unit_count = 0U;
+    if (text_index >= text.size()) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    std::size_t count = 0U;
+    code_point = read_code_point(text, text_index, count);
+    code_unit_count = static_cast<std::uint32_t>(count);
+    set_error(error, font_error::none);
+    return true;
+}
+
 bool try_get_sfnt_simple_glyph_run_requirements(
     std::span<const char16_t> text,
     sfnt_simple_glyph_run_requirements& result,

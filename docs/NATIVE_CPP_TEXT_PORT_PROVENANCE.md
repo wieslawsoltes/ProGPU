@@ -1214,6 +1214,19 @@ C0/C1 controls, unpaired surrogates, horizontal/sideways tie rounding, short
 output transactionality, overflow rejection, the named C++20 module consumer,
 and ASan/UBSan execution.
 
+The remaining public scalar/script helpers directly port ProGPU-owned
+`SfntSimpleGlyphShaper.ReadCodePoint` and `OpenTypeScriptResolver.Infer` /
+`UsesUniversalShapingEngine` from checkpoint `84c07cfe`. The scalar query is
+fixed `O(1)` and preserves supplementary versus unpaired UTF-16 behavior.
+Script inference is `O(N)` for `N` code points and returns the first canonical
+non-DFLT generated Unicode tag. Universal-engine classification is bounded
+`O(1)` over the fixed managed policy, performs ASCII case folding without a
+string allocation, and now shares the route classifier including all nine
+third-generation Indic tags. Direct and module fixtures cover canonical
+Hiragana/Lao tags, empty/common-prefix inference, upper/lowercase generation-3
+and USE tags, Latin exclusion, invalid scalar-reader indices, and sanitizer
+execution.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

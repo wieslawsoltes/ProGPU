@@ -158,6 +158,11 @@ bool is_indic_script(open_type_tag script) noexcept {
 
 bool is_use_script(open_type_tag script) noexcept {
     constexpr std::array scripts{
+        tag('b', 'n', 'g', '3'), tag('d', 'e', 'v', '3'),
+        tag('g', 'j', 'r', '3'), tag('g', 'u', 'r', '3'),
+        tag('k', 'n', 'd', '3'), tag('m', 'l', 'm', '3'),
+        tag('o', 'r', 'y', '3'), tag('t', 'm', 'l', '3'),
+        tag('t', 'e', 'l', '3'),
         tag('t', 'i', 'b', 't'), tag('m', 'o', 'n', 'g'),
         tag('s', 'i', 'n', 'h'), tag('j', 'a', 'v', 'a'),
         tag('m', 'a', 'r', 'c'), tag('l', 'i', 'm', 'b'),
@@ -198,6 +203,20 @@ bool is_use_script(open_type_tag script) noexcept {
     return std::find(scripts.begin(), scripts.end(), script) != scripts.end();
 }
 
+open_type_tag lowercase_tag(open_type_tag value) noexcept {
+    std::uint32_t result = 0U;
+    for (std::uint32_t shift = 24U;; shift -= 8U) {
+        std::uint32_t character = (value.value >> shift) & 0xFFU;
+        if (character >= static_cast<std::uint32_t>('A') &&
+            character <= static_cast<std::uint32_t>('Z')) {
+            character += static_cast<std::uint32_t>('a' - 'A');
+        }
+        result |= character << shift;
+        if (shift == 0U) break;
+    }
+    return open_type_tag{result};
+}
+
 bool is_arabic_joining_script(open_type_tag script) noexcept {
     constexpr std::array scripts{
         tag('a', 'd', 'l', 'm'), tag('a', 'r', 'a', 'b'),
@@ -226,6 +245,10 @@ shaping_direction resolve_direction(
 }
 
 } // namespace
+
+bool uses_universal_shaping_engine(open_type_tag script) noexcept {
+    return is_use_script(lowercase_tag(script));
+}
 
 open_type_tag resolve_open_type_language_tag(std::string_view language) noexcept {
     if (language_equals(language, "az") ||
@@ -279,7 +302,7 @@ bool try_resolve_open_type_shaping_route(
     } else if (second.value != 0U && has_open_type_script(font, second)) {
         layout_script = second;
     } else {
-        use_shaper = is_use_script(unicode_script);
+        use_shaper = uses_universal_shaping_engine(unicode_script);
     }
 
     const bool indic_shaper = !use_shaper && is_indic_script(unicode_script);

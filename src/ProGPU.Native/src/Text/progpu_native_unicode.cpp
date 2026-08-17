@@ -224,6 +224,15 @@ open_type_tag get_unicode_script(std::uint32_t code_point) noexcept {
     return result;
 }
 
+open_type_tag infer_open_type_script(
+    std::span<const std::uint32_t> code_points) noexcept {
+    for (const std::uint32_t code_point : code_points) {
+        const open_type_tag script = get_unicode_script(code_point);
+        if (script != default_script) return script;
+    }
+    return default_script;
+}
+
 std::uint8_t get_unicode_canonical_combining_class(
     std::uint32_t code_point) noexcept {
     if (!is_scalar(code_point)) {

@@ -140,8 +140,14 @@ int main() {
         &progpu::native::text::try_build_sfnt_simple_glyph_run;
     const auto simple_control_resolver =
         &progpu::native::text::is_sfnt_simple_formatting_control;
+    const auto simple_code_point_resolver =
+        &progpu::native::text::try_read_sfnt_simple_code_point;
     const auto simple_advance_resolver =
         &progpu::native::text::try_fill_sfnt_simple_glyph_advances;
+    const auto script_infer_resolver =
+        &progpu::native::text::infer_open_type_script;
+    const auto universal_shaper_resolver =
+        &progpu::native::text::uses_universal_shaping_engine;
     const auto default_feature_settings =
         progpu::native::text::get_default_open_type_feature_settings();
     static_assert(progpu::native::text::sfnt_name_ids::family_name == 1U);
@@ -250,7 +256,10 @@ int main() {
         simple_run_requirements_resolver == nullptr ||
         simple_run_resolver == nullptr ||
         simple_control_resolver == nullptr ||
+        simple_code_point_resolver == nullptr ||
         simple_advance_resolver == nullptr ||
+        script_infer_resolver == nullptr ||
+        universal_shaper_resolver == nullptr ||
         default_feature_settings.size() != 26U ||
         shaping_route_resolver == nullptr ||
         !shape_options.pre_context.empty() ||
