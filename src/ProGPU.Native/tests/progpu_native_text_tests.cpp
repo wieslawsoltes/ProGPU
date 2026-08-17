@@ -5433,7 +5433,8 @@ void native_font_provider_cache_is_borrowed_and_generation_safe() {
         provider, 7U, 650U, 5U, font_provider_slant::normal, 0x41U,
         cache, cursor, result, &error));
     require(result.found && result.provider_index == 1U &&
-        result.face.identity == 2U && context.reads == 2U);
+        result.face.identity == 2U && result.glyph_index == 4U &&
+        context.reads == 2U);
     require(try_resolve_font_provider_face(
         provider, 7U, 650U, 5U, font_provider_slant::normal, 0x41U,
         cache, cursor, result, &error));
@@ -5527,11 +5528,13 @@ void native_font_provider_cache_is_borrowed_and_generation_safe() {
     require(try_resolve_font_provider_face(
         coverage_provider, 10U, 400U, 5U, font_provider_slant::normal, 0x41U,
         coverage_cache, coverage_cursor, result, &error));
-    require(result.found && result.face.identity == 21U);
+    require(result.found && result.face.identity == 21U &&
+        result.glyph_index == 4U);
     require(try_resolve_font_provider_face(
         coverage_provider, 11U, 400U, 5U, font_provider_slant::normal, 0x20U,
         coverage_cache, coverage_cursor, result, &error));
-    require(result.found && result.face.identity == 22U);
+    require(result.found && result.face.identity == 22U &&
+        result.glyph_index == 2U);
 }
 
 void native_positioned_text_layout_wraps_without_allocation() {

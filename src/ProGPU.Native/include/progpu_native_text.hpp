@@ -1433,10 +1433,12 @@ struct font_provider_cache_entry final {
 struct font_provider_result final {
     font_provider_face face{};
     std::uint32_t provider_index = 0U;
+    std::uint16_t glyph_index = 0U;
     bool found = false;
 };
 
-/* Resolves one family/style/scalar request. Cache storage and replacement
+/* Resolves one family/style/scalar request, including the already validated
+ * glyph index so the caller does not repeat cmap lookup. Cache storage and replacement
  * cursor belong to the caller. Hits are O(C), misses O(F*T) for cache slots C,
  * provider faces F, and bounded SFNT table lookup T; no allocation or I/O is
  * performed by the native resolver. */

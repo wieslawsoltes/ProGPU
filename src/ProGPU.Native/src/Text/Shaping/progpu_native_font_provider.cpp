@@ -57,9 +57,11 @@ bool try_open_candidate(
     std::uint64_t family,
     std::uint32_t code_point,
     font_provider_face& face,
-    sfnt_font_view& font) noexcept {
+    sfnt_font_view& font,
+    std::uint16_t& glyph) noexcept {
     face = {};
     font = {};
+    glyph = 0U;
     if (!provider.try_get_face(provider.context, index, face) ||
         face.data.empty() ||
         (family != 0U && face.family_identity != family)) {
@@ -70,7 +72,6 @@ bool try_open_candidate(
             face.data, face.face_index, font, &ignored)) {
         return false;
     }
-    std::uint16_t glyph = 0U;
     if (!font.try_get_glyph_index(code_point, glyph) || glyph == 0U) {
         return false;
     }
@@ -170,9 +171,11 @@ bool try_resolve_font_provider_face(
         }
         font_provider_face face{};
         sfnt_font_view font{};
+        std::uint16_t glyph = 0U;
         if (try_open_candidate(provider, entry.face_index, family_identity,
-                code_point, face, font)) {
-            result = font_provider_result{face, entry.face_index, true};
+                code_point, face, font, glyph)) {
+            result = font_provider_result{
+                face, entry.face_index, glyph, true};
             set_error(error, font_error::none);
             return true;
         }
@@ -182,13 +185,15 @@ bool try_resolve_font_provider_face(
     const std::uint32_t count = provider.get_face_count(provider.context);
     std::uint64_t best_score = std::numeric_limits<std::uint64_t>::max();
     std::uint32_t best_index = 0U;
+    std::uint16_t best_glyph = 0U;
     font_provider_face best_face{};
     bool found = false;
     for (std::uint32_t index = 0U; index < count; ++index) {
         font_provider_face face{};
         sfnt_font_view font{};
+        std::uint16_t glyph = 0U;
         if (!try_open_candidate(provider, index, family_identity, code_point,
-                face, font)) {
+                face, font, glyph)) {
             continue;
         }
         const auto score = style_score(face, weight, stretch, slant);
@@ -197,6 +202,7 @@ bool try_resolve_font_provider_face(
             best_score = score;
             best_index = index;
             best_face = face;
+            best_glyph = glyph;
             if (score == 0U) {
                 break;
             }
@@ -205,7 +211,8 @@ bool try_resolve_font_provider_face(
     store_cache(provider, family_identity, weight, stretch, slant, code_point,
         best_index, found, cache, replacement_cursor);
     if (found) {
-        result = font_provider_result{best_face, best_index, true};
+        result = font_provider_result{
+            best_face, best_index, best_glyph, true};
     }
     set_error(error, font_error::none);
     return true;

@@ -376,6 +376,10 @@ that intentionally have no pixels. Synthetic provider tests prove that an
 empty mapped glyph is skipped for a later drawable face while a mapped space
 remains eligible. All probes are bounded borrowed-table reads with no decode
 allocation or managed callback.
+The provider result publishes that validated glyph index, matching the managed
+`TryMatchCharacter` output and avoiding a duplicate cmap lookup at the native
+fallback-to-shaping boundary. Cache hits recompute it during the already
+required borrowed-face validation and add no provider callback or allocation.
 
 ## Delivered borrowed SFNT/TTC foundation
 

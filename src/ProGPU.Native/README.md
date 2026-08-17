@@ -610,6 +610,8 @@ Provider coverage now matches `FontManager.CanRenderGlyph` rather than treating
 every nonzero cmap entry as drawable: native selection verifies TrueType/CFF
 outlines, COLR/OpenType-SVG layers, or sbix/CBDT bitmap data and retains the
 managed no-outline allowance for control, format, and separator scalars.
+The successful bulk result carries the validated glyph index together with the
+borrowed face, eliminating a second cmap search before shaping.
 
 Positioned native line layout consumes already-shaped visual-order glyphs and
 caller-supplied break decisions, preserving the managed ProGPU separation

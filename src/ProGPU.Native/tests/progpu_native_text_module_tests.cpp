@@ -41,6 +41,7 @@ int main() {
     const progpu::native::text::font_style_variation_requirements
         style_requirements{};
     const progpu::native::text::font_style_variation style_variation{};
+    const progpu::native::text::font_provider_result provider_result{};
     const progpu::native::text::open_type_feature_tag_requirements
         feature_tag_requirements{};
     const progpu::native::text::sfnt_vertical_header_metrics vertical_header{};
@@ -138,6 +139,7 @@ int main() {
         directory_record.tag.value != 0U || style_request.weight != 400 ||
         style_requirements.setting_count != 0U ||
         style_variation.tag.value != 0U ||
+        provider_result.glyph_index != 0U ||
         feature_tag_requirements.tag_capacity != 0U ||
         vertical_header.number_of_vertical_metrics != 0U ||
         vertical_glyph.advance_height != 0U || glyph_bounds.x_min != 0 ||
