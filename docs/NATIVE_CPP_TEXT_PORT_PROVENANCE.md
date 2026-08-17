@@ -1174,6 +1174,15 @@ boundary at checkpoint `139e2df0`: values above `U+10FFFF` fail before cache
 lookup or a provider callback. The constant-time validation allocates nothing;
 a regression fixture verifies transactional output and zero catalog reads.
 
+Layout metrics directly port ProGPU-owned `TextLayout.ContentSize` and
+`MeasuredSize` publication from checkpoint `3d5e96b3`. Horizontal metrics take
+the maximum retained line width and baseline-plus-height extent; vertical
+metrics take the aligned column span and maximum column height. A finite
+nonzero requested width becomes measured width while content size remains
+intrinsic. Each reducer is `O(L)` or `O(C)` with `O(1)` state, no glyph walk,
+and transactional rejection of non-finite metadata. Tests cover wrapped lines,
+aligned vertical columns, and invalid bounds.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

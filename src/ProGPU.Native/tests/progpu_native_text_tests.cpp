@@ -172,6 +172,9 @@ using progpu::native::text::positioned_text_column;
 using progpu::native::text::text_vertical_layout_requirements;
 using progpu::native::text::try_get_vertical_text_layout_requirements;
 using progpu::native::text::try_layout_vertical_shaped_text;
+using progpu::native::text::text_layout_metrics;
+using progpu::native::text::try_measure_positioned_text_lines;
+using progpu::native::text::try_measure_positioned_text_columns;
 using progpu::native::text::text_cluster_box;
 using progpu::native::text::text_caret_stop;
 using progpu::native::text::text_rectangle;
@@ -5651,6 +5654,13 @@ void native_positioned_text_layout_wraps_without_allocation() {
         lines[0U].width == 20.0F && !lines[0U].clipped);
     require(lines[1U].glyph_start == 2U && lines[1U].glyph_count == 2U &&
         lines[1U].baseline_y == 12.0F);
+    text_layout_metrics metrics{};
+    require(try_measure_positioned_text_lines(
+        lines, options.maximum_width, metrics, &error));
+    require(metrics.content_width == 20.0F &&
+        metrics.content_height == 24.0F &&
+        metrics.measured_width == 25.0F &&
+        metrics.measured_height == 24.0F);
 
     auto centered_options = options;
     centered_options.alignment = text_alignment::center;
@@ -6111,6 +6121,13 @@ void native_vertical_text_layout_matches_managed_columns() {
         columns[0U].glyph_count == 2U && columns[0U].height == 16.0F &&
         columns[0U].x == 5.0F && columns[0U].width == 10.0F &&
         !columns[0U].clipped && columns[1U].x == 15.0F);
+    text_layout_metrics metrics{};
+    require(try_measure_positioned_text_columns(
+        columns, options.maximum_width, metrics, &error));
+    require(metrics.content_width == 20.0F &&
+        metrics.content_height == 16.0F &&
+        metrics.measured_width == 30.0F &&
+        metrics.measured_height == 16.0F);
 
     auto bottom_to_top = top_to_bottom;
     for (auto& glyph : bottom_to_top) glyph.advance_y = -8;
@@ -6168,6 +6185,15 @@ void native_vertical_text_layout_matches_managed_columns() {
         top_to_bottom, breaks, invalid_options, requirements, &error));
     require(error == font_error::invalid_argument &&
         requirements.glyph_capacity == 0U);
+
+    metrics = text_layout_metrics{1.0F, 2.0F, 3.0F, 4.0F};
+    require(!try_measure_positioned_text_columns(
+        columns,
+        std::numeric_limits<float>::quiet_NaN(),
+        metrics,
+        &error));
+    require(error == font_error::invalid_argument &&
+        metrics.content_width == 0.0F && metrics.content_height == 0.0F);
 }
 
 void unicode_line_breaks_feed_native_layout_without_allocation() {

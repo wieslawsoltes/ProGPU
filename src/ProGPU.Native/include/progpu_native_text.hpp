@@ -1634,6 +1634,25 @@ struct text_vertical_layout_requirements final {
     std::uint32_t column_capacity = 0U;
 };
 
+struct text_layout_metrics final {
+    float content_width = 0.0F;
+    float content_height = 0.0F;
+    float measured_width = 0.0F;
+    float measured_height = 0.0F;
+};
+
+bool try_measure_positioned_text_lines(
+    std::span<const positioned_text_line> lines,
+    float maximum_width,
+    text_layout_metrics& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_measure_positioned_text_columns(
+    std::span<const positioned_text_column> columns,
+    float maximum_width,
+    text_layout_metrics& result,
+    font_error* error = nullptr) noexcept;
+
 /* Ports TextLayout.GenerateVerticalShapedLayout over already-shaped visual
  * glyphs. Mandatory boundaries start a new column; ordinary opportunities do
  * not wrap vertical text. maximum_lines bounds columns; vertical trimming is

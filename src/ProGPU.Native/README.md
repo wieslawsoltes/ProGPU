@@ -666,6 +666,10 @@ clipped. Requirements and population are `O(G)` with `O(1)` internal storage;
 vertical ellipsis is rejected because the authoritative managed layout does not
 define it. Horizontal layout rejects vertical directions so callers cannot
 silently receive horizontal placement for an accepted vertical request.
+Allocation-free line and column metric reducers publish the managed
+`ContentSize`/`MeasuredSize` equivalents from retained layout metadata. They
+scan only `L` lines or `C` columns, preserve the finite maximum-width contract,
+and do not revisit glyphs; work is `O(L)` or `O(C)` with `O(1)` state.
 
 Character and word ellipsis use the same bounded layout pass. The caller
 supplies one already-shaped ellipsis glyph id and font-unit advance; layout

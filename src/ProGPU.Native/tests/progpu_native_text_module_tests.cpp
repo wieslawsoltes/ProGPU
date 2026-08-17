@@ -50,6 +50,7 @@ int main() {
     const progpu::native::text::positioned_text_column positioned_column{};
     const progpu::native::text::text_vertical_layout_requirements
         vertical_layout_requirements{};
+    const progpu::native::text::text_layout_metrics layout_metrics{};
     const progpu::native::text::open_type_feature_tag_requirements
         feature_tag_requirements{};
     const progpu::native::text::sfnt_vertical_header_metrics vertical_header{};
@@ -107,6 +108,10 @@ int main() {
         &progpu::native::text::try_get_vertical_text_layout_requirements;
     const auto vertical_layout_resolver =
         &progpu::native::text::try_layout_vertical_shaped_text;
+    const auto line_metrics_resolver =
+        &progpu::native::text::try_measure_positioned_text_lines;
+    const auto column_metrics_resolver =
+        &progpu::native::text::try_measure_positioned_text_columns;
     const auto default_feature_settings =
         progpu::native::text::get_default_open_type_feature_settings();
     static_assert(progpu::native::text::sfnt_name_ids::family_name == 1U);
@@ -167,6 +172,7 @@ int main() {
             progpu::native::text::text_alignment::left ||
         positioned_column.glyph_count != 0U ||
         vertical_layout_requirements.column_capacity != 0U ||
+        layout_metrics.content_width != 0.0F ||
         feature_tag_requirements.tag_capacity != 0U ||
         vertical_header.number_of_vertical_metrics != 0U ||
         vertical_glyph.advance_height != 0U || glyph_bounds.x_min != 0 ||
@@ -198,6 +204,8 @@ int main() {
         logical_layout_resolver == nullptr ||
         vertical_layout_requirements_resolver == nullptr ||
         vertical_layout_resolver == nullptr ||
+        line_metrics_resolver == nullptr ||
+        column_metrics_resolver == nullptr ||
         default_feature_settings.size() != 26U ||
         shaping_route_resolver == nullptr ||
         !shape_options.pre_context.empty() ||
