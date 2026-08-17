@@ -328,6 +328,10 @@ internal static unsafe partial class NativeMethods
         internal uint MaskRevision;
         internal NativeImageSampling MaskSampling;
         internal DrawState* DrawState;
+        internal float CubicB;
+        internal float CubicC;
+        internal uint MaxAnisotropy;
+        internal uint Reserved3;
     }
 
     [StructLayout(LayoutKind.Sequential)]

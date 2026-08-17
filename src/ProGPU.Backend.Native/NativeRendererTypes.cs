@@ -411,7 +411,8 @@ public enum NativeRendererCapabilities : ulong
     BulkTextParagraph = 1UL << 45,
     BulkTextVerticalLayout = 1UL << 46,
     SemanticImagePatchBatch = 1UL << 47,
-    SemanticImageMipmapSampling = 1UL << 48
+    SemanticImageMipmapSampling = 1UL << 48,
+    ImageFrameMipmapSampling = 1UL << 49
 }
 
 public enum NativeSceneResourceKind : uint

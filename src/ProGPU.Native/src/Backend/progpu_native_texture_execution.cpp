@@ -23,8 +23,21 @@ progpu_native_status render_image(
         frame->mask_destination_rect.y == 0.0F &&
         frame->mask_destination_rect.width == 0.0F &&
         frame->mask_destination_rect.height == 0.0F;
+    constexpr std::uint32_t legacy_frame_size =
+        offsetof(progpu_native_image_frame, draw_state) +
+        sizeof(const progpu_native_draw_state*);
+    const bool has_sampler_extension = frame != nullptr &&
+        frame->struct_size >= sizeof(progpu_native_image_frame);
+    const float cubic_b = has_sampler_extension ? frame->cubic_b : 0.0F;
+    const float cubic_c = has_sampler_extension ? frame->cubic_c : 0.5F;
+    const std::uint32_t max_anisotropy = has_sampler_extension
+        ? frame->max_anisotropy
+        : 1U;
+    semantic::semantic_image_sampler_options sampler_options{};
     if (engine == nullptr || frame == nullptr ||
-        frame->struct_size < offsetof(progpu_native_image_frame, draw_state) ||
+        frame->struct_size < legacy_frame_size ||
+        (frame->struct_size > legacy_frame_size &&
+            frame->struct_size < sizeof(progpu_native_image_frame)) ||
         frame->width == 0U || frame->height == 0U ||
         !std::isfinite(frame->dpi_scale) || frame->dpi_scale <= 0.0F ||
         frame->target_view == 0U ||
@@ -39,7 +52,11 @@ progpu_native_status render_image(
                 PROGPU_NATIVE_IMAGE_SOURCE_EXTERNAL_VIEW) != 0U) &&
             (frame->external_source_view == 0U ||
              frame->rgba_pixels != nullptr || frame->pixel_bytes != 0U)) ||
-        frame->sampling > PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR ||
+        !semantic::resolve_semantic_image_sampler_options(
+            frame->sampling, max_anisotropy, sampler_options) ||
+        (frame->sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC &&
+            (!std::isfinite(cubic_b) || !std::isfinite(cubic_c) ||
+                std::abs(cubic_b) > 16.0F || std::abs(cubic_c) > 16.0F)) ||
         (has_mask &&
             (frame->mask_width == 0U || frame->mask_height == 0U ||
              frame->mask_width > 16384U || frame->mask_height > 16384U ||
@@ -59,6 +76,7 @@ progpu_native_status render_image(
         !std::isfinite(frame->opacity) ||
         frame->opacity < 0.0F || frame->opacity > 1.0F ||
         frame->reserved != 0U || frame->reserved2 != 0U ||
+        (has_sampler_extension && frame->reserved3 != 0U) ||
         !progpu::native::is_finite(frame->clear_color)) {
         return engine == nullptr
             ? PROGPU_NATIVE_STATUS_INVALID_ARGUMENT
@@ -67,10 +85,7 @@ progpu_native_status render_image(
                 "The retained RGBA image frame descriptor is invalid.");
     }
     resolved_draw_state draw_state{};
-    const auto* requested_draw_state =
-        frame->struct_size >= sizeof(progpu_native_image_frame)
-            ? frame->draw_state
-            : nullptr;
+    const auto* requested_draw_state = frame->draw_state;
     if (!resolve_draw_state(
             requested_draw_state,
             frame->target_view,
@@ -150,6 +165,19 @@ progpu_native_status render_image(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The retained RGBA image texture could not be uploaded.");
     }
+    WGPUSampler image_sampler = semantic::resolve_semantic_image_sampler(
+        *engine,
+        frame->sampling,
+        max_anisotropy);
+    if (!update_image_texture_binding(
+            *engine,
+            image_sampler,
+            frame->sampling,
+            sampler_options.max_anisotropy)) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The retained RGBA image sampler binding could not be prepared.");
+    }
     bool uploaded_mask_uniforms = false;
     if (has_mask &&
         (!create_image_mask_resources(*engine) ||
@@ -161,6 +189,10 @@ progpu_native_status render_image(
 
     const bool compiled_payload_hit = engine->image_cache_valid &&
         engine->image_content_revision == frame->content_revision &&
+        engine->image_compiled_sampling == frame->sampling &&
+        (frame->sampling != PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC ||
+            (engine->image_compiled_cubic_b == cubic_b &&
+                engine->image_compiled_cubic_c == cubic_c)) &&
         engine->image_draw_opacity == draw_state.opacity &&
         !dimensions_changed;
     if (!compiled_payload_hit) {
@@ -192,12 +224,17 @@ progpu_native_status render_image(
             vertex.color[0] = 1.0F;
             vertex.color[1] = 0.0F;
             vertex.color[2] = 1.0F;
-            vertex.color[3] = frame->opacity * draw_state.opacity;
+            vertex.color[3] =
+                frame->sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
+                ? -frame->opacity * draw_state.opacity
+                : frame->opacity * draw_state.opacity;
             vertex.texture_coordinate[0] = corners[index][0] == 0U ? u0 : u1;
             vertex.texture_coordinate[1] = corners[index][1] == 0U ? v0 : v1;
             vertex.brush_index = 0.0F;
-            vertex.shape_size[0] = 0.0F;
-            vertex.shape_size[1] = 0.5F;
+            vertex.shape_size[0] = frame->sampling ==
+                PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC ? cubic_b : 0.0F;
+            vertex.shape_size[1] = frame->sampling ==
+                PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC ? cubic_c : 0.5F;
             vertex.corner_radius = 0.0F;
             vertex.stroke_thickness = 1.0F;
             vertex.shape_type = 0.0F;
@@ -207,6 +244,9 @@ progpu_native_status render_image(
             engine->image_vertices.data(),
             sizeof(engine->image_vertices));
         engine->image_content_revision = frame->content_revision;
+        engine->image_compiled_sampling = frame->sampling;
+        engine->image_compiled_cubic_b = cubic_b;
+        engine->image_compiled_cubic_c = cubic_c;
         engine->image_draw_opacity = draw_state.opacity;
         engine->image_cache_valid = true;
         engine->image_gpu_cache_valid = false;
@@ -290,9 +330,7 @@ progpu_native_status render_image(
         wgpuRenderPassEncoderSetBindGroup(
             pass,
             1U,
-            frame->sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
-                ? engine->image_nearest_bind_group
-                : engine->image_linear_bind_group,
+            engine->image_texture_bind_group,
             0U,
             nullptr);
         if (has_mask) {
@@ -375,6 +413,20 @@ progpu_native_status render_image(
         payload_hash,
         &frame->sampling,
         sizeof(frame->sampling));
+    payload_hash = append_fnv1a64(
+        payload_hash,
+        &sampler_options.max_anisotropy,
+        sizeof(sampler_options.max_anisotropy));
+    if (frame->sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC) {
+        payload_hash = append_fnv1a64(
+            payload_hash,
+            &cubic_b,
+            sizeof(cubic_b));
+        payload_hash = append_fnv1a64(
+            payload_hash,
+            &cubic_c,
+            sizeof(cubic_c));
+    }
     payload_hash = append_fnv1a64(
         payload_hash,
         &frame->mask_revision,

@@ -527,6 +527,8 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_IMAGE_PATCH_BATCH) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_IMAGE_MIPMAP_SAMPLING) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_IMAGE_FRAME_MIPMAP_SAMPLING) != 0U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_header) == 80U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_resource) == 48U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_command) == 64U);
@@ -677,7 +679,12 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(sizeof(progpu_native_glyph_frame) == 104U);
     PROGPU_REQUIRE(sizeof(progpu_native_glyph_frame_metrics) == 80U);
     PROGPU_REQUIRE(sizeof(progpu_native_image_rect) == 16U);
-    PROGPU_REQUIRE(sizeof(progpu_native_image_frame) == 208U);
+    PROGPU_REQUIRE(sizeof(progpu_native_image_frame) == 224U);
+    PROGPU_REQUIRE(offsetof(progpu_native_image_frame, draw_state) == 200U);
+    PROGPU_REQUIRE(offsetof(progpu_native_image_frame, cubic_b) == 208U);
+    PROGPU_REQUIRE(offsetof(progpu_native_image_frame, cubic_c) == 212U);
+    PROGPU_REQUIRE(offsetof(progpu_native_image_frame, max_anisotropy) == 216U);
+    PROGPU_REQUIRE(offsetof(progpu_native_image_frame, reserved3) == 220U);
     PROGPU_REQUIRE(sizeof(progpu_native_image_frame_metrics) == 72U);
     PROGPU_REQUIRE(std::strstr(info.name, "ProGPU C++") != nullptr);
 }

@@ -124,6 +124,106 @@ void require(bool condition, const char* message) {
     }
 }
 
+void verify_direct_image_sampler_contract(
+    progpu_native_engine* engine,
+    WGPUTextureView target_view) {
+    constexpr std::array<std::uint8_t, 16U> pixels{
+        255U, 0U, 0U, 255U,
+        0U, 255U, 0U, 255U,
+        0U, 0U, 255U, 255U,
+        255U, 255U, 255U, 255U};
+    progpu_native_image_frame frame{};
+    frame.struct_size = sizeof(frame);
+    frame.width = 64U;
+    frame.height = 48U;
+    frame.dpi_scale = 1.0F;
+    frame.target_view = reinterpret_cast<std::uintptr_t>(target_view);
+    frame.clear_color = {0.01F, 0.02F, 0.03F, 1.0F};
+    frame.rgba_pixels = pixels.data();
+    frame.pixel_bytes = pixels.size();
+    frame.image_width = 2U;
+    frame.image_height = 2U;
+    frame.row_bytes = 8U;
+    frame.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR_MIPMAP;
+    frame.image_revision = 1U;
+    frame.content_revision = 1U;
+    frame.source_rect = {0.0F, 0.0F, 2.0F, 2.0F};
+    frame.destination_rect = {4.0F, 4.0F, 56.0F, 40.0F};
+    frame.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    frame.opacity = 1.0F;
+    frame.cubic_c = 0.5F;
+    frame.max_anisotropy = 8U;
+    progpu_native_image_frame_metrics metrics{};
+    metrics.struct_size = sizeof(metrics);
+    require(progpu_native_engine_render_image(engine, &frame, &metrics) ==
+            PROGPU_NATIVE_STATUS_SUCCESS &&
+        metrics.draw_call_count == 1U &&
+        metrics.vertex_upload_bytes != 0U &&
+        metrics.texture_upload_bytes == pixels.size() &&
+        metrics.payload_hash != 0U,
+        "direct image mipmap/anisotropic sampling failed");
+    const std::uint64_t mipmap_hash = metrics.payload_hash;
+
+    metrics = {};
+    metrics.struct_size = sizeof(metrics);
+    require(progpu_native_engine_render_image(engine, &frame, &metrics) ==
+            PROGPU_NATIVE_STATUS_SUCCESS &&
+        metrics.vertex_upload_bytes == 0U &&
+        metrics.texture_upload_bytes == 0U &&
+        metrics.payload_hash == mipmap_hash,
+        "stable direct image sampling rebuilt retained payload");
+
+    frame.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC;
+    frame.content_revision = 2U;
+    frame.cubic_b = 1.0F / 3.0F;
+    frame.cubic_c = 1.0F / 3.0F;
+    frame.max_anisotropy = 1U;
+    metrics = {};
+    metrics.struct_size = sizeof(metrics);
+    require(progpu_native_engine_render_image(engine, &frame, &metrics) ==
+            PROGPU_NATIVE_STATUS_SUCCESS &&
+        metrics.vertex_upload_bytes != 0U &&
+        metrics.texture_upload_bytes == 0U &&
+        metrics.payload_hash != mipmap_hash,
+        "direct image cubic sampling coefficients were not retained");
+
+    frame.struct_size = static_cast<std::uint32_t>(
+        offsetof(progpu_native_image_frame, draw_state) +
+        sizeof(frame.draw_state));
+    frame.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+    frame.content_revision = 3U;
+    metrics = {};
+    metrics.struct_size = sizeof(metrics);
+    require(progpu_native_engine_render_image(engine, &frame, &metrics) ==
+            PROGPU_NATIVE_STATUS_SUCCESS,
+        "legacy direct image frame ABI was not accepted");
+
+    frame.struct_size += sizeof(float);
+    require(progpu_native_engine_render_image(engine, &frame, &metrics) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+        "partial direct image sampler extension did not fail closed");
+
+    frame.struct_size = sizeof(frame);
+    frame.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+    frame.max_anisotropy = 2U;
+    require(progpu_native_engine_render_image(engine, &frame, &metrics) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+        "anisotropy on a non-mipmap direct image did not fail closed");
+
+    frame.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC;
+    frame.max_anisotropy = 1U;
+    frame.cubic_b = std::numeric_limits<float>::quiet_NaN();
+    require(progpu_native_engine_render_image(engine, &frame, &metrics) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+        "non-finite direct image cubic coefficients did not fail closed");
+
+    frame.cubic_b = 0.0F;
+    frame.sampling = 10U;
+    require(progpu_native_engine_render_image(engine, &frame, &metrics) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+        "unknown direct image sampling did not fail closed");
+}
+
 using semantic_scene_stream = std::array<std::byte, 200U>;
 
 semantic_scene_stream create_semantic_scene_stream(
@@ -4593,6 +4693,7 @@ int main(int argc, char** argv) {
     require(progpu_native_engine_render(engine, &frame, &metrics) ==
         PROGPU_NATIVE_STATUS_SUCCESS,
         "post-blend baseline replay failed");
+    verify_direct_image_sampler_contract(engine, view);
     const auto native_3d_scene = create_native_3d_scene_stream();
     scene_metrics = {};
     scene_metrics.struct_size = sizeof(scene_metrics);

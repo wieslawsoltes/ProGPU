@@ -143,6 +143,7 @@ bool finish_evidence_frame(double, void*) {
         document.body.dataset.progpuNativeRetainedTextStyles = "passed";
         document.body.dataset.progpuNativeColorGlyphAtlas = "passed";
         document.body.dataset.progpuNativeCubicImages = "passed";
+        document.body.dataset.progpuNativeDirectImageSampling = "passed";
         document.body.dataset.progpuNativeCoverageMasks = "passed";
         document.body.dataset.progpuNativeRoundedMasks = "passed";
         document.body.dataset.progpuNativeStateMasks = "passed";
@@ -157,7 +158,7 @@ bool finish_evidence_frame(double, void*) {
         document.body.dataset.progpuNativeBackendAbi = "3";
         document.body.dataset.progpuNativeExplicitTimeline = "0";
         document.getElementById("native-status").textContent =
-            "C++ / WebGPU semantic backend active — exact vector, glyph, and image masks verified";
+            "C++ / WebGPU backend active — retained scenes, masks, and direct image sampling verified";
     });
     // The test page owns the offscreen texture until navigation releases the
     // WebAssembly instance and its Emdawnwebgpu handle table. The visible
@@ -187,6 +188,60 @@ bool render_browser_frame(double, void*) {
             &render_texture,
             &render_view)) {
         fail("The browser WebGPU render target could not be created.");
+    }
+
+    constexpr std::array<std::uint8_t, 16U> direct_image_pixels{
+        255U, 0U, 0U, 255U,
+        0U, 255U, 0U, 255U,
+        0U, 0U, 255U, 255U,
+        255U, 255U, 255U, 255U};
+    progpu_native_image_frame direct_image{};
+    direct_image.struct_size = sizeof(direct_image);
+    direct_image.width = width;
+    direct_image.height = height;
+    direct_image.dpi_scale = 1.0F;
+    direct_image.target_view =
+        reinterpret_cast<std::uintptr_t>(render_view);
+    direct_image.clear_color = {0.01F, 0.015F, 0.03F, 1.0F};
+    direct_image.rgba_pixels = direct_image_pixels.data();
+    direct_image.pixel_bytes = direct_image_pixels.size();
+    direct_image.image_width = 2U;
+    direct_image.image_height = 2U;
+    direct_image.row_bytes = 8U;
+    direct_image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR_MIPMAP;
+    direct_image.image_revision = 1U;
+    direct_image.content_revision = 1U;
+    direct_image.source_rect = {0.0F, 0.0F, 2.0F, 2.0F};
+    direct_image.destination_rect =
+        {16.0F, 16.0F, 224.0F, 128.0F};
+    direct_image.transform =
+        {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    direct_image.opacity = 1.0F;
+    direct_image.cubic_c = 0.5F;
+    direct_image.max_anisotropy = 8U;
+    progpu_native_image_frame_metrics direct_image_metrics{};
+    direct_image_metrics.struct_size = sizeof(direct_image_metrics);
+    if (progpu_native_engine_render_image(
+            resources.engine,
+            &direct_image,
+            &direct_image_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        direct_image_metrics.draw_call_count != 1U ||
+        direct_image_metrics.texture_upload_bytes !=
+            direct_image_pixels.size() ||
+        direct_image_metrics.vertex_upload_bytes == 0U) {
+        fail_engine(
+            "The browser direct image mipmap sampler render failed.");
+    }
+    direct_image_metrics = {};
+    direct_image_metrics.struct_size = sizeof(direct_image_metrics);
+    if (progpu_native_engine_render_image(
+            resources.engine,
+            &direct_image,
+            &direct_image_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        direct_image_metrics.texture_upload_bytes != 0U ||
+        direct_image_metrics.vertex_upload_bytes != 0U) {
+        fail_engine(
+            "The browser stable direct image replay rebuilt resources.");
     }
 
     progpu_native_scene_frame semantic_frame{};
@@ -1284,6 +1339,8 @@ int main() {
             PROGPU_NATIVE_CAPABILITY_SEMANTIC_RETAINED_TEXT_STYLES) == 0U ||
         (info.capabilities &
             PROGPU_NATIVE_CAPABILITY_SEMANTIC_GEOMETRY_BATCH) == 0U ||
+        (info.capabilities &
+            PROGPU_NATIVE_CAPABILITY_IMAGE_FRAME_MIPMAP_SAMPLING) == 0U ||
         (info.capabilities &
             PROGPU_NATIVE_CAPABILITY_DEVICE_LOSS_RECREATION) == 0U ||
         (info.capabilities &

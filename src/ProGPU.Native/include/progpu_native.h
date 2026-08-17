@@ -78,6 +78,7 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_VERTICAL_LAYOUT (UINT64_C(1) << 46U)
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_IMAGE_PATCH_BATCH (UINT64_C(1) << 47U)
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_IMAGE_MIPMAP_SAMPLING (UINT64_C(1) << 48U)
+#define PROGPU_NATIVE_CAPABILITY_IMAGE_FRAME_MIPMAP_SAMPLING (UINT64_C(1) << 49U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -2092,6 +2093,17 @@ typedef struct progpu_native_image_frame {
     uint32_t mask_revision;
     uint32_t mask_sampling;
     const progpu_native_draw_state* draw_state;
+    /*
+     * Additive full-sampler extension. Older callers ending at draw_state use
+     * cubic B=0/C=0.5 and anisotropy one. Zero anisotropy canonicalizes to
+     * one; LinearMipmap otherwise accepts one through sixteen and every other
+     * mode requires one. Upload-backed images own only
+     * the base mip while an external view may expose a producer-owned chain.
+     */
+    float cubic_b;
+    float cubic_c;
+    uint32_t max_anisotropy;
+    uint32_t reserved3;
 } progpu_native_image_frame;
 
 typedef struct progpu_native_image_frame_metrics {

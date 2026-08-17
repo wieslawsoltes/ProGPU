@@ -201,7 +201,7 @@ public class NativeRendererInteropTests
         Assert.Equal(
             192,
             OffsetOf<NativeMethods.LayerMetrics>(nameof(NativeMethods.LayerMetrics.BlendSourceTextureBytes)));
-        Assert.Equal(208, Unsafe.SizeOf<NativeMethods.ImageFrame>());
+        Assert.Equal(224, Unsafe.SizeOf<NativeMethods.ImageFrame>());
         Assert.Equal(
             200,
             OffsetOf<NativeMethods.ImageFrame>(
@@ -223,6 +223,22 @@ public class NativeRendererInteropTests
             176,
             OffsetOf<NativeMethods.ImageFrame>(
                 nameof(NativeMethods.ImageFrame.MaskDestinationRect)));
+        Assert.Equal(
+            208,
+            OffsetOf<NativeMethods.ImageFrame>(
+                nameof(NativeMethods.ImageFrame.CubicB)));
+        Assert.Equal(
+            212,
+            OffsetOf<NativeMethods.ImageFrame>(
+                nameof(NativeMethods.ImageFrame.CubicC)));
+        Assert.Equal(
+            216,
+            OffsetOf<NativeMethods.ImageFrame>(
+                nameof(NativeMethods.ImageFrame.MaxAnisotropy)));
+        Assert.Equal(
+            220,
+            OffsetOf<NativeMethods.ImageFrame>(
+                nameof(NativeMethods.ImageFrame.Reserved3)));
         Assert.Equal(88, Unsafe.SizeOf<NativeMethods.EngineInfo>());
         Assert.Equal(16, Unsafe.SizeOf<NativeMethods.NativeColor>());
         Assert.Equal(80, Unsafe.SizeOf<NativeMethods.SceneHeader>());
@@ -718,6 +734,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             281474976710656UL,
             (ulong)NativeRendererCapabilities.SemanticImageMipmapSampling);
+        Assert.Equal(
+            562949953421312UL,
+            (ulong)NativeRendererCapabilities.ImageFrameMipmapSampling);
         Assert.Equal(0U, (uint)NativeImageSampling.Nearest);
         Assert.Equal(1U, (uint)NativeImageSampling.Linear);
         Assert.Equal(2U, (uint)NativeImageSampling.Cubic);

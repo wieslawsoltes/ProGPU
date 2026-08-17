@@ -308,32 +308,10 @@ bool upload_image_texture(
         (external && engine.image_texture_view != external_view);
     WGPUTexture texture = engine.image_texture;
     WGPUTextureView view = engine.image_texture_view;
-    WGPUBindGroup nearest_group = engine.image_nearest_bind_group;
-    WGPUBindGroup linear_group = engine.image_linear_bind_group;
     if (replace && external) {
         texture = nullptr;
         view = external_view;
         ::progpu::native::webgpu::texture_view_add_ref(view);
-        nearest_group = create_image_texture_bind_group(
-            engine,
-            engine.image_nearest_sampler,
-            view,
-            "ProGPU native external nearest image bind group");
-        linear_group = create_image_texture_bind_group(
-            engine,
-            engine.image_linear_sampler,
-            view,
-            "ProGPU native external linear image bind group");
-        if (nearest_group == nullptr || linear_group == nullptr) {
-            if (linear_group != nullptr) {
-                wgpuBindGroupRelease(linear_group);
-            }
-            if (nearest_group != nullptr) {
-                wgpuBindGroupRelease(nearest_group);
-            }
-            wgpuTextureViewRelease(view);
-            return false;
-        }
     } else if (replace) {
         WGPUTextureDescriptor descriptor{};
         descriptor.label = ::progpu::native::webgpu::string_view("ProGPU native retained RGBA image");
@@ -350,28 +328,6 @@ bool upload_image_texture(
         }
         view = wgpuTextureCreateView(texture, nullptr);
         if (view == nullptr) {
-            wgpuTextureDestroy(texture);
-            wgpuTextureRelease(texture);
-            return false;
-        }
-        nearest_group = create_image_texture_bind_group(
-            engine,
-            engine.image_nearest_sampler,
-            view,
-            "ProGPU native nearest image bind group");
-        linear_group = create_image_texture_bind_group(
-            engine,
-            engine.image_linear_sampler,
-            view,
-            "ProGPU native linear image bind group");
-        if (nearest_group == nullptr || linear_group == nullptr) {
-            if (linear_group != nullptr) {
-                wgpuBindGroupRelease(linear_group);
-            }
-            if (nearest_group != nullptr) {
-                wgpuBindGroupRelease(nearest_group);
-            }
-            wgpuTextureViewRelease(view);
             wgpuTextureDestroy(texture);
             wgpuTextureRelease(texture);
             return false;
@@ -400,11 +356,9 @@ bool upload_image_texture(
     }
 
     if (replace) {
-        if (engine.image_linear_bind_group != nullptr) {
-            wgpuBindGroupRelease(engine.image_linear_bind_group);
-        }
-        if (engine.image_nearest_bind_group != nullptr) {
-            wgpuBindGroupRelease(engine.image_nearest_bind_group);
+        if (engine.image_texture_bind_group != nullptr) {
+            wgpuBindGroupRelease(engine.image_texture_bind_group);
+            engine.image_texture_bind_group = nullptr;
         }
         if (engine.image_texture_view != nullptr) {
             wgpuTextureViewRelease(engine.image_texture_view);
@@ -415,14 +369,45 @@ bool upload_image_texture(
         }
         engine.image_texture = texture;
         engine.image_texture_view = view;
-        engine.image_nearest_bind_group = nearest_group;
-        engine.image_linear_bind_group = linear_group;
+        engine.image_binding_sampling =
+            std::numeric_limits<std::uint32_t>::max();
+        engine.image_binding_max_anisotropy = 0U;
         engine.image_width = frame.image_width;
         engine.image_height = frame.image_height;
         engine.image_source_is_external = external;
     }
     engine.image_revision = frame.image_revision;
     ++engine.image_texture_generation;
+    return true;
+}
+
+bool update_image_texture_binding(
+    progpu_native_engine& engine,
+    WGPUSampler sampler,
+    std::uint32_t sampling,
+    std::uint32_t max_anisotropy) {
+    if (engine.image_texture_view == nullptr || sampler == nullptr) {
+        return false;
+    }
+    if (engine.image_texture_bind_group != nullptr &&
+        engine.image_binding_sampling == sampling &&
+        engine.image_binding_max_anisotropy == max_anisotropy) {
+        return true;
+    }
+    WGPUBindGroup binding = create_image_texture_bind_group(
+        engine,
+        sampler,
+        engine.image_texture_view,
+        "ProGPU native retained image sampling bind group");
+    if (binding == nullptr) {
+        return false;
+    }
+    if (engine.image_texture_bind_group != nullptr) {
+        wgpuBindGroupRelease(engine.image_texture_bind_group);
+    }
+    engine.image_texture_bind_group = binding;
+    engine.image_binding_sampling = sampling;
+    engine.image_binding_max_anisotropy = max_anisotropy;
     return true;
 }
 

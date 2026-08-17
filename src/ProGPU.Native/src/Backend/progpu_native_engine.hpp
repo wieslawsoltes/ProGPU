@@ -181,8 +181,10 @@ struct progpu_native_engine {
     std::array<WGPUSampler, 15U> image_anisotropic_samplers{};
     WGPUTexture image_texture = nullptr;
     WGPUTextureView image_texture_view = nullptr;
-    WGPUBindGroup image_nearest_bind_group = nullptr;
-    WGPUBindGroup image_linear_bind_group = nullptr;
+    WGPUBindGroup image_texture_bind_group = nullptr;
+    std::uint32_t image_binding_sampling =
+        std::numeric_limits<std::uint32_t>::max();
+    std::uint32_t image_binding_max_anisotropy = 0U;
     WGPUTextureView image_mask_view = nullptr;
     WGPUBuffer image_mask_uniform_buffer = nullptr;
     WGPUBindGroup image_mask_nearest_bind_group = nullptr;
@@ -193,6 +195,10 @@ struct progpu_native_engine {
     gpu_uniforms cached_image_uniforms{};
     std::uint32_t image_revision = 0U;
     std::uint32_t image_content_revision = 0U;
+    std::uint32_t image_compiled_sampling =
+        std::numeric_limits<std::uint32_t>::max();
+    float image_compiled_cubic_b = 0.0F;
+    float image_compiled_cubic_c = 0.5F;
     float image_draw_opacity = 1.0F;
     std::uint32_t image_width = 0U;
     std::uint32_t image_height = 0U;
@@ -1365,11 +1371,8 @@ struct progpu_native_engine {
             wgpuBufferDestroy(image_vertex_buffer);
             wgpuBufferRelease(image_vertex_buffer);
         }
-        if (image_linear_bind_group != nullptr) {
-            wgpuBindGroupRelease(image_linear_bind_group);
-        }
-        if (image_nearest_bind_group != nullptr) {
-            wgpuBindGroupRelease(image_nearest_bind_group);
+        if (image_texture_bind_group != nullptr) {
+            wgpuBindGroupRelease(image_texture_bind_group);
         }
         if (image_texture_view != nullptr) {
             wgpuTextureViewRelease(image_texture_view);

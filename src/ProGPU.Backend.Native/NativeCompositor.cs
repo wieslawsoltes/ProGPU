@@ -1131,6 +1131,16 @@ public sealed unsafe class NativeCompositor : IDisposable
         }
     }
 
+    /// <summary>
+    /// Uploads a retained straight-alpha RGBA8 image and renders it through
+    /// the native WebGPU image pipeline.
+    /// </summary>
+    /// <remarks>
+    /// The sampling parameters match the managed compositor contract. Only
+    /// <see cref="NativeImageSampling.LinearMipmap"/> accepts anisotropy from
+    /// one through sixteen; zero canonicalizes to one. Upload-backed images
+    /// expose their base mip only; this API does not generate a mip chain.
+    /// </remarks>
     public NativeImageFrameMetrics RenderImage(
         GpuTexture target,
         float dpiScale,
@@ -1146,7 +1156,46 @@ public sealed unsafe class NativeCompositor : IDisposable
         Vector4 clearColor,
         uint imageRevision,
         uint contentRevision,
-        NativeDrawState drawState = default)
+        NativeDrawState drawState = default) =>
+        RenderImage(
+            target,
+            dpiScale,
+            rgbaPixels,
+            imageWidth,
+            imageHeight,
+            rowBytes,
+            sourceRect,
+            destinationRect,
+            transform,
+            opacity,
+            sampling,
+            clearColor,
+            imageRevision,
+            contentRevision,
+            drawState,
+            1,
+            0f,
+            0.5f);
+
+    public NativeImageFrameMetrics RenderImage(
+        GpuTexture target,
+        float dpiScale,
+        ReadOnlySpan<byte> rgbaPixels,
+        uint imageWidth,
+        uint imageHeight,
+        uint rowBytes,
+        NativeImageRect sourceRect,
+        NativeImageRect destinationRect,
+        Matrix3x2 transform,
+        float opacity,
+        NativeImageSampling sampling,
+        Vector4 clearColor,
+        uint imageRevision,
+        uint contentRevision,
+        NativeDrawState drawState = default,
+        byte maxAnisotropy = 1,
+        float cubicB = 0f,
+        float cubicC = 0.5f)
     {
         ValidateTarget(target);
         NativeMethods.GroupMask nativeGroupMask = default;
@@ -1196,7 +1245,11 @@ public sealed unsafe class NativeCompositor : IDisposable
                 ExternalSourceView = 0U,
                 SourceFlags = 0U,
                 Reserved2 = 0U,
-                DrawState = &nativeDrawState
+                DrawState = &nativeDrawState,
+                CubicB = cubicB,
+                CubicC = cubicC,
+                MaxAnisotropy = maxAnisotropy,
+                Reserved3 = 0U
             };
             var metrics = new NativeMethods.ImageFrameMetrics
             {
@@ -1244,7 +1297,10 @@ public sealed unsafe class NativeCompositor : IDisposable
     /// alive and undisposed for that interval. Increment
     /// <paramref name="sourceRevision"/> after producer work changes the source
     /// contents and increment <paramref name="contentRevision"/> when the draw
-    /// rectangle, transform, opacity, or sampling state changes.
+    /// rectangle, transform, opacity, or sampling state changes. The complete
+    /// managed sampler contract is supported. Mipmap modes sample mip levels
+    /// exposed by the producer-owned <paramref name="source"/> view; the
+    /// renderer does not generate them.
     /// </remarks>
     public NativeImageFrameMetrics RenderExternalImage(
         GpuTexture target,
@@ -1258,7 +1314,40 @@ public sealed unsafe class NativeCompositor : IDisposable
         Vector4 clearColor,
         uint sourceRevision,
         uint contentRevision,
-        NativeDrawState drawState = default)
+        NativeDrawState drawState = default) =>
+        RenderExternalImage(
+            target,
+            source,
+            dpiScale,
+            sourceRect,
+            destinationRect,
+            transform,
+            opacity,
+            sampling,
+            clearColor,
+            sourceRevision,
+            contentRevision,
+            drawState,
+            1,
+            0f,
+            0.5f);
+
+    public NativeImageFrameMetrics RenderExternalImage(
+        GpuTexture target,
+        GpuTexture source,
+        float dpiScale,
+        NativeImageRect sourceRect,
+        NativeImageRect destinationRect,
+        Matrix3x2 transform,
+        float opacity,
+        NativeImageSampling sampling,
+        Vector4 clearColor,
+        uint sourceRevision,
+        uint contentRevision,
+        NativeDrawState drawState = default,
+        byte maxAnisotropy = 1,
+        float cubicB = 0f,
+        float cubicC = 0.5f)
     {
         ValidateTarget(target);
         ValidateImageSource(source, target);
@@ -1312,7 +1401,11 @@ public sealed unsafe class NativeCompositor : IDisposable
             MaskDestinationRect = default,
             MaskRevision = 0U,
             MaskSampling = NativeImageSampling.Nearest,
-            DrawState = &nativeDrawState
+            DrawState = &nativeDrawState,
+            CubicB = cubicB,
+            CubicC = cubicC,
+            MaxAnisotropy = maxAnisotropy,
+            Reserved3 = 0U
         };
         var metrics = new NativeMethods.ImageFrameMetrics
         {
@@ -1354,7 +1447,9 @@ public sealed unsafe class NativeCompositor : IDisposable
     /// The mask red channel is mapped over <paramref name="maskDestinationRect"/>
     /// in logical target coordinates and multiplies source alpha. Both source
     /// views remain retained until replacement or compositor disposal, so both
-    /// textures must remain alive for that interval.
+    /// textures must remain alive for that interval. Source sampling supports
+    /// the complete managed sampler contract; mask coverage intentionally
+    /// remains nearest or linear.
     /// </remarks>
     public NativeImageFrameMetrics RenderMaskedExternalImage(
         GpuTexture target,
@@ -1372,7 +1467,48 @@ public sealed unsafe class NativeCompositor : IDisposable
         uint sourceRevision,
         uint maskRevision,
         uint contentRevision,
-        NativeDrawState drawState = default)
+        NativeDrawState drawState = default) =>
+        RenderMaskedExternalImage(
+            target,
+            source,
+            mask,
+            dpiScale,
+            sourceRect,
+            destinationRect,
+            maskDestinationRect,
+            transform,
+            opacity,
+            sampling,
+            maskSampling,
+            clearColor,
+            sourceRevision,
+            maskRevision,
+            contentRevision,
+            drawState,
+            1,
+            0f,
+            0.5f);
+
+    public NativeImageFrameMetrics RenderMaskedExternalImage(
+        GpuTexture target,
+        GpuTexture source,
+        GpuTexture mask,
+        float dpiScale,
+        NativeImageRect sourceRect,
+        NativeImageRect destinationRect,
+        NativeImageRect maskDestinationRect,
+        Matrix3x2 transform,
+        float opacity,
+        NativeImageSampling sampling,
+        NativeImageSampling maskSampling,
+        Vector4 clearColor,
+        uint sourceRevision,
+        uint maskRevision,
+        uint contentRevision,
+        NativeDrawState drawState = default,
+        byte maxAnisotropy = 1,
+        float cubicB = 0f,
+        float cubicC = 0.5f)
     {
         ValidateTarget(target);
         ValidateImageSource(source, target);
@@ -1422,7 +1558,11 @@ public sealed unsafe class NativeCompositor : IDisposable
             MaskDestinationRect = maskDestinationRect,
             MaskRevision = maskRevision,
             MaskSampling = maskSampling,
-            DrawState = &nativeDrawState
+            DrawState = &nativeDrawState,
+            CubicB = cubicB,
+            CubicC = cubicC,
+            MaxAnisotropy = maxAnisotropy,
+            Reserved3 = 0U
         };
         var metrics = new NativeMethods.ImageFrameMetrics
         {

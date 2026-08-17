@@ -114,7 +114,7 @@ submission percentiles in its matched managed/native qualification.
 | [Skia `SkCanvas::drawPoints`](https://api.skia.org/classSkCanvas.html#a312223428af45c5d42a47f79905e9217), [Direct2D `ID2D1RenderTarget::FillGeometry`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-fillgeometry), and [Direct2D `ID2D1RenderTarget::FillMesh`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-fillmesh) | Point lists and immutable geometry/mesh resources are submitted in batches; reusable geometry state is separate from device-dependent drawing. | Retain one compact point arena plus fixed-size batch metadata, validate the complete range transactionally, and expand changed points directly into the existing packed vector page. Do not create one semantic primitive, managed object, native call, or GPU draw per point. WebRender/Vello retained-scene research supports the same reuse boundary, while HarfBuzz remains deliberately outside this non-text geometry slice. |
 | [Skia text shaper design](https://skia.org/docs/dev/design/text_shaper/) and [SkParagraph](https://skia.googlesource.com/skia/+/refs/heads/main/modules/skparagraph/) | Unicode shaping and paragraph layout are reusable CPU results distinct from glyph rendering. | Preserve ProGPU.Text shaped results during migration, then fully port the proven ProGPU-owned parser, shaper, fallback, and layout algorithms to C++ while keeping the reusable CPU-result/GPU-rendering boundary. |
 | [Direct2D resources and resource domains](https://learn.microsoft.com/en-us/windows/win32/direct2d/resources-and-resource-domains) and [render targets](https://learn.microsoft.com/en-us/windows/win32/direct2d/render-targets-overview) | Device-dependent resources belong to a render-target/resource domain; drawing is batched and failures are observed at submission boundaries. | Every native handle is domain-stamped. Cross-device use fails before submission. Deferred errors and device loss invalidate the entire dependent cache generation. |
-| [Direct2D `DrawBitmap`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-drawbitmap) | Source and destination rectangles, opacity, and interpolation are draw state over a retained device bitmap. | Mirror this separation in typed image records. Keep direct-frame nearest/linear samplers persistent and make the semantic lane's full managed sampling contract explicit, cached, and independent from image ownership. |
+| [Direct2D `DrawBitmap`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-drawbitmap) | Source and destination rectangles, opacity, and interpolation are draw state over a retained device bitmap. | Mirror this separation in typed image records. Keep the direct-frame and semantic lanes on the same full managed sampler contract, cached independently from image ownership. |
 | [Direct2D `FillOpacityMask`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-fillopacitymask) | A sampled mask alpha modulates a brush over explicit source and destination rectangles. | Keep mask mapping independent from image mapping, use the red coverage channel accepted by production WGSL, and retain the same-device mask view rather than reading it back. |
 | [Direct2D opacity masks overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/opacity-masks-overview) | Opacity-mask content and the content being masked are independent resources; a layer is required when one mask must affect a composed group. | Apply a common mask to the pooled family result, not to every family primitive. Retain the mask view and its mapping independently from the retained content revision. |
 | [Skia `SkCanvas::saveLayer`](https://api.skia.org/classSkCanvas.html) and [`SaveLayerRec`](https://api.skia.org/structSkCanvas_1_1SaveLayerRec.html) | Layer restore applies paint alpha, blend, and filtering to an offscreen result. An optional backdrop filter initializes the new layer from filtered prior canvas content before later child drawing. | Keep direct masks independent. For a semantic backdrop push, snapshot/filter the already rendered parent first, draw child commands over that result, then apply restore opacity/mask/blend exactly once at pop. |
@@ -684,8 +684,9 @@ typed frame borrows pixel bytes only when `image_revision` changes, validates
 row stride and source bounds, and writes one device-domain texture. Separate
 `content_revision` state retains four transformed vertices and six static
 indices. Stable replay performs no texture, vertex, index, or uniform upload;
-it selects a persistent nearest or linear sampler and submits one indexed draw
-through the production `Texture.wgsl`. Because this first lane has no image
+it selects one persistent sampler covering the complete managed nearest,
+linear, custom-cubic, mip-filter, and bounded-anisotropy contract and submits
+one indexed draw through the production `Texture.wgsl`. Because this first lane has no image
 mask, both native and managed select the shader's unmasked entry point; the
 native pipeline therefore owns only uniform and sampled-texture bind groups,
 not a dummy mask texture/buffer/group.
@@ -694,7 +695,10 @@ For image dimensions `W x H`, upload is `O(W*H)` time and `O(W*H)` retained GPU
 storage only when the image revision changes. Quad compilation and stable
 submission are `O(1)` time/storage. This slice intentionally rejects zero
 revisions, out-of-bounds sources, invalid row strides, non-finite transforms,
-and unsupported sampling.
+and unsupported sampling. The appended 16-byte sampler extension grows the
+64-bit frame ABI from 208 to 224 bytes (184 to 200 bytes on 32-bit targets).
+The renderer continues accepting the exact legacy size with cubic B=0/C=0.5
+and anisotropy one, while partial extension sizes fail closed.
 
 The next image increment accepts a same-device RGBA/BGRA WebGPU texture view.
 The typed managed boundary verifies device identity, texture-binding usage,
@@ -738,8 +742,10 @@ anisotropy to one through sixteen exactly as managed rendering does. Sampler
 resolution is O(1). Six filter combinations, one trilinear sampler, and fifteen
 anisotropic variants are created lazily and retained per device, while each
 image draw now owns one selected texture bind group instead of parallel nearest
-and linear groups. Upload-backed semantic images intentionally own one base mip;
-borrowed external views preserve and sample the producer-owned mip chain. No CPU
+and linear groups. The same resolver and device cache serve the older typed
+image-frame lane, so semantic and direct draws cannot drift in filter behavior.
+Upload-backed images intentionally own one base mip; borrowed external views
+preserve and sample the producer-owned mip chain. No CPU
 mip generation, extra scene crossing, per-frame allocation, or shader fork is
 introduced. The retained effect suffix now
 shares the
@@ -1124,14 +1130,17 @@ ordered semantic layers now own bounded backdrop input.
   eviction/recovery, complete phase/scale cache policy, decorations, and
   text-specific masks remain;
 - straight-alpha RGBA8 upload, source/destination rectangles, affine transform,
-  opacity, persistent nearest/linear sampling, independent image/content
+  opacity, all ten managed nearest/linear/cubic/mip-filter sampling modes,
+  bounded anisotropy, independent image/content
   revisions, and zero-upload stable replay are implemented with production
   `Texture.wgsl`; same-device straight-alpha RGBA/BGRA texture-view sampling
   with zero CPU transfer and explicit borrowed lifetime is implemented. The
   semantic scene lane additionally preserves premultiplied source identity and
   all ten managed sampling modes, including producer-owned mip chains and
-  anisotropy through sixteen, in one selected retained bind group;
-  direct-frame subrect updates and mip ownership/generation,
+  anisotropy through sixteen, in one selected retained bind group. The direct
+  typed-frame lane uses the same sampler cache, retains legacy 208-byte ABI
+  input, and exposes its additive sampler contract through capability bit 49;
+  direct-frame subrect updates and automatic mip generation,
   remaining image/color transforms, layers, masks, tiling,
   a zero-allocation same-queue submission timeline is implemented for retained
   external-image leases; native platform texture import and cross-API producer

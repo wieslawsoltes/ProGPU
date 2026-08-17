@@ -73,7 +73,7 @@ static_assert(offsetof(progpu_native_geometry_frame, reserved) ==
 static_assert(sizeof(progpu_native_path_frame) ==
     (sizeof(std::size_t) == 8U ? 88U : 64U));
 static_assert(sizeof(progpu_native_image_frame) ==
-    (sizeof(std::size_t) == 8U ? 208U : 184U));
+    (sizeof(std::size_t) == 8U ? 224U : 200U));
 static_assert(sizeof(progpu_native_image_frame_metrics) == 72U);
 static_assert(sizeof(progpu_native_group_mask) ==
     (sizeof(std::uintptr_t) == 8U ? 152U : 144U));

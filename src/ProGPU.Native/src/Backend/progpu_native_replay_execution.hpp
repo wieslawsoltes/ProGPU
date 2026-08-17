@@ -203,4 +203,10 @@ bool upload_image_texture(
     progpu_native_engine& engine,
     const progpu_native_image_frame& frame);
 
+bool update_image_texture_binding(
+    progpu_native_engine& engine,
+    WGPUSampler sampler,
+    std::uint32_t sampling,
+    std::uint32_t max_anisotropy);
+
 } // namespace progpu::native::execution
