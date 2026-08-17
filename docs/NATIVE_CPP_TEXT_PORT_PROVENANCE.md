@@ -1238,6 +1238,15 @@ palette or font. Direct and module fixtures cover channel order, alpha,
 duplicates, invalid entries, foreground preservation, selected/default
 palettes, and the no-CPAL path.
 
+The public native tag helper now directly ports ProGPU-owned
+`OpenTypeTag.TryParse` and `ToString` byte ordering from checkpoint `fd4fc1c3`.
+Parsing accepts exactly four printable ASCII bytes and resets its result on
+failure; formatting writes exactly four font-order bytes and leaves a short
+caller-owned destination unchanged. Both operations are fixed `O(1)` with no
+allocation. Direct and named-module fixtures cover ordinary feature tags,
+space-padded script tags, length/control rejection, byte order, and
+transactionality.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

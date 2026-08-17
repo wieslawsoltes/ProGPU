@@ -3,6 +3,8 @@ import progpu.native.text;
 int main() {
     constexpr auto tag =
         progpu::native::text::open_type_tag::from_chars('c', 'm', 'a', 'p');
+    const auto tag_parser = &progpu::native::text::try_parse_open_type_tag;
+    const auto tag_writer = &progpu::native::text::try_write_open_type_tag;
     const unsigned short contour_ends[]{1U};
     const progpu::native::text::sfnt_outline_point points[]{
         {0, 0, 1U},
@@ -224,6 +226,7 @@ int main() {
         !shape_verification.glyphs.empty() ||
         shape_options.unicode_script.value != 0U ||
         shaping_route.layout_script.value != 0U ||
+        tag_parser == nullptr || tag_writer == nullptr ||
         language_tag.value != 0x504C4B20U ||
         feature_setting.value != 1U ||
         feature_plan_requirements.requested_feature_capacity != 0U ||

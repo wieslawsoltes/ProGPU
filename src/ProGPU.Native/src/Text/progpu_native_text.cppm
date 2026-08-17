@@ -23,6 +23,8 @@ using ::progpu::native::text::try_create_glyph_id_preserving_sfnt_subset;
 using ::progpu::native::text::try_get_compact_sfnt_subset_requirements;
 using ::progpu::native::text::try_create_compact_sfnt_subset;
 using ::progpu::native::text::open_type_tag;
+using ::progpu::native::text::try_parse_open_type_tag;
+using ::progpu::native::text::try_write_open_type_tag;
 using ::progpu::native::text::unicode_error;
 using ::progpu::native::text::unicode_decode_requirements;
 using ::progpu::native::text::unicode_scalar;

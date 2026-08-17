@@ -36,6 +36,8 @@ using progpu::native::text::shaping_cluster_level;
 using progpu::native::text::shaping_direction;
 using progpu::native::text::shaping_buffer_flags;
 using progpu::native::text::get_unicode_script;
+using progpu::native::text::try_parse_open_type_tag;
+using progpu::native::text::try_write_open_type_tag;
 using progpu::native::text::infer_open_type_script;
 using progpu::native::text::uses_universal_shaping_engine;
 using progpu::native::text::get_unicode_arabic_joining_type;
@@ -335,6 +337,27 @@ void unicode_contract_and_strict_decoders_are_transactional() {
     static_assert(sizeof(shaping_glyph) == 32U);
     static_assert(sizeof(shaping_attachment) == 8U);
     static_assert(sizeof(unicode_scalar) == 16U);
+
+    open_type_tag parsed_tag{99U};
+    require(try_parse_open_type_tag("kern", parsed_tag) &&
+        parsed_tag == open_type_tag::from_chars('k', 'e', 'r', 'n'));
+    require(try_parse_open_type_tag("lao ", parsed_tag) &&
+        parsed_tag == open_type_tag::from_chars('l', 'a', 'o', ' '));
+    require(!try_parse_open_type_tag("abc", parsed_tag) &&
+        parsed_tag.value == 0U);
+    constexpr char invalid_tag[]{'a', 'b', static_cast<char>(0x1F), 'd'};
+    require(!try_parse_open_type_tag(
+        std::string_view{invalid_tag, 4U}, parsed_tag) &&
+        parsed_tag.value == 0U);
+    std::array<char, 4U> formatted_tag{};
+    require(try_write_open_type_tag(
+        open_type_tag::from_chars('D', 'F', 'L', 'T'), formatted_tag));
+    require(std::string_view{formatted_tag.data(), formatted_tag.size()} ==
+        "DFLT");
+    std::array<char, 3U> short_tag{'x', 'x', 'x'};
+    require(!try_write_open_type_tag(
+        open_type_tag::from_chars('D', 'F', 'L', 'T'), short_tag) &&
+        short_tag[0U] == 'x' && short_tag[2U] == 'x');
 
     const shaping_feature feature{
         open_type_tag::from_chars('l', 'i', 'g', 'a'), 1U, 2U, 8U};

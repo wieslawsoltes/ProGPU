@@ -706,6 +706,9 @@ unpaired-code-unit behavior without allocating. Native script resolution also
 publishes the managed first-non-DFLT inference and complete case-insensitive
 universal-shaper classifier, including third-generation Indic layout tags, so
 standalone native consumers do not need to reproduce shaping-route policy.
+The public tag value also exposes strict printable-ASCII parsing and
+caller-owned four-byte formatting matching managed `OpenTypeTag`, with no
+temporary string or locale-sensitive conversion.
 COLR version-0 decoding also accepts a borrowed packed-ARGB palette-override
 span matching managed `WithColorPalette`; duplicate entries use the last
 override and no palette clone or per-layer allocation is required.

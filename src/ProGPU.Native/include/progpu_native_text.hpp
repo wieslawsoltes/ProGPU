@@ -129,6 +129,13 @@ struct open_type_tag final {
         open_type_tag) noexcept = default;
 };
 
+bool try_parse_open_type_tag(
+    std::string_view value,
+    open_type_tag& result) noexcept;
+bool try_write_open_type_tag(
+    open_type_tag value,
+    std::span<char> output) noexcept;
+
 enum class unicode_error : std::uint32_t {
     none = 0U,
     invalid_argument,

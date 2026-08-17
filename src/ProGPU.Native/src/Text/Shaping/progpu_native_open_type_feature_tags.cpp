@@ -59,6 +59,32 @@ bool appeared_before(
 
 } // namespace
 
+bool try_parse_open_type_tag(
+    std::string_view value,
+    open_type_tag& result) noexcept {
+    result = {};
+    if (value.size() != 4U) return false;
+    std::uint32_t packed = 0U;
+    for (const char character : value) {
+        const auto byte = static_cast<unsigned char>(character);
+        if (byte < 0x20U || byte > 0x7EU) return false;
+        packed = (packed << 8U) | static_cast<std::uint32_t>(byte);
+    }
+    result = open_type_tag{packed};
+    return true;
+}
+
+bool try_write_open_type_tag(
+    open_type_tag value,
+    std::span<char> output) noexcept {
+    if (output.size() < 4U) return false;
+    output[0U] = static_cast<char>((value.value >> 24U) & 0xFFU);
+    output[1U] = static_cast<char>((value.value >> 16U) & 0xFFU);
+    output[2U] = static_cast<char>((value.value >> 8U) & 0xFFU);
+    output[3U] = static_cast<char>(value.value & 0xFFU);
+    return true;
+}
+
 bool try_get_open_type_feature_tag_requirements(
     const sfnt_font_view& font,
     open_type_feature_tag_requirements& result,
