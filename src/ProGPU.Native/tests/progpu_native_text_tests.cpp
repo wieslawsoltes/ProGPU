@@ -175,6 +175,15 @@ using progpu::native::text::try_layout_vertical_shaped_text;
 using progpu::native::text::text_layout_metrics;
 using progpu::native::text::try_measure_positioned_text_lines;
 using progpu::native::text::try_measure_positioned_text_columns;
+using progpu::native::text::text_vertical_cluster_box;
+using progpu::native::text::text_vertical_caret_stop;
+using progpu::native::text::text_vertical_hit_test_result;
+using progpu::native::text::try_get_vertical_text_interaction_requirements;
+using progpu::native::text::try_build_vertical_text_interaction;
+using progpu::native::text::try_hit_test_vertical_text;
+using progpu::native::text::try_get_vertical_text_caret_stop;
+using progpu::native::text::try_move_vertical_text_caret_visually;
+using progpu::native::text::try_get_vertical_text_selection_rectangles;
 using progpu::native::text::text_cluster_box;
 using progpu::native::text::text_caret_stop;
 using progpu::native::text::text_rectangle;
@@ -6129,6 +6138,61 @@ void native_vertical_text_layout_matches_managed_columns() {
         metrics.measured_width == 30.0F &&
         metrics.measured_height == 16.0F);
 
+    constexpr std::array<std::int32_t, 4U> cluster_ends{1, 2, 3, 4};
+    constexpr std::array<std::int8_t, 4U> bidi_levels{0, 0, 0, 0};
+    text_interaction_requirements interaction_requirements{};
+    require(try_get_vertical_text_interaction_requirements(
+        positioned,
+        columns,
+        cluster_ends,
+        bidi_levels,
+        options.direction,
+        interaction_requirements,
+        &error));
+    require(interaction_requirements.cluster_box_capacity == 4U &&
+        interaction_requirements.caret_stop_capacity == 8U);
+    std::array<text_vertical_cluster_box, 4U> boxes{};
+    std::array<text_vertical_caret_stop, 8U> carets{};
+    std::uint32_t box_count = 0U;
+    std::uint32_t caret_count = 0U;
+    require(try_build_vertical_text_interaction(
+        positioned,
+        columns,
+        cluster_ends,
+        bidi_levels,
+        options.direction,
+        boxes,
+        carets,
+        box_count,
+        caret_count,
+        &error));
+    require(box_count == 4U && caret_count == 8U &&
+        boxes[0U].x == 5.0F && boxes[0U].y == 0.0F &&
+        boxes[0U].width == 10.0F && boxes[0U].height == 8.0F &&
+        !boxes[0U].bottom_to_top && boxes[2U].column_index == 1U);
+    require(carets[0U].input_position == 0 && carets[0U].y == 0.0F &&
+        !carets[0U].trailing && carets[1U].input_position == 1 &&
+        carets[1U].y == 8.0F && carets[1U].trailing);
+
+    text_vertical_hit_test_result hit{};
+    require(try_hit_test_vertical_text(boxes, 8.0F, 6.0F, hit, &error));
+    require(hit.input_position == 1 && hit.trailing && hit.inside &&
+        hit.column_index == 0U && hit.bounds.height == 8.0F);
+    text_vertical_caret_stop caret{};
+    require(try_get_vertical_text_caret_stop(
+        carets, 1, true, caret, &error));
+    require(caret.input_position == 1 && caret.trailing && caret.y == 8.0F);
+    require(try_move_vertical_text_caret_visually(
+        carets, 1, true, 1, caret, &error));
+    require(caret.input_position == 1 && !caret.trailing && caret.y == 8.0F);
+    std::array<text_rectangle, 4U> selection{};
+    std::uint32_t selection_count = 0U;
+    require(try_get_vertical_text_selection_rectangles(
+        boxes, 0, 2, selection, selection_count, &error));
+    require(selection_count == 1U && selection[0U].x == 5.0F &&
+        selection[0U].y == 0.0F && selection[0U].width == 10.0F &&
+        selection[0U].height == 16.0F);
+
     auto bottom_to_top = top_to_bottom;
     for (auto& glyph : bottom_to_top) glyph.advance_y = -8;
     auto reverse_options = options;
@@ -6145,6 +6209,37 @@ void native_vertical_text_layout_matches_managed_columns() {
         &error));
     require(positioned[0U].y == 0.0F && positioned[1U].y == -8.0F &&
         positioned[0U].advance_y == -8.0F && columns[0U].height == 16.0F);
+    require(try_build_vertical_text_interaction(
+        positioned,
+        columns,
+        cluster_ends,
+        bidi_levels,
+        reverse_options.direction,
+        boxes,
+        carets,
+        box_count,
+        caret_count,
+        &error));
+    require(boxes[0U].bottom_to_top && boxes[0U].y == -8.0F &&
+        carets[0U].y == 0.0F && carets[1U].y == -8.0F);
+    require(try_hit_test_vertical_text(boxes, 8.0F, -6.0F, hit, &error));
+    require(hit.input_position == 1 && hit.trailing && hit.inside);
+
+    box_count = 99U;
+    caret_count = 99U;
+    require(!try_build_vertical_text_interaction(
+        positioned,
+        columns,
+        cluster_ends,
+        bidi_levels,
+        reverse_options.direction,
+        std::span<text_vertical_cluster_box>{boxes}.first(1U),
+        carets,
+        box_count,
+        caret_count,
+        &error));
+    require(error == font_error::insufficient_buffer && box_count == 0U &&
+        caret_count == 0U);
 
     auto clipped_options = options;
     clipped_options.maximum_lines = 1U;

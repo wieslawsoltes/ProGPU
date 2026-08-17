@@ -1802,6 +1802,42 @@ struct text_interaction_requirements final {
     std::uint32_t caret_stop_capacity = 0U;
 };
 
+struct text_vertical_cluster_box final {
+    std::int32_t input_start = 0;
+    std::int32_t input_end = 0;
+    std::uint32_t column_index = 0U;
+    std::int8_t bidi_level = 0;
+    bool bottom_to_top = false;
+    std::uint8_t reserved0 = 0U;
+    std::uint8_t reserved1 = 0U;
+    float x = 0.0F;
+    float y = 0.0F;
+    float width = 0.0F;
+    float height = 0.0F;
+};
+
+struct text_vertical_caret_stop final {
+    std::int32_t input_position = 0;
+    std::uint32_t column_index = 0U;
+    float x = 0.0F;
+    float y = 0.0F;
+    float width = 0.0F;
+    std::int8_t bidi_level = 0;
+    bool trailing = false;
+    std::uint8_t reserved0 = 0U;
+    std::uint8_t reserved1 = 0U;
+};
+
+struct text_vertical_hit_test_result final {
+    std::int32_t input_position = 0;
+    std::uint32_t column_index = 0U;
+    text_rectangle bounds{};
+    std::int8_t bidi_level = 0;
+    bool trailing = false;
+    bool inside = false;
+    std::uint8_t reserved0 = 0U;
+};
+
 /* Converts positioned glyphs to physical-order cluster boxes. Cluster ends and
  * bidi levels are explicit reusable paragraph inputs, avoiding hidden maps. */
 bool try_get_text_interaction_requirements(
@@ -1847,6 +1883,59 @@ bool try_move_text_caret_visually(
 
 bool try_get_text_selection_rectangles(
     std::span<const text_cluster_box> cluster_boxes,
+    std::int32_t input_start,
+    std::int32_t input_end,
+    std::span<text_rectangle> rectangles,
+    std::uint32_t& written,
+    font_error* error = nullptr) noexcept;
+
+/* Vertical interaction uses the physical Y axis and retains a dedicated
+ * horizontal caret width instead of reinterpreting the horizontal API. */
+bool try_get_vertical_text_interaction_requirements(
+    std::span<const positioned_text_glyph> glyphs,
+    std::span<const positioned_text_column> columns,
+    std::span<const std::int32_t> cluster_ends,
+    std::span<const std::int8_t> bidi_levels,
+    shaping_direction direction,
+    text_interaction_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_build_vertical_text_interaction(
+    std::span<const positioned_text_glyph> glyphs,
+    std::span<const positioned_text_column> columns,
+    std::span<const std::int32_t> cluster_ends,
+    std::span<const std::int8_t> bidi_levels,
+    shaping_direction direction,
+    std::span<text_vertical_cluster_box> cluster_boxes,
+    std::span<text_vertical_caret_stop> caret_stops,
+    std::uint32_t& cluster_box_count,
+    std::uint32_t& caret_stop_count,
+    font_error* error = nullptr) noexcept;
+
+bool try_hit_test_vertical_text(
+    std::span<const text_vertical_cluster_box> cluster_boxes,
+    float x,
+    float y,
+    text_vertical_hit_test_result& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_get_vertical_text_caret_stop(
+    std::span<const text_vertical_caret_stop> caret_stops,
+    std::int32_t input_position,
+    bool trailing_affinity,
+    text_vertical_caret_stop& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_move_vertical_text_caret_visually(
+    std::span<const text_vertical_caret_stop> caret_stops,
+    std::int32_t input_position,
+    bool trailing_affinity,
+    std::int32_t direction,
+    text_vertical_caret_stop& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_get_vertical_text_selection_rectangles(
+    std::span<const text_vertical_cluster_box> cluster_boxes,
     std::int32_t input_start,
     std::int32_t input_end,
     std::span<text_rectangle> rectangles,

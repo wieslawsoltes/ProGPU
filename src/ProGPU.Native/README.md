@@ -685,6 +685,14 @@ produce visual caret stops, nearest-box point hit tests, and coalesced selection
 rectangles without a hidden dictionary or list. Requirements and write passes
 are `O(G)` with `O(1)` internal storage; hit testing is `O(C)` for `C` visible
 cluster boxes, and all capacity failures are transactional.
+Vertical positioned columns have a corresponding typed interaction surface
+rather than reinterpreting horizontal caret height as a vertical measure. It
+retains signed top-to-bottom or bottom-to-top advances, publishes physical-Y
+cluster boxes and horizontal caret widths, resolves hit affinity from the
+directional half of a cluster, moves through physical caret order, and merges
+selection coverage only within the same column. Requirements and population
+remain `O(G)` with caller-owned output and `O(1)` internal storage; point, caret,
+and selection queries are `O(C)` for `C` cluster boxes or caret stops.
 
 C++ clients can use the header surfaces or, on the supported LLVM
 configuration, `import progpu.native.text;`,

@@ -613,6 +613,7 @@ add_library(progpu_native_text STATIC
     src/Text/progpu_native_text_layout.cpp
     src/Text/progpu_native_text_metrics.cpp
     src/Text/progpu_native_vertical_text_layout.cpp
+    src/Text/progpu_native_vertical_text_interaction.cpp
     src/Text/progpu_native_text_interaction.cpp
     src/Text/progpu_native_unicode_data.generated.hpp
     src/Text/progpu_native_font_variations.cpp

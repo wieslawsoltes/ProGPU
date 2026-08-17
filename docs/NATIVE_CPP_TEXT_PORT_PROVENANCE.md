@@ -1183,6 +1183,22 @@ intrinsic. Each reducer is `O(L)` or `O(C)` with `O(1)` state, no glyph walk,
 and transactional rejection of non-finite metadata. Tests cover wrapped lines,
 aligned vertical columns, and invalid bounds.
 
+Vertical text interaction adapts the ProGPU-owned physical cluster-box, caret,
+hit-test, visual-movement, and selection model in `src/ProGPU.Text/TextLayout.cs`
+at checkpoint `e1938247` to the already ported
+`GenerateVerticalShapedLayout` column contract. The vertical surface is kept
+typed: cluster boxes advance on physical Y, caret stops carry horizontal width,
+and top-to-bottom versus bottom-to-top affinity is derived from signed advance
+direction rather than reusing horizontal fields with changed meanings. Exact
+requirements and population are `O(G)` for `G` positioned glyphs with caller-
+owned outputs and `O(1)` internal state. Point, caret, movement, and selection
+queries are `O(C)` for `C` physical cluster boxes/stops; selection rectangles
+coalesce only within one column. Direct-header and named-module fixtures cover
+both directions, column boundaries, affinity, movement, merged selection,
+transactional short output, and the ASan/UBSan path. This is an original
+ProGPU cross-axis adaptation; no third-party implementation source or
+structure is used.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with
