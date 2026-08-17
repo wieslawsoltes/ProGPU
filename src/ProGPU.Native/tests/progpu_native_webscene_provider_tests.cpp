@@ -109,7 +109,9 @@ std::vector<std::byte> create_native_vector_mask_scene_stream() {
         {80.0F, 50.0F, 480.0F, 280.0F},
         {140.0F, 80.0F, 360.0F, 220.0F},
         {180.0F, 100.0F, 280.0F, 160.0F}}};
-    std::array<progpu_native_path_segment, rectangles.size() * 4U> segments{};
+    constexpr mask_rectangle boolean_hole{200.0F, 110.0F, 40.0F, 30.0F};
+    std::array<progpu_native_path_segment,
+        rectangles.size() * 4U + 4U> segments{};
     std::array<progpu_native_scene_clip_path, rectangles.size()> paths{};
     for (std::size_t index = 0; index < rectangles.size(); ++index) {
         const auto& rectangle = rectangles[index];
@@ -131,6 +133,8 @@ std::vector<std::byte> create_native_vector_mask_scene_stream() {
         paths[index] = {
             offset,
             4U,
+            0U,
+            0U,
             rectangle.x,
             rectangle.y,
             right,
@@ -141,6 +145,38 @@ std::vector<std::byte> create_native_vector_mask_scene_stream() {
             PROGPU_NATIVE_CLIP_INTERSECT,
             0U};
     }
+    const std::size_t hole_offset = rectangles.size() * 4U;
+    const float hole_right = boolean_hole.x + boolean_hole.width;
+    const float hole_bottom = boolean_hole.y + boolean_hole.height;
+    segments[hole_offset + 0U] = {{boolean_hole.x, boolean_hole.y},
+        {hole_right, boolean_hole.y}, {}, {},
+        PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U};
+    segments[hole_offset + 1U] = {{hole_right, boolean_hole.y},
+        {hole_right, hole_bottom}, {}, {},
+        PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U};
+    segments[hole_offset + 2U] = {{hole_right, hole_bottom},
+        {boolean_hole.x, hole_bottom}, {}, {},
+        PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U};
+    segments[hole_offset + 3U] = {{boolean_hole.x, hole_bottom},
+        {boolean_hole.x, boolean_hole.y}, {}, {},
+        PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U};
+    std::array<progpu_native_scene_path_boolean_node, 3U> boolean_nodes{};
+    boolean_nodes[0].segment_count = 4U;
+    boolean_nodes[0].min_x = rectangles[0].x;
+    boolean_nodes[0].min_y = rectangles[0].y;
+    boolean_nodes[0].max_x = rectangles[0].x + rectangles[0].width;
+    boolean_nodes[0].max_y = rectangles[0].y + rectangles[0].height;
+    boolean_nodes[0].kind = PROGPU_NATIVE_PATH_BOOLEAN_LEAF;
+    boolean_nodes[1].segment_offset = hole_offset;
+    boolean_nodes[1].segment_count = 4U;
+    boolean_nodes[1].min_x = boolean_hole.x;
+    boolean_nodes[1].min_y = boolean_hole.y;
+    boolean_nodes[1].max_x = hole_right;
+    boolean_nodes[1].max_y = hole_bottom;
+    boolean_nodes[1].kind = PROGPU_NATIVE_PATH_BOOLEAN_LEAF;
+    boolean_nodes[2].kind = PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE;
+    paths[0].segment_count = segments.size();
+    paths[0].boolean_node_count = boolean_nodes.size();
     const progpu_native_analytic_primitive content{
         PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
         0U,
@@ -164,6 +200,7 @@ std::vector<std::byte> create_native_vector_mask_scene_stream() {
     require(builder.add_vector_clip_mask(
         paths,
         segments,
+        boolean_nodes,
         1.0F,
         mask),
         "native vector-mask path recording failed");
@@ -2088,6 +2125,8 @@ void verify_semantic_vector_mask_scene(IOSurfaceRef surface) {
         "retained vector mask escaped its path boundary");
     require(clear(pixel(500U, 180U)),
         "retained vector mask escaped its far boundary");
+    require(clear(pixel(210U, 120U)),
+        "retained vector-mask boolean difference did not remove its hole");
     require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) ==
         kIOReturnSuccess,
         "could not unlock semantic vector-mask IOSurface");
@@ -4617,11 +4656,11 @@ int main(int argc, char** argv) {
             PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}
     };
     const progpu_native_clip_path clip_paths[]{
-        {0U, 4U, 0.0F, 0.0F, 20.0F, 20.0F,
+        {0U, 4U, 0U, 0U, 0.0F, 0.0F, 20.0F, 20.0F,
             {1.0F, 0.15F, -0.1F, 1.0F, 10.0F, 8.0F},
             PROGPU_NATIVE_FILL_RULE_NON_ZERO, 8U,
             PROGPU_NATIVE_CLIP_INTERSECT, 0U},
-        {0U, 4U, 0.0F, 0.0F, 20.0F, 20.0F,
+        {0U, 4U, 0U, 0U, 0.0F, 0.0F, 20.0F, 20.0F,
             {0.4F, -0.1F, 0.15F, 0.35F, 16.0F, 12.0F},
             PROGPU_NATIVE_FILL_RULE_EVEN_ODD, 8U,
             PROGPU_NATIVE_CLIP_DIFFERENCE, 0U}
@@ -4632,7 +4671,9 @@ int main(int argc, char** argv) {
         clip_paths,
         2U,
         clip_segments,
-        4U
+        4U,
+        nullptr,
+        0U
     };
     group_mask = {};
     group_mask.struct_size = sizeof(group_mask);

@@ -122,6 +122,8 @@ internal static unsafe partial class NativeMethods
         internal nuint PathCount;
         internal NativePathSegment* Segments;
         internal nuint SegmentCount;
+        internal NativePathBooleanNode* BooleanNodes;
+        internal nuint BooleanNodeCount;
     }
 
     [StructLayout(LayoutKind.Sequential)]

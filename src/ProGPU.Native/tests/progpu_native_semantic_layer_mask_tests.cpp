@@ -14,7 +14,8 @@ bool semantic_layer_coverage_mask_is_exact_and_bounded() {
     static_assert(sizeof(progpu_native_scene_layer_coverage_mask) == 80U);
     static_assert(sizeof(progpu_native_scene_layer_mask_chain) == 432U);
     static_assert(sizeof(progpu_native_scene_layer_vector_mask) == 32U);
-    static_assert(sizeof(progpu_native_scene_clip_path) == 72U);
+    static_assert(sizeof(progpu_native_scene_clip_path) == 88U);
+    static_assert(sizeof(progpu_native_scene_path_boolean_node) == 48U);
     constexpr std::size_t coverage_size = 16U;
     std::array<std::byte,
         sizeof(progpu_native_scene_layer_coverage_mask) + coverage_size>
@@ -157,8 +158,59 @@ bool semantic_layer_coverage_mask_is_exact_and_bounded() {
         vector_bytes.data() + sizeof(vector_mask),
         &vector_path,
         sizeof(vector_path));
+    if (semantic::validate_layer_mask_resource(
+            vector_bytes.data(), resource, error_offset)) {
+        return false;
+    }
+
+    constexpr std::size_t boolean_auxiliary_size =
+        sizeof(progpu_native_scene_clip_path) +
+        2U * sizeof(progpu_native_path_segment) +
+        3U * sizeof(progpu_native_scene_path_boolean_node);
+    std::array<std::byte,
+        sizeof(progpu_native_scene_layer_vector_mask) +
+            boolean_auxiliary_size> boolean_bytes{};
+    vector_mask.segment_count = 2U;
+    vector_mask.boolean_node_count = 3U;
+    vector_path = {};
+    vector_path.segment_count = 2U;
+    vector_path.boolean_node_count = 3U;
+    vector_path.min_x = 0.0F;
+    vector_path.min_y = 0.0F;
+    vector_path.max_x = 12.0F;
+    vector_path.max_y = 8.0F;
+    vector_path.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    vector_path.sample_grid = 4U;
+    std::array<progpu_native_path_segment, 2U> boolean_segments{
+        vector_segment, vector_segment};
+    std::array<progpu_native_scene_path_boolean_node, 3U> nodes{};
+    nodes[0].segment_count = 1U;
+    nodes[0].max_x = 12.0F;
+    nodes[0].max_y = 8.0F;
+    nodes[0].kind = PROGPU_NATIVE_PATH_BOOLEAN_LEAF;
+    nodes[1] = nodes[0];
+    nodes[1].segment_offset = 1U;
+    nodes[2].kind = PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE;
+    std::memcpy(boolean_bytes.data(), &vector_mask, sizeof(vector_mask));
+    std::size_t offset = sizeof(vector_mask);
+    std::memcpy(boolean_bytes.data() + offset, &vector_path, sizeof(vector_path));
+    offset += sizeof(vector_path);
+    std::memcpy(boolean_bytes.data() + offset,
+        boolean_segments.data(), sizeof(boolean_segments));
+    offset += sizeof(boolean_segments);
+    std::memcpy(boolean_bytes.data() + offset, nodes.data(), sizeof(nodes));
+    resource.auxiliary_size = boolean_auxiliary_size;
+    if (!semantic::validate_layer_mask_resource(
+            boolean_bytes.data(), resource, error_offset, &parsed) ||
+        parsed.vector.boolean_node_count != 3U ||
+        parsed.vector_boolean_nodes[2].kind !=
+            PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE) {
+        return false;
+    }
+    nodes[2].kind = PROGPU_NATIVE_PATH_BOOLEAN_LEAF;
+    std::memcpy(boolean_bytes.data() + offset, nodes.data(), sizeof(nodes));
     return !semantic::validate_layer_mask_resource(
-        vector_bytes.data(), resource, error_offset);
+        boolean_bytes.data(), resource, error_offset);
 }
 
 } // namespace progpu::native::tests

@@ -792,12 +792,16 @@ public ref struct NativeSceneStreamBuilder
         resourceIndex = NativeMethods.SceneNoIndex;
         int pathBytes;
         int segmentBytes;
+        int booleanNodeBytes;
         try
         {
             pathBytes = checked(
                 (int)mask.PathCount * Unsafe.SizeOf<NativeSceneClipPath>());
             segmentBytes = checked(
                 (int)mask.SegmentCount * Unsafe.SizeOf<NativePathSegment>());
+            booleanNodeBytes = checked(
+                (int)mask.BooleanNodeCount *
+                Unsafe.SizeOf<NativeScenePathBooleanNode>());
         }
         catch (OverflowException)
         {
@@ -807,9 +811,10 @@ public ref struct NativeSceneStreamBuilder
             mask.Kind != NativeSceneLayerMaskKind.VectorClipChain ||
             mask.Flags != 0U || !mask.HasCanonicalReservedFields ||
             mask.PathCount is 0U or > 64U || mask.SegmentCount == 0U ||
+            mask.BooleanNodeCount > 64U * 63U ||
             !float.IsFinite(mask.Opacity) ||
             mask.Opacity is < 0f or > 1f ||
-            (long)pathBytes + segmentBytes != auxiliary.Length)
+            (long)pathBytes + segmentBytes + booleanNodeBytes != auxiliary.Length)
         {
             return false;
         }
@@ -819,13 +824,28 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneClipPath>(auxiliary[..pathBytes]);
         ReadOnlySpan<NativePathSegment> segments = MemoryMarshal.Cast<
             byte,
-            NativePathSegment>(auxiliary[pathBytes..]);
+            NativePathSegment>(auxiliary.Slice(pathBytes, segmentBytes));
+        ReadOnlySpan<NativeScenePathBooleanNode> booleanNodes =
+            MemoryMarshal.Cast<byte, NativeScenePathBooleanNode>(
+                auxiliary[(pathBytes + segmentBytes)..]);
+        ulong expectedBooleanNodeOffset = 0U;
         for (int index = 0; index < paths.Length; index++)
         {
-            if (!IsValidSceneClipPath(in paths[index], segments.Length))
+            if (!IsValidSceneClipPath(
+                    in paths[index],
+                    segments.Length,
+                    booleanNodes) ||
+                (paths[index].BooleanNodeCount != 0U &&
+                    paths[index].BooleanNodeOffset !=
+                        expectedBooleanNodeOffset))
             {
                 return false;
             }
+            expectedBooleanNodeOffset += paths[index].BooleanNodeCount;
+        }
+        if (expectedBooleanNodeOffset != mask.BooleanNodeCount)
+        {
+            return false;
         }
         for (int index = 0; index < segments.Length; index++)
         {
@@ -2170,7 +2190,8 @@ public ref struct NativeSceneStreamBuilder
 
     private static bool IsValidSceneClipPath(
         in NativeSceneClipPath path,
-        int segmentCount)
+        int segmentCount,
+        ReadOnlySpan<NativeScenePathBooleanNode> booleanNodes)
     {
         ulong available = checked((ulong)segmentCount);
         return path.SegmentCount > 0U &&
@@ -2184,7 +2205,77 @@ public ref struct NativeSceneStreamBuilder
             path.FillRule <= NativeFillRule.EvenOdd &&
             path.SampleGrid is 4U or 8U &&
             path.Operation <= NativeClipOperation.Difference &&
-            path.HasCanonicalReservedField;
+            path.HasCanonicalReservedField &&
+            IsValidSceneBooleanProgram(in path, booleanNodes, available);
+    }
+
+    private static bool IsValidSceneBooleanProgram(
+        in NativeSceneClipPath path,
+        ReadOnlySpan<NativeScenePathBooleanNode> nodes,
+        ulong segmentCount)
+    {
+        if (path.BooleanNodeCount == 0U)
+        {
+            return path.BooleanNodeOffset == 0U;
+        }
+        ulong availableNodes = checked((ulong)nodes.Length);
+        if (path.BooleanNodeCount > 63U ||
+            path.BooleanNodeOffset > availableNodes ||
+            path.BooleanNodeCount > availableNodes - path.BooleanNodeOffset)
+        {
+            return false;
+        }
+        int stackDepth = 0;
+        ulong pathSegmentEnd = path.SegmentOffset + path.SegmentCount;
+        int start = checked((int)path.BooleanNodeOffset);
+        int end = checked(start + (int)path.BooleanNodeCount);
+        for (int index = start; index < end; index++)
+        {
+            ref readonly NativeScenePathBooleanNode node = ref nodes[index];
+            if (!node.HasCanonicalReservedFields ||
+                node.Kind > NativePathBooleanNodeKind.ReverseDifference)
+            {
+                return false;
+            }
+            if (node.Kind == NativePathBooleanNodeKind.Leaf)
+            {
+                if (stackDepth == 16 || node.SegmentCount == 0U ||
+                    node.SegmentOffset < path.SegmentOffset ||
+                    node.SegmentOffset > pathSegmentEnd ||
+                    node.SegmentCount > pathSegmentEnd - node.SegmentOffset ||
+                    !IsFinite(node.Minimum) || !IsFinite(node.Maximum) ||
+                    node.Maximum.X <= node.Minimum.X ||
+                    node.Maximum.Y <= node.Minimum.Y ||
+                    node.FillRule > NativeFillRule.EvenOdd)
+                {
+                    return false;
+                }
+                stackDepth++;
+            }
+            else if (node.Kind == NativePathBooleanNodeKind.Empty)
+            {
+                if (stackDepth == 16 || node.SegmentOffset != 0U ||
+                    node.SegmentCount != 0U || node.Minimum != Vector2.Zero ||
+                    node.Maximum != Vector2.Zero ||
+                    node.FillRule != NativeFillRule.NonZero)
+                {
+                    return false;
+                }
+                stackDepth++;
+            }
+            else
+            {
+                if (stackDepth < 2 || node.SegmentOffset != 0U ||
+                    node.SegmentCount != 0U || node.Minimum != Vector2.Zero ||
+                    node.Maximum != Vector2.Zero ||
+                    node.FillRule != NativeFillRule.NonZero)
+                {
+                    return false;
+                }
+                stackDepth--;
+            }
+        }
+        return stackDepth == 1;
     }
 
     private static bool IsValidPathSegment(in NativePathSegment segment)

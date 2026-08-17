@@ -158,11 +158,13 @@ public static partial class GpuPictureNativeSceneCompiler
         public VectorMaskNode(
             VectorMaskNode? parent,
             NativeSceneClipPath path,
-            NativePathSegment[] segments)
+            NativePathSegment[] segments,
+            NativeScenePathBooleanNode[] booleanNodes)
         {
             Parent = parent;
             Path = path;
             Segments = segments;
+            BooleanNodes = booleanNodes;
             Count = checked((parent?.Count ?? 0) + 1);
         }
 
@@ -171,16 +173,21 @@ public static partial class GpuPictureNativeSceneCompiler
         public Matrix3x2 Transform { get; }
         public NativeSceneClipPath Path { get; private set; }
         public NativePathSegment[]? Segments { get; private set; }
+        public NativeScenePathBooleanNode[]? BooleanNodes { get; private set; }
         public int Count { get; }
         public int SegmentCount => checked(
             (Parent?.SegmentCount ?? 0) + (Segments?.Length ?? 0));
+        public int BooleanNodeCount => checked(
+            (Parent?.BooleanNodeCount ?? 0) + (BooleanNodes?.Length ?? 0));
 
         public void SetCompiled(
             NativeSceneClipPath path,
-            NativePathSegment[] segments)
+            NativePathSegment[] segments,
+            NativeScenePathBooleanNode[] booleanNodes)
         {
             Path = path;
             Segments = segments;
+            BooleanNodes = booleanNodes;
         }
     }
 
@@ -251,7 +258,9 @@ public static partial class GpuPictureNativeSceneCompiler
             : checked(
                 Unsafe.SizeOf<NativeSceneLayerVectorMask>() +
                 VectorMask.Count * Unsafe.SizeOf<NativeSceneClipPath>() +
-                VectorMask.SegmentCount * Unsafe.SizeOf<NativePathSegment>());
+                VectorMask.SegmentCount * Unsafe.SizeOf<NativePathSegment>() +
+                VectorMask.BooleanNodeCount *
+                    Unsafe.SizeOf<NativeScenePathBooleanNode>());
 
         public byte[] CreateVectorAuxiliary(
             out NativeSceneLayerVectorMask mask)
@@ -265,17 +274,26 @@ public static partial class GpuPictureNativeSceneCompiler
                 VectorMask.Count * Unsafe.SizeOf<NativeSceneClipPath>());
             int segmentBytes = checked(
                 VectorMask.SegmentCount * Unsafe.SizeOf<NativePathSegment>());
+            int booleanNodeBytes = checked(
+                VectorMask.BooleanNodeCount *
+                Unsafe.SizeOf<NativeScenePathBooleanNode>());
             byte[] auxiliary = GC.AllocateUninitializedArray<byte>(
-                checked(pathBytes + segmentBytes));
+                checked(pathBytes + segmentBytes + booleanNodeBytes));
             Span<NativeSceneClipPath> paths = MemoryMarshal.Cast<
                 byte,
                 NativeSceneClipPath>(auxiliary.AsSpan(0, pathBytes));
             Span<NativePathSegment> segments = MemoryMarshal.Cast<
                 byte,
                 NativePathSegment>(auxiliary.AsSpan(pathBytes, segmentBytes));
+            Span<NativeScenePathBooleanNode> booleanNodes = MemoryMarshal.Cast<
+                byte,
+                NativeScenePathBooleanNode>(auxiliary.AsSpan(
+                    pathBytes + segmentBytes,
+                    booleanNodeBytes));
             VectorMaskNode? node = VectorMask;
             int pathIndex = paths.Length;
             int segmentIndex = segments.Length;
+            int booleanNodeIndex = booleanNodes.Length;
             while (node is not null)
             {
                 NativePathSegment[] nodeSegments = node.Segments ??
@@ -283,7 +301,25 @@ public static partial class GpuPictureNativeSceneCompiler
                         "The vector mask chain was not compiled.");
                 pathIndex--;
                 segmentIndex -= nodeSegments.Length;
+                NativeScenePathBooleanNode[] nodeBooleanNodes =
+                    node.BooleanNodes ?? [];
+                booleanNodeIndex -= nodeBooleanNodes.Length;
                 nodeSegments.CopyTo(segments[segmentIndex..]);
+                for (int index = 0; index < nodeBooleanNodes.Length; index++)
+                {
+                    NativeScenePathBooleanNode source = nodeBooleanNodes[index];
+                    booleanNodes[booleanNodeIndex + index] =
+                        source.Kind == NativePathBooleanNodeKind.Leaf
+                            ? new NativeScenePathBooleanNode(
+                                checked(source.SegmentOffset +
+                                    (ulong)segmentIndex),
+                                source.SegmentCount,
+                                source.Minimum,
+                                source.Maximum,
+                                source.FillRule,
+                                source.Kind)
+                            : source;
+                }
                 paths[pathIndex] = new NativeSceneClipPath(
                     checked((ulong)segmentIndex),
                     checked((ulong)nodeSegments.Length),
@@ -292,12 +328,17 @@ public static partial class GpuPictureNativeSceneCompiler
                     node.Path.Transform,
                     node.Path.Operation,
                     node.Path.FillRule,
-                    node.Path.SampleGrid);
+                    node.Path.SampleGrid,
+                    nodeBooleanNodes.Length == 0
+                        ? 0U
+                        : checked((ulong)booleanNodeIndex),
+                    checked((ulong)nodeBooleanNodes.Length));
                 node = node.Parent;
             }
             mask = new(
                 checked((uint)paths.Length),
-                checked((uint)segments.Length));
+                checked((uint)segments.Length),
+                booleanNodeCount: checked((uint)booleanNodes.Length));
             return auxiliary;
         }
     }

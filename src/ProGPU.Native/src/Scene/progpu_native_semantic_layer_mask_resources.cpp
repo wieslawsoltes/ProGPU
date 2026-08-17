@@ -184,7 +184,9 @@ bool create_semantic_vector_mask_binding(
 
     try {
         std::vector<progpu_native_clip_path> paths;
+        std::vector<progpu_native_path_boolean_node> boolean_nodes;
         paths.reserve(parsed.vector.path_count);
+        boolean_nodes.reserve(parsed.vector.boolean_node_count);
         const float logical_offset_x =
             static_cast<float>(target_extent.x) / dpi_scale;
         const float logical_offset_y =
@@ -196,6 +198,10 @@ bool create_semantic_vector_mask_binding(
             if (source.segment_offset >
                     std::numeric_limits<std::size_t>::max() ||
                 source.segment_count >
+                    std::numeric_limits<std::size_t>::max() ||
+                source.boolean_node_offset >
+                    std::numeric_limits<std::size_t>::max() ||
+                source.boolean_node_count >
                     std::numeric_limits<std::size_t>::max()) {
                 return false;
             }
@@ -204,6 +210,10 @@ bool create_semantic_vector_mask_binding(
                 static_cast<std::size_t>(source.segment_offset);
             path.segment_count =
                 static_cast<std::size_t>(source.segment_count);
+            path.boolean_node_offset =
+                static_cast<std::size_t>(source.boolean_node_offset);
+            path.boolean_node_count =
+                static_cast<std::size_t>(source.boolean_node_count);
             path.min_x = source.min_x;
             path.min_y = source.min_y;
             path.max_x = source.max_x;
@@ -216,6 +226,29 @@ bool create_semantic_vector_mask_binding(
             path.operation = source.operation;
             paths.push_back(path);
         }
+        for (std::uint32_t index = 0U;
+             index < parsed.vector.boolean_node_count;
+             ++index) {
+            const auto& source = parsed.vector_boolean_nodes[index];
+            if (source.segment_offset >
+                    std::numeric_limits<std::size_t>::max() ||
+                source.segment_count >
+                    std::numeric_limits<std::size_t>::max()) {
+                return false;
+            }
+            progpu_native_path_boolean_node node{};
+            node.segment_offset =
+                static_cast<std::size_t>(source.segment_offset);
+            node.segment_count =
+                static_cast<std::size_t>(source.segment_count);
+            node.min_x = source.min_x;
+            node.min_y = source.min_y;
+            node.max_x = source.max_x;
+            node.max_y = source.max_y;
+            node.fill_rule = source.fill_rule;
+            node.kind = source.kind;
+            boolean_nodes.push_back(node);
+        }
 
         progpu_native_clip_chain chain{};
         chain.struct_size = sizeof(chain);
@@ -223,6 +256,8 @@ bool create_semantic_vector_mask_binding(
         chain.path_count = paths.size();
         chain.segments = parsed.vector_segments;
         chain.segment_count = parsed.vector.segment_count;
+        chain.boolean_nodes = boolean_nodes.data();
+        chain.boolean_node_count = boolean_nodes.size();
         progpu_native_group_mask mask{};
         mask.struct_size = sizeof(mask);
         mask.kind = PROGPU_NATIVE_GROUP_MASK_VECTOR_CLIP_CHAIN;

@@ -901,15 +901,17 @@ misses, bind-group churn, stable uniform uploads, or output divergence.
 
 The fifth additive ABI-v3 extension adds the arbitrary retained path portion of
 the common clip contract. The public C scene stream stores one 32-byte vector
-mask header followed by 72-byte clip-path records and 64-byte path-segment
-records, all referenced by fixed-width offsets and counts. A clip chain is an
-immutable caller-owned arena of
-line, quadratic, cubic, and analytic-arc segments plus ordered path nodes. Each
+mask header followed by 88-byte clip-path records, 64-byte path-segment
+records, and optional 48-byte boolean-program records, all referenced by
+fixed-width offsets and counts. A clip chain is an immutable caller-owned arena
+of line, quadratic, cubic, and analytic-arc segments, postfix boolean
+instructions, and ordered path nodes. Each
 node carries exact local extrema bounds, an independent affine transform, a
 nonzero/even-odd fill rule, a 4x4 or 8x8 coverage grid, and intersection or
 difference. The containing mask revision is the retained identity. The safe
-.NET owner copies both arenas once into pinned-object-heap arrays, validates
-all ranges and finite state, and then publishes stable typed pointers only for
+.NET owner copies the arenas once into pinned-object-heap arrays, validates all
+ranges, canonical program ownership, finite state, the 63-instruction limit,
+and the 16-mask stack bound, then publishes stable typed pointers only for
 the duration of the native render call. C++ never retains caller memory.
 
 Changed chains reuse the production `PathRasterizer.wgsl` compute kernel. Each
@@ -928,17 +930,26 @@ The concrete algorithms are direct ports of the repository-owned C#
 `Compositor.PushGeometryMask` and `PathAtlas.CompileFillPath` contracts, while
 both languages consume the same ProGPU WGSL files. The managed
 `GpuPictureNativeSceneCompiler` keeps canonical one-to-four rectangle/rounded
-rectangle chains on the analytic route and lowers every supported general or
-five-to-sixty-four-node chain to this vector resource. Combined
-`PathGeometry`, non-finite/non-invertible transforms, malformed offsets, and a
-depth above 64 fail with a typed compile or validation result. The native atlas
+rectangle chains on the analytic route and lowers every supported general,
+combined-path, or five-to-sixty-four-node chain to this vector resource. A
+combined path is a direct port of the managed `PathAtlas` postfix contract:
+leaf contours reference the shared segment arena and empty/difference/
+intersection/union/xor/reverse-difference instructions execute inside the
+canonical `PathRasterizer.wgsl` pass. No CPU boolean flattening or shader fork
+is introduced. Non-finite/non-invertible transforms, malformed or unowned
+program ranges, a program above 63 instructions or 16 stack entries, and a
+clip depth above 64 fail with a typed compile or validation result. The native atlas
 stores pixel-space UV bounds during packing and normalizes all vertices only
 after the final atlas dimension is known; this is required when a later path
 grows the atlas after an earlier path has already been packed.
+Solver-proven empty geometry lowers directly to an empty scissor, while cyclic
+combined graphs fail before bounds traversal; neither case initializes a GPU
+path resource or permits unbounded recursion.
 
-For `C` clip nodes, `U <= C` unique paths, total segment count `S`, target area
-`W*H`, atlas coverage area `A`, and per-path sample grid `Q`, a changed revision
-uses `O(C + S)` CPU validation/packing, `O(A*Q^2*S_u)` bounded compute
+For `C` clip nodes, `U <= C` unique paths, total segment count `S`, boolean
+instruction count `B <= 63*C`, target area `W*H`, atlas coverage area `A`, and
+per-path sample grid `Q`, a changed revision uses `O(C + S + B)` CPU
+validation/packing, `O(A*Q^2*(S_u + B_u))` bounded compute
 rasterization over each unique path's segment count, and `O(C*W*H)` mask
 composition. Retained storage is one bounded R8 atlas plus three target-sized
 R8 textures, or `O(A + W*H)` bytes. Stable matching revision/DPI/target replay
@@ -1128,7 +1139,8 @@ ordered semantic layers now own bounded backdrop input.
 - retained filled-path transfer, native compute orchestration, 64-phase
   ordinary-path keys, a bounded geometrically growing R8 atlas, published
   generation, and stable replay are implemented
-  with the production `PathRasterizer.wgsl`; boolean programs, path strokes,
+  with the production `PathRasterizer.wgsl`; boolean programs are implemented
+  for combined-path clips, while direct filled-path boolean programs,
   multi-page eviction/recovery, and cache compaction remain;
 - positioned glyph-run transfer, glyph compute orchestration reusing
   `GlyphRasterizer.wgsl`, a bounded native text atlas, production `Text.wgsl`
@@ -1590,9 +1602,9 @@ for vector, glyph, plain-image, and color-matrix-image draws. Text and image
 pipelines use canonical explicit layouts; a color matrix occupies an
 independent fourth bind group so it can be fused with the state mask in one
 draw. The managed picture compiler does not yet emit arbitrary sampled opacity
-masks. Combined-path clips, gradient/picture opacity-mask content, and an
-isolated-layer chain remain typed fail-closed; none is approximated with an
-isolated group.
+masks. Combined-path clips use the same GPU postfix program as managed
+`PathAtlas`; gradient/picture opacity-mask content and an isolated-layer chain
+remain typed fail-closed, and neither is approximated with an isolated group.
 
 The Apple M3 Pro matched `960x540` state-mask checkpoint used one Release
 process, 100 alternating warm-up pairs, and 1,000 alternating synchronized
@@ -1678,7 +1690,7 @@ fixed-color, and atlas-color patch kinds, destination transforms, blend modes,
 custom-cubic opacity sign, pixel snapping, every mip-filter combination, and
 bounded anisotropy in one C++ GPU draw. The remaining
 explicit exclusions are
-combined geometry, opaque static-DXF
+combined geometry draws, opaque static-DXF
 extension objects, mutable embedded `Visual` instances, and
 non-affine image effects. Those records fail with a
 typed source-command diagnostic; no managed

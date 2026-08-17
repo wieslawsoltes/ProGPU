@@ -1011,6 +1011,8 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
     const progpu_native_scene_clip_path vector_path{
         0U,
         vector_segments.size(),
+        0U,
+        0U,
         4.0F,
         4.0F,
         52.0F,

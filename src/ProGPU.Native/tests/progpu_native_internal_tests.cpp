@@ -530,7 +530,7 @@ void gpu_records_preserve_alignment_phase_and_cache_identity() {
     require(quantize_subpixel_phase(0.5F) == 0.5F);
 
     const native_path_cache_key first{
-        1U, 2U, 3U, 4U, 5U, 6U, 7U, 8U, 9U, 10U, 11U};
+        1U, 2U, 3U, 4U, 5U, 6U, 7U, 8U, 9U, 10U, 11U, 12U, 13U};
     const native_path_cache_key same = first;
     auto different = first;
     different.subpixel_x = 12U;

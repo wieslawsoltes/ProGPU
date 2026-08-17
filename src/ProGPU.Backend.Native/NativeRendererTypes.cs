@@ -314,6 +314,17 @@ public enum NativeClipOperation : uint
     Difference = 1
 }
 
+public enum NativePathBooleanNodeKind : uint
+{
+    Leaf = 0,
+    Empty = 1,
+    Difference = 2,
+    Intersect = 3,
+    Union = 4,
+    Xor = 5,
+    ReverseDifference = 6
+}
+
 public enum NativeGroupEffectKind : uint
 {
     None = 0,
@@ -1625,7 +1636,8 @@ public readonly struct NativeSceneLayerVectorMask
     public NativeSceneLayerVectorMask(
         uint pathCount,
         uint segmentCount,
-        float opacity = 1f)
+        float opacity = 1f,
+        uint booleanNodeCount = 0U)
     {
         StructSize = (uint)Unsafe.SizeOf<NativeSceneLayerVectorMask>();
         Kind = NativeSceneLayerMaskKind.VectorClipChain;
@@ -1633,7 +1645,7 @@ public readonly struct NativeSceneLayerVectorMask
         PathCount = pathCount;
         SegmentCount = segmentCount;
         Opacity = opacity;
-        Reserved0 = 0U;
+        BooleanNodeCount = booleanNodeCount;
         Reserved1 = 0U;
     }
 
@@ -1643,11 +1655,10 @@ public readonly struct NativeSceneLayerVectorMask
     public readonly uint PathCount;
     public readonly uint SegmentCount;
     public readonly float Opacity;
-    private readonly uint Reserved0;
+    public readonly uint BooleanNodeCount;
     private readonly uint Reserved1;
 
-    internal bool HasCanonicalReservedFields =>
-        Reserved0 == 0U && Reserved1 == 0U;
+    internal bool HasCanonicalReservedFields => Reserved1 == 0U;
 }
 
 /// <summary>
@@ -2763,10 +2774,14 @@ public readonly struct NativeSceneClipPath
         Matrix3x2 transform,
         NativeClipOperation operation = NativeClipOperation.Intersect,
         NativeFillRule fillRule = NativeFillRule.NonZero,
-        uint sampleGrid = 4)
+        uint sampleGrid = 4,
+        ulong booleanNodeOffset = 0U,
+        ulong booleanNodeCount = 0U)
     {
         SegmentOffset = segmentOffset;
         SegmentCount = segmentCount;
+        BooleanNodeOffset = booleanNodeOffset;
+        BooleanNodeCount = booleanNodeCount;
         Minimum = minimum;
         Maximum = maximum;
         Transform = transform;
@@ -2778,6 +2793,8 @@ public readonly struct NativeSceneClipPath
 
     public readonly ulong SegmentOffset;
     public readonly ulong SegmentCount;
+    public readonly ulong BooleanNodeOffset;
+    public readonly ulong BooleanNodeCount;
     public readonly Vector2 Minimum;
     public readonly Vector2 Maximum;
     public readonly Matrix3x2 Transform;
@@ -2800,10 +2817,14 @@ public readonly struct NativeClipPath
         Matrix3x2 transform,
         NativeClipOperation operation = NativeClipOperation.Intersect,
         NativeFillRule fillRule = NativeFillRule.NonZero,
-        uint sampleGrid = 4)
+        uint sampleGrid = 4,
+        nuint booleanNodeOffset = 0U,
+        nuint booleanNodeCount = 0U)
     {
         SegmentOffset = segmentOffset;
         SegmentCount = segmentCount;
+        BooleanNodeOffset = booleanNodeOffset;
+        BooleanNodeCount = booleanNodeCount;
         Minimum = minimum;
         Maximum = maximum;
         Transform = transform;
@@ -2815,6 +2836,8 @@ public readonly struct NativeClipPath
 
     public readonly nuint SegmentOffset;
     public readonly nuint SegmentCount;
+    public readonly nuint BooleanNodeOffset;
+    public readonly nuint BooleanNodeCount;
     public readonly Vector2 Minimum;
     public readonly Vector2 Maximum;
     public readonly Matrix3x2 Transform;
@@ -2822,6 +2845,71 @@ public readonly struct NativeClipPath
     public readonly uint SampleGrid;
     public readonly NativeClipOperation Operation;
     private readonly uint Reserved;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeScenePathBooleanNode
+{
+    public NativeScenePathBooleanNode(
+        ulong segmentOffset,
+        ulong segmentCount,
+        Vector2 minimum,
+        Vector2 maximum,
+        NativeFillRule fillRule,
+        NativePathBooleanNodeKind kind)
+    {
+        SegmentOffset = segmentOffset;
+        SegmentCount = segmentCount;
+        Minimum = minimum;
+        Maximum = maximum;
+        FillRule = fillRule;
+        Kind = kind;
+        Reserved0 = 0U;
+        Reserved1 = 0U;
+    }
+
+    public readonly ulong SegmentOffset;
+    public readonly ulong SegmentCount;
+    public readonly Vector2 Minimum;
+    public readonly Vector2 Maximum;
+    public readonly NativeFillRule FillRule;
+    public readonly NativePathBooleanNodeKind Kind;
+    private readonly uint Reserved0;
+    private readonly uint Reserved1;
+
+    internal bool HasCanonicalReservedFields =>
+        Reserved0 == 0U && Reserved1 == 0U;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativePathBooleanNode
+{
+    public NativePathBooleanNode(
+        nuint segmentOffset,
+        nuint segmentCount,
+        Vector2 minimum,
+        Vector2 maximum,
+        NativeFillRule fillRule,
+        NativePathBooleanNodeKind kind)
+    {
+        SegmentOffset = segmentOffset;
+        SegmentCount = segmentCount;
+        Minimum = minimum;
+        Maximum = maximum;
+        FillRule = fillRule;
+        Kind = kind;
+        Reserved0 = 0U;
+        Reserved1 = 0U;
+    }
+
+    public readonly nuint SegmentOffset;
+    public readonly nuint SegmentCount;
+    public readonly Vector2 Minimum;
+    public readonly Vector2 Maximum;
+    public readonly NativeFillRule FillRule;
+    public readonly NativePathBooleanNodeKind Kind;
+    private readonly uint Reserved0;
+    private readonly uint Reserved1;
 }
 
 /// <summary>
@@ -2836,17 +2924,25 @@ public sealed unsafe class NativeClipChain
 {
     private readonly NativeClipPath[] _paths;
     private readonly NativePathSegment[] _segments;
+    private readonly NativePathBooleanNode[] _booleanNodes;
 
     public NativeClipChain(
         ReadOnlySpan<NativeClipPath> paths,
-        ReadOnlySpan<NativePathSegment> segments)
+        ReadOnlySpan<NativePathSegment> segments,
+        ReadOnlySpan<NativePathBooleanNode> booleanNodes = default)
     {
         if (paths.IsEmpty)
             throw new ArgumentException("A native clip chain requires at least one path.", nameof(paths));
+        if (paths.Length > 64)
+            throw new ArgumentOutOfRangeException(nameof(paths));
         if (segments.IsEmpty)
             throw new ArgumentException("A native clip chain requires path segments.", nameof(segments));
+        if (booleanNodes.Length > 64 * 63)
+            throw new ArgumentOutOfRangeException(nameof(booleanNodes));
 
         nuint segmentLength = (nuint)segments.Length;
+        nuint booleanNodeLength = (nuint)booleanNodes.Length;
+        nuint expectedBooleanNodeOffset = 0U;
         for (int index = 0; index < paths.Length; index++)
         {
             NativeClipPath path = paths[index];
@@ -2861,13 +2957,25 @@ public sealed unsafe class NativeClipChain
                 MathF.Abs(path.Transform.GetDeterminant()) <= 0.000001f ||
                 path.FillRule > NativeFillRule.EvenOdd ||
                 path.SampleGrid is not (4U or 8U) ||
-                path.Operation > NativeClipOperation.Difference)
+                path.Operation > NativeClipOperation.Difference ||
+                (path.BooleanNodeCount != 0U &&
+                    path.BooleanNodeOffset != expectedBooleanNodeOffset) ||
+                !IsValidBooleanProgram(
+                    in path,
+                    booleanNodes,
+                    segmentLength,
+                    booleanNodeLength))
             {
                 throw new ArgumentException(
                     $"Clip path {index} is invalid or references segments outside the retained arena.",
                     nameof(paths));
             }
+            expectedBooleanNodeOffset += path.BooleanNodeCount;
         }
+        if (expectedBooleanNodeOffset != booleanNodeLength)
+            throw new ArgumentException(
+                "Every retained boolean node must belong to exactly one clip path.",
+                nameof(booleanNodes));
         for (int index = 0; index < segments.Length; index++)
         {
             NativePathSegment segment = segments[index];
@@ -2900,12 +3008,17 @@ public sealed unsafe class NativeClipChain
         _segments = GC.AllocateUninitializedArray<NativePathSegment>(
             segments.Length,
             pinned: true);
+        _booleanNodes = GC.AllocateUninitializedArray<NativePathBooleanNode>(
+            booleanNodes.Length,
+            pinned: true);
         paths.CopyTo(_paths);
         segments.CopyTo(_segments);
+        booleanNodes.CopyTo(_booleanNodes);
     }
 
     public int PathCount => _paths.Length;
     public int SegmentCount => _segments.Length;
+    public int BooleanNodeCount => _booleanNodes.Length;
 
     internal NativeClipPath* Paths =>
         (NativeClipPath*)Unsafe.AsPointer(
@@ -2915,6 +3028,12 @@ public sealed unsafe class NativeClipChain
         (NativePathSegment*)Unsafe.AsPointer(
             ref MemoryMarshal.GetArrayDataReference(_segments));
 
+    internal NativePathBooleanNode* BooleanNodes =>
+        _booleanNodes.Length == 0
+            ? null
+            : (NativePathBooleanNode*)Unsafe.AsPointer(
+                ref MemoryMarshal.GetArrayDataReference(_booleanNodes));
+
     private static bool IsFinite(Vector2 value) =>
         float.IsFinite(value.X) && float.IsFinite(value.Y);
 
@@ -2922,6 +3041,62 @@ public sealed unsafe class NativeClipChain
         float.IsFinite(value.M11) && float.IsFinite(value.M12) &&
         float.IsFinite(value.M21) && float.IsFinite(value.M22) &&
         float.IsFinite(value.M31) && float.IsFinite(value.M32);
+
+    private static bool IsValidBooleanProgram(
+        in NativeClipPath path,
+        ReadOnlySpan<NativePathBooleanNode> nodes,
+        nuint segmentCount,
+        nuint nodeCount)
+    {
+        if (path.BooleanNodeCount == 0U)
+            return path.BooleanNodeOffset == 0U;
+        if (path.BooleanNodeCount > 63U ||
+            path.BooleanNodeOffset > nodeCount ||
+            path.BooleanNodeCount > nodeCount - path.BooleanNodeOffset)
+            return false;
+        int stackDepth = 0;
+        nuint pathSegmentEnd = path.SegmentOffset + path.SegmentCount;
+        int start = checked((int)path.BooleanNodeOffset);
+        int end = checked(start + (int)path.BooleanNodeCount);
+        for (int index = start; index < end; index++)
+        {
+            NativePathBooleanNode node = nodes[index];
+            if (node.Kind > NativePathBooleanNodeKind.ReverseDifference)
+                return false;
+            if (node.Kind == NativePathBooleanNodeKind.Leaf)
+            {
+                if (stackDepth == 16 || node.SegmentCount == 0U ||
+                    node.SegmentOffset < path.SegmentOffset ||
+                    node.SegmentOffset > pathSegmentEnd ||
+                    node.SegmentCount > pathSegmentEnd - node.SegmentOffset ||
+                    !IsFinite(node.Minimum) || !IsFinite(node.Maximum) ||
+                    node.Maximum.X <= node.Minimum.X ||
+                    node.Maximum.Y <= node.Minimum.Y ||
+                    node.FillRule > NativeFillRule.EvenOdd)
+                    return false;
+                stackDepth++;
+            }
+            else if (node.Kind == NativePathBooleanNodeKind.Empty)
+            {
+                if (stackDepth == 16 || node.SegmentOffset != 0U ||
+                    node.SegmentCount != 0U || node.Minimum != Vector2.Zero ||
+                    node.Maximum != Vector2.Zero ||
+                    node.FillRule != NativeFillRule.NonZero)
+                    return false;
+                stackDepth++;
+            }
+            else
+            {
+                if (stackDepth < 2 || node.SegmentOffset != 0U ||
+                    node.SegmentCount != 0U || node.Minimum != Vector2.Zero ||
+                    node.Maximum != Vector2.Zero ||
+                    node.FillRule != NativeFillRule.NonZero)
+                    return false;
+                stackDepth--;
+            }
+        }
+        return stackDepth == 1;
+    }
 }
 
 [StructLayout(LayoutKind.Sequential)]

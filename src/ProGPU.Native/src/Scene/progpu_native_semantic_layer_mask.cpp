@@ -126,8 +126,10 @@ bool valid_vector_segment(
 
 bool valid_vector_path(
     const progpu_native_scene_clip_path& path,
-    std::uint32_t segment_count) noexcept {
-    return path.segment_count > 0U &&
+    std::uint32_t segment_count,
+    const progpu_native_scene_path_boolean_node* boolean_nodes,
+    std::uint32_t boolean_node_count) noexcept {
+    if (!(path.segment_count > 0U &&
         path.segment_offset <= segment_count &&
         path.segment_count <= segment_count - path.segment_offset &&
         std::isfinite(path.min_x) && std::isfinite(path.min_y) &&
@@ -137,34 +139,105 @@ bool valid_vector_path(
         path.fill_rule <= PROGPU_NATIVE_FILL_RULE_EVEN_ODD &&
         (path.sample_grid == 4U || path.sample_grid == 8U) &&
         path.operation <= PROGPU_NATIVE_CLIP_DIFFERENCE &&
-        path.reserved == 0U;
+        path.reserved == 0U)) {
+        return false;
+    }
+    if (path.boolean_node_count == 0U) {
+        return path.boolean_node_offset == 0U;
+    }
+    if (path.boolean_node_count > 63U || boolean_nodes == nullptr ||
+        path.boolean_node_offset > boolean_node_count ||
+        path.boolean_node_count >
+            boolean_node_count - path.boolean_node_offset) {
+        return false;
+    }
+    std::uint32_t stack_depth = 0U;
+    const std::uint64_t segment_end =
+        path.segment_offset + path.segment_count;
+    for (std::uint64_t index = path.boolean_node_offset;
+         index < path.boolean_node_offset + path.boolean_node_count;
+         ++index) {
+        const auto& node = boolean_nodes[index];
+        if (node.kind > PROGPU_NATIVE_PATH_BOOLEAN_REVERSE_DIFFERENCE ||
+            node.reserved0 != 0U || node.reserved1 != 0U) {
+            return false;
+        }
+        if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF) {
+            if (stack_depth >= 16U || node.segment_count == 0U ||
+                node.segment_offset < path.segment_offset ||
+                node.segment_offset > segment_end ||
+                node.segment_count > segment_end - node.segment_offset ||
+                !std::isfinite(node.min_x) || !std::isfinite(node.min_y) ||
+                !std::isfinite(node.max_x) || !std::isfinite(node.max_y) ||
+                node.max_x <= node.min_x || node.max_y <= node.min_y ||
+                node.fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD) {
+                return false;
+            }
+            ++stack_depth;
+        } else if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_EMPTY) {
+            if (stack_depth >= 16U || node.segment_offset != 0U ||
+                node.segment_count != 0U || node.min_x != 0.0F ||
+                node.min_y != 0.0F || node.max_x != 0.0F ||
+                node.max_y != 0.0F || node.fill_rule != 0U) {
+                return false;
+            }
+            ++stack_depth;
+        } else {
+            if (stack_depth < 2U || node.segment_offset != 0U ||
+                node.segment_count != 0U || node.min_x != 0.0F ||
+                node.min_y != 0.0F || node.max_x != 0.0F ||
+                node.max_y != 0.0F || node.fill_rule != 0U) {
+                return false;
+            }
+            --stack_depth;
+        }
+    }
+    return stack_depth == 1U;
 }
 
 bool valid_vector(
     const progpu_native_scene_layer_vector_mask& mask,
     const progpu_native_scene_clip_path* paths,
     const progpu_native_path_segment* segments,
+    const progpu_native_scene_path_boolean_node* boolean_nodes,
     std::uint32_t auxiliary_size) noexcept {
     if (mask.struct_size != sizeof(mask) ||
         mask.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN ||
         mask.flags != 0U || mask.path_count == 0U ||
         mask.path_count > 64U || mask.segment_count == 0U ||
         !std::isfinite(mask.opacity) || mask.opacity < 0.0F ||
-        mask.opacity > 1.0F || mask.reserved0 != 0U ||
-        mask.reserved1 != 0U || paths == nullptr || segments == nullptr) {
+        mask.opacity > 1.0F || mask.reserved1 != 0U ||
+        mask.boolean_node_count > 64U * 63U || paths == nullptr ||
+        segments == nullptr ||
+        (mask.boolean_node_count != 0U && boolean_nodes == nullptr)) {
         return false;
     }
     const std::uint64_t path_bytes =
         static_cast<std::uint64_t>(mask.path_count) * sizeof(*paths);
     const std::uint64_t segment_bytes =
         static_cast<std::uint64_t>(mask.segment_count) * sizeof(*segments);
-    if (path_bytes + segment_bytes != auxiliary_size) {
+    const std::uint64_t boolean_node_bytes =
+        static_cast<std::uint64_t>(mask.boolean_node_count) *
+            sizeof(*boolean_nodes);
+    if (path_bytes + segment_bytes + boolean_node_bytes != auxiliary_size) {
         return false;
     }
+    std::uint64_t expected_boolean_node_offset = 0U;
     for (std::uint32_t index = 0U; index < mask.path_count; ++index) {
-        if (!valid_vector_path(paths[index], mask.segment_count)) {
+        if (!valid_vector_path(
+                paths[index],
+                mask.segment_count,
+                boolean_nodes,
+                mask.boolean_node_count) ||
+            (paths[index].boolean_node_count != 0U &&
+                paths[index].boolean_node_offset !=
+                    expected_boolean_node_offset)) {
             return false;
         }
+        expected_boolean_node_offset += paths[index].boolean_node_count;
+    }
+    if (expected_boolean_node_offset != mask.boolean_node_count) {
+        return false;
     }
     for (std::uint32_t index = 0U; index < mask.segment_count; ++index) {
         if (!valid_vector_segment(segments[index])) {
@@ -196,19 +269,22 @@ bool is_valid_semantic_layer_mask_chain(
 bool is_valid_semantic_layer_vector_mask(
     const progpu_native_scene_layer_vector_mask& mask,
     std::span<const progpu_native_scene_clip_path> paths,
-    std::span<const progpu_native_path_segment> segments) noexcept {
+    std::span<const progpu_native_path_segment> segments,
+    std::span<const progpu_native_scene_path_boolean_node> boolean_nodes) noexcept {
     if (paths.size() != mask.path_count ||
-        segments.size() != mask.segment_count) {
+        segments.size() != mask.segment_count ||
+        boolean_nodes.size() != mask.boolean_node_count) {
         return false;
     }
     const std::uint64_t auxiliary_size =
         static_cast<std::uint64_t>(paths.size_bytes()) +
-        segments.size_bytes();
+        segments.size_bytes() + boolean_nodes.size_bytes();
     return auxiliary_size <= std::numeric_limits<std::uint32_t>::max() &&
         valid_vector(
             mask,
             paths.data(),
             segments.data(),
+            boolean_nodes.data(),
             static_cast<std::uint32_t>(auxiliary_size));
 }
 
@@ -275,10 +351,20 @@ bool validate_layer_mask_resource(
         result.vector_segments =
             reinterpret_cast<const progpu_native_path_segment*>(
                 bytes + resource.auxiliary_offset + path_bytes);
+        const std::uint64_t segment_bytes =
+            static_cast<std::uint64_t>(result.vector.segment_count) *
+                sizeof(progpu_native_path_segment);
+        if (path_bytes + segment_bytes > resource.auxiliary_size) {
+            return false;
+        }
+        result.vector_boolean_nodes =
+            reinterpret_cast<const progpu_native_scene_path_boolean_node*>(
+                bytes + resource.auxiliary_offset + path_bytes + segment_bytes);
         if (!valid_vector(
                 result.vector,
                 result.vector_paths,
                 result.vector_segments,
+                result.vector_boolean_nodes,
                 resource.auxiliary_size)) {
             return false;
         }

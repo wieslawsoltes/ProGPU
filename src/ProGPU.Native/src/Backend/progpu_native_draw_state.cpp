@@ -95,7 +95,10 @@ bool resolve_group_mask(
             chain.flags == 0U && chain.paths != nullptr &&
             chain.path_count > 0U && chain.path_count <= (1U << 16U) &&
             chain.segments != nullptr && chain.segment_count > 0U &&
-            chain.segment_count <= (1U << 24U);
+            chain.segment_count <= (1U << 24U) &&
+            chain.boolean_node_count <= (1U << 22U) &&
+            (chain.boolean_node_count == 0U ||
+                chain.boolean_nodes != nullptr);
     }
     if (resolved.kind != PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE ||
         resolved.external_view != 0U || resolved.width != 0U ||

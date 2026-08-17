@@ -381,9 +381,9 @@ internal static class ManagedPictureBenchmark
         if (useVectorClipMask)
         {
             // This is deliberately wider than the four-node analytic fast path:
-            // five ordered geometry clips plus one noncanonical curved path force
-            // the managed compiler and C++ renderer through their retained GPU
-            // vector-mask contract without changing the picture's draw families.
+            // six ordered geometry clips, one noncanonical curved path, and one
+            // combined difference force both implementations through the retained
+            // GPU vector-mask and canonical postfix boolean-program contracts.
             drawing.PushGeometryClip(
                 PrimitivePathGeometry.CreateRoundedRectangle(
                     30f,
@@ -418,6 +418,26 @@ internal static class ManagedPictureBenchmark
                 curvedFigure.StartPoint));
             curvedClip.Figures.Add(curvedFigure);
             drawing.PushGeometryClip(curvedClip, Matrix4x4.Identity);
+            additionalGeometryClipCount++;
+
+            var combinedClip = new PathGeometry
+            {
+                IsCombined = true,
+                Op = 0,
+                PathA = PrimitivePathGeometry.CreateRectangle(
+                    34f,
+                    28f,
+                    Width - 68f,
+                    Height - 56f),
+                PathB = PrimitivePathGeometry.CreateRoundedRectangle(
+                    Width * 0.42f,
+                    Height * 0.38f,
+                    Width * 0.16f,
+                    Height * 0.24f,
+                    18f,
+                    18f)
+            };
+            drawing.PushGeometryClip(combinedClip, Matrix4x4.Identity);
             additionalGeometryClipCount++;
 
             drawing.PushGeometryClip(

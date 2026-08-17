@@ -1207,10 +1207,41 @@ bool render_browser_frame(double, void*) {
             PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
         progpu_native_path_segment{
             {36.0F, 144.0F}, {16.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {92.0F, 56.0F}, {164.0F, 56.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {164.0F, 56.0F}, {164.0F, 112.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {164.0F, 112.0F}, {92.0F, 112.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {92.0F, 112.0F}, {92.0F, 56.0F}, {}, {},
             PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    std::array<progpu_native_scene_path_boolean_node, 3U>
+        vector_mask_boolean_nodes{};
+    vector_mask_boolean_nodes[0].segment_count = 5U;
+    vector_mask_boolean_nodes[0].min_x = 16.0F;
+    vector_mask_boolean_nodes[0].min_y = 8.0F;
+    vector_mask_boolean_nodes[0].max_x = 240.0F;
+    vector_mask_boolean_nodes[0].max_y = 144.0F;
+    vector_mask_boolean_nodes[0].kind = PROGPU_NATIVE_PATH_BOOLEAN_LEAF;
+    vector_mask_boolean_nodes[1].segment_offset = 5U;
+    vector_mask_boolean_nodes[1].segment_count = 4U;
+    vector_mask_boolean_nodes[1].min_x = 92.0F;
+    vector_mask_boolean_nodes[1].min_y = 56.0F;
+    vector_mask_boolean_nodes[1].max_x = 164.0F;
+    vector_mask_boolean_nodes[1].max_y = 112.0F;
+    vector_mask_boolean_nodes[1].kind = PROGPU_NATIVE_PATH_BOOLEAN_LEAF;
+    vector_mask_boolean_nodes[2].kind =
+        PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE;
     const progpu_native_scene_clip_path vector_mask_path{
         0U,
         vector_mask_segments.size(),
+        0U,
+        vector_mask_boolean_nodes.size(),
         16.0F,
         8.0F,
         240.0F,
@@ -1246,6 +1277,7 @@ bool render_browser_frame(double, void*) {
                 &vector_mask_path,
                 1U),
             vector_mask_segments,
+            vector_mask_boolean_nodes,
             1.0F,
             vector_mask_resource)) {
         fail("The browser vector-mask scene resources could not be built.");

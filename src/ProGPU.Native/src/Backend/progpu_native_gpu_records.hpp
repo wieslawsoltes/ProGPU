@@ -135,6 +135,8 @@ struct gpu_clip_compose_uniforms {
 struct native_path_cache_key {
     std::size_t segment_offset;
     std::size_t segment_count;
+    std::size_t boolean_node_offset;
+    std::size_t boolean_node_count;
     std::uint32_t min_x;
     std::uint32_t min_y;
     std::uint32_t max_x;
@@ -160,6 +162,8 @@ struct native_path_cache_key_hash {
         };
         mix(key.segment_offset);
         mix(key.segment_count);
+        mix(key.boolean_node_offset);
+        mix(key.boolean_node_count);
         mix(key.min_x);
         mix(key.min_y);
         mix(key.max_x);

@@ -124,6 +124,12 @@ public:
         std::span<const progpu_native_path_segment> segments,
         float opacity,
         std::uint32_t& resource_index) noexcept;
+    bool add_vector_clip_mask(
+        std::span<const progpu_native_scene_clip_path> paths,
+        std::span<const progpu_native_path_segment> segments,
+        std::span<const progpu_native_scene_path_boolean_node> boolean_nodes,
+        float opacity,
+        std::uint32_t& resource_index) noexcept;
     bool add_effect_chain(
         std::span<const progpu_native_group_effect> effects,
         std::uint32_t revision,

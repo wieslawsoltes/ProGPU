@@ -621,8 +621,9 @@ void api_contract_is_versioned() {
         scene_id) == 40U);
     PROGPU_REQUIRE(sizeof(progpu_native_glyph_outline) == 40U);
     PROGPU_REQUIRE(sizeof(progpu_native_positioned_glyph) == 64U);
-    PROGPU_REQUIRE(sizeof(progpu_native_clip_path) == 72U);
-    PROGPU_REQUIRE(sizeof(progpu_native_clip_chain) == 40U);
+    PROGPU_REQUIRE(sizeof(progpu_native_clip_path) == 88U);
+    PROGPU_REQUIRE(sizeof(progpu_native_clip_chain) == 56U);
+    PROGPU_REQUIRE(sizeof(progpu_native_path_boolean_node) == 48U);
     PROGPU_REQUIRE(sizeof(progpu_native_group_mask) == 152U);
     PROGPU_REQUIRE(offsetof(progpu_native_group_mask, external_view) == 16U);
     PROGPU_REQUIRE(offsetof(progpu_native_group_mask, destination_rect) == 48U);

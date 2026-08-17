@@ -78,9 +78,12 @@ static_assert(sizeof(progpu_native_image_frame_metrics) == 72U);
 static_assert(sizeof(progpu_native_group_mask) ==
     (sizeof(std::uintptr_t) == 8U ? 152U : 144U));
 static_assert(sizeof(progpu_native_clip_path) ==
-    (sizeof(std::size_t) == 8U ? 72U : 64U));
+    (sizeof(std::size_t) == 8U ? 88U : 72U));
 static_assert(sizeof(progpu_native_clip_chain) ==
-    (sizeof(std::uintptr_t) == 8U ? 40U : 24U));
+    (sizeof(std::uintptr_t) == 8U ? 56U : 32U));
+static_assert(sizeof(progpu_native_path_boolean_node) ==
+    (sizeof(std::size_t) == 8U ? 48U : 40U));
+static_assert(sizeof(progpu_native_scene_path_boolean_node) == 48U);
 static_assert(sizeof(progpu_native_group_effect) == 56U);
 static_assert(sizeof(progpu_native_group_effect_chain) ==
     (sizeof(std::uintptr_t) == 8U ? 24U : 20U));

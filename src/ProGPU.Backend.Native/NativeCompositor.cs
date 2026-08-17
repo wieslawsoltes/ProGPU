@@ -2076,7 +2076,9 @@ public sealed unsafe class NativeCompositor : IDisposable
                     Paths = chain.Paths,
                     PathCount = (nuint)chain.PathCount,
                     Segments = chain.Segments,
-                    SegmentCount = (nuint)chain.SegmentCount
+                    SegmentCount = (nuint)chain.SegmentCount,
+                    BooleanNodes = chain.BooleanNodes,
+                    BooleanNodeCount = (nuint)chain.BooleanNodeCount
                 };
                 return new NativeMethods.GroupMask
                 {

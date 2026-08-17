@@ -1063,10 +1063,12 @@ typedef struct progpu_native_scene_layer_mask_chain {
 /*
  * Pointer-free retained vector-mask prefix. The auxiliary span contains
  * path_count progpu_native_scene_clip_path records followed immediately by
- * segment_count progpu_native_path_segment records. Both counts are bounded
- * and validated before native GPU allocation. The ordered paths are composed
- * from an initially full mask and rasterized by the shared PathRasterizer.wgsl
- * and ClipCompose.wgsl implementation.
+ * segment_count progpu_native_path_segment records and boolean_node_count
+ * progpu_native_scene_path_boolean_node records. All counts and referenced
+ * ranges are bounded and validated before native GPU allocation. Ordered clip
+ * paths are composed from an initially full mask. A path with a boolean
+ * program evaluates that canonical postfix program inside the shared
+ * PathRasterizer.wgsl pass before ClipCompose.wgsl applies the outer path.
  */
 typedef struct progpu_native_scene_layer_vector_mask {
     uint32_t struct_size;
@@ -1075,7 +1077,7 @@ typedef struct progpu_native_scene_layer_vector_mask {
     uint32_t path_count;
     uint32_t segment_count;
     float opacity;
-    uint32_t reserved0;
+    uint32_t boolean_node_count;
     uint32_t reserved1;
 } progpu_native_scene_layer_vector_mask;
 
@@ -1685,14 +1687,17 @@ typedef struct progpu_native_path_fill {
 } progpu_native_path_fill;
 
 /*
- * One ordered clip node borrows a contiguous segment range. Bounds are exact
- * local curve-extrema bounds and transform maps local coordinates to logical
- * target coordinates. The existing path compute rasterizer preserves lines,
- * quadratics, cubics, analytic arcs, fill rules, and the 4x4/8x8 AA contract.
+ * One ordered clip node borrows a contiguous segment range and an optional
+ * canonical postfix boolean program. Bounds are exact local curve-extrema
+ * bounds and transform maps local coordinates to logical target coordinates.
+ * The existing path compute rasterizer preserves lines, quadratics, cubics,
+ * analytic arcs, fill rules, boolean operations, and the 4x4/8x8 AA contract.
  */
 typedef struct progpu_native_clip_path {
     size_t segment_offset;
     size_t segment_count;
+    size_t boolean_node_offset;
+    size_t boolean_node_count;
     float min_x;
     float min_y;
     float max_x;
@@ -1713,6 +1718,8 @@ typedef struct progpu_native_clip_path {
 typedef struct progpu_native_scene_clip_path {
     uint64_t segment_offset;
     uint64_t segment_count;
+    uint64_t boolean_node_offset;
+    uint64_t boolean_node_count;
     float min_x;
     float min_y;
     float max_x;
@@ -1725,9 +1732,53 @@ typedef struct progpu_native_scene_clip_path {
 } progpu_native_scene_clip_path;
 
 /*
+ * One postfix/RPN boolean-program instruction. Leaf records borrow a
+ * contiguous segment range and carry exact local bounds/fill state. Empty and
+ * operation records require every range, bound, fill, and reserved field to be
+ * zero. Programs are bounded to 63 instructions and a 16-mask stack, matching
+ * the canonical PathRasterizer.wgsl contract.
+ */
+typedef enum progpu_native_path_boolean_node_kind {
+    PROGPU_NATIVE_PATH_BOOLEAN_LEAF = 0,
+    PROGPU_NATIVE_PATH_BOOLEAN_EMPTY = 1,
+    PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE = 2,
+    PROGPU_NATIVE_PATH_BOOLEAN_INTERSECT = 3,
+    PROGPU_NATIVE_PATH_BOOLEAN_UNION = 4,
+    PROGPU_NATIVE_PATH_BOOLEAN_XOR = 5,
+    PROGPU_NATIVE_PATH_BOOLEAN_REVERSE_DIFFERENCE = 6
+} progpu_native_path_boolean_node_kind;
+
+typedef struct progpu_native_path_boolean_node {
+    size_t segment_offset;
+    size_t segment_count;
+    float min_x;
+    float min_y;
+    float max_x;
+    float max_y;
+    uint32_t fill_rule;
+    uint32_t kind;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_path_boolean_node;
+
+typedef struct progpu_native_scene_path_boolean_node {
+    uint64_t segment_offset;
+    uint64_t segment_count;
+    float min_x;
+    float min_y;
+    float max_x;
+    float max_y;
+    uint32_t fill_rule;
+    uint32_t kind;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_scene_path_boolean_node;
+
+/*
  * Immutable caller-owned clip payload borrowed only for one render call.
  * revision lives on the containing group-mask descriptor and is the retained
- * identity. Nodes are evaluated in order from an initially full mask.
+ * identity. Paths are evaluated in order from an initially full mask. The
+ * optional boolean-node arena is also immutable and caller-owned.
  */
 typedef struct progpu_native_clip_chain {
     uint32_t struct_size;
@@ -1736,6 +1787,8 @@ typedef struct progpu_native_clip_chain {
     size_t path_count;
     const progpu_native_path_segment* segments;
     size_t segment_count;
+    const progpu_native_path_boolean_node* boolean_nodes;
+    size_t boolean_node_count;
 } progpu_native_clip_chain;
 
 /*

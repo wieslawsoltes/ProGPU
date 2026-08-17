@@ -171,8 +171,19 @@ public class NativeRendererInteropTests
         Assert.Equal(
             144,
             OffsetOf<NativeMethods.GroupMask>(nameof(NativeMethods.GroupMask.ClipChain)));
-        Assert.Equal(40, Unsafe.SizeOf<NativeMethods.ClipChain>());
-        Assert.Equal(72, Unsafe.SizeOf<NativeClipPath>());
+        Assert.Equal(56, Unsafe.SizeOf<NativeMethods.ClipChain>());
+        Assert.Equal(
+            40,
+            OffsetOf<NativeMethods.ClipChain>(
+                nameof(NativeMethods.ClipChain.BooleanNodes)));
+        Assert.Equal(
+            48,
+            OffsetOf<NativeMethods.ClipChain>(
+                nameof(NativeMethods.ClipChain.BooleanNodeCount)));
+        Assert.Equal(88, Unsafe.SizeOf<NativeClipPath>());
+        Assert.Equal(48, Unsafe.SizeOf<NativePathBooleanNode>());
+        Assert.Equal(88, Unsafe.SizeOf<NativeSceneClipPath>());
+        Assert.Equal(48, Unsafe.SizeOf<NativeScenePathBooleanNode>());
         Assert.Equal(200, Unsafe.SizeOf<NativeMethods.LayerMetrics>());
         Assert.Equal(
             56,
@@ -638,6 +649,108 @@ public class NativeRendererInteropTests
                         Matrix3x2.Identity)],
                     [segment]),
                 0U));
+    }
+
+    [Fact]
+    public void PublicDrawStateCarriesImmutableBooleanVectorClipChain()
+    {
+        var segments = new[]
+        {
+            new NativePathSegment(
+                NativePathSegmentKind.Line,
+                new Vector2(0f, 0f),
+                new Vector2(20f, 0f)),
+            new NativePathSegment(
+                NativePathSegmentKind.Line,
+                new Vector2(20f, 0f),
+                new Vector2(10f, 20f)),
+            new NativePathSegment(
+                NativePathSegmentKind.Line,
+                new Vector2(10f, 20f),
+                Vector2.Zero),
+            new NativePathSegment(
+                NativePathSegmentKind.Line,
+                new Vector2(7f, 5f),
+                new Vector2(13f, 5f)),
+            new NativePathSegment(
+                NativePathSegmentKind.Line,
+                new Vector2(13f, 5f),
+                new Vector2(10f, 11f)),
+            new NativePathSegment(
+                NativePathSegmentKind.Line,
+                new Vector2(10f, 11f),
+                new Vector2(7f, 5f))
+        };
+        var nodes = new[]
+        {
+            new NativePathBooleanNode(
+                0U, 3U, Vector2.Zero, new Vector2(20f),
+                NativeFillRule.NonZero,
+                NativePathBooleanNodeKind.Leaf),
+            new NativePathBooleanNode(
+                3U, 3U, new Vector2(7f, 5f), new Vector2(13f, 11f),
+                NativeFillRule.NonZero,
+                NativePathBooleanNodeKind.Leaf),
+            new NativePathBooleanNode(
+                0U, 0U, Vector2.Zero, Vector2.Zero,
+                NativeFillRule.NonZero,
+                NativePathBooleanNodeKind.Difference)
+        };
+        var path = new NativeClipPath(
+            0U,
+            6U,
+            Vector2.Zero,
+            new Vector2(20f),
+            Matrix3x2.Identity,
+            booleanNodeCount: 3U);
+        var chain = new NativeClipChain([path], segments, nodes);
+
+        nodes[0] = default;
+        segments[0] = default;
+
+        Assert.Equal(1, chain.PathCount);
+        Assert.Equal(6, chain.SegmentCount);
+        Assert.Equal(3, chain.BooleanNodeCount);
+    }
+
+    [Fact]
+    public void VectorClipChainRejectsMalformedOrUnownedBooleanPrograms()
+    {
+        var segments = new[]
+        {
+            new NativePathSegment(
+                NativePathSegmentKind.Line,
+                Vector2.Zero,
+                Vector2.One)
+        };
+        var path = new NativeClipPath(
+            0U,
+            1U,
+            Vector2.Zero,
+            Vector2.One,
+            Matrix3x2.Identity,
+            booleanNodeCount: 1U);
+        var operation = new NativePathBooleanNode(
+            0U, 0U, Vector2.Zero, Vector2.Zero,
+            NativeFillRule.NonZero,
+            NativePathBooleanNodeKind.Union);
+        var leaf = new NativePathBooleanNode(
+            0U, 1U, Vector2.Zero, Vector2.One,
+            NativeFillRule.NonZero,
+            NativePathBooleanNodeKind.Leaf);
+
+        Assert.Throws<ArgumentException>(() =>
+            new NativeClipChain([path], segments, [operation]));
+        Assert.Throws<ArgumentException>(() =>
+            new NativeClipChain(
+                [new NativeClipPath(
+                    0U,
+                    1U,
+                    Vector2.Zero,
+                    Vector2.One,
+                    Matrix3x2.Identity)],
+                segments,
+                [leaf]));
     }
 
     [Fact]
@@ -1707,11 +1820,11 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
-    public void SemanticSceneBuilderWritesVectorMaskWithoutAllocation()
+    public void SemanticSceneBuilderWritesBooleanVectorMaskWithoutAllocation()
     {
         Span<byte> destination = stackalloc byte[4096];
         Span<NativeSceneClipPath> paths = stackalloc NativeSceneClipPath[1];
-        Span<NativePathSegment> segments = stackalloc NativePathSegment[3];
+        Span<NativePathSegment> segments = stackalloc NativePathSegment[6];
         segments[0] = new NativePathSegment(
             NativePathSegmentKind.Line,
             new Vector2(2f, 2f),
@@ -1730,19 +1843,60 @@ public class NativeRendererInteropTests
             new Vector2(2f, 2f),
             default,
             default);
-        paths[0] = new NativeSceneClipPath(
+        segments[3] = new NativePathSegment(
+            NativePathSegmentKind.Line,
+            new Vector2(10f, 8f),
+            new Vector2(18f, 8f));
+        segments[4] = new NativePathSegment(
+            NativePathSegmentKind.Line,
+            new Vector2(18f, 8f),
+            new Vector2(14f, 14f));
+        segments[5] = new NativePathSegment(
+            NativePathSegmentKind.Line,
+            new Vector2(14f, 14f),
+            new Vector2(10f, 8f));
+        Span<NativeScenePathBooleanNode> booleanNodes =
+            stackalloc NativeScenePathBooleanNode[3];
+        booleanNodes[0] = new NativeScenePathBooleanNode(
             0U,
             3U,
             new Vector2(2f, 2f),
             new Vector2(30f, 24f),
+            NativeFillRule.NonZero,
+            NativePathBooleanNodeKind.Leaf);
+        booleanNodes[1] = new NativeScenePathBooleanNode(
+            3U,
+            3U,
+            new Vector2(10f, 8f),
+            new Vector2(18f, 14f),
+            NativeFillRule.NonZero,
+            NativePathBooleanNodeKind.Leaf);
+        booleanNodes[2] = new NativeScenePathBooleanNode(
+            0U,
+            0U,
+            Vector2.Zero,
+            Vector2.Zero,
+            NativeFillRule.NonZero,
+            NativePathBooleanNodeKind.Difference);
+        paths[0] = new NativeSceneClipPath(
+            0U,
+            6U,
+            new Vector2(2f, 2f),
+            new Vector2(30f, 24f),
             new Matrix3x2(1f, 0.1f, -0.05f, 1f, 3f, 4f),
-            sampleGrid: 4U);
-        var mask = new NativeSceneLayerVectorMask(1U, 3U, 0.8f);
+            sampleGrid: 4U,
+            booleanNodeCount: 3U);
+        var mask = new NativeSceneLayerVectorMask(1U, 6U, 0.8f, 3U);
         int pathBytes = Unsafe.SizeOf<NativeSceneClipPath>();
-        int segmentBytes = 3 * Unsafe.SizeOf<NativePathSegment>();
-        Span<byte> auxiliary = stackalloc byte[pathBytes + segmentBytes];
+        int segmentBytes = 6 * Unsafe.SizeOf<NativePathSegment>();
+        int booleanNodeBytes =
+            3 * Unsafe.SizeOf<NativeScenePathBooleanNode>();
+        Span<byte> auxiliary =
+            stackalloc byte[pathBytes + segmentBytes + booleanNodeBytes];
         MemoryMarshal.AsBytes(paths).CopyTo(auxiliary);
         MemoryMarshal.AsBytes(segments).CopyTo(auxiliary[pathBytes..]);
+        MemoryMarshal.AsBytes(booleanNodes).CopyTo(
+            auxiliary[(pathBytes + segmentBytes)..]);
 
         static bool Build(
             Span<byte> bytes,
@@ -1776,7 +1930,8 @@ public class NativeRendererInteropTests
         Assert.Equal((uint)auxiliary.Length, resource.AuxiliarySize);
         Assert.Equal(NativeSceneLayerMaskKind.VectorClipChain, stored.Kind);
         Assert.Equal(1U, stored.PathCount);
-        Assert.Equal(3U, stored.SegmentCount);
+        Assert.Equal(6U, stored.SegmentCount);
+        Assert.Equal(3U, stored.BooleanNodeCount);
 
         long before = GC.GetAllocatedBytesForCurrentThread();
         bool success = true;
@@ -1792,6 +1947,22 @@ public class NativeRendererInteropTests
         Span<byte> invalidAuxiliary = stackalloc byte[auxiliary.Length];
         auxiliary.CopyTo(invalidAuxiliary);
         invalidAuxiliary[pathBytes - 1] = 1;
+        Assert.False(Build(
+            destination,
+            invalidAuxiliary,
+            in mask,
+            out _));
+
+        auxiliary.CopyTo(invalidAuxiliary);
+        booleanNodes[2] = new NativeScenePathBooleanNode(
+            0U,
+            0U,
+            Vector2.Zero,
+            Vector2.Zero,
+            NativeFillRule.NonZero,
+            NativePathBooleanNodeKind.Leaf);
+        MemoryMarshal.AsBytes(booleanNodes).CopyTo(
+            invalidAuxiliary[(pathBytes + segmentBytes)..]);
         Assert.False(Build(
             destination,
             invalidAuxiliary,

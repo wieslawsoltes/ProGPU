@@ -33,6 +33,8 @@ using semantic_layer_budget = semantic::layer_budget;
 using semantic_compilation_budget = semantic::compilation_budget;
 inline constexpr std::uint32_t semantic_effect_uniform_alignment =
     semantic::effect_uniform_alignment;
+inline constexpr std::uint32_t boolean_program_flag = 0x80000000U;
+inline constexpr std::uint32_t boolean_empty_token = 0x40000000U;
 
 bool validate_native_path_segment(
     const progpu_native_path_segment& segment) noexcept {
@@ -53,6 +55,62 @@ bool validate_native_path_segment(
              segment.pad2 == 0U));
 }
 
+bool validate_native_boolean_program(
+    const progpu_native_clip_chain& chain,
+    const progpu_native_clip_path& path) noexcept {
+    if (path.boolean_node_count == 0U) {
+        return path.boolean_node_offset == 0U;
+    }
+    if (path.boolean_node_count > 63U || chain.boolean_nodes == nullptr ||
+        path.boolean_node_offset > chain.boolean_node_count ||
+        path.boolean_node_count >
+            chain.boolean_node_count - path.boolean_node_offset) {
+        return false;
+    }
+    const std::size_t segment_end =
+        path.segment_offset + path.segment_count;
+    std::uint32_t stack_depth = 0U;
+    for (std::size_t index = path.boolean_node_offset;
+         index < path.boolean_node_offset + path.boolean_node_count;
+         ++index) {
+        const auto& node = chain.boolean_nodes[index];
+        if (node.kind > PROGPU_NATIVE_PATH_BOOLEAN_REVERSE_DIFFERENCE ||
+            node.reserved0 != 0U || node.reserved1 != 0U) {
+            return false;
+        }
+        if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF) {
+            if (stack_depth >= 16U || node.segment_count == 0U ||
+                node.segment_offset < path.segment_offset ||
+                node.segment_offset > segment_end ||
+                node.segment_count > segment_end - node.segment_offset ||
+                !std::isfinite(node.min_x) || !std::isfinite(node.min_y) ||
+                !std::isfinite(node.max_x) || !std::isfinite(node.max_y) ||
+                node.max_x <= node.min_x || node.max_y <= node.min_y ||
+                node.fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD) {
+                return false;
+            }
+            ++stack_depth;
+        } else if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_EMPTY) {
+            if (stack_depth >= 16U || node.segment_offset != 0U ||
+                node.segment_count != 0U || node.min_x != 0.0F ||
+                node.min_y != 0.0F || node.max_x != 0.0F ||
+                node.max_y != 0.0F || node.fill_rule != 0U) {
+                return false;
+            }
+            ++stack_depth;
+        } else {
+            if (stack_depth < 2U || node.segment_offset != 0U ||
+                node.segment_count != 0U || node.min_x != 0.0F ||
+                node.min_y != 0.0F || node.max_x != 0.0F ||
+                node.max_y != 0.0F || node.fill_rule != 0U) {
+                return false;
+            }
+            --stack_depth;
+        }
+    }
+    return stack_depth == 1U;
+}
+
 bool rebuild_vector_clip_chain(
     progpu_native_engine& engine,
     const progpu_native_group_mask& mask,
@@ -60,6 +118,15 @@ bool rebuild_vector_clip_chain(
     std::uint32_t height,
     float dpi_scale) {
     const auto& chain = *mask.clip_chain;
+    if (chain.struct_size < sizeof(chain) || chain.flags != 0U ||
+        chain.paths == nullptr || chain.path_count == 0U ||
+        chain.segments == nullptr || chain.segment_count == 0U ||
+        chain.path_count > (1U << 16U) ||
+        chain.segment_count > (1U << 24U) ||
+        chain.boolean_node_count > (1U << 22U) ||
+        (chain.boolean_node_count != 0U && chain.boolean_nodes == nullptr)) {
+        return false;
+    }
     engine.last_layer_metrics.clip_path_count =
         static_cast<std::uint32_t>(chain.path_count);
     const bool cache_hit = engine.clip_cache_valid &&
@@ -92,7 +159,8 @@ bool rebuild_vector_clip_chain(
         std::vector<std::uint32_t> indices;
         std::vector<std::byte> compose_uniform_bytes;
         path_uniforms.reserve(chain.path_count);
-        path_records.reserve(chain.path_count);
+        path_records.reserve(
+            chain.path_count + chain.boolean_node_count * 2U);
         rasters.reserve(chain.path_count);
         vertices.reserve(chain.path_count * 4U);
         indices.reserve(chain.path_count * 6U);
@@ -108,6 +176,7 @@ bool rebuild_vector_clip_chain(
             std::size_t,
             native_path_cache_key_hash> retained_tiles;
         retained_tiles.reserve(chain.path_count);
+        std::size_t expected_boolean_node_offset = 0U;
 
         for (std::size_t index = 0U; index < chain.path_count; ++index) {
             const auto& path = chain.paths[index];
@@ -124,9 +193,14 @@ bool rebuild_vector_clip_chain(
                 path.fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD ||
                 (path.sample_grid != 4U && path.sample_grid != 8U) ||
                 path.operation > PROGPU_NATIVE_CLIP_DIFFERENCE ||
-                path.reserved != 0U) {
+                path.reserved != 0U ||
+                (path.boolean_node_count != 0U &&
+                    path.boolean_node_offset !=
+                        expected_boolean_node_offset) ||
+                !validate_native_boolean_program(chain, path)) {
                 return false;
             }
+            expected_boolean_node_offset += path.boolean_node_count;
             float maximum_scale = 0.0F;
             float minimum_scale = 0.0F;
             if (!::progpu::native::try_get_stroke_scales(
@@ -147,6 +221,8 @@ bool rebuild_vector_clip_chain(
             native_path_cache_key cache_key{};
             cache_key.segment_offset = path.segment_offset;
             cache_key.segment_count = path.segment_count;
+            cache_key.boolean_node_offset = path.boolean_node_offset;
+            cache_key.boolean_node_count = path.boolean_node_count;
             cache_key.min_x = std::bit_cast<std::uint32_t>(path.min_x);
             cache_key.min_y = std::bit_cast<std::uint32_t>(path.min_y);
             cache_key.max_x = std::bit_cast<std::uint32_t>(path.max_x);
@@ -233,29 +309,77 @@ bool rebuild_vector_clip_chain(
                     subpixel_x,
                     subpixel_y
                 });
+                const std::uint32_t path_record_index =
+                    static_cast<std::uint32_t>(path_records.size());
+                std::uint32_t boolean_program_index = 0U;
+                std::uint32_t path_operation_kind = 0U;
+                if (path.boolean_node_count == 0U) {
+                    path_records.push_back({
+                        static_cast<std::uint32_t>(path.segment_offset),
+                        static_cast<std::uint32_t>(path.segment_count),
+                        path.min_x,
+                        path.min_y,
+                        path.max_x,
+                        path.max_y,
+                        path.fill_rule,
+                        0U
+                    });
+                } else {
+                    std::array<std::uint32_t, 63U> program_tokens{};
+                    std::uint32_t leaf_count = 0U;
+                    for (std::size_t node_index = 0U;
+                         node_index < path.boolean_node_count;
+                         ++node_index) {
+                        const auto& node = chain.boolean_nodes[
+                            path.boolean_node_offset + node_index];
+                        if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF) {
+                            program_tokens[node_index] = leaf_count++;
+                            path_records.push_back({
+                                static_cast<std::uint32_t>(
+                                    node.segment_offset),
+                                static_cast<std::uint32_t>(
+                                    node.segment_count),
+                                node.min_x,
+                                node.min_y,
+                                node.max_x,
+                                node.max_y,
+                                node.fill_rule,
+                                0U
+                            });
+                        } else if (
+                            node.kind == PROGPU_NATIVE_PATH_BOOLEAN_EMPTY) {
+                            program_tokens[node_index] = boolean_empty_token;
+                        } else {
+                            program_tokens[node_index] =
+                                boolean_program_flag | (node.kind - 1U);
+                        }
+                    }
+                    boolean_program_index =
+                        static_cast<std::uint32_t>(path_records.size());
+                    for (std::size_t node_index = 0U;
+                         node_index < path.boolean_node_count;
+                         ++node_index) {
+                        path_records.push_back({
+                            program_tokens[node_index], 0U,
+                            0.0F, 0.0F, 0.0F, 0.0F, 0U, 0U});
+                    }
+                    path_operation_kind = boolean_program_flag |
+                        static_cast<std::uint32_t>(
+                            path.boolean_node_count);
+                }
                 path_uniforms.push_back({
                     raster_min_x - subpixel_x,
                     raster_min_y - subpixel_y,
                     raster_scale,
                     raster_scale,
-                    static_cast<std::uint32_t>(raster_index),
+                    path_record_index,
                     output_offset / 4U,
                     output_bytes_per_row / 4U,
                     raster_width_u,
                     raster_height_u,
                     path.sample_grid,
-                    0U,
-                    0U
-                });
-                path_records.push_back({
-                    static_cast<std::uint32_t>(path.segment_offset),
-                    static_cast<std::uint32_t>(path.segment_count),
-                    path.min_x,
-                    path.min_y,
-                    path.max_x,
-                    path.max_y,
-                    path.fill_rule,
-                    0U
+                    boolean_program_index,
+                    path_operation_kind
                 });
                 retained_tiles.emplace(cache_key, raster_index);
                 output_offset = static_cast<std::uint32_t>(next_output);
@@ -330,6 +454,9 @@ bool rebuild_vector_clip_chain(
                 compose_uniform_bytes.data() + index * 256U,
                 &compose,
                 sizeof(compose));
+        }
+        if (expected_boolean_node_offset != chain.boolean_node_count) {
+            return false;
         }
 
         const float inverse_atlas_size =

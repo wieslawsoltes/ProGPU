@@ -9,7 +9,7 @@ always returns a typed failure without partially committing a scene.
 | Route | Commands | Current boundary |
 | --- | --- | --- |
 | Direct draw | Rect, path fill, exact general-path stroke, text, image, analytic geometry, polyline/spline, point/mesh/chart, glyph, and 3D line/mesh families | CPU-only combined-path materialization remains a typed payload exclusion. |
-| State scope | Clip, opacity, geometry-mask, opacity-mask, and blend push/pop | Canonical affine rectangles/rounded rectangles use the 1–4-node analytic fast path. Arbitrary line/quadratic/cubic/arc geometry and 5–64 nested intersect/difference clips use retained GPU vector masks. Solid opacity folding is implemented; combined-path geometry plus gradient/picture opacity-mask content remain typed exclusions. |
+| State scope | Clip, opacity, geometry-mask, opacity-mask, and blend push/pop | Canonical affine rectangles/rounded rectangles use the 1–4-node analytic fast path. Arbitrary line/quadratic/cubic/arc geometry, combined-path boolean clips, and 5–64 nested intersect/difference clips use retained GPU vector masks. Solid opacity folding is implemented; gradient/picture opacity-mask content remains a typed exclusion. |
 | Nested picture | `DrawPicture` | Immutable retained children are recursively flattened with state-boundary validation. |
 | Built-in extension | `DrawExtension` | Line/spline/chart/3D/hatch built-ins are selected by stable extension ID; hatch boundaries reuse retained path batches and shared hatch material kinds, while unknown or object-backed extensions fail closed. |
 | Explicitly unsupported | `DrawStaticDxf`, `DrawVisual` | Static DXF and embedded visual commands retain live managed/GPU ownership and cannot enter the pointer-free immutable scene contract. |

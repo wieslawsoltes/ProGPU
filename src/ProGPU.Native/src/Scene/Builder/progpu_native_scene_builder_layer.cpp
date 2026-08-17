@@ -155,9 +155,20 @@ bool semantic_scene_builder::add_vector_clip_mask(
     std::span<const progpu_native_path_segment> segments,
     float opacity,
     std::uint32_t& resource_index) noexcept {
+    return add_vector_clip_mask(
+        paths, segments, {}, opacity, resource_index);
+}
+
+bool semantic_scene_builder::add_vector_clip_mask(
+    std::span<const progpu_native_scene_clip_path> paths,
+    std::span<const progpu_native_path_segment> segments,
+    std::span<const progpu_native_scene_path_boolean_node> boolean_nodes,
+    float opacity,
+    std::uint32_t& resource_index) noexcept {
     resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
     if (paths.size() > std::numeric_limits<std::uint32_t>::max() ||
         segments.size() > std::numeric_limits<std::uint32_t>::max() ||
+        boolean_nodes.size() > std::numeric_limits<std::uint32_t>::max() ||
         implementation_->resources.size() >=
             PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
         return implementation_->fail(scene_build_error::invalid_argument);
@@ -167,9 +178,11 @@ bool semantic_scene_builder::add_vector_clip_mask(
     mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN;
     mask.path_count = static_cast<std::uint32_t>(paths.size());
     mask.segment_count = static_cast<std::uint32_t>(segments.size());
+    mask.boolean_node_count =
+        static_cast<std::uint32_t>(boolean_nodes.size());
     mask.opacity = opacity;
     if (!semantic::is_valid_semantic_layer_vector_mask(
-            mask, paths, segments)) {
+            mask, paths, segments, boolean_nodes)) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
     try {
@@ -184,7 +197,9 @@ bool semantic_scene_builder::add_vector_clip_mask(
         resource.payload = copy_bytes(
             std::span<const progpu_native_scene_layer_vector_mask>(
                 &mask, 1U));
-        resource.auxiliary.resize(paths.size_bytes() + segments.size_bytes());
+        resource.auxiliary.resize(
+            paths.size_bytes() + segments.size_bytes() +
+            boolean_nodes.size_bytes());
         std::memcpy(
             resource.auxiliary.data(),
             paths.data(),
@@ -193,6 +208,11 @@ bool semantic_scene_builder::add_vector_clip_mask(
             resource.auxiliary.data() + paths.size_bytes(),
             segments.data(),
             segments.size_bytes());
+        std::memcpy(
+            resource.auxiliary.data() + paths.size_bytes() +
+                segments.size_bytes(),
+            boolean_nodes.data(),
+            boolean_nodes.size_bytes());
         resource_index = static_cast<std::uint32_t>(
             implementation_->resources.size());
         implementation_->resources.push_back(std::move(resource));
