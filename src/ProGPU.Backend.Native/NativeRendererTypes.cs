@@ -358,7 +358,8 @@ public enum NativeRendererCapabilities : ulong
     BulkTextLayout = 1UL << 42,
     BulkTextLineBreaking = 1UL << 43,
     BulkTextBidi = 1UL << 44,
-    BulkTextParagraph = 1UL << 45
+    BulkTextParagraph = 1UL << 45,
+    BulkTextVerticalLayout = 1UL << 46
 }
 
 public enum NativeSceneResourceKind : uint

@@ -619,6 +619,28 @@ internal static unsafe partial class NativeMethods
 
     [LibraryImport(
         LibraryName,
+        EntryPoint = "progpu_native_text_vertical_layout_get_requirements")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus GetTextVerticalLayoutRequirements(
+        NativeTextLayoutRequest* request,
+        NativeTextVerticalLayoutRequirements* requirements);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_text_vertical_layout")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus LayoutTextVertical(
+        NativeTextLayoutRequest* request,
+        NativePositionedTextGlyph* glyphs,
+        uint glyphCapacity,
+        NativePositionedTextColumn* columns,
+        uint columnCapacity,
+        byte* scratch,
+        nuint scratchSize,
+        NativeTextVerticalLayoutResult* result);
+
+    [LibraryImport(
+        LibraryName,
         EntryPoint = "progpu_native_text_get_line_break_requirements")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus GetTextLineBreakRequirements(

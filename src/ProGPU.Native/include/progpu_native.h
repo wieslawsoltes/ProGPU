@@ -75,6 +75,7 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_LINE_BREAKING (UINT64_C(1) << 43U)
 #define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_BIDI (UINT64_C(1) << 44U)
 #define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_PARAGRAPH (UINT64_C(1) << 45U)
+#define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_VERTICAL_LAYOUT (UINT64_C(1) << 46U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -513,6 +514,21 @@ typedef struct progpu_native_positioned_text_line {
     uint8_t reserved2;
 } progpu_native_positioned_text_line;
 
+/* PROGPU_CSHARP_STRUCT: Public.NativePositionedTextColumn */
+typedef struct progpu_native_positioned_text_column {
+    uint32_t glyph_start;
+    uint32_t glyph_count;
+    int32_t input_start;
+    int32_t input_end;
+    float height;
+    float x;
+    float width;
+    uint8_t clipped;
+    uint8_t reserved0;
+    uint8_t reserved1;
+    uint8_t reserved2;
+} progpu_native_positioned_text_column;
+
 /* PROGPU_CSHARP_STRUCT: Public.NativeTextLayoutRequirements */
 typedef struct progpu_native_text_layout_requirements {
     uint32_t struct_size;
@@ -536,6 +552,30 @@ typedef struct progpu_native_text_layout_result {
     float measured_height;
     uint64_t scratch_bytes_used;
 } progpu_native_text_layout_result;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextVerticalLayoutRequirements */
+typedef struct progpu_native_text_vertical_layout_requirements {
+    uint32_t struct_size;
+    uint32_t glyph_capacity;
+    uint32_t column_capacity;
+    uint32_t scratch_alignment;
+    uint32_t error_code;
+    uint32_t reserved;
+    uint64_t scratch_bytes;
+} progpu_native_text_vertical_layout_requirements;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextVerticalLayoutResult */
+typedef struct progpu_native_text_vertical_layout_result {
+    uint32_t struct_size;
+    uint32_t glyph_count;
+    uint32_t column_count;
+    uint32_t error_code;
+    float content_width;
+    float content_height;
+    float measured_width;
+    float measured_height;
+    uint64_t scratch_bytes_used;
+} progpu_native_text_vertical_layout_result;
 
 /* PROGPU_CSHARP_STRUCT: Public.NativeTextLineBreakRequirements */
 typedef struct progpu_native_text_line_break_requirements {
@@ -2183,6 +2223,21 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_layout(
     void* scratch,
     size_t scratch_size,
     progpu_native_text_layout_result* result);
+
+/* Bulk vertical positioned-column layout over a previously shaped run. */
+PROGPU_NATIVE_API progpu_native_status
+progpu_native_text_vertical_layout_get_requirements(
+    const progpu_native_text_layout_request* request,
+    progpu_native_text_vertical_layout_requirements* requirements);
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_vertical_layout(
+    const progpu_native_text_layout_request* request,
+    progpu_native_positioned_text_glyph* glyphs,
+    uint32_t glyph_capacity,
+    progpu_native_positioned_text_column* columns,
+    uint32_t column_capacity,
+    void* scratch,
+    size_t scratch_size,
+    progpu_native_text_vertical_layout_result* result);
 
 /* Unicode 17 UAX #14 default line-break resolution. The scalar records retain
  * original UTF input ranges; canonical/script metadata is recomputed from the

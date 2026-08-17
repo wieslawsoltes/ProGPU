@@ -289,6 +289,62 @@ void bulk_shape_is_deterministic_and_caller_owned() {
         lines[0].glyph_count == first_result.glyph_count &&
         lines[0].clipped == 0U);
 
+    const std::vector<progpu_native_text_shaping_glyph> vertical_input{
+        {1U, 0x41U, 0, 0U, 0, 100, 0, 0},
+        {2U, 0x42U, 1, 0U, 0, 100, 0, 0}};
+    const std::vector<std::uint8_t> vertical_breaks{
+        PROGPU_NATIVE_TEXT_LINE_BREAK_PROHIBITED,
+        PROGPU_NATIVE_TEXT_LINE_BREAK_MANDATORY};
+    const progpu_native_text_layout_request vertical_request{
+        sizeof(progpu_native_text_layout_request),
+        PROGPU_NATIVE_ABI_VERSION,
+        vertical_input.data(),
+        static_cast<std::uint32_t>(vertical_input.size()),
+        vertical_breaks.data(),
+        static_cast<std::uint32_t>(vertical_breaks.size()),
+        0.01F,
+        100.0F,
+        20.0F,
+        0U,
+        PROGPU_NATIVE_TEXT_DIRECTION_TOP_TO_BOTTOM,
+        PROGPU_NATIVE_TEXT_TRIMMING_NONE,
+        PROGPU_NATIVE_TEXT_ALIGNMENT_LEFT,
+        0U,
+        0.0F,
+        0U};
+    progpu_native_text_vertical_layout_requirements vertical_requirements{};
+    vertical_requirements.struct_size = sizeof(vertical_requirements);
+    require(progpu_native_text_vertical_layout_get_requirements(
+                &vertical_request,
+                &vertical_requirements) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(vertical_requirements.glyph_capacity == vertical_input.size() &&
+        vertical_requirements.column_capacity == vertical_input.size() &&
+        vertical_requirements.scratch_bytes != 0U);
+    std::vector<progpu_native_positioned_text_glyph> vertical_positioned(
+        vertical_requirements.glyph_capacity);
+    std::vector<progpu_native_positioned_text_column> columns(
+        vertical_requirements.column_capacity);
+    std::vector<std::uint8_t> vertical_scratch(
+        static_cast<std::size_t>(vertical_requirements.scratch_bytes));
+    progpu_native_text_vertical_layout_result vertical_result{};
+    vertical_result.struct_size = sizeof(vertical_result);
+    require(progpu_native_text_vertical_layout(
+                &vertical_request,
+                vertical_positioned.data(),
+                static_cast<std::uint32_t>(vertical_positioned.size()),
+                columns.data(),
+                static_cast<std::uint32_t>(columns.size()),
+                vertical_scratch.data(),
+                vertical_scratch.size(),
+                &vertical_result) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(vertical_result.glyph_count == vertical_input.size() &&
+        vertical_result.column_count == 1U &&
+        vertical_positioned[0U].font_index == 0U &&
+        vertical_positioned[0U].y == 0.0F &&
+        vertical_positioned[1U].y == 1.0F &&
+        columns[0U].glyph_count == vertical_input.size() &&
+        columns[0U].height == 2.0F);
+
     const progpu_native_text_layout_options paragraph_options{
         sizeof(progpu_native_text_layout_options),
         16.0F / 2048.0F,

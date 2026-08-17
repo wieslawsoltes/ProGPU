@@ -150,6 +150,23 @@ public partial struct NativePositionedTextLine
     public byte Reserved2;
 }
 
+// Native source: progpu_native_positioned_text_column.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativePositionedTextColumn
+{
+    public uint GlyphStart;
+    public uint GlyphCount;
+    public int InputStart;
+    public int InputEnd;
+    public float Height;
+    public float X;
+    public float Width;
+    public byte Clipped;
+    public byte Reserved0;
+    public byte Reserved1;
+    public byte Reserved2;
+}
+
 // Native source: progpu_native_text_layout_requirements.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeTextLayoutRequirements
@@ -170,6 +187,34 @@ public partial struct NativeTextLayoutResult
     public uint StructSize;
     public uint GlyphCount;
     public uint LineCount;
+    public uint ErrorCode;
+    public float ContentWidth;
+    public float ContentHeight;
+    public float MeasuredWidth;
+    public float MeasuredHeight;
+    public ulong ScratchBytesUsed;
+}
+
+// Native source: progpu_native_text_vertical_layout_requirements.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextVerticalLayoutRequirements
+{
+    public uint StructSize;
+    public uint GlyphCapacity;
+    public uint ColumnCapacity;
+    public uint ScratchAlignment;
+    public uint ErrorCode;
+    public uint Reserved;
+    public ulong ScratchBytes;
+}
+
+// Native source: progpu_native_text_vertical_layout_result.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextVerticalLayoutResult
+{
+    public uint StructSize;
+    public uint GlyphCount;
+    public uint ColumnCount;
     public uint ErrorCode;
     public float ContentWidth;
     public float ContentHeight;

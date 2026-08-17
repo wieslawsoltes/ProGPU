@@ -102,6 +102,58 @@ public static unsafe class NativeTextLayoutInterop
         }
     }
 
+    public static NativeRendererStatus GetVerticalRequirements(
+        in NativeTextLayoutInput input,
+        out NativeTextVerticalLayoutRequirements requirements)
+    {
+        requirements = new NativeTextVerticalLayoutRequirements
+        {
+            StructSize =
+                (uint)Unsafe.SizeOf<NativeTextVerticalLayoutRequirements>()
+        };
+        fixed (NativeTextShapingGlyph* glyphs = input.Glyphs)
+        fixed (NativeTextLineBreakKind* breaksAfter = input.BreaksAfter)
+        {
+            NativeTextLayoutRequest request = CreateRequest(
+                in input, glyphs, (byte*)breaksAfter);
+            return NativeMethods.GetTextVerticalLayoutRequirements(
+                &request,
+                (NativeTextVerticalLayoutRequirements*)Unsafe.AsPointer(
+                    ref requirements));
+        }
+    }
+
+    public static NativeRendererStatus LayoutVertical(
+        in NativeTextLayoutInput input,
+        Span<NativePositionedTextGlyph> glyphs,
+        Span<NativePositionedTextColumn> columns,
+        Span<byte> scratch,
+        out NativeTextVerticalLayoutResult result)
+    {
+        result = new NativeTextVerticalLayoutResult
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeTextVerticalLayoutResult>()
+        };
+        fixed (NativeTextShapingGlyph* inputGlyphs = input.Glyphs)
+        fixed (NativeTextLineBreakKind* breaksAfter = input.BreaksAfter)
+        fixed (NativePositionedTextGlyph* outputGlyphs = glyphs)
+        fixed (NativePositionedTextColumn* outputColumns = columns)
+        fixed (byte* scratchData = scratch)
+        {
+            NativeTextLayoutRequest request = CreateRequest(
+                in input, inputGlyphs, (byte*)breaksAfter);
+            return NativeMethods.LayoutTextVertical(
+                &request,
+                outputGlyphs,
+                checked((uint)glyphs.Length),
+                outputColumns,
+                checked((uint)columns.Length),
+                scratchData,
+                checked((nuint)scratch.Length),
+                (NativeTextVerticalLayoutResult*)Unsafe.AsPointer(ref result));
+        }
+    }
+
     private static NativeTextLayoutRequest CreateRequest(
         in NativeTextLayoutInput input,
         NativeTextShapingGlyph* glyphs,
