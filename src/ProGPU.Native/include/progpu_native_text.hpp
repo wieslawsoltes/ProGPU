@@ -1123,6 +1123,10 @@ struct open_type_shape_run_options final {
      * this synchronous call and never retained by a shaping plan. */
     std::span<const unicode_scalar> pre_context{};
     std::span<const unicode_scalar> post_context{};
+    /* Original canonical Unicode script. A zero tag preserves compatibility
+     * by falling back to script; generation-specific layout tags such as dev2
+     * must set this to the base Unicode tag for preprocessing/reordering. */
+    open_type_tag unicode_script{};
 };
 
 struct open_type_shape_run_scratch final {

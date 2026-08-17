@@ -3727,6 +3727,37 @@ void open_type_common_preprocessing_matches_managed_stages() {
         constrained[1U].cluster == 11 &&
         constrained[2U].code_point == 0x093AU);
 
+    const auto deva = open_type_tag::from_chars('d', 'e', 'v', 'a');
+    const std::array<unicode_scalar, 2U> generated_input{
+        unicode_scalar{0x0905U, 0U, 1U, 0U, 0U, deva},
+        unicode_scalar{0x093AU, 1U, 1U, 0U, 0U, deva}};
+    std::array<shaping_glyph, 6U> generated_glyphs{};
+    std::array<unicode_grapheme_cluster, 2U> generated_graphemes{};
+    std::array<shaping_attachment, 6U> generated_attachments{};
+    std::array<std::uint8_t, 6U> generated_states{};
+    auto generated_options = open_type_shape_run_options{};
+    generated_options.script =
+        open_type_tag::from_chars('d', 'e', 'v', '2');
+    generated_options.unicode_script = deva;
+    std::uint32_t generated_count = 0U;
+    require(try_shape_open_type_run(
+        font,
+        generated_input,
+        generated_options,
+        generated_glyphs,
+        open_type_shape_run_scratch{
+            generated_graphemes,
+            {},
+            {},
+            generated_attachments,
+            generated_states},
+        generated_count,
+        &error));
+    require(generated_count == 3U &&
+        generated_glyphs[0U].code_point == 0x0905U &&
+        generated_glyphs[1U].code_point == 0x25CCU &&
+        generated_glyphs[2U].code_point == 0x093AU);
+
     std::array<shaping_glyph, 2U> constrained_short{
         shaping_glyph{3U, 0x0905U, 10},
         shaping_glyph{4U, 0x093AU, 11}};

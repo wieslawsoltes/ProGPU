@@ -239,6 +239,16 @@ default override, duplicate/ranged enablement, clamping, invalid-range, and
 transactional short-buffer cases are matched in the native suite and the API
 is linked through the named-module consumer.
 
+The native run contract now carries `unicode_script` independently from the
+selected layout `script`, matching managed `CreateShapingPlan` ownership at
+checkpoint `ec2cf08d`. A zero Unicode tag falls back to the legacy single-tag
+contract. Generation-specific layouts such as `dev2`/`dev3` therefore select
+their exact GSUB/GPOS ScriptList while Unicode preprocessing, vowel repair,
+Indic reorder placement, joining, Hangul preparation, and fallback-mark rules
+continue using `deva` or the corresponding base script. A synthetic `dev2`
+uniform run verifies that the Devanagari vowel-constraint insertion remains
+active through the complete shaper rather than only the isolated helper.
+
 The raw GPOS executor now covers rule-, class-, and coverage-based Context and
 Chaining Context formats 1-3. Nested position records reuse the same borrowed
 lookup table and caller glyph/attachment buffers with a fixed 64-level cycle

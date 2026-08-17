@@ -521,6 +521,13 @@ vertical layout. One requirements call sizes caller-owned tag/value buffers;
 the write emits one bulk ordered tag span plus only non-default full-run value
 records, with no heap allocation or per-feature interop.
 
+Run options now retain the original Unicode script separately from the
+font-selected OpenType layout script. Existing callers with a zero Unicode tag
+keep the prior single-tag behavior, while `deva`/`dev2` and other generation
+pairs use the layout tag only for GSUB/GPOS selection and the base Unicode tag
+for vowel constraints, complex reordering, joining, Hangul preparation, and
+fallback-mark policy.
+
 Native `ShapingFeature` requests now pass through the same normalization as
 managed `CpuOpenTypeShaper`: global ranges override the authoritative default
 baseline with managed integer clamping, every request tag remains explicitly

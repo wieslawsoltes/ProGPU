@@ -112,13 +112,21 @@ bool is_positioning_mark(
         is_unicode_mark(glyph.code_point);
 }
 
+open_type_tag effective_unicode_script(
+    const open_type_shape_run_options& options) noexcept {
+    return options.unicode_script.value == 0U
+        ? options.script
+        : options.unicode_script;
+}
+
 bool uses_fallback_mark_positioning(
     const open_type_shape_run_options& options) noexcept {
     if (options.complex_script != open_type_complex_script::none) return false;
-    return options.script != open_type_tag::from_chars('t', 'h', 'a', 'i') &&
-        options.script != open_type_tag::from_chars('l', 'a', 'o', ' ') &&
-        options.script != open_type_tag::from_chars('m', 'y', 'm', 'r') &&
-        options.script != open_type_tag::from_chars('q', 'a', 'a', 'g');
+    const auto script = effective_unicode_script(options);
+    return script != open_type_tag::from_chars('t', 'h', 'a', 'i') &&
+        script != open_type_tag::from_chars('l', 'a', 'o', ' ') &&
+        script != open_type_tag::from_chars('m', 'y', 'm', 'r') &&
+        script != open_type_tag::from_chars('q', 'a', 'a', 'g');
 }
 
 std::int32_t clamp_i16(std::int64_t value) noexcept {
@@ -717,7 +725,7 @@ bool apply_complex_script_features(
     } else if (options.complex_script == open_type_complex_script::indic) {
         known_applied = complex_detail::try_initial_reorder_indic(
             font,
-            options.script,
+            effective_unicode_script(options),
             options.buffer_flags,
             glyph_storage,
             glyph_count,
@@ -729,7 +737,8 @@ bool apply_complex_script_features(
         }
         if (known_applied) {
             complex_detail::final_reorder_indic(
-                options.script, glyph_storage.first(glyph_count));
+                effective_unicode_script(options),
+                glyph_storage.first(glyph_count));
         }
     } else {
         complex_detail::clear_substituted(
@@ -1027,8 +1036,9 @@ bool try_shape_open_type_run(
             font, input, options, requirements, error)) {
         return false;
     }
-    const bool arabic_joining = uses_arabic_joining(options.script);
-    const bool hangul = uses_hangul(options.script);
+    const auto unicode_script = effective_unicode_script(options);
+    const bool arabic_joining = uses_arabic_joining(unicode_script);
+    const bool hangul = uses_hangul(unicode_script);
     const bool complex_script =
         options.complex_script != open_type_complex_script::none;
     const bool fallback_mark_positioning =
@@ -1042,7 +1052,7 @@ bool try_shape_open_type_run(
         return false;
     }
     const std::size_t glyph_capacity = may_expand_preprocessing(
-        options.script, options.buffer_flags) || complex_script
+        unicode_script, options.buffer_flags) || complex_script
         ? requirements.glyph_capacity
         : requirements.initial_glyph_count;
     if (glyph_storage.size() < glyph_capacity ||
@@ -1250,7 +1260,7 @@ bool try_shape_open_type_run(
 
     if (!try_preprocess_open_type_glyphs(
             font,
-            options.script,
+            unicode_script,
             options.cluster_level,
             options.buffer_flags,
             options.compose_hebrew_presentation_forms,
@@ -1323,7 +1333,7 @@ bool try_shape_open_type_run(
 
     const open_type_gdef_view* gdef_pointer = has_gdef ? &gdef : nullptr;
     bool has_arabic_form_substitution = false;
-    if (options.script == arabic_script && gsub.lookup_count() != 0U) {
+    if (unicode_script == arabic_script && gsub.lookup_count() != 0U) {
         for (const auto& [feature, action] : arabic_form_features) {
             static_cast<void>(action);
             std::uint32_t lookup_count = 0U;
@@ -1502,7 +1512,7 @@ bool try_shape_open_type_run(
             }
         }
     }
-    if (options.script == arabic_script &&
+    if (unicode_script == arabic_script &&
         !has_arabic_form_substitution &&
         !detail::try_apply_arabic_fallback(
             font,
@@ -1552,14 +1562,14 @@ bool try_shape_open_type_run(
             open_type_complex_script::indic) {
             reordered = complex_detail::try_initial_reorder_indic(
                 font,
-                options.script,
+                unicode_script,
                 options.buffer_flags,
                 glyph_storage,
                 glyph_count,
                 error);
             if (reordered) {
                 complex_detail::final_reorder_indic(
-                    options.script, glyph_storage.first(glyph_count));
+                    unicode_script, glyph_storage.first(glyph_count));
             }
         }
         if (!reordered) {
@@ -1729,8 +1739,8 @@ bool try_shape_open_type_run(
     }
     const bool zero_mark_advances_late = options.zero_mark_advances &&
         (fallback_mark_positioning ||
-            options.script == open_type_tag::from_chars('t', 'h', 'a', 'i') ||
-            options.script == open_type_tag::from_chars('l', 'a', 'o', ' '));
+            unicode_script == open_type_tag::from_chars('t', 'h', 'a', 'i') ||
+            unicode_script == open_type_tag::from_chars('l', 'a', 'o', ' '));
     if (zero_mark_advances_late) {
         const bool adjust_offsets = !has_gpos_table &&
             (options.direction == shaping_direction::left_to_right ||

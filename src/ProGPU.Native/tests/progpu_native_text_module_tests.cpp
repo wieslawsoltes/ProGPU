@@ -123,6 +123,7 @@ int main() {
         vertical_glyph.advance_height != 0U || glyph_bounds.x_min != 0 ||
         fallback_mark.ligature_component != 0xFFU ||
         shape_options.normalization_data != nullptr ||
+        shape_options.unicode_script.value != 0U ||
         shaping_route.layout_script.value != 0U ||
         language_tag.value != 0x504C4B20U ||
         feature_setting.value != 1U ||

@@ -16,11 +16,14 @@ namespace {
 
 bool tracks_fallback_mark_metadata(
     const open_type_shape_run_options& options) noexcept {
+    const auto script = options.unicode_script.value == 0U
+        ? options.script
+        : options.unicode_script;
     return options.complex_script == open_type_complex_script::none &&
-        options.script != open_type_tag::from_chars('t', 'h', 'a', 'i') &&
-        options.script != open_type_tag::from_chars('l', 'a', 'o', ' ') &&
-        options.script != open_type_tag::from_chars('m', 'y', 'm', 'r') &&
-        options.script != open_type_tag::from_chars('q', 'a', 'a', 'g');
+        script != open_type_tag::from_chars('t', 'h', 'a', 'i') &&
+        script != open_type_tag::from_chars('l', 'a', 'o', ' ') &&
+        script != open_type_tag::from_chars('m', 'y', 'm', 'r') &&
+        script != open_type_tag::from_chars('q', 'a', 'a', 'g');
 }
 
 } // namespace
