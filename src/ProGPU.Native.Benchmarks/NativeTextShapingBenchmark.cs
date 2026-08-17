@@ -107,6 +107,34 @@ internal static class NativeTextShapingBenchmark
             new TextLayout(text, font, fontSize),
             positioned.AsSpan(0, checked((int)layoutResult.GlyphCount)),
             layoutResult);
+        var paragraphOptions = new NativeTextParagraphOptions(
+            scale,
+            LineHeight: lineHeight);
+        EnsureSuccess(
+            nativeContext.GetParagraphRequirements(
+                input,
+                paragraphOptions,
+                out NativeTextParagraphRequirements paragraphRequirements),
+            (NativeTextFontError)paragraphRequirements.ErrorCode);
+        var paragraphGlyphs =
+            new NativePositionedTextGlyph[paragraphRequirements.GlyphCapacity];
+        var paragraphLines =
+            new NativePositionedTextLine[paragraphRequirements.LineCapacity];
+        var paragraphScratch =
+            new byte[checked((int)paragraphRequirements.ScratchBytes)];
+        EnsureSuccess(
+            nativeContext.LayoutParagraph(
+                input,
+                paragraphOptions,
+                paragraphGlyphs,
+                paragraphLines,
+                paragraphScratch,
+                out NativeTextParagraphResult paragraphResult),
+            (NativeTextFontError)paragraphResult.ErrorCode);
+        ValidateParagraphParity(
+            new TextLayout(text, font, fontSize),
+            paragraphGlyphs.AsSpan(0, checked((int)paragraphResult.GlyphCount)),
+            paragraphResult);
 
         for (int index = 0; index < warmups; index++)
         {
@@ -126,6 +154,16 @@ internal static class NativeTextShapingBenchmark
                     layoutScratch,
                     out layoutResult),
                 (NativeTextFontError)layoutResult.ErrorCode);
+            _ = new TextLayout(text, font, fontSize);
+            EnsureSuccess(
+                nativeContext.LayoutParagraph(
+                    input,
+                    paragraphOptions,
+                    paragraphGlyphs,
+                    paragraphLines,
+                    paragraphScratch,
+                    out paragraphResult),
+                (NativeTextFontError)paragraphResult.ErrorCode);
         }
 
         long[] managedSamples = new long[iterations];
@@ -133,6 +171,8 @@ internal static class NativeTextShapingBenchmark
         long[] layoutSamples = new long[iterations];
         long[] breakSamples = new long[iterations];
         long[] bidiSamples = new long[iterations];
+        long[] managedParagraphSamples = new long[iterations];
+        long[] nativeParagraphSamples = new long[iterations];
         long managedAllocationStart = GC.GetAllocatedBytesForCurrentThread();
         for (int index = 0; index < iterations; index++)
         {
@@ -205,6 +245,32 @@ internal static class NativeTextShapingBenchmark
         }
         long bidiAllocations =
             GC.GetAllocatedBytesForCurrentThread() - bidiAllocationStart;
+        long managedParagraphAllocationStart = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < iterations; index++)
+        {
+            long start = Stopwatch.GetTimestamp();
+            _ = new TextLayout(text, font, fontSize);
+            managedParagraphSamples[index] = Stopwatch.GetTimestamp() - start;
+        }
+        long managedParagraphAllocations =
+            GC.GetAllocatedBytesForCurrentThread() - managedParagraphAllocationStart;
+        long nativeParagraphAllocationStart = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < iterations; index++)
+        {
+            long start = Stopwatch.GetTimestamp();
+            EnsureSuccess(
+                nativeContext.LayoutParagraph(
+                    input,
+                    paragraphOptions,
+                    paragraphGlyphs,
+                    paragraphLines,
+                    paragraphScratch,
+                    out paragraphResult),
+                (NativeTextFontError)paragraphResult.ErrorCode);
+            nativeParagraphSamples[index] = Stopwatch.GetTimestamp() - start;
+        }
+        long nativeParagraphAllocations =
+            GC.GetAllocatedBytesForCurrentThread() - nativeParagraphAllocationStart;
         ValidateParity(
             managed,
             nativeGlyphs.AsSpan(0, checked((int)nativeResult.GlyphCount)));
@@ -214,6 +280,8 @@ internal static class NativeTextShapingBenchmark
         Array.Sort(layoutSamples);
         Array.Sort(breakSamples);
         Array.Sort(bidiSamples);
+        Array.Sort(managedParagraphSamples);
+        Array.Sort(nativeParagraphSamples);
         Console.WriteLine("ProGPU managed/C++ text shaping/layout parity: PASS");
         Console.WriteLine(string.Format(
             CultureInfo.InvariantCulture,
@@ -227,6 +295,16 @@ internal static class NativeTextShapingBenchmark
         Print("C++ layout", layoutSamples, iterations, layoutAllocations);
         Print("C++ breaks", breakSamples, iterations, breakAllocations);
         Print("C++ bidi", bidiSamples, iterations, bidiAllocations);
+        Print(
+            "Managed para",
+            managedParagraphSamples,
+            iterations,
+            managedParagraphAllocations);
+        Print(
+            "C++ para",
+            nativeParagraphSamples,
+            iterations,
+            nativeParagraphAllocations);
     }
 
     private static void ValidateLayoutParity(
@@ -273,6 +351,36 @@ internal static class NativeTextShapingBenchmark
             {
                 throw new InvalidOperationException(
                     $"Unexpected native bidi level at scalar {index}.");
+            }
+        }
+    }
+
+    private static void ValidateParagraphParity(
+        TextLayout managed,
+        ReadOnlySpan<NativePositionedTextGlyph> native,
+        NativeTextParagraphResult result)
+    {
+        if (result.ParagraphLevel != 0 || result.LineCount != 1 ||
+            managed.Glyphs.Count != native.Length ||
+            MathF.Abs(managed.ContentSize.X - result.ContentWidth) > 0.001f ||
+            MathF.Abs(managed.ContentSize.Y - result.ContentHeight) > 0.001f ||
+            MathF.Abs(managed.MeasuredSize.X - result.MeasuredWidth) > 0.001f ||
+            MathF.Abs(managed.MeasuredSize.Y - result.MeasuredHeight) > 0.001f)
+        {
+            throw new InvalidOperationException(
+                "Managed/native paragraph metrics differ.");
+        }
+        for (int index = 0; index < native.Length; index++)
+        {
+            TextRunGlyph left = managed.Glyphs[index];
+            NativePositionedTextGlyph right = native[index];
+            if (left.GlyphIndex != right.GlyphId ||
+                left.Cluster != right.Cluster ||
+                MathF.Abs(left.Position.X - right.X) > 0.001f ||
+                MathF.Abs(left.Glyph.Advance - right.AdvanceX) > 0.001f)
+            {
+                throw new InvalidOperationException(
+                    $"Paragraph parity mismatch at glyph {index}.");
             }
         }
     }

@@ -91,6 +91,16 @@ public enum NativeTextUnicodeError : uint
     InsufficientBuffer = 3
 }
 
+public enum NativeTextParagraphStage : uint
+{
+    None = 0,
+    Bidi = 1,
+    LineBreak = 2,
+    Shaping = 3,
+    ClusterMap = 4,
+    Layout = 5
+}
+
 public enum NativeTextTrimming : uint
 {
     None = 0,
@@ -347,7 +357,8 @@ public enum NativeRendererCapabilities : ulong
     BulkTextShaping = 1UL << 41,
     BulkTextLayout = 1UL << 42,
     BulkTextLineBreaking = 1UL << 43,
-    BulkTextBidi = 1UL << 44
+    BulkTextBidi = 1UL << 44,
+    BulkTextParagraph = 1UL << 45
 }
 
 public enum NativeSceneResourceKind : uint

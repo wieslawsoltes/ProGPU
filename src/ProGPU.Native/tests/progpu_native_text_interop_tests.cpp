@@ -231,8 +231,6 @@ void bulk_shape_is_deterministic_and_caller_owned() {
             left.offset_x == right.offset_x &&
             left.offset_y == right.offset_y);
     }
-    progpu_native_text_context_destroy(context);
-
     std::vector<std::uint8_t> breaks(first_result.glyph_count, 0U);
     breaks.back() = PROGPU_NATIVE_TEXT_LINE_BREAK_MANDATORY;
     const progpu_native_text_layout_request layout_request{
@@ -287,6 +285,143 @@ void bulk_shape_is_deterministic_and_caller_owned() {
         lines[0].glyph_count == first_result.glyph_count &&
         lines[0].clipped == 0U);
 
+    const progpu_native_text_layout_options paragraph_options{
+        sizeof(progpu_native_text_layout_options),
+        16.0F / 2048.0F,
+        1000.0F,
+        20.0F,
+        0U,
+        PROGPU_NATIVE_TEXT_DIRECTION_UNSPECIFIED,
+        PROGPU_NATIVE_TEXT_TRIMMING_NONE,
+        PROGPU_NATIVE_TEXT_ALIGNMENT_CENTER,
+        0U,
+        0.0F,
+        0U,
+        0U};
+    progpu_native_text_paragraph_requirements paragraph_requirements{};
+    paragraph_requirements.struct_size = sizeof(paragraph_requirements);
+    require(progpu_native_text_context_get_paragraph_requirements(
+                context,
+                &retained_request,
+                &paragraph_options,
+                &paragraph_requirements) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(paragraph_requirements.glyph_capacity >= first_result.glyph_count &&
+        paragraph_requirements.line_capacity ==
+            paragraph_requirements.glyph_capacity &&
+        paragraph_requirements.scratch_alignment == 1U &&
+        paragraph_requirements.scratch_bytes != 0U);
+    std::vector<progpu_native_positioned_text_glyph> paragraph_glyphs(
+        paragraph_requirements.glyph_capacity);
+    std::vector<progpu_native_positioned_text_line> paragraph_lines(
+        paragraph_requirements.line_capacity);
+    std::vector<std::uint8_t> paragraph_scratch(
+        static_cast<std::size_t>(paragraph_requirements.scratch_bytes));
+    progpu_native_text_paragraph_result paragraph_result{};
+    paragraph_result.struct_size = sizeof(paragraph_result);
+    require(progpu_native_text_context_layout_paragraph(
+                context,
+                &retained_request,
+                &paragraph_options,
+                paragraph_glyphs.data(),
+                static_cast<std::uint32_t>(paragraph_glyphs.size()),
+                paragraph_lines.data(),
+                static_cast<std::uint32_t>(paragraph_lines.size()),
+                paragraph_scratch.data(),
+                paragraph_scratch.size(),
+                &paragraph_result) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(paragraph_result.error_code == 0U &&
+        paragraph_result.error_stage ==
+            PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_NONE &&
+        paragraph_result.paragraph_level == 0 &&
+        paragraph_result.shaped_glyph_count == first_result.glyph_count &&
+        paragraph_result.glyph_count == layout_result.glyph_count &&
+        paragraph_result.line_count == layout_result.line_count &&
+        paragraph_result.content_width == layout_result.content_width &&
+        paragraph_result.content_height == layout_result.content_height);
+    for (std::uint32_t index = 0U; index < paragraph_result.glyph_count;
+        ++index) {
+        require(paragraph_glyphs[index].glyph_id == positioned[index].glyph_id &&
+            paragraph_glyphs[index].cluster == positioned[index].cluster &&
+            paragraph_glyphs[index].x == positioned[index].x &&
+            paragraph_glyphs[index].y == positioned[index].y &&
+            paragraph_glyphs[index].advance_x == positioned[index].advance_x &&
+            paragraph_glyphs[index].advance_y == positioned[index].advance_y);
+    }
+
+    progpu_native_text_paragraph_result short_paragraph_result{};
+    short_paragraph_result.struct_size = sizeof(short_paragraph_result);
+    require(progpu_native_text_context_layout_paragraph(
+                context,
+                &retained_request,
+                &paragraph_options,
+                paragraph_glyphs.data(),
+                static_cast<std::uint32_t>(paragraph_glyphs.size()),
+                paragraph_lines.data(),
+                static_cast<std::uint32_t>(paragraph_lines.size()),
+                paragraph_scratch.data(),
+                paragraph_scratch.size() - 1U,
+                &short_paragraph_result) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    require(short_paragraph_result.error_code == 7U &&
+        short_paragraph_result.error_stage ==
+            PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LAYOUT);
+
+    const std::vector<progpu_native_text_scalar> mixed_input{
+        {0x61U, 0U, 1U, 0U, 0U, 0U},
+        {0x62U, 1U, 1U, 0U, 0U, 0U},
+        {0x63U, 2U, 1U, 0U, 0U, 0U},
+        {0x20U, 3U, 1U, 0U, 0U, 0U},
+        {0x05D0U, 4U, 1U, 0U, 0U, 0U},
+        {0x05D1U, 5U, 1U, 0U, 0U, 0U},
+        {0x05D2U, 6U, 1U, 0U, 0U, 0U}};
+    auto mixed_request = retained_request;
+    mixed_request.input = mixed_input.data();
+    mixed_request.input_count = static_cast<std::uint32_t>(mixed_input.size());
+    mixed_request.direction = PROGPU_NATIVE_TEXT_DIRECTION_UNSPECIFIED;
+    const progpu_native_text_layout_options mixed_options{
+        sizeof(progpu_native_text_layout_options),
+        16.0F / 2048.0F,
+        0.0F,
+        20.0F,
+        0U,
+        PROGPU_NATIVE_TEXT_DIRECTION_UNSPECIFIED,
+        PROGPU_NATIVE_TEXT_TRIMMING_NONE,
+        PROGPU_NATIVE_TEXT_ALIGNMENT_LEFT,
+        0U,
+        0.0F,
+        0U,
+        0U};
+    paragraph_requirements.struct_size = sizeof(paragraph_requirements);
+    require(progpu_native_text_context_get_paragraph_requirements(
+                context,
+                &mixed_request,
+                &mixed_options,
+                &paragraph_requirements) == PROGPU_NATIVE_STATUS_SUCCESS);
+    paragraph_glyphs.resize(paragraph_requirements.glyph_capacity);
+    paragraph_lines.resize(paragraph_requirements.line_capacity);
+    paragraph_scratch.resize(
+        static_cast<std::size_t>(paragraph_requirements.scratch_bytes));
+    paragraph_result.struct_size = sizeof(paragraph_result);
+    require(progpu_native_text_context_layout_paragraph(
+                context,
+                &mixed_request,
+                &mixed_options,
+                paragraph_glyphs.data(),
+                static_cast<std::uint32_t>(paragraph_glyphs.size()),
+                paragraph_lines.data(),
+                static_cast<std::uint32_t>(paragraph_lines.size()),
+                paragraph_scratch.data(),
+                paragraph_scratch.size(),
+                &paragraph_result) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(paragraph_result.paragraph_level == 0 &&
+        paragraph_result.glyph_count == mixed_input.size() &&
+        paragraph_result.line_count == 1U);
+    constexpr std::uint32_t expected_clusters[]{0U, 1U, 2U, 3U, 6U, 5U, 4U};
+    for (std::size_t index = 0U; index < mixed_input.size(); ++index) {
+        require(paragraph_glyphs[index].cluster ==
+            static_cast<std::int32_t>(expected_clusters[index]));
+    }
+
     progpu_native_text_layout_result short_layout_result{};
     short_layout_result.struct_size = sizeof(short_layout_result);
     require(progpu_native_text_layout(
@@ -310,6 +445,7 @@ void bulk_shape_is_deterministic_and_caller_owned() {
                 static_cast<std::size_t>(requirements.scratch_bytes - 1U),
                 &short_result) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
     require(short_result.glyph_count == 0U && short_result.error_code == 7U);
+    progpu_native_text_context_destroy(context);
 }
 
 } // namespace

@@ -231,6 +231,56 @@ public partial struct NativeTextBidiResult
     public ulong ScratchBytesUsed;
 }
 
+// Native source: progpu_native_text_layout_options.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextLayoutOptions
+{
+    public uint StructSize;
+    public float Scale;
+    public float MaximumWidth;
+    public float LineHeight;
+    public uint MaximumLines;
+    public uint Direction;
+    public uint Trimming;
+    public uint Alignment;
+    public uint EllipsisGlyphId;
+    public float EllipsisAdvance;
+    public uint Reserved0;
+    public uint Reserved1;
+}
+
+// Native source: progpu_native_text_paragraph_requirements.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextParagraphRequirements
+{
+    public uint StructSize;
+    public uint GlyphCapacity;
+    public uint LineCapacity;
+    public uint ScratchAlignment;
+    public uint ErrorCode;
+    public uint ErrorStage;
+    public ulong ScratchBytes;
+}
+
+// Native source: progpu_native_text_paragraph_result.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextParagraphResult
+{
+    public uint StructSize;
+    public uint GlyphCount;
+    public uint LineCount;
+    public uint ShapedGlyphCount;
+    public int ParagraphLevel;
+    public uint ErrorCode;
+    public uint ErrorStage;
+    public uint Reserved;
+    public float ContentWidth;
+    public float ContentHeight;
+    public float MeasuredWidth;
+    public float MeasuredHeight;
+    public ulong ScratchBytesUsed;
+}
+
 // Native source: progpu_native_point_3d.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativePoint3D

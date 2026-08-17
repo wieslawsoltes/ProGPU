@@ -324,6 +324,44 @@ bool try_add_capacity(
     return true;
 }
 
+bool try_compute_shape_scratch_bytes(
+    const progpu_native_text_shape_request& request,
+    shape_capacities& result,
+    font_error& error) noexcept {
+    scratch_size_builder size{};
+    if (!size.add<unicode_scalar>(request.input_count) ||
+        !size.add<unicode_scalar>(request.pre_context_count) ||
+        !size.add<unicode_scalar>(request.post_context_count) ||
+        !size.add<shaping_feature>(request.feature_count) ||
+        !size.add<open_type_feature_setting>(result.base_features) ||
+        !size.add<open_type_tag>(result.explicit_features) ||
+        !size.add<open_type_tag>(result.requested_features) ||
+        !size.add<shaping_feature>(result.feature_settings) ||
+        !size.add<shaping_glyph>(result.glyphs) ||
+        !size.add<unicode_grapheme_cluster>(result.graphemes) ||
+        !size.add<std::uint16_t>(result.gsub_lookups) ||
+        !size.add<std::uint16_t>(result.gpos_lookups) ||
+        !size.add<shaping_attachment>(result.glyphs) ||
+        !size.add<std::uint8_t>(result.glyphs) ||
+        !size.add<open_type_arabic_action>(result.script_actions) ||
+        !size.add<shaping_glyph_flags>(result.script_actions) ||
+        !size.add<std::uint8_t>(result.complex_values) ||
+        !size.add<std::uint8_t>(result.complex_values) ||
+        !size.add<std::uint32_t>(result.complex_indices) ||
+        !size.add<arabic_stretch_run>(result.glyphs) ||
+        !size.add<shaping_glyph>(result.verification_glyphs)) {
+        error = font_error::invalid_argument;
+        return false;
+    }
+    if (size.size() > std::numeric_limits<std::size_t>::max() -
+            (alignof(std::max_align_t) - 1U)) {
+        error = font_error::invalid_argument;
+        return false;
+    }
+    result.scratch_bytes = size.size() + alignof(std::max_align_t) - 1U;
+    return true;
+}
+
 bool try_build_capacities(
     const progpu_native_text_shape_request& request,
     const sfnt_font_view& font,
@@ -408,37 +446,7 @@ bool try_build_capacities(
     }
     result.explicit_features = request.feature_count;
 
-    scratch_size_builder size{};
-    if (!size.add<unicode_scalar>(request.input_count) ||
-        !size.add<unicode_scalar>(request.pre_context_count) ||
-        !size.add<unicode_scalar>(request.post_context_count) ||
-        !size.add<shaping_feature>(request.feature_count) ||
-        !size.add<open_type_feature_setting>(result.base_features) ||
-        !size.add<open_type_tag>(result.explicit_features) ||
-        !size.add<open_type_tag>(result.requested_features) ||
-        !size.add<shaping_feature>(result.feature_settings) ||
-        !size.add<shaping_glyph>(result.glyphs) ||
-        !size.add<unicode_grapheme_cluster>(result.graphemes) ||
-        !size.add<std::uint16_t>(result.gsub_lookups) ||
-        !size.add<std::uint16_t>(result.gpos_lookups) ||
-        !size.add<shaping_attachment>(result.glyphs) ||
-        !size.add<std::uint8_t>(result.glyphs) ||
-        !size.add<open_type_arabic_action>(result.script_actions) ||
-        !size.add<shaping_glyph_flags>(result.script_actions) ||
-        !size.add<std::uint8_t>(result.complex_values) ||
-        !size.add<std::uint8_t>(result.complex_values) ||
-        !size.add<std::uint32_t>(result.complex_indices) ||
-        !size.add<arabic_stretch_run>(result.glyphs) ||
-        !size.add<shaping_glyph>(result.verification_glyphs)) {
-        error = font_error::invalid_argument;
-        return false;
-    }
-    if (size.size() > std::numeric_limits<std::size_t>::max() -
-            (alignof(std::max_align_t) - 1U)) {
-        error = font_error::invalid_argument;
-        return false;
-    }
-    result.scratch_bytes = size.size() + alignof(std::max_align_t) - 1U;
+    if (!try_compute_shape_scratch_bytes(request, result, error)) return false;
     error = font_error::none;
     return true;
 }
@@ -574,6 +582,210 @@ progpu_native_status status_from_unicode_error(unicode_error error) noexcept {
             return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     }
     return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+}
+
+bool valid_paragraph_layout_options(
+    const progpu_native_text_layout_options* options) noexcept {
+    return options != nullptr &&
+        options->struct_size >= sizeof(progpu_native_text_layout_options) &&
+        std::isfinite(options->scale) && options->scale > 0.0F &&
+        std::isfinite(options->maximum_width) &&
+        options->maximum_width >= 0.0F &&
+        std::isfinite(options->line_height) &&
+        options->line_height >= 0.0F &&
+        options->direction <= PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT &&
+        options->trimming <= PROGPU_NATIVE_TEXT_TRIMMING_WORD_ELLIPSIS &&
+        options->alignment <= PROGPU_NATIVE_TEXT_ALIGNMENT_JUSTIFY &&
+        std::isfinite(options->ellipsis_advance) &&
+        options->ellipsis_advance >= 0.0F &&
+        options->reserved0 == 0U && options->reserved1 == 0U;
+}
+
+text_layout_options convert_paragraph_layout_options(
+    const progpu_native_text_layout_options& source,
+    std::int8_t paragraph_level) noexcept {
+    return text_layout_options{
+        source.scale,
+        source.maximum_width,
+        source.line_height,
+        source.maximum_lines,
+        paragraph_level == 1 ? shaping_direction::right_to_left
+                             : shaping_direction::left_to_right,
+        static_cast<text_trimming>(source.trimming),
+        static_cast<text_alignment>(source.alignment),
+        0U,
+        source.ellipsis_glyph_id,
+        source.ellipsis_advance};
+}
+
+struct paragraph_capacities final {
+    shape_capacities shaping{};
+    std::size_t scratch_bytes = 0U;
+};
+
+bool try_build_paragraph_capacities(
+    const progpu_native_text_shape_request& request,
+    const sfnt_font_view& font,
+    const unicode_normalization_data* normalization,
+    paragraph_capacities& result,
+    font_error& error) noexcept {
+    result = {};
+    if (request.input_count == 0U) {
+        error = font_error::none;
+        return true;
+    }
+    if (request.input_count > std::numeric_limits<std::uint32_t>::max() / 4U ||
+        !try_build_capacities(
+            request, font, normalization, result.shaping, error)) {
+        if (error == font_error::none) error = font_error::invalid_argument;
+        return false;
+    }
+    result.shaping.complex_values = result.shaping.glyphs;
+    if (result.shaping.glyphs == std::numeric_limits<std::uint32_t>::max()) {
+        error = font_error::invalid_argument;
+        return false;
+    }
+    result.shaping.complex_indices = result.shaping.glyphs + 1U;
+    auto scratch_request = request;
+    scratch_request.pre_context_count = std::max(
+        request.pre_context_count, request.input_count);
+    scratch_request.post_context_count = std::max(
+        request.post_context_count, request.input_count);
+    if (!try_compute_shape_scratch_bytes(
+            scratch_request, result.shaping, error)) {
+        return false;
+    }
+    const std::size_t input_count = request.input_count;
+    const std::size_t glyph_count = result.shaping.glyphs;
+    scratch_size_builder size{};
+    if (!size.add<std::byte>(result.shaping.scratch_bytes) ||
+        !size.add<progpu_native_text_shaping_glyph>(glyph_count) ||
+        !size.add<unicode_scalar>(input_count) ||
+        !size.add<unicode_bidi_unit>(input_count) ||
+        !size.add<std::uint32_t>(input_count * 4U) ||
+        !size.add<unicode_bidi_level_run>(input_count) ||
+        !size.add<unicode_bidi_bracket_pair>(input_count / 2U) ||
+        !size.add<unicode_bidi_level>(input_count) ||
+        !size.add<unicode_line_break_class>(input_count) ||
+        !size.add<text_line_break_kind>(input_count) ||
+        !size.add<shaping_glyph>(glyph_count) ||
+        !size.add<std::int8_t>(glyph_count) ||
+        !size.add<text_line_break_kind>(glyph_count) ||
+        !size.add<text_visual_cluster_group>(glyph_count) ||
+        !size.add<std::uint32_t>(glyph_count) ||
+        !size.add<positioned_text_glyph>(glyph_count) ||
+        !size.add<positioned_text_line>(glyph_count)) {
+        error = font_error::invalid_argument;
+        return false;
+    }
+    if (size.size() > std::numeric_limits<std::size_t>::max() -
+            (alignof(std::max_align_t) - 1U)) {
+        error = font_error::invalid_argument;
+        return false;
+    }
+    result.scratch_bytes = size.size() + alignof(std::max_align_t) - 1U;
+    error = font_error::none;
+    return true;
+}
+
+shaping_glyph convert_wire_glyph(
+    const progpu_native_text_shaping_glyph& source) noexcept {
+    return shaping_glyph{
+        source.glyph_id,
+        source.code_point,
+        source.cluster,
+        static_cast<shaping_glyph_flags>(source.flags),
+        source.advance_x,
+        source.advance_y,
+        source.offset_x,
+        source.offset_y};
+}
+
+bool append_logical_bidi_run(
+    std::span<const progpu_native_text_shaping_glyph> run,
+    std::int8_t level,
+    std::span<shaping_glyph> output,
+    std::span<std::int8_t> levels,
+    std::uint32_t& written) noexcept {
+    if (run.size() > output.size() - std::min<std::size_t>(written, output.size())) {
+        return false;
+    }
+    auto append_group = [&](std::size_t start, std::size_t end) noexcept {
+        for (std::size_t index = start; index < end; ++index) {
+            output[written] = convert_wire_glyph(run[index]);
+            levels[written] = level;
+            ++written;
+        }
+    };
+    if ((level & 1) == 0) {
+        append_group(0U, run.size());
+        return true;
+    }
+    std::size_t end = run.size();
+    while (end != 0U) {
+        const std::int32_t cluster = run[end - 1U].cluster;
+        std::size_t start = end - 1U;
+        while (start != 0U && run[start - 1U].cluster == cluster) --start;
+        append_group(start, end);
+        end = start;
+    }
+    return true;
+}
+
+bool try_map_logical_cluster_breaks(
+    std::span<const progpu_native_text_scalar> input,
+    std::span<const text_line_break_kind> scalar_breaks,
+    std::span<const shaping_glyph> glyphs,
+    std::span<text_line_break_kind> glyph_breaks) noexcept {
+    if (scalar_breaks.size() != input.size() ||
+        glyph_breaks.size() < glyphs.size()) {
+        return false;
+    }
+    if (glyphs.empty()) return true;
+    if (input.empty()) return false;
+    for (std::size_t index = 0U; index < input.size(); ++index) {
+        const std::uint64_t end =
+            static_cast<std::uint64_t>(input[index].input_index) +
+            input[index].input_length;
+        if (end > std::numeric_limits<std::uint32_t>::max() ||
+            (index != 0U && input[index].input_index <
+                    static_cast<std::uint64_t>(input[index - 1U].input_index) +
+                        input[index - 1U].input_length)) {
+            return false;
+        }
+    }
+    std::size_t scalar_cursor = 0U;
+    std::size_t glyph_start = 0U;
+    std::int32_t previous_cluster = -1;
+    while (glyph_start < glyphs.size()) {
+        const std::int32_t cluster = glyphs[glyph_start].cluster;
+        if (cluster < 0 || cluster <= previous_cluster) return false;
+        std::size_t glyph_end = glyph_start + 1U;
+        while (glyph_end < glyphs.size() &&
+            glyphs[glyph_end].cluster == cluster) {
+            ++glyph_end;
+        }
+        if (glyph_end < glyphs.size() &&
+            glyphs[glyph_end].cluster <= cluster) {
+            return false;
+        }
+        const std::uint32_t next_cluster = glyph_end < glyphs.size()
+            ? static_cast<std::uint32_t>(glyphs[glyph_end].cluster)
+            : std::numeric_limits<std::uint32_t>::max();
+        while (scalar_cursor < input.size() &&
+            input[scalar_cursor].input_index < next_cluster) {
+            ++scalar_cursor;
+        }
+        if (scalar_cursor == 0U) return false;
+        std::fill(
+            glyph_breaks.begin() + static_cast<std::ptrdiff_t>(glyph_start),
+            glyph_breaks.begin() + static_cast<std::ptrdiff_t>(glyph_end),
+            text_line_break_kind::prohibited);
+        glyph_breaks[glyph_end - 1U] = scalar_breaks[scalar_cursor - 1U];
+        previous_cluster = cluster;
+        glyph_start = glyph_end;
+    }
+    return true;
 }
 
 text_layout_options convert_layout_options(
@@ -1370,6 +1582,328 @@ progpu_native_status progpu_native_text_resolve_bidi(
     result->paragraph_level = paragraph_level;
     result->scratch_bytes_used = arena.used();
     return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_text_context_get_paragraph_requirements(
+    progpu_native_text_context* context,
+    const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout,
+    progpu_native_text_paragraph_requirements* requirements) {
+    if (requirements == nullptr ||
+        requirements->struct_size <
+            sizeof(progpu_native_text_paragraph_requirements)) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    *requirements = {};
+    requirements->struct_size = sizeof(*requirements);
+    if (context == nullptr || !valid_request(shaping, false) ||
+        shaping->direction > PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT ||
+        !valid_paragraph_layout_options(layout)) {
+        requirements->error_code =
+            static_cast<std::uint32_t>(font_error::invalid_argument);
+        requirements->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    paragraph_capacities capacities{};
+    font_error error = font_error::none;
+    if (!try_build_paragraph_capacities(
+            *shaping,
+            context->font,
+            context->has_normalization ? &context->normalization : nullptr,
+            capacities,
+            error)) {
+        requirements->error_code = static_cast<std::uint32_t>(error);
+        requirements->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
+        return status_from_error(error);
+    }
+    requirements->glyph_capacity = capacities.shaping.glyphs;
+    requirements->line_capacity = capacities.shaping.glyphs;
+    requirements->scratch_alignment = 1U;
+    requirements->scratch_bytes = capacities.scratch_bytes;
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_text_context_layout_paragraph(
+    progpu_native_text_context* context,
+    const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout,
+    progpu_native_positioned_text_glyph* glyphs,
+    std::uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines,
+    std::uint32_t line_capacity,
+    void* scratch,
+    std::size_t scratch_size,
+    progpu_native_text_paragraph_result* result) {
+    if (result == nullptr ||
+        result->struct_size < sizeof(progpu_native_text_paragraph_result)) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    *result = {};
+    result->struct_size = sizeof(*result);
+    if (context == nullptr || !valid_request(shaping, false) ||
+        shaping->direction > PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT ||
+        !valid_paragraph_layout_options(layout)) {
+        result->error_code =
+            static_cast<std::uint32_t>(font_error::invalid_argument);
+        result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    result->paragraph_level =
+        shaping->direction == PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT
+        ? 1
+        : 0;
+    if (shaping->input_count == 0U) {
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    }
+    paragraph_capacities capacities{};
+    font_error font_result = font_error::none;
+    if (!try_build_paragraph_capacities(
+            *shaping,
+            context->font,
+            context->has_normalization ? &context->normalization : nullptr,
+            capacities,
+            font_result)) {
+        result->error_code = static_cast<std::uint32_t>(font_result);
+        result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
+        return status_from_error(font_result);
+    }
+    if (glyph_capacity < capacities.shaping.glyphs ||
+        line_capacity < capacities.shaping.glyphs ||
+        !has_aligned_pointer(glyphs, capacities.shaping.glyphs) ||
+        !has_aligned_pointer(lines, capacities.shaping.glyphs) ||
+        scratch == nullptr || scratch_size < capacities.scratch_bytes) {
+        result->error_code =
+            static_cast<std::uint32_t>(font_error::insufficient_buffer);
+        result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LAYOUT;
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+
+    try {
+        scratch_arena arena{scratch, scratch_size};
+        const std::size_t input_count = shaping->input_count;
+        const std::size_t glyph_limit = capacities.shaping.glyphs;
+        std::span<std::byte> shape_scratch{};
+        std::span<progpu_native_text_shaping_glyph> run_glyphs{};
+        std::span<unicode_scalar> native_input{};
+        std::span<unicode_bidi_unit> bidi_units{};
+        std::span<std::uint32_t> bidi_indices{};
+        std::span<unicode_bidi_level_run> bidi_runs{};
+        std::span<unicode_bidi_bracket_pair> bidi_pairs{};
+        std::span<unicode_bidi_level> scalar_levels{};
+        std::span<unicode_line_break_class> line_classes{};
+        std::span<text_line_break_kind> scalar_breaks{};
+        std::span<shaping_glyph> logical_glyphs{};
+        std::span<std::int8_t> glyph_levels{};
+        std::span<text_line_break_kind> glyph_breaks{};
+        std::span<text_visual_cluster_group> visual_groups{};
+        std::span<std::uint32_t> visual_indices{};
+        std::span<positioned_text_glyph> positioned{};
+        std::span<positioned_text_line> native_lines{};
+        if (!arena.take(capacities.shaping.scratch_bytes, shape_scratch) ||
+            !arena.take(glyph_limit, run_glyphs) ||
+            !arena.take(input_count, native_input) ||
+            !arena.take(input_count, bidi_units) ||
+            !arena.take(input_count * 4U, bidi_indices) ||
+            !arena.take(input_count, bidi_runs) ||
+            !arena.take(input_count / 2U, bidi_pairs) ||
+            !arena.take(input_count, scalar_levels) ||
+            !arena.take(input_count, line_classes) ||
+            !arena.take(input_count, scalar_breaks) ||
+            !arena.take(glyph_limit, logical_glyphs) ||
+            !arena.take(glyph_limit, glyph_levels) ||
+            !arena.take(glyph_limit, glyph_breaks) ||
+            !arena.take(glyph_limit, visual_groups) ||
+            !arena.take(glyph_limit, visual_indices) ||
+            !arena.take(glyph_limit, positioned) ||
+            !arena.take(glyph_limit, native_lines)) {
+            result->error_code =
+                static_cast<std::uint32_t>(font_error::insufficient_buffer);
+            result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LAYOUT;
+            return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+        }
+
+        copy_scalars(shaping->input, native_input);
+        unicode_error unicode_result = unicode_error::none;
+        unicode_bidi_scratch bidi_scratch{
+            bidi_units, bidi_indices, bidi_runs, bidi_pairs};
+        const std::int8_t requested_level =
+            shaping->direction == PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT
+            ? 0
+            : shaping->direction ==
+                    PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT
+                ? 1
+                : -1;
+        std::int8_t paragraph_level = 0;
+        std::uint32_t scalar_level_count = 0U;
+        if (!try_resolve_unicode_bidi(
+                native_input,
+                requested_level,
+                bidi_scratch,
+                scalar_levels,
+                paragraph_level,
+                scalar_level_count,
+                &unicode_result)) {
+            result->error_code = static_cast<std::uint32_t>(unicode_result);
+            result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_BIDI;
+            return status_from_unicode_error(unicode_result);
+        }
+        result->paragraph_level = paragraph_level;
+        if (!try_resolve_unicode_line_breaks(
+                native_input,
+                line_classes,
+                scalar_breaks,
+                &unicode_result)) {
+            result->error_code = static_cast<std::uint32_t>(unicode_result);
+            result->error_stage =
+                PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LINE_BREAK;
+            return status_from_unicode_error(unicode_result);
+        }
+
+        std::uint32_t logical_count = 0U;
+        std::size_t scalar_start = 0U;
+        while (scalar_start < input_count) {
+            const std::int8_t level = scalar_levels[scalar_start].level;
+            std::size_t scalar_end = scalar_start + 1U;
+            while (scalar_end < input_count &&
+                scalar_levels[scalar_end].level == level) {
+                ++scalar_end;
+            }
+            auto run_request = *shaping;
+            run_request.input = shaping->input + scalar_start;
+            run_request.input_count = static_cast<std::uint32_t>(
+                scalar_end - scalar_start);
+            run_request.direction = (level & 1) == 0
+                ? PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT
+                : PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT;
+            if (scalar_start != 0U) {
+                run_request.pre_context = shaping->input;
+                run_request.pre_context_count =
+                    static_cast<std::uint32_t>(scalar_start);
+            }
+            if (scalar_end != input_count) {
+                run_request.post_context = shaping->input + scalar_end;
+                run_request.post_context_count = static_cast<std::uint32_t>(
+                    input_count - scalar_end);
+            }
+            progpu_native_text_shape_result shape_result{};
+            shape_result.struct_size = sizeof(shape_result);
+            const auto shape_status = shape_core(
+                run_request,
+                context->font,
+                context->has_normalization ? &context->normalization : nullptr,
+                capacities.shaping,
+                run_glyphs.data(),
+                static_cast<std::uint32_t>(run_glyphs.size()),
+                shape_scratch.data(),
+                shape_scratch.size(),
+                shape_result,
+                context);
+            if (shape_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+                result->error_code = shape_result.error_code;
+                result->error_stage =
+                    PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
+                return shape_status;
+            }
+            if (!append_logical_bidi_run(
+                    run_glyphs.first(shape_result.glyph_count),
+                    level,
+                    logical_glyphs,
+                    glyph_levels,
+                    logical_count)) {
+                result->error_code =
+                    static_cast<std::uint32_t>(font_error::insufficient_buffer);
+                result->error_stage =
+                    PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
+                return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+            }
+            scalar_start = scalar_end;
+        }
+        result->shaped_glyph_count = logical_count;
+        const auto logical = logical_glyphs.first(logical_count);
+        if (!try_map_logical_cluster_breaks(
+                std::span<const progpu_native_text_scalar>{
+                    shaping->input, shaping->input_count},
+                scalar_breaks,
+                logical,
+                glyph_breaks.first(logical_count))) {
+            result->error_code =
+                static_cast<std::uint32_t>(font_error::invalid_argument);
+            result->error_stage =
+                PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_CLUSTER_MAP;
+            return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+        }
+
+        text_logical_layout_scratch logical_scratch{
+            visual_groups, visual_indices};
+        std::uint32_t positioned_count = 0U;
+        std::uint32_t written_lines = 0U;
+        if (!try_layout_logical_shaped_text(
+                logical,
+                glyph_breaks.first(logical_count),
+                glyph_levels.first(logical_count),
+                paragraph_level,
+                convert_paragraph_layout_options(*layout, paragraph_level),
+                logical_scratch,
+                positioned,
+                native_lines,
+                positioned_count,
+                written_lines,
+                &font_result)) {
+            result->error_code = static_cast<std::uint32_t>(font_result);
+            result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LAYOUT;
+            return status_from_error(font_result);
+        }
+        for (std::uint32_t index = 0U; index < positioned_count; ++index) {
+            const auto& source = positioned[index];
+            glyphs[index] = progpu_native_positioned_text_glyph{
+                source.glyph_index,
+                source.glyph_id,
+                source.cluster,
+                source.x,
+                source.y,
+                source.advance_x,
+                source.advance_y};
+        }
+        for (std::uint32_t index = 0U; index < written_lines; ++index) {
+            const auto& source = native_lines[index];
+            lines[index] = progpu_native_positioned_text_line{
+                source.glyph_start,
+                source.glyph_count,
+                source.input_start,
+                source.input_end,
+                source.width,
+                source.baseline_y,
+                source.height,
+                static_cast<std::uint8_t>(source.clipped ? 1U : 0U),
+                0U,
+                0U,
+                0U};
+        }
+        text_layout_metrics metrics{};
+        if (!try_measure_positioned_text_lines(
+                native_lines.first(written_lines),
+                layout->maximum_width,
+                metrics,
+                &font_result)) {
+            result->error_code = static_cast<std::uint32_t>(font_result);
+            result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LAYOUT;
+            return status_from_error(font_result);
+        }
+        result->glyph_count = positioned_count;
+        result->line_count = written_lines;
+        result->content_width = metrics.content_width;
+        result->content_height = metrics.content_height;
+        result->measured_width = metrics.measured_width;
+        result->measured_height = metrics.measured_height;
+        result->scratch_bytes_used = arena.used();
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) {
+        result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
+        return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
+    } catch (...) {
+        result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
+        return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+    }
 }
 
 } // extern "C"

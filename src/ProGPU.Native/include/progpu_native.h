@@ -74,6 +74,7 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_LAYOUT (UINT64_C(1) << 42U)
 #define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_LINE_BREAKING (UINT64_C(1) << 43U)
 #define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_BIDI (UINT64_C(1) << 44U)
+#define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_PARAGRAPH (UINT64_C(1) << 45U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -578,6 +579,59 @@ typedef struct progpu_native_text_bidi_result {
     uint32_t error_code;
     uint64_t scratch_bytes_used;
 } progpu_native_text_bidi_result;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextLayoutOptions */
+typedef struct progpu_native_text_layout_options {
+    uint32_t struct_size;
+    float scale;
+    float maximum_width;
+    float line_height;
+    uint32_t maximum_lines;
+    uint32_t direction;
+    uint32_t trimming;
+    uint32_t alignment;
+    uint32_t ellipsis_glyph_id;
+    float ellipsis_advance;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_text_layout_options;
+
+typedef enum progpu_native_text_paragraph_stage {
+    PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_NONE = 0,
+    PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_BIDI = 1,
+    PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LINE_BREAK = 2,
+    PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING = 3,
+    PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_CLUSTER_MAP = 4,
+    PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LAYOUT = 5
+} progpu_native_text_paragraph_stage;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextParagraphRequirements */
+typedef struct progpu_native_text_paragraph_requirements {
+    uint32_t struct_size;
+    uint32_t glyph_capacity;
+    uint32_t line_capacity;
+    uint32_t scratch_alignment;
+    uint32_t error_code;
+    uint32_t error_stage;
+    uint64_t scratch_bytes;
+} progpu_native_text_paragraph_requirements;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextParagraphResult */
+typedef struct progpu_native_text_paragraph_result {
+    uint32_t struct_size;
+    uint32_t glyph_count;
+    uint32_t line_count;
+    uint32_t shaped_glyph_count;
+    int32_t paragraph_level;
+    uint32_t error_code;
+    uint32_t error_stage;
+    uint32_t reserved;
+    float content_width;
+    float content_height;
+    float measured_width;
+    float measured_height;
+    uint64_t scratch_bytes_used;
+} progpu_native_text_paragraph_result;
 
 typedef enum progpu_native_texture_format {
     PROGPU_NATIVE_TEXTURE_FORMAT_RGBA8_UNORM = 1,
@@ -2149,6 +2203,28 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_resolve_bidi(
     void* scratch,
     size_t scratch_size,
     progpu_native_text_bidi_result* result);
+
+/* One retained paragraph crossing for a single font face: UAX #9 resolution,
+ * UAX #14 boundaries, per-bidi-run shaping, cluster-preserving logical
+ * assembly, per-line visual reordering, wrapping, and positioned output. */
+PROGPU_NATIVE_API progpu_native_status
+progpu_native_text_context_get_paragraph_requirements(
+    progpu_native_text_context* context,
+    const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout,
+    progpu_native_text_paragraph_requirements* requirements);
+PROGPU_NATIVE_API progpu_native_status
+progpu_native_text_context_layout_paragraph(
+    progpu_native_text_context* context,
+    const progpu_native_text_shape_request* shaping,
+    const progpu_native_text_layout_options* layout,
+    progpu_native_positioned_text_glyph* glyphs,
+    uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines,
+    uint32_t line_capacity,
+    void* scratch,
+    size_t scratch_size,
+    progpu_native_text_paragraph_result* result);
 
 #ifdef __cplusplus
 }

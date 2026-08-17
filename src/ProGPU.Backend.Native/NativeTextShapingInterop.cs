@@ -174,9 +174,20 @@ public static unsafe class NativeTextShapingInterop
     };
 }
 
+public readonly record struct NativeTextParagraphOptions(
+    float Scale,
+    float MaximumWidth = 0,
+    float LineHeight = 0,
+    uint MaximumLines = 0,
+    NativeTextTrimming Trimming = NativeTextTrimming.None,
+    NativeTextAlignment Alignment = NativeTextAlignment.Left,
+    uint EllipsisGlyphId = 0,
+    float EllipsisAdvance = 0);
+
 /// <summary>
-/// Owns an immutable native font snapshot and a reusable exact OpenType plan.
-/// Create once per font/variation domain and reuse it for stable shaping runs.
+/// Owns an immutable native font snapshot and reusable OpenType plan storage.
+/// Create once per font/variation domain and reuse it for stable shaping and
+/// complete bidi-aware paragraph layout runs.
 /// </summary>
 public sealed unsafe class NativeTextShapingContext : IDisposable
 {
@@ -281,6 +292,90 @@ public sealed unsafe class NativeTextShapingContext : IDisposable
         }
     }
 
+    public NativeRendererStatus GetParagraphRequirements(
+        in NativeTextShapeInput input,
+        in NativeTextParagraphOptions options,
+        out NativeTextParagraphRequirements requirements)
+    {
+        nint handle = GetHandle();
+        requirements = new NativeTextParagraphRequirements
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeTextParagraphRequirements>()
+        };
+        fixed (NativeTextScalar* scalars = input.Input)
+        fixed (NativeTextScalar* preContext = input.PreContext)
+        fixed (NativeTextScalar* postContext = input.PostContext)
+        fixed (NativeTextFeature* features = input.Features)
+        fixed (short* coordinates = input.NormalizedCoordinates)
+        {
+            NativeTextShapeRequest shaping = NativeTextShapingInterop.CreateRequest(
+                in input,
+                null,
+                scalars,
+                preContext,
+                postContext,
+                features,
+                coordinates,
+                null,
+                includeOwnedResources: false);
+            NativeTextLayoutOptions layout = CreateParagraphLayoutOptions(
+                in input, in options);
+            return NativeMethods.GetTextContextParagraphRequirements(
+                handle,
+                &shaping,
+                &layout,
+                (NativeTextParagraphRequirements*)Unsafe.AsPointer(ref requirements));
+        }
+    }
+
+    public NativeRendererStatus LayoutParagraph(
+        in NativeTextShapeInput input,
+        in NativeTextParagraphOptions options,
+        Span<NativePositionedTextGlyph> glyphs,
+        Span<NativePositionedTextLine> lines,
+        Span<byte> scratch,
+        out NativeTextParagraphResult result)
+    {
+        nint handle = GetHandle();
+        result = new NativeTextParagraphResult
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeTextParagraphResult>()
+        };
+        fixed (NativeTextScalar* scalars = input.Input)
+        fixed (NativeTextScalar* preContext = input.PreContext)
+        fixed (NativeTextScalar* postContext = input.PostContext)
+        fixed (NativeTextFeature* features = input.Features)
+        fixed (short* coordinates = input.NormalizedCoordinates)
+        fixed (NativePositionedTextGlyph* positioned = glyphs)
+        fixed (NativePositionedTextLine* positionedLines = lines)
+        fixed (byte* scratchData = scratch)
+        {
+            NativeTextShapeRequest shaping = NativeTextShapingInterop.CreateRequest(
+                in input,
+                null,
+                scalars,
+                preContext,
+                postContext,
+                features,
+                coordinates,
+                null,
+                includeOwnedResources: false);
+            NativeTextLayoutOptions layout = CreateParagraphLayoutOptions(
+                in input, in options);
+            return NativeMethods.LayoutTextContextParagraph(
+                handle,
+                &shaping,
+                &layout,
+                positioned,
+                checked((uint)glyphs.Length),
+                positionedLines,
+                checked((uint)lines.Length),
+                scratchData,
+                checked((nuint)scratch.Length),
+                (NativeTextParagraphResult*)Unsafe.AsPointer(ref result));
+        }
+    }
+
     public void Dispose()
     {
         DisposeCore();
@@ -294,6 +389,22 @@ public sealed unsafe class NativeTextShapingContext : IDisposable
             ? handle
             : throw new ObjectDisposedException(nameof(NativeTextShapingContext));
     }
+
+    private static NativeTextLayoutOptions CreateParagraphLayoutOptions(
+        in NativeTextShapeInput input,
+        in NativeTextParagraphOptions options) => new()
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeTextLayoutOptions>(),
+        Scale = options.Scale,
+        MaximumWidth = options.MaximumWidth,
+        LineHeight = options.LineHeight,
+        MaximumLines = options.MaximumLines,
+        Direction = (uint)input.Direction,
+        Trimming = (uint)options.Trimming,
+        Alignment = (uint)options.Alignment,
+        EllipsisGlyphId = options.EllipsisGlyphId,
+        EllipsisAdvance = options.EllipsisAdvance
+    };
 
     private void DisposeCore()
     {
