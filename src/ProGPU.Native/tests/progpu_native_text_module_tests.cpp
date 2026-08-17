@@ -82,6 +82,10 @@ int main() {
         &progpu::native::text::try_verify_open_type_shape_result;
     const auto arabic_joining_flag_resolver =
         &progpu::native::text::try_assign_open_type_arabic_actions_and_flags;
+    const auto fallback_preference_counter =
+        &progpu::native::text::try_get_font_fallback_family_preference_count;
+    const auto fallback_preference_writer =
+        &progpu::native::text::try_get_font_fallback_family_preferences;
     const auto default_feature_settings =
         progpu::native::text::get_default_open_type_feature_settings();
     static_assert(progpu::native::text::sfnt_name_ids::family_name == 1U);
@@ -157,6 +161,8 @@ int main() {
         shape_configuration_resolver == nullptr ||
         shape_result_verifier == nullptr ||
         arabic_joining_flag_resolver == nullptr ||
+        fallback_preference_counter == nullptr ||
+        fallback_preference_writer == nullptr ||
         default_feature_settings.size() != 26U ||
         shaping_route_resolver == nullptr ||
         !shape_options.pre_context.empty() ||

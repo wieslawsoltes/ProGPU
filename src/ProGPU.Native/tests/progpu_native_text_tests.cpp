@@ -135,6 +135,8 @@ using progpu::native::text::font_style_variation_requirements;
 using progpu::native::text::font_style_variation;
 using progpu::native::text::try_get_font_style_variation_requirements;
 using progpu::native::text::try_resolve_font_style_variations;
+using progpu::native::text::try_get_font_fallback_family_preference_count;
+using progpu::native::text::try_get_font_fallback_family_preferences;
 using progpu::native::text::try_preprocess_open_type_glyphs;
 using progpu::native::text::unicode_line_break_class;
 using progpu::native::text::text_line_break_kind;
@@ -5325,6 +5327,71 @@ void native_font_fallback_preserves_graphemes_and_missing_state() {
     require(error == font_error::insufficient_buffer && written == 0U);
 }
 
+void native_font_fallback_family_preferences_match_managed_policy() {
+    font_error error = font_error::invalid_argument;
+    std::uint32_t count = 0U;
+    require(try_get_font_fallback_family_preference_count(
+        {}, 0x0870U, count, &error));
+    require(error == font_error::none && count == 9U);
+
+    std::array<std::string_view, 9U> arabic_families{};
+    std::uint32_t written = 0U;
+    require(try_get_font_fallback_family_preferences(
+        {}, 0x1EE00U, arabic_families, written, &error));
+    require(written == arabic_families.size() &&
+        arabic_families.front() == "Geeza Pro" &&
+        arabic_families.back() == "DejaVu Sans");
+
+    constexpr std::array languages{
+        std::string_view{" zh_Hant-TW "},
+        std::string_view{"ja"},
+        std::string_view{"ZH-hant"}};
+    require(try_get_font_fallback_family_preference_count(
+        languages, 0x4E00U, count, &error));
+    require(count == 21U);
+    std::array<std::string_view, 21U> cjk_families{};
+    require(try_get_font_fallback_family_preferences(
+        languages, 0x4E00U, cjk_families, written, &error));
+    require(written == cjk_families.size() &&
+        cjk_families[0U] == "PingFang TC" &&
+        cjk_families[5U] == "Songti TC" &&
+        cjk_families[6U] == "Hiragino Sans" &&
+        cjk_families[12U] == ".Aqua Kana" &&
+        cjk_families[13U] == "PingFang SC" &&
+        cjk_families[20U] == "Songti SC");
+    require(std::count(
+        cjk_families.begin(), cjk_families.end(), "Noto Sans CJK JP") == 1);
+
+    std::array<std::string_view, 6U> latin_families{};
+    require(try_get_font_fallback_family_preferences(
+        {}, 0x41U, latin_families, written, &error));
+    constexpr std::array expected_latin{
+        std::string_view{"Helvetica"},
+        std::string_view{"Arial"},
+        std::string_view{"Segoe UI"},
+        std::string_view{"Noto Sans"},
+        std::string_view{"DejaVu Sans"},
+        std::string_view{"Liberation Sans"}};
+    require(latin_families == expected_latin);
+
+    std::array<std::string_view, 5U> short_output{};
+    short_output.fill("unchanged");
+    written = 99U;
+    require(!try_get_font_fallback_family_preferences(
+        {}, 0x41U, short_output, written, &error));
+    require(error == font_error::insufficient_buffer && written == 0U &&
+        std::all_of(
+            short_output.begin(), short_output.end(),
+            [](std::string_view value) { return value == "unchanged"; }));
+
+    require(try_get_font_fallback_family_preference_count(
+        {}, 0xD800U, count, &error));
+    require(error == font_error::none && count == 0U);
+    require(!try_get_font_fallback_family_preference_count(
+        {}, 0x110000U, count, &error));
+    require(error == font_error::invalid_argument && count == 0U);
+}
+
 void native_font_provider_cache_is_borrowed_and_generation_safe() {
     constexpr std::array regular_mappings{std::pair{0x41U, 2U}};
     constexpr std::array bold_mappings{std::pair{0x41U, 3U}};
@@ -9724,6 +9791,7 @@ int main() {
     open_type_hangul_preparation_composes_and_decomposes();
     open_type_gpos_device_and_variation_deltas_are_applied();
     native_font_fallback_preserves_graphemes_and_missing_state();
+    native_font_fallback_family_preferences_match_managed_policy();
     native_font_provider_cache_is_borrowed_and_generation_safe();
     native_positioned_text_layout_wraps_without_allocation();
     unicode_line_breaks_feed_native_layout_without_allocation();

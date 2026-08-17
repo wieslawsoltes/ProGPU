@@ -595,6 +595,15 @@ managed/native call or selector glyph. Malformed selector records fail closed;
 lookup is `O(log V + log M)` for `V` selector records and `M` non-default
 mappings, with `O(1)` internal storage.
 
+The native provider boundary also exposes the managed `FontManager` language-
+and script-sensitive family preference policy through a two-pass API. Returned
+family names are process-lifetime string views; callers resolve them to stable
+provider identities once per catalog generation. Language normalization,
+traditional/simplified Chinese routing, exact family order, case-insensitive
+deduplication, and all managed Arabic/Hebrew/CJK/Latin ranges are preserved.
+Construction uses a fixed 64-entry stack record, performs no allocation, and
+is bounded by the checked-in policy size.
+
 Positioned native line layout consumes already-shaped visual-order glyphs and
 caller-supplied break decisions, preserving the managed ProGPU separation
 between reusable shaping, Unicode paragraph analysis, and viewport-dependent

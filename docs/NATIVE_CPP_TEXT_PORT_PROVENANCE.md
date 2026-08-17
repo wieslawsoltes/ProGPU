@@ -354,6 +354,18 @@ for `F` faces and SFNT table cost `T`. Discovery, downloading, mapping, and byte
 lifetimes remain outside shaping, so no per-glyph callback, file access,
 allocation, or retained managed pin is introduced.
 
+The language/script family preference stage directly ports the ProGPU-owned
+`FontManager.GetFallbackFamilyPreferences`, `IsArabic`, and `IsHebrew` policy
+from `src/ProGPU.Text/FontManager.cs` at checkpoint `2c78c5e2`. It preserves
+the exact platform family names and ordering, ASCII-equivalent language-tag
+normalization, traditional Chinese region/script selection, ordinal-ignore-
+case deduplication, and the complete managed Unicode range policy including
+Arabic Extended-B and Arabic Mathematical Alphabetic Symbols. The two-pass
+native API returns process-lifetime literal views into caller-owned output and
+uses one fixed 64-entry internal buffer. Tests cover exact Latin and combined
+CJK ordering, language deduplication, both extended Arabic ranges,
+transactional short output, surrogate behavior, and invalid code points.
+
 ## Delivered borrowed SFNT/TTC foundation
 
 The first text-core slice ports the ProGPU-owned `SfntFontFace.cs` contracts at

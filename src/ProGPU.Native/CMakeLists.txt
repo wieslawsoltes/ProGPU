@@ -601,6 +601,7 @@ add_library(progpu_native_text STATIC
     src/Text/Shaping/progpu_native_open_type_hangul.cpp
     src/Text/Shaping/progpu_native_open_type_preprocess.cpp
     src/Text/Shaping/progpu_native_font_fallback.cpp
+    src/Text/Shaping/progpu_native_font_fallback_preferences.cpp
     src/Text/Shaping/progpu_native_font_provider.cpp
     src/Text/Font/progpu_native_font_kerning.cpp
     src/Text/Font/progpu_native_font_horizontal_metrics.cpp

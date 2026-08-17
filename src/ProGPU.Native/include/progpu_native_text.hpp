@@ -1379,6 +1379,22 @@ bool try_resolve_font_style_variations(
     font_style_variation_requirements* requirements = nullptr,
     font_error* error = nullptr) noexcept;
 
+/* Ordered platform family preferences from managed FontManager. Returned
+ * string views reference process-lifetime literals and can be mapped to a
+ * provider's family identities once per discovery generation. */
+bool try_get_font_fallback_family_preference_count(
+    std::span<const std::string_view> language_tags,
+    std::uint32_t code_point,
+    std::uint32_t& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_get_font_fallback_family_preferences(
+    std::span<const std::string_view> language_tags,
+    std::uint32_t code_point,
+    std::span<std::string_view> output,
+    std::uint32_t& written,
+    font_error* error = nullptr) noexcept;
+
 /* Platform adapters expose borrowed face bytes through this neutral record.
  * `family_identity` is a provider-stable normalized family hash. */
 struct font_provider_face final {

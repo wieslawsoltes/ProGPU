@@ -156,6 +156,8 @@ using ::progpu::native::text::font_style_variation_requirements;
 using ::progpu::native::text::font_style_variation;
 using ::progpu::native::text::try_get_font_style_variation_requirements;
 using ::progpu::native::text::try_resolve_font_style_variations;
+using ::progpu::native::text::try_get_font_fallback_family_preference_count;
+using ::progpu::native::text::try_get_font_fallback_family_preferences;
 using ::progpu::native::text::try_get_font_fallback_run_count;
 using ::progpu::native::text::try_itemize_font_fallback;
 using ::progpu::native::text::unicode_line_break_class;
