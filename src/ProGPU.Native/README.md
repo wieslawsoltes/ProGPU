@@ -489,6 +489,16 @@ actions without copying context, and prevents start-of-text dotted-circle
 insertion when prior context is present. The boundary work is fixed `O(1)` in
 addition to the existing `O(G)` joining pass and uses no extra scratch.
 
+Initial scalar mapping now ports the managed shaper's canonical fallback and
+split-matra expansion before script preparation. A missing U+2011 maps through
+U+2010 when the font supplies it; otherwise a missing scalar can expand through
+the same borrowed FormD plan. Indic mark-led decompositions expand even when
+the source glyph exists, while Khmer split matras receive the managed U+17C1
+pre-base component. Requirements count expanded glyph and complex-script
+scratch capacity before output mutation. Mapping is `O(N log R + D log C)` for
+`N` input scalars, normalization records `R`, written components `D`, and cmap
+records `C`, with `O(1)` internal storage and one bulk shaping call.
+
 Native fallback accepts a bulk span of borrowed, already-parsed SFNT faces from
 the platform provider boundary. It preserves extended graphemes, tries the
 preferred face first, coalesces adjacent face runs, reports unresolved coverage

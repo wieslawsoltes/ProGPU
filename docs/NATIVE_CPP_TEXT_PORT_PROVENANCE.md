@@ -173,6 +173,23 @@ suppresses `InsertBeginningDottedCircle`, matching the managed chunked-shaping
 contract. Boundary work is fixed `O(1)` beyond the existing `O(G)` state
 machine and requires no additional caller scratch.
 
+Initial scalar-to-glyph expansion is isolated in the granular
+`Text/Shaping/progpu_native_initial_mapping.cpp` unit and directly ports
+ProGPU-owned `GlyphSubstitutionBuffer.Create`, `TryAppendIndicSplitMatra`, and
+`AppendNormalizedRune` from `src/ProGPU.Text/OpenTypeTextShaper.cs` at
+checkpoint `0a08efec`. The C++ path uses the existing borrowed
+`UnicodeNormalizationData.bin` view: missing mapped scalars use canonical FormD,
+missing U+2011 tries U+2010 first, Indic mark-led composites expand regardless
+of source-glyph coverage, and Khmer split matras prepend U+17C1. Every emitted
+component retains the managed grapheme/source cluster and passes the existing
+space fallback and variation-aware cmap path. The option-aware requirements
+pass counts expansion and sizes complex-script metadata before the write pass;
+font mapping, advances, and capacity are preflighted before output mutation.
+Work is `O(N log R + D log C)` for input scalars `N`, normalization records
+`R`, output components `D`, and cmap records `C`, with `O(1)` internal storage,
+no per-glyph boundary calls, and matched decomposition, split-matra,
+non-breaking-hyphen, and short-buffer tests.
+
 The raw GPOS executor now covers rule-, class-, and coverage-based Context and
 Chaining Context formats 1-3. Nested position records reuse the same borrowed
 lookup table and caller glyph/attachment buffers with a fixed 64-level cycle

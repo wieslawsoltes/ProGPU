@@ -2,6 +2,7 @@
 
 #include "progpu_native_open_type_complex_internal.hpp"
 #include "progpu_native_open_type_feature_values_internal.hpp"
+#include "progpu_native_initial_mapping_internal.hpp"
 #include "progpu_native_use_diacritics_internal.hpp"
 #include "progpu_native_open_type_gsub_internal.hpp"
 #include "progpu_native_legacy_kern_internal.hpp"
@@ -935,25 +936,33 @@ bool try_get_open_type_shape_run_requirements(
             font, input, result, error)) {
         return false;
     }
-    if (options.complex_script != open_type_complex_script::use) {
-        return true;
-    }
-    if (options.normalization_data == nullptr) {
+    if (static_cast<std::uint8_t>(options.complex_script) >
+        static_cast<std::uint8_t>(open_type_complex_script::khmer)) {
         result = {};
         set_error(error, font_error::invalid_argument);
         return false;
     }
-    std::uint32_t normalized_count = 0U;
-    if (!detail::try_get_use_diacritic_glyph_count(
+    if ((options.complex_script == open_type_complex_script::indic ||
+            options.complex_script == open_type_complex_script::use) &&
+        options.normalization_data == nullptr) {
+        result = {};
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    std::uint32_t mapped_count = 0U;
+    if (!detail::try_get_initial_mapping_count(
+            font,
             input,
-            *options.normalization_data,
-            normalized_count,
+            options.complex_script,
+            options.normalization_data,
+            mapped_count,
             error)) {
         result = {};
         return false;
     }
+    result.initial_glyph_count = mapped_count;
     const std::uint64_t expanded_capacity =
-        static_cast<std::uint64_t>(normalized_count) + input.size();
+        static_cast<std::uint64_t>(mapped_count) + input.size();
     if (expanded_capacity >= std::numeric_limits<std::uint32_t>::max()) {
         result = {};
         set_error(error, font_error::invalid_argument);
@@ -962,8 +971,31 @@ bool try_get_open_type_shape_run_requirements(
     result.glyph_capacity = std::max(
         result.glyph_capacity,
         static_cast<std::uint32_t>(expanded_capacity));
-    result.complex_script_capacity = result.glyph_capacity;
-    result.complex_script_index_capacity = result.glyph_capacity + 1U;
+    if (options.complex_script == open_type_complex_script::use) {
+        std::uint32_t normalized_count = 0U;
+        if (!detail::try_get_use_diacritic_glyph_count(
+                input,
+                *options.normalization_data,
+                normalized_count,
+                error)) {
+            result = {};
+            return false;
+        }
+        const std::uint64_t use_capacity =
+            static_cast<std::uint64_t>(normalized_count) + input.size();
+        if (use_capacity >= std::numeric_limits<std::uint32_t>::max()) {
+            result = {};
+            set_error(error, font_error::invalid_argument);
+            return false;
+        }
+        result.glyph_capacity = std::max(
+            result.glyph_capacity,
+            static_cast<std::uint32_t>(use_capacity));
+    }
+    if (options.complex_script != open_type_complex_script::none) {
+        result.complex_script_capacity = result.glyph_capacity;
+        result.complex_script_index_capacity = result.glyph_capacity + 1U;
+    }
     set_error(error, font_error::none);
     return true;
 }
@@ -1038,30 +1070,41 @@ bool try_shape_open_type_run(
             set_error(error, font_error::invalid_argument);
             return false;
         }
-        std::uint16_t glyph = 0U;
-        float advance_width = 0.0F;
-        if (!font.try_get_glyph_index(scalar.code_point, glyph)) {
-            set_error(error, font_error::invalid_face);
+        detail::initial_mapping mapping{};
+        if (!detail::try_resolve_initial_mapping(
+                font,
+                scalar.code_point,
+                options.complex_script,
+                options.normalization_data,
+                mapping,
+                error)) {
             return false;
         }
-        if (!detail::try_map_space_fallback(
-                font, scalar.code_point, glyph, error)) {
-            return false;
-        }
-        const bool has_advance = scratch.fallback_marks == nullptr
-            ? font.try_get_design_advance_width(
-                glyph,
-                options.normalized_coordinates,
-                advance_width,
-                error)
-            : font.try_get_design_advance_width(
-                glyph,
-                options.normalized_coordinates,
-                advance_width,
-                scratch.fallback_marks->advance_width,
-                error);
-        if (!has_advance) {
-            return false;
+        for (std::size_t index = 0U; index < mapping.size(); ++index) {
+            const auto code_point = mapping.code_point_at(index);
+            std::uint16_t glyph = 0U;
+            float advance_width = 0.0F;
+            if (!font.try_get_glyph_index(code_point, glyph)) {
+                set_error(error, font_error::invalid_face);
+                return false;
+            }
+            if (!detail::try_map_space_fallback(
+                    font, code_point, glyph, error)) {
+                return false;
+            }
+            const bool has_advance = scratch.fallback_marks == nullptr
+                ? font.try_get_design_advance_width(
+                    glyph,
+                    options.normalized_coordinates,
+                    advance_width,
+                    error)
+                : font.try_get_design_advance_width(
+                    glyph,
+                    options.normalized_coordinates,
+                    advance_width,
+                    scratch.fallback_marks->advance_width,
+                    error);
+            if (!has_advance) return false;
         }
     }
 
@@ -1108,29 +1151,42 @@ bool try_shape_open_type_run(
                     continue;
                 }
             }
-            std::uint16_t glyph = 0U;
-            if (!font.try_get_glyph_index(
-                    input[scalar_index].code_point, glyph)) {
-                set_error(error, font_error::invalid_face);
-                return false;
-            }
-            if (!detail::try_map_space_fallback(
+            detail::initial_mapping mapping{};
+            if (!detail::try_resolve_initial_mapping(
                     font,
                     input[scalar_index].code_point,
-                    glyph,
+                    options.complex_script,
+                    options.normalization_data,
+                    mapping,
                     error)) {
                 return false;
             }
-            glyph_storage[mapped_count] = shaping_glyph{
-                glyph,
-                input[scalar_index].code_point,
-                static_cast<std::int32_t>(cluster.input_index)};
-            if (arabic_joining) {
-                set_arabic_action(
-                    glyph_storage[mapped_count],
-                    scratch.arabic_actions[scalar_index]);
+            for (std::size_t index = 0U; index < mapping.size(); ++index) {
+                if (mapped_count >= glyph_storage.size()) {
+                    set_error(error, font_error::insufficient_buffer);
+                    return false;
+                }
+                const auto code_point = mapping.code_point_at(index);
+                std::uint16_t glyph = 0U;
+                if (!font.try_get_glyph_index(code_point, glyph)) {
+                    set_error(error, font_error::invalid_face);
+                    return false;
+                }
+                if (!detail::try_map_space_fallback(
+                        font, code_point, glyph, error)) {
+                    return false;
+                }
+                glyph_storage[mapped_count] = shaping_glyph{
+                    glyph,
+                    code_point,
+                    static_cast<std::int32_t>(cluster.input_index)};
+                if (arabic_joining) {
+                    set_arabic_action(
+                        glyph_storage[mapped_count],
+                        scratch.arabic_actions[scalar_index]);
+                }
+                ++mapped_count;
             }
-            ++mapped_count;
         }
     }
     glyph_count = mapped_count;

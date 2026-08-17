@@ -1012,9 +1012,11 @@ struct open_type_shape_run_options final {
      * has any records, this span is its resolved value sequence and therefore
      * includes an all-input baseline record before narrower overrides. */
     std::span<const shaping_feature> feature_settings{};
-    /* Shared borrowed FormD plan used by the managed-compatible USE shaper.
-     * Required when complex_script is use; retained only for this synchronous
-     * shaping call and never copied or owned by the shaping plan. */
+    /* Shared borrowed FormD plan used by managed-compatible initial missing-
+     * glyph decomposition and Indic/USE shaping. Required for Indic and USE;
+     * retained only for this synchronous call and never copied or owned by the
+     * shaping plan. Other scripts opt into canonical missing-glyph expansion
+     * by supplying the same process-wide plan. */
     const unicode_normalization_data* normalization_data = nullptr;
     /* Decoded neighboring text used only for boundary-sensitive shaping.
      * At most five scalars on each side are inspected; spans are borrowed for
