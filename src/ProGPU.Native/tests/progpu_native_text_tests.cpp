@@ -3340,6 +3340,106 @@ void directional_code_point_fallback_matches_managed_stages() {
         shaped[0U].glyph_id == 6U);
 }
 
+void special_space_fallback_matches_managed_metrics() {
+    constexpr std::array mappings{
+        std::pair{0x20U, 1U},
+        std::pair{0x2CU, 3U},
+        std::pair{0x30U, 2U}};
+    const auto cmap = make_cmap_groups(mappings);
+    const auto data = make_font(
+        0U, 22U, 0U, false, false, false, {}, cmap);
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+
+    constexpr std::array code_points{
+        0x00A0U,
+        0x2000U,
+        0x2001U,
+        0x2004U,
+        0x2005U,
+        0x2006U,
+        0x2007U,
+        0x2008U,
+        0x2009U,
+        0x200AU,
+        0x202FU,
+        0x205FU,
+        0x3000U};
+    constexpr std::array expected_advances{
+        600, 500, 1000, 333, 250, 167, 600,
+        600, 200, 63, 300, 222, 1000};
+    std::array<unicode_scalar, code_points.size()> input{};
+    for (std::size_t index = 0U; index < code_points.size(); ++index) {
+        input[index] = unicode_scalar{
+            code_points[index],
+            static_cast<std::uint32_t>(index),
+            1U};
+    }
+    std::array<shaping_glyph, code_points.size()> glyphs{};
+    std::array<unicode_grapheme_cluster, code_points.size()> graphemes{};
+    std::array<shaping_attachment, code_points.size()> attachments{};
+    std::array<std::uint8_t, code_points.size()> states{};
+    std::uint32_t glyph_count = 0U;
+    require(try_shape_open_type_run(
+        font,
+        input,
+        {},
+        glyphs,
+        open_type_shape_run_scratch{
+            graphemes, {}, {}, attachments, states},
+        glyph_count,
+        &error));
+    require(glyph_count == code_points.size());
+    for (std::size_t index = 0U; index < code_points.size(); ++index) {
+        require(glyphs[index].code_point == code_points[index] &&
+            glyphs[index].glyph_id == 1U &&
+            glyphs[index].advance_x == expected_advances[index]);
+    }
+
+    const std::array<unicode_scalar, 1U> vertical_input{
+        unicode_scalar{0x2000U, 0U, 1U}};
+    std::array<shaping_glyph, 1U> vertical_glyph{};
+    std::array<unicode_grapheme_cluster, 1U> vertical_grapheme{};
+    std::array<shaping_attachment, 1U> vertical_attachment{};
+    std::array<std::uint8_t, 1U> vertical_state{};
+    auto vertical_options = open_type_shape_run_options{};
+    vertical_options.direction = shaping_direction::top_to_bottom;
+    require(try_shape_open_type_run(
+        font,
+        vertical_input,
+        vertical_options,
+        vertical_glyph,
+        open_type_shape_run_scratch{
+            vertical_grapheme,
+            {},
+            {},
+            vertical_attachment,
+            vertical_state},
+        glyph_count,
+        &error));
+    require(glyph_count == 1U && vertical_glyph[0U].glyph_id == 1U &&
+        vertical_glyph[0U].advance_y == -500);
+
+    const auto no_space_data = make_font();
+    require(sfnt_font_view::try_create(no_space_data, 0U, font, &error));
+    require(try_shape_open_type_run(
+        font,
+        vertical_input,
+        {},
+        vertical_glyph,
+        open_type_shape_run_scratch{
+            vertical_grapheme,
+            {},
+            {},
+            vertical_attachment,
+            vertical_state},
+        glyph_count,
+        &error));
+    require(glyph_count == 1U && vertical_glyph[0U].glyph_id == 0U &&
+        vertical_glyph[0U].advance_x == 500);
+}
+
 void open_type_khmer_preparation_reorders_prebase_vowels() {
     constexpr std::array mappings{
         std::pair{0x1780U, 2U},
@@ -8135,6 +8235,7 @@ int main() {
     open_type_uniform_run_shaper_connects_unicode_font_and_metrics();
     open_type_common_preprocessing_matches_managed_stages();
     directional_code_point_fallback_matches_managed_stages();
+    special_space_fallback_matches_managed_metrics();
     open_type_khmer_preparation_reorders_prebase_vowels();
     open_type_myanmar_preparation_reorders_prebase_vowels();
     open_type_use_preparation_reorders_prebase_vowels();

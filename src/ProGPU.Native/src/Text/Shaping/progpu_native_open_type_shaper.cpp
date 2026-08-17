@@ -6,6 +6,7 @@
 #include "progpu_native_legacy_kern_internal.hpp"
 #include "progpu_native_fallback_marks_internal.hpp"
 #include "progpu_native_arabic_stretch_internal.hpp"
+#include "progpu_native_space_fallback_internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -1001,6 +1002,10 @@ bool try_shape_open_type_run(
             set_error(error, font_error::invalid_face);
             return false;
         }
+        if (!detail::try_map_space_fallback(
+                font, scalar.code_point, glyph, error)) {
+            return false;
+        }
         const bool has_advance = scratch.fallback_marks == nullptr
             ? font.try_get_design_advance_width(
                 glyph,
@@ -1063,6 +1068,13 @@ bool try_shape_open_type_run(
             if (!font.try_get_glyph_index(
                     input[scalar_index].code_point, glyph)) {
                 set_error(error, font_error::invalid_face);
+                return false;
+            }
+            if (!detail::try_map_space_fallback(
+                    font,
+                    input[scalar_index].code_point,
+                    glyph,
+                    error)) {
                 return false;
             }
             glyph_storage[mapped_count] = shaping_glyph{
@@ -1476,6 +1488,15 @@ bool try_shape_open_type_run(
             glyph_storage[index].advance_y = 0;
             glyph_storage[index].offset_x = 0;
             glyph_storage[index].offset_y = 0;
+        }
+        if (!detail::try_apply_space_fallback(
+                font,
+                options.direction,
+                options.normalized_coordinates,
+                scratch.fallback_marks,
+                glyph_storage[index],
+                error)) {
+            return false;
         }
         if (zero_mark_advances_early &&
             is_positioning_mark(glyph_storage[index], gdef_pointer)) {
