@@ -149,11 +149,28 @@ std::int32_t recategorize_combining_class(
 bool try_get_extents(
     const sfnt_font_view& font,
     std::uint16_t glyph,
-    glyph_extents& result) noexcept {
+    std::span<const std::int16_t> coordinates,
+    fallback_mark_positioning_scratch* scratch,
+    glyph_extents& result,
+    bool& found,
+    font_error* error) noexcept {
     sfnt_glyph_bounds bounds{};
-    if (!font.try_get_glyph_bounds(glyph, bounds)) {
+    found = false;
+    if (scratch == nullptr) {
+        found = font.try_get_glyph_bounds(glyph, bounds);
+    } else if (!font.try_get_outline_bounds(
+            glyph,
+            coordinates,
+            scratch->outline_bounds,
+            bounds,
+            found,
+            error)) {
         result = {};
         return false;
+    }
+    if (!found) {
+        result = {};
+        return true;
     }
     result = glyph_extents{
         bounds.x_min,
@@ -201,18 +218,29 @@ std::int32_t position_above(
     return offset;
 }
 
-void position_mark(
+bool position_mark(
     const sfnt_font_view& font,
     shaping_glyph& glyph,
     std::int32_t combining_class,
     glyph_extents& base,
     shaping_direction direction,
-    std::int32_t units_per_em) noexcept {
+    std::int32_t units_per_em,
+    std::span<const std::int16_t> coordinates,
+    fallback_mark_positioning_scratch* scratch,
+    font_error* error) noexcept {
     glyph_extents mark{};
+    bool found = false;
     if (!try_get_extents(
-            font, static_cast<std::uint16_t>(glyph.glyph_id), mark)) {
-        return;
+            font,
+            static_cast<std::uint16_t>(glyph.glyph_id),
+            coordinates,
+            scratch,
+            mark,
+            found,
+            error)) {
+        return false;
     }
+    if (!found) return true;
     std::int32_t offset_x = 0;
     if ((combining_class == 233 || combining_class == 234) &&
         direction == shaping_direction::left_to_right) {
@@ -258,6 +286,7 @@ void position_mark(
     }
     glyph.offset_x = clamp_i16(offset_x);
     glyph.offset_y = clamp_i16(offset_y);
+    return true;
 }
 
 bool try_position_base_marks(
@@ -269,20 +298,36 @@ bool try_position_base_marks(
     std::size_t base_index,
     std::size_t end,
     std::int32_t units_per_em,
+    fallback_mark_positioning_scratch* scratch,
     font_error* error) noexcept {
     glyph_extents base{};
+    bool found = false;
     if (!try_get_extents(
             font,
             static_cast<std::uint16_t>(glyphs[base_index].glyph_id),
-            base)) {
+            coordinates,
+            scratch,
+            base,
+            found,
+            error)) {
+        return false;
+    }
+    if (!found) {
         return true;
     }
     float advance_width = 0.0F;
-    if (!font.try_get_design_advance_width(
-            static_cast<std::uint16_t>(glyphs[base_index].glyph_id),
+    const auto glyph =
+        static_cast<std::uint16_t>(glyphs[base_index].glyph_id);
+    const bool has_advance = scratch == nullptr
+        ? font.try_get_design_advance_width(
+            glyph, coordinates, advance_width, error)
+        : font.try_get_design_advance_width(
+            glyph,
             coordinates,
             advance_width,
-            error)) {
+            scratch->advance_width,
+            error);
+    if (!has_advance) {
         return false;
     }
     mark_unsafe_to_break(glyphs, base_index, end);
@@ -345,13 +390,18 @@ bool try_position_base_marks(
             last_class = combining_class;
             class_extents = component_extents;
         }
-        position_mark(
+        if (!position_mark(
             font,
             glyphs[index],
             combining_class,
             class_extents,
             direction,
-            units_per_em);
+            units_per_em,
+            coordinates,
+            scratch,
+            error)) {
+            return false;
+        }
         glyphs[index].advance_x = 0;
         glyphs[index].advance_y = 0;
         glyphs[index].offset_x = add_clamped_i16(
@@ -368,6 +418,7 @@ bool try_apply_fallback_mark_positioning_core(
     shaping_direction direction,
     metadata_view metadata,
     std::span<const std::int16_t> normalized_coordinates,
+    fallback_mark_positioning_scratch* scratch,
     font_error* error) noexcept {
     set_error(error, font_error::none);
     if (direction == shaping_direction::unspecified) {
@@ -415,6 +466,7 @@ bool try_apply_fallback_mark_positioning_core(
                         base,
                         mark_end,
                         header.units_per_em,
+                        scratch,
                         error)) {
                     return false;
                 }
@@ -446,6 +498,29 @@ bool try_apply_fallback_mark_positioning(
         direction,
         metadata_view{metadata, {}},
         normalized_coordinates,
+        nullptr,
+        error);
+}
+
+bool try_apply_fallback_mark_positioning(
+    const sfnt_font_view& font,
+    std::span<shaping_glyph> glyphs,
+    shaping_direction direction,
+    std::span<const fallback_mark_metadata> metadata,
+    std::span<const std::int16_t> normalized_coordinates,
+    fallback_mark_positioning_scratch& scratch,
+    font_error* error) noexcept {
+    if (!metadata.empty() && metadata.size() < glyphs.size()) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    return try_apply_fallback_mark_positioning_core(
+        font,
+        glyphs,
+        direction,
+        metadata_view{metadata, {}},
+        normalized_coordinates,
+        &scratch,
         error);
 }
 
@@ -466,6 +541,7 @@ bool detail::try_apply_fallback_mark_positioning_from_attachments(
         direction,
         metadata_view{{}, metadata},
         normalized_coordinates,
+        nullptr,
         error);
 }
 

@@ -179,6 +179,10 @@ using progpu::native::text::sfnt_font_view;
 using progpu::native::text::sfnt_glyph_data_view;
 using progpu::native::text::sfnt_glyph_decode_requirements;
 using progpu::native::text::sfnt_glyph_kind;
+using progpu::native::text::sfnt_glyph_outline_source;
+using progpu::native::text::sfnt_glyph_outline_bounds_requirements;
+using progpu::native::text::sfnt_glyph_outline_bounds_scratch;
+using progpu::native::text::fallback_mark_positioning_scratch;
 using progpu::native::text::sfnt_glyph_variation_data_view;
 using progpu::native::text::sfnt_glyph_phantom_variation_requirements;
 using progpu::native::text::sfnt_glyph_phantom_variation_scratch;
@@ -5045,6 +5049,23 @@ void fallback_mark_positioning_matches_managed_policy() {
 
     glyphs = {
         shaping_glyph{4U, 0x41U, 0, {}, 600, 0, 0, 0},
+        shaping_glyph{4U, 0x0301U, 1, {}, 600, 0, 0, 0},
+        shaping_glyph{4U, 0x0301U, 1, {}, 600, 0, 0, 0}};
+    fallback_mark_positioning_scratch fallback_scratch{};
+    require(try_apply_fallback_mark_positioning(
+        font,
+        glyphs,
+        shaping_direction::left_to_right,
+        {},
+        {},
+        fallback_scratch,
+        &error));
+    require(error == font_error::none &&
+        glyphs[1U].offset_x == -320 && glyphs[1U].offset_y == 102 &&
+        glyphs[2U].offset_x == -320 && glyphs[2U].offset_y == 204);
+
+    glyphs = {
+        shaping_glyph{4U, 0x41U, 0, {}, 600, 0, 0, 0},
         shaping_glyph{4U, 0x0301U, 0, {}, 0, 0, 7, 9},
         shaping_glyph{4U, 0x0301U, 0, {}, 0, 0, 0, 0}};
     const std::array<fallback_mark_metadata, 3U> positioned{
@@ -6881,6 +6902,22 @@ void production_noto_cff1_container_matches_sfnt_glyph_count() {
             cff, glyph, segments, written, &error));
         require(written == segments.size());
         require(hash_complete_path_segments(segments) == hashes[checkpoint]);
+        sfnt_glyph_outline_bounds_requirements bounds_requirements{};
+        require(font.try_get_outline_bounds_requirements(
+            glyph, {}, bounds_requirements, &error));
+        require(bounds_requirements.source == sfnt_glyph_outline_source::cff1 &&
+            bounds_requirements.path_segment_count == segments.size());
+        sfnt_glyph_bounds bounds{};
+        bool has_bounds = false;
+        require(font.try_get_outline_bounds(
+            glyph,
+            {},
+            sfnt_glyph_outline_bounds_scratch{{}, {}, segments},
+            bounds,
+            has_bounds,
+            &error));
+        require(has_bounds && bounds.x_max > bounds.x_min &&
+            bounds.y_max > bounds.y_min);
     }
     require(cff.char_strings.count == glyph_count);
     require(!cff.bytes.empty() && cff.top_dictionary.char_strings_offset > 0U);
@@ -6942,6 +6979,17 @@ void production_inter_font_decodes_real_simple_outline() {
     require(font.try_get_glyph_data(glyph_index, glyph_data));
     require(glyph_data.x_min == 106 && glyph_data.y_min == -25);
     require(glyph_data.x_max == 1217 && glyph_data.y_max == 1510);
+    sfnt_glyph_outline_bounds_requirements bounds_requirements{};
+    require(font.try_get_outline_bounds_requirements(
+        glyph_index, {}, bounds_requirements));
+    require(bounds_requirements.source ==
+        sfnt_glyph_outline_source::true_type_static);
+    sfnt_glyph_bounds bounds{};
+    bool has_bounds = false;
+    require(font.try_get_outline_bounds(
+        glyph_index, {}, {}, bounds, has_bounds));
+    require(has_bounds && bounds.x_min == 106 && bounds.y_min == -25 &&
+        bounds.x_max == 1217 && bounds.y_max == 1510);
     sfnt_glyph_decode_requirements requirements{};
     require(font.try_get_glyph_decode_requirements(
         glyph_index, requirements));
@@ -7277,6 +7325,34 @@ void production_inter_variable_font_matches_fvar_axes() {
     require(varied_segments[0].p0.y == -25.0F);
     require(hash_path_segments(varied_segments) ==
         12343280691057163238ULL);
+    sfnt_glyph_outline_bounds_requirements bounds_requirements{};
+    require(font.try_get_outline_bounds_requirements(
+        397U, optical_coordinates, bounds_requirements));
+    require(bounds_requirements.source ==
+            sfnt_glyph_outline_source::true_type_varied &&
+        bounds_requirements.point_count == outline_requirements.point_count &&
+        bounds_requirements.path_segment_count == varied_segments.size());
+    std::vector<progpu_native_point> bounds_points(
+        bounds_requirements.point_count);
+    sfnt_glyph_bounds varied_bounds{};
+    bool has_varied_bounds = false;
+    require(font.try_get_outline_bounds(
+        397U,
+        optical_coordinates,
+        sfnt_glyph_outline_bounds_scratch{
+            sfnt_varied_glyph_scratch{
+                contour_ends,
+                original_points,
+                varied_points,
+                {},
+                variation_scratch,
+                {}},
+            bounds_points,
+            varied_segments},
+        varied_bounds,
+        has_varied_bounds));
+    require(has_varied_bounds && varied_bounds.x_max > varied_bounds.x_min &&
+        varied_bounds.y_max > varied_bounds.y_min);
 
     sfnt_composite_glyph_decode_requirements composite_requirements{};
     require(font.try_get_composite_glyph_decode_requirements(

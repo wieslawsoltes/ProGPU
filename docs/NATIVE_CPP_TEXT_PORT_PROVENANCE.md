@@ -836,8 +836,20 @@ which glyphs it positioned in the caller-owned attachment scratch, and the
 shaper strips the private bits before returning the stable public glyph span.
 The integrated Latin mark fixture covers managed advance zeroing and fallback
 offsets; low-level GSUB/GPOS fixtures cover the transient metadata boundaries.
-CFF and active-variable outline extents remain the adjacent bounds parity
-slice.
+The adjacent glyph-bounds slice now adds a general caller-scratch outline
+query that selects static TrueType bounds or decodes the already ported
+active-`gvar`, CFF1, and CFF2 path sources before applying the same conservative
+control-point envelope and integer rounding as the managed geometry path. Its
+requirements pass reports the exact point, path-segment, and varied-outline
+scratch needed by execution. A second fallback-mark overload consumes that
+scratch together with the full HVAR/phantom-point advance scratch, so direct
+fallback placement is variation- and CFF-aware without native allocation.
+Ordinary full-run shaping intentionally continues through its bounded legacy
+scratch route until that public run-scratch contract is extended; it does not
+silently allocate or claim variable/CFF fallback extents. Production Inter
+static/variable and Noto CFF fixtures cover source selection and successful
+bounds reduction, while the synthetic mark fixture covers equivalent output
+through both direct overloads.
 
 Legacy kerning fallback now directly ports the ProGPU-owned
 `GlyphPositionBuffer.ApplyLegacyKern` policy from checkpoint `34b76eeb`.

@@ -825,6 +825,8 @@ struct fallback_mark_metadata final {
     bool positioned = false;
 };
 
+struct fallback_mark_positioning_scratch;
+
 /*
  * Direct native counterpart of GlyphPositionBuffer fallback mark placement.
  * Glyph positions are updated in place in O(G * T) time for G glyphs and T
@@ -837,6 +839,14 @@ bool try_apply_fallback_mark_positioning(
     shaping_direction direction,
     std::span<const fallback_mark_metadata> metadata = {},
     std::span<const std::int16_t> normalized_coordinates = {},
+    font_error* error = nullptr) noexcept;
+bool try_apply_fallback_mark_positioning(
+    const sfnt_font_view& font,
+    std::span<shaping_glyph> glyphs,
+    shaping_direction direction,
+    std::span<const fallback_mark_metadata> metadata,
+    std::span<const std::int16_t> normalized_coordinates,
+    fallback_mark_positioning_scratch& scratch,
     font_error* error = nullptr) noexcept;
 
 struct open_type_gpos_apply_options final {
@@ -2049,6 +2059,32 @@ struct sfnt_varied_glyph_scratch final {
     sfnt_composite_glyph_variation_scratch composite_variation{};
 };
 
+enum class sfnt_glyph_outline_source : std::uint8_t {
+    none = 0U,
+    true_type_static,
+    true_type_varied,
+    cff1,
+    cff2
+};
+
+struct sfnt_glyph_outline_bounds_requirements final {
+    sfnt_glyph_outline_source source = sfnt_glyph_outline_source::none;
+    std::uint32_t point_count = 0U;
+    std::uint32_t path_segment_count = 0U;
+    sfnt_varied_glyph_requirements varied{};
+};
+
+struct sfnt_glyph_outline_bounds_scratch final {
+    sfnt_varied_glyph_scratch varied{};
+    std::span<progpu_native_point> points{};
+    std::span<progpu_native_path_segment> path_segments{};
+};
+
+struct fallback_mark_positioning_scratch final {
+    sfnt_glyph_outline_bounds_scratch outline_bounds{};
+    sfnt_glyph_phantom_variation_scratch advance_width{};
+};
+
 /*
  * Transactional two-pass decoders for gvar packed point and delta streams.
  * Each pass is O(N) time with O(1) internal storage for N encoded values. The
@@ -2172,6 +2208,18 @@ public:
     bool try_get_glyph_bounds(
         std::uint16_t glyph_index,
         sfnt_glyph_bounds& result) const noexcept;
+    bool try_get_outline_bounds_requirements(
+        std::uint16_t glyph_index,
+        std::span<const std::int16_t> normalized_coordinates,
+        sfnt_glyph_outline_bounds_requirements& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_outline_bounds(
+        std::uint16_t glyph_index,
+        std::span<const std::int16_t> normalized_coordinates,
+        sfnt_glyph_outline_bounds_scratch scratch,
+        sfnt_glyph_bounds& result,
+        bool& has_bounds,
+        font_error* error = nullptr) const noexcept;
     bool try_get_design_advance_height(
         std::uint16_t glyph_index,
         std::int32_t& result) const noexcept;
