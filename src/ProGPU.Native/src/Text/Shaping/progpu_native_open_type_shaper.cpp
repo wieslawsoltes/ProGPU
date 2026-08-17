@@ -270,6 +270,7 @@ bool apply_arabic_form_feature(
             script,
             language,
             feature,
+            run_options.normalized_coordinates,
             lookup_scratch,
             lookup_count,
             error)) {
@@ -325,6 +326,7 @@ bool apply_arabic_stretch_feature(
             script,
             language,
             stretch_feature,
+            run_options.normalized_coordinates,
             lookup_scratch,
             lookup_count,
             error)) {
@@ -399,6 +401,7 @@ bool apply_hangul_feature(
             script,
             language,
             feature,
+            run_options.normalized_coordinates,
             lookup_scratch,
             lookup_count,
             error)) {
@@ -464,6 +467,7 @@ bool apply_complex_feature(
             run_options.script,
             run_options.language,
             feature,
+            run_options.normalized_coordinates,
             lookup_scratch,
             lookup_count,
             error)) {
@@ -600,6 +604,7 @@ bool apply_complex_script_features(
             options.script,
             options.language,
             {},
+            options.normalized_coordinates,
             lookup_scratch,
             required_count,
             error)) {
@@ -1574,6 +1579,7 @@ bool try_shape_open_type_run(
                     options.script,
                     options.language,
                     feature,
+                    options.normalized_coordinates,
                     scratch.gsub_lookups.first(gsub.lookup_count()),
                     lookup_count,
                     error)) {
@@ -1679,6 +1685,7 @@ bool try_shape_open_type_run(
                     options.script,
                     options.language,
                     feature,
+                    options.normalized_coordinates,
                     scratch.gsub_lookups.first(gsub.lookup_count()),
                     lookup_count,
                     error)) {
@@ -1751,6 +1758,7 @@ bool try_shape_open_type_run(
                         options.script,
                         options.language,
                         options.requested_features,
+                        options.normalized_coordinates,
                         scratch.gsub_lookups.first(gsub.lookup_count()),
                         lookup_count,
                         error)
@@ -1759,6 +1767,7 @@ bool try_shape_open_type_run(
                         options.language,
                         options.requested_features,
                         excluded_gsub,
+                        options.normalized_coordinates,
                         scratch.gsub_lookups.first(gsub.lookup_count()),
                         lookup_count,
                         error);
@@ -2020,6 +2029,7 @@ bool try_shape_open_type_run(
                     options.script,
                     options.language,
                     options.requested_features,
+                    options.normalized_coordinates,
                     scratch.gpos_lookups.first(gpos.lookup_count()),
                     lookup_count,
                     error)
@@ -2028,6 +2038,7 @@ bool try_shape_open_type_run(
                     options.language,
                     options.requested_features,
                     excluded_fraction,
+                    options.normalized_coordinates,
                     scratch.gpos_lookups.first(gpos.lookup_count()),
                     lookup_count,
                     error);

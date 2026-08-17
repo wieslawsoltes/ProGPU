@@ -118,6 +118,7 @@ bool try_resolve_lookup_feature(
             options.script,
             options.language,
             lookup,
+            options.normalized_coordinates,
             result.feature,
             result.required,
             error)) {
@@ -133,6 +134,7 @@ bool try_resolve_lookup_feature(
                 options.language,
                 feature,
                 lookup,
+                options.normalized_coordinates,
                 contains,
                 error)) {
             return false;
@@ -217,6 +219,7 @@ bool try_get_fraction_feature_kind(
                 options.language,
                 feature,
                 lookup,
+                options.normalized_coordinates,
                 contains,
                 error)) {
             return false;

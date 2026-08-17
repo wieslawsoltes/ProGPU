@@ -807,10 +807,27 @@ public:
         lookup_selection_requirements& result,
         font_error* error = nullptr) const noexcept;
 
+    bool try_get_lookup_selection_requirements(
+        open_type_tag script,
+        open_type_tag language,
+        std::span<const open_type_tag> requested_features,
+        std::span<const std::int16_t> normalized_coordinates,
+        lookup_selection_requirements& result,
+        font_error* error = nullptr) const noexcept;
+
     bool try_select_lookups(
         open_type_tag script,
         open_type_tag language,
         std::span<const open_type_tag> requested_features,
+        std::span<std::uint16_t> output,
+        std::uint32_t& written,
+        font_error* error = nullptr) const noexcept;
+
+    bool try_select_lookups(
+        open_type_tag script,
+        open_type_tag language,
+        std::span<const open_type_tag> requested_features,
+        std::span<const std::int16_t> normalized_coordinates,
         std::span<std::uint16_t> output,
         std::uint32_t& written,
         font_error* error = nullptr) const noexcept;
@@ -820,6 +837,16 @@ public:
         open_type_tag language,
         std::span<const open_type_tag> requested_features,
         std::span<const open_type_tag> excluded_features,
+        std::span<std::uint16_t> output,
+        std::uint32_t& written,
+        font_error* error = nullptr) const noexcept;
+
+    bool try_select_lookups_excluding(
+        open_type_tag script,
+        open_type_tag language,
+        std::span<const open_type_tag> requested_features,
+        std::span<const open_type_tag> excluded_features,
+        std::span<const std::int16_t> normalized_coordinates,
         std::span<std::uint16_t> output,
         std::uint32_t& written,
         font_error* error = nullptr) const noexcept;
@@ -835,11 +862,29 @@ public:
         std::uint32_t& written,
         font_error* error = nullptr) const noexcept;
 
+    bool try_select_feature_lookups(
+        open_type_tag script,
+        open_type_tag language,
+        open_type_tag feature,
+        std::span<const std::int16_t> normalized_coordinates,
+        std::span<std::uint16_t> output,
+        std::uint32_t& written,
+        font_error* error = nullptr) const noexcept;
+
     bool try_feature_contains_lookup(
         open_type_tag script,
         open_type_tag language,
         open_type_tag feature,
         std::uint16_t lookup,
+        bool& contains,
+        font_error* error = nullptr) const noexcept;
+
+    bool try_feature_contains_lookup(
+        open_type_tag script,
+        open_type_tag language,
+        open_type_tag feature,
+        std::uint16_t lookup,
+        std::span<const std::int16_t> normalized_coordinates,
         bool& contains,
         font_error* error = nullptr) const noexcept;
 
@@ -850,10 +895,27 @@ public:
         bool& contains,
         font_error* error = nullptr) const noexcept;
 
+    bool try_required_feature_contains_lookup(
+        open_type_tag script,
+        open_type_tag language,
+        std::uint16_t lookup,
+        std::span<const std::int16_t> normalized_coordinates,
+        bool& contains,
+        font_error* error = nullptr) const noexcept;
+
     bool try_required_feature_for_lookup(
         open_type_tag script,
         open_type_tag language,
         std::uint16_t lookup,
+        open_type_tag& feature,
+        bool& contains,
+        font_error* error = nullptr) const noexcept;
+
+    bool try_required_feature_for_lookup(
+        open_type_tag script,
+        open_type_tag language,
+        std::uint16_t lookup,
+        std::span<const std::int16_t> normalized_coordinates,
         open_type_tag& feature,
         bool& contains,
         font_error* error = nullptr) const noexcept;
@@ -1305,6 +1367,7 @@ struct open_type_shape_plan final {
     const std::byte* font_data = nullptr;
     std::size_t font_size = 0U;
     std::uint64_t feature_hash = 0U;
+    std::uint64_t coordinate_hash = 0U;
     std::uint32_t face_index = 0U;
     open_type_tag script{};
     open_type_tag language{};

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -97,21 +98,158 @@ struct selection_result final {
     bool contains_target = false;
 };
 
+bool matches_feature_variation_conditions(
+    std::span<const std::byte> table,
+    std::size_t condition_set,
+    std::span<const std::int16_t> normalized_coordinates) noexcept {
+    if (!can_read(table, condition_set, 2U)) {
+        return false;
+    }
+    const std::uint16_t count = read_u16(table, condition_set);
+    if (!can_read(
+            table,
+            condition_set + 2U,
+            static_cast<std::size_t>(count) * 4U)) {
+        return false;
+    }
+    for (std::uint16_t index = 0U; index < count; ++index) {
+        const std::uint32_t relative = read_u32(
+            table,
+            condition_set + 2U + static_cast<std::size_t>(index) * 4U);
+        std::size_t condition = 0U;
+        if (!try_add(condition_set, relative, condition) ||
+            !can_read(table, condition, 8U) ||
+            read_u16(table, condition) != 1U) {
+            return false;
+        }
+        const std::uint16_t axis = read_u16(table, condition + 2U);
+        if (axis >= normalized_coordinates.size()) {
+            return false;
+        }
+        const auto minimum = std::bit_cast<std::int16_t>(
+            read_u16(table, condition + 4U));
+        const auto maximum = std::bit_cast<std::int16_t>(
+            read_u16(table, condition + 6U));
+        const auto coordinate = normalized_coordinates[axis];
+        if (coordinate < minimum || coordinate > maximum) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::size_t find_feature_substitution_table(
+    std::span<const std::byte> table,
+    std::size_t feature_variations,
+    std::span<const std::int16_t> normalized_coordinates) noexcept {
+    if (feature_variations == 0U ||
+        !can_read(table, feature_variations, 8U) ||
+        read_u16(table, feature_variations) != 1U ||
+        read_u16(table, feature_variations + 2U) != 0U) {
+        return 0U;
+    }
+    const std::uint32_t count = read_u32(table, feature_variations + 4U);
+    if constexpr (sizeof(std::size_t) < sizeof(std::uint64_t)) {
+        if (count > std::numeric_limits<std::size_t>::max() / 8U) {
+            return 0U;
+        }
+    }
+    if (!can_read(
+            table,
+            feature_variations + 8U,
+            static_cast<std::size_t>(count) * 8U)) {
+        return 0U;
+    }
+    for (std::uint32_t index = 0U; index < count; ++index) {
+        const std::size_t record = feature_variations + 8U +
+            static_cast<std::size_t>(index) * 8U;
+        std::size_t condition_set = 0U;
+        if (!try_add(
+                feature_variations,
+                read_u32(table, record),
+                condition_set) ||
+            !matches_feature_variation_conditions(
+                table,
+                condition_set,
+                normalized_coordinates)) {
+            continue;
+        }
+        std::size_t substitutions = 0U;
+        if (!try_add(
+                feature_variations,
+                read_u32(table, record + 4U),
+                substitutions) ||
+            !can_read(table, substitutions, 6U) ||
+            read_u16(table, substitutions) != 1U ||
+            read_u16(table, substitutions + 2U) != 0U) {
+            return 0U;
+        }
+        const std::uint16_t substitution_count =
+            read_u16(table, substitutions + 4U);
+        return can_read(
+            table,
+            substitutions + 6U,
+            static_cast<std::size_t>(substitution_count) * 6U)
+            ? substitutions
+            : 0U;
+    }
+    return 0U;
+}
+
+enum class alternate_feature_result : std::uint8_t {
+    not_found,
+    found,
+    invalid
+};
+
+alternate_feature_result find_alternate_feature(
+    std::span<const std::byte> table,
+    std::size_t substitutions,
+    std::uint16_t feature_index,
+    std::size_t& result) noexcept {
+    result = 0U;
+    if (substitutions == 0U) {
+        return alternate_feature_result::not_found;
+    }
+    const std::uint16_t count = read_u16(table, substitutions + 4U);
+    for (std::uint16_t index = 0U; index < count; ++index) {
+        const std::size_t record = substitutions + 6U +
+            static_cast<std::size_t>(index) * 6U;
+        if (read_u16(table, record) != feature_index) {
+            continue;
+        }
+        return (try_add(
+                    substitutions,
+                    read_u32(table, record + 2U),
+                    result) &&
+                can_read(table, result, 4U))
+            ? alternate_feature_result::found
+            : alternate_feature_result::invalid;
+    }
+    return alternate_feature_result::not_found;
+}
+
 bool select_layout_lookups(
     std::span<const std::byte> table,
     std::size_t script_list,
     std::size_t feature_list,
+    std::size_t feature_variations,
     std::uint16_t layout_lookup_count,
     open_type_tag script,
     open_type_tag language,
     std::span<const open_type_tag> requested_features,
     std::span<const open_type_tag> excluded_features,
+    std::span<const std::int16_t> normalized_coordinates,
     std::span<std::uint16_t> output,
     bool include_required,
     bool write,
     std::uint16_t target_lookup,
     selection_result& result) noexcept {
     result = {};
+    const std::size_t substitutions = find_feature_substitution_table(
+        table,
+        feature_variations,
+        normalized_coordinates);
     std::size_t script_table = 0U;
     if (!find_tagged_offset(
             table, script_list, script_list, script, script_table)) {
@@ -178,11 +316,22 @@ bool select_layout_lookups(
 
     const auto append_feature = [&](std::uint16_t feature_index) noexcept {
         const std::size_t record = feature_list + 2U + feature_index * 6U;
-        const std::uint16_t relative = read_u16(table, record + 4U);
         std::size_t feature = 0U;
-        if (relative == 0U || !try_add(feature_list, relative, feature) ||
-            !can_read(table, feature, 4U)) {
-            return false;
+        const auto alternate = find_alternate_feature(
+            table,
+            substitutions,
+            feature_index,
+            feature);
+        if (alternate == alternate_feature_result::invalid) {
+            return true;
+        }
+        if (alternate == alternate_feature_result::not_found) {
+            const std::uint16_t relative = read_u16(table, record + 4U);
+            if (relative == 0U ||
+                !try_add(feature_list, relative, feature) ||
+                !can_read(table, feature, 4U)) {
+                return false;
+            }
         }
         const std::uint16_t count = read_u16(table, feature + 2U);
         if (!can_read(table, feature + 4U,
@@ -252,17 +401,35 @@ bool open_type_layout_table_view::try_get_lookup_selection_requirements(
     std::span<const open_type_tag> requested_features,
     lookup_selection_requirements& result,
     font_error* error) const noexcept {
+    return try_get_lookup_selection_requirements(
+        script,
+        language,
+        requested_features,
+        {},
+        result,
+        error);
+}
+
+bool open_type_layout_table_view::try_get_lookup_selection_requirements(
+    open_type_tag script,
+    open_type_tag language,
+    std::span<const open_type_tag> requested_features,
+    std::span<const std::int16_t> normalized_coordinates,
+    lookup_selection_requirements& result,
+    font_error* error) const noexcept {
     result = {};
     selection_result selected{};
     if (!select_layout_lookups(
             table_,
             script_list_offset_,
             feature_list_offset_,
+            feature_variations_offset_,
             lookup_count_,
             script,
             language,
             requested_features,
             {},
+            normalized_coordinates,
             {},
             true,
             false,
@@ -284,10 +451,33 @@ bool open_type_layout_table_view::try_select_lookups(
     std::span<std::uint16_t> output,
     std::uint32_t& written,
     font_error* error) const noexcept {
+    return try_select_lookups(
+        script,
+        language,
+        requested_features,
+        {},
+        output,
+        written,
+        error);
+}
+
+bool open_type_layout_table_view::try_select_lookups(
+    open_type_tag script,
+    open_type_tag language,
+    std::span<const open_type_tag> requested_features,
+    std::span<const std::int16_t> normalized_coordinates,
+    std::span<std::uint16_t> output,
+    std::uint32_t& written,
+    font_error* error) const noexcept {
     written = 0U;
     lookup_selection_requirements requirements{};
     if (!try_get_lookup_selection_requirements(
-            script, language, requested_features, requirements, error)) {
+            script,
+            language,
+            requested_features,
+            normalized_coordinates,
+            requirements,
+            error)) {
         return false;
     }
     if (output.size() < requirements.lookup_capacity) {
@@ -299,11 +489,13 @@ bool open_type_layout_table_view::try_select_lookups(
             table_,
             script_list_offset_,
             feature_list_offset_,
+            feature_variations_offset_,
             lookup_count_,
             script,
             language,
             requested_features,
             {},
+            normalized_coordinates,
             output,
             true,
             true,
@@ -326,10 +518,35 @@ bool open_type_layout_table_view::try_select_lookups_excluding(
     std::span<std::uint16_t> output,
     std::uint32_t& written,
     font_error* error) const noexcept {
+    return try_select_lookups_excluding(
+        script,
+        language,
+        requested_features,
+        excluded_features,
+        {},
+        output,
+        written,
+        error);
+}
+
+bool open_type_layout_table_view::try_select_lookups_excluding(
+    open_type_tag script,
+    open_type_tag language,
+    std::span<const open_type_tag> requested_features,
+    std::span<const open_type_tag> excluded_features,
+    std::span<const std::int16_t> normalized_coordinates,
+    std::span<std::uint16_t> output,
+    std::uint32_t& written,
+    font_error* error) const noexcept {
     written = 0U;
     lookup_selection_requirements requirements{};
     if (!try_get_lookup_selection_requirements(
-            script, language, requested_features, requirements, error)) {
+            script,
+            language,
+            requested_features,
+            normalized_coordinates,
+            requirements,
+            error)) {
         return false;
     }
     if (output.size() < requirements.lookup_capacity) {
@@ -341,11 +558,13 @@ bool open_type_layout_table_view::try_select_lookups_excluding(
             table_,
             script_list_offset_,
             feature_list_offset_,
+            feature_variations_offset_,
             lookup_count_,
             script,
             language,
             requested_features,
             excluded_features,
+            normalized_coordinates,
             output,
             true,
             true,
@@ -367,6 +586,24 @@ bool open_type_layout_table_view::try_select_feature_lookups(
     std::span<std::uint16_t> output,
     std::uint32_t& written,
     font_error* error) const noexcept {
+    return try_select_feature_lookups(
+        script,
+        language,
+        feature,
+        {},
+        output,
+        written,
+        error);
+}
+
+bool open_type_layout_table_view::try_select_feature_lookups(
+    open_type_tag script,
+    open_type_tag language,
+    open_type_tag feature,
+    std::span<const std::int16_t> normalized_coordinates,
+    std::span<std::uint16_t> output,
+    std::uint32_t& written,
+    font_error* error) const noexcept {
     written = 0U;
     if (output.size() < lookup_count_) {
         set_error(error, font_error::insufficient_buffer);
@@ -378,11 +615,13 @@ bool open_type_layout_table_view::try_select_feature_lookups(
             table_,
             script_list_offset_,
             feature_list_offset_,
+            feature_variations_offset_,
             lookup_count_,
             script,
             language,
             requested,
             {},
+            normalized_coordinates,
             output,
             false,
             true,
@@ -403,6 +642,24 @@ bool open_type_layout_table_view::try_feature_contains_lookup(
     std::uint16_t lookup,
     bool& contains,
     font_error* error) const noexcept {
+    return try_feature_contains_lookup(
+        script,
+        language,
+        feature,
+        lookup,
+        {},
+        contains,
+        error);
+}
+
+bool open_type_layout_table_view::try_feature_contains_lookup(
+    open_type_tag script,
+    open_type_tag language,
+    open_type_tag feature,
+    std::uint16_t lookup,
+    std::span<const std::int16_t> normalized_coordinates,
+    bool& contains,
+    font_error* error) const noexcept {
     contains = false;
     if (lookup >= lookup_count_) {
         set_error(error, font_error::invalid_argument);
@@ -414,11 +671,13 @@ bool open_type_layout_table_view::try_feature_contains_lookup(
             table_,
             script_list_offset_,
             feature_list_offset_,
+            feature_variations_offset_,
             lookup_count_,
             script,
             language,
             requested,
             {},
+            normalized_coordinates,
             {},
             false,
             false,
@@ -438,6 +697,22 @@ bool open_type_layout_table_view::try_required_feature_contains_lookup(
     std::uint16_t lookup,
     bool& contains,
     font_error* error) const noexcept {
+    return try_required_feature_contains_lookup(
+        script,
+        language,
+        lookup,
+        {},
+        contains,
+        error);
+}
+
+bool open_type_layout_table_view::try_required_feature_contains_lookup(
+    open_type_tag script,
+    open_type_tag language,
+    std::uint16_t lookup,
+    std::span<const std::int16_t> normalized_coordinates,
+    bool& contains,
+    font_error* error) const noexcept {
     contains = false;
     if (lookup >= lookup_count_) {
         set_error(error, font_error::invalid_argument);
@@ -448,11 +723,13 @@ bool open_type_layout_table_view::try_required_feature_contains_lookup(
             table_,
             script_list_offset_,
             feature_list_offset_,
+            feature_variations_offset_,
             lookup_count_,
             script,
             language,
             {},
             {},
+            normalized_coordinates,
             {},
             true,
             false,
@@ -473,6 +750,24 @@ bool open_type_layout_table_view::try_required_feature_for_lookup(
     open_type_tag& feature,
     bool& contains,
     font_error* error) const noexcept {
+    return try_required_feature_for_lookup(
+        script,
+        language,
+        lookup,
+        {},
+        feature,
+        contains,
+        error);
+}
+
+bool open_type_layout_table_view::try_required_feature_for_lookup(
+    open_type_tag script,
+    open_type_tag language,
+    std::uint16_t lookup,
+    std::span<const std::int16_t> normalized_coordinates,
+    open_type_tag& feature,
+    bool& contains,
+    font_error* error) const noexcept {
     feature = {};
     contains = false;
     if (lookup >= lookup_count_) {
@@ -484,11 +779,13 @@ bool open_type_layout_table_view::try_required_feature_for_lookup(
             table_,
             script_list_offset_,
             feature_list_offset_,
+            feature_variations_offset_,
             lookup_count_,
             script,
             language,
             {},
             {},
+            normalized_coordinates,
             {},
             true,
             false,

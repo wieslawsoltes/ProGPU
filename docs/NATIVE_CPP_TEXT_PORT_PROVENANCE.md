@@ -1288,6 +1288,24 @@ transactional; direct and named-module fixtures cover horizontal sign/scale,
 vertical advance/origin conversion, flags and clusters, short buffers,
 out-of-range glyph IDs, and sanitizer execution.
 
+OpenType 1.1 FeatureVariations selection now directly ports ProGPU-owned
+`OpenTypeTextShaper.GetFeatureVariationSubstitutions` and
+`MatchesFeatureVariationConditions` from checkpoint `bd056100`. The native
+borrowed layout view evaluates first-match condition sets against the caller's
+ordered normalized F2Dot14 coordinates, substitutes alternate Feature tables
+for required, staged, and general GSUB/GPOS selection, and keeps missing or
+non-matching optional variation metadata on the base-feature path. Reusable shape
+plans include the full ordered coordinate span in their deterministic identity,
+so a plan selected for one variable-font instance cannot be replayed for
+another. Selection is `O(V + F * S + L^2)` in the existing bounded worst case
+for variation records/conditions `V`, selected features `F`, substitution
+records `S`, and deduplicated lookups `L`; it retains `O(1)` internal storage,
+borrows every table/span, and performs no coordinate, feature, or lookup
+allocation. The direct managed fixture is reproduced byte-for-byte in native
+tests and covers base selection, inclusive lower/upper axis bounds, outside
+fallback, alternate lookup membership, plan-coordinate mismatch, C++20 named
+module compilation, and ASan/UBSan execution.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

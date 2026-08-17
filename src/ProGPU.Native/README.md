@@ -413,11 +413,16 @@ stages so reusable shaping results do not inherit UI or renderer ownership.
 
 Reusable native shaping plans now borrow validated GSUB, GPOS, and GDEF views
 plus caller-owned selected-lookup arrays. A plan is keyed by the exact font
-buffer/face, script, language, and ordered requested-feature hash; incompatible
-reuse fails before glyph output is touched. Plan creation is `O(T + F + L)`
+buffer/face, script, language, ordered requested-feature hash, and ordered
+normalized variation-coordinate hash; incompatible reuse fails before glyph
+output is touched. OpenType 1.1 FeatureVariations condition sets select the
+first matching alternate Feature table for both general and staged GSUB/GPOS
+lookups, using inclusive F2Dot14 axis ranges and caller-borrowed coordinates.
+Plan creation is `O(T + V + F + L)`
 for table validation, selected features, and lookups, while a compatible run
 reuses the parsed views and selected lookup order with `O(1)` plan validation,
-no allocation, and no font-table or feature-list copy.
+no allocation, and no font-table, feature-list, or coordinate copy. Here `V`
+is the bounded FeatureVariations condition/substitution scan.
 
 Arabic-family uniform runs now reuse the managed shaper's Unicode 17 packed
 joining classes and 42-entry state machine. Form actions survive substitutions

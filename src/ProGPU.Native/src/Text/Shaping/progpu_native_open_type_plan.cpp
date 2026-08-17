@@ -41,6 +41,21 @@ std::uint64_t hash_features(
     return hash;
 }
 
+std::uint64_t hash_coordinates(
+    std::span<const std::int16_t> coordinates) noexcept {
+    std::uint64_t hash = fnv_offset;
+    for (const auto coordinate : coordinates) {
+        const auto value = static_cast<std::uint16_t>(coordinate);
+        hash ^= static_cast<std::uint8_t>(value);
+        hash *= fnv_prime;
+        hash ^= static_cast<std::uint8_t>(value >> 8U);
+        hash *= fnv_prime;
+    }
+    hash ^= coordinates.size();
+    hash *= fnv_prime;
+    return hash;
+}
+
 bool try_get_layout(
     const sfnt_font_view& font,
     open_type_tag tag,
@@ -71,6 +86,7 @@ bool try_get_selection_capacity(
             options.script,
             options.language,
             options.requested_features,
+            options.normalized_coordinates,
             requirements,
             error)) {
         return false;
@@ -88,7 +104,8 @@ bool open_type_shape_plan::matches(
     return font_data == bytes.data() && font_size == bytes.size() &&
         face_index == font.face_index() && script == options.script &&
         language == options.language &&
-        feature_hash == hash_features(options.requested_features);
+        feature_hash == hash_features(options.requested_features) &&
+        coordinate_hash == hash_coordinates(options.normalized_coordinates);
 }
 
 bool try_get_open_type_shape_plan_requirements(
@@ -148,6 +165,7 @@ bool try_build_open_type_shape_plan(
                 options.script,
                 options.language,
                 options.requested_features,
+                options.normalized_coordinates,
                 gsub_lookup_storage,
                 gsub_count,
                 error)) ||
@@ -156,6 +174,7 @@ bool try_build_open_type_shape_plan(
                 options.script,
                 options.language,
                 options.requested_features,
+                options.normalized_coordinates,
                 gpos_lookup_storage,
                 gpos_count,
                 error))) {
@@ -185,6 +204,7 @@ bool try_build_open_type_shape_plan(
         bytes.data(),
         bytes.size(),
         hash_features(options.requested_features),
+        hash_coordinates(options.normalized_coordinates),
         font.face_index(),
         options.script,
         options.language,
