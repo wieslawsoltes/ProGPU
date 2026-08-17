@@ -166,6 +166,7 @@ using ::progpu::native::text::text_line_break_kind;
 using ::progpu::native::text::get_unicode_line_break_class;
 using ::progpu::native::text::try_resolve_unicode_line_breaks;
 using ::progpu::native::text::text_trimming;
+using ::progpu::native::text::text_alignment;
 using ::progpu::native::text::text_layout_options;
 using ::progpu::native::text::positioned_text_glyph;
 using ::progpu::native::text::positioned_text_line;

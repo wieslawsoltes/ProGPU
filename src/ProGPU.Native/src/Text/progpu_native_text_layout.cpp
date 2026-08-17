@@ -28,8 +28,26 @@ bool valid_options(const text_layout_options& options) noexcept {
         options.direction != shaping_direction::unspecified &&
         static_cast<std::uint8_t>(options.trimming) <=
             static_cast<std::uint8_t>(text_trimming::word_ellipsis) &&
+        static_cast<std::uint8_t>(options.alignment) <=
+            static_cast<std::uint8_t>(text_alignment::justify) &&
         std::isfinite(options.ellipsis_advance) &&
         options.ellipsis_advance >= 0.0F;
+}
+
+float line_alignment_shift(
+    const text_layout_options& options,
+    float line_width) noexcept {
+    if (options.maximum_width <= line_width) return 0.0F;
+    switch (options.alignment) {
+        case text_alignment::center:
+            return (options.maximum_width - line_width) * 0.5F;
+        case text_alignment::right:
+            return options.maximum_width - line_width;
+        case text_alignment::left:
+        case text_alignment::justify:
+            return 0.0F;
+    }
+    return 0.0F;
 }
 
 float horizontal_advance(
@@ -284,6 +302,16 @@ bool try_layout_shaped_text(
                 0.0F};
             ++output_end;
         }
+        const float output_width = visible.content_width + (should_trim
+            ? options.ellipsis_advance * options.scale
+            : 0.0F);
+        const float alignment_shift = line_alignment_shift(
+            options, output_width);
+        for (std::size_t index = start;
+            alignment_shift > 0.0F && index < output_end;
+            ++index) {
+            positioned_glyphs[index].x += alignment_shift;
+        }
         const std::int32_t input_start = glyphs[start].cluster;
         const std::int32_t input_end = visible.end < glyphs.size()
             ? glyphs[visible.end].cluster
@@ -293,9 +321,7 @@ bool try_layout_shaped_text(
             static_cast<std::uint32_t>(output_end - start),
             input_start,
             input_end,
-            visible.content_width + (should_trim
-                ? options.ellipsis_advance * options.scale
-                : 0.0F),
+            output_width,
             baseline,
             options.line_height,
             line.clipped || (final_allowed && line.end < glyphs.size())};
@@ -439,6 +465,17 @@ bool try_layout_logical_shaped_text(
                 0.0F};
         }
 
+        const float output_width = visible.content_width + (should_trim
+            ? options.ellipsis_advance * options.scale
+            : 0.0F);
+        const float alignment_shift = line_alignment_shift(
+            options, output_width);
+        for (std::size_t index = output_start;
+            alignment_shift > 0.0F && index < output_cursor;
+            ++index) {
+            positioned_glyphs[index].x += alignment_shift;
+        }
+
         const std::int32_t input_start =
             logical_glyphs[input_start_index].cluster;
         const std::int32_t input_end = visible.end < logical_glyphs.size()
@@ -449,9 +486,7 @@ bool try_layout_logical_shaped_text(
             static_cast<std::uint32_t>(output_cursor - output_start),
             input_start,
             input_end,
-            visible.content_width + (should_trim
-                ? options.ellipsis_advance * options.scale
-                : 0.0F),
+            output_width,
             baseline,
             options.line_height,
             line.clipped ||

@@ -1566,6 +1566,13 @@ enum class text_trimming : std::uint8_t {
     word_ellipsis = 2U
 };
 
+enum class text_alignment : std::uint8_t {
+    left = 0U,
+    center = 1U,
+    right = 2U,
+    justify = 3U
+};
+
 struct text_layout_options final {
     float scale = 1.0F;
     float maximum_width = 0.0F;
@@ -1573,7 +1580,8 @@ struct text_layout_options final {
     std::uint32_t maximum_lines = 0U;
     shaping_direction direction = shaping_direction::left_to_right;
     text_trimming trimming = text_trimming::none;
-    std::uint16_t reserved = 0U;
+    text_alignment alignment = text_alignment::left;
+    std::uint8_t reserved = 0U;
     std::uint32_t ellipsis_glyph_id = 0U;
     float ellipsis_advance = 0.0F;
 };

@@ -144,6 +144,7 @@ using progpu::native::text::text_line_break_kind;
 using progpu::native::text::get_unicode_line_break_class;
 using progpu::native::text::try_resolve_unicode_line_breaks;
 using progpu::native::text::text_trimming;
+using progpu::native::text::text_alignment;
 using progpu::native::text::unicode_indic_shaping_properties;
 using progpu::native::text::unicode_syllable_machine;
 using progpu::native::text::unicode_syllable_transition;
@@ -5640,6 +5641,47 @@ void native_positioned_text_layout_wraps_without_allocation() {
     require(lines[1U].glyph_start == 2U && lines[1U].glyph_count == 2U &&
         lines[1U].baseline_y == 12.0F);
 
+    auto centered_options = options;
+    centered_options.alignment = text_alignment::center;
+    require(try_layout_shaped_text(
+        glyphs,
+        breaks,
+        centered_options,
+        positioned,
+        lines,
+        glyph_count,
+        line_count,
+        &error));
+    require(positioned[0U].x == 2.5F && positioned[1U].x == 12.5F &&
+        positioned[2U].x == 2.5F && positioned[3U].x == 12.5F);
+
+    auto right_options = options;
+    right_options.alignment = text_alignment::right;
+    require(try_layout_shaped_text(
+        glyphs,
+        breaks,
+        right_options,
+        positioned,
+        lines,
+        glyph_count,
+        line_count,
+        &error));
+    require(positioned[0U].x == 5.0F && positioned[1U].x == 15.0F &&
+        positioned[2U].x == 5.0F && positioned[3U].x == 15.0F);
+
+    auto justified_options = options;
+    justified_options.alignment = text_alignment::justify;
+    require(try_layout_shaped_text(
+        glyphs,
+        breaks,
+        justified_options,
+        positioned,
+        lines,
+        glyph_count,
+        line_count,
+        &error));
+    require(positioned[0U].x == 0.0F && positioned[1U].x == 10.0F);
+
     const std::array<std::int32_t, 4U> cluster_ends{1, 2, 3, 4};
     const std::array<std::int8_t, 4U> bidi_levels{0, 0, 1, 1};
     text_interaction_requirements interaction_requirements{};
@@ -5936,6 +5978,25 @@ void native_logical_text_layout_reorders_bidi_per_line() {
     require(lines[0U].glyph_start == 0U && lines[0U].glyph_count == 5U &&
         lines[0U].input_start == 0 && lines[0U].input_end == 4 &&
         lines[0U].width == 35.0F && !lines[0U].clipped);
+
+    auto right_options = options;
+    right_options.maximum_width = 45.0F;
+    right_options.alignment = text_alignment::right;
+    require(try_layout_logical_shaped_text(
+        logical,
+        breaks,
+        levels,
+        0,
+        right_options,
+        scratch,
+        positioned,
+        lines,
+        glyph_count,
+        line_count,
+        &error));
+    require(positioned[0U].x == 10.0F && positioned[1U].x == 20.0F &&
+        positioned[2U].x == 30.0F && positioned[3U].x == 40.0F &&
+        positioned[4U].x == 40.0F);
 
     indices.fill(99U);
     glyph_count = 99U;

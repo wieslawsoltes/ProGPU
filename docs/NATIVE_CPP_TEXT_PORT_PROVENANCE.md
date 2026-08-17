@@ -1138,6 +1138,16 @@ caller-owned reusable scratch and `O(1)` internal state. Differential fixtures
 cover mixed LTR/RTL clusters, combining-mark cluster integrity, trailing-space
 reset, exact positions and source indices, and transactional short scratch.
 
+Horizontal line alignment directly ports the ProGPU-owned `TextAlignment`
+contract and the post-positioning shift in `TextLayout.GenerateShapedLayout`
+from checkpoint `cb5bfeab`. Center and right shift a line only when its finite
+layout width is wider than its content; left and the managed implementation's
+currently non-expanding justify value remain origin-aligned. The same helper is
+used by visual-input and logical-input native layout, performs one in-place
+`O(G)` output pass, and allocates no storage. Tests cover centered and right
+wrapped lines, justify identity, and right-aligned mixed-direction visual
+output.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

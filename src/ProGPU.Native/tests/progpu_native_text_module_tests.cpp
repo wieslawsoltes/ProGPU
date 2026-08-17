@@ -46,6 +46,7 @@ int main() {
         visual_order_requirements{};
     const progpu::native::text::text_logical_layout_scratch
         logical_layout_scratch{};
+    const progpu::native::text::text_layout_options layout_options{};
     const progpu::native::text::open_type_feature_tag_requirements
         feature_tag_requirements{};
     const progpu::native::text::sfnt_vertical_header_metrics vertical_header{};
@@ -155,6 +156,8 @@ int main() {
         visual_order_requirements.group_capacity != 0U ||
         !logical_layout_scratch.visual_groups.empty() ||
         !logical_layout_scratch.visual_indices.empty() ||
+        layout_options.alignment !=
+            progpu::native::text::text_alignment::left ||
         feature_tag_requirements.tag_capacity != 0U ||
         vertical_header.number_of_vertical_metrics != 0U ||
         vertical_glyph.advance_height != 0U || glyph_bounds.x_min != 0 ||

@@ -644,6 +644,11 @@ per-glyph managed/native call. The caller provides reusable group and index
 scratch bounded by the logical glyph count; execution is `O(G + B * C)` for
 `G` glyphs, `C` line-local cluster groups, and at most 126 embedding levels
 `B`, with no internal allocation.
+Both visual-input and logical-input layout paths apply the managed horizontal
+alignment policy after each line is positioned: center and right shift only
+when the finite layout width exceeds the line width, while left and the
+currently non-expanding managed justify mode preserve the line origin. The
+alignment pass is `O(G)` and reuses the output span in place.
 
 Character and word ellipsis use the same bounded layout pass. The caller
 supplies one already-shaped ellipsis glyph id and font-unit advance; layout
