@@ -1013,6 +1013,10 @@ struct open_type_shape_run_scratch final {
     std::span<std::uint8_t> script_syllables{};
     std::span<std::uint32_t> script_indices{};
     std::span<arabic_stretch_run> arabic_stretch_runs{};
+    /* Optional reusable full-outline/phantom scratch. Supplying it upgrades
+     * ordinary run metrics and fallback marks to active gvar/CFF parity; the
+     * pointer is borrowed synchronously and is never retained. */
+    fallback_mark_positioning_scratch* fallback_marks = nullptr;
 };
 
 struct open_type_shape_run_requirements final {

@@ -5168,13 +5168,18 @@ void fallback_mark_positioning_matches_managed_policy() {
     std::uint32_t glyph_count = 0U;
     const open_type_shape_run_options options{
         open_type_tag::from_chars('l', 'a', 't', 'n')};
+    fallback_mark_positioning_scratch full_run_fallback_scratch{};
+    open_type_shape_run_scratch full_run_scratch{};
+    full_run_scratch.grapheme_clusters = graphemes;
+    full_run_scratch.attachments = attachments;
+    full_run_scratch.attachment_states = states;
+    full_run_scratch.fallback_marks = &full_run_fallback_scratch;
     require(try_shape_open_type_run(
         font,
         input,
         options,
         shaped,
-        open_type_shape_run_scratch{
-            graphemes, {}, {}, attachments, states},
+        full_run_scratch,
         glyph_count,
         &error));
     require(glyph_count == 2U && shaped[0U].advance_x == 600 &&

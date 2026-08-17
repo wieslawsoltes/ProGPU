@@ -950,11 +950,19 @@ bool try_shape_open_type_run(
             set_error(error, font_error::invalid_face);
             return false;
         }
-        if (!font.try_get_design_advance_width(
+        const bool has_advance = scratch.fallback_marks == nullptr
+            ? font.try_get_design_advance_width(
                 glyph,
                 options.normalized_coordinates,
                 advance_width,
-                error)) {
+                error)
+            : font.try_get_design_advance_width(
+                glyph,
+                options.normalized_coordinates,
+                advance_width,
+                scratch.fallback_marks->advance_width,
+                error);
+        if (!has_advance) {
             return false;
         }
     }
@@ -1339,11 +1347,21 @@ bool try_shape_open_type_run(
             return false;
         }
         float advance_width = 0.0F;
-        if (!font.try_get_design_advance_width(
-                static_cast<std::uint16_t>(glyph_storage[index].glyph_id),
+        const auto glyph =
+            static_cast<std::uint16_t>(glyph_storage[index].glyph_id);
+        const bool has_advance = scratch.fallback_marks == nullptr
+            ? font.try_get_design_advance_width(
+                glyph,
                 options.normalized_coordinates,
                 advance_width,
-                error)) {
+                error)
+            : font.try_get_design_advance_width(
+                glyph,
+                options.normalized_coordinates,
+                advance_width,
+                scratch.fallback_marks->advance_width,
+                error);
+        if (!has_advance) {
             return false;
         }
         if (vertical) {
@@ -1500,6 +1518,7 @@ bool try_shape_open_type_run(
             options.direction,
             scratch.attachments.first(glyph_count),
             options.normalized_coordinates,
+            scratch.fallback_marks,
             error)) {
         return false;
     }

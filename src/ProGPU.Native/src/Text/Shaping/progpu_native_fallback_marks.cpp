@@ -530,6 +530,7 @@ bool detail::try_apply_fallback_mark_positioning_from_attachments(
     shaping_direction direction,
     std::span<const shaping_attachment> metadata,
     std::span<const std::int16_t> normalized_coordinates,
+    fallback_mark_positioning_scratch* scratch,
     font_error* error) noexcept {
     if (metadata.size() < glyphs.size()) {
         set_error(error, font_error::invalid_argument);
@@ -541,7 +542,7 @@ bool detail::try_apply_fallback_mark_positioning_from_attachments(
         direction,
         metadata_view{{}, metadata},
         normalized_coordinates,
-        nullptr,
+        scratch,
         error);
 }
 

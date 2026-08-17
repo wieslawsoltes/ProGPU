@@ -14,6 +14,7 @@ bool try_apply_fallback_mark_positioning_from_attachments(
     shaping_direction direction,
     std::span<const shaping_attachment> metadata,
     std::span<const std::int16_t> normalized_coordinates,
+    fallback_mark_positioning_scratch* scratch,
     font_error* error) noexcept;
 
 } // namespace progpu::native::text::detail

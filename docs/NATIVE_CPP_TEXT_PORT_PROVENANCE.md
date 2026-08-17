@@ -845,11 +845,15 @@ scratch needed by execution. A second fallback-mark overload consumes that
 scratch together with the full HVAR/phantom-point advance scratch, so direct
 fallback placement is variation- and CFF-aware without native allocation.
 Ordinary full-run shaping intentionally continues through its bounded legacy
-scratch route until that public run-scratch contract is extended; it does not
-silently allocate or claim variable/CFF fallback extents. Production Inter
-static/variable and Noto CFF fixtures cover source selection and successful
-bounds reduction, while the synthetic mark fixture covers equivalent output
-through both direct overloads.
+scratch route by default. Its run scratch now accepts an optional synchronously
+borrowed `fallback_mark_positioning_scratch` pointer; when supplied, both run
+advance initialization and fallback mark positioning reuse the exact phantom
+advance and outline-bound buffers, upgrading active `gvar`, CFF1, and CFF2
+behavior without any per-glyph allocation. The pointer and every nested span
+remain caller-owned and are never retained. Production Inter static/variable
+and Noto CFF fixtures cover source selection and successful bounds reduction,
+while the synthetic mark fixture covers equivalent direct and full-run output
+through the extended scratch path.
 
 Arabic `stch` parity now has its allocation-free native expansion kernel,
 directly ported from the ProGPU-owned managed `ApplyArabicStretch` stage at
