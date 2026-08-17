@@ -34,6 +34,12 @@ public class NativeRendererInteropTests
     [Fact]
     public void PrivateInteropRecordsMatchNativeAbiThree()
     {
+        Assert.Equal(16, Unsafe.SizeOf<NativeTextScalar>());
+        Assert.Equal(16, Unsafe.SizeOf<NativeTextFeature>());
+        Assert.Equal(32, Unsafe.SizeOf<NativeTextShapingGlyph>());
+        Assert.Equal(IntPtr.Size == 8 ? 160 : 112, Unsafe.SizeOf<NativeTextShapeRequest>());
+        Assert.Equal(24, Unsafe.SizeOf<NativeTextShapeRequirements>());
+        Assert.Equal(24, Unsafe.SizeOf<NativeTextShapeResult>());
         Assert.Equal(40, Unsafe.SizeOf<NativeMethods.EngineOptions>());
         Assert.Equal(72, Unsafe.SizeOf<NativeDawnMethods.EngineOptions>());
         Assert.Equal(24, Unsafe.SizeOf<DawnNativeDeviceHandles>());
@@ -3164,8 +3170,13 @@ public class NativeRendererInteropTests
             "PROGPU_NATIVE_DAWN_ABI=1",
             cmake,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "target_link_libraries(progpu_native_dawn PRIVATE progpu_native_text)",
+            cmake,
+            StringComparison.Ordinal);
         Assert.DoesNotContain(
-            "target_link_libraries(progpu_native_dawn PRIVATE",
+            "target_link_libraries(progpu_native_dawn PRIVATE\n" +
+            "        \"${PROGPU_NATIVE_WEBGPU_LIBRARY}\")",
             cmake,
             StringComparison.Ordinal);
         Assert.Contains("WGPUStringView", compatibility, StringComparison.Ordinal);

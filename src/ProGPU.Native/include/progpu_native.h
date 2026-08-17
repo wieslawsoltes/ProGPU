@@ -17,6 +17,7 @@ extern "C" {
 #endif
 
 typedef struct progpu_native_engine progpu_native_engine;
+typedef struct progpu_native_text_context progpu_native_text_context;
 
 enum {
     PROGPU_NATIVE_ABI_VERSION = 3U,
@@ -69,6 +70,7 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_STROKE_BATCH (UINT64_C(1) << 38U)
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_LINE_3D_BATCH (UINT64_C(1) << 39U)
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_MESH_3D_BATCH (UINT64_C(1) << 40U)
+#define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_SHAPING (UINT64_C(1) << 41U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -316,6 +318,128 @@ typedef enum progpu_native_status {
     PROGPU_NATIVE_STATUS_DEVICE_LOST = 5,
     PROGPU_NATIVE_STATUS_INTERNAL_ERROR = 6
 } progpu_native_status;
+
+typedef enum progpu_native_text_direction {
+    PROGPU_NATIVE_TEXT_DIRECTION_UNSPECIFIED = 0,
+    PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT = 1,
+    PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT = 2,
+    PROGPU_NATIVE_TEXT_DIRECTION_TOP_TO_BOTTOM = 3,
+    PROGPU_NATIVE_TEXT_DIRECTION_BOTTOM_TO_TOP = 4
+} progpu_native_text_direction;
+
+typedef enum progpu_native_text_cluster_level {
+    PROGPU_NATIVE_TEXT_CLUSTER_MONOTONE_GRAPHEMES = 0,
+    PROGPU_NATIVE_TEXT_CLUSTER_MONOTONE_CHARACTERS = 1,
+    PROGPU_NATIVE_TEXT_CLUSTER_CHARACTERS = 2,
+    PROGPU_NATIVE_TEXT_CLUSTER_GRAPHEMES = 3
+} progpu_native_text_cluster_level;
+
+enum {
+    PROGPU_NATIVE_TEXT_BUFFER_BEGINNING_OF_TEXT = 1U << 0U,
+    PROGPU_NATIVE_TEXT_BUFFER_END_OF_TEXT = 1U << 1U,
+    PROGPU_NATIVE_TEXT_BUFFER_PRESERVE_DEFAULT_IGNORABLES = 1U << 2U,
+    PROGPU_NATIVE_TEXT_BUFFER_REMOVE_DEFAULT_IGNORABLES = 1U << 3U,
+    PROGPU_NATIVE_TEXT_BUFFER_DO_NOT_INSERT_DOTTED_CIRCLE = 1U << 4U,
+    PROGPU_NATIVE_TEXT_BUFFER_VERIFY = 1U << 5U,
+    PROGPU_NATIVE_TEXT_BUFFER_PRODUCE_UNSAFE_TO_CONCAT = 1U << 6U,
+    PROGPU_NATIVE_TEXT_BUFFER_PRODUCE_SAFE_TO_INSERT_TATWEEL = 1U << 7U
+};
+
+enum {
+    PROGPU_NATIVE_TEXT_SHAPE_ZERO_MARK_ADVANCES = 1U << 0U
+};
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextScalar */
+typedef struct progpu_native_text_scalar {
+    uint32_t code_point;
+    uint32_t input_index;
+    uint16_t input_length;
+    uint8_t canonical_combining_class;
+    uint8_t reserved;
+    uint32_t script;
+} progpu_native_text_scalar;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextFeature */
+typedef struct progpu_native_text_feature {
+    uint32_t tag;
+    uint32_t value;
+    uint32_t start;
+    uint32_t end;
+} progpu_native_text_feature;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextShapingGlyph */
+typedef struct progpu_native_text_shaping_glyph {
+    uint32_t glyph_id;
+    uint32_t code_point;
+    int32_t cluster;
+    uint32_t flags;
+    int32_t advance_x;
+    int32_t advance_y;
+    int32_t offset_x;
+    int32_t offset_y;
+} progpu_native_text_shaping_glyph;
+
+/*
+ * One synchronous, allocation-free shaping request. Every pointer is borrowed
+ * only for the duration of get-requirements or shape and may be null only when
+ * its paired count is zero. Tags use big-endian OpenType byte order. Input and
+ * context records preserve UTF input ranges while native code recomputes their
+ * Unicode properties from code_point before use.
+ */
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextShapeRequest */
+typedef struct progpu_native_text_shape_request {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const uint8_t* font_data;
+    size_t font_size;
+    uint32_t face_index;
+    uint32_t flags;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_text_scalar* input;
+    uint32_t input_count;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_text_scalar* pre_context;
+    uint32_t pre_context_count;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_text_scalar* post_context;
+    uint32_t post_context_count;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_text_feature* features;
+    uint32_t feature_count;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const int16_t* normalized_coordinates;
+    uint32_t normalized_coordinate_count;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const uint8_t* normalization_data;
+    size_t normalization_data_size;
+    uint32_t unicode_script;
+    uint32_t language;
+    uint32_t direction;
+    uint32_t cluster_level;
+    uint32_t buffer_flags;
+    uint32_t alternate_value;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_text_shape_request;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextShapeRequirements */
+typedef struct progpu_native_text_shape_requirements {
+    uint32_t struct_size;
+    uint32_t glyph_capacity;
+    uint32_t scratch_alignment;
+    uint32_t error_code;
+    uint64_t scratch_bytes;
+} progpu_native_text_shape_requirements;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextShapeResult */
+typedef struct progpu_native_text_shape_result {
+    uint32_t struct_size;
+    uint32_t glyph_count;
+    uint32_t error_code;
+    uint32_t reserved;
+    uint64_t scratch_bytes_used;
+} progpu_native_text_shape_result;
 
 typedef enum progpu_native_texture_format {
     PROGPU_NATIVE_TEXTURE_FORMAT_RGBA8_UNORM = 1,
@@ -1790,6 +1914,52 @@ PROGPU_NATIVE_API size_t progpu_native_engine_get_last_error(
     const progpu_native_engine* engine,
     char* destination,
     size_t destination_size);
+
+/*
+ * Bulk managed/native text boundary. Requirements performs complete request,
+ * font, and capacity validation without allocation. Shape performs one run in
+ * caller-owned storage and never retains any supplied pointer.
+ */
+PROGPU_NATIVE_API progpu_native_status
+progpu_native_text_get_shape_requirements(
+    const progpu_native_text_shape_request* request,
+    progpu_native_text_shape_requirements* requirements);
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_shape(
+    const progpu_native_text_shape_request* request,
+    progpu_native_text_shaping_glyph* glyphs,
+    uint32_t glyph_capacity,
+    void* scratch,
+    size_t scratch_size,
+    progpu_native_text_shape_result* result);
+/*
+ * Retained high-performance path. Creation owns immutable snapshots of the
+ * font and optional normalization plan. The context caches one exact shaping
+ * plan and is single-thread-affine; stable runs allocate neither natively nor
+ * in managed code. Run requests may leave font/normalization fields empty.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_create(
+    uint32_t abi_version,
+    const uint8_t* font_data,
+    size_t font_size,
+    uint32_t face_index,
+    const uint8_t* normalization_data,
+    size_t normalization_data_size,
+    progpu_native_text_context** context);
+PROGPU_NATIVE_API void progpu_native_text_context_destroy(
+    progpu_native_text_context* context);
+PROGPU_NATIVE_API progpu_native_status
+progpu_native_text_context_get_shape_requirements(
+    progpu_native_text_context* context,
+    const progpu_native_text_shape_request* request,
+    progpu_native_text_shape_requirements* requirements);
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_shape(
+    progpu_native_text_context* context,
+    const progpu_native_text_shape_request* request,
+    progpu_native_text_shaping_glyph* glyphs,
+    uint32_t glyph_capacity,
+    void* scratch,
+    size_t scratch_size,
+    progpu_native_text_shape_result* result);
 
 #ifdef __cplusplus
 }

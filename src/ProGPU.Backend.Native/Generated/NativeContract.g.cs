@@ -7,6 +7,205 @@ using System.Numerics;
 
 namespace ProGPU.Backend.Native;
 
+// Native source: progpu_native_text_scalar.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextScalar
+{
+    public uint CodePoint;
+    public uint InputIndex;
+    public ushort InputLength;
+    public byte CanonicalCombiningClass;
+    public byte Reserved;
+    public uint Script;
+}
+
+// Native source: progpu_native_text_feature.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextFeature
+{
+    public uint Tag;
+    public uint Value;
+    public uint Start;
+    public uint End;
+}
+
+// Native source: progpu_native_text_shaping_glyph.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextShapingGlyph
+{
+    public uint GlyphId;
+    public uint CodePoint;
+    public int Cluster;
+    public uint Flags;
+    public int AdvanceX;
+    public int AdvanceY;
+    public int OffsetX;
+    public int OffsetY;
+}
+
+// Native source: progpu_native_text_shape_request.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextShapeRequest
+{
+    public uint StructSize;
+    public uint AbiVersion;
+    public nuint FontData;
+    public nuint FontSize;
+    public uint FaceIndex;
+    public uint Flags;
+    public nuint Input;
+    public uint InputCount;
+    public nuint PreContext;
+    public uint PreContextCount;
+    public nuint PostContext;
+    public uint PostContextCount;
+    public nuint Features;
+    public uint FeatureCount;
+    public nuint NormalizedCoordinates;
+    public uint NormalizedCoordinateCount;
+    public nuint NormalizationData;
+    public nuint NormalizationDataSize;
+    public uint UnicodeScript;
+    public uint Language;
+    public uint Direction;
+    public uint ClusterLevel;
+    public uint BufferFlags;
+    public uint AlternateValue;
+    public uint Reserved0;
+    public uint Reserved1;
+}
+
+// Native source: progpu_native_text_shape_requirements.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextShapeRequirements
+{
+    public uint StructSize;
+    public uint GlyphCapacity;
+    public uint ScratchAlignment;
+    public uint ErrorCode;
+    public ulong ScratchBytes;
+}
+
+// Native source: progpu_native_text_shape_result.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextShapeResult
+{
+    public uint StructSize;
+    public uint GlyphCount;
+    public uint ErrorCode;
+    public uint Reserved;
+    public ulong ScratchBytesUsed;
+}
+
+// Native source: progpu_native_point_3d.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativePoint3D
+{
+    public float X;
+    public float Y;
+    public float Z;
+    public float Reserved;
+}
+
+// Native source: progpu_native_float_4.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeFloat4
+{
+    public float X;
+    public float Y;
+    public float Z;
+    public float W;
+}
+
+// Native source: progpu_native_matrix_4x4.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeMatrix4x4
+{
+    public float M11;
+    public float M12;
+    public float M13;
+    public float M14;
+    public float M21;
+    public float M22;
+    public float M23;
+    public float M24;
+    public float M31;
+    public float M32;
+    public float M33;
+    public float M34;
+    public float M41;
+    public float M42;
+    public float M43;
+    public float M44;
+}
+
+// Native source: progpu_native_scene_camera_3d.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeSceneCamera3D
+{
+    public uint StructSize;
+    public uint Flags;
+    public uint Reserved0;
+    public uint Reserved1;
+    public NativeMatrix4x4 Projection;
+    public NativeMatrix4x4 View;
+    public NativePoint3D CameraPosition;
+}
+
+// Native source: progpu_native_scene_line_3d.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeSceneLine3D
+{
+    public uint StructSize;
+    public uint Flags;
+    public uint Reserved0;
+    public uint Reserved1;
+    public NativePoint3D Start;
+    public NativePoint3D End;
+    public Vector4 Color;
+    public float Thickness;
+    public float Opacity;
+    public uint Reserved2;
+    public uint Reserved3;
+    public NativeMatrix4x4 Transform;
+}
+
+// Native source: progpu_native_scene_mesh_3d_vertex.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeSceneMesh3DVertex
+{
+    public NativePoint3D Position;
+    public NativePoint3D Normal;
+    public Vector2 TextureCoordinate;
+    public uint Reserved0;
+    public uint Reserved1;
+}
+
+// Native source: progpu_native_scene_mesh_3d.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeSceneMesh3D
+{
+    public uint StructSize;
+    public uint Flags;
+    public uint Topology;
+    public uint RenderMode;
+    public uint VertexOffset;
+    public uint VertexCount;
+    public uint IndexOffset;
+    public uint IndexCount;
+    public NativeMatrix4x4 ModelTransform;
+    public NativeMatrix4x4 NormalTransform;
+    public Vector4 Color;
+    public NativeFloat4 LightDirection;
+    public NativeFloat4 AmbientColor;
+    public NativeFloat4 SpecularColor;
+    public NativeFloat4 MaterialAmbient;
+    public float Opacity;
+    public uint ShadingMode;
+    public uint Reserved0;
+    public uint Reserved1;
+}
+
 internal static unsafe partial class NativeMethods
 {
     // Native source: progpu_native_scene_header.
@@ -160,112 +359,4 @@ internal static unsafe partial class NativeMethods
         internal ulong TextStyleUploadBytes;
         internal ulong ColorGlyphUploadBytes;
     }
-}
-// Native source: progpu_native_point_3d.
-[StructLayout(LayoutKind.Sequential)]
-public partial struct NativePoint3D
-{
-    public float X;
-    public float Y;
-    public float Z;
-    public float Reserved;
-}
-
-// Native source: progpu_native_float_4.
-[StructLayout(LayoutKind.Sequential)]
-public partial struct NativeFloat4
-{
-    public float X;
-    public float Y;
-    public float Z;
-    public float W;
-}
-
-// Native source: progpu_native_matrix_4x4.
-[StructLayout(LayoutKind.Sequential)]
-public partial struct NativeMatrix4x4
-{
-    public float M11;
-    public float M12;
-    public float M13;
-    public float M14;
-    public float M21;
-    public float M22;
-    public float M23;
-    public float M24;
-    public float M31;
-    public float M32;
-    public float M33;
-    public float M34;
-    public float M41;
-    public float M42;
-    public float M43;
-    public float M44;
-}
-
-// Native source: progpu_native_scene_camera_3d.
-[StructLayout(LayoutKind.Sequential)]
-public partial struct NativeSceneCamera3D
-{
-    public uint StructSize;
-    public uint Flags;
-    public uint Reserved0;
-    public uint Reserved1;
-    public NativeMatrix4x4 Projection;
-    public NativeMatrix4x4 View;
-    public NativePoint3D CameraPosition;
-}
-
-// Native source: progpu_native_scene_line_3d.
-[StructLayout(LayoutKind.Sequential)]
-public partial struct NativeSceneLine3D
-{
-    public uint StructSize;
-    public uint Flags;
-    public uint Reserved0;
-    public uint Reserved1;
-    public NativePoint3D Start;
-    public NativePoint3D End;
-    public Vector4 Color;
-    public float Thickness;
-    public float Opacity;
-    public uint Reserved2;
-    public uint Reserved3;
-    public NativeMatrix4x4 Transform;
-}
-
-// Native source: progpu_native_scene_mesh_3d_vertex.
-[StructLayout(LayoutKind.Sequential)]
-public partial struct NativeSceneMesh3DVertex
-{
-    public NativePoint3D Position;
-    public NativePoint3D Normal;
-    public Vector2 TextureCoordinate;
-    public uint Reserved0;
-    public uint Reserved1;
-}
-
-// Native source: progpu_native_scene_mesh_3d.
-[StructLayout(LayoutKind.Sequential)]
-public partial struct NativeSceneMesh3D
-{
-    public uint StructSize;
-    public uint Flags;
-    public uint Topology;
-    public uint RenderMode;
-    public uint VertexOffset;
-    public uint VertexCount;
-    public uint IndexOffset;
-    public uint IndexCount;
-    public NativeMatrix4x4 ModelTransform;
-    public NativeMatrix4x4 NormalTransform;
-    public Vector4 Color;
-    public NativeFloat4 LightDirection;
-    public NativeFloat4 AmbientColor;
-    public NativeFloat4 SpecularColor;
-    public NativeFloat4 MaterialAmbient;
-    public float Opacity;
-    public uint ShadingMode;
-    public uint Reserved0;
-    public uint Reserved1;
 }

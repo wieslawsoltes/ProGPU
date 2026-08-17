@@ -494,6 +494,7 @@ set(PROGPU_NATIVE_SCENE_SOURCES
 set(PROGPU_NATIVE_RENDERER_SOURCES
     ${PROGPU_NATIVE_BACKEND_SOURCES}
     ${PROGPU_NATIVE_SCENE_SOURCES}
+    src/Text/Interop/progpu_native_text_shaping_interop.cpp
     include/progpu_native.h)
 
 # Mirror the managed ProGPU project boundaries in the native source tree while
@@ -517,6 +518,10 @@ add_library(progpu_native_compression STATIC
     src/Compression/progpu_native_zlib.cpp
     include/progpu_native_compression.hpp)
 target_compile_features(progpu_native_compression PUBLIC cxx_std_20)
+set_target_properties(progpu_native_compression PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES)
 target_include_directories(progpu_native_compression
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/Compression")
@@ -692,6 +697,10 @@ target_include_directories(progpu_native_text
         "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Shaping"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/Compression")
 target_link_libraries(progpu_native_text PUBLIC progpu_native_compression)
+set_target_properties(progpu_native_text PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES)
 if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
     target_sources(progpu_native_text
         PUBLIC
@@ -744,6 +753,7 @@ target_include_directories(progpu_native
 target_include_directories(progpu_native SYSTEM PRIVATE
     "${PROGPU_NATIVE_WEBGPU_INCLUDE_DIR}")
 target_link_libraries(progpu_native PRIVATE
+    progpu_native_text
     "${PROGPU_NATIVE_WEBGPU_LIBRARY}")
 progpu_native_enable_warnings(progpu_native)
 progpu_native_enable_sanitizers(progpu_native)
@@ -779,6 +789,7 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
             "${generated_directory}")
     target_include_directories(progpu_native_dawn SYSTEM PRIVATE
         "${PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR}")
+    target_link_libraries(progpu_native_dawn PRIVATE progpu_native_text)
     progpu_native_enable_warnings(progpu_native_dawn)
     progpu_native_enable_sanitizers(progpu_native_dawn)
     set_target_properties(progpu_native_dawn PROPERTIES
@@ -1110,6 +1121,22 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         progpu_native_internal_tests PROPERTIES TIMEOUT 60)
 
     if(PROGPU_NATIVE_BUILD_WGPU_TARGET)
+    add_executable(progpu_native_text_interop_tests
+        tests/progpu_native_text_interop_tests.cpp)
+    target_compile_features(progpu_native_text_interop_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_text_interop_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    target_compile_definitions(progpu_native_text_interop_tests PRIVATE
+        "PROGPU_NATIVE_TEST_INTER_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Fonts.Inter/Fonts/Inter-Regular.ttf\"")
+    target_link_libraries(progpu_native_text_interop_tests PRIVATE progpu_native)
+    progpu_native_enable_warnings(progpu_native_text_interop_tests)
+    progpu_native_enable_sanitizers(progpu_native_text_interop_tests)
+    add_test(
+        NAME progpu_native_text_interop_tests
+        COMMAND progpu_native_text_interop_tests)
+    set_tests_properties(
+        progpu_native_text_interop_tests PROPERTIES TIMEOUT 60)
+
     add_executable(progpu_native_tests
         tests/progpu_native_tests.cpp
         src/Scene/progpu_native_scene.cpp

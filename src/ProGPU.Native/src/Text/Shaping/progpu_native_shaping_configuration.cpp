@@ -170,7 +170,9 @@ bool try_prepare_open_type_shape_configuration(
 
     open_type_shape_run_options options{};
     options.script = route.layout_script;
-    options.language = resolve_open_type_language_tag(request.language);
+    options.language = request.language_tag.value == 0U
+        ? resolve_open_type_language_tag(request.language)
+        : request.language_tag;
     options.direction = route.direction;
     options.requested_features =
         requested_feature_storage.first(requested_written);

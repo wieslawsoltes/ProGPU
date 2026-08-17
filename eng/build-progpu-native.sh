@@ -457,6 +457,12 @@ run_common_mask_benchmark() {
   fi
 }
 
+# One batched C ABI call must match the authoritative managed ProGPU shaping
+# result. This also catches stale generated wire layouts and missing packaged
+# text symbols on both macOS and Linux Release integration lanes.
+run_common_mask_benchmark \
+  --text-shaping --text-repeats 2 --warmup 8 --iterations 16
+
 for mask_mode in \
   --group-texture-mask \
   --group-rounded-mask \

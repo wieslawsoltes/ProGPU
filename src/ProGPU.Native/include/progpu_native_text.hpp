@@ -1328,6 +1328,9 @@ struct open_type_shape_configuration_request final {
     const unicode_normalization_data* normalization_data = nullptr;
     std::span<const unicode_scalar> pre_context{};
     std::span<const unicode_scalar> post_context{};
+    /* Stable ABI callers resolve BCP-47 once and pass the four-byte OpenType
+     * language tag directly. Zero preserves the managed string mapping path. */
+    open_type_tag language_tag{};
 };
 
 struct open_type_shape_configuration_requirements final {

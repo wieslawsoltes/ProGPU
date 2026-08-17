@@ -16,6 +16,17 @@ if (Array.Exists(
         args,
         static value => string.Equals(
             value,
+            "--text-shaping",
+            StringComparison.OrdinalIgnoreCase)))
+{
+    NativeTextShapingBenchmark.Run(args);
+    return;
+}
+
+if (Array.Exists(
+        args,
+        static value => string.Equals(
+            value,
             "--managed-picture",
             StringComparison.OrdinalIgnoreCase)))
 {

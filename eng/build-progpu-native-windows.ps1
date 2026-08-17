@@ -284,6 +284,7 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
         Invoke-NativeBenchmark --masked-images --warmup 2 --iterations 4
         Invoke-NativeBenchmark --semantic-scene --rectangles 96 --warmup 2 --iterations 4
         Invoke-NativeBenchmark --semantic-layer-effects --rectangles 96 --warmup 2 --iterations 4
+        Invoke-NativeBenchmark --text-shaping --text-repeats 2 --warmup 8 --iterations 16
         if ($BenchmarkProfile -eq "Smoke") {
             # Windows qualifies the D3D12-specific paths with one representative
             # member of every retained resource/effect family. The exhaustive

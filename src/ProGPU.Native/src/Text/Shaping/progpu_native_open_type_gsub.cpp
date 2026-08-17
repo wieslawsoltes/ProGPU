@@ -106,8 +106,14 @@ bool is_eligible(
     std::uint16_t flags,
     std::uint16_t mark_filtering_set,
     const open_type_gdef_view* gdef) noexcept {
-    if (gdef == nullptr || glyph.glyph_id > 0xFFFFU) {
-        return glyph.glyph_id <= 0xFFFFU;
+    if (glyph.glyph_id > 0xFFFFU) {
+        return false;
+    }
+    // Port of GlyphSubstitutionBuffer.IsGlyphClassIgnored's Latin hot path.
+    // RightToLeft alone cannot filter a glyph, and the common zero-filter
+    // lookup must not resolve GDEF classes once per glyph and lookup.
+    if ((flags & 0xFF1EU) == 0U || gdef == nullptr) {
+        return true;
     }
     const auto glyph_class =
         gdef->glyph_class(static_cast<std::uint16_t>(glyph.glyph_id));
@@ -175,13 +181,43 @@ apply_result match_coverage_at(
     bool& matches) noexcept {
     matches = false;
     std::size_t offset = 0U;
-    open_type_coverage_view coverage{};
     if (glyph_id > 0xFFFFU || relative == 0U ||
-        !try_add(parent, relative, offset) ||
-        !open_type_coverage_view::try_create(table, offset, coverage)) {
+        !try_add(parent, relative, offset) || !can_read(table, offset, 4U)) {
         return apply_result::malformed;
     }
-    matches = coverage.find(static_cast<std::uint16_t>(glyph_id)) >= 0;
+
+    // Port of ProGPU-owned OpenTypeTextShaper.FindCoverage: these lookup
+    // tables were validated when the retained layout/shape plan was built.
+    // Revalidating every sorted coverage record for every candidate glyph
+    // changes contextual shaping from bounded binary search to O(G * C).
+    // Keep local bounds/format validation and search the retained bytes
+    // directly in O(log C), while the public coverage parser stays strict.
+    const std::uint16_t format = read_u16(table, offset);
+    const std::uint16_t count = read_u16(table, offset + 2U);
+    const std::size_t stride = format == 1U ? 2U : format == 2U ? 6U : 0U;
+    if (stride == 0U || count >
+            (table.size() - std::min(table.size(), offset + 4U)) / stride) {
+        return apply_result::malformed;
+    }
+    const std::uint16_t glyph = static_cast<std::uint16_t>(glyph_id);
+    std::uint32_t low = 0U;
+    std::uint32_t high = count;
+    while (low < high) {
+        const std::uint32_t middle = low + (high - low) / 2U;
+        const std::size_t record = offset + 4U + middle * stride;
+        const std::uint16_t start = read_u16(table, record);
+        const std::uint16_t end = format == 1U
+            ? start
+            : read_u16(table, record + 2U);
+        if (glyph < start) {
+            high = middle;
+        } else if (glyph > end) {
+            low = middle + 1U;
+        } else {
+            matches = true;
+            break;
+        }
+    }
     return apply_result::no_match;
 }
 

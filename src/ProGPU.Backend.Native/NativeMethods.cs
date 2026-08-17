@@ -531,4 +531,57 @@ internal static unsafe partial class NativeMethods
         nint engine,
         byte* destination,
         nuint destinationSize);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_text_get_shape_requirements")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus GetTextShapeRequirements(
+        NativeTextShapeRequest* request,
+        NativeTextShapeRequirements* requirements);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_context_create")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus CreateTextContext(
+        uint abiVersion,
+        byte* fontData,
+        nuint fontSize,
+        uint faceIndex,
+        byte* normalizationData,
+        nuint normalizationDataSize,
+        nint* context);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_context_destroy")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial void DestroyTextContext(nint context);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_text_context_get_shape_requirements")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus GetTextContextShapeRequirements(
+        nint context,
+        NativeTextShapeRequest* request,
+        NativeTextShapeRequirements* requirements);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_context_shape")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ShapeTextContext(
+        nint context,
+        NativeTextShapeRequest* request,
+        NativeTextShapingGlyph* glyphs,
+        uint glyphCapacity,
+        byte* scratch,
+        nuint scratchSize,
+        NativeTextShapeResult* result);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_shape")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus ShapeText(
+        NativeTextShapeRequest* request,
+        NativeTextShapingGlyph* glyphs,
+        uint glyphCapacity,
+        byte* scratch,
+        nuint scratchSize,
+        NativeTextShapeResult* result);
 }

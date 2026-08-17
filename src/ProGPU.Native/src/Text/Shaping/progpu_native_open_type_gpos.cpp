@@ -70,6 +70,88 @@ std::uint32_t read_u32(
         read_u16(bytes, offset + 2U);
 }
 
+bool try_find_coverage(
+    std::span<const std::byte> table,
+    std::size_t offset,
+    std::uint16_t glyph,
+    std::int32_t& result) noexcept {
+    result = -1;
+    if (!can_read(table, offset, 4U)) return false;
+    const std::uint16_t format = read_u16(table, offset);
+    const std::uint16_t count = read_u16(table, offset + 2U);
+    const std::size_t stride = format == 1U ? 2U : format == 2U ? 6U : 0U;
+    if (stride == 0U || !can_read(table, offset + 4U,
+            static_cast<std::size_t>(count) * stride)) {
+        return false;
+    }
+    std::uint32_t low = 0U;
+    std::uint32_t high = count;
+    while (low < high) {
+        const std::uint32_t middle = low + (high - low) / 2U;
+        const std::size_t record = offset + 4U + middle * stride;
+        const std::uint16_t start = read_u16(table, record);
+        const std::uint16_t end = format == 1U
+            ? start
+            : read_u16(table, record + 2U);
+        if (glyph < start) {
+            high = middle;
+        } else if (glyph > end) {
+            low = middle + 1U;
+        } else {
+            result = format == 1U
+                ? static_cast<std::int32_t>(middle)
+                : static_cast<std::int32_t>(
+                    read_u16(table, record + 4U) + glyph - start);
+            break;
+        }
+    }
+    return true;
+}
+
+bool try_get_class(
+    std::span<const std::byte> table,
+    std::size_t offset,
+    std::uint16_t glyph,
+    std::uint16_t& result) noexcept {
+    result = 0U;
+    if (!can_read(table, offset, 4U)) return false;
+    const std::uint16_t format = read_u16(table, offset);
+    if (format == 1U) {
+        if (!can_read(table, offset, 6U)) return false;
+        const std::uint16_t start = read_u16(table, offset + 2U);
+        const std::uint16_t count = read_u16(table, offset + 4U);
+        if (!can_read(table, offset + 6U,
+                static_cast<std::size_t>(count) * 2U)) {
+            return false;
+        }
+        const std::uint32_t index =
+            static_cast<std::uint32_t>(glyph) - start;
+        if (index < count) result = read_u16(table, offset + 6U + index * 2U);
+        return true;
+    }
+    if (format != 2U) return false;
+    const std::uint16_t count = read_u16(table, offset + 2U);
+    if (!can_read(table, offset + 4U,
+            static_cast<std::size_t>(count) * 6U)) {
+        return false;
+    }
+    std::uint32_t low = 0U;
+    std::uint32_t high = count;
+    while (low < high) {
+        const std::uint32_t middle = low + (high - low) / 2U;
+        const std::size_t record = offset + 4U + middle * 6U;
+        const std::uint16_t start = read_u16(table, record);
+        const std::uint16_t end = read_u16(table, record + 2U);
+        if (glyph < start) high = middle;
+        else if (glyph > end) low = middle + 1U;
+        else {
+            result = read_u16(table, record + 4U);
+            break;
+        }
+    }
+    return true;
+}
+
 std::size_t value_record_size(std::uint16_t format) noexcept {
     return static_cast<std::size_t>(
         std::popcount(static_cast<unsigned>(format))) * 2U;
@@ -230,7 +312,9 @@ bool is_eligible(
     if (glyph.glyph_id > 0xFFFFU) {
         return false;
     }
-    if (gdef == nullptr) {
+    // Match the managed ProGPU fast path: no class/filter flag means every
+    // valid glyph is eligible, so avoid repeated GDEF class binary searches.
+    if ((flags & 0xFF1EU) == 0U || gdef == nullptr) {
         return true;
     }
     const auto glyph_class =
@@ -356,14 +440,16 @@ apply_result apply_cursive(
     }
     const std::uint16_t coverage_relative = read_u16(table, subtable + 2U);
     std::size_t coverage_offset = 0U;
-    open_type_coverage_view coverage{};
     if (coverage_relative == 0U ||
-        !try_add(subtable, coverage_relative, coverage_offset) ||
-        !open_type_coverage_view::try_create(table, coverage_offset, coverage)) {
+        !try_add(subtable, coverage_relative, coverage_offset)) {
         return apply_result::malformed;
     }
-    const std::int32_t current_coverage = coverage.find(
-        static_cast<std::uint16_t>(glyphs[position].glyph_id));
+    std::int32_t current_coverage = -1;
+    if (!try_find_coverage(table, coverage_offset,
+            static_cast<std::uint16_t>(glyphs[position].glyph_id),
+            current_coverage)) {
+        return apply_result::malformed;
+    }
     const std::uint16_t record_count = read_u16(table, subtable + 4U);
     if (current_coverage < 0) {
         return apply_result::no_match;
@@ -388,8 +474,12 @@ apply_result apply_cursive(
     if (previous >= glyphs.size()) {
         return apply_result::no_match;
     }
-    const std::int32_t previous_coverage = coverage.find(
-        static_cast<std::uint16_t>(glyphs[previous].glyph_id));
+    std::int32_t previous_coverage = -1;
+    if (!try_find_coverage(table, coverage_offset,
+            static_cast<std::uint16_t>(glyphs[previous].glyph_id),
+            previous_coverage)) {
+        return apply_result::malformed;
+    }
     if (previous_coverage < 0 ||
         static_cast<std::uint32_t>(previous_coverage) >= record_count) {
         return apply_result::no_match;
@@ -600,14 +690,16 @@ apply_result apply_single(
     const std::uint16_t coverage_relative = read_u16(table, subtable + 2U);
     const std::uint16_t value_format = read_u16(table, subtable + 4U);
     std::size_t coverage_offset = 0U;
-    open_type_coverage_view coverage{};
     if (coverage_relative == 0U ||
-        !try_add(subtable, coverage_relative, coverage_offset) ||
-        !open_type_coverage_view::try_create(table, coverage_offset, coverage)) {
+        !try_add(subtable, coverage_relative, coverage_offset)) {
         return apply_result::malformed;
     }
-    const std::int32_t coverage_index = coverage.find(
-        static_cast<std::uint16_t>(glyphs[position].glyph_id));
+    std::int32_t coverage_index = -1;
+    if (!try_find_coverage(table, coverage_offset,
+            static_cast<std::uint16_t>(glyphs[position].glyph_id),
+            coverage_index)) {
+        return apply_result::malformed;
+    }
     if (coverage_index < 0) {
         return apply_result::no_match;
     }
@@ -659,14 +751,16 @@ apply_result apply_pair(
         return apply_result::malformed;
     }
     std::size_t coverage_offset = 0U;
-    open_type_coverage_view coverage{};
     if (coverage_relative == 0U ||
-        !try_add(subtable, coverage_relative, coverage_offset) ||
-        !open_type_coverage_view::try_create(table, coverage_offset, coverage)) {
+        !try_add(subtable, coverage_relative, coverage_offset)) {
         return apply_result::malformed;
     }
-    const std::int32_t coverage_index = coverage.find(
-        static_cast<std::uint16_t>(glyphs[position].glyph_id));
+    std::int32_t coverage_index = -1;
+    if (!try_find_coverage(table, coverage_offset,
+            static_cast<std::uint16_t>(glyphs[position].glyph_id),
+            coverage_index)) {
+        return apply_result::malformed;
+    }
     if (coverage_index < 0) {
         return apply_result::no_match;
     }
@@ -730,21 +824,21 @@ apply_result apply_pair(
         const std::uint16_t class2_count = read_u16(table, subtable + 14U);
         std::size_t class1_offset = 0U;
         std::size_t class2_offset = 0U;
-        open_type_class_definition_view class1{};
-        open_type_class_definition_view class2{};
         if (class1_relative == 0U || class2_relative == 0U ||
             !try_add(subtable, class1_relative, class1_offset) ||
-            !try_add(subtable, class2_relative, class2_offset) ||
-            !open_type_class_definition_view::try_create(
-                table, class1_offset, class1) ||
-            !open_type_class_definition_view::try_create(
-                table, class2_offset, class2)) {
+            !try_add(subtable, class2_relative, class2_offset)) {
             return apply_result::malformed;
         }
-        const std::uint16_t first_class = class1.get(
-            static_cast<std::uint16_t>(glyphs[position].glyph_id));
-        const std::uint16_t second_class = class2.get(
-            static_cast<std::uint16_t>(glyphs[second].glyph_id));
+        std::uint16_t first_class = 0U;
+        std::uint16_t second_class = 0U;
+        if (!try_get_class(table, class1_offset,
+                static_cast<std::uint16_t>(glyphs[position].glyph_id),
+                first_class) ||
+            !try_get_class(table, class2_offset,
+                static_cast<std::uint16_t>(glyphs[second].glyph_id),
+                second_class)) {
+            return apply_result::malformed;
+        }
         if (first_class >= class1_count || second_class >= class2_count) {
             return apply_result::no_match;
         }

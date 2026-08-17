@@ -23,6 +23,59 @@ public enum NativeRendererTextureFormat : uint
     Bgra8UnormSrgb = 4
 }
 
+public enum NativeTextDirection : uint
+{
+    Unspecified = 0,
+    LeftToRight = 1,
+    RightToLeft = 2,
+    TopToBottom = 3,
+    BottomToTop = 4
+}
+
+public enum NativeTextClusterLevel : uint
+{
+    MonotoneGraphemes = 0,
+    MonotoneCharacters = 1,
+    Characters = 2,
+    Graphemes = 3
+}
+
+[Flags]
+public enum NativeTextBufferFlags : uint
+{
+    None = 0,
+    BeginningOfText = 1U << 0,
+    EndOfText = 1U << 1,
+    PreserveDefaultIgnorables = 1U << 2,
+    RemoveDefaultIgnorables = 1U << 3,
+    DoNotInsertDottedCircle = 1U << 4,
+    Verify = 1U << 5,
+    ProduceUnsafeToConcat = 1U << 6,
+    ProduceSafeToInsertTatweel = 1U << 7
+}
+
+[Flags]
+public enum NativeTextShapeFlags : uint
+{
+    None = 0,
+    ZeroMarkAdvances = 1U << 0
+}
+
+public enum NativeTextFontError : uint
+{
+    None = 0,
+    InvalidArgument = 1,
+    UnsupportedContainer = 2,
+    InvalidCollection = 3,
+    InvalidFace = 4,
+    TruncatedDirectory = 5,
+    InvalidGlyph = 6,
+    InsufficientBuffer = 7,
+    InvalidContainer = 8,
+    InvalidCompressedData = 9,
+    VerificationFailed = 10
+}
+
 public enum NativeAnalyticPrimitiveKind : uint
 {
     Rectangle = 0,
@@ -258,7 +311,10 @@ public enum NativeRendererCapabilities : ulong
     SemanticGeometryBatch = 1UL << 35,
     SemanticPointBatch = 1UL << 36,
     SemanticVertexMesh = 1UL << 37,
-    SemanticStrokeBatch = 1UL << 38
+    SemanticStrokeBatch = 1UL << 38,
+    SemanticLine3DBatch = 1UL << 39,
+    SemanticMesh3DBatch = 1UL << 40,
+    BulkTextShaping = 1UL << 41
 }
 
 public enum NativeSceneResourceKind : uint

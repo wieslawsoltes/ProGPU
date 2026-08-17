@@ -92,7 +92,7 @@ static string Generate(string header, string sourceName)
 
             Match field = Regex.Match(
                 value,
-                @"^(?<type>[A-Za-z_][A-Za-z0-9_]*)\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)$",
+                @"^(?:const\s+)?(?<type>[A-Za-z_][A-Za-z0-9_]*)(?:\s*\*)?\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)$",
                 RegexOptions.CultureInvariant);
             if (!field.Success)
             {
@@ -186,6 +186,11 @@ static string MapType(string nativeType) => nativeType switch
 {
     "uint32_t" => "uint",
     "uint64_t" => "ulong",
+    "uint16_t" => "ushort",
+    "uint8_t" => "byte",
+    "int32_t" => "int",
+    "int16_t" => "short",
+    "size_t" => "nuint",
     "uintptr_t" => "nuint",
     "float" => "float",
     "progpu_native_color" => "NativeColor",
