@@ -79,6 +79,7 @@ using ::progpu::native::text::arabic_stretch_requirements;
 using ::progpu::native::text::try_get_arabic_stretch_requirements;
 using ::progpu::native::text::try_apply_arabic_stretch;
 using ::progpu::native::text::try_assign_open_type_arabic_actions;
+using ::progpu::native::text::try_assign_open_type_arabic_actions_and_flags;
 using ::progpu::native::text::try_get_utf8_decode_requirements;
 using ::progpu::native::text::try_decode_utf8;
 using ::progpu::native::text::try_get_utf16_decode_requirements;

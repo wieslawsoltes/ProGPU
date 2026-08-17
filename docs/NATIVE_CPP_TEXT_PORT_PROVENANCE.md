@@ -310,6 +310,17 @@ The uniform-run shaper carries the action in reserved internal flag bits across
 GSUB expansion/ligature replacement, targets `isol`/`fina`/`fin2`/`fin3`/
 `medi`/`med2`/`init` lookups at exact eligible glyph positions, then clears the
 internal bits before the public bulk glyph result crosses the ABI.
+The scalar-indexed joining metadata path additionally ports
+`GlyphSubstitutionCollection.MarkUnsafeToConcat`,
+`MarkSafeToInsertTatweel`, and `MarkInteriorGlyphFlags` from
+`src/ProGPU.Text/OpenTypeTextShaper.cs` at checkpoint `68c17414`. It preserves
+the managed opt-in boundary-unsafe flag, default connected-cluster safety, and
+safe-tatweel substitution while propagating metadata through split initial
+mapping without a per-glyph crossing. Caller-owned action and flag spans use
+`O(U)` storage; ordered joining plus grapheme lookup is allocation-free
+`O(U log G)` for `U` scalars and `G` graphemes. Direct scalar/grapheme tests and
+full RTL shaping cover default, both opt-in flags, transparent-mark cluster
+coalescing, pre/post context, and final public-flag cleanup.
 
 Font fallback now ports the grapheme-preserving ownership boundary from
 ProGPU-owned `FontManager` and `OpenTypeTextShaper`: platform discovery resolves

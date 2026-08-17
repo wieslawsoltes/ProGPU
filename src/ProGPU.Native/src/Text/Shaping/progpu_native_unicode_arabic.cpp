@@ -190,4 +190,157 @@ bool try_assign_open_type_arabic_actions(
     return true;
 }
 
+bool try_assign_open_type_arabic_actions_and_flags(
+    std::span<const unicode_scalar> input,
+    std::span<const unicode_grapheme_cluster> graphemes,
+    std::span<const unicode_scalar> pre_context,
+    std::span<const unicode_scalar> post_context,
+    shaping_buffer_flags buffer_flags,
+    std::span<open_type_arabic_action> action_output,
+    std::span<shaping_glyph_flags> flag_output,
+    std::uint32_t& written,
+    unicode_error* error) noexcept {
+    written = 0U;
+    if (action_output.size() < input.size() ||
+        flag_output.size() < input.size()) {
+        set_error(error, unicode_error::insufficient_buffer);
+        return false;
+    }
+    std::size_t scalar_count = 0U;
+    for (const auto& grapheme : graphemes) {
+        if (grapheme.scalar_count == 0U ||
+            grapheme.scalar_index != scalar_count ||
+            grapheme.scalar_index > input.size() ||
+            grapheme.scalar_count > input.size() - grapheme.scalar_index) {
+            set_error(error, unicode_error::invalid_argument);
+            return false;
+        }
+        scalar_count += grapheme.scalar_count;
+    }
+    if (scalar_count != input.size() ||
+        !try_assign_open_type_arabic_actions(
+            input,
+            pre_context,
+            post_context,
+            action_output,
+            written,
+            error)) {
+        written = 0U;
+        return false;
+    }
+    std::fill_n(
+        flag_output.begin(), input.size(), shaping_glyph_flags::none);
+
+    const auto add_flags = [&](std::size_t start,
+                               std::size_t end,
+                               shaping_glyph_flags flags,
+                               bool interior_only) noexcept {
+        if (start >= end || end > input.size()) return;
+        auto first = start;
+        if (interior_only) {
+            const auto after = std::upper_bound(
+                graphemes.begin(),
+                graphemes.end(),
+                start,
+                [](std::size_t scalar_index,
+                   const unicode_grapheme_cluster& grapheme) {
+                    return scalar_index < grapheme.scalar_index;
+                });
+            const auto& minimum_cluster = *(after - 1);
+            first = std::max<std::size_t>(
+                first,
+                static_cast<std::size_t>(minimum_cluster.scalar_index) +
+                    minimum_cluster.scalar_count);
+        }
+        for (auto index = first; index < end; ++index) {
+            flag_output[index] = static_cast<shaping_glyph_flags>(
+                static_cast<std::uint32_t>(flag_output[index]) |
+                static_cast<std::uint32_t>(flags));
+        }
+    };
+    const bool produce_unsafe =
+        (static_cast<std::uint8_t>(buffer_flags) &
+            static_cast<std::uint8_t>(
+                shaping_buffer_flags::produce_unsafe_to_concat)) != 0U;
+    const bool produce_safe =
+        (static_cast<std::uint8_t>(buffer_flags) &
+            static_cast<std::uint8_t>(
+                shaping_buffer_flags::produce_safe_to_insert_tatweel)) != 0U;
+    const auto mark_unsafe = [&](std::size_t start,
+                                 std::size_t end) noexcept {
+        if (produce_unsafe) {
+            add_flags(
+                start,
+                end,
+                shaping_glyph_flags::unsafe_to_concat,
+                false);
+        }
+    };
+    const auto mark_safe = [&](std::size_t start,
+                               std::size_t end) noexcept {
+        const auto flags = produce_safe
+            ? shaping_glyph_flags::safe_to_insert_tatweel
+            : static_cast<shaping_glyph_flags>(
+                static_cast<std::uint32_t>(
+                    shaping_glyph_flags::unsafe_to_break) |
+                static_cast<std::uint32_t>(
+                    shaping_glyph_flags::unsafe_to_concat));
+        add_flags(start, end, flags, true);
+    };
+
+    std::size_t previous = input.size();
+    std::uint8_t state = 0U;
+    std::size_t inspected = 0U;
+    for (std::size_t index = pre_context.size();
+         index != 0U && inspected < 5U;
+         ++inspected) {
+        const auto joining = get_unicode_arabic_joining_type(
+            pre_context[--index].code_point);
+        if (joining == unicode_arabic_joining_type::transparent) continue;
+        state = arabic_state_table[static_cast<std::size_t>(joining)].next_state;
+        break;
+    }
+    for (std::size_t index = 0U; index < input.size(); ++index) {
+        const auto joining = get_unicode_arabic_joining_type(
+            input[index].code_point);
+        if (joining == unicode_arabic_joining_type::transparent) continue;
+        const auto entry = arabic_state_table[
+            static_cast<std::size_t>(state) * 6U +
+            static_cast<std::size_t>(joining)];
+        if (entry.previous != open_type_arabic_action::none &&
+            previous < input.size()) {
+            mark_safe(previous, index + 1U);
+        } else if (previous == input.size()) {
+            if (joining >= unicode_arabic_joining_type::right_joining) {
+                mark_unsafe(0U, index + 1U);
+            }
+        } else if (joining >= unicode_arabic_joining_type::right_joining ||
+            (state >= 2U && state <= 5U)) {
+            mark_unsafe(previous, index + 1U);
+        }
+        previous = index;
+        state = entry.next_state;
+    }
+    inspected = 0U;
+    for (std::size_t index = 0U;
+         index < post_context.size() && inspected < 5U;
+         ++index, ++inspected) {
+        const auto joining = get_unicode_arabic_joining_type(
+            post_context[index].code_point);
+        if (joining == unicode_arabic_joining_type::transparent) continue;
+        const auto entry = arabic_state_table[
+            static_cast<std::size_t>(state) * 6U +
+            static_cast<std::size_t>(joining)];
+        if (entry.previous != open_type_arabic_action::none &&
+            previous < input.size()) {
+            mark_safe(previous, input.size());
+        } else if (previous < input.size() && state >= 2U && state <= 5U) {
+            mark_unsafe(previous, input.size());
+        }
+        break;
+    }
+    set_error(error, unicode_error::none);
+    return true;
+}
+
 } // namespace progpu::native::text

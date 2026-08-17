@@ -39,6 +39,7 @@ using progpu::native::text::get_unicode_script;
 using progpu::native::text::get_unicode_arabic_joining_type;
 using progpu::native::text::open_type_arabic_action;
 using progpu::native::text::try_assign_open_type_arabic_actions;
+using progpu::native::text::try_assign_open_type_arabic_actions_and_flags;
 using progpu::native::text::unicode_arabic_joining_type;
 using progpu::native::text::get_unicode_canonical_combining_class;
 using progpu::native::text::get_unicode_bidi_class;
@@ -368,6 +369,54 @@ void unicode_contract_and_strict_decoders_are_transactional() {
         action_count,
         &unicode_result));
     require(boundary_action[0U] == open_type_arabic_action::final);
+
+    constexpr std::array arabic_graphemes{
+        unicode_grapheme_cluster{0U, 2U, 0U, 2U},
+        unicode_grapheme_cluster{2U, 1U, 2U, 1U}};
+    std::array<shaping_glyph_flags, 3U> joining_flags{};
+    require(try_assign_open_type_arabic_actions_and_flags(
+        arabic,
+        arabic_graphemes,
+        {},
+        {},
+        shaping_buffer_flags::none,
+        actions,
+        joining_flags,
+        action_count,
+        &unicode_result));
+    constexpr auto unsafe_break_and_concat =
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break) |
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_concat);
+    require(joining_flags[0U] == shaping_glyph_flags::none &&
+        joining_flags[1U] == shaping_glyph_flags::none &&
+        static_cast<std::uint32_t>(joining_flags[2U]) ==
+            unsafe_break_and_concat);
+    require(try_assign_open_type_arabic_actions_and_flags(
+        arabic,
+        arabic_graphemes,
+        {},
+        {},
+        shaping_buffer_flags::produce_safe_to_insert_tatweel,
+        actions,
+        joining_flags,
+        action_count,
+        &unicode_result));
+    require(joining_flags[2U] ==
+        shaping_glyph_flags::safe_to_insert_tatweel);
+    constexpr std::array one_grapheme{
+        unicode_grapheme_cluster{0U, 1U, 0U, 1U}};
+    std::array<shaping_glyph_flags, 1U> boundary_flags{};
+    require(try_assign_open_type_arabic_actions_and_flags(
+        one_beh,
+        one_grapheme,
+        {},
+        {},
+        shaping_buffer_flags::produce_unsafe_to_concat,
+        boundary_action,
+        boundary_flags,
+        action_count,
+        &unicode_result));
+    require(boundary_flags[0U] == shaping_glyph_flags::unsafe_to_concat);
     require(get_unicode_bidi_class(0x41U) ==
         unicode_bidi_class::left_to_right);
     require(get_unicode_bidi_class(0x05D0U) ==
@@ -4325,6 +4374,9 @@ void special_space_fallback_matches_managed_metrics() {
 }
 
 void arabic_fallback_forms_and_ligatures_match_managed() {
+    constexpr auto unsafe_break_and_concat =
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break) |
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_concat);
     constexpr std::array mappings{
         std::pair{0x0628U, 1U},
         std::pair{0x0645U, 3U},
@@ -4354,11 +4406,13 @@ void arabic_fallback_forms_and_ligatures_match_managed() {
     std::array<shaping_attachment, 6U> attachments{};
     std::array<std::uint8_t, 6U> states{};
     std::array<open_type_arabic_action, 2U> actions{};
+    std::array<shaping_glyph_flags, 2U> joining_flags{};
     auto scratch = open_type_shape_run_scratch{};
     scratch.grapheme_clusters = graphemes;
     scratch.attachments = attachments;
     scratch.attachment_states = states;
     scratch.arabic_actions = actions;
+    scratch.arabic_flags = joining_flags;
     auto options = open_type_shape_run_options{};
     options.script = open_type_tag::from_chars('a', 'r', 'a', 'b');
     options.direction = shaping_direction::right_to_left;
@@ -4398,7 +4452,24 @@ void arabic_fallback_forms_and_ligatures_match_managed() {
         font, input, options, glyphs, scratch, glyph_count, &error));
     require(glyph_count == 2U &&
         glyphs[0U].code_point == 0x0645U && glyphs[0U].glyph_id == 3U &&
-        glyphs[1U].code_point == 0x0628U && glyphs[1U].glyph_id == 1U);
+        glyphs[1U].code_point == 0x0628U && glyphs[1U].glyph_id == 1U &&
+        static_cast<std::uint32_t>(glyphs[0U].flags) ==
+            unsafe_break_and_concat &&
+        glyphs[1U].flags == shaping_glyph_flags::none);
+
+    options.buffer_flags = static_cast<shaping_buffer_flags>(
+        static_cast<std::uint8_t>(
+            shaping_buffer_flags::produce_unsafe_to_concat) |
+        static_cast<std::uint8_t>(
+            shaping_buffer_flags::produce_safe_to_insert_tatweel));
+    glyphs.fill({});
+    require(try_shape_open_type_run(
+        font, input, options, glyphs, scratch, glyph_count, &error));
+    require(glyph_count == 2U &&
+        glyphs[0U].flags ==
+            shaping_glyph_flags::safe_to_insert_tatweel &&
+        glyphs[1U].flags == shaping_glyph_flags::unsafe_to_concat);
+    options.buffer_flags = shaping_buffer_flags::none;
 
     const auto make_initial_gsub = [] {
         std::vector<std::byte> table(70U);
@@ -6838,12 +6909,14 @@ void arabic_stretch_matches_managed_bounded_expansion() {
     std::array<shaping_attachment, 12U> attachments{};
     std::array<std::uint8_t, 12U> states{};
     std::array<open_type_arabic_action, 4U> joining_actions{};
+    std::array<shaping_glyph_flags, 4U> joining_flags{};
     open_type_shape_run_scratch shape_scratch{};
     shape_scratch.grapheme_clusters = graphemes;
     shape_scratch.gsub_lookups = gsub_lookups;
     shape_scratch.attachments = attachments;
     shape_scratch.attachment_states = states;
     shape_scratch.arabic_actions = joining_actions;
+    shape_scratch.arabic_flags = joining_flags;
     shape_scratch.arabic_stretch_runs = runs;
     const open_type_shape_run_options stretch_options{
         open_type_tag::from_chars('a', 'r', 'a', 'b'),

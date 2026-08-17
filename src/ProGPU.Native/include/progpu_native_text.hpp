@@ -515,6 +515,20 @@ bool try_assign_open_type_arabic_actions(
     std::uint32_t& written,
     unicode_error* error = nullptr) noexcept;
 
+/* Managed-equivalent Arabic joining safety metadata. The action and flag
+ * arrays are scalar-indexed and can be propagated together during initial
+ * glyph mapping without a glyph-dependent callback or allocation. */
+bool try_assign_open_type_arabic_actions_and_flags(
+    std::span<const unicode_scalar> input,
+    std::span<const unicode_grapheme_cluster> graphemes,
+    std::span<const unicode_scalar> pre_context,
+    std::span<const unicode_scalar> post_context,
+    shaping_buffer_flags buffer_flags,
+    std::span<open_type_arabic_action> action_output,
+    std::span<shaping_glyph_flags> flag_output,
+    std::uint32_t& written,
+    unicode_error* error = nullptr) noexcept;
+
 struct arabic_stretch_run final {
     std::uint32_t start = 0U;
     std::uint32_t end = 0U;
@@ -1209,6 +1223,9 @@ struct open_type_shape_run_scratch final {
     /* Required only when ShapingBufferFlags.Verify is set. Diagnostic
      * verification is allocation-free and never retained. */
     open_type_shape_verification_scratch* verification = nullptr;
+    /* Scalar-indexed joining flags accompany arabic_actions for Arabic-
+     * joining scripts and are copied into mapped glyph records in bulk. */
+    std::span<shaping_glyph_flags> arabic_flags{};
 };
 
 struct open_type_shape_run_requirements final {

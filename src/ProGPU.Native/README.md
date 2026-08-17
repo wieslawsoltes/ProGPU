@@ -411,6 +411,13 @@ inside reserved transient flag bits, drive feature-specific GSUB lookups at the
 matching glyph positions, and are removed before the 32-byte public glyph
 records return. Exact-feature lookup selection excludes required features so a
 staged form pass cannot accidentally replay required substitutions.
+The same joining pass now emits the managed `ProduceUnsafeToConcat` and
+`ProduceSafeToInsertTatweel` contracts into caller-owned scalar scratch and
+propagates them through initial glyph mapping. Connected cluster interiors are
+unsafe-to-break/concat by default, opt into safe tatweel positions when
+requested, and expose run-boundary concat hazards only when requested. The
+ordered scalar/grapheme pass is allocation-free `O(U log G)` for `U` scalars
+and `G` grapheme clusters, before ordinary shaping.
 The same generated-data gate now carries ProGPU's Arabic presentation forms
 and required fallback ligatures. When the selected script has no Arabic-form
 lookup, native shaping applies enabled `init`/`medi`/`fina`/`isol` forms only

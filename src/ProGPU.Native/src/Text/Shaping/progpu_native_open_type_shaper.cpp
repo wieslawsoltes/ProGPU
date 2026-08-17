@@ -1375,6 +1375,8 @@ bool try_shape_open_type_run(
         scratch.gpos_lookups.size() < requirements.gpos_lookup_capacity ||
         (arabic_joining && scratch.arabic_actions.size() <
             requirements.script_action_capacity) ||
+        (arabic_joining && scratch.arabic_flags.size() <
+            requirements.script_action_capacity) ||
         (complex_script &&
             (scratch.script_categories.size() <
                     requirements.complex_script_capacity ||
@@ -1456,11 +1458,15 @@ bool try_shape_open_type_run(
     if (arabic_joining) {
         std::uint32_t action_count = 0U;
         unicode_error action_error = unicode_error::none;
-        if (!try_assign_open_type_arabic_actions(
+        if (!try_assign_open_type_arabic_actions_and_flags(
                 input,
+                scratch.grapheme_clusters.first(grapheme_count),
                 options.pre_context,
                 options.post_context,
+                options.buffer_flags,
                 scratch.arabic_actions.first(
+                    requirements.script_action_capacity),
+                scratch.arabic_flags.first(
                     requirements.script_action_capacity),
                 action_count,
                 &action_error) || action_count != input.size()) {
@@ -1519,6 +1525,12 @@ bool try_shape_open_type_run(
                     set_arabic_action(
                         glyph_storage[mapped_count],
                         scratch.arabic_actions[scalar_index]);
+                    glyph_storage[mapped_count].flags =
+                        static_cast<shaping_glyph_flags>(
+                            static_cast<std::uint32_t>(
+                                glyph_storage[mapped_count].flags) |
+                            static_cast<std::uint32_t>(
+                                scratch.arabic_flags[scalar_index]));
                 }
                 ++mapped_count;
             }

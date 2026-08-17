@@ -80,6 +80,8 @@ int main() {
         &progpu::native::text::try_prepare_open_type_shape_configuration;
     const auto shape_result_verifier =
         &progpu::native::text::try_verify_open_type_shape_result;
+    const auto arabic_joining_flag_resolver =
+        &progpu::native::text::try_assign_open_type_arabic_actions_and_flags;
     const auto default_feature_settings =
         progpu::native::text::get_default_open_type_feature_settings();
     static_assert(progpu::native::text::sfnt_name_ids::family_name == 1U);
@@ -154,6 +156,7 @@ int main() {
         shape_configuration_requirements_resolver == nullptr ||
         shape_configuration_resolver == nullptr ||
         shape_result_verifier == nullptr ||
+        arabic_joining_flag_resolver == nullptr ||
         default_feature_settings.size() != 26U ||
         shaping_route_resolver == nullptr ||
         !shape_options.pre_context.empty() ||
