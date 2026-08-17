@@ -249,6 +249,19 @@ continue using `deva` or the corresponding base script. A synthetic `dev2`
 uniform run verifies that the Devanagari vowel-constraint insertion remains
 active through the complete shaper rather than only the isolated helper.
 
+`Text/Shaping/progpu_native_shaping_configuration.cpp` composes the
+ProGPU-owned `CpuOpenTypeShaper.Shape` and `OpenTypeTextShaper.ShapeCore`
+planning boundary from `src/ProGPU.Text/CpuOpenTypeShaper.cs` and
+`src/ProGPU.Text/OpenTypeTextShaper.cs` at checkpoint `9089d6ca`. It reuses the
+granular native route, language, request-normalization, and feature-plan ports
+rather than duplicating their policy. One requirements/write pair infers the
+Unicode script, selects the font's layout generation, and returns final run
+options borrowing caller-owned buffers. Work is `O(U + F^2 + S)` for `U`
+decoded scalars, the small feature set `F`, and `S` ScriptList records, with
+`O(1)` internal storage. Synthetic `deva`/`dev2`, language, global/ranged,
+inactive-zero-range, exact-capacity, short-buffer, header, named-module, and
+Emscripten link tests cover the composed boundary.
+
 The raw GPOS executor now covers rule-, class-, and coverage-based Context and
 Chaining Context formats 1-3. Nested position records reuse the same borrowed
 lookup table and caller glyph/attachment buffers with a fixed 64-level cycle
