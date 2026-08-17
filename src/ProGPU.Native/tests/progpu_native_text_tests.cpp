@@ -5453,6 +5453,41 @@ void native_font_provider_cache_is_borrowed_and_generation_safe() {
         provider, 7U, 650U, 5U, font_provider_slant::normal, 0x41U,
         cache, cursor, result, &error));
     require(result.found && context.reads == 7U);
+
+    struct slant_provider_context final {
+        std::array<font_provider_face, 3U> faces{};
+    } slant_context{
+        std::array{
+            font_provider_face{regular, 10U, 9U, 0U, 500U, 5U,
+                font_provider_slant::italic},
+            font_provider_face{regular, 11U, 9U, 0U, 700U, 5U,
+                font_provider_slant::oblique},
+            font_provider_face{regular, 12U, 9U, 0U, 900U, 5U,
+                font_provider_slant::normal}}};
+    const auto slant_count = +[](void* value) noexcept -> std::uint32_t {
+        return static_cast<std::uint32_t>(
+            static_cast<slant_provider_context*>(value)->faces.size());
+    };
+    const auto slant_get = +[](void* value, std::uint32_t index,
+                               font_provider_face& face) noexcept -> bool {
+        const auto& source =
+            *static_cast<slant_provider_context*>(value);
+        if (index >= source.faces.size()) return false;
+        face = source.faces[index];
+        return true;
+    };
+    const font_provider_view slant_provider{
+        &slant_context, 1U, slant_count, slant_get};
+    std::array<font_provider_cache_entry, 2U> slant_cache{};
+    std::uint32_t slant_cursor = 0U;
+    require(try_resolve_font_provider_face(
+        slant_provider, 9U, 500U, 5U, font_provider_slant::oblique, 0x41U,
+        slant_cache, slant_cursor, result, &error));
+    require(result.found && result.face.identity == 10U);
+    require(try_resolve_font_provider_face(
+        slant_provider, 9U, 500U, 5U, font_provider_slant::normal, 0x41U,
+        slant_cache, slant_cursor, result, &error));
+    require(result.found && result.face.identity == 12U);
 }
 
 void native_positioned_text_layout_wraps_without_allocation() {

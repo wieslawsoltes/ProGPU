@@ -603,6 +603,9 @@ traditional/simplified Chinese routing, exact family order, case-insensitive
 deduplication, and all managed Arabic/Hebrew/CJK/Latin ranges are preserved.
 Construction uses a fixed 64-entry stack record, performs no allocation, and
 is bounded by the checked-in policy size.
+Provider style scoring also preserves the managed `FontManager` rule that
+italic and oblique belong to the same non-upright class; weight and width break
+ties inside that class instead of incorrectly preferring the exact slant enum.
 
 Positioned native line layout consumes already-shaped visual-order glyphs and
 caller-supplied break decisions, preserving the managed ProGPU separation

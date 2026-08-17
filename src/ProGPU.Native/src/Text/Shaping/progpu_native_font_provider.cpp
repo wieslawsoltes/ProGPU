@@ -43,7 +43,10 @@ std::uint64_t style_score(
     const auto stretch_delta = face.stretch > stretch
         ? face.stretch - stretch
         : stretch - face.stretch;
-    const std::uint64_t slant_penalty = face.slant == slant ? 0U : 10000U;
+    const bool face_italic = face.slant != font_provider_slant::normal;
+    const bool requested_italic = slant != font_provider_slant::normal;
+    const std::uint64_t slant_penalty =
+        face_italic == requested_italic ? 0U : 10000U;
     return slant_penalty + static_cast<std::uint64_t>(stretch_delta) * 1000U +
         weight_delta;
 }

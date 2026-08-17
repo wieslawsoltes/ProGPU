@@ -365,6 +365,10 @@ native API returns process-lifetime literal views into caller-owned output and
 uses one fixed 64-entry internal buffer. Tests cover exact Latin and combined
 CJK ordering, language deduplication, both extended Arabic ranges,
 transactional short output, surrogate behavior, and invalid code points.
+The adjacent provider score now matches `FontManager.GetStyleDistance` exactly
+for slant classification: upright differs from non-upright by 10,000, while
+italic and oblique are equivalent and defer to width/weight distance. A focused
+provider fixture distinguishes this behavior from exact-enum matching.
 
 ## Delivered borrowed SFNT/TTC foundation
 
