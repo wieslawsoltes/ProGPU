@@ -785,6 +785,8 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_builder_reuses_retained_images());
     require(progpu::native::tests::
+        semantic_scene_builder_records_image_patch_batches());
+    require(progpu::native::tests::
         semantic_scene_builder_serializes_external_images_pointer_free());
     require(progpu::native::tests::
         semantic_scene_builder_updates_retained_images_transactionally());

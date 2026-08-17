@@ -1,5 +1,6 @@
 #include "progpu_native_scene_builder_internal.hpp"
 
+#include "progpu_native_semantic_image.hpp"
 #include "progpu_native_semantic_validation.hpp"
 
 #include <cstring>
@@ -141,6 +142,9 @@ bool semantic_scene_builder::draw_image(
     progpu_native_scene_image_draw image = source;
     image.struct_size = sizeof(image);
     image.reserved = 0U;
+    if ((image.flags & PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH) != 0U) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
     const bool wants_sampling =
         image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC;
     const bool wants_matrix =
@@ -216,6 +220,128 @@ bool semantic_scene_builder::draw_image(
                 effect,
                 sizeof(*effect));
         }
+        implementation_->commands.push_back(std::move(command));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+bool semantic_scene_builder::draw_image_patches(
+    std::uint32_t image_resource_index,
+    const progpu_native_scene_image_draw& source,
+    std::span<const progpu_native_scene_image_patch> patches,
+    progpu_native_image_rect bounds,
+    std::uint32_t state_resource_index,
+    const progpu_native_scene_image_sampling_options* sampling_options,
+    const progpu_native_scene_image_color_matrix* color_matrix,
+    const progpu_native_scene_image_effect* effect) noexcept {
+    if (image_resource_index >= implementation_->resources.size() ||
+        !implementation_->valid_state_index(state_resource_index) ||
+        !finite_rect(bounds) || patches.empty() ||
+        patches.size() > PROGPU_NATIVE_SCENE_MAX_IMAGE_PATCHES ||
+        implementation_->commands.size() >=
+            PROGPU_NATIVE_SCENE_MAX_COMMANDS) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    const auto& resource = implementation_->resources[image_resource_index];
+    progpu_native_scene_image_draw image = source;
+    image.struct_size = sizeof(image);
+    image.flags |= PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH;
+    image.reserved = 0U;
+    const bool wants_sampling =
+        image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC;
+    const bool wants_matrix =
+        (image.flags & PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX) != 0U;
+    const bool wants_effect =
+        (image.flags & PROGPU_NATIVE_SCENE_IMAGE_EFFECT) != 0U;
+    const bool external_image =
+        (resource.record.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
+    const std::uint64_t validation_bytes = external_image
+        ? static_cast<std::uint64_t>(image.row_bytes) *
+                (image.image_height - 1U) +
+            static_cast<std::uint64_t>(image.image_width) * 4U
+        : resource.payload.size();
+    if ((!resource.rgba8_image && !external_image) ||
+        image.image_width != resource.image_width ||
+        image.image_height != resource.image_height ||
+        image.row_bytes != resource.image_row_bytes ||
+        !semantic::is_valid_semantic_image(image, validation_bytes) ||
+        wants_sampling != (sampling_options != nullptr) ||
+        wants_matrix != (color_matrix != nullptr) ||
+        wants_effect != (effect != nullptr) ||
+        (sampling_options != nullptr &&
+            !semantic::is_valid_semantic_image_sampling_options(
+                *sampling_options)) ||
+        (color_matrix != nullptr &&
+            !semantic::is_valid_semantic_image_color_matrix(*color_matrix)) ||
+        (effect != nullptr &&
+            !semantic::is_valid_semantic_image_effect(*effect))) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    const std::uint64_t payload_size = sizeof(image) +
+        (sampling_options == nullptr ? 0U : sizeof(*sampling_options)) +
+        (color_matrix == nullptr ? 0U : sizeof(*color_matrix)) +
+        (effect == nullptr ? 0U : sizeof(*effect)) +
+        sizeof(progpu_native_scene_image_patch_batch) + patches.size_bytes();
+    if (payload_size > std::numeric_limits<std::uint32_t>::max()) {
+        return implementation_->fail(scene_build_error::capacity_exceeded);
+    }
+    try {
+        implementation::command_entry command{};
+        command.record.struct_size = sizeof(command.record);
+        command.record.kind = PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE;
+        command.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        command.record.command_id = implementation_->commands.size() + 1U;
+        command.record.state_index = state_resource_index;
+        command.record.resource_index = image_resource_index;
+        command.record.bounds_x = bounds.x;
+        command.record.bounds_y = bounds.y;
+        command.record.bounds_width = bounds.width;
+        command.record.bounds_height = bounds.height;
+        command.record.payload_size = static_cast<std::uint32_t>(payload_size);
+        command.payload.resize(static_cast<std::size_t>(payload_size));
+        std::size_t offset = 0U;
+        const auto append = [&](const void* value, std::size_t size) {
+            std::memcpy(command.payload.data() + offset, value, size);
+            offset += size;
+        };
+        append(&image, sizeof(image));
+        if (sampling_options != nullptr) {
+            append(sampling_options, sizeof(*sampling_options));
+        }
+        if (color_matrix != nullptr) {
+            append(color_matrix, sizeof(*color_matrix));
+        }
+        if (effect != nullptr) {
+            append(effect, sizeof(*effect));
+        }
+        const progpu_native_scene_image_patch_batch batch{
+            sizeof(progpu_native_scene_image_patch_batch),
+            0U,
+            static_cast<std::uint32_t>(patches.size()),
+            0U};
+        append(&batch, sizeof(batch));
+        append(patches.data(), patches.size_bytes());
+
+        semantic::semantic_image_options parsed{};
+        command.record.payload_offset = 0U;
+        if (offset != command.payload.size() ||
+            !semantic::validate_image_draw_payload(
+                command.payload.data(),
+                command.record,
+                image,
+                validation_bytes,
+                parsed) ||
+            parsed.patch_count != patches.size()) {
+            return implementation_->fail(scene_build_error::invalid_argument);
+        }
+        command.record.payload_offset = 0U;
+        implementation_->commands.reserve(
+            implementation_->commands.size() + 1U);
         implementation_->commands.push_back(std::move(command));
         implementation_->error = scene_build_error::none;
         return true;

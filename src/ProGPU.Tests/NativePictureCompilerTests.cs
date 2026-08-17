@@ -868,6 +868,89 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerLowersTexturePatchesToOneNativeImageDraw()
+    {
+        using GpuTexture texture = CreateUnbackedTexture(16U, 8U);
+        texture.AlphaMode = GpuTextureAlphaMode.Premultiplied;
+        TexturePatch[] patches =
+        [
+            new(
+                new Rect(0f, 0f, 4f, 4f),
+                new Rect(1f, 2f, 8f, 6f)),
+            new(
+                new Rect(10f, 2f, 4f, 6f),
+                new Vector4(1f, 0.5f, 0.25f, 0.5f)),
+            new(
+                new Rect(4f, 0f, 4f, 4f),
+                new Rect(16f, 2f, 8f, 6f),
+                Matrix3x2.CreateTranslation(1f, 0f),
+                new Vector4(0.2f, 0.4f, 0.6f, 0.8f),
+                VertexColorBlendMode.Multiply)
+        ];
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawTexture,
+                    Texture = texture,
+                    TexturePatches = patches,
+                    TextureSamplingMode = TextureSamplingMode.Cubic,
+                    SnapTextureToPixels = true,
+                    Transform = Matrix4x4.Identity
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            124U,
+            1U,
+            new NativePictureCompileOptions(2f),
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(1, compiled.ExternalImages.Length);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        NativeMethods.SceneCommand command =
+            MemoryMarshal.Read<NativeMethods.SceneCommand>(
+                compiled.Stream.Slice(checked((int)header.CommandOffset)));
+        int payloadOffset = checked((int)command.PayloadOffset);
+        NativeSceneImageDraw draw = MemoryMarshal.Read<NativeSceneImageDraw>(
+            compiled.Stream.Slice(payloadOffset));
+        Assert.Equal(
+            NativeSceneImageFlags.PatchBatch |
+                NativeSceneImageFlags.SourcePremultiplied |
+                NativeSceneImageFlags.SnapToPixels,
+            draw.Flags);
+        int batchOffset = payloadOffset +
+            Unsafe.SizeOf<NativeSceneImageDraw>() +
+            Unsafe.SizeOf<NativeSceneImageSamplingOptions>();
+        NativeSceneImagePatchBatch batch =
+            MemoryMarshal.Read<NativeSceneImagePatchBatch>(
+                compiled.Stream.Slice(batchOffset));
+        Assert.Equal(3U, batch.PatchCount);
+        ReadOnlySpan<NativeSceneImagePatch> retained =
+            MemoryMarshal.Cast<byte, NativeSceneImagePatch>(
+                compiled.Stream.Slice(
+                    batchOffset + Unsafe.SizeOf<NativeSceneImagePatchBatch>(),
+                    3 * Unsafe.SizeOf<NativeSceneImagePatch>()));
+        Assert.Equal(NativeSceneImagePatchKind.Texture, retained[0].Kind);
+        Assert.Equal(NativeSceneImagePatchKind.FixedColor, retained[1].Kind);
+        Assert.Equal(NativeSceneImagePatchKind.AtlasColor, retained[2].Kind);
+        Assert.Equal(
+            NativeImagePatchColorBlendMode.Multiply,
+            retained[2].ColorBlendMode);
+        Assert.Equal(1f, retained[2].Transform.M31);
+    }
+
+    [Fact]
     public void CompilerLowersAndBatchesSupportedImmutablePictureCommands()
     {
         var red = new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f));

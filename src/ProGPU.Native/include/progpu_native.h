@@ -76,6 +76,7 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_BIDI (UINT64_C(1) << 44U)
 #define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_PARAGRAPH (UINT64_C(1) << 45U)
 #define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_VERTICAL_LAYOUT (UINT64_C(1) << 46U)
+#define PROGPU_NATIVE_CAPABILITY_SEMANTIC_IMAGE_PATCH_BATCH (UINT64_C(1) << 47U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -94,6 +95,7 @@ enum {
     PROGPU_NATIVE_SCENE_MAX_BRUSHES = 1024U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS = 64U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_DRAW_BRUSH_INDICES = 1024U * 1024U,
+    PROGPU_NATIVE_SCENE_MAX_IMAGE_PATCHES = 64U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_TEXT_STYLES = 1024U * 1024U,
     PROGPU_NATIVE_SCENE_NO_INDEX = 0xffffffffU,
     PROGPU_NATIVE_SCENE_RECORD_REQUIRED = 1U << 0U,
@@ -210,7 +212,9 @@ enum {
     /* Snap each fully transformed destination corner to the target DPI grid. */
     PROGPU_NATIVE_SCENE_IMAGE_SNAP_TO_PIXELS = 1U << 2U,
     /* Source RGB channels are already multiplied by source alpha. */
-    PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED = 1U << 3U
+    PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED = 1U << 3U,
+    /* A bounded patch-batch suffix follows all other image suffixes. */
+    PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH = 1U << 4U
 };
 
 enum {
@@ -246,6 +250,12 @@ typedef enum progpu_native_image_sampling {
     PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR = 1,
     PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC = 2
 } progpu_native_image_sampling;
+
+typedef enum progpu_native_scene_image_patch_kind {
+    PROGPU_NATIVE_SCENE_IMAGE_PATCH_TEXTURE = 0,
+    PROGPU_NATIVE_SCENE_IMAGE_PATCH_FIXED_COLOR = 1,
+    PROGPU_NATIVE_SCENE_IMAGE_PATCH_ATLAS_COLOR = 2
+} progpu_native_scene_image_patch_kind;
 
 typedef enum progpu_native_group_mask_kind {
     PROGPU_NATIVE_GROUP_MASK_NONE = 0,
@@ -1057,6 +1067,30 @@ typedef struct progpu_native_scene_image_draw {
     float opacity;
     uint32_t reserved;
 } progpu_native_scene_image_draw;
+
+/*
+ * Optional bounded patch suffix selected by
+ * PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH. The header is followed by exactly
+ * patch_count fixed-width records. Each record is compiled to one quad while
+ * the complete suffix remains one retained image command and one GPU draw.
+ */
+typedef struct progpu_native_scene_image_patch_batch {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t patch_count;
+    uint32_t reserved;
+} progpu_native_scene_image_patch_batch;
+
+typedef struct progpu_native_scene_image_patch {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint32_t color_blend_mode;
+    uint32_t flags;
+    progpu_native_image_rect source_rect;
+    progpu_native_image_rect destination_rect;
+    progpu_native_affine_2d transform;
+    float color[4];
+} progpu_native_scene_image_patch;
 
 /*
  * Optional suffix required by semantic image draws whose sampling mode is

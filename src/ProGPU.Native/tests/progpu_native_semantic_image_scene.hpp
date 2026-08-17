@@ -10,4 +10,8 @@ std::vector<std::byte> create_semantic_cubic_image_scene_stream(
     std::uint32_t width,
     std::uint32_t height);
 
+std::vector<std::byte> create_semantic_image_patch_scene_stream(
+    std::uint32_t width,
+    std::uint32_t height);
+
 } // namespace progpu::native::tests

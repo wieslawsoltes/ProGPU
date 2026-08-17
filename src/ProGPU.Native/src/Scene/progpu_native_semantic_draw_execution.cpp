@@ -317,9 +317,11 @@ progpu_native_status encode_semantic_image_draw(
         page.vertex_bytes == 0U || texture_group == nullptr ||
         engine.image_index_buffer == nullptr || uniform_group == nullptr ||
         encoder == nullptr ||
+        (draw.vertex_count != 4U &&
+            (draw.vertex_count == 0U || draw.vertex_count % 6U != 0U)) ||
         draw.first_vertex >
-            std::numeric_limits<std::uint32_t>::max() - 4U ||
-        static_cast<std::uint64_t>(draw.first_vertex + 4U) *
+            std::numeric_limits<std::uint32_t>::max() - draw.vertex_count ||
+        static_cast<std::uint64_t>(draw.first_vertex + draw.vertex_count) *
                 sizeof(progpu::native::vector_vertex) >
             page.vertex_bytes) {
         return engine.fail(
@@ -330,6 +332,25 @@ progpu_native_status encode_semantic_image_draw(
         mask_bind_group != nullptr || mask_chain_bind_group != nullptr;
     const bool chained = !draw.has_effect_mask &&
         mask_chain_bind_group != nullptr;
+    const auto encode_vertices = [&]() noexcept {
+        Commands::set_vertex_buffer(
+            encoder, page.vertex_buffer, page.vertex_bytes);
+        if (draw.vertex_count == 4U) {
+            Commands::set_index_buffer(
+                encoder, engine.image_index_buffer,
+                6U * sizeof(std::uint32_t));
+            Commands::draw_indexed(
+                encoder, 6U, 0U,
+                static_cast<std::int32_t>(draw.first_vertex));
+        } else {
+            Commands::draw(
+                encoder,
+                draw.vertex_count,
+                1U,
+                draw.first_vertex,
+                0U);
+        }
+    };
     if (draw.has_effect) {
         if ((!chained && !create_semantic_image_effect_pipelines(engine)) ||
             (chained &&
@@ -361,14 +382,7 @@ progpu_native_status encode_semantic_image_draw(
                 : masked
                     ? mask_bind_group
                     : draw.effect_dummy_mask_bind_group);
-        Commands::set_vertex_buffer(
-            encoder, page.vertex_buffer, page.vertex_bytes);
-        Commands::set_index_buffer(
-            encoder, engine.image_index_buffer,
-            6U * sizeof(std::uint32_t));
-        Commands::draw_indexed(
-            encoder, 6U, 0U,
-            static_cast<std::int32_t>(draw.first_vertex));
+        encode_vertices();
         return PROGPU_NATIVE_STATUS_SUCCESS;
     }
     if (masked && !chained && engine.image_mask_pipeline == nullptr &&
@@ -416,12 +430,7 @@ progpu_native_status encode_semantic_image_draw(
         Commands::set_bind_group(
             encoder, 2U, draw.color_matrix_bind_group);
     }
-    Commands::set_vertex_buffer(
-        encoder, page.vertex_buffer, page.vertex_bytes);
-    Commands::set_index_buffer(
-        encoder, engine.image_index_buffer, 6U * sizeof(std::uint32_t));
-    Commands::draw_indexed(
-        encoder, 6U, 0U, static_cast<std::int32_t>(draw.first_vertex));
+    encode_vertices();
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }
 

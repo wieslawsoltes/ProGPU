@@ -191,6 +191,20 @@ public:
         const progpu_native_scene_image_effect*
             effect = nullptr) noexcept;
 
+    bool draw_image_patches(
+        std::uint32_t image_resource_index,
+        const progpu_native_scene_image_draw& image,
+        std::span<const progpu_native_scene_image_patch> patches,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+        const progpu_native_scene_image_sampling_options*
+            sampling_options = nullptr,
+        const progpu_native_scene_image_color_matrix*
+            color_matrix = nullptr,
+        const progpu_native_scene_image_effect*
+            effect = nullptr) noexcept;
+
     bool draw_glyph_run(
         std::uint32_t glyph_resource_index,
         std::span<const progpu_native_positioned_glyph> glyphs,

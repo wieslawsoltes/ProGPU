@@ -750,6 +750,52 @@ bool render_browser_frame(double, void*) {
         fail_engine("The stable browser cubic image page was rebuilt.");
     }
 
+    auto patch_image_scene =
+        progpu::native::tests::create_semantic_image_patch_scene_stream(
+            width,
+            height);
+    progpu_native_scene_metrics patch_scene_metrics{};
+    patch_scene_metrics.struct_size = sizeof(patch_scene_metrics);
+    if (patch_image_scene.empty() ||
+        progpu_native_engine_update_scene(
+            resources.engine,
+            patch_image_scene.data(),
+            patch_image_scene.size(),
+            &patch_scene_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        patch_scene_metrics.command_count != 1U ||
+        patch_scene_metrics.resource_count != 1U ||
+        patch_scene_metrics.draw_count != 1U) {
+        fail_engine("The browser image patch scene update failed.");
+    }
+    semantic_frame.scene_id = 95U;
+    semantic_frame.generation = 1U;
+    progpu_native_scene_frame_metrics patch_metrics{};
+    patch_metrics.struct_size = sizeof(patch_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &patch_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        patch_metrics.command_count != 1U ||
+        patch_metrics.draw_call_count != 1U ||
+        patch_metrics.submission_count != 1U ||
+        patch_metrics.vertex_upload_bytes != 18U * 56U ||
+        patch_metrics.index_upload_bytes != 0U ||
+        patch_metrics.texture_upload_bytes != 16U) {
+        fail_engine("The browser image patch batch render failed.");
+    }
+    patch_metrics = {};
+    patch_metrics.struct_size = sizeof(patch_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &patch_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        patch_metrics.draw_call_count != 1U ||
+        patch_metrics.vertex_upload_bytes != 0U ||
+        patch_metrics.index_upload_bytes != 0U ||
+        patch_metrics.texture_upload_bytes != 0U) {
+        fail_engine("The stable browser image patch page was rebuilt.");
+    }
+
     auto text_scene =
         progpu::native::tests::create_semantic_text_scene_stream(
             width,

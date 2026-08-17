@@ -719,9 +719,18 @@ pixel snapping transforms each destination corner first, then rounds its
 logical coordinate on the current physical-DPI grid, exactly matching the
 authoritative managed `Compositor.AppendTextureQuad` contract. Premultiplied
 source identity reuses the same shader's existing opacity-scale path without
-copying or converting the texture. Mipmaps/anisotropy and tiling/patch draws
-remain explicit typed failures rather than approximations. The retained effect
-suffix now shares the
+copying or converting the texture. Texture, fixed-color, and atlas-color patch
+batches are retained as one 16-byte header followed by fixed 88-byte records.
+The C++ compiler reproduces the authoritative managed
+`Compositor.CompileTextureCommand` and `AppendTextureQuad` contracts, including
+per-patch affine transforms, premultiplied color encoding, all color blend
+modes, custom-cubic opacity signaling, and final DPI-grid pixel snapping. It
+emits six vertices per patch into one non-indexed triangle-list draw, preserving
+one image resource, one binding, one semantic command, and one GPU draw for the
+whole batch. Changed compilation is O(P) time and storage for P patches; stable
+replay uploads zero image or patch bytes. Mipmaps and anisotropy remain explicit
+typed failures rather than approximations. The retained effect suffix now
+shares the
 production image-effect shader for bounded blur, spherical mapping, luminance
 conversion, zero-copy paired luma/chroma views, and explicit R8 effect masks.
 Larger filterable RGB and R8/RG8 planar blur footprints use the same embedded
@@ -1621,10 +1630,13 @@ call, while the managed lowering conservatively inflates retained bounds by
 half a physical pixel. They also preserve premultiplied source identity and
 reuse the canonical `Texture.wgsl` RGB opacity-scale path, so source RGB and
 alpha receive retained opacity exactly once without an unpremultiply/reupload
-pass. The remaining explicit exclusions are
+pass. Pointer-free texture-patch batches preserve the managed texture,
+fixed-color, and atlas-color patch kinds, destination transforms, blend modes,
+custom-cubic opacity sign, and pixel snapping in one C++ GPU draw. The remaining
+explicit exclusions are
 combined geometry, opaque static-DXF
-extension objects, mutable embedded `Visual` instances, texture patches,
-mipmaps/anisotropy, and non-affine image effects. Those records fail with a
+extension objects, mutable embedded `Visual` instances, mipmaps/anisotropy, and
+non-affine image effects. Those records fail with a
 typed source-command diagnostic; no managed
 fallback or semantic approximation is inserted.
 

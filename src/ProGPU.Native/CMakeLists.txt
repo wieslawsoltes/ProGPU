@@ -723,6 +723,8 @@ add_library(progpu_native_scene_builder STATIC
     src/Scene/Builder/progpu_native_scene_builder_internal.hpp
     src/Scene/progpu_native_semantic_layer_mask.cpp
     src/Scene/progpu_native_semantic_layer_mask.hpp
+    src/Scene/progpu_native_semantic_image.cpp
+    src/Scene/progpu_native_semantic_image.hpp
     src/Scene/progpu_native_semantic_validation.cpp
     src/Scene/progpu_native_semantic_validation.hpp
     include/progpu_native_scene_builder.hpp)
@@ -844,6 +846,8 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
                 tests/progpu_native_semantic_color_glyph_scene.hpp
                 tests/progpu_native_semantic_coverage_mask_scene.cpp
                 tests/progpu_native_semantic_coverage_mask_scene.hpp
+                tests/progpu_native_semantic_image_scene.cpp
+                tests/progpu_native_semantic_image_scene.hpp
                 tests/progpu_native_semantic_state_mask_scene.cpp
                 tests/progpu_native_semantic_state_mask_scene.hpp
                 tests/progpu_native_webscene_advanced_blend_fixture.cpp

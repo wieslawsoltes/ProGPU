@@ -1,6 +1,7 @@
 #include "progpu_native_semantic_image_scene.hpp"
 
 #include "progpu_native.h"
+#include "progpu_native_scene_builder.hpp"
 
 #include <array>
 #include <cstring>
@@ -124,6 +125,70 @@ std::vector<std::byte> create_semantic_cubic_image_scene_stream(
         &command,
         sizeof(command));
     return stream;
+}
+
+std::vector<std::byte> create_semantic_image_patch_scene_stream(
+    std::uint32_t width,
+    std::uint32_t height) {
+    constexpr std::array<std::byte, 16U> pixels{
+        std::byte{0xff}, std::byte{0x00}, std::byte{0x00}, std::byte{0xff},
+        std::byte{0x00}, std::byte{0xff}, std::byte{0x00}, std::byte{0xff},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}};
+    semantic_scene_builder builder(95U, 1U);
+    std::uint32_t image_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_rgba8_image(2U, 2U, 8U, pixels, image_index)) {
+        return {};
+    }
+    progpu_native_scene_image_draw image{};
+    image.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED |
+        PROGPU_NATIVE_SCENE_IMAGE_SNAP_TO_PIXELS;
+    image.image_width = 2U;
+    image.image_height = 2U;
+    image.row_bytes = 8U;
+    image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+    image.source_rect = {0.0F, 0.0F, 2.0F, 2.0F};
+    image.destination_rect = {0.0F, 0.0F, 1.0F, 1.0F};
+    image.transform = semantic_scene_builder::identity_transform();
+    image.opacity = 1.0F;
+    const float third = static_cast<float>(width) / 3.0F;
+    std::array<progpu_native_scene_image_patch, 3U> patches{};
+    for (auto& patch : patches) {
+        patch.struct_size = sizeof(patch);
+        patch.source_rect = {0.0F, 0.0F, 2.0F, 2.0F};
+        patch.transform = semantic_scene_builder::identity_transform();
+    }
+    patches[0].kind = PROGPU_NATIVE_SCENE_IMAGE_PATCH_TEXTURE;
+    patches[0].destination_rect = {
+        0.0F, 0.0F, third, static_cast<float>(height)};
+    patches[1].kind = PROGPU_NATIVE_SCENE_IMAGE_PATCH_FIXED_COLOR;
+    patches[1].source_rect = {};
+    patches[1].destination_rect = {
+        third, 0.0F, third, static_cast<float>(height)};
+    patches[1].color[0] = 1.0F;
+    patches[1].color[3] = 1.0F;
+    patches[2].kind = PROGPU_NATIVE_SCENE_IMAGE_PATCH_ATLAS_COLOR;
+    patches[2].color_blend_mode = 2U;
+    patches[2].destination_rect = {
+        2.0F * third,
+        0.0F,
+        static_cast<float>(width) - 2.0F * third,
+        static_cast<float>(height)};
+    patches[2].transform.m31 = -0.25F;
+    patches[2].color[0] = 1.0F;
+    patches[2].color[1] = 1.0F;
+    patches[2].color[2] = 1.0F;
+    patches[2].color[3] = 1.0F;
+    if (!builder.draw_image_patches(
+            image_index,
+            image,
+            patches,
+            {0.0F, 0.0F, static_cast<float>(width),
+                static_cast<float>(height)})) {
+        return {};
+    }
+    std::vector<std::byte> stream;
+    return builder.build(stream) ? stream : std::vector<std::byte>{};
 }
 
 } // namespace progpu::native::tests

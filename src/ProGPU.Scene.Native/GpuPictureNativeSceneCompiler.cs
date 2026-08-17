@@ -85,7 +85,8 @@ public static partial class GpuPictureNativeSceneCompiler
         NativeSceneImageColorMatrix ColorMatrix,
         bool HasColorMatrix,
         NativeSceneImageEffect Effect,
-        bool HasEffect);
+        bool HasEffect,
+        NativeSceneImagePatch[] Patches);
 
     private readonly record struct AffineColorTransform(
         Vector4 Red,
@@ -466,7 +467,11 @@ public static partial class GpuPictureNativeSceneCompiler
                 lines3D.Count * Unsafe.SizeOf<NativeSceneLine3D>() +
                 externalImages.Count * (
                     Unsafe.SizeOf<NativeSceneImageDraw>() +
-                    Unsafe.SizeOf<NativeSceneImageSamplingOptions>() + 8) +
+                    Unsafe.SizeOf<NativeSceneImageSamplingOptions>() +
+                    Unsafe.SizeOf<NativeSceneImagePatchBatch>() + 8) +
+                externalImages.Sum(static image =>
+                    image.Patches.Length *
+                        Unsafe.SizeOf<NativeSceneImagePatch>()) +
                 materials.BrushCount * Unsafe.SizeOf<NativeSceneBrush>() +
                 materials.GradientStopCount *
                     Unsafe.SizeOf<NativeSceneGradientStop>() +
@@ -3269,12 +3274,15 @@ public static partial class GpuPictureNativeSceneCompiler
         out NativePictureCompileError error)
     {
         GpuTexture? texture = command.Texture;
+        TexturePatch[]? sourcePatches = command.TexturePatches;
+        bool hasPatches = sourcePatches is { Length: > 0 };
         if (texture is null || texture.IsDisposed ||
             texture.Width == 0U || texture.Height == 0U ||
             texture.Width > 16_384U || texture.Height > 16_384U ||
-            command.TexturePatches is not null ||
-            !IsFiniteRect(command.Rect) ||
-            command.Rect.Width <= 0f || command.Rect.Height <= 0f)
+            sourcePatches is { Length: 0 } ||
+            sourcePatches is { Length: > 65_536 } ||
+            (!hasPatches && (!IsFiniteRect(command.Rect) ||
+                command.Rect.Width <= 0f || command.Rect.Height <= 0f)))
         {
             error = NativePictureCompileError.UnsupportedCommand;
             return false;
@@ -3394,6 +3402,67 @@ public static partial class GpuPictureNativeSceneCompiler
         {
             flags |= NativeSceneImageFlags.SourcePremultiplied;
         }
+        NativeSceneImagePatch[] patches = [];
+        NativeImageRect bounds;
+        if (hasPatches)
+        {
+            patches = new NativeSceneImagePatch[sourcePatches!.Length];
+            bounds = default;
+            for (int index = 0; index < sourcePatches.Length; index++)
+            {
+                TexturePatch patch = sourcePatches[index];
+                if (!IsFiniteRect(patch.Destination) ||
+                    patch.Destination.Width <= 0f ||
+                    patch.Destination.Height <= 0f ||
+                    !IsFinite(patch.Color) ||
+                    (uint)patch.Kind > (uint)TexturePatchKind.AtlasColor ||
+                    (uint)patch.ColorBlendMode >
+                        (uint)VertexColorBlendMode.Luminosity ||
+                    patch.HasDestinationTransform &&
+                        !IsFinite(patch.DestinationTransform) ||
+                    patch.Kind != TexturePatchKind.FixedColor &&
+                        (!IsFiniteRect(patch.Source) || patch.Source.X < 0f ||
+                            patch.Source.Y < 0f || patch.Source.Width <= 0f ||
+                            patch.Source.Height <= 0f ||
+                            patch.Source.Right > texture.Width ||
+                            patch.Source.Bottom > texture.Height))
+                {
+                    error = NativePictureCompileError.InvalidGeometry;
+                    return false;
+                }
+                Matrix3x2 patchTransform = patch.HasDestinationTransform
+                    ? patch.DestinationTransform
+                    : Matrix3x2.Identity;
+                patches[index] = new NativeSceneImagePatch(
+                    (NativeSceneImagePatchKind)patch.Kind,
+                    new NativeImageRect(
+                        patch.Source.X,
+                        patch.Source.Y,
+                        patch.Source.Width,
+                        patch.Source.Height),
+                    new NativeImageRect(
+                        patch.Destination.X,
+                        patch.Destination.Y,
+                        patch.Destination.Width,
+                        patch.Destination.Height),
+                    patchTransform,
+                    patch.Color,
+                    (NativeImagePatchColorBlendMode)patch.ColorBlendMode);
+                NativeImageRect patchBounds = TransformBounds(
+                    patch.Destination,
+                    patchTransform * transform);
+                bounds = index == 0 ? patchBounds : Union(bounds, patchBounds);
+            }
+            flags |= NativeSceneImageFlags.PatchBatch;
+        }
+        else
+        {
+            bounds = TransformBounds(command.Rect, transform);
+        }
+        if (command.SnapTextureToPixels)
+        {
+            bounds = Inflate(bounds, 0.5f / targetDpiScale);
+        }
         var draw = new NativeSceneImageDraw(
             texture.Width,
             texture.Height,
@@ -3405,10 +3474,10 @@ public static partial class GpuPictureNativeSceneCompiler
                 source.Width,
                 source.Height),
             new NativeImageRect(
-                command.Rect.X,
-                command.Rect.Y,
-                command.Rect.Width,
-                command.Rect.Height),
+                hasPatches ? 0f : command.Rect.X,
+                hasPatches ? 0f : command.Rect.Y,
+                hasPatches ? 1f : command.Rect.Width,
+                hasPatches ? 1f : command.Rect.Height),
             transform,
             1f,
             flags);
@@ -3423,17 +3492,14 @@ public static partial class GpuPictureNativeSceneCompiler
             colorMatrix,
             hasColorMatrix,
             nativeEffect,
-            hasEffect));
+            hasEffect,
+            patches));
         batches.Add(new Batch
         {
             Kind = BatchKind.Image,
             Start = drawIndex,
             Count = 1,
-            Bounds = command.SnapTextureToPixels
-                ? Inflate(
-                    TransformBounds(command.Rect, transform),
-                    0.5f / targetDpiScale)
-                : TransformBounds(command.Rect, transform)
+            Bounds = bounds
         });
         operations.Add(new Operation(OperationKind.Draw, batches.Count - 1));
         error = NativePictureCompileError.None;
@@ -3448,6 +3514,24 @@ public static partial class GpuPictureNativeSceneCompiler
         in ExternalImageDraw image)
     {
         NativeSceneImageDraw draw = image.Draw;
+        if (image.Patches.Length > 0)
+        {
+            NativeSceneImageSamplingOptions? sampling =
+                image.HasSamplingOptions ? image.SamplingOptions : null;
+            NativeSceneImageColorMatrix? colorMatrix =
+                image.HasColorMatrix ? image.ColorMatrix : null;
+            NativeSceneImageEffect? effect =
+                image.HasEffect ? image.Effect : null;
+            return builder.TryDrawImagePatches(
+                commandId,
+                resourceIndex,
+                bounds,
+                in draw,
+                image.Patches,
+                sampling,
+                colorMatrix,
+                effect);
+        }
         if (image.HasEffect)
         {
             NativeSceneImageEffect effect = image.Effect;
@@ -3941,6 +4025,11 @@ public static partial class GpuPictureNativeSceneCompiler
         float.IsFinite(value.M33) && float.IsFinite(value.M34) &&
         float.IsFinite(value.M41) && float.IsFinite(value.M42) &&
         float.IsFinite(value.M43) && float.IsFinite(value.M44);
+
+    private static bool IsFinite(Matrix3x2 value) =>
+        float.IsFinite(value.M11) && float.IsFinite(value.M12) &&
+        float.IsFinite(value.M21) && float.IsFinite(value.M22) &&
+        float.IsFinite(value.M31) && float.IsFinite(value.M32);
 
     private static bool IsNative3DCommand(in RenderCommand command) =>
         command.Type is RenderCommandType.DrawLine3D or

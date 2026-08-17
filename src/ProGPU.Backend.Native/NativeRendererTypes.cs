@@ -235,6 +235,46 @@ public enum NativeImageSampling : uint
     Cubic = 2
 }
 
+public enum NativeSceneImagePatchKind : uint
+{
+    Texture = 0,
+    FixedColor = 1,
+    AtlasColor = 2
+}
+
+public enum NativeImagePatchColorBlendMode : uint
+{
+    Clear,
+    Src,
+    Dst,
+    SrcOver,
+    DstOver,
+    SrcIn,
+    DstIn,
+    SrcOut,
+    DstOut,
+    SrcATop,
+    DstATop,
+    Xor,
+    Plus,
+    Modulate,
+    Screen,
+    Overlay,
+    Darken,
+    Lighten,
+    ColorDodge,
+    ColorBurn,
+    HardLight,
+    SoftLight,
+    Difference,
+    Exclusion,
+    Multiply,
+    Hue,
+    Saturation,
+    Color,
+    Luminosity
+}
+
 [Flags]
 public enum NativeSceneImageFlags : uint
 {
@@ -242,7 +282,8 @@ public enum NativeSceneImageFlags : uint
     ColorMatrix = 1U << 0,
     Effect = 1U << 1,
     SnapToPixels = 1U << 2,
-    SourcePremultiplied = 1U << 3
+    SourcePremultiplied = 1U << 3,
+    PatchBatch = 1U << 4
 }
 
 [Flags]
@@ -361,7 +402,8 @@ public enum NativeRendererCapabilities : ulong
     BulkTextLineBreaking = 1UL << 43,
     BulkTextBidi = 1UL << 44,
     BulkTextParagraph = 1UL << 45,
-    BulkTextVerticalLayout = 1UL << 46
+    BulkTextVerticalLayout = 1UL << 46,
+    SemanticImagePatchBatch = 1UL << 47
 }
 
 public enum NativeSceneResourceKind : uint
@@ -1036,6 +1078,62 @@ public readonly struct NativeSceneImageDraw
     public readonly Matrix3x2 Transform;
     public readonly float Opacity;
     private readonly uint Reserved;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneImagePatchBatch
+{
+    public NativeSceneImagePatchBatch(uint patchCount)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneImagePatchBatch>();
+        Flags = 0U;
+        PatchCount = patchCount;
+        Reserved = 0U;
+    }
+
+    public readonly uint StructSize;
+    public readonly uint Flags;
+    public readonly uint PatchCount;
+    private readonly uint Reserved;
+
+    internal bool HasCanonicalFields =>
+        StructSize == Unsafe.SizeOf<NativeSceneImagePatchBatch>() &&
+        Flags == 0U && Reserved == 0U;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneImagePatch
+{
+    public NativeSceneImagePatch(
+        NativeSceneImagePatchKind kind,
+        NativeImageRect sourceRect,
+        NativeImageRect destinationRect,
+        Matrix3x2 transform,
+        Vector4 color = default,
+        NativeImagePatchColorBlendMode colorBlendMode =
+            NativeImagePatchColorBlendMode.Dst)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneImagePatch>();
+        Kind = kind;
+        ColorBlendMode = colorBlendMode;
+        Flags = 0U;
+        SourceRect = sourceRect;
+        DestinationRect = destinationRect;
+        Transform = transform;
+        Color = color;
+    }
+
+    public readonly uint StructSize;
+    public readonly NativeSceneImagePatchKind Kind;
+    public readonly NativeImagePatchColorBlendMode ColorBlendMode;
+    private readonly uint Flags;
+    public readonly NativeImageRect SourceRect;
+    public readonly NativeImageRect DestinationRect;
+    public readonly Matrix3x2 Transform;
+    public readonly Vector4 Color;
+
+    internal bool HasCanonicalFields =>
+        StructSize == Unsafe.SizeOf<NativeSceneImagePatch>() && Flags == 0U;
 }
 
 /// <summary>

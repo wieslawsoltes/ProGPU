@@ -510,6 +510,91 @@ bool semantic_scene_builder_reuses_retained_images() {
         invalid.last_error() == scene_build_error::invalid_argument;
 }
 
+bool semantic_scene_builder_records_image_patch_batches() {
+    semantic_scene_builder builder(714U, 1U);
+    std::uint32_t image_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_external_image(64U, 32U, image_index)) {
+        return false;
+    }
+    progpu_native_scene_image_draw image{};
+    image.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED |
+        PROGPU_NATIVE_SCENE_IMAGE_SNAP_TO_PIXELS;
+    image.image_width = 64U;
+    image.image_height = 32U;
+    image.row_bytes = 256U;
+    image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+    image.source_rect = {0.0F, 0.0F, 64.0F, 32.0F};
+    image.destination_rect = {1.0F, 1.0F, 1.0F, 1.0F};
+    image.transform = semantic_scene_builder::identity_transform();
+    image.opacity = 0.75F;
+    std::array<progpu_native_scene_image_patch, 3U> patches{};
+    for (auto& patch : patches) {
+        patch.struct_size = sizeof(patch);
+        patch.source_rect = {0.0F, 0.0F, 16.0F, 16.0F};
+        patch.destination_rect = {4.0F, 6.0F, 32.0F, 24.0F};
+        patch.transform = semantic_scene_builder::identity_transform();
+    }
+    patches[0].kind = PROGPU_NATIVE_SCENE_IMAGE_PATCH_TEXTURE;
+    patches[1].kind = PROGPU_NATIVE_SCENE_IMAGE_PATCH_FIXED_COLOR;
+    patches[1].source_rect = {};
+    patches[1].color[0] = 1.0F;
+    patches[1].color[3] = 0.5F;
+    patches[2].kind = PROGPU_NATIVE_SCENE_IMAGE_PATCH_ATLAS_COLOR;
+    patches[2].color_blend_mode = 24U;
+    patches[2].transform = {1.0F, 0.0F, 0.0F, 1.0F, 8.0F, 3.0F};
+    patches[2].color[0] = 0.25F;
+    patches[2].color[1] = 0.5F;
+    patches[2].color[2] = 0.75F;
+    patches[2].color[3] = 1.0F;
+    if (!builder.draw_image_patches(
+            image_index,
+            image,
+            patches,
+            {4.0F, 6.0F, 72.0F, 48.0F})) {
+        return false;
+    }
+
+    std::vector<std::byte> stream;
+    scene_build_metrics metrics{};
+    if (!builder.build(stream, &metrics) || metrics.command_count != 1U ||
+        metrics.resource_count != 1U) {
+        return false;
+    }
+    const auto validation = scene::validate(stream.data(), stream.size());
+    if (validation.status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        validation.draw_count != 1U) {
+        return false;
+    }
+    const auto command = read<progpu_native_scene_command>(
+        stream, validation.header.command_offset);
+    const auto retained_image = read<progpu_native_scene_image_draw>(
+        stream, command.payload_offset);
+    const auto batch = read<progpu_native_scene_image_patch_batch>(
+        stream, command.payload_offset + sizeof(retained_image));
+    const auto atlas_patch = read<progpu_native_scene_image_patch>(
+        stream,
+        command.payload_offset + sizeof(retained_image) + sizeof(batch) +
+            2U * sizeof(progpu_native_scene_image_patch));
+    if (command.payload_size != sizeof(retained_image) + sizeof(batch) +
+            sizeof(patches) ||
+        (retained_image.flags & PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH) == 0U ||
+        batch.struct_size != sizeof(batch) || batch.patch_count != 3U ||
+        atlas_patch.kind != PROGPU_NATIVE_SCENE_IMAGE_PATCH_ATLAS_COLOR ||
+        atlas_patch.color_blend_mode != 24U ||
+        atlas_patch.transform.m31 != 8.0F) {
+        return false;
+    }
+
+    semantic_scene_builder invalid(715U, 1U);
+    if (!invalid.add_external_image(64U, 32U, image_index)) {
+        return false;
+    }
+    image.flags |= PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH;
+    return !invalid.draw_image(
+            image_index, image, {4.0F, 6.0F, 72.0F, 48.0F}) &&
+        invalid.last_error() == scene_build_error::invalid_argument;
+}
+
 bool semantic_scene_builder_serializes_external_images_pointer_free() {
     semantic_scene_builder builder(713U, 4U);
     std::uint32_t image_index = PROGPU_NATIVE_SCENE_NO_INDEX;

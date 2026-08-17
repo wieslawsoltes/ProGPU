@@ -333,6 +333,7 @@ progpu_native_status render_scene(
     std::uint32_t semantic_path_draw_count = 0U;
     std::uint32_t semantic_glyph_draw_count = 0U;
     std::uint32_t semantic_image_draw_count = 0U;
+    std::uint64_t semantic_image_vertex_count = 0U;
     std::uint32_t semantic_3d_draw_count = 0U;
     std::uint64_t semantic_analytic_vertex_bytes = 0U;
     std::uint64_t semantic_analytic_index_bytes = 0U;
@@ -988,12 +989,22 @@ progpu_native_status render_scene(
                             effect_mask_binding != nullptr)));
                 semantic_has_image_color_matrices |=
                     valid && image_options.has_color_matrix;
-                compiled_vertex_bytes =
-                    4U * sizeof(progpu::native::vector_vertex);
-                compiled_index_bytes = 6U * sizeof(std::uint32_t);
+                const std::uint64_t image_vertex_count =
+                    image_options.patch_count == 0U
+                    ? 4U
+                    : static_cast<std::uint64_t>(image_options.patch_count) *
+                        6U;
+                compiled_vertex_bytes = image_vertex_count *
+                    sizeof(progpu::native::vector_vertex);
+                compiled_index_bytes = image_options.patch_count == 0U
+                    ? 6U * sizeof(std::uint32_t)
+                    : 0U;
                 compiled_texture_bytes = external_image
                     ? 0U
                     : resource.payload_size;
+                if (valid) {
+                    semantic_image_vertex_count += image_vertex_count;
+                }
                 break;
             }
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH: {
@@ -2164,8 +2175,8 @@ progpu_native_status render_scene(
             }
         };
         try {
-            vertices.reserve(
-                static_cast<std::size_t>(semantic_image_draw_count) * 4U);
+            vertices.reserve(static_cast<std::size_t>(
+                semantic_image_vertex_count));
             compiled_draws.reserve(semantic_image_draw_count);
             semantic_state_cursor state_cursor(bytes, header);
             semantic_layer_target_cursor target_cursor(
@@ -2236,60 +2247,126 @@ progpu_native_status render_scene(
                     image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC;
                 const std::uint32_t first_vertex =
                     static_cast<std::uint32_t>(vertices.size());
-                const float x0 = image.destination_rect.x;
-                const float y0 = image.destination_rect.y;
-                const float x1 = x0 + image.destination_rect.width;
-                const float y1 = y0 + image.destination_rect.height;
-                const float u0 = image.source_rect.x /
-                    static_cast<float>(image.image_width);
-                const float v0 = image.source_rect.y /
-                    static_cast<float>(image.image_height);
-                const float u1 = (image.source_rect.x +
-                    image.source_rect.width) /
-                    static_cast<float>(image.image_width);
-                const float v1 = (image.source_rect.y +
-                    image.source_rect.height) /
-                    static_cast<float>(image.image_height);
-                constexpr std::array<
-                    std::array<std::uint32_t, 2U>, 4U> corners{{
-                    {0U, 0U}, {1U, 0U}, {1U, 1U}, {0U, 1U}
-                }};
-                for (const auto& corner : corners) {
-                    const float x = corner[0] == 0U ? x0 : x1;
-                    const float y = corner[1] == 0U ? y0 : y1;
-                    progpu::native::vector_vertex vertex{};
-                    progpu::native::transform_point(
-                        image.transform,
-                        x,
-                        y,
-                        vertex.position[0],
-                        vertex.position[1]);
-                    if ((image.flags &
-                            PROGPU_NATIVE_SCENE_IMAGE_SNAP_TO_PIXELS) != 0U) {
-                        semantic::snap_semantic_image_point(
-                            vertex.position[0],
-                            vertex.position[1],
-                            frame->dpi_scale);
+                const auto append_quad = [&image, &image_options, &vertices,
+                    frame, cubic_sampling](
+                    const progpu_native_scene_image_patch* patch) {
+                    const auto& source = patch == nullptr
+                        ? image.source_rect
+                        : patch->source_rect;
+                    const auto& destination = patch == nullptr
+                        ? image.destination_rect
+                        : patch->destination_rect;
+                    const auto transform = patch == nullptr
+                        ? image.transform
+                        : progpu::native::compose_affine(
+                            patch->transform,
+                            image.transform);
+                    float color[4]{};
+                    float patch_kind = 0.0F;
+                    float color_blend_mode = 0.0F;
+                    float patch_opacity = 1.0F;
+                    if (patch == nullptr) {
+                        semantic::resolve_image_vertex_color(
+                            image,
+                            image_options.has_effect,
+                            color);
+                    } else {
+                        semantic::resolve_image_patch_vertex_attributes(
+                            image,
+                            *patch,
+                            image_options.has_effect,
+                            color,
+                            patch_kind,
+                            color_blend_mode,
+                            patch_opacity);
                     }
-                    semantic::resolve_image_vertex_color(
-                        image,
-                        image_options.has_effect,
-                        vertex.color);
-                    vertex.texture_coordinate[0] =
-                        corner[0] == 0U ? u0 : u1;
-                    vertex.texture_coordinate[1] =
-                        corner[1] == 0U ? v0 : v1;
-                    vertex.brush_index = 0.0F;
-                    vertex.shape_size[0] = cubic_sampling
-                        ? image_options.cubic_b
+                    const bool samples_texture = patch == nullptr ||
+                        patch->kind !=
+                            PROGPU_NATIVE_SCENE_IMAGE_PATCH_FIXED_COLOR;
+                    const float x0 = destination.x;
+                    const float y0 = destination.y;
+                    const float x1 = x0 + destination.width;
+                    const float y1 = y0 + destination.height;
+                    const float u0 = samples_texture
+                        ? source.x / static_cast<float>(image.image_width)
                         : 0.0F;
-                    vertex.shape_size[1] = cubic_sampling
-                        ? image_options.cubic_c
-                        : 0.5F;
-                    vertex.corner_radius = 0.0F;
-                    vertex.stroke_thickness = 1.0F;
-                    vertex.shape_type = 0.0F;
-                    vertices.push_back(vertex);
+                    const float v0 = samples_texture
+                        ? source.y / static_cast<float>(image.image_height)
+                        : 0.0F;
+                    const float u1 = samples_texture
+                        ? (source.x + source.width) /
+                            static_cast<float>(image.image_width)
+                        : 1.0F;
+                    const float v1 = samples_texture
+                        ? (source.y + source.height) /
+                            static_cast<float>(image.image_height)
+                        : 1.0F;
+                    constexpr std::array<std::uint32_t, 6U>
+                        triangle_corners{0U, 1U, 2U, 0U, 2U, 3U};
+                    constexpr std::array<
+                        std::array<std::uint32_t, 2U>, 4U> corners{{
+                        {0U, 0U}, {1U, 0U}, {1U, 1U}, {0U, 1U}
+                    }};
+                    const std::uint32_t vertex_count = patch == nullptr
+                        ? 4U
+                        : 6U;
+                    for (std::uint32_t index = 0U;
+                         index < vertex_count;
+                         ++index) {
+                        const auto& corner = corners[patch == nullptr
+                            ? index
+                            : triangle_corners[index]];
+                        progpu::native::vector_vertex vertex{};
+                        progpu::native::transform_point(
+                            transform,
+                            corner[0] == 0U ? x0 : x1,
+                            corner[1] == 0U ? y0 : y1,
+                            vertex.position[0],
+                            vertex.position[1]);
+                        if ((image.flags &
+                                PROGPU_NATIVE_SCENE_IMAGE_SNAP_TO_PIXELS) !=
+                            0U) {
+                            semantic::snap_semantic_image_point(
+                                vertex.position[0],
+                                vertex.position[1],
+                                frame->dpi_scale);
+                        }
+                        std::copy(
+                            std::begin(color),
+                            std::end(color),
+                            std::begin(vertex.color));
+                        vertex.texture_coordinate[0] =
+                            corner[0] == 0U ? u0 : u1;
+                        vertex.texture_coordinate[1] =
+                            corner[1] == 0U ? v0 : v1;
+                        vertex.brush_index = patch_kind;
+                        vertex.shape_size[0] = cubic_sampling
+                            ? image_options.cubic_b
+                            : 0.0F;
+                        vertex.shape_size[1] = cubic_sampling
+                            ? image_options.cubic_c
+                            : 0.5F;
+                        vertex.corner_radius = color_blend_mode;
+                        vertex.stroke_thickness = patch_opacity;
+                        vertex.shape_type = 0.0F;
+                        vertices.push_back(vertex);
+                    }
+                };
+                if (image_options.patch_count == 0U) {
+                    append_quad(nullptr);
+                } else {
+                    for (std::uint32_t patch_index = 0U;
+                         patch_index < image_options.patch_count;
+                         ++patch_index) {
+                        progpu_native_scene_image_patch patch{};
+                        std::memcpy(
+                            &patch,
+                            image_options.patch_bytes +
+                                static_cast<std::size_t>(patch_index) *
+                                    sizeof(patch),
+                            sizeof(patch));
+                        append_quad(&patch);
+                    }
                 }
 
                 WGPUTextureDescriptor texture_descriptor{};
@@ -2306,6 +2383,9 @@ progpu_native_status render_scene(
                 texture_descriptor.sampleCount = 1U;
                 semantic_image_draw draw{};
                 draw.first_vertex = first_vertex;
+                draw.vertex_count = image_options.patch_count == 0U
+                    ? 4U
+                    : image_options.patch_count * 6U;
                 draw.sampling = image.sampling;
                 draw.has_color_matrix = image_options.has_color_matrix;
                 draw.has_effect = image_options.has_effect;
@@ -2469,8 +2549,7 @@ progpu_native_status render_scene(
         const std::uint64_t vertex_bytes = vertices.size() *
             sizeof(progpu::native::vector_vertex);
         if (compiled_draws.size() != semantic_image_draw_count ||
-            vertex_bytes != static_cast<std::uint64_t>(
-                semantic_image_draw_count) * 4U *
+            vertex_bytes != semantic_image_vertex_count *
                     sizeof(progpu::native::vector_vertex)) {
             release_compiled();
             return engine->fail(

@@ -1385,6 +1385,105 @@ public ref struct NativeSceneStreamBuilder
             stateIndex);
     }
 
+    public bool TryDrawImagePatches(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        in NativeSceneImageDraw image,
+        scoped ReadOnlySpan<NativeSceneImagePatch> patches,
+        NativeSceneImageSamplingOptions? samplingOptions = null,
+        NativeSceneImageColorMatrix? colorMatrix = null,
+        NativeSceneImageEffect? effect = null,
+        uint stateIndex = uint.MaxValue)
+    {
+        bool wantsSampling = image.Sampling == NativeImageSampling.Cubic;
+        bool wantsMatrix =
+            (image.Flags & NativeSceneImageFlags.ColorMatrix) != 0;
+        bool wantsEffect =
+            (image.Flags & NativeSceneImageFlags.Effect) != 0;
+        if ((image.Flags & NativeSceneImageFlags.PatchBatch) == 0 ||
+            patches.IsEmpty || patches.Length > 65_536 ||
+            wantsSampling != samplingOptions.HasValue ||
+            wantsMatrix != colorMatrix.HasValue ||
+            wantsEffect != effect.HasValue || wantsMatrix && wantsEffect ||
+            samplingOptions is { } validSampling &&
+                !validSampling.HasCanonicalFields ||
+            colorMatrix is { } validMatrix && !validMatrix.HasCanonicalFields ||
+            effect is { } validEffect && !validEffect.HasCanonicalFields)
+        {
+            return false;
+        }
+        foreach (ref readonly NativeSceneImagePatch patch in patches)
+        {
+            if (!patch.HasCanonicalFields ||
+                patch.Kind > NativeSceneImagePatchKind.AtlasColor ||
+                patch.ColorBlendMode >
+                    NativeImagePatchColorBlendMode.Luminosity)
+            {
+                return false;
+            }
+        }
+
+        int originalArenaSize = _arenaSize;
+        int relativeOffset = checked((int)Align8(_arenaSize));
+        int payloadSize = checked(
+            Unsafe.SizeOf<NativeSceneImageDraw>() +
+            (wantsSampling
+                ? Unsafe.SizeOf<NativeSceneImageSamplingOptions>()
+                : 0) +
+            (wantsMatrix ? Unsafe.SizeOf<NativeSceneImageColorMatrix>() : 0) +
+            (wantsEffect ? Unsafe.SizeOf<NativeSceneImageEffect>() : 0) +
+            Unsafe.SizeOf<NativeSceneImagePatchBatch>() +
+            patches.Length * Unsafe.SizeOf<NativeSceneImagePatch>());
+        int end = checked(relativeOffset + payloadSize);
+        if (_arenaOffset + end > _destination.Length)
+        {
+            return false;
+        }
+
+        int absoluteOffset = _arenaOffset + relativeOffset;
+        int cursor = absoluteOffset;
+        Write(cursor, in image);
+        cursor += Unsafe.SizeOf<NativeSceneImageDraw>();
+        if (samplingOptions is { } samplingValue)
+        {
+            Write(cursor, in samplingValue);
+            cursor += Unsafe.SizeOf<NativeSceneImageSamplingOptions>();
+        }
+        if (colorMatrix is { } matrixValue)
+        {
+            Write(cursor, in matrixValue);
+            cursor += Unsafe.SizeOf<NativeSceneImageColorMatrix>();
+        }
+        if (effect is { } effectValue)
+        {
+            Write(cursor, in effectValue);
+            cursor += Unsafe.SizeOf<NativeSceneImageEffect>();
+        }
+        var batch = new NativeSceneImagePatchBatch(
+            checked((uint)patches.Length));
+        Write(cursor, in batch);
+        cursor += Unsafe.SizeOf<NativeSceneImagePatchBatch>();
+        MemoryMarshal.AsBytes(patches).CopyTo(
+            _destination.Slice(
+                cursor,
+                patches.Length * Unsafe.SizeOf<NativeSceneImagePatch>()));
+        _arenaSize = end;
+        if (!TryWriteDrawCommand(
+                NativeSceneCommandKind.DrawImage,
+                commandId,
+                resourceIndex,
+                bounds,
+                checked((uint)absoluteOffset),
+                checked((uint)payloadSize),
+                stateIndex))
+        {
+            _arenaSize = originalArenaSize;
+            return false;
+        }
+        return true;
+    }
+
     public bool TryBuild(out ReadOnlySpan<byte> stream)
     {
         stream = default;

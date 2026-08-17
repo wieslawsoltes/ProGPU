@@ -3,6 +3,7 @@
 #include "progpu_native_semantic_backdrop_scene.hpp"
 #include "progpu_native_semantic_color_glyph_scene.hpp"
 #include "progpu_native_semantic_coverage_mask_scene.hpp"
+#include "progpu_native_semantic_image_scene.hpp"
 #include "progpu_native_semantic_state_mask_scene.hpp"
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
 #include "progpu_native_webscene_semantic_effect_fixture.hpp"
@@ -98,6 +99,7 @@ using progpu::native::tests::
 using progpu::native::tests::create_semantic_backdrop_scene_stream;
 using progpu::native::tests::create_semantic_color_glyph_scene_stream;
 using progpu::native::tests::create_semantic_coverage_mask_scene_stream;
+using progpu::native::tests::create_semantic_image_patch_scene_stream;
 using progpu::native::tests::
     create_semantic_state_mask_chain_media_scene_stream;
 using progpu::native::tests::create_semantic_state_mask_media_scene_stream;
@@ -2156,6 +2158,48 @@ int main(int argc, char** argv) {
         semantic_metrics.text_style_upload_bytes == 0U &&
         semantic_metrics.payload_hash == semantic_payload_hash,
         "stable mixed semantic scene replay rebuilt retained resources");
+
+    auto patch_scene = create_semantic_image_patch_scene_stream(64U, 48U);
+    require(!patch_scene.empty(),
+        "native image patch fixture build failed");
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        patch_scene.data(),
+        patch_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        scene_metrics.command_count == 1U &&
+        scene_metrics.resource_count == 1U &&
+        scene_metrics.draw_count == 1U,
+        "native image patch scene update failed");
+    semantic_frame.scene_id = 95U;
+    semantic_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &semantic_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.command_count == 1U &&
+        semantic_metrics.draw_call_count == 1U &&
+        semantic_metrics.submission_count == 1U &&
+        semantic_metrics.vertex_upload_bytes ==
+            18U * 56U &&
+        semantic_metrics.index_upload_bytes == 0U &&
+        semantic_metrics.texture_upload_bytes == 16U,
+        "native image patch batch did not render as one GPU draw");
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &semantic_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 1U &&
+        semantic_metrics.vertex_upload_bytes == 0U &&
+        semantic_metrics.index_upload_bytes == 0U &&
+        semantic_metrics.texture_upload_bytes == 0U,
+        "stable native image patch replay rebuilt retained resources");
     require(progpu_native_engine_mark_device_lost(engine) ==
         PROGPU_NATIVE_STATUS_SUCCESS,
         "native device-loss notification failed");

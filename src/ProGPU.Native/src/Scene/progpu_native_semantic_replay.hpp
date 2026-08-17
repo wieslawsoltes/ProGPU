@@ -101,6 +101,7 @@ struct semantic_image_draw {
     WGPUBindGroup blur_horizontal_bind_group = nullptr;
     WGPUBindGroup blur_vertical_bind_group = nullptr;
     std::uint32_t first_vertex = 0U;
+    std::uint32_t vertex_count = 4U;
     std::uint32_t sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
     bool has_color_matrix = false;
     bool has_effect = false;

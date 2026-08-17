@@ -233,6 +233,8 @@ public class NativeRendererInteropTests
             48,
             Unsafe.SizeOf<NativeMethods.SceneExternalImageBinding>());
         Assert.Equal(88, Unsafe.SizeOf<NativeSceneImageDraw>());
+        Assert.Equal(16, Unsafe.SizeOf<NativeSceneImagePatchBatch>());
+        Assert.Equal(88, Unsafe.SizeOf<NativeSceneImagePatch>());
         Assert.Equal(16, Unsafe.SizeOf<NativeSceneImageSamplingOptions>());
         Assert.Equal(96, Unsafe.SizeOf<NativeSceneImageColorMatrix>());
         Assert.Equal(304, Unsafe.SizeOf<NativeSceneImageEffect>());
@@ -710,6 +712,9 @@ public class NativeRendererInteropTests
         Assert.Equal(
             274877906944UL,
             (ulong)NativeRendererCapabilities.SemanticStrokeBatch);
+        Assert.Equal(
+            140737488355328UL,
+            (ulong)NativeRendererCapabilities.SemanticImagePatchBatch);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
@@ -2488,6 +2493,78 @@ public class NativeRendererInteropTests
         Assert.Equal(
             (uint)Unsafe.SizeOf<NativeSceneImageDraw>(),
             command.PayloadSize);
+    }
+
+    [Fact]
+    public void SemanticImagePatchBatchBuildsWithoutAllocation()
+    {
+        Span<byte> destination = stackalloc byte[2048];
+        Span<byte> pixels = stackalloc byte[64];
+        var image = new NativeSceneImageDraw(
+            4,
+            4,
+            16,
+            NativeImageSampling.Linear,
+            new NativeImageRect(0f, 0f, 4f, 4f),
+            new NativeImageRect(0f, 0f, 1f, 1f),
+            Matrix3x2.Identity,
+            0.75f,
+            NativeSceneImageFlags.PatchBatch |
+                NativeSceneImageFlags.SourcePremultiplied);
+        NativeSceneImagePatch[] patches =
+        [
+            new(
+                NativeSceneImagePatchKind.Texture,
+                new NativeImageRect(0f, 0f, 2f, 2f),
+                new NativeImageRect(1f, 2f, 8f, 6f),
+                Matrix3x2.Identity),
+            new(
+                NativeSceneImagePatchKind.FixedColor,
+                default,
+                new NativeImageRect(10f, 2f, 4f, 6f),
+                Matrix3x2.Identity,
+                new Vector4(1f, 0.5f, 0.25f, 0.5f)),
+            new(
+                NativeSceneImagePatchKind.AtlasColor,
+                new NativeImageRect(2f, 2f, 2f, 2f),
+                new NativeImageRect(16f, 2f, 8f, 6f),
+                Matrix3x2.CreateTranslation(1f, 0f),
+                new Vector4(0.2f, 0.4f, 0.6f, 0.8f),
+                NativeImagePatchColorBlendMode.Multiply)
+        ];
+
+        static bool Build(
+            Span<byte> bytes,
+            ReadOnlySpan<byte> imagePayload,
+            in NativeSceneImageDraw draw,
+            ReadOnlySpan<NativeSceneImagePatch> imagePatches)
+        {
+            var builder = new NativeSceneStreamBuilder(
+                bytes,
+                716U,
+                1U,
+                commandCapacity: 1,
+                resourceCapacity: 1);
+            return builder.TryAddImageResource(
+                    1U, 1U, imagePayload, out uint resource) &&
+                builder.TryDrawImagePatches(
+                    1U,
+                    resource,
+                    new NativeImageRect(1f, 2f, 24f, 6f),
+                    in draw,
+                    imagePatches) &&
+                builder.TryBuild(out _);
+        }
+
+        Assert.True(Build(destination, pixels, in image, patches));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool success = true;
+        for (int iteration = 0; iteration < 10_000; iteration++)
+        {
+            success &= Build(destination, pixels, in image, patches);
+        }
+        Assert.True(success);
+        Assert.Equal(0L, GC.GetAllocatedBytesForCurrentThread() - before);
     }
 
     [Fact]
