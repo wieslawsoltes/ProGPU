@@ -76,6 +76,28 @@ public enum NativeTextFontError : uint
     VerificationFailed = 10
 }
 
+public enum NativeTextLineBreakKind : byte
+{
+    Prohibited = 0,
+    Opportunity = 1,
+    Mandatory = 2
+}
+
+public enum NativeTextTrimming : uint
+{
+    None = 0,
+    CharacterEllipsis = 1,
+    WordEllipsis = 2
+}
+
+public enum NativeTextAlignment : uint
+{
+    Left = 0,
+    Center = 1,
+    Right = 2,
+    Justify = 3
+}
+
 public enum NativeAnalyticPrimitiveKind : uint
 {
     Rectangle = 0,
@@ -314,7 +336,8 @@ public enum NativeRendererCapabilities : ulong
     SemanticStrokeBatch = 1UL << 38,
     SemanticLine3DBatch = 1UL << 39,
     SemanticMesh3DBatch = 1UL << 40,
-    BulkTextShaping = 1UL << 41
+    BulkTextShaping = 1UL << 41,
+    BulkTextLayout = 1UL << 42
 }
 
 public enum NativeSceneResourceKind : uint

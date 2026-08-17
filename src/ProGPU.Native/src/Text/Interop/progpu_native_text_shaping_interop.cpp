@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
 #include <limits>
 #include <new>
 #include <span>
@@ -460,6 +461,96 @@ void copy_scalars(
     }
 }
 
+bool valid_layout_request(
+    const progpu_native_text_layout_request* request) noexcept {
+    if (request == nullptr ||
+        request->struct_size < sizeof(progpu_native_text_layout_request) ||
+        request->abi_version != PROGPU_NATIVE_ABI_VERSION ||
+        request->glyph_count != request->break_count ||
+        !has_aligned_pointer(request->glyphs, request->glyph_count) ||
+        !has_pointer(request->breaks_after, request->break_count) ||
+        !std::isfinite(request->scale) || request->scale <= 0.0F ||
+        !std::isfinite(request->maximum_width) ||
+        request->maximum_width < 0.0F ||
+        !std::isfinite(request->line_height) || request->line_height < 0.0F ||
+        !std::isfinite(request->ellipsis_advance) ||
+        request->ellipsis_advance < 0.0F ||
+        (request->direction != PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT &&
+            request->direction !=
+                PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT) ||
+        request->trimming > PROGPU_NATIVE_TEXT_TRIMMING_WORD_ELLIPSIS ||
+        request->alignment > PROGPU_NATIVE_TEXT_ALIGNMENT_JUSTIFY ||
+        request->reserved != 0U) {
+        return false;
+    }
+    for (std::uint32_t index = 0U; index < request->glyph_count; ++index) {
+        if (request->glyphs[index].flags > 0x07U ||
+            request->breaks_after[index] >
+                PROGPU_NATIVE_TEXT_LINE_BREAK_MANDATORY) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool try_get_layout_scratch_bytes(
+    std::uint32_t glyph_count,
+    std::size_t& result) noexcept {
+    if (glyph_count == 0U) {
+        result = 0U;
+        return true;
+    }
+    scratch_size_builder size{};
+    if (!size.add<shaping_glyph>(glyph_count) ||
+        !size.add<text_line_break_kind>(glyph_count) ||
+        !size.add<shaping_glyph>(glyph_count) ||
+        !size.add<positioned_text_glyph>(glyph_count) ||
+        !size.add<positioned_text_line>(glyph_count)) {
+        return false;
+    }
+    if (size.size() > std::numeric_limits<std::size_t>::max() -
+            (alignof(std::max_align_t) - 1U)) {
+        return false;
+    }
+    result = size.size() + alignof(std::max_align_t) - 1U;
+    return true;
+}
+
+text_layout_options convert_layout_options(
+    const progpu_native_text_layout_request& request) noexcept {
+    return text_layout_options{
+        request.scale,
+        request.maximum_width,
+        request.line_height,
+        request.maximum_lines,
+        static_cast<shaping_direction>(request.direction),
+        static_cast<text_trimming>(request.trimming),
+        static_cast<text_alignment>(request.alignment),
+        0U,
+        request.ellipsis_glyph_id,
+        request.ellipsis_advance};
+}
+
+void copy_layout_inputs(
+    const progpu_native_text_layout_request& request,
+    std::span<shaping_glyph> glyphs,
+    std::span<text_line_break_kind> breaks) noexcept {
+    for (std::size_t index = 0U; index < glyphs.size(); ++index) {
+        const auto& source = request.glyphs[index];
+        glyphs[index] = shaping_glyph{
+            source.glyph_id,
+            source.code_point,
+            source.cluster,
+            static_cast<shaping_glyph_flags>(source.flags),
+            source.advance_x,
+            source.advance_y,
+            source.offset_x,
+            source.offset_y};
+        breaks[index] =
+            static_cast<text_line_break_kind>(request.breaks_after[index]);
+    }
+}
+
 progpu_native_status shape_core(
     const progpu_native_text_shape_request& request,
     const sfnt_font_view& font,
@@ -881,6 +972,148 @@ progpu_native_status progpu_native_text_shape(
         scratch_size,
         *result,
         nullptr);
+}
+
+progpu_native_status progpu_native_text_layout_get_requirements(
+    const progpu_native_text_layout_request* request,
+    progpu_native_text_layout_requirements* requirements) {
+    if (requirements == nullptr ||
+        requirements->struct_size <
+            sizeof(progpu_native_text_layout_requirements)) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    *requirements = {};
+    requirements->struct_size = sizeof(*requirements);
+    if (!valid_layout_request(request)) {
+        requirements->error_code =
+            static_cast<std::uint32_t>(font_error::invalid_argument);
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    std::size_t scratch_bytes = 0U;
+    if (!try_get_layout_scratch_bytes(request->glyph_count, scratch_bytes)) {
+        requirements->error_code =
+            static_cast<std::uint32_t>(font_error::invalid_argument);
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    requirements->glyph_capacity = request->glyph_count;
+    requirements->line_capacity = request->glyph_count;
+    requirements->scratch_alignment = 1U;
+    requirements->scratch_bytes = scratch_bytes;
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_text_layout(
+    const progpu_native_text_layout_request* request,
+    progpu_native_positioned_text_glyph* glyphs,
+    std::uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines,
+    std::uint32_t line_capacity,
+    void* scratch,
+    std::size_t scratch_size,
+    progpu_native_text_layout_result* result) {
+    if (result == nullptr ||
+        result->struct_size < sizeof(progpu_native_text_layout_result)) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    *result = {};
+    result->struct_size = sizeof(*result);
+    if (!valid_layout_request(request) ||
+        (request->glyph_count != 0U &&
+            (glyphs == nullptr || lines == nullptr || scratch == nullptr)) ||
+        !has_aligned_pointer(glyphs, request->glyph_count) ||
+        !has_aligned_pointer(lines, request->glyph_count) ||
+        glyph_capacity < request->glyph_count ||
+        line_capacity < request->glyph_count) {
+        result->error_code =
+            static_cast<std::uint32_t>(font_error::invalid_argument);
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    if (request->glyph_count == 0U) {
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    }
+    std::size_t required_scratch = 0U;
+    if (!try_get_layout_scratch_bytes(
+            request->glyph_count, required_scratch) ||
+        scratch_size < required_scratch) {
+        result->error_code =
+            static_cast<std::uint32_t>(font_error::insufficient_buffer);
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    scratch_arena arena{scratch, scratch_size};
+    std::span<shaping_glyph> native_glyphs{};
+    std::span<text_line_break_kind> native_breaks{};
+    std::span<shaping_glyph> public_metric_scratch{};
+    std::span<positioned_text_glyph> native_positioned{};
+    std::span<positioned_text_line> native_lines{};
+    if (!arena.take(request->glyph_count, native_glyphs) ||
+        !arena.take(request->glyph_count, native_breaks) ||
+        !arena.take(request->glyph_count, public_metric_scratch) ||
+        !arena.take(request->glyph_count, native_positioned) ||
+        !arena.take(request->glyph_count, native_lines)) {
+        result->error_code =
+            static_cast<std::uint32_t>(font_error::insufficient_buffer);
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    copy_layout_inputs(*request, native_glyphs, native_breaks);
+    std::uint32_t written_glyphs = 0U;
+    std::uint32_t written_lines = 0U;
+    font_error error = font_error::none;
+    if (!try_layout_open_type_text(
+            native_glyphs,
+            native_breaks,
+            convert_layout_options(*request),
+            public_metric_scratch,
+            native_positioned,
+            native_lines,
+            written_glyphs,
+            written_lines,
+            &error)) {
+        result->error_code = static_cast<std::uint32_t>(error);
+        return status_from_error(error);
+    }
+    for (std::uint32_t index = 0U; index < written_glyphs; ++index) {
+        const auto& source = native_positioned[index];
+        glyphs[index] = progpu_native_positioned_text_glyph{
+            source.glyph_index,
+            source.glyph_id,
+            source.cluster,
+            source.x,
+            source.y,
+            source.advance_x,
+            source.advance_y};
+    }
+    for (std::uint32_t index = 0U; index < written_lines; ++index) {
+        const auto& source = native_lines[index];
+        lines[index] = progpu_native_positioned_text_line{
+            source.glyph_start,
+            source.glyph_count,
+            source.input_start,
+            source.input_end,
+            source.width,
+            source.baseline_y,
+            source.height,
+            static_cast<std::uint8_t>(source.clipped ? 1U : 0U),
+            0U,
+            0U,
+            0U};
+    }
+    text_layout_metrics metrics{};
+    if (!try_measure_positioned_text_lines(
+            native_lines.first(written_lines),
+            request->maximum_width,
+            metrics,
+            &error)) {
+        result->error_code = static_cast<std::uint32_t>(error);
+        return status_from_error(error);
+    }
+    result->glyph_count = written_glyphs;
+    result->line_count = written_lines;
+    result->content_width = metrics.content_width;
+    result->content_height = metrics.content_height;
+    result->measured_width = metrics.measured_width;
+    result->measured_height = metrics.measured_height;
+    result->scratch_bytes_used = arena.used();
+    return PROGPU_NATIVE_STATUS_SUCCESS;
 }
 
 } // extern "C"

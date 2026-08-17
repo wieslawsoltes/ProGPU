@@ -71,6 +71,7 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_LINE_3D_BATCH (UINT64_C(1) << 39U)
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_MESH_3D_BATCH (UINT64_C(1) << 40U)
 #define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_SHAPING (UINT64_C(1) << 41U)
+#define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_LAYOUT (UINT64_C(1) << 42U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -440,6 +441,97 @@ typedef struct progpu_native_text_shape_result {
     uint32_t reserved;
     uint64_t scratch_bytes_used;
 } progpu_native_text_shape_result;
+
+typedef enum progpu_native_text_trimming {
+    PROGPU_NATIVE_TEXT_TRIMMING_NONE = 0,
+    PROGPU_NATIVE_TEXT_TRIMMING_CHARACTER_ELLIPSIS = 1,
+    PROGPU_NATIVE_TEXT_TRIMMING_WORD_ELLIPSIS = 2
+} progpu_native_text_trimming;
+
+typedef enum progpu_native_text_alignment {
+    PROGPU_NATIVE_TEXT_ALIGNMENT_LEFT = 0,
+    PROGPU_NATIVE_TEXT_ALIGNMENT_CENTER = 1,
+    PROGPU_NATIVE_TEXT_ALIGNMENT_RIGHT = 2,
+    PROGPU_NATIVE_TEXT_ALIGNMENT_JUSTIFY = 3
+} progpu_native_text_alignment;
+
+typedef enum progpu_native_text_line_break_kind {
+    PROGPU_NATIVE_TEXT_LINE_BREAK_PROHIBITED = 0,
+    PROGPU_NATIVE_TEXT_LINE_BREAK_OPPORTUNITY = 1,
+    PROGPU_NATIVE_TEXT_LINE_BREAK_MANDATORY = 2
+} progpu_native_text_line_break_kind;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextLayoutRequest */
+typedef struct progpu_native_text_layout_request {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const progpu_native_text_shaping_glyph* glyphs;
+    uint32_t glyph_count;
+    /* PROGPU_CSHARP_TYPE: nuint */
+    const uint8_t* breaks_after;
+    uint32_t break_count;
+    float scale;
+    float maximum_width;
+    float line_height;
+    uint32_t maximum_lines;
+    uint32_t direction;
+    uint32_t trimming;
+    uint32_t alignment;
+    uint32_t ellipsis_glyph_id;
+    float ellipsis_advance;
+    uint32_t reserved;
+} progpu_native_text_layout_request;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativePositionedTextGlyph */
+typedef struct progpu_native_positioned_text_glyph {
+    uint32_t glyph_index;
+    uint32_t glyph_id;
+    int32_t cluster;
+    float x;
+    float y;
+    float advance_x;
+    float advance_y;
+} progpu_native_positioned_text_glyph;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativePositionedTextLine */
+typedef struct progpu_native_positioned_text_line {
+    uint32_t glyph_start;
+    uint32_t glyph_count;
+    int32_t input_start;
+    int32_t input_end;
+    float width;
+    float baseline_y;
+    float height;
+    uint8_t clipped;
+    uint8_t reserved0;
+    uint8_t reserved1;
+    uint8_t reserved2;
+} progpu_native_positioned_text_line;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextLayoutRequirements */
+typedef struct progpu_native_text_layout_requirements {
+    uint32_t struct_size;
+    uint32_t glyph_capacity;
+    uint32_t line_capacity;
+    uint32_t scratch_alignment;
+    uint32_t error_code;
+    uint32_t reserved;
+    uint64_t scratch_bytes;
+} progpu_native_text_layout_requirements;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeTextLayoutResult */
+typedef struct progpu_native_text_layout_result {
+    uint32_t struct_size;
+    uint32_t glyph_count;
+    uint32_t line_count;
+    uint32_t error_code;
+    float content_width;
+    float content_height;
+    float measured_width;
+    float measured_height;
+    uint64_t scratch_bytes_used;
+} progpu_native_text_layout_result;
 
 typedef enum progpu_native_texture_format {
     PROGPU_NATIVE_TEXTURE_FORMAT_RGBA8_UNORM = 1,
@@ -1960,6 +2052,24 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_shape(
     void* scratch,
     size_t scratch_size,
     progpu_native_text_shape_result* result);
+
+/* Bulk horizontal layout over a previously shaped run. Break values use
+ * progpu_native_text_line_break_kind numeric values (0 prohibited,
+ * 1 opportunity, 2 mandatory). Input/output records are fixed-layout and are
+ * consumed synchronously without per-glyph marshaling or pointer retention. */
+PROGPU_NATIVE_API progpu_native_status
+progpu_native_text_layout_get_requirements(
+    const progpu_native_text_layout_request* request,
+    progpu_native_text_layout_requirements* requirements);
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_layout(
+    const progpu_native_text_layout_request* request,
+    progpu_native_positioned_text_glyph* glyphs,
+    uint32_t glyph_capacity,
+    progpu_native_positioned_text_line* lines,
+    uint32_t line_capacity,
+    void* scratch,
+    size_t scratch_size,
+    progpu_native_text_layout_result* result);
 
 #ifdef __cplusplus
 }

@@ -161,6 +161,73 @@ void bulk_shape_is_deterministic_and_caller_owned() {
     }
     progpu_native_text_context_destroy(context);
 
+    std::vector<std::uint8_t> breaks(first_result.glyph_count, 0U);
+    breaks.back() = PROGPU_NATIVE_TEXT_LINE_BREAK_MANDATORY;
+    const progpu_native_text_layout_request layout_request{
+        sizeof(progpu_native_text_layout_request),
+        PROGPU_NATIVE_ABI_VERSION,
+        first.data(),
+        first_result.glyph_count,
+        breaks.data(),
+        static_cast<std::uint32_t>(breaks.size()),
+        16.0F / 2048.0F,
+        1000.0F,
+        20.0F,
+        0U,
+        PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT,
+        PROGPU_NATIVE_TEXT_TRIMMING_NONE,
+        PROGPU_NATIVE_TEXT_ALIGNMENT_CENTER,
+        0U,
+        0.0F,
+        0U};
+    progpu_native_text_layout_requirements layout_requirements{};
+    layout_requirements.struct_size = sizeof(layout_requirements);
+    require(progpu_native_text_layout_get_requirements(
+                &layout_request,
+                &layout_requirements) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(layout_requirements.glyph_capacity == first_result.glyph_count &&
+        layout_requirements.line_capacity == first_result.glyph_count &&
+        layout_requirements.scratch_alignment == 1U &&
+        layout_requirements.scratch_bytes != 0U);
+    std::vector<progpu_native_positioned_text_glyph> positioned(
+        layout_requirements.glyph_capacity);
+    std::vector<progpu_native_positioned_text_line> lines(
+        layout_requirements.line_capacity);
+    std::vector<std::uint8_t> layout_scratch(
+        static_cast<std::size_t>(layout_requirements.scratch_bytes));
+    progpu_native_text_layout_result layout_result{};
+    layout_result.struct_size = sizeof(layout_result);
+    require(progpu_native_text_layout(
+                &layout_request,
+                positioned.data(),
+                static_cast<std::uint32_t>(positioned.size()),
+                lines.data(),
+                static_cast<std::uint32_t>(lines.size()),
+                layout_scratch.data(),
+                layout_scratch.size(),
+                &layout_result) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(layout_result.error_code == 0U &&
+        layout_result.glyph_count == first_result.glyph_count &&
+        layout_result.line_count == 1U &&
+        layout_result.content_width > 0.0F &&
+        layout_result.content_height == 20.0F &&
+        positioned[0].x > 0.0F &&
+        lines[0].glyph_count == first_result.glyph_count &&
+        lines[0].clipped == 0U);
+
+    progpu_native_text_layout_result short_layout_result{};
+    short_layout_result.struct_size = sizeof(short_layout_result);
+    require(progpu_native_text_layout(
+                &layout_request,
+                positioned.data(),
+                static_cast<std::uint32_t>(positioned.size()),
+                lines.data(),
+                static_cast<std::uint32_t>(lines.size()),
+                layout_scratch.data(),
+                layout_scratch.size() - 1U,
+                &short_layout_result) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    require(short_layout_result.error_code == 7U);
+
     progpu_native_text_shape_result short_result{};
     short_result.struct_size = sizeof(short_result);
     require(progpu_native_text_shape(

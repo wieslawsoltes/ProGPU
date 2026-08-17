@@ -42,6 +42,37 @@ internal static class NativeTextShapingBenchmark
             font.UnitsPerEm);
         ValidateParity(managed, nativeGlyphs.AsSpan(0, checked((int)nativeResult.GlyphCount)));
 
+        float fontSize = 16f;
+        float scale = fontSize / font.UnitsPerEm;
+        float lineHeight = (font.Ascender - font.Descender + font.LineGap) * scale;
+        var breaks = new NativeTextLineBreakKind[nativeResult.GlyphCount];
+        breaks[^1] = NativeTextLineBreakKind.Mandatory;
+        var layoutInput = new NativeTextLayoutInput(
+            nativeGlyphs.AsSpan(0, checked((int)nativeResult.GlyphCount)),
+            breaks,
+            scale,
+            lineHeight: lineHeight);
+        EnsureSuccess(
+            NativeTextLayoutInterop.GetRequirements(
+                layoutInput,
+                out NativeTextLayoutRequirements layoutRequirements),
+            (NativeTextFontError)layoutRequirements.ErrorCode);
+        var positioned = new NativePositionedTextGlyph[layoutRequirements.GlyphCapacity];
+        var lines = new NativePositionedTextLine[layoutRequirements.LineCapacity];
+        var layoutScratch = new byte[checked((int)layoutRequirements.ScratchBytes)];
+        EnsureSuccess(
+            NativeTextLayoutInterop.Layout(
+                layoutInput,
+                positioned,
+                lines,
+                layoutScratch,
+                out NativeTextLayoutResult layoutResult),
+            (NativeTextFontError)layoutResult.ErrorCode);
+        ValidateLayoutParity(
+            new TextLayout(text, font, fontSize),
+            positioned.AsSpan(0, checked((int)layoutResult.GlyphCount)),
+            layoutResult);
+
         for (int index = 0; index < warmups; index++)
         {
             _ = OpenTypeTextShaper.Shape(text, font, font.UnitsPerEm);
@@ -52,10 +83,19 @@ internal static class NativeTextShapingBenchmark
                     scratch,
                     out nativeResult),
                 (NativeTextFontError)nativeResult.ErrorCode);
+            EnsureSuccess(
+                NativeTextLayoutInterop.Layout(
+                    layoutInput,
+                    positioned,
+                    lines,
+                    layoutScratch,
+                    out layoutResult),
+                (NativeTextFontError)layoutResult.ErrorCode);
         }
 
         long[] managedSamples = new long[iterations];
         long[] nativeSamples = new long[iterations];
+        long[] layoutSamples = new long[iterations];
         long managedAllocationStart = GC.GetAllocatedBytesForCurrentThread();
         for (int index = 0; index < iterations; index++)
         {
@@ -81,13 +121,30 @@ internal static class NativeTextShapingBenchmark
         }
         long nativeAllocations =
             GC.GetAllocatedBytesForCurrentThread() - nativeAllocationStart;
+        long layoutAllocationStart = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < iterations; index++)
+        {
+            long start = Stopwatch.GetTimestamp();
+            EnsureSuccess(
+                NativeTextLayoutInterop.Layout(
+                    layoutInput,
+                    positioned,
+                    lines,
+                    layoutScratch,
+                    out layoutResult),
+                (NativeTextFontError)layoutResult.ErrorCode);
+            layoutSamples[index] = Stopwatch.GetTimestamp() - start;
+        }
+        long layoutAllocations =
+            GC.GetAllocatedBytesForCurrentThread() - layoutAllocationStart;
         ValidateParity(
             managed,
             nativeGlyphs.AsSpan(0, checked((int)nativeResult.GlyphCount)));
 
         Array.Sort(managedSamples);
         Array.Sort(nativeSamples);
-        Console.WriteLine("ProGPU managed/C++ text shaping parity: PASS");
+        Array.Sort(layoutSamples);
+        Console.WriteLine("ProGPU managed/C++ text shaping/layout parity: PASS");
         Console.WriteLine(string.Format(
             CultureInfo.InvariantCulture,
             "Input: UTF-16={0}, scalars={1}, glyphs={2}, native scratch={3:N0} bytes, crossings=1/run",
@@ -97,6 +154,35 @@ internal static class NativeTextShapingBenchmark
             requirements.ScratchBytes));
         Print("Managed", managedSamples, iterations, managedAllocations);
         Print("C++ bulk", nativeSamples, iterations, nativeAllocations);
+        Print("C++ layout", layoutSamples, iterations, layoutAllocations);
+    }
+
+    private static void ValidateLayoutParity(
+        TextLayout managed,
+        ReadOnlySpan<NativePositionedTextGlyph> native,
+        NativeTextLayoutResult result)
+    {
+        if (managed.Glyphs.Count != native.Length || result.LineCount != 1 ||
+            MathF.Abs(managed.ContentSize.X - result.ContentWidth) > 0.001f ||
+            MathF.Abs(managed.ContentSize.Y - result.ContentHeight) > 0.001f ||
+            MathF.Abs(managed.MeasuredSize.X - result.MeasuredWidth) > 0.001f ||
+            MathF.Abs(managed.MeasuredSize.Y - result.MeasuredHeight) > 0.001f)
+        {
+            throw new InvalidOperationException("Managed/native text layout metrics differ.");
+        }
+        for (int index = 0; index < native.Length; index++)
+        {
+            TextRunGlyph left = managed.Glyphs[index];
+            NativePositionedTextGlyph right = native[index];
+            if (left.GlyphIndex != right.GlyphId ||
+                left.Cluster != right.Cluster ||
+                MathF.Abs(left.Position.X - right.X) > 0.001f ||
+                MathF.Abs(left.Glyph.Advance - right.AdvanceX) > 0.001f)
+            {
+                throw new InvalidOperationException(
+                    $"Text layout parity mismatch at glyph {index}.");
+            }
+        }
     }
 
     private static NativeTextScalar[] Decode(string text)

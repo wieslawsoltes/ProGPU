@@ -584,4 +584,24 @@ internal static unsafe partial class NativeMethods
         byte* scratch,
         nuint scratchSize,
         NativeTextShapeResult* result);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_text_layout_get_requirements")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus GetTextLayoutRequirements(
+        NativeTextLayoutRequest* request,
+        NativeTextLayoutRequirements* requirements);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_layout")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus LayoutText(
+        NativeTextLayoutRequest* request,
+        NativePositionedTextGlyph* glyphs,
+        uint glyphCapacity,
+        NativePositionedTextLine* lines,
+        uint lineCapacity,
+        byte* scratch,
+        nuint scratchSize,
+        NativeTextLayoutResult* result);
 }

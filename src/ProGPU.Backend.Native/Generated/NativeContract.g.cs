@@ -97,6 +97,86 @@ public partial struct NativeTextShapeResult
     public ulong ScratchBytesUsed;
 }
 
+// Native source: progpu_native_text_layout_request.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextLayoutRequest
+{
+    public uint StructSize;
+    public uint AbiVersion;
+    public nuint Glyphs;
+    public uint GlyphCount;
+    public nuint BreaksAfter;
+    public uint BreakCount;
+    public float Scale;
+    public float MaximumWidth;
+    public float LineHeight;
+    public uint MaximumLines;
+    public uint Direction;
+    public uint Trimming;
+    public uint Alignment;
+    public uint EllipsisGlyphId;
+    public float EllipsisAdvance;
+    public uint Reserved;
+}
+
+// Native source: progpu_native_positioned_text_glyph.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativePositionedTextGlyph
+{
+    public uint GlyphIndex;
+    public uint GlyphId;
+    public int Cluster;
+    public float X;
+    public float Y;
+    public float AdvanceX;
+    public float AdvanceY;
+}
+
+// Native source: progpu_native_positioned_text_line.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativePositionedTextLine
+{
+    public uint GlyphStart;
+    public uint GlyphCount;
+    public int InputStart;
+    public int InputEnd;
+    public float Width;
+    public float BaselineY;
+    public float Height;
+    public byte Clipped;
+    public byte Reserved0;
+    public byte Reserved1;
+    public byte Reserved2;
+}
+
+// Native source: progpu_native_text_layout_requirements.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextLayoutRequirements
+{
+    public uint StructSize;
+    public uint GlyphCapacity;
+    public uint LineCapacity;
+    public uint ScratchAlignment;
+    public uint ErrorCode;
+    public uint Reserved;
+    public ulong ScratchBytes;
+}
+
+// Native source: progpu_native_text_layout_result.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeTextLayoutResult
+{
+    public uint StructSize;
+    public uint GlyphCount;
+    public uint LineCount;
+    public uint ErrorCode;
+    public float ContentWidth;
+    public float ContentHeight;
+    public float MeasuredWidth;
+    public float MeasuredHeight;
+    public ulong ScratchBytesUsed;
+}
+
 // Native source: progpu_native_point_3d.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativePoint3D
