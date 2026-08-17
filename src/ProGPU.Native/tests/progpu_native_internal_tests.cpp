@@ -667,6 +667,28 @@ void semantic_payload_validation_is_bounded_and_cpu_only() {
     image.opacity = 1.0F;
     require(progpu::native::semantic::is_valid_semantic_image(image, 16U));
     require(!progpu::native::semantic::is_valid_semantic_image(image, 15U));
+    image.flags = PROGPU_NATIVE_SCENE_IMAGE_SNAP_TO_PIXELS;
+    require(progpu::native::semantic::is_valid_semantic_image(image, 16U));
+
+    float snapped_x = 1.26F;
+    float snapped_y = -2.24F;
+    progpu::native::semantic::snap_semantic_image_point(
+        snapped_x, snapped_y, 2.0F);
+    require(snapped_x == 1.5F);
+    require(snapped_y == -2.0F);
+
+    snapped_x = 1.25F;
+    snapped_y = -1.25F;
+    progpu::native::semantic::snap_semantic_image_point(
+        snapped_x, snapped_y, 2.0F);
+    require(snapped_x == 1.0F);
+    require(snapped_y == -1.0F);
+    snapped_x = 1.75F;
+    snapped_y = -1.75F;
+    progpu::native::semantic::snap_semantic_image_point(
+        snapped_x, snapped_y, 2.0F);
+    require(snapped_x == 2.0F);
+    require(snapped_y == -2.0F);
 }
 
 void draw_state_resolution_is_cpu_only_and_bounded() {

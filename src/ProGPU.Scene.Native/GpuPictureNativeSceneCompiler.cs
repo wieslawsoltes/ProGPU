@@ -1208,6 +1208,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     picture,
                     command,
                     transform,
+                    options.DpiScale,
                     externalImages,
                     batches,
                     operations,
@@ -3261,6 +3262,7 @@ public static partial class GpuPictureNativeSceneCompiler
         GpuPicture picture,
         in RenderCommand command,
         Matrix3x2 transform,
+        float targetDpiScale,
         List<ExternalImageDraw> externalImages,
         List<Batch> batches,
         List<Operation> operations,
@@ -3272,7 +3274,7 @@ public static partial class GpuPictureNativeSceneCompiler
             texture.Width == 0U || texture.Height == 0U ||
             texture.Width > 16_384U || texture.Height > 16_384U ||
             command.TexturePatches is not null ||
-            command.SnapTextureToPixels || !IsFiniteRect(command.Rect) ||
+            !IsFiniteRect(command.Rect) ||
             command.Rect.Width <= 0f || command.Rect.Height <= 0f)
         {
             error = NativePictureCompileError.UnsupportedCommand;
@@ -3380,6 +3382,15 @@ public static partial class GpuPictureNativeSceneCompiler
             hasColorMatrix = !needsFullEffect;
         }
 
+        NativeSceneImageFlags flags = hasColorMatrix
+            ? NativeSceneImageFlags.ColorMatrix
+            : hasEffect
+            ? NativeSceneImageFlags.Effect
+            : NativeSceneImageFlags.None;
+        if (command.SnapTextureToPixels)
+        {
+            flags |= NativeSceneImageFlags.SnapToPixels;
+        }
         var draw = new NativeSceneImageDraw(
             texture.Width,
             texture.Height,
@@ -3397,11 +3408,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 command.Rect.Height),
             transform,
             1f,
-            hasColorMatrix
-                ? NativeSceneImageFlags.ColorMatrix
-                : hasEffect
-                ? NativeSceneImageFlags.Effect
-                : NativeSceneImageFlags.None);
+            flags);
         int drawIndex = externalImages.Count;
         externalImages.Add(new(
             texture,
@@ -3419,7 +3426,11 @@ public static partial class GpuPictureNativeSceneCompiler
             Kind = BatchKind.Image,
             Start = drawIndex,
             Count = 1,
-            Bounds = TransformBounds(command.Rect, transform)
+            Bounds = command.SnapTextureToPixels
+                ? Inflate(
+                    TransformBounds(command.Rect, transform),
+                    0.5f / targetDpiScale)
+                : TransformBounds(command.Rect, transform)
         });
         operations.Add(new Operation(OperationKind.Draw, batches.Count - 1));
         error = NativePictureCompileError.None;

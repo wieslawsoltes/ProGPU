@@ -714,7 +714,10 @@ through one bulk, owner-thread-affine binding call. Retained draws support
 source subrects, nearest/linear/custom-cubic sampling, and one fused
 straight-RGBA 4x5 color transform without copying pixels into the stream or
 native texture storage. Stable replay uploads zero image bytes and the existing
-submission token is the consumer fence for every bound view. Premultiplied
+submission token is the consumer fence for every bound view. Optional image
+pixel snapping transforms each destination corner first, then rounds its
+logical coordinate on the current physical-DPI grid, exactly matching the
+authoritative managed `Compositor.AppendTextureQuad` contract. Premultiplied
 input, mipmaps/anisotropy, and tiling/patch draws remain explicit typed
 failures rather than approximations. The retained effect suffix now shares the
 production image-effect shader for bounded blur, spherical mapping, luminance
@@ -1609,10 +1612,14 @@ color/vector/bitmap glyphs, text decorations, text masks, typed 2D/3D geometry,
 advanced blend isolation, and ordinary straight-alpha image draws are now
 retained. Images preserve source rectangles, nearest/linear/custom-cubic
 sampling, a same-device external view, a fused affine color transform, and
-submission-token lifetime fencing. The remaining explicit exclusions are
+submission-token lifetime fencing. A pointer-free image flag now preserves
+managed `SnapTextureToPixels`; C++ performs the final per-corner DPI-grid
+rounding without a payload suffix, shader fork, or additional managed/native
+call, while the managed lowering conservatively inflates retained bounds by
+half a physical pixel. The remaining explicit exclusions are
 combined geometry, opaque static-DXF
-extension objects, mutable embedded `Visual` instances, texture patches/pixel
-snapping, premultiplied sources, mipmaps/anisotropy, and non-affine image
+extension objects, mutable embedded `Visual` instances, texture patches,
+premultiplied sources, mipmaps/anisotropy, and non-affine image
 effects. Those records fail with a typed source-command diagnostic; no managed
 fallback or semantic approximation is inserted.
 

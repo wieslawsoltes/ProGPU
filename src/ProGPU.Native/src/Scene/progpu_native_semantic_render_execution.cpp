@@ -2264,6 +2264,13 @@ progpu_native_status render_scene(
                         y,
                         vertex.position[0],
                         vertex.position[1]);
+                    if ((image.flags &
+                            PROGPU_NATIVE_SCENE_IMAGE_SNAP_TO_PIXELS) != 0U) {
+                        semantic::snap_semantic_image_point(
+                            vertex.position[0],
+                            vertex.position[1],
+                            frame->dpi_scale);
+                    }
                     vertex.color[0] = 1.0F;
                     vertex.color[1] = image_options.has_effect ? 1.0F : 0.0F;
                     vertex.color[2] = 1.0F;

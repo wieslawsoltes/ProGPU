@@ -2400,6 +2400,51 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void SemanticImagePixelSnappingFlagNeedsNoPayloadSuffix()
+    {
+        Span<byte> destination = stackalloc byte[1024];
+        Span<byte> pixels = stackalloc byte[16];
+        var image = new NativeSceneImageDraw(
+            2,
+            2,
+            8,
+            NativeImageSampling.Linear,
+            new NativeImageRect(0f, 0f, 2f, 2f),
+            new NativeImageRect(1.26f, -2.24f, 4f, 4f),
+            Matrix3x2.Identity,
+            1f,
+            NativeSceneImageFlags.SnapToPixels);
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            714U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+
+        Assert.True(builder.TryAddImageResource(
+            1U, 1U, pixels, out uint resourceIndex));
+        Assert.True(builder.TryDrawImage(
+            1U,
+            resourceIndex,
+            new NativeImageRect(1f, -2.5f, 4.5f, 4.5f),
+            in image));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        NativeMethods.SceneCommand command =
+            MemoryMarshal.Read<NativeMethods.SceneCommand>(
+                stream.Slice(checked((int)header.CommandOffset)));
+        NativeSceneImageDraw retained =
+            MemoryMarshal.Read<NativeSceneImageDraw>(
+                stream.Slice(checked((int)command.PayloadOffset)));
+        Assert.Equal(NativeSceneImageFlags.SnapToPixels, retained.Flags);
+        Assert.Equal(
+            (uint)Unsafe.SizeOf<NativeSceneImageDraw>(),
+            command.PayloadSize);
+    }
+
+    [Fact]
     public void SemanticImageColorMatrixCombinesWithCubicWithoutAllocation()
     {
         Span<byte> destination = stackalloc byte[2048];
@@ -2413,7 +2458,8 @@ public class NativeRendererInteropTests
             new NativeImageRect(0f, 0f, 8f, 8f),
             Matrix3x2.Identity,
             1f,
-            NativeSceneImageFlags.ColorMatrix);
+            NativeSceneImageFlags.ColorMatrix |
+                NativeSceneImageFlags.SnapToPixels);
         var sampling = NativeSceneImageSamplingOptions.Mitchell;
         var matrix = new NativeSceneImageColorMatrix(
             new Vector4(0.2126f, 0.7152f, 0.0722f, 0f),
@@ -2504,7 +2550,8 @@ public class NativeRendererInteropTests
             new NativeImageRect(0f, 0f, 8f, 8f),
             Matrix3x2.Identity,
             1f,
-            NativeSceneImageFlags.Effect);
+            NativeSceneImageFlags.Effect |
+                NativeSceneImageFlags.SnapToPixels);
         var effect = new NativeSceneImageEffect(
             default,
             default,

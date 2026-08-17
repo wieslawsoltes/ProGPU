@@ -16,6 +16,20 @@ float snap_scissor_coordinate(float value) noexcept {
     return std::abs(value - rounded) < 0.0001F ? rounded : value;
 }
 
+float round_to_even(float value) noexcept {
+    const float lower = std::floor(value);
+    const float fraction = value - lower;
+    if (fraction < 0.5F) {
+        return lower;
+    }
+    if (fraction > 0.5F) {
+        return lower + 1.0F;
+    }
+    return std::fmod(std::abs(lower), 2.0F) == 0.0F
+        ? lower
+        : lower + 1.0F;
+}
+
 } // namespace
 
 progpu_native_scene_state semantic_identity_state() noexcept {
@@ -178,6 +192,14 @@ void apply_semantic_state(
     const progpu_native_scene_state& state) noexcept {
     image.transform = compose_affine(image.transform, state.transform);
     image.opacity *= state.opacity;
+}
+
+void snap_semantic_image_point(
+    float& x,
+    float& y,
+    float dpi_scale) noexcept {
+    x = round_to_even(x * dpi_scale) / dpi_scale;
+    y = round_to_even(y * dpi_scale) / dpi_scale;
 }
 
 scissor resolve_semantic_scissor(

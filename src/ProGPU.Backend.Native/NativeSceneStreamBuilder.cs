@@ -1238,8 +1238,10 @@ public ref struct NativeSceneStreamBuilder
         in NativeSceneImageDraw image,
         uint stateIndex = uint.MaxValue)
     {
+        NativeSceneImageFlags suffixFlags = image.Flags &
+            (NativeSceneImageFlags.ColorMatrix | NativeSceneImageFlags.Effect);
         if (image.Sampling == NativeImageSampling.Cubic ||
-            image.Flags != NativeSceneImageFlags.None)
+            suffixFlags != NativeSceneImageFlags.None)
         {
             return false;
         }
@@ -1262,8 +1264,10 @@ public ref struct NativeSceneStreamBuilder
         in NativeSceneImageSamplingOptions samplingOptions,
         uint stateIndex = uint.MaxValue)
     {
+        NativeSceneImageFlags suffixFlags = image.Flags &
+            (NativeSceneImageFlags.ColorMatrix | NativeSceneImageFlags.Effect);
         if (image.Sampling != NativeImageSampling.Cubic ||
-            image.Flags != NativeSceneImageFlags.None ||
+            suffixFlags != NativeSceneImageFlags.None ||
             !samplingOptions.HasCanonicalFields)
         {
             return false;
@@ -1291,8 +1295,10 @@ public ref struct NativeSceneStreamBuilder
         in NativeSceneImageColorMatrix colorMatrix,
         uint stateIndex = uint.MaxValue)
     {
+        NativeSceneImageFlags suffixFlags = image.Flags &
+            (NativeSceneImageFlags.ColorMatrix | NativeSceneImageFlags.Effect);
         if (image.Sampling == NativeImageSampling.Cubic ||
-            image.Flags != NativeSceneImageFlags.ColorMatrix ||
+            suffixFlags != NativeSceneImageFlags.ColorMatrix ||
             !colorMatrix.HasCanonicalFields)
         {
             return false;
@@ -1321,8 +1327,10 @@ public ref struct NativeSceneStreamBuilder
         in NativeSceneImageColorMatrix colorMatrix,
         uint stateIndex = uint.MaxValue)
     {
+        NativeSceneImageFlags suffixFlags = image.Flags &
+            (NativeSceneImageFlags.ColorMatrix | NativeSceneImageFlags.Effect);
         if (image.Sampling != NativeImageSampling.Cubic ||
-            image.Flags != NativeSceneImageFlags.ColorMatrix ||
+            suffixFlags != NativeSceneImageFlags.ColorMatrix ||
             !samplingOptions.HasCanonicalFields ||
             !colorMatrix.HasCanonicalFields)
         {
@@ -1354,8 +1362,10 @@ public ref struct NativeSceneStreamBuilder
         in NativeSceneImageEffect effect,
         uint stateIndex = uint.MaxValue)
     {
+        NativeSceneImageFlags suffixFlags = image.Flags &
+            (NativeSceneImageFlags.ColorMatrix | NativeSceneImageFlags.Effect);
         if (image.Sampling == NativeImageSampling.Cubic ||
-            image.Flags != NativeSceneImageFlags.Effect ||
+            suffixFlags != NativeSceneImageFlags.Effect ||
             !effect.HasCanonicalFields)
         {
             return false;

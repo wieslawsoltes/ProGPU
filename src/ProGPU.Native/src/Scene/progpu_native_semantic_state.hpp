@@ -91,6 +91,11 @@ void apply_semantic_state(
     progpu_native_scene_image_draw& image,
     const progpu_native_scene_state& state) noexcept;
 
+void snap_semantic_image_point(
+    float& x,
+    float& y,
+    float dpi_scale) noexcept;
+
 scissor resolve_semantic_scissor(
     const progpu_native_scene_state& state,
     std::uint32_t target_width,

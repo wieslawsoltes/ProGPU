@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Reflection;
 using ProGPU.Backend;
 using ProGPU.Backend.Native;
 using ProGPU.Fonts.Inter;
@@ -766,6 +767,55 @@ public class NativePictureCompilerTests
         Assert.Null(compiled);
         Assert.Equal(NativePictureCompileError.InvalidArgument, failure.Error);
         Assert.Equal(-1, failure.CommandIndex);
+    }
+
+    [Fact]
+    public void CompilerCarriesExactTexturePixelSnappingIntoNativeScene()
+    {
+        using GpuTexture texture = CreateUnbackedTexture(16U, 8U);
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawTexture,
+                    Texture = texture,
+                    Rect = new Rect(1.26f, -2.24f, 4f, 3f),
+                    SrcRect = new Rect(2f, 1f, 8f, 4f),
+                    TextureSamplingMode = TextureSamplingMode.Linear,
+                    SnapTextureToPixels = true,
+                    Transform = Matrix4x4.Identity
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            122U,
+            1U,
+            new NativePictureCompileOptions(2f),
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.ExternalImages.Length);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        NativeMethods.SceneCommand command =
+            MemoryMarshal.Read<NativeMethods.SceneCommand>(
+                compiled.Stream.Slice(checked((int)header.CommandOffset)));
+        NativeSceneImageDraw draw =
+            MemoryMarshal.Read<NativeSceneImageDraw>(
+                compiled.Stream.Slice(checked((int)command.PayloadOffset)));
+        Assert.Equal(NativeSceneImageFlags.SnapToPixels, draw.Flags);
+        Assert.Equal(new NativeImageRect(2f, 1f, 8f, 4f), draw.SourceRect);
+        Assert.Equal(1.01f, command.Bounds.X, 3);
+        Assert.Equal(-2.49f, command.Bounds.Y, 3);
+        Assert.Equal(4.5f, command.Bounds.Width, 3);
+        Assert.Equal(3.5f, command.Bounds.Height, 3);
     }
 
     [Fact]
@@ -2641,5 +2691,17 @@ public class NativePictureCompilerTests
 
     private sealed class UnknownBrush : Brush
     {
+    }
+
+    private static GpuTexture CreateUnbackedTexture(uint width, uint height)
+    {
+        var texture = (GpuTexture)RuntimeHelpers.GetUninitializedObject(
+            typeof(GpuTexture));
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        typeof(GpuTexture).GetField("<Width>k__BackingField", flags)!
+            .SetValue(texture, width);
+        typeof(GpuTexture).GetField("<Height>k__BackingField", flags)!
+            .SetValue(texture, height);
+        return texture;
     }
 }
