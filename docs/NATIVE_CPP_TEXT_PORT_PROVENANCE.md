@@ -149,6 +149,20 @@ per-glyph managed/native crossings. Script-specific joining/reordering,
 fallback selection, and paragraph layout intentionally remain subsequent
 reusable CPU stages rather than being hidden in rendering.
 
+The granular `Text/Shaping/progpu_native_use_diacritics.cpp` unit directly
+ports ProGPU-owned `GlyphSubstitutionBuffer.NormalizeUseDiacritics` from
+`src/ProGPU.Text/OpenTypeTextShaper.cs` at checkpoint `e68517cc`. It borrows the
+same validated `UnicodeNormalizationData.bin` view as the standalone native
+normalizer and expands only canonical decompositions whose first scalar has a
+Unicode mark general category, matching the managed USE boundary. An
+option-aware requirements pass reports expanded complex-script metadata before
+mutation; cmap mappings and glyph capacity are then preflighted before a
+backward in-place write preserves each source cluster. This is
+`O(G log R + D)` work with `O(1)` internal storage for `G` glyphs, `R`
+decomposition records, and `D` written components. Missing normalization data,
+invalid font mapping, and short glyph storage fail without exposing partial
+run output. Header and named-module consumers exercise the same implementation.
+
 The raw GPOS executor now covers rule-, class-, and coverage-based Context and
 Chaining Context formats 1-3. Nested position records reuse the same borrowed
 lookup table and caller glyph/attachment buffers with a fixed 64-level cycle

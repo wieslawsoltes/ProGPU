@@ -47,6 +47,7 @@ int main() {
     const progpu::native::text::sfnt_vertical_glyph_metrics vertical_glyph{};
     const progpu::native::text::sfnt_glyph_bounds glyph_bounds{};
     const progpu::native::text::fallback_mark_metadata fallback_mark{};
+    const progpu::native::text::open_type_shape_run_options shape_options{};
     static_assert(progpu::native::text::sfnt_name_ids::family_name == 1U);
     const auto latin_script =
         progpu::native::text::get_unicode_script(0x41U);
@@ -101,6 +102,7 @@ int main() {
         vertical_header.number_of_vertical_metrics != 0U ||
         vertical_glyph.advance_height != 0U || glyph_bounds.x_min != 0 ||
         fallback_mark.ligature_component != 0xFFU ||
+        shape_options.normalization_data != nullptr ||
         fallback_mark.positioned) {
         return 1;
     }

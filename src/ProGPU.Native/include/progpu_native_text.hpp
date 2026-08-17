@@ -1004,6 +1004,10 @@ struct open_type_shape_run_options final {
      * has any records, this span is its resolved value sequence and therefore
      * includes an all-input baseline record before narrower overrides. */
     std::span<const shaping_feature> feature_settings{};
+    /* Shared borrowed FormD plan used by the managed-compatible USE shaper.
+     * Required when complex_script is use; retained only for this synchronous
+     * shaping call and never copied or owned by the shaping plan. */
+    const unicode_normalization_data* normalization_data = nullptr;
 };
 
 struct open_type_shape_run_scratch final {
@@ -1096,9 +1100,10 @@ bool try_apply_directional_code_point_fallback(
 
 /* Ports ProGPU's common pre-GSUB glyph preparation: optional start-of-text
  * dotted circle, modified combining-class ordering (including Arabic modifier
- * marks), Hebrew presentation-form composition, and Thai/Lao Sara Am
+ * marks), Hebrew presentation-form composition, Indic vowel-constraint
+ * repair, optional USE mark-led FormD expansion, and Thai/Lao Sara Am
  * decomposition/reordering. The caller supplies expandable storage and the
- * operation preflights capacity before mutation. */
+ * operation preflights capacity and font mappings before mutation. */
 bool try_preprocess_open_type_glyphs(
     const sfnt_font_view& font,
     open_type_tag script,
@@ -1107,7 +1112,8 @@ bool try_preprocess_open_type_glyphs(
     bool compose_hebrew_presentation_forms,
     std::span<shaping_glyph> glyph_storage,
     std::uint32_t& glyph_count,
-    font_error* error = nullptr) noexcept;
+    font_error* error = nullptr,
+    const unicode_normalization_data* use_normalization_data = nullptr) noexcept;
 
 struct font_fallback_candidate final {
     const sfnt_font_view* font = nullptr;
@@ -1483,6 +1489,15 @@ bool try_get_text_selection_rectangles(
 bool try_get_open_type_shape_run_requirements(
     const sfnt_font_view& font,
     std::span<const unicode_scalar> input,
+    open_type_shape_run_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+/* Option-aware requirements include USE diacritic decomposition and its
+ * expanded complex-script metadata. Prefer this overload for full shaping. */
+bool try_get_open_type_shape_run_requirements(
+    const sfnt_font_view& font,
+    std::span<const unicode_scalar> input,
+    const open_type_shape_run_options& options,
     open_type_shape_run_requirements& result,
     font_error* error = nullptr) noexcept;
 

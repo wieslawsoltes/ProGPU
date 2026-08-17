@@ -2,6 +2,7 @@
 
 #include "progpu_native_open_type_complex_internal.hpp"
 #include "progpu_native_open_type_feature_values_internal.hpp"
+#include "progpu_native_use_diacritics_internal.hpp"
 #include "progpu_native_open_type_gsub_internal.hpp"
 #include "progpu_native_legacy_kern_internal.hpp"
 #include "progpu_native_fallback_marks_internal.hpp"
@@ -924,6 +925,49 @@ bool try_get_open_type_shape_run_requirements(
     return true;
 }
 
+bool try_get_open_type_shape_run_requirements(
+    const sfnt_font_view& font,
+    std::span<const unicode_scalar> input,
+    const open_type_shape_run_options& options,
+    open_type_shape_run_requirements& result,
+    font_error* error) noexcept {
+    if (!try_get_open_type_shape_run_requirements(
+            font, input, result, error)) {
+        return false;
+    }
+    if (options.complex_script != open_type_complex_script::use) {
+        return true;
+    }
+    if (options.normalization_data == nullptr) {
+        result = {};
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    std::uint32_t normalized_count = 0U;
+    if (!detail::try_get_use_diacritic_glyph_count(
+            input,
+            *options.normalization_data,
+            normalized_count,
+            error)) {
+        result = {};
+        return false;
+    }
+    const std::uint64_t expanded_capacity =
+        static_cast<std::uint64_t>(normalized_count) + input.size();
+    if (expanded_capacity >= std::numeric_limits<std::uint32_t>::max()) {
+        result = {};
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    result.glyph_capacity = std::max(
+        result.glyph_capacity,
+        static_cast<std::uint32_t>(expanded_capacity));
+    result.complex_script_capacity = result.glyph_capacity;
+    result.complex_script_index_capacity = result.glyph_capacity + 1U;
+    set_error(error, font_error::none);
+    return true;
+}
+
 bool try_shape_open_type_run(
     const sfnt_font_view& font,
     std::span<const unicode_scalar> input,
@@ -948,7 +992,7 @@ bool try_shape_open_type_run(
     }
     open_type_shape_run_requirements requirements{};
     if (!try_get_open_type_shape_run_requirements(
-            font, input, requirements, error)) {
+            font, input, options, requirements, error)) {
         return false;
     }
     const bool arabic_joining = uses_arabic_joining(options.script);
@@ -1154,7 +1198,10 @@ bool try_shape_open_type_run(
             options.compose_hebrew_presentation_forms,
             glyph_storage,
             glyph_count,
-            error)) {
+            error,
+            options.complex_script == open_type_complex_script::use
+                ? options.normalization_data
+                : nullptr)) {
         glyph_count = 0U;
         return false;
     }

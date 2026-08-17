@@ -1,5 +1,6 @@
 #include "progpu_native_text.hpp"
 #include "progpu_native_open_type_complex_internal.hpp"
+#include "progpu_native_use_diacritics_internal.hpp"
 #include "progpu_native_vowel_constraints_internal.hpp"
 
 #include <algorithm>
@@ -378,7 +379,8 @@ bool try_preprocess_open_type_glyphs(
     bool compose_hebrew_presentation_forms,
     std::span<shaping_glyph> glyph_storage,
     std::uint32_t& glyph_count,
-    font_error* error) noexcept {
+    font_error* error,
+    const unicode_normalization_data* use_normalization_data) noexcept {
     if (glyph_count > glyph_storage.size()) {
         set_error(error, font_error::invalid_argument);
         return false;
@@ -397,6 +399,23 @@ bool try_preprocess_open_type_glyphs(
     }
     additions += detail::count_vowel_constraint_insertions(
         script, glyph_storage.first(glyph_count));
+    if (use_normalization_data != nullptr) {
+        std::size_t normalization_additions = 0U;
+        if (!detail::try_get_use_diacritic_additions(
+                font,
+                *use_normalization_data,
+                glyph_storage.first(glyph_count),
+                normalization_additions,
+                error)) {
+            return false;
+        }
+        if (normalization_additions >
+            std::numeric_limits<std::size_t>::max() - additions) {
+            set_error(error, font_error::invalid_argument);
+            return false;
+        }
+        additions += normalization_additions;
+    }
     std::uint16_t dotted_circle = 0U;
     const bool insert_dotted_circle = glyph_count != 0U &&
         has_flag(buffer_flags, shaping_buffer_flags::beginning_of_text) &&
@@ -438,6 +457,15 @@ bool try_preprocess_open_type_glyphs(
     }
     if (!detail::try_apply_vowel_constraints(
             font, script, glyph_storage, glyph_count, error)) {
+        return false;
+    }
+    if (use_normalization_data != nullptr &&
+        !detail::try_normalize_use_diacritics(
+            font,
+            *use_normalization_data,
+            glyph_storage,
+            glyph_count,
+            error)) {
         return false;
     }
     if (!prepare_thai_lao(

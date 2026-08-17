@@ -474,6 +474,14 @@ as managed shaping. The common preprocessing pass preflights caller capacity
 and inserts the font's dotted-circle glyph immediately before the final scalar
 of every matched two- or three-scalar sequence while preserving that scalar's
 source cluster. The fixed-table scan is bounded `O(G * R)` with no allocation.
+USE shaping now also executes the managed mark-led FormD normalization stage.
+The caller lends the already validated shared `UnicodeNormalizationData.bin`
+view once per run; requirements account for the expanded glyph and syllable
+metadata spans before any output is touched. Eligible decompositions are cmap
+validated in a preflight and written backward in place, preserving the source
+cluster without allocating or crossing the managed/native boundary per glyph.
+Lookup plus expansion is `O(G log R + D)` for `G` input glyphs, `R`
+decomposition records, and `D` output components.
 
 Native fallback accepts a bulk span of borrowed, already-parsed SFNT faces from
 the platform provider boundary. It preserves extended graphemes, tries the

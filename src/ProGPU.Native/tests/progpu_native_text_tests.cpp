@@ -247,6 +247,28 @@ void require(
     }
 }
 
+struct normalization_fixture final {
+    std::vector<std::byte> bytes{};
+    unicode_normalization_data data{};
+
+    normalization_fixture() {
+        std::ifstream stream(
+            PROGPU_NATIVE_TEST_UNICODE_NORMALIZATION_DATA,
+            std::ios::binary);
+        require(stream.good());
+        const std::vector<char> source{
+            std::istreambuf_iterator<char>(stream),
+            std::istreambuf_iterator<char>()};
+        bytes.resize(source.size());
+        for (std::size_t index = 0U; index < source.size(); ++index) {
+            bytes[index] = static_cast<std::byte>(source[index]);
+        }
+        unicode_error error = unicode_error::invalid_argument;
+        require(unicode_normalization_data::try_create(bytes, data, &error));
+        require(error == unicode_error::none);
+    }
+};
+
 void write_u16(
     std::span<std::byte> destination,
     std::size_t offset,
@@ -3725,12 +3747,14 @@ void open_type_use_preparation_reorders_prebase_vowels() {
     std::array<unicode_grapheme_cluster, 2U> graphemes{};
     std::array<shaping_attachment, 6U> attachments{};
     std::array<std::uint8_t, 6U> states{};
-    std::array<std::uint8_t, 2U> categories{};
-    std::array<std::uint8_t, 2U> syllables{};
-    std::array<std::uint32_t, 3U> indices{};
+    std::array<std::uint8_t, 6U> categories{};
+    std::array<std::uint8_t, 6U> syllables{};
+    std::array<std::uint32_t, 7U> indices{};
     auto options = open_type_shape_run_options{
         open_type_tag::from_chars('s', 'i', 'n', 'h')};
     options.complex_script = open_type_complex_script::use;
+    const normalization_fixture normalization{};
+    options.normalization_data = &normalization.data;
     std::uint32_t glyph_count = 0U;
     require(try_shape_open_type_run(
         font,
@@ -3749,6 +3773,97 @@ void open_type_use_preparation_reorders_prebase_vowels() {
     require(glyph_count == 2U && glyphs[0U].code_point == 0x0DD9U &&
         glyphs[1U].code_point == 0x0D9AU && glyphs[0U].cluster == 0 &&
         glyphs[1U].cluster == 0);
+}
+
+void open_type_use_diacritic_normalization_matches_managed() {
+    constexpr std::array mappings{
+        std::pair{0x0C95U, 2U},
+        std::pair{0x0CC2U, 4U},
+        std::pair{0x0CC6U, 3U},
+        std::pair{0x0CCBU, 6U},
+        std::pair{0x0CD5U, 5U},
+        std::pair{0x25CCU, 1U}};
+    const auto cmap = make_cmap_groups(mappings);
+    const auto data = make_font(
+        0U, 22U, 0U, false, false, false, {}, cmap);
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+    const normalization_fixture normalization{};
+    constexpr std::array input{
+        unicode_scalar{0x0C95U, 0U, 1U},
+        unicode_scalar{0x0CCBU, 1U, 1U}};
+    auto options = open_type_shape_run_options{
+        open_type_tag::from_chars('k', 'n', 'd', '2')};
+    options.complex_script = open_type_complex_script::use;
+    options.normalization_data = &normalization.data;
+
+    open_type_shape_run_requirements requirements{};
+    require(try_get_open_type_shape_run_requirements(
+        font, input, options, requirements, &error));
+    require(requirements.glyph_capacity == 6U &&
+        requirements.complex_script_capacity == 6U &&
+        requirements.complex_script_index_capacity == 7U);
+
+    std::array<shaping_glyph, 6U> glyphs{};
+    std::array<unicode_grapheme_cluster, 2U> graphemes{};
+    std::array<shaping_attachment, 6U> attachments{};
+    std::array<std::uint8_t, 6U> states{};
+    std::array<std::uint8_t, 6U> categories{};
+    std::array<std::uint8_t, 6U> syllables{};
+    std::array<std::uint32_t, 7U> indices{};
+    std::uint32_t glyph_count = 0U;
+    require(try_shape_open_type_run(
+        font,
+        input,
+        options,
+        glyphs,
+        open_type_shape_run_scratch{
+            .grapheme_clusters = graphemes,
+            .attachments = attachments,
+            .attachment_states = states,
+            .script_categories = categories,
+            .script_syllables = syllables,
+            .script_indices = indices},
+        glyph_count,
+        &error));
+    require(glyph_count == 4U);
+    constexpr std::array expected{0x0C95U, 0x0CC6U, 0x0CC2U, 0x0CD5U};
+    for (std::size_t index = 0U; index < expected.size(); ++index) {
+        require(glyphs[index].code_point == expected[index] &&
+            glyphs[index].cluster == 0);
+    }
+    require(glyphs[0U].glyph_id == 2U && glyphs[1U].glyph_id == 3U &&
+        glyphs[2U].glyph_id == 4U && glyphs[3U].glyph_id == 5U);
+
+    std::array<shaping_glyph, 5U> short_glyphs{};
+    short_glyphs.fill(shaping_glyph{88U});
+    glyph_count = 99U;
+    require(!try_shape_open_type_run(
+        font,
+        input,
+        options,
+        short_glyphs,
+        open_type_shape_run_scratch{},
+        glyph_count,
+        &error));
+    require(error == font_error::insufficient_buffer && glyph_count == 0U &&
+        short_glyphs[0U].glyph_id == 88U);
+
+    auto missing_plan_options = options;
+    missing_plan_options.normalization_data = nullptr;
+    glyphs.fill(shaping_glyph{77U});
+    glyph_count = 99U;
+    require(!try_shape_open_type_run(
+        font,
+        input,
+        missing_plan_options,
+        glyphs,
+        open_type_shape_run_scratch{},
+        glyph_count,
+        &error));
+    require(error == font_error::invalid_argument && glyph_count == 0U &&
+        glyphs[0U].glyph_id == 77U);
 }
 
 void open_type_indic_preparation_reorders_prebase_matras() {
@@ -8397,6 +8512,7 @@ int main() {
     open_type_khmer_preparation_reorders_prebase_vowels();
     open_type_myanmar_preparation_reorders_prebase_vowels();
     open_type_use_preparation_reorders_prebase_vowels();
+    open_type_use_diacritic_normalization_matches_managed();
     open_type_indic_preparation_reorders_prebase_matras();
     open_type_hangul_preparation_composes_and_decomposes();
     open_type_gpos_device_and_variation_deltas_are_applied();
