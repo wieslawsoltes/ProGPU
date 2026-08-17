@@ -2029,6 +2029,49 @@ struct sfnt_vertical_glyph_metrics final {
     bool has_top_side_bearing = false;
 };
 
+struct sfnt_simple_glyph_run_requirements final {
+    std::uint32_t cluster_map_count = 0U;
+    std::uint32_t glyph_count = 0U;
+};
+
+struct sfnt_simple_glyph_metrics final {
+    std::uint32_t advance_width = 0U;
+    std::uint32_t advance_height = 0U;
+};
+
+/* Allocation-free native port of ProGPU.Text.SfntSimpleGlyphShaper. The
+ * cluster map remains UTF-16 indexed and each glyph record represents one
+ * decoded scalar (or one unpaired code unit, matching the managed helper). */
+bool try_get_sfnt_simple_glyph_run_requirements(
+    std::span<const char16_t> text,
+    sfnt_simple_glyph_run_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_build_sfnt_simple_glyph_run(
+    const sfnt_font_view& font,
+    std::span<const char16_t> text,
+    std::uint16_t blank_glyph_index,
+    std::uint16_t hyphen_glyph_index,
+    std::span<std::uint16_t> cluster_map,
+    std::span<std::uint16_t> glyph_indices,
+    std::uint32_t& glyph_count,
+    font_error* error = nullptr) noexcept;
+
+bool is_sfnt_simple_formatting_control(std::uint32_t code_point) noexcept;
+
+bool try_fill_sfnt_simple_glyph_advances(
+    std::span<const char16_t> text,
+    std::span<const std::uint16_t> cluster_map,
+    std::span<const std::uint16_t> glyph_indices,
+    std::span<const sfnt_simple_glyph_metrics> glyph_metrics,
+    std::uint16_t design_units_per_em,
+    double font_em_size,
+    double scaling_factor,
+    bool is_sideways,
+    std::span<std::uint8_t> glyph_state_scratch,
+    std::span<std::int32_t> glyph_advances,
+    font_error* error = nullptr) noexcept;
+
 struct sfnt_glyph_bounds final {
     std::int16_t x_min = 0;
     std::int16_t y_min = 0;

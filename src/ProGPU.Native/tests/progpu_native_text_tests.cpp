@@ -252,6 +252,12 @@ using progpu::native::text::sfnt_horizontal_glyph_metrics;
 using progpu::native::text::sfnt_horizontal_header_metrics;
 using progpu::native::text::sfnt_vertical_header_metrics;
 using progpu::native::text::sfnt_vertical_glyph_metrics;
+using progpu::native::text::sfnt_simple_glyph_run_requirements;
+using progpu::native::text::sfnt_simple_glyph_metrics;
+using progpu::native::text::try_get_sfnt_simple_glyph_run_requirements;
+using progpu::native::text::try_build_sfnt_simple_glyph_run;
+using progpu::native::text::is_sfnt_simple_formatting_control;
+using progpu::native::text::try_fill_sfnt_simple_glyph_advances;
 using progpu::native::text::sfnt_glyph_bounds;
 using progpu::native::text::sfnt_item_variation_data;
 using progpu::native::text::sfnt_item_variation_store_view;
@@ -3196,6 +3202,150 @@ std::vector<std::byte> make_font(
         }
     }
     return result;
+}
+
+void sfnt_simple_glyph_shaper_matches_managed_utf16_contract() {
+    const auto data = make_font();
+    sfnt_font_view font{};
+    font_error error = font_error::invalid_argument;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+
+    constexpr std::array<char16_t, 7U> text{
+        u'A',
+        static_cast<char16_t>(0xD83DU),
+        static_cast<char16_t>(0xDE00U),
+        static_cast<char16_t>(0x00ADU),
+        u'\n',
+        static_cast<char16_t>(0x0085U),
+        static_cast<char16_t>(0xD800U)};
+    sfnt_simple_glyph_run_requirements requirements{};
+    require(try_get_sfnt_simple_glyph_run_requirements(
+        text, requirements, &error));
+    require(error == font_error::none &&
+        requirements.cluster_map_count == 7U &&
+        requirements.glyph_count == 6U);
+    require(is_sfnt_simple_formatting_control(0x1FU) &&
+        is_sfnt_simple_formatting_control(0x7FU) &&
+        is_sfnt_simple_formatting_control(0x9FU) &&
+        !is_sfnt_simple_formatting_control(0x20U));
+
+    std::array<std::uint16_t, 7U> cluster_map{};
+    std::array<std::uint16_t, 6U> glyph_indices{};
+    std::uint32_t glyph_count = 99U;
+    require(try_build_sfnt_simple_glyph_run(
+        font,
+        text,
+        2U,
+        6U,
+        cluster_map,
+        glyph_indices,
+        glyph_count,
+        &error));
+    require(glyph_count == 6U &&
+        cluster_map == std::array<std::uint16_t, 7U>{0U, 1U, 1U, 2U, 3U, 4U, 5U} &&
+        glyph_indices == std::array<std::uint16_t, 6U>{3U, 7U, 6U, 2U, 2U, 0U});
+
+    constexpr std::array<sfnt_simple_glyph_metrics, 6U> metrics{
+        sfnt_simple_glyph_metrics{250U, 300U},
+        sfnt_simple_glyph_metrics{350U, 400U},
+        sfnt_simple_glyph_metrics{450U, 500U},
+        sfnt_simple_glyph_metrics{999U, 999U},
+        sfnt_simple_glyph_metrics{999U, 999U},
+        sfnt_simple_glyph_metrics{550U, 600U}};
+    std::array<std::uint8_t, 6U> glyph_state_scratch{};
+    std::array<std::int32_t, 6U> advances{};
+    require(try_fill_sfnt_simple_glyph_advances(
+        text,
+        cluster_map,
+        glyph_indices,
+        metrics,
+        1000U,
+        10.0,
+        1.0,
+        false,
+        glyph_state_scratch,
+        advances,
+        &error));
+    require(advances == std::array<std::int32_t, 6U>{2, 4, 4, 0, 0, 6});
+    require(try_fill_sfnt_simple_glyph_advances(
+        text,
+        cluster_map,
+        glyph_indices,
+        metrics,
+        1000U,
+        10.0,
+        1.0,
+        true,
+        glyph_state_scratch,
+        advances,
+        &error));
+    require(advances == std::array<std::int32_t, 6U>{3, 4, 5, 0, 0, 6});
+
+    constexpr std::array<std::uint16_t, 2U> shared_cluster_map{0U, 0U};
+    constexpr std::array<std::uint16_t, 1U> shared_glyph{3U};
+    constexpr std::array<sfnt_simple_glyph_metrics, 1U> shared_metrics{
+        sfnt_simple_glyph_metrics{250U, 300U}};
+    std::array<std::uint8_t, 1U> shared_state{};
+    std::array<std::int32_t, 1U> shared_advance{};
+    require(try_fill_sfnt_simple_glyph_advances(
+        std::array<char16_t, 2U>{u'A', u'\n'},
+        shared_cluster_map,
+        shared_glyph,
+        shared_metrics,
+        1000U,
+        10.0,
+        1.0,
+        false,
+        shared_state,
+        shared_advance,
+        &error));
+    require(shared_advance[0U] == 2);
+    require(try_fill_sfnt_simple_glyph_advances(
+        std::array<char16_t, 2U>{u'\n', u'A'},
+        shared_cluster_map,
+        shared_glyph,
+        shared_metrics,
+        1000U,
+        10.0,
+        1.0,
+        false,
+        shared_state,
+        shared_advance,
+        &error));
+    require(shared_advance[0U] == 0);
+
+    cluster_map.fill(99U);
+    glyph_indices.fill(99U);
+    glyph_count = 99U;
+    require(!try_build_sfnt_simple_glyph_run(
+        font,
+        text,
+        2U,
+        6U,
+        std::span<std::uint16_t>{cluster_map}.first(6U),
+        glyph_indices,
+        glyph_count,
+        &error));
+    require(error == font_error::insufficient_buffer && glyph_count == 0U &&
+        cluster_map[0U] == 99U && glyph_indices[0U] == 99U);
+
+    advances.fill(99);
+    auto overflowing_metrics = metrics;
+    overflowing_metrics[0U].advance_width =
+        std::numeric_limits<std::uint32_t>::max();
+    require(!try_fill_sfnt_simple_glyph_advances(
+        text,
+        std::array<std::uint16_t, 7U>{0U, 1U, 1U, 2U, 3U, 4U, 5U},
+        std::array<std::uint16_t, 6U>{3U, 7U, 6U, 2U, 2U, 0U},
+        overflowing_metrics,
+        1U,
+        1.0,
+        1.0,
+        false,
+        glyph_state_scratch,
+        advances,
+        &error));
+    require(error == font_error::invalid_argument && advances[0U] == 99);
 }
 
 void open_type_uniform_run_shaper_connects_unicode_font_and_metrics() {
@@ -10408,6 +10558,7 @@ int main() {
     native_text_visual_order_matches_managed_cluster_policy();
     native_logical_text_layout_reorders_bidi_per_line();
     native_vertical_text_layout_matches_managed_columns();
+    sfnt_simple_glyph_shaper_matches_managed_utf16_contract();
     unicode_line_breaks_feed_native_layout_without_allocation();
     complex_script_properties_and_syllable_machines_are_bounded();
     woff1_normalization_is_bounded_and_transactional();

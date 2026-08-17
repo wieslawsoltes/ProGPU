@@ -694,6 +694,14 @@ selection coverage only within the same column. Requirements and population
 remain `O(G)` with caller-owned output and `O(1)` internal storage; point, caret,
 and selection queries are `O(C)` for `C` cluster boxes or caret stops.
 
+The framework-facing simple SFNT glyph-run helper also has a native bulk path.
+It preserves the managed UTF-16 cluster map, surrogate-pair grouping, unpaired
+code-unit behavior, control/soft-hyphen substitution, horizontal or sideways
+design metrics, zero-units-per-em fallback, and midpoint-to-even integer
+rounding. Requirements and run creation are `O(T)` plus cmap lookup for `T`
+UTF-16 code units. Advance generation is `O(T + G)` for `G` glyphs using one
+caller-owned state byte per glyph; output buffers are unchanged on failure.
+
 C++ clients can use the header surfaces or, on the supported LLVM
 configuration, `import progpu.native.text;`,
 `import progpu.native.compression;`, or `import progpu.native.image;`.

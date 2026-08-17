@@ -1199,6 +1199,21 @@ transactional short output, and the ASan/UBSan path. This is an original
 ProGPU cross-axis adaptation; no third-party implementation source or
 structure is used.
 
+Simple framework glyph-run construction directly ports ProGPU-owned
+`src/ProGPU.Text/SfntSimpleGlyphShaper.cs` at checkpoint `668fc254`. Native
+requirements and population preserve UTF-16-indexed clusters, surrogate pairs,
+unpaired code units, C0/C1 blank substitution, soft-hyphen replacement,
+horizontal/sideways design advances, the zero-units-per-em fallback, checked
+32-bit results, and .NET midpoint-to-even rounding. The managed helper's
+repeated text scan is reduced from `O(T * G)` to `O(T + G)` by a caller-owned
+one-byte-per-glyph state span while retaining its exact first-mapped-code-unit
+decision. Run sizing/population is `O(T)` plus bounded cmap lookup, has `O(1)`
+internal state, and uses no per-glyph callback or managed/native crossing.
+Differential fixtures cover BMP and supplementary mappings, soft hyphen,
+C0/C1 controls, unpaired surrogates, horizontal/sideways tie rounding, short
+output transactionality, overflow rejection, the named C++20 module consumer,
+and ASan/UBSan execution.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

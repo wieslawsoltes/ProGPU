@@ -61,6 +61,10 @@ int main() {
         feature_tag_requirements{};
     const progpu::native::text::sfnt_vertical_header_metrics vertical_header{};
     const progpu::native::text::sfnt_vertical_glyph_metrics vertical_glyph{};
+    const progpu::native::text::sfnt_simple_glyph_run_requirements
+        simple_run_requirements{};
+    const progpu::native::text::sfnt_simple_glyph_metrics
+        simple_glyph_metrics{};
     const progpu::native::text::sfnt_glyph_bounds glyph_bounds{};
     const progpu::native::text::fallback_mark_metadata fallback_mark{};
     const progpu::native::text::open_type_shape_run_options shape_options{};
@@ -130,6 +134,14 @@ int main() {
         &progpu::native::text::try_move_vertical_text_caret_visually;
     const auto vertical_selection_resolver =
         &progpu::native::text::try_get_vertical_text_selection_rectangles;
+    const auto simple_run_requirements_resolver =
+        &progpu::native::text::try_get_sfnt_simple_glyph_run_requirements;
+    const auto simple_run_resolver =
+        &progpu::native::text::try_build_sfnt_simple_glyph_run;
+    const auto simple_control_resolver =
+        &progpu::native::text::is_sfnt_simple_formatting_control;
+    const auto simple_advance_resolver =
+        &progpu::native::text::try_fill_sfnt_simple_glyph_advances;
     const auto default_feature_settings =
         progpu::native::text::get_default_open_type_feature_settings();
     static_assert(progpu::native::text::sfnt_name_ids::family_name == 1U);
@@ -197,6 +209,8 @@ int main() {
         feature_tag_requirements.tag_capacity != 0U ||
         vertical_header.number_of_vertical_metrics != 0U ||
         vertical_glyph.advance_height != 0U || glyph_bounds.x_min != 0 ||
+        simple_run_requirements.glyph_count != 0U ||
+        simple_glyph_metrics.advance_width != 0U ||
         fallback_mark.ligature_component != 0xFFU ||
         shape_options.normalization_data != nullptr ||
         !shape_verification.glyphs.empty() ||
@@ -233,6 +247,10 @@ int main() {
         vertical_caret_resolver == nullptr ||
         vertical_caret_movement_resolver == nullptr ||
         vertical_selection_resolver == nullptr ||
+        simple_run_requirements_resolver == nullptr ||
+        simple_run_resolver == nullptr ||
+        simple_control_resolver == nullptr ||
+        simple_advance_resolver == nullptr ||
         default_feature_settings.size() != 26U ||
         shaping_route_resolver == nullptr ||
         !shape_options.pre_context.empty() ||
