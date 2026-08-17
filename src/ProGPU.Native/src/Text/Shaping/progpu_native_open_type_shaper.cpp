@@ -6,6 +6,8 @@
 #include "progpu_native_legacy_kern_internal.hpp"
 #include "progpu_native_fallback_marks_internal.hpp"
 #include "progpu_native_arabic_stretch_internal.hpp"
+#include "progpu_native_arabic_actions_internal.hpp"
+#include "progpu_native_arabic_fallback_internal.hpp"
 #include "progpu_native_space_fallback_internal.hpp"
 
 #include <algorithm>
@@ -34,6 +36,9 @@ using feature_detail::has_feature_settings;
 using feature_detail::inactive_fraction_features;
 using feature_detail::lookup_feature_resolution;
 using feature_detail::try_resolve_lookup_feature;
+using detail::clear_arabic_actions;
+using detail::get_arabic_action;
+using detail::set_arabic_action;
 
 constexpr open_type_tag gdef_tag =
     open_type_tag::from_chars('G', 'D', 'E', 'F');
@@ -41,8 +46,6 @@ constexpr open_type_tag gsub_tag =
     open_type_tag::from_chars('G', 'S', 'U', 'B');
 constexpr open_type_tag gpos_tag =
     open_type_tag::from_chars('G', 'P', 'O', 'S');
-constexpr std::uint32_t arabic_action_mask = 0xF0000000U;
-constexpr std::uint32_t arabic_action_shift = 28U;
 constexpr std::uint32_t hangul_feature_mask = 0x30000000U;
 constexpr std::uint32_t hangul_feature_shift = 28U;
 constexpr auto kern_feature =
@@ -51,6 +54,23 @@ constexpr auto distance_feature =
     open_type_tag::from_chars('d', 'i', 's', 't');
 constexpr auto stretch_feature =
     open_type_tag::from_chars('s', 't', 'c', 'h');
+constexpr auto arabic_script =
+    open_type_tag::from_chars('a', 'r', 'a', 'b');
+constexpr std::array arabic_form_features{
+    std::pair{open_type_tag::from_chars('i', 's', 'o', 'l'),
+        open_type_arabic_action::isolated},
+    std::pair{open_type_tag::from_chars('f', 'i', 'n', 'a'),
+        open_type_arabic_action::final},
+    std::pair{open_type_tag::from_chars('f', 'i', 'n', '2'),
+        open_type_arabic_action::final2},
+    std::pair{open_type_tag::from_chars('f', 'i', 'n', '3'),
+        open_type_arabic_action::final3},
+    std::pair{open_type_tag::from_chars('m', 'e', 'd', 'i'),
+        open_type_arabic_action::medial},
+    std::pair{open_type_tag::from_chars('m', 'e', 'd', '2'),
+        open_type_arabic_action::medial2},
+    std::pair{open_type_tag::from_chars('i', 'n', 'i', 't'),
+        open_type_arabic_action::initial}};
 
 bool is_default_ignorable(std::uint32_t value) noexcept {
     return value == 0x00ADU || value == 0x034FU || value == 0x061CU ||
@@ -174,30 +194,6 @@ bool may_expand_preprocessing(
 bool is_variation_selector(std::uint32_t code_point) noexcept {
     return (code_point >= 0xFE00U && code_point <= 0xFE0FU) ||
         (code_point >= 0xE0100U && code_point <= 0xE01EFU);
-}
-
-void set_arabic_action(
-    shaping_glyph& glyph,
-    open_type_arabic_action action) noexcept {
-    const std::uint32_t flags = static_cast<std::uint32_t>(glyph.flags);
-    glyph.flags = static_cast<shaping_glyph_flags>(
-        (flags & ~arabic_action_mask) |
-        (static_cast<std::uint32_t>(action) << arabic_action_shift));
-}
-
-open_type_arabic_action get_arabic_action(
-    const shaping_glyph& glyph) noexcept {
-    return static_cast<open_type_arabic_action>(
-        (static_cast<std::uint32_t>(glyph.flags) & arabic_action_mask) >>
-        arabic_action_shift);
-}
-
-void clear_arabic_actions(
-    std::span<shaping_glyph> glyphs) noexcept {
-    for (auto& glyph : glyphs) {
-        glyph.flags = static_cast<shaping_glyph_flags>(
-            static_cast<std::uint32_t>(glyph.flags) & ~arabic_action_mask);
-    }
 }
 
 hangul_feature get_hangul_feature(const shaping_glyph& glyph) noexcept {
@@ -1218,16 +1214,41 @@ bool try_shape_open_type_run(
     }
 
     const open_type_gdef_view* gdef_pointer = has_gdef ? &gdef : nullptr;
+    bool has_arabic_form_substitution = false;
+    if (options.script == arabic_script && gsub.lookup_count() != 0U) {
+        for (const auto& [feature, action] : arabic_form_features) {
+            static_cast<void>(action);
+            std::uint32_t lookup_count = 0U;
+            if (!gsub.try_select_feature_lookups(
+                    options.script,
+                    options.language,
+                    feature,
+                    scratch.gsub_lookups.first(gsub.lookup_count()),
+                    lookup_count,
+                    error)) {
+                clear_arabic_actions(glyph_storage.first(glyph_count));
+                return false;
+            }
+            if (lookup_count != 0U) {
+                has_arabic_form_substitution = true;
+                break;
+            }
+        }
+    }
     std::array<open_type_tag, 3U> excluded_fraction_storage{};
     const auto excluded_fraction = inactive_fraction_features(
         options,
         excluded_fraction_storage);
-    std::array<open_type_tag, 4U> excluded_gsub_storage{};
+    std::array<open_type_tag, 11U> excluded_gsub_storage{};
     std::copy(excluded_fraction.begin(), excluded_fraction.end(),
         excluded_gsub_storage.begin());
     std::size_t excluded_gsub_count = excluded_fraction.size();
     if (arabic_joining) {
         excluded_gsub_storage[excluded_gsub_count++] = stretch_feature;
+        for (const auto& [feature, action] : arabic_form_features) {
+            static_cast<void>(action);
+            excluded_gsub_storage[excluded_gsub_count++] = feature;
+        }
     }
     const auto excluded_gsub = std::span<const open_type_tag>{
         excluded_gsub_storage}.first(excluded_gsub_count);
@@ -1321,22 +1342,7 @@ bool try_shape_open_type_run(
                 false,
                 nullptr,
                 fallback_mark_positioning};
-            constexpr std::array form_features{
-                std::pair{open_type_tag::from_chars('i', 's', 'o', 'l'),
-                    open_type_arabic_action::isolated},
-                std::pair{open_type_tag::from_chars('f', 'i', 'n', 'a'),
-                    open_type_arabic_action::final},
-                std::pair{open_type_tag::from_chars('f', 'i', 'n', '2'),
-                    open_type_arabic_action::final2},
-                std::pair{open_type_tag::from_chars('f', 'i', 'n', '3'),
-                    open_type_arabic_action::final3},
-                std::pair{open_type_tag::from_chars('m', 'e', 'd', 'i'),
-                    open_type_arabic_action::medial},
-                std::pair{open_type_tag::from_chars('m', 'e', 'd', '2'),
-                    open_type_arabic_action::medial2},
-                std::pair{open_type_tag::from_chars('i', 'n', 'i', 't'),
-                    open_type_arabic_action::initial}};
-            for (const auto& [feature, action] : form_features) {
+            for (const auto& [feature, action] : arabic_form_features) {
                 if (!apply_arabic_form_feature(
                         gsub,
                         options.script,
@@ -1387,6 +1393,34 @@ bool try_shape_open_type_run(
                 }
             }
         }
+    }
+    if (options.script == arabic_script &&
+        !has_arabic_form_substitution &&
+        !detail::try_apply_arabic_fallback(
+            font,
+            glyph_storage,
+            glyph_count,
+            gdef_pointer,
+            detail::arabic_fallback_options{
+                is_run_feature_enabled(
+                    options,
+                    open_type_tag::from_chars('i', 'n', 'i', 't')),
+                is_run_feature_enabled(
+                    options,
+                    open_type_tag::from_chars('m', 'e', 'd', 'i')),
+                is_run_feature_enabled(
+                    options,
+                    open_type_tag::from_chars('f', 'i', 'n', 'a')),
+                is_run_feature_enabled(
+                    options,
+                    open_type_tag::from_chars('i', 's', 'o', 'l')),
+                is_run_feature_enabled(
+                    options,
+                    open_type_tag::from_chars('r', 'l', 'i', 'g')),
+                fallback_mark_positioning},
+            error)) {
+        clear_arabic_actions(glyph_storage.first(glyph_count));
+        return false;
     }
     if (gsub.lookup_count() == 0U &&
         complex_script) {

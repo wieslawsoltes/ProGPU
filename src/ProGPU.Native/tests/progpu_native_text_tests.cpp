@@ -3440,6 +3440,125 @@ void special_space_fallback_matches_managed_metrics() {
         vertical_glyph[0U].advance_x == 500);
 }
 
+void arabic_fallback_forms_and_ligatures_match_managed() {
+    constexpr std::array mappings{
+        std::pair{0x0628U, 1U},
+        std::pair{0x0645U, 3U},
+        std::pair{0xFC08U, 5U},
+        std::pair{0xFE90U, 6U},
+        std::pair{0xFE91U, 2U},
+        std::pair{0xFEE2U, 4U}};
+    const auto cmap = make_cmap_groups(mappings);
+    const auto data = make_font(
+        0U, 22U, 0U, false, false, false, {}, cmap);
+    sfnt_font_view font{};
+    font_error error = font_error::none;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+
+    constexpr std::array input{
+        unicode_scalar{0x0628U, 0U, 1U},
+        unicode_scalar{0x0645U, 1U, 1U}};
+    constexpr std::array form_features{
+        open_type_tag::from_chars('i', 'n', 'i', 't'),
+        open_type_tag::from_chars('f', 'i', 'n', 'a')};
+    constexpr std::array ligature_features{
+        open_type_tag::from_chars('i', 'n', 'i', 't'),
+        open_type_tag::from_chars('f', 'i', 'n', 'a'),
+        open_type_tag::from_chars('r', 'l', 'i', 'g')};
+    std::array<shaping_glyph, 6U> glyphs{};
+    std::array<unicode_grapheme_cluster, 2U> graphemes{};
+    std::array<shaping_attachment, 6U> attachments{};
+    std::array<std::uint8_t, 6U> states{};
+    std::array<open_type_arabic_action, 2U> actions{};
+    auto scratch = open_type_shape_run_scratch{};
+    scratch.grapheme_clusters = graphemes;
+    scratch.attachments = attachments;
+    scratch.attachment_states = states;
+    scratch.arabic_actions = actions;
+    auto options = open_type_shape_run_options{};
+    options.script = open_type_tag::from_chars('a', 'r', 'a', 'b');
+    options.direction = shaping_direction::right_to_left;
+    options.requested_features = form_features;
+    options.zero_mark_advances = false;
+    std::uint32_t glyph_count = 0U;
+    require(try_shape_open_type_run(
+        font, input, options, glyphs, scratch, glyph_count, &error));
+    require(glyph_count == 2U &&
+        glyphs[0U].code_point == 0x0645U && glyphs[0U].glyph_id == 4U &&
+        glyphs[1U].code_point == 0x0628U && glyphs[1U].glyph_id == 2U);
+
+    glyphs.fill({});
+    options.requested_features = ligature_features;
+    require(try_shape_open_type_run(
+        font, input, options, glyphs, scratch, glyph_count, &error));
+    require(glyph_count == 1U && glyphs[0U].code_point == 0x0628U &&
+        glyphs[0U].glyph_id == 5U && glyphs[0U].cluster == 0);
+
+    glyphs.fill({});
+    options.requested_features = {};
+    require(try_shape_open_type_run(
+        font, input, options, glyphs, scratch, glyph_count, &error));
+    require(glyph_count == 2U &&
+        glyphs[0U].code_point == 0x0645U && glyphs[0U].glyph_id == 3U &&
+        glyphs[1U].code_point == 0x0628U && glyphs[1U].glyph_id == 1U);
+
+    const auto make_initial_gsub = [] {
+        std::vector<std::byte> table(70U);
+        write_u16(table, 0U, 1U);
+        write_u16(table, 4U, 10U);
+        write_u16(table, 6U, 30U);
+        write_u16(table, 8U, 44U);
+        write_u16(table, 10U, 1U);
+        write_u32(table, 12U,
+            open_type_tag::from_chars('a', 'r', 'a', 'b').value);
+        write_u16(table, 16U, 8U);
+        write_u16(table, 18U, 4U);
+        write_u16(table, 22U, 0U);
+        write_u16(table, 24U, 0xFFFFU);
+        write_u16(table, 26U, 1U);
+        write_u16(table, 28U, 0U);
+        write_u16(table, 30U, 1U);
+        write_u32(table, 32U,
+            open_type_tag::from_chars('i', 'n', 'i', 't').value);
+        write_u16(table, 36U, 8U);
+        write_u16(table, 38U, 0U);
+        write_u16(table, 40U, 1U);
+        write_u16(table, 42U, 0U);
+        write_u16(table, 44U, 1U);
+        write_u16(table, 46U, 4U);
+        write_u16(table, 48U, 1U);
+        write_u16(table, 50U, 0U);
+        write_u16(table, 52U, 1U);
+        write_u16(table, 54U, 8U);
+        write_u16(table, 56U, 2U);
+        write_u16(table, 58U, 8U);
+        write_u16(table, 60U, 1U);
+        write_u16(table, 62U, 7U);
+        write_u16(table, 64U, 1U);
+        write_u16(table, 66U, 1U);
+        write_u16(table, 68U, 1U);
+        return table;
+    };
+    const std::array initial_tables{
+        table_data{open_type_tag::from_chars('G', 'S', 'U', 'B'),
+            make_initial_gsub()}};
+    const auto initial_data = make_font(
+        0U, 22U, 0U, false, false, false, initial_tables, cmap);
+    require(sfnt_font_view::try_create(initial_data, 0U, font, &error));
+    constexpr std::array two_beh{
+        unicode_scalar{0x0628U, 0U, 1U},
+        unicode_scalar{0x0628U, 1U, 1U}};
+    std::array<std::uint16_t, 1U> gsub_lookups{};
+    scratch.gsub_lookups = gsub_lookups;
+    glyphs.fill({});
+    options.requested_features = std::span{form_features}.first(1U);
+    require(try_shape_open_type_run(
+        font, two_beh, options, glyphs, scratch, glyph_count, &error));
+    require(glyph_count == 2U &&
+        glyphs[0U].code_point == 0x0628U && glyphs[0U].glyph_id == 1U &&
+        glyphs[1U].code_point == 0x0628U && glyphs[1U].glyph_id == 7U);
+}
+
 void open_type_khmer_preparation_reorders_prebase_vowels() {
     constexpr std::array mappings{
         std::pair{0x1780U, 2U},
@@ -8236,6 +8355,7 @@ int main() {
     open_type_common_preprocessing_matches_managed_stages();
     directional_code_point_fallback_matches_managed_stages();
     special_space_fallback_matches_managed_metrics();
+    arabic_fallback_forms_and_ligatures_match_managed();
     open_type_khmer_preparation_reorders_prebase_vowels();
     open_type_myanmar_preparation_reorders_prebase_vowels();
     open_type_use_preparation_reorders_prebase_vowels();

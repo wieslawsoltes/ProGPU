@@ -33,6 +33,20 @@ def parse_hex_uint_array(source: str, name: str) -> list[int]:
     ]
 
 
+def parse_hex_uint_span(source: str, name: str) -> list[int]:
+    match = re.search(
+        rf"{re.escape(name)}\s*=>\s*\[(?P<body>.*?)\];",
+        source,
+        re.DOTALL,
+    )
+    if match is None:
+        raise RuntimeError(f"Could not find managed span {name}")
+    return [
+        int(value, 16)
+        for value in re.findall(r"0x([0-9A-Fa-f]+)", match.group("body"))
+    ]
+
+
 def parse_int_array(source: str, name: str) -> list[int]:
     match = re.search(
         rf"{re.escape(name)}\s*=\s*\[(?P<body>.*?)\];",
@@ -148,6 +162,7 @@ def generate(root: Path) -> str:
     arabic_path = root / "src/ProGPU.Text/ArabicJoiningData.Generated.cs"
     joining_fallback_path = root / "src/ProGPU.Text/UnicodeJoiningFallbackData.Generated.cs"
     directional_path = root / "src/ProGPU.Text/UnicodeDirectionalData.Generated.cs"
+    arabic_fallback_path = root / "src/ProGPU.Text/ArabicFallbackData.Generated.cs"
     line_break_path = root / "src/ProGPU.Text/UnicodeLineBreakData.Generated.cs"
     indic_shaping_path = root / "src/ProGPU.Text/IndicShapingData.Generated.cs"
     use_shaping_path = root / "src/ProGPU.Text/UseShapingData.Generated.cs"
@@ -158,6 +173,7 @@ def generate(root: Path) -> str:
     arabic_source = arabic_path.read_text(encoding="utf-8")
     joining_fallback_source = joining_fallback_path.read_text(encoding="utf-8")
     directional_source = directional_path.read_text(encoding="utf-8")
+    arabic_fallback_source = arabic_fallback_path.read_text(encoding="utf-8")
     line_break_source = line_break_path.read_text(encoding="utf-8")
     indic_shaping_source = indic_shaping_path.read_text(encoding="utf-8")
     use_shaping_source = use_shaping_path.read_text(encoding="utf-8")
@@ -194,6 +210,18 @@ def generate(root: Path) -> str:
     joining_fallback_ranges = parse_uint_span(joining_fallback_source, "s_ranges")
     mirror_pairs = parse_hex_uint_array(directional_source, "s_mirrorPairs")
     vertical_pairs = parse_hex_uint_array(directional_source, "s_verticalPairs")
+    arabic_shaping_forms = parse_hex_uint_span(
+        arabic_fallback_source, "ShapingForms"
+    )
+    arabic_three_component_ligatures = parse_hex_uint_span(
+        arabic_fallback_source, "ThreeComponentLigatures"
+    )
+    arabic_two_component_ligatures = parse_hex_uint_span(
+        arabic_fallback_source, "TwoComponentLigatures"
+    )
+    arabic_mark_ligatures = parse_hex_uint_span(
+        arabic_fallback_source, "MarkLigatures"
+    )
     line_break_ranges = parse_uint_array(line_break_source, "s_ranges")
     line_break_quotation_categories = parse_uint_array(
         line_break_source, "s_quotationCategories"
@@ -213,7 +241,11 @@ def generate(root: Path) -> str:
         format_machine(name, source) for name, source in machine_sources.items()
     )
     if (len(script_ranges) % 3 != 0 or len(combining_ranges) % 3 != 0 or
-            len(mirror_pairs) % 2 != 0 or len(vertical_pairs) % 2 != 0):
+            len(mirror_pairs) % 2 != 0 or len(vertical_pairs) % 2 != 0 or
+            len(arabic_shaping_forms) != (0x06D3 - 0x0621 + 1) * 4 or
+            len(arabic_three_component_ligatures) % 4 != 0 or
+            len(arabic_two_component_ligatures) % 3 != 0 or
+            len(arabic_mark_ligatures) % 3 != 0):
         raise RuntimeError("Managed Unicode range tables are malformed")
     highest_script_index = max(script_ranges[2::3], default=0)
     if highest_script_index >= len(scripts):
@@ -227,7 +259,8 @@ def generate(root: Path) -> str:
 // IndicShapingData.Generated.cs, UseShapingData.Generated.cs, the four
 // ProGPU syllable-machine generated sources,
 // ArabicJoiningData.Generated.cs, UnicodeJoiningFallbackData.Generated.cs,
-// UnicodeDirectionalData.Generated.cs, and Bidi/UnicodeBidiData.Generated.cs.
+// UnicodeDirectionalData.Generated.cs, ArabicFallbackData.Generated.cs, and
+// Bidi/UnicodeBidiData.Generated.cs.
 // Regenerate with: ./eng/generate-native-unicode-tables.py --write
 
 #ifndef PROGPU_NATIVE_UNICODE_DATA_GENERATED_HPP
@@ -284,6 +317,22 @@ inline constexpr std::array<std::uint32_t, {len(mirror_pairs)}> unicode_mirror_p
 
 inline constexpr std::array<std::uint32_t, {len(vertical_pairs)}> unicode_vertical_pairs{{
 {format_values(vertical_pairs)}
+}};
+
+inline constexpr std::array<std::uint16_t, {len(arabic_shaping_forms)}> arabic_fallback_shaping_forms{{
+{format_values(arabic_shaping_forms)}
+}};
+
+inline constexpr std::array<std::uint16_t, {len(arabic_three_component_ligatures)}> arabic_fallback_three_component_ligatures{{
+{format_values(arabic_three_component_ligatures)}
+}};
+
+inline constexpr std::array<std::uint16_t, {len(arabic_two_component_ligatures)}> arabic_fallback_two_component_ligatures{{
+{format_values(arabic_two_component_ligatures)}
+}};
+
+inline constexpr std::array<std::uint16_t, {len(arabic_mark_ligatures)}> arabic_fallback_mark_ligatures{{
+{format_values(arabic_mark_ligatures)}
 }};
 
 inline constexpr std::array<std::uint32_t, {len(line_break_ranges)}> unicode_line_break_ranges{{

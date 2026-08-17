@@ -411,6 +411,14 @@ inside reserved transient flag bits, drive feature-specific GSUB lookups at the
 matching glyph positions, and are removed before the 32-byte public glyph
 records return. Exact-feature lookup selection excludes required features so a
 staged form pass cannot accidentally replay required substitutions.
+The same generated-data gate now carries ProGPU's Arabic presentation forms
+and required fallback ligatures. When the selected script has no Arabic-form
+lookup, native shaping applies enabled `init`/`medi`/`fina`/`isol` forms only
+when the font contains them, then performs enabled `rlig` fallback with bounded
+three-component scratch and mark skipping. When any form lookup is present the
+fallback remains wholly disabled, matching the managed shaping-plan contract;
+all form tags are excluded from generic replay and execute only at their
+joining-action positions.
 
 Hangul shaping ports ProGPU's modern-Jamo composition, precomposed-syllable
 plus trailing-Jamo composition, and missing-syllable decomposition. Uncomposed
@@ -454,6 +462,13 @@ and preflights expansion before mutation. Ordinary work is `O(G)`; stable
 combining-mark insertion is `O(M^2)` only for an adversarial reverse-ordered
 mark run of length `M`. Script options and the 32-byte bulk glyph ABI are shared
 by the standalone stage and the uniform-run orchestrator.
+Generated Unicode 17 directional pairs also drive the managed-equivalent
+pre-GSUB fallback: backward runs mirror supported code points, and vertical
+runs without a selected `vert`/`vrt2` lookup use supported vertical forms.
+Special Unicode spaces missing from cmap borrow the ordinary-space glyph while
+retaining their original code point, then receive exact em-fraction,
+figure/punctuation, narrow, or vertical metrics. Both stages are allocation-free
+and remain inactive when the font does not contain the required fallback glyph.
 
 Native fallback accepts a bulk span of borrowed, already-parsed SFNT faces from
 the platform provider boundary. It preserves extended graphemes, tries the
