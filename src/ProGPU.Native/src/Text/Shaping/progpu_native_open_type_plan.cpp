@@ -95,6 +95,25 @@ bool try_get_selection_capacity(
     return true;
 }
 
+bool try_build_accelerators(
+    const open_type_layout_table_view& layout,
+    std::span<const std::uint16_t> lookups,
+    std::uint16_t extension_lookup_type,
+    std::span<open_type_lookup_accelerator> storage,
+    font_error* error) noexcept {
+    for (std::size_t index = 0U; index < lookups.size(); ++index) {
+        if (!layout.try_get_lookup_digest(
+                lookups[index],
+                extension_lookup_type,
+                storage[index].digest,
+                storage[index].has_digest,
+                error)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 bool open_type_shape_plan::matches(
@@ -127,15 +146,22 @@ bool try_get_open_type_shape_plan_requirements(
         result = {};
         return false;
     }
+    result.gsub_accelerator_capacity = result.gsub_lookup_capacity;
+    result.gpos_accelerator_capacity = result.gpos_lookup_capacity;
     set_error(error, font_error::none);
     return true;
 }
 
-bool try_build_open_type_shape_plan(
+namespace {
+
+bool try_build_shape_plan(
     const sfnt_font_view& font,
     const open_type_shape_run_options& options,
     std::span<std::uint16_t> gsub_lookup_storage,
     std::span<std::uint16_t> gpos_lookup_storage,
+    std::span<open_type_lookup_accelerator> gsub_accelerator_storage,
+    std::span<open_type_lookup_accelerator> gpos_accelerator_storage,
+    bool build_accelerators,
     open_type_shape_plan& result,
     font_error* error) noexcept {
     result = {};
@@ -145,7 +171,12 @@ bool try_build_open_type_shape_plan(
         return false;
     }
     if (gsub_lookup_storage.size() < requirements.gsub_lookup_capacity ||
-        gpos_lookup_storage.size() < requirements.gpos_lookup_capacity) {
+        gpos_lookup_storage.size() < requirements.gpos_lookup_capacity ||
+        (build_accelerators &&
+            (gsub_accelerator_storage.size() <
+                    requirements.gsub_accelerator_capacity ||
+                gpos_accelerator_storage.size() <
+                    requirements.gpos_accelerator_capacity))) {
         set_error(error, font_error::insufficient_buffer);
         return false;
     }
@@ -180,6 +211,21 @@ bool try_build_open_type_shape_plan(
                 error))) {
         return false;
     }
+    const auto gsub_lookups = gsub_lookup_storage.first(gsub_count);
+    const auto gpos_lookups = gpos_lookup_storage.first(gpos_count);
+    auto gsub_accelerators = build_accelerators
+        ? gsub_accelerator_storage.first(gsub_count)
+        : std::span<open_type_lookup_accelerator>{};
+    auto gpos_accelerators = build_accelerators
+        ? gpos_accelerator_storage.first(gpos_count)
+        : std::span<open_type_lookup_accelerator>{};
+    if (build_accelerators &&
+        (!try_build_accelerators(
+                gsub, gsub_lookups, 7U, gsub_accelerators, error) ||
+            !try_build_accelerators(
+                gpos, gpos_lookups, 9U, gpos_accelerators, error))) {
+        return false;
+    }
 
     open_type_gdef_view gdef{};
     bool has_gdef = false;
@@ -199,8 +245,10 @@ bool try_build_open_type_shape_plan(
         gsub,
         gpos,
         gdef,
-        gsub_lookup_storage.first(gsub_count),
-        gpos_lookup_storage.first(gpos_count),
+        gsub_lookups,
+        gpos_lookups,
+        gsub_accelerators,
+        gpos_accelerators,
         bytes.data(),
         bytes.size(),
         hash_features(options.requested_features),
@@ -211,6 +259,48 @@ bool try_build_open_type_shape_plan(
         has_gdef};
     set_error(error, font_error::none);
     return true;
+}
+
+} // namespace
+
+bool try_build_open_type_shape_plan(
+    const sfnt_font_view& font,
+    const open_type_shape_run_options& options,
+    std::span<std::uint16_t> gsub_lookup_storage,
+    std::span<std::uint16_t> gpos_lookup_storage,
+    std::span<open_type_lookup_accelerator> gsub_accelerator_storage,
+    std::span<open_type_lookup_accelerator> gpos_accelerator_storage,
+    open_type_shape_plan& result,
+    font_error* error) noexcept {
+    return try_build_shape_plan(
+        font,
+        options,
+        gsub_lookup_storage,
+        gpos_lookup_storage,
+        gsub_accelerator_storage,
+        gpos_accelerator_storage,
+        true,
+        result,
+        error);
+}
+
+bool try_build_open_type_shape_plan(
+    const sfnt_font_view& font,
+    const open_type_shape_run_options& options,
+    std::span<std::uint16_t> gsub_lookup_storage,
+    std::span<std::uint16_t> gpos_lookup_storage,
+    open_type_shape_plan& result,
+    font_error* error) noexcept {
+    return try_build_shape_plan(
+        font,
+        options,
+        gsub_lookup_storage,
+        gpos_lookup_storage,
+        {},
+        {},
+        false,
+        result,
+        error);
 }
 
 } // namespace progpu::native::text

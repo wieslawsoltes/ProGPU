@@ -1093,6 +1093,27 @@ bool verify_open_type_shape_result(
     return true;
 }
 
+open_type_glyph_set_digest create_glyph_digest(
+    std::span<const shaping_glyph> glyphs) noexcept {
+    open_type_glyph_set_digest result{};
+    for (const auto& glyph : glyphs) {
+        if (glyph.glyph_id <= 0xFFFFU) {
+            result.add(static_cast<std::uint16_t>(glyph.glyph_id));
+        }
+    }
+    return result;
+}
+
+void add_glyphs_to_digest(
+    open_type_glyph_set_digest& digest,
+    std::span<const shaping_glyph> glyphs) noexcept {
+    for (const auto& glyph : glyphs) {
+        if (glyph.glyph_id <= 0xFFFFU) {
+            digest.add(static_cast<std::uint16_t>(glyph.glyph_id));
+        }
+    }
+}
+
 } // namespace
 
 bool try_verify_open_type_shape_result(
@@ -1776,7 +1797,19 @@ bool try_shape_open_type_run(
                 }
                 selected_lookups = scratch.gsub_lookups.first(lookup_count);
             }
+            const bool has_accelerators = plan != nullptr &&
+                excluded_gsub.empty() &&
+                plan->gsub_accelerators.size() == selected_lookups.size();
+            auto buffer_digest = has_accelerators
+                ? create_glyph_digest(glyph_storage.first(glyph_count))
+                : open_type_glyph_set_digest{};
             for (std::uint32_t index = 0U; index < lookup_count; ++index) {
+                if (has_accelerators &&
+                    plan->gsub_accelerators[index].has_digest &&
+                    !plan->gsub_accelerators[index].digest.may_intersect(
+                        buffer_digest)) {
+                    continue;
+                }
                 if (!apply_gsub_lookup_with_feature_values(
                         gsub,
                         options,
@@ -1787,6 +1820,11 @@ bool try_shape_open_type_run(
                         error,
                         &random_alternate_state)) {
                     return false;
+                }
+                if (has_accelerators) {
+                    add_glyphs_to_digest(
+                        buffer_digest,
+                        glyph_storage.first(glyph_count));
                 }
             }
             if (!apply_fraction_features(
@@ -2055,6 +2093,12 @@ bool try_shape_open_type_run(
             attachments,
             &font,
             options.normalized_coordinates};
+        const bool has_accelerators = plan != nullptr &&
+            excluded_fraction.empty() &&
+            plan->gpos_accelerators.size() == selected_lookups.size();
+        const auto buffer_digest = has_accelerators
+            ? create_glyph_digest(glyphs)
+            : open_type_glyph_set_digest{};
         for (std::uint32_t index = 0U; index < lookup_count; ++index) {
             lookup_feature_resolution resolution{};
             if (!try_resolve_lookup_feature(
@@ -2068,6 +2112,12 @@ bool try_shape_open_type_run(
             has_gpos_kerning |= (resolution.required || resolution.found) &&
                 (resolution.feature == kern_feature ||
                     resolution.feature == distance_feature);
+            if (has_accelerators &&
+                plan->gpos_accelerators[index].has_digest &&
+                !plan->gpos_accelerators[index].digest.may_intersect(
+                    buffer_digest)) {
+                continue;
+            }
             if (!apply_gpos_lookup_with_feature_values(
                     gpos,
                     options,

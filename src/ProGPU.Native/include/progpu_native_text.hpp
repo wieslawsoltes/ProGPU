@@ -769,6 +769,20 @@ struct open_type_lookup_view final {
         font_error* error = nullptr) const noexcept;
 };
 
+/* Three-mask negative-only glyph-set accelerator matching the managed
+ * OpenType shaper. Positive results require exact coverage evaluation; a
+ * negative result proves a glyph or glyph set cannot intersect. */
+struct open_type_glyph_set_digest final {
+    std::uint64_t shift4 = 0U;
+    std::uint64_t shift0 = 0U;
+    std::uint64_t shift6 = 0U;
+
+    void add(std::uint16_t glyph) noexcept;
+    void add_range(std::uint16_t first, std::uint16_t last) noexcept;
+    bool may_have(std::uint16_t glyph) const noexcept;
+    bool may_intersect(const open_type_glyph_set_digest& other) const noexcept;
+};
+
 /*
  * Borrowed common GSUB/GPOS table header and LookupList. Creation validates
  * the version and top-level offset arrays. Individual Lookup records are
@@ -788,6 +802,13 @@ public:
     bool try_get_lookup(
         std::uint16_t index,
         open_type_lookup_view& result,
+        font_error* error = nullptr) const noexcept;
+
+    bool try_get_lookup_digest(
+        std::uint16_t index,
+        std::uint16_t extension_lookup_type,
+        open_type_glyph_set_digest& result,
+        bool& has_digest,
         font_error* error = nullptr) const noexcept;
 
     struct lookup_selection_requirements final {
@@ -1354,6 +1375,13 @@ struct open_type_shape_run_requirements final {
 struct open_type_shape_plan_requirements final {
     std::uint32_t gsub_lookup_capacity = 0U;
     std::uint32_t gpos_lookup_capacity = 0U;
+    std::uint32_t gsub_accelerator_capacity = 0U;
+    std::uint32_t gpos_accelerator_capacity = 0U;
+};
+
+struct open_type_lookup_accelerator final {
+    open_type_glyph_set_digest digest{};
+    bool has_digest = false;
 };
 
 /* Borrowed reusable shaping plan. The font bytes and caller-owned lookup
@@ -1364,6 +1392,8 @@ struct open_type_shape_plan final {
     open_type_gdef_view gdef{};
     std::span<const std::uint16_t> gsub_lookups{};
     std::span<const std::uint16_t> gpos_lookups{};
+    std::span<const open_type_lookup_accelerator> gsub_accelerators{};
+    std::span<const open_type_lookup_accelerator> gpos_accelerators{};
     const std::byte* font_data = nullptr;
     std::size_t font_size = 0U;
     std::uint64_t feature_hash = 0U;
@@ -1384,6 +1414,19 @@ bool try_get_open_type_shape_plan_requirements(
     open_type_shape_plan_requirements& result,
     font_error* error = nullptr) noexcept;
 
+bool try_build_open_type_shape_plan(
+    const sfnt_font_view& font,
+    const open_type_shape_run_options& options,
+    std::span<std::uint16_t> gsub_lookup_storage,
+    std::span<std::uint16_t> gpos_lookup_storage,
+    std::span<open_type_lookup_accelerator> gsub_accelerator_storage,
+    std::span<open_type_lookup_accelerator> gpos_accelerator_storage,
+    open_type_shape_plan& result,
+    font_error* error = nullptr) noexcept;
+
+/* Compatibility overload builds the same reusable selection without optional
+ * lookup digests. Exact shaping behavior is identical; only negative lookup
+ * rejection is unavailable. */
 bool try_build_open_type_shape_plan(
     const sfnt_font_view& font,
     const open_type_shape_run_options& options,

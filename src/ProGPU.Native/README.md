@@ -412,7 +412,12 @@ script-specific joining/reordering, and paragraph layout remain independent
 stages so reusable shaping results do not inherit UI or renderer ownership.
 
 Reusable native shaping plans now borrow validated GSUB, GPOS, and GDEF views
-plus caller-owned selected-lookup arrays. A plan is keyed by the exact font
+plus caller-owned selected-lookup and optional lookup-accelerator arrays. Each
+accelerator directly ports the managed three-mask glyph-set digest: a negative
+intersection skips a GSUB/GPOS lookup, while every positive result still uses
+the exact coverage parser. GSUB adds newly produced glyph IDs to the run digest
+after each applied lookup, preserving later-lookup dependencies without a
+rescan allocation. A plan is keyed by the exact font
 buffer/face, script, language, ordered requested-feature hash, and ordered
 normalized variation-coordinate hash; incompatible reuse fails before glyph
 output is touched. OpenType 1.1 FeatureVariations condition sets select the
@@ -421,6 +426,7 @@ lookups, using inclusive F2Dot14 axis ranges and caller-borrowed coordinates.
 Plan creation is `O(T + V + F + L)`
 for table validation, selected features, and lookups, while a compatible run
 reuses the parsed views and selected lookup order with `O(1)` plan validation,
+an `O(G)` run-digest build, `O(1)` negative rejection per accelerated lookup,
 no allocation, and no font-table, feature-list, or coordinate copy. Here `V`
 is the bounded FeatureVariations condition/substitution scan.
 

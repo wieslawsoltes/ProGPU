@@ -1316,6 +1316,24 @@ foreign implementation reuse. Matched managed/native fixtures cover universal
 selection and the native borrowed parser additionally covers unsupported-first
 fall-through.
 
+Reusable native GSUB/GPOS lookup acceleration directly ports ProGPU-owned
+`OpenTypeTextShaper.GlyphSetDigest`, `TryCreateRawLookupDigest`,
+`CreateGlyphDigest`, and `AddGlyphs` from checkpoint `e7374eb1`. The native
+layout view builds the same three 64-bit approximate masks from Coverage format
+1 glyphs and format 2 ranges, including Extension lookup indirection. Shape
+plans retain one caller-owned digest record per selected lookup. A planned run
+builds one `O(G)` digest for `G` current glyphs, rejects a disjoint lookup in
+fixed `O(1)` time, and after each executed GSUB lookup adds the current glyph
+IDs so later dependent lookups cannot be falsely rejected. Positives and
+unaccelerated/malformed metadata always fall through to the exact bounded
+executor, so the optimization cannot change shaping output. Storage is
+`O(L)` caller-owned records for `L` selected lookups and `O(1)` internal state;
+there is no per-run allocation, parser graph, or managed/native crossing.
+Direct fixtures cover format-1 digest construction, intended hash false
+positives, exact negative rejection, range endpoints, invalid lookup
+transactionality, optional-plan compatibility, production-font stable replay,
+the C++20 named-module consumer, and ASan/UBSan execution.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

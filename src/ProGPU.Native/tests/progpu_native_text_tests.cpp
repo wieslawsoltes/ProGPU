@@ -80,6 +80,8 @@ using progpu::native::text::open_type_coverage_view;
 using progpu::native::text::open_type_class_definition_view;
 using progpu::native::text::open_type_lookup_view;
 using progpu::native::text::open_type_layout_table_view;
+using progpu::native::text::open_type_glyph_set_digest;
+using progpu::native::text::open_type_lookup_accelerator;
 using progpu::native::text::open_type_glyph_class;
 using progpu::native::text::open_type_gdef_view;
 using progpu::native::text::is_open_type_gdef_blocklisted;
@@ -1721,6 +1723,53 @@ void open_type_script_language_feature_selection_is_bounded() {
         requirements,
         &error));
     require(requirements.lookup_capacity == 0U);
+}
+
+void open_type_lookup_digest_matches_managed_negative_filter() {
+    std::array<std::byte, 40U> layout{};
+    write_u16(layout, 0U, 1U);
+    write_u16(layout, 4U, 10U);
+    write_u16(layout, 6U, 12U);
+    write_u16(layout, 8U, 14U);
+    write_u16(layout, 14U, 1U);
+    write_u16(layout, 16U, 4U);
+    write_u16(layout, 18U, 1U);
+    write_u16(layout, 22U, 1U);
+    write_u16(layout, 24U, 8U);
+    write_u16(layout, 26U, 1U);
+    write_u16(layout, 28U, 6U);
+    write_u16(layout, 32U, 1U);
+    write_u16(layout, 34U, 2U);
+    write_u16(layout, 36U, 5U);
+    write_u16(layout, 38U, 70U);
+
+    open_type_layout_table_view table{};
+    font_error error = font_error::invalid_argument;
+    require(open_type_layout_table_view::try_create(layout, table, &error));
+    open_type_glyph_set_digest digest{};
+    bool has_digest = false;
+    require(table.try_get_lookup_digest(
+        0U, 7U, digest, has_digest, &error));
+    require(error == font_error::none && has_digest && digest.may_have(5U) &&
+        digest.may_have(70U) && !digest.may_have(7U));
+
+    open_type_glyph_set_digest overlapping{};
+    overlapping.add(70U);
+    open_type_glyph_set_digest disjoint{};
+    disjoint.add(7U);
+    require(digest.may_intersect(overlapping) &&
+        !digest.may_intersect(disjoint));
+    open_type_glyph_set_digest range{};
+    range.add_range(100U, 140U);
+    require(range.may_have(100U) && range.may_have(140U));
+    range.add_range(140U, 100U);
+
+    digest = {};
+    has_digest = true;
+    require(!table.try_get_lookup_digest(
+        1U, 7U, digest, has_digest, &error));
+    require(error == font_error::invalid_argument && !has_digest &&
+        digest.shift0 == 0U && digest.shift4 == 0U && digest.shift6 == 0U);
 }
 
 void open_type_feature_variations_match_managed_lookup_selection() {
@@ -10807,10 +10856,16 @@ void production_inter_shaping_is_stable_and_reusable() {
     require(try_get_open_type_shape_plan_requirements(
         font, options, plan_requirements, &error));
     require(plan_requirements.gsub_lookup_capacity <= 128U &&
-        plan_requirements.gpos_lookup_capacity <= 128U);
+        plan_requirements.gpos_lookup_capacity <= 128U &&
+        plan_requirements.gsub_accelerator_capacity ==
+            plan_requirements.gsub_lookup_capacity &&
+        plan_requirements.gpos_accelerator_capacity ==
+            plan_requirements.gpos_lookup_capacity);
 
     std::array<std::uint16_t, 128U> plan_gsub{};
     std::array<std::uint16_t, 128U> plan_gpos{};
+    std::array<open_type_lookup_accelerator, 128U> plan_gsub_accelerators{};
+    std::array<open_type_lookup_accelerator, 128U> plan_gpos_accelerators{};
     open_type_shape_plan plan{};
     require(try_build_open_type_shape_plan(
         font,
@@ -10819,8 +10874,14 @@ void production_inter_shaping_is_stable_and_reusable() {
             plan_requirements.gsub_lookup_capacity),
         std::span<std::uint16_t>(plan_gpos).first(
             plan_requirements.gpos_lookup_capacity),
+        std::span<open_type_lookup_accelerator>(plan_gsub_accelerators).first(
+            plan_requirements.gsub_accelerator_capacity),
+        std::span<open_type_lookup_accelerator>(plan_gpos_accelerators).first(
+            plan_requirements.gpos_accelerator_capacity),
         plan,
         &error));
+    require(plan.gsub_accelerators.size() == plan.gsub_lookups.size() &&
+        plan.gpos_accelerators.size() == plan.gpos_lookups.size());
 
     std::array<shaping_glyph, 64U> glyphs{};
     std::array<unicode_grapheme_cluster, 16U> graphemes{};
@@ -11032,6 +11093,7 @@ int main() {
     open_type_gsub_context_glyph_and_class_rules_are_bounded();
     open_type_gsub_chaining_glyph_rules_apply_nested_lookup();
     open_type_script_language_feature_selection_is_bounded();
+    open_type_lookup_digest_matches_managed_negative_filter();
     open_type_feature_variations_match_managed_lookup_selection();
     open_type_gpos_single_and_pair_adjustments_are_bounded();
     open_type_gpos_attachments_are_caller_owned_and_resolved();
