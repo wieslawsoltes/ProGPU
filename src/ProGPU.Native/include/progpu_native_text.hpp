@@ -1638,6 +1638,15 @@ bool try_reorder_text_line_visual(
     std::uint32_t& written,
     font_error* error = nullptr) noexcept;
 
+bool try_get_text_line_visual_indices(
+    std::span<const shaping_glyph> logical_glyphs,
+    std::span<const std::int8_t> bidi_levels,
+    std::int8_t paragraph_level,
+    std::span<text_visual_cluster_group> group_scratch,
+    std::span<std::uint32_t> visual_indices,
+    std::uint32_t& written,
+    font_error* error = nullptr) noexcept;
+
 bool try_get_text_layout_requirements(
     std::span<const shaping_glyph> glyphs,
     std::span<const text_line_break_kind> breaks_after,
@@ -1652,6 +1661,26 @@ bool try_layout_shaped_text(
     std::span<const shaping_glyph> glyphs,
     std::span<const text_line_break_kind> breaks_after,
     const text_layout_options& options,
+    std::span<positioned_text_glyph> positioned_glyphs,
+    std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count,
+    std::uint32_t& line_count,
+    font_error* error = nullptr) noexcept;
+
+struct text_logical_layout_scratch final {
+    std::span<text_visual_cluster_group> visual_groups{};
+    std::span<std::uint32_t> visual_indices{};
+};
+
+/* Wraps logical shaped glyphs, applies per-line UAX #9 L1/L2 ordering, and
+ * publishes positioned glyphs with their original logical input indices. */
+bool try_layout_logical_shaped_text(
+    std::span<const shaping_glyph> logical_glyphs,
+    std::span<const text_line_break_kind> breaks_after,
+    std::span<const std::int8_t> bidi_levels,
+    std::int8_t paragraph_level,
+    const text_layout_options& options,
+    text_logical_layout_scratch scratch,
     std::span<positioned_text_glyph> positioned_glyphs,
     std::span<positioned_text_line> lines,
     std::uint32_t& glyph_count,

@@ -313,4 +313,156 @@ bool try_layout_shaped_text(
     return true;
 }
 
+bool try_layout_logical_shaped_text(
+    std::span<const shaping_glyph> logical_glyphs,
+    std::span<const text_line_break_kind> breaks_after,
+    std::span<const std::int8_t> bidi_levels,
+    std::int8_t paragraph_level,
+    const text_layout_options& options,
+    text_logical_layout_scratch scratch,
+    std::span<positioned_text_glyph> positioned_glyphs,
+    std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count,
+    std::uint32_t& line_count,
+    font_error* error) noexcept {
+    glyph_count = 0U;
+    line_count = 0U;
+    text_layout_requirements requirements{};
+    if (!try_get_text_layout_requirements(
+            logical_glyphs,
+            breaks_after,
+            options,
+            requirements,
+            error) ||
+        bidi_levels.size() != logical_glyphs.size() ||
+        (paragraph_level != 0 && paragraph_level != 1) ||
+        !std::all_of(
+            bidi_levels.begin(),
+            bidi_levels.end(),
+            [](std::int8_t level) { return level >= 0 && level <= 125; })) {
+        if (bidi_levels.size() != logical_glyphs.size() ||
+            (paragraph_level != 0 && paragraph_level != 1) ||
+            !std::all_of(
+                bidi_levels.begin(),
+                bidi_levels.end(),
+                [](std::int8_t level) {
+                    return level >= 0 && level <= 125;
+                })) {
+            set_error(error, font_error::invalid_argument);
+        }
+        return false;
+    }
+    if (scratch.visual_groups.size() < requirements.glyph_capacity ||
+        scratch.visual_indices.size() < requirements.glyph_capacity ||
+        positioned_glyphs.size() < requirements.glyph_capacity ||
+        lines.size() < requirements.line_capacity) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
+    }
+
+    std::size_t input_start_index = 0U;
+    std::size_t output_cursor = 0U;
+    while (input_start_index < logical_glyphs.size() &&
+        line_count < requirements.line_capacity) {
+        const bool final_allowed = options.maximum_lines != 0U &&
+            line_count + 1U >= options.maximum_lines;
+        const line_scan line = scan_line(
+            logical_glyphs,
+            breaks_after,
+            options,
+            input_start_index,
+            final_allowed);
+        const bool should_trim = options.trimming != text_trimming::none &&
+            (line.clipped ||
+                (final_allowed && line.end < logical_glyphs.size()));
+        const trimmed_line visible = should_trim
+            ? trim_line(
+                logical_glyphs,
+                breaks_after,
+                options,
+                input_start_index,
+                line.end,
+                line.width)
+            : trimmed_line{line.end, line.width};
+
+        const auto line_logical = logical_glyphs.subspan(
+            input_start_index, visible.end - input_start_index);
+        const auto line_levels = bidi_levels.subspan(
+            input_start_index, visible.end - input_start_index);
+        std::uint32_t visual_count = 0U;
+        if (!try_get_text_line_visual_indices(
+                line_logical,
+                line_levels,
+                paragraph_level,
+                scratch.visual_groups,
+                scratch.visual_indices,
+                visual_count,
+                error)) {
+            glyph_count = 0U;
+            line_count = 0U;
+            return false;
+        }
+
+        const std::size_t output_start = output_cursor;
+        const float baseline = static_cast<float>(line_count) *
+            options.line_height;
+        float cursor_x = 0.0F;
+        float cursor_y = baseline;
+        for (std::uint32_t visual_index = 0U;
+            visual_index < visual_count;
+            ++visual_index) {
+            const std::size_t source_index = input_start_index +
+                scratch.visual_indices[visual_index];
+            const shaping_glyph& glyph = logical_glyphs[source_index];
+            positioned_glyphs[output_cursor++] = positioned_text_glyph{
+                static_cast<std::uint32_t>(source_index),
+                glyph.glyph_id,
+                glyph.cluster,
+                cursor_x + static_cast<float>(glyph.offset_x) * options.scale,
+                cursor_y + static_cast<float>(glyph.offset_y) * options.scale,
+                static_cast<float>(glyph.advance_x) * options.scale,
+                static_cast<float>(glyph.advance_y) * options.scale};
+            cursor_x += static_cast<float>(glyph.advance_x) * options.scale;
+            cursor_y += static_cast<float>(glyph.advance_y) * options.scale;
+        }
+        if (should_trim) {
+            const std::int32_t cluster = visible.end > input_start_index
+                ? logical_glyphs[visible.end - 1U].cluster
+                : logical_glyphs[input_start_index].cluster;
+            positioned_glyphs[output_cursor++] = positioned_text_glyph{
+                std::numeric_limits<std::uint32_t>::max(),
+                options.ellipsis_glyph_id,
+                cluster,
+                cursor_x,
+                cursor_y,
+                options.ellipsis_advance * options.scale,
+                0.0F};
+        }
+
+        const std::int32_t input_start =
+            logical_glyphs[input_start_index].cluster;
+        const std::int32_t input_end = visible.end < logical_glyphs.size()
+            ? logical_glyphs[visible.end].cluster
+            : logical_glyphs[visible.end - 1U].cluster + 1;
+        lines[line_count] = positioned_text_line{
+            static_cast<std::uint32_t>(output_start),
+            static_cast<std::uint32_t>(output_cursor - output_start),
+            input_start,
+            input_end,
+            visible.content_width + (should_trim
+                ? options.ellipsis_advance * options.scale
+                : 0.0F),
+            baseline,
+            options.line_height,
+            line.clipped ||
+                (final_allowed && line.end < logical_glyphs.size())};
+        ++line_count;
+        input_start_index = line.end;
+        if (final_allowed) break;
+    }
+    glyph_count = static_cast<std::uint32_t>(output_cursor);
+    set_error(error, font_error::none);
+    return true;
+}
+
 } // namespace progpu::native::text

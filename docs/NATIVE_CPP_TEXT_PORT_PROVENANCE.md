@@ -1127,6 +1127,17 @@ caller scratch and no allocation. Tests cover mixed LTR/RTL groups, a
 multi-glyph cluster, trailing whitespace reset, even-level identity, invalid
 levels, and transactional short scratch.
 
+Logical shaped-line assembly directly ports the applicable ProGPU-owned
+`TextLayout.GenerateShapedLayout` wrap-to-visual-positioning boundary from
+checkpoint `052b9689` and composes it with the native line-break and visual-
+order stages. One bulk call scans logical lines, applies L1/L2 to each visible
+line, positions glyphs in physical order, and preserves the original logical
+glyph index in every output record. Work is `O(G + B * C)` for `G` glyphs,
+`C` cluster groups, and at most 126 embedding levels `B`; storage is `O(G)`
+caller-owned reusable scratch and `O(1)` internal state. Differential fixtures
+cover mixed LTR/RTL clusters, combining-mark cluster integrity, trailing-space
+reset, exact positions and source indices, and transactional short scratch.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

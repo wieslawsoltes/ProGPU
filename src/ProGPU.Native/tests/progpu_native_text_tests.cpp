@@ -164,6 +164,9 @@ using progpu::native::text::text_visual_cluster_group;
 using progpu::native::text::text_visual_order_requirements;
 using progpu::native::text::try_get_text_visual_order_requirements;
 using progpu::native::text::try_reorder_text_line_visual;
+using progpu::native::text::try_get_text_line_visual_indices;
+using progpu::native::text::text_logical_layout_scratch;
+using progpu::native::text::try_layout_logical_shaped_text;
 using progpu::native::text::text_cluster_box;
 using progpu::native::text::text_caret_stop;
 using progpu::native::text::text_rectangle;
@@ -5845,6 +5848,12 @@ void native_text_visual_order_matches_managed_cluster_policy() {
         visual[3U].glyph_id == 11U &&
         visual[4U].glyph_id == 30U);
 
+    std::array<std::uint32_t, 5U> visual_indices{};
+    require(try_get_text_line_visual_indices(
+        logical, levels, 0, groups, visual_indices, written, &error));
+    require(written == visual_indices.size() &&
+        visual_indices == std::array<std::uint32_t, 5U>{0U, 3U, 1U, 2U, 4U});
+
     constexpr std::array<std::int8_t, 5U> even_levels{0, 2, 2, 2, 0};
     require(try_reorder_text_line_visual(
         logical, even_levels, 0, groups, visual, written, &error));
@@ -5872,6 +5881,80 @@ void native_text_visual_order_matches_managed_cluster_policy() {
         logical, invalid_levels, requirements, &error));
     require(error == font_error::invalid_argument &&
         requirements.glyph_capacity == 0U);
+}
+
+void native_logical_text_layout_reorders_bidi_per_line() {
+    const std::array<shaping_glyph, 5U> logical{
+        shaping_glyph{1U, 0x41U, 0, shaping_glyph_flags::none, 10},
+        shaping_glyph{10U, 0x05D0U, 1, shaping_glyph_flags::none, 10},
+        shaping_glyph{11U, 0x05B0U, 1, shaping_glyph_flags::none, 0},
+        shaping_glyph{20U, 0x05D1U, 2, shaping_glyph_flags::none, 10},
+        shaping_glyph{30U, 0x20U, 3, shaping_glyph_flags::none, 5}};
+    constexpr std::array<std::int8_t, 5U> levels{0, 1, 1, 1, 1};
+    constexpr std::array<text_line_break_kind, 5U> breaks{
+        text_line_break_kind::prohibited,
+        text_line_break_kind::prohibited,
+        text_line_break_kind::prohibited,
+        text_line_break_kind::prohibited,
+        text_line_break_kind::mandatory};
+    const text_layout_options options{
+        1.0F,
+        0.0F,
+        12.0F,
+        0U,
+        progpu::native::text::shaping_direction::left_to_right};
+
+    std::array<text_visual_cluster_group, 5U> groups{};
+    std::array<std::uint32_t, 5U> indices{};
+    std::array<positioned_text_glyph, 5U> positioned{};
+    std::array<positioned_text_line, 1U> lines{};
+    const text_logical_layout_scratch scratch{groups, indices};
+    std::uint32_t glyph_count = 0U;
+    std::uint32_t line_count = 0U;
+    font_error error = font_error::invalid_argument;
+    require(try_layout_logical_shaped_text(
+        logical,
+        breaks,
+        levels,
+        0,
+        options,
+        scratch,
+        positioned,
+        lines,
+        glyph_count,
+        line_count,
+        &error));
+    require(error == font_error::none && glyph_count == 5U && line_count == 1U);
+    require(positioned[0U].glyph_index == 0U &&
+        positioned[1U].glyph_index == 3U &&
+        positioned[2U].glyph_index == 1U &&
+        positioned[3U].glyph_index == 2U &&
+        positioned[4U].glyph_index == 4U);
+    require(positioned[0U].x == 0.0F && positioned[1U].x == 10.0F &&
+        positioned[2U].x == 20.0F && positioned[3U].x == 30.0F &&
+        positioned[4U].x == 30.0F);
+    require(lines[0U].glyph_start == 0U && lines[0U].glyph_count == 5U &&
+        lines[0U].input_start == 0 && lines[0U].input_end == 4 &&
+        lines[0U].width == 35.0F && !lines[0U].clipped);
+
+    indices.fill(99U);
+    glyph_count = 99U;
+    line_count = 99U;
+    require(!try_layout_logical_shaped_text(
+        logical,
+        breaks,
+        levels,
+        0,
+        options,
+        text_logical_layout_scratch{
+            groups, std::span<std::uint32_t>{indices}.first(4U)},
+        positioned,
+        lines,
+        glyph_count,
+        line_count,
+        &error));
+    require(error == font_error::insufficient_buffer && glyph_count == 0U &&
+        line_count == 0U && indices[0U] == 99U);
 }
 
 void unicode_line_breaks_feed_native_layout_without_allocation() {
@@ -9989,6 +10072,7 @@ int main() {
     native_font_provider_cache_is_borrowed_and_generation_safe();
     native_positioned_text_layout_wraps_without_allocation();
     native_text_visual_order_matches_managed_cluster_policy();
+    native_logical_text_layout_reorders_bidi_per_line();
     unicode_line_breaks_feed_native_layout_without_allocation();
     complex_script_properties_and_syllable_machines_are_bounded();
     woff1_normalization_is_bounded_and_transactional();

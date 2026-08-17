@@ -636,6 +636,15 @@ for UAX #9 L1, and applies the managed L2 reversal over caller-owned group
 scratch. The requirements pass reports exact glyph/group capacity and short or
 invalid buffers leave visual output untouched.
 
+Logical shaped layout also composes wrapping, per-line UAX #9 ordering, and
+positioning in one native bulk operation. It writes visual-order glyph records
+contiguously while retaining each record's original logical glyph index, so
+selection, hit testing, and retained-scene assembly do not need a second map or
+per-glyph managed/native call. The caller provides reusable group and index
+scratch bounded by the logical glyph count; execution is `O(G + B * C)` for
+`G` glyphs, `C` line-local cluster groups, and at most 126 embedding levels
+`B`, with no internal allocation.
+
 Character and word ellipsis use the same bounded layout pass. The caller
 supplies one already-shaped ellipsis glyph id and font-unit advance; layout
 removes only complete source clusters, uses resolved break boundaries for word

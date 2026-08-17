@@ -44,6 +44,8 @@ int main() {
     const progpu::native::text::font_provider_result provider_result{};
     const progpu::native::text::text_visual_order_requirements
         visual_order_requirements{};
+    const progpu::native::text::text_logical_layout_scratch
+        logical_layout_scratch{};
     const progpu::native::text::open_type_feature_tag_requirements
         feature_tag_requirements{};
     const progpu::native::text::sfnt_vertical_header_metrics vertical_header{};
@@ -93,6 +95,10 @@ int main() {
         &progpu::native::text::try_resolve_font_provider_fallback_face;
     const auto visual_order_resolver =
         &progpu::native::text::try_reorder_text_line_visual;
+    const auto visual_index_resolver =
+        &progpu::native::text::try_get_text_line_visual_indices;
+    const auto logical_layout_resolver =
+        &progpu::native::text::try_layout_logical_shaped_text;
     const auto default_feature_settings =
         progpu::native::text::get_default_open_type_feature_settings();
     static_assert(progpu::native::text::sfnt_name_ids::family_name == 1U);
@@ -147,6 +153,8 @@ int main() {
         style_variation.tag.value != 0U ||
         provider_result.glyph_index != 0U ||
         visual_order_requirements.group_capacity != 0U ||
+        !logical_layout_scratch.visual_groups.empty() ||
+        !logical_layout_scratch.visual_indices.empty() ||
         feature_tag_requirements.tag_capacity != 0U ||
         vertical_header.number_of_vertical_metrics != 0U ||
         vertical_glyph.advance_height != 0U || glyph_bounds.x_min != 0 ||
@@ -174,6 +182,8 @@ int main() {
         fallback_preference_writer == nullptr ||
         fallback_face_resolver == nullptr ||
         visual_order_resolver == nullptr ||
+        visual_index_resolver == nullptr ||
+        logical_layout_resolver == nullptr ||
         default_feature_settings.size() != 26U ||
         shaping_route_resolver == nullptr ||
         !shape_options.pre_context.empty() ||
