@@ -320,6 +320,36 @@ void unicode_contract_and_strict_decoders_are_transactional() {
         actions[0U] == open_type_arabic_action::initial &&
         actions[1U] == open_type_arabic_action::none &&
         actions[2U] == open_type_arabic_action::final);
+    constexpr std::array one_beh{unicode_scalar{0x0628U, 0U, 1U}};
+    constexpr std::array transparent_then_beh{
+        unicode_scalar{0x0628U, 0U, 1U},
+        unicode_scalar{0x064BU, 1U, 1U}};
+    std::array<open_type_arabic_action, 1U> boundary_action{};
+    require(try_assign_open_type_arabic_actions(
+        one_beh,
+        transparent_then_beh,
+        one_beh,
+        boundary_action,
+        action_count,
+        &unicode_result));
+    require(action_count == 1U &&
+        boundary_action[0U] == open_type_arabic_action::medial);
+    require(try_assign_open_type_arabic_actions(
+        one_beh,
+        {},
+        one_beh,
+        boundary_action,
+        action_count,
+        &unicode_result));
+    require(boundary_action[0U] == open_type_arabic_action::initial);
+    require(try_assign_open_type_arabic_actions(
+        one_beh,
+        one_beh,
+        {},
+        boundary_action,
+        action_count,
+        &unicode_result));
+    require(boundary_action[0U] == open_type_arabic_action::final);
     require(get_unicode_bidi_class(0x41U) ==
         unicode_bidi_class::left_to_right);
     require(get_unicode_bidi_class(0x05D0U) ==
@@ -3175,6 +3205,24 @@ void open_type_common_preprocessing_matches_managed_stages() {
         marks[1U].code_point == 0x0316U &&
         marks[2U].code_point == 0x0301U && marks[2U].cluster == 0);
 
+    marks = {
+        shaping_glyph{0U, 0x0301U, 0},
+        shaping_glyph{0U, 0x0316U, 1}};
+    count = 2U;
+    require(try_preprocess_open_type_glyphs(
+        font,
+        open_type_tag::from_chars('l', 'a', 't', 'n'),
+        shaping_cluster_level::monotone_characters,
+        shaping_buffer_flags::beginning_of_text,
+        true,
+        marks,
+        count,
+        &error,
+        nullptr,
+        true));
+    require(count == 2U && marks[0U].code_point == 0x0316U &&
+        marks[1U].code_point == 0x0301U);
+
     std::array<shaping_glyph, 4U> hebrew_glyphs{
         shaping_glyph{6U, 0x05E9U, 4},
         shaping_glyph{2U, 0x05BCU, 4}};
@@ -3546,6 +3594,20 @@ void arabic_fallback_forms_and_ligatures_match_managed() {
     require(glyph_count == 2U &&
         glyphs[0U].code_point == 0x0645U && glyphs[0U].glyph_id == 4U &&
         glyphs[1U].code_point == 0x0628U && glyphs[1U].glyph_id == 2U);
+
+    constexpr std::array one_beh{unicode_scalar{0x0628U, 0U, 1U}};
+    glyphs.fill({});
+    options.pre_context = one_beh;
+    require(try_shape_open_type_run(
+        font, one_beh, options, glyphs, scratch, glyph_count, &error));
+    require(glyph_count == 1U && glyphs[0U].glyph_id == 6U);
+    glyphs.fill({});
+    options.pre_context = {};
+    options.post_context = one_beh;
+    require(try_shape_open_type_run(
+        font, one_beh, options, glyphs, scratch, glyph_count, &error));
+    require(glyph_count == 1U && glyphs[0U].glyph_id == 2U);
+    options.post_context = {};
 
     glyphs.fill({});
     options.requested_features = ligature_features;

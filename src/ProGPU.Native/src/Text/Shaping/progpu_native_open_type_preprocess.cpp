@@ -380,7 +380,8 @@ bool try_preprocess_open_type_glyphs(
     std::span<shaping_glyph> glyph_storage,
     std::uint32_t& glyph_count,
     font_error* error,
-    const unicode_normalization_data* use_normalization_data) noexcept {
+    const unicode_normalization_data* use_normalization_data,
+    bool has_pre_context) noexcept {
     if (glyph_count > glyph_storage.size()) {
         set_error(error, font_error::invalid_argument);
         return false;
@@ -419,6 +420,7 @@ bool try_preprocess_open_type_glyphs(
     std::uint16_t dotted_circle = 0U;
     const bool insert_dotted_circle = glyph_count != 0U &&
         has_flag(buffer_flags, shaping_buffer_flags::beginning_of_text) &&
+        !has_pre_context &&
         !has_flag(
             buffer_flags,
             shaping_buffer_flags::do_not_insert_dotted_circle) &&

@@ -101,14 +101,40 @@ bool try_assign_open_type_arabic_actions(
     std::span<open_type_arabic_action> output,
     std::uint32_t& written,
     unicode_error* error) noexcept {
+    return try_assign_open_type_arabic_actions(
+        input, {}, {}, output, written, error);
+}
+
+bool try_assign_open_type_arabic_actions(
+    std::span<const unicode_scalar> input,
+    std::span<const unicode_scalar> pre_context,
+    std::span<const unicode_scalar> post_context,
+    std::span<open_type_arabic_action> output,
+    std::uint32_t& written,
+    unicode_error* error) noexcept {
     written = 0U;
     if (output.size() < input.size()) {
         set_error(error, unicode_error::insufficient_buffer);
         return false;
     }
+    const auto valid = [](const unicode_scalar& scalar) noexcept {
+        return scalar.code_point <= 0x10FFFFU &&
+            (scalar.code_point < 0xD800U || scalar.code_point > 0xDFFFU);
+    };
     for (const auto& scalar : input) {
-        if (scalar.code_point > 0x10FFFFU ||
-            (scalar.code_point >= 0xD800U && scalar.code_point <= 0xDFFFU)) {
+        if (!valid(scalar)) {
+            set_error(error, unicode_error::invalid_argument);
+            return false;
+        }
+    }
+    for (const auto& scalar : pre_context) {
+        if (!valid(scalar)) {
+            set_error(error, unicode_error::invalid_argument);
+            return false;
+        }
+    }
+    for (const auto& scalar : post_context) {
+        if (!valid(scalar)) {
             set_error(error, unicode_error::invalid_argument);
             return false;
         }
@@ -116,6 +142,16 @@ bool try_assign_open_type_arabic_actions(
     std::fill_n(output.begin(), input.size(), open_type_arabic_action::none);
     std::size_t previous = input.size();
     std::uint8_t state = 0U;
+    std::size_t inspected = 0U;
+    for (std::size_t index = pre_context.size();
+         index != 0U && inspected < 5U;
+         ++inspected) {
+        const auto joining = get_unicode_arabic_joining_type(
+            pre_context[--index].code_point);
+        if (joining == unicode_arabic_joining_type::transparent) continue;
+        state = arabic_state_table[static_cast<std::size_t>(joining)].next_state;
+        break;
+    }
     for (std::size_t index = 0U; index < input.size(); ++index) {
         const auto joining = get_unicode_arabic_joining_type(
             input[index].code_point);
@@ -132,6 +168,22 @@ bool try_assign_open_type_arabic_actions(
         output[index] = entry.current;
         previous = index;
         state = entry.next_state;
+    }
+    inspected = 0U;
+    for (std::size_t index = 0U;
+         index < post_context.size() && inspected < 5U;
+         ++index, ++inspected) {
+        const auto joining = get_unicode_arabic_joining_type(
+            post_context[index].code_point);
+        if (joining == unicode_arabic_joining_type::transparent) continue;
+        const arabic_state_entry entry = arabic_state_table[
+            static_cast<std::size_t>(state) * 6U +
+            static_cast<std::size_t>(joining)];
+        if (entry.previous != open_type_arabic_action::none &&
+            previous < input.size()) {
+            output[previous] = entry.previous;
+        }
+        break;
     }
     written = static_cast<std::uint32_t>(input.size());
     set_error(error, unicode_error::none);

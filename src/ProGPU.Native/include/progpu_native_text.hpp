@@ -493,6 +493,14 @@ bool try_assign_open_type_arabic_actions(
     std::uint32_t& written,
     unicode_error* error = nullptr) noexcept;
 
+bool try_assign_open_type_arabic_actions(
+    std::span<const unicode_scalar> input,
+    std::span<const unicode_scalar> pre_context,
+    std::span<const unicode_scalar> post_context,
+    std::span<open_type_arabic_action> output,
+    std::uint32_t& written,
+    unicode_error* error = nullptr) noexcept;
+
 struct arabic_stretch_run final {
     std::uint32_t start = 0U;
     std::uint32_t end = 0U;
@@ -1008,6 +1016,11 @@ struct open_type_shape_run_options final {
      * Required when complex_script is use; retained only for this synchronous
      * shaping call and never copied or owned by the shaping plan. */
     const unicode_normalization_data* normalization_data = nullptr;
+    /* Decoded neighboring text used only for boundary-sensitive shaping.
+     * At most five scalars on each side are inspected; spans are borrowed for
+     * this synchronous call and never retained by a shaping plan. */
+    std::span<const unicode_scalar> pre_context{};
+    std::span<const unicode_scalar> post_context{};
 };
 
 struct open_type_shape_run_scratch final {
@@ -1113,7 +1126,8 @@ bool try_preprocess_open_type_glyphs(
     std::span<shaping_glyph> glyph_storage,
     std::uint32_t& glyph_count,
     font_error* error = nullptr,
-    const unicode_normalization_data* use_normalization_data = nullptr) noexcept;
+    const unicode_normalization_data* use_normalization_data = nullptr,
+    bool has_pre_context = false) noexcept;
 
 struct font_fallback_candidate final {
     const sfnt_font_view* font = nullptr;

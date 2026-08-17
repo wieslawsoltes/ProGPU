@@ -1080,6 +1080,8 @@ bool try_shape_open_type_run(
         unicode_error action_error = unicode_error::none;
         if (!try_assign_open_type_arabic_actions(
                 input,
+                options.pre_context,
+                options.post_context,
                 scratch.arabic_actions.first(
                     requirements.script_action_capacity),
                 action_count,
@@ -1201,7 +1203,8 @@ bool try_shape_open_type_run(
             error,
             options.complex_script == open_type_complex_script::use
                 ? options.normalization_data
-                : nullptr)) {
+                : nullptr,
+            !options.pre_context.empty())) {
         glyph_count = 0U;
         return false;
     }

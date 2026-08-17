@@ -482,6 +482,12 @@ validated in a preflight and written backward in place, preserving the source
 cluster without allocating or crossing the managed/native boundary per glyph.
 Lookup plus expansion is `O(G log R + D)` for `G` input glyphs, `R`
 decomposition records, and `D` output components.
+Borrowed pre/post scalar context now preserves managed Arabic joining across
+uniform-run boundaries. The state machine inspects at most five neighboring
+scalars on each side, skips transparent marks, updates the first/last form
+actions without copying context, and prevents start-of-text dotted-circle
+insertion when prior context is present. The boundary work is fixed `O(1)` in
+addition to the existing `O(G)` joining pass and uses no extra scratch.
 
 Native fallback accepts a bulk span of borrowed, already-parsed SFNT faces from
 the platform provider boundary. It preserves extended graphemes, tries the

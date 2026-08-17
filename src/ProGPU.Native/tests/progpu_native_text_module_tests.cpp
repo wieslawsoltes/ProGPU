@@ -103,6 +103,8 @@ int main() {
         vertical_glyph.advance_height != 0U || glyph_bounds.x_min != 0 ||
         fallback_mark.ligature_component != 0xFFU ||
         shape_options.normalization_data != nullptr ||
+        !shape_options.pre_context.empty() ||
+        !shape_options.post_context.empty() ||
         fallback_mark.positioned) {
         return 1;
     }

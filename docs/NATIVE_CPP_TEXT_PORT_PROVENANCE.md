@@ -163,6 +163,16 @@ decomposition records, and `D` written components. Missing normalization data,
 invalid font mapping, and short glyph storage fail without exposing partial
 run output. Header and named-module consumers exercise the same implementation.
 
+Arabic run-boundary context directly ports the neighboring-text state seeding
+and final-action update from ProGPU-owned
+`GlyphSubstitutionBuffer.AssignArabicJoiningActions` at checkpoint `b5cf0ae9`.
+The native options borrow decoded pre/post scalar spans in the same bulk call;
+the joining pass examines at most five scalars on each side, skips transparent
+marks, and never retains or copies the context. The same pre-context signal
+suppresses `InsertBeginningDottedCircle`, matching the managed chunked-shaping
+contract. Boundary work is fixed `O(1)` beyond the existing `O(G)` state
+machine and requires no additional caller scratch.
+
 The raw GPOS executor now covers rule-, class-, and coverage-based Context and
 Chaining Context formats 1-3. Nested position records reuse the same borrowed
 lookup table and caller glyph/attachment buffers with a fixed 64-level cycle
