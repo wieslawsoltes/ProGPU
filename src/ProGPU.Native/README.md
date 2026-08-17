@@ -629,6 +629,13 @@ clipping is reported rather than silently discarding state. Work is `O(G)` and
 internal storage is `O(1)` for `G` shaped glyphs; invalid options and short
 buffers leave output counts at zero.
 
+Wrapped logical lines can now be converted to visual order natively before
+positioning. The allocation-free stage groups equal clusters, preserves shaper
+order inside each cluster, resets trailing spaces/tabs to the paragraph level
+for UAX #9 L1, and applies the managed L2 reversal over caller-owned group
+scratch. The requirements pass reports exact glyph/group capacity and short or
+invalid buffers leave visual output untouched.
+
 Character and word ellipsis use the same bounded layout pass. The caller
 supplies one already-shaped ellipsis glyph id and font-unit advance; layout
 removes only complete source clusters, uses resolved break boundaries for word

@@ -1607,6 +1607,37 @@ struct text_layout_requirements final {
     std::uint32_t line_capacity = 0U;
 };
 
+struct text_visual_cluster_group final {
+    std::uint32_t glyph_start = 0U;
+    std::uint32_t glyph_count = 0U;
+    std::int8_t bidi_level = 0;
+    std::uint8_t reserved0 = 0U;
+    std::uint8_t reserved1 = 0U;
+    std::uint8_t reserved2 = 0U;
+};
+
+struct text_visual_order_requirements final {
+    std::uint32_t glyph_capacity = 0U;
+    std::uint32_t group_capacity = 0U;
+};
+
+/* Ports TextLayout.GetVisualLineCandidates: equal-cluster glyph groups keep
+ * their internal shaper order while UAX #9 L1/L2 reorders the groups. */
+bool try_get_text_visual_order_requirements(
+    std::span<const shaping_glyph> logical_glyphs,
+    std::span<const std::int8_t> bidi_levels,
+    text_visual_order_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_reorder_text_line_visual(
+    std::span<const shaping_glyph> logical_glyphs,
+    std::span<const std::int8_t> bidi_levels,
+    std::int8_t paragraph_level,
+    std::span<text_visual_cluster_group> group_scratch,
+    std::span<shaping_glyph> visual_glyphs,
+    std::uint32_t& written,
+    font_error* error = nullptr) noexcept;
+
 bool try_get_text_layout_requirements(
     std::span<const shaping_glyph> glyphs,
     std::span<const text_line_break_kind> breaks_after,

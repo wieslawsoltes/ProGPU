@@ -1115,6 +1115,18 @@ managed/native crossing when used inside the native editor/layout path.
 Synthetic mixed-direction wrapped-line fixtures cover leading/trailing
 affinity, forward/backward motion, endpoint clamping, and empty input.
 
+Per-line visual ordering directly ports ProGPU-owned
+`TextLayout.GetVisualLineCandidates` and
+`BidiParagraph.GetVisualOrderIfNeeded` from the current branch checkpoint
+`6c618db9`. Equal-cluster glyph groups retain their internal shaper order;
+trailing space/tab groups reset to the paragraph level under UAX #9 L1, then
+the exact maximum-to-lowest-odd L2 reversal runs over caller-owned group
+records. Requirements are `O(G)` and execution is `O(G + B * C)` for `G`
+glyphs, `C` cluster groups, and at most 126 embedding levels `B`, with `O(C)`
+caller scratch and no allocation. Tests cover mixed LTR/RTL groups, a
+multi-glyph cluster, trailing whitespace reset, even-level identity, invalid
+levels, and transactional short scratch.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

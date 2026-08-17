@@ -160,6 +160,10 @@ using progpu::native::text::positioned_text_line;
 using progpu::native::text::text_layout_requirements;
 using progpu::native::text::try_get_text_layout_requirements;
 using progpu::native::text::try_layout_shaped_text;
+using progpu::native::text::text_visual_cluster_group;
+using progpu::native::text::text_visual_order_requirements;
+using progpu::native::text::try_get_text_visual_order_requirements;
+using progpu::native::text::try_reorder_text_line_visual;
 using progpu::native::text::text_cluster_box;
 using progpu::native::text::text_caret_stop;
 using progpu::native::text::text_rectangle;
@@ -5813,6 +5817,63 @@ void native_positioned_text_layout_wraps_without_allocation() {
         glyph_count == 0U && line_count == 0U);
 }
 
+void native_text_visual_order_matches_managed_cluster_policy() {
+    const std::array<shaping_glyph, 5U> logical{
+        shaping_glyph{1U, 0x41U, 0},
+        shaping_glyph{10U, 0x05D0U, 1},
+        shaping_glyph{11U, 0x05B0U, 1},
+        shaping_glyph{20U, 0x05D1U, 2},
+        shaping_glyph{30U, 0x20U, 3}};
+    constexpr std::array<std::int8_t, 5U> levels{0, 1, 1, 1, 1};
+    text_visual_order_requirements requirements{};
+    font_error error = font_error::invalid_argument;
+    require(try_get_text_visual_order_requirements(
+        logical, levels, requirements, &error));
+    require(error == font_error::none &&
+        requirements.glyph_capacity == 5U &&
+        requirements.group_capacity == 4U);
+
+    std::array<text_visual_cluster_group, 4U> groups{};
+    std::array<shaping_glyph, 5U> visual{};
+    std::uint32_t written = 0U;
+    require(try_reorder_text_line_visual(
+        logical, levels, 0, groups, visual, written, &error));
+    require(written == visual.size() &&
+        visual[0U].glyph_id == 1U &&
+        visual[1U].glyph_id == 20U &&
+        visual[2U].glyph_id == 10U &&
+        visual[3U].glyph_id == 11U &&
+        visual[4U].glyph_id == 30U);
+
+    constexpr std::array<std::int8_t, 5U> even_levels{0, 2, 2, 2, 0};
+    require(try_reorder_text_line_visual(
+        logical, even_levels, 0, groups, visual, written, &error));
+    require(std::equal(
+        logical.begin(), logical.end(), visual.begin(),
+        [](const shaping_glyph& left, const shaping_glyph& right) {
+            return left.glyph_id == right.glyph_id;
+        }));
+
+    visual.fill(shaping_glyph{99U});
+    written = 99U;
+    require(!try_reorder_text_line_visual(
+        logical,
+        levels,
+        0,
+        std::span<text_visual_cluster_group>{groups}.first(3U),
+        visual,
+        written,
+        &error));
+    require(error == font_error::insufficient_buffer && written == 0U &&
+        visual[0U].glyph_id == 99U);
+    auto invalid_levels = levels;
+    invalid_levels[0U] = -1;
+    require(!try_get_text_visual_order_requirements(
+        logical, invalid_levels, requirements, &error));
+    require(error == font_error::invalid_argument &&
+        requirements.glyph_capacity == 0U);
+}
+
 void unicode_line_breaks_feed_native_layout_without_allocation() {
     static_assert(sizeof(unicode_line_break_class) == 1U);
     static_assert(sizeof(text_line_break_kind) == 1U);
@@ -9927,6 +9988,7 @@ int main() {
     native_font_fallback_family_preferences_match_managed_policy();
     native_font_provider_cache_is_borrowed_and_generation_safe();
     native_positioned_text_layout_wraps_without_allocation();
+    native_text_visual_order_matches_managed_cluster_policy();
     unicode_line_breaks_feed_native_layout_without_allocation();
     complex_script_properties_and_syllable_machines_are_bounded();
     woff1_normalization_is_bounded_and_transactional();

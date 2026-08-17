@@ -558,6 +558,7 @@ add_library(progpu_native_text STATIC
     src/Text/Unicode/progpu_native_unicode_category.cpp
     src/Text/Unicode/progpu_native_unicode_directional.cpp
     src/Text/Bidi/progpu_native_unicode_bidi.cpp
+    src/Text/Bidi/progpu_native_text_visual_order.cpp
     src/Text/progpu_native_unicode_grapheme.cpp
     src/Text/Shaping/progpu_native_unicode_shaping.cpp
     src/Text/Shaping/progpu_native_unicode_syllables.cpp
