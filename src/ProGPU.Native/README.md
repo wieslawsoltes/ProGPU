@@ -507,6 +507,11 @@ default LTR/RTL direction. ScriptList discovery is a bounded `O(S)` scan for
 `S` font script records with `O(1)` storage, so hosts no longer duplicate this
 managed policy before constructing a native shaping plan.
 
+That route also maps the managed BCP-47 language subset without string
+allocation and carries the exact Hebrew presentation-form fallback decision:
+fonts exposing `mark` in GSUB or GPOS keep canonical Hebrew glyphs, while
+fonts without it retain the managed presentation-form composition fallback.
+
 The adjacent native feature-plan resolver ports the authoritative managed
 default baseline and exact script/direction ordering for Khmer, Indic, USE,
 Arabic-joining, Myanmar, and Hangul runs. It preserves caller values and

@@ -207,6 +207,13 @@ priority, fallback routes, direction overrides, canonical tags, and invalid
 direction failure in the header-path suite; the public type and resolver are
 also compiled and linked through the named-module consumer.
 
+The same route unit ports `ToLanguageTag` and the Hebrew `HasMarkFeature`
+decision from that checkpoint. BCP-47 matching is bounded, ASCII
+case-insensitive, treats underscore as a hyphen, and returns the managed
+`dflt` fallback without allocation. A tolerant borrowed GSUB/GPOS FeatureList
+scan suppresses Hebrew presentation-form fallback exactly when `mark` is
+advertised. Synthetic GPOS plus language-variant tests cover both decisions.
+
 Native feature-plan construction is isolated in
 `Text/Shaping/progpu_native_shaping_features.cpp` and directly ports the
 ProGPU-owned `TextShapingOptions` default feature baseline,

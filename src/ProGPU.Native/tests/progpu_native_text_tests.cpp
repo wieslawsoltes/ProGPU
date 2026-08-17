@@ -90,6 +90,7 @@ using progpu::native::text::try_apply_fallback_mark_positioning;
 using progpu::native::text::open_type_shape_run_options;
 using progpu::native::text::open_type_complex_script;
 using progpu::native::text::open_type_shaping_route;
+using progpu::native::text::resolve_open_type_language_tag;
 using progpu::native::text::try_resolve_open_type_shaping_route;
 using progpu::native::text::open_type_feature_setting;
 using progpu::native::text::open_type_feature_plan_requirements;
@@ -3189,6 +3190,15 @@ void open_type_shaping_route_matches_managed_plan_selection() {
         }
         return table;
     };
+    const auto make_feature_table = [](open_type_tag feature) {
+        std::vector<std::byte> table(18U);
+        write_u16(table, 0U, 1U);
+        write_u16(table, 2U, 0U);
+        write_u16(table, 6U, 10U);
+        write_u16(table, 10U, 1U);
+        write_u32(table, 12U, feature.value);
+        return table;
+    };
     constexpr auto deva = open_type_tag::from_chars('d', 'e', 'v', 'a');
     constexpr auto dev2 = open_type_tag::from_chars('d', 'e', 'v', '2');
     constexpr auto dev3 = open_type_tag::from_chars('d', 'e', 'v', '3');
@@ -3265,6 +3275,27 @@ void open_type_shaping_route_matches_managed_plan_selection() {
         route.complex_script == open_type_complex_script::none);
     require(try_resolve_open_type_shaping_route(
         plain_font,
+        open_type_tag::from_chars('h', 'e', 'b', 'r'),
+        shaping_direction::unspecified,
+        route,
+        &error));
+    require(route.compose_hebrew_presentation_forms);
+    const std::array mark_tables{table_data{
+        open_type_tag::from_chars('G', 'P', 'O', 'S'),
+        make_feature_table(open_type_tag::from_chars('m', 'a', 'r', 'k'))}};
+    const auto mark_data = make_font(
+        0U, 22U, 0U, false, false, false, mark_tables);
+    sfnt_font_view mark_font{};
+    require(sfnt_font_view::try_create(mark_data, 0U, mark_font, &error));
+    require(try_resolve_open_type_shaping_route(
+        mark_font,
+        open_type_tag::from_chars('h', 'e', 'b', 'r'),
+        shaping_direction::unspecified,
+        route,
+        &error));
+    require(!route.compose_hebrew_presentation_forms);
+    require(try_resolve_open_type_shaping_route(
+        plain_font,
         open_type_tag::from_chars('a', 'd', 'l', 'm'),
         shaping_direction::top_to_bottom,
         route,
@@ -3292,6 +3323,17 @@ void open_type_shaping_route_matches_managed_plan_selection() {
     require(error == font_error::invalid_argument &&
         route.unicode_script.value == 0U &&
         untouched.unicode_script.value != 0U);
+
+    require(resolve_open_type_language_tag("AZ_latn") ==
+        open_type_tag::from_chars('A', 'Z', 'E', ' '));
+    require(resolve_open_type_language_tag("zh-HANT-HK") ==
+        open_type_tag::from_chars('Z', 'H', 'H', ' '));
+    require(resolve_open_type_language_tag("zh_sg") ==
+        open_type_tag::from_chars('Z', 'H', 'S', ' '));
+    require(resolve_open_type_language_tag("pl") ==
+        open_type_tag::from_chars('P', 'L', 'K', ' '));
+    require(resolve_open_type_language_tag("unknown") ==
+        open_type_tag::from_chars('d', 'f', 'l', 't'));
 }
 
 void open_type_feature_plan_matches_managed_script_and_direction_policy() {

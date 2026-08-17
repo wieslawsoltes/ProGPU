@@ -54,6 +54,8 @@ int main() {
         feature_plan_requirements{};
     const auto shaping_route_resolver =
         &progpu::native::text::try_resolve_open_type_shaping_route;
+    const auto language_tag =
+        progpu::native::text::resolve_open_type_language_tag("pl");
     const auto feature_plan_requirements_resolver =
         &progpu::native::text::try_get_open_type_feature_plan_requirements;
     const auto feature_plan_resolver =
@@ -116,6 +118,7 @@ int main() {
         fallback_mark.ligature_component != 0xFFU ||
         shape_options.normalization_data != nullptr ||
         shaping_route.layout_script.value != 0U ||
+        language_tag.value != 0x504C4B20U ||
         feature_setting.value != 1U ||
         feature_plan_requirements.requested_feature_capacity != 0U ||
         feature_plan_requirements_resolver == nullptr ||

@@ -1004,7 +1004,13 @@ struct open_type_shaping_route final {
     bool khmer_shaper = false;
     bool myanmar_shaper = false;
     bool arabic_shaper = false;
+    bool compose_hebrew_presentation_forms = true;
 };
+
+/* Maps the managed ProGPU BCP-47 language subset to OpenType language tags.
+ * Matching is ASCII case-insensitive and treats '_' as '-'; unknown tags map
+ * to dflt without allocation. */
+open_type_tag resolve_open_type_language_tag(std::string_view language) noexcept;
 
 /* Resolves the same Unicode-script to OpenType-layout route as managed
  * ProGPU, including third-/second-generation Indic tags, USE selection, and

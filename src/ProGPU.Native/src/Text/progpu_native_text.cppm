@@ -111,6 +111,7 @@ using ::progpu::native::text::try_apply_open_type_gpos_lookup;
 using ::progpu::native::text::try_resolve_open_type_attachments;
 using ::progpu::native::text::open_type_complex_script;
 using ::progpu::native::text::open_type_shaping_route;
+using ::progpu::native::text::resolve_open_type_language_tag;
 using ::progpu::native::text::try_resolve_open_type_shaping_route;
 using ::progpu::native::text::open_type_feature_setting;
 using ::progpu::native::text::open_type_feature_plan_requirements;

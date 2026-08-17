@@ -20,6 +20,7 @@ constexpr auto tag(char a, char b, char c, char d) noexcept {
 }
 
 constexpr open_type_tag gsub_tag = tag('G', 'S', 'U', 'B');
+constexpr open_type_tag gpos_tag = tag('G', 'P', 'O', 'S');
 
 void set_error(font_error* error, font_error value) noexcept {
     if (error != nullptr) *error = value;
@@ -64,6 +65,44 @@ bool has_open_type_script(
         if (read_u32(table.bytes, record) == requested.value) return true;
     }
     return false;
+}
+
+bool has_open_type_feature(
+    const sfnt_font_view& font,
+    open_type_tag requested) noexcept {
+    constexpr std::array tables{gsub_tag, gpos_tag};
+    for (const auto table_tag : tables) {
+        sfnt_table_view table{};
+        if (!font.try_get_table(table_tag, table) ||
+            !can_read(table.bytes, 6U, 2U)) continue;
+        const std::size_t feature_list = read_u16(table.bytes, 6U);
+        if (!can_read(table.bytes, feature_list, 2U)) continue;
+        const std::uint16_t count = read_u16(table.bytes, feature_list);
+        for (std::uint16_t index = 0U; index < count; ++index) {
+            const std::size_t record = feature_list + 2U + index * 6U;
+            if (!can_read(table.bytes, record, 6U)) break;
+            if (read_u32(table.bytes, record) == requested.value) return true;
+        }
+    }
+    return false;
+}
+
+char normalized_language_character(char value) noexcept {
+    if (value == '_') return '-';
+    if (value >= 'A' && value <= 'Z') {
+        return static_cast<char>(value + ('a' - 'A'));
+    }
+    return value;
+}
+
+bool language_equals(std::string_view value, std::string_view expected) noexcept {
+    if (value.size() != expected.size()) return false;
+    for (std::size_t index = 0U; index < value.size(); ++index) {
+        if (normalized_language_character(value[index]) != expected[index]) {
+            return false;
+        }
+    }
+    return true;
 }
 
 struct script_generation final {
@@ -188,6 +227,30 @@ shaping_direction resolve_direction(
 
 } // namespace
 
+open_type_tag resolve_open_type_language_tag(std::string_view language) noexcept {
+    if (language_equals(language, "az") ||
+        language_equals(language, "az-latn")) return tag('A', 'Z', 'E', ' ');
+    if (language_equals(language, "de")) return tag('D', 'E', 'U', ' ');
+    if (language_equals(language, "dv")) return tag('D', 'H', 'V', ' ');
+    if (language_equals(language, "fa")) return tag('F', 'A', 'R', ' ');
+    if (language_equals(language, "ja")) return tag('J', 'A', 'N', ' ');
+    if (language_equals(language, "nl")) return tag('N', 'L', 'D', ' ');
+    if (language_equals(language, "pl")) return tag('P', 'L', 'K', ' ');
+    if (language_equals(language, "ro")) return tag('R', 'O', 'M', ' ');
+    if (language_equals(language, "tr")) return tag('T', 'R', 'K', ' ');
+    if (language_equals(language, "zh") ||
+        language_equals(language, "zh-cn") ||
+        language_equals(language, "zh-sg") ||
+        language_equals(language, "zh-hans")) return tag('Z', 'H', 'S', ' ');
+    if (language_equals(language, "zh-tw") ||
+        language_equals(language, "zh-hant")) return tag('Z', 'H', 'T', ' ');
+    if (language_equals(language, "zh-hk") ||
+        language_equals(language, "zh-mo") ||
+        language_equals(language, "zh-hant-hk") ||
+        language_equals(language, "zh-hant-mo")) return tag('Z', 'H', 'H', ' ');
+    return tag('d', 'f', 'l', 't');
+}
+
 bool try_resolve_open_type_shaping_route(
     const sfnt_font_view& font,
     open_type_tag unicode_script,
@@ -223,6 +286,9 @@ bool try_resolve_open_type_shaping_route(
     const bool khmer_shaper = layout_script == tag('k', 'h', 'm', 'r');
     const bool myanmar_shaper = unicode_script == tag('m', 'y', 'm', 'r');
     const bool arabic_shaper = is_arabic_joining_script(unicode_script);
+    const bool compose_hebrew_presentation_forms =
+        unicode_script != tag('h', 'e', 'b', 'r') ||
+        !has_open_type_feature(font, tag('m', 'a', 'r', 'k'));
     const auto complex_script = use_shaper
         ? open_type_complex_script::use
         : indic_shaper
@@ -241,7 +307,8 @@ bool try_resolve_open_type_shaping_route(
         indic_shaper,
         khmer_shaper,
         myanmar_shaper,
-        arabic_shaper};
+        arabic_shaper,
+        compose_hebrew_presentation_forms};
     set_error(error, font_error::none);
     return true;
 }
