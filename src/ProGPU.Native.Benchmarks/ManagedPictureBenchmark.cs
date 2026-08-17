@@ -458,6 +458,7 @@ internal static class ManagedPictureBenchmark
                     Height - 68f),
                 Matrix4x4.Identity);
             additionalGeometryClipCount++;
+
         }
         int pointBatchCount = Math.Min(
             primitiveCount - 1,
@@ -714,6 +715,31 @@ internal static class ManagedPictureBenchmark
             isItalic: true,
             textRenderingMode: TextRenderingMode.Grayscale,
             preferGlyphAtlas: true);
+        if (useVectorClipMask)
+        {
+            // Keep this last in paint order so the direct combined fill and
+            // its retained hole remain visible in differential screenshots.
+            var combinedFill = new PathGeometry
+            {
+                IsCombined = true,
+                Op = 0,
+                PathA = PrimitivePathGeometry.CreateRoundedRectangle(
+                    Width * 0.08f,
+                    Height * 0.11f,
+                    Width * 0.19f,
+                    Height * 0.20f,
+                    16f,
+                    16f),
+                PathB = PrimitivePathGeometry.CreateRoundedRectangle(
+                    Width * 0.135f,
+                    Height * 0.155f,
+                    Width * 0.08f,
+                    Height * 0.11f,
+                    10f,
+                    10f)
+            };
+            drawing.DrawPath(brushes[0], null, combinedFill);
+        }
         for (int index = 0; index < additionalGeometryClipCount; index++)
             drawing.PopGeometryClip();
         drawing.PopGeometryClip();

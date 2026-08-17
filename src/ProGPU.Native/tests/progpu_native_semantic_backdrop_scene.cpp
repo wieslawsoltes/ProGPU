@@ -68,6 +68,8 @@ std::vector<std::byte> create_semantic_backdrop_scene_stream(
     const progpu_native_scene_path_fill marker{
         0U,
         marker_segments.size(),
+        0U,
+        0U,
         0.0F,
         0.0F,
         marker_width,

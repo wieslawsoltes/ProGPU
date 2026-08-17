@@ -444,6 +444,7 @@ set(PROGPU_NATIVE_BACKEND_SOURCES
     src/Backend/progpu_native_effect_execution.cpp
     src/Backend/progpu_native_layer_composite_execution.cpp
     src/Backend/progpu_native_path_text_resources.cpp
+    src/Backend/progpu_native_path_boolean_gpu.hpp
     src/Backend/progpu_native_path_execution.cpp
     src/Backend/progpu_native_glyph_execution.cpp
     src/Backend/progpu_native_texture_execution.cpp
@@ -477,6 +478,7 @@ set(PROGPU_NATIVE_SCENE_SOURCES
     src/Scene/progpu_native_semantic_layer_mask.hpp
     src/Scene/progpu_native_semantic_layer_mask_resources.cpp
     src/Scene/progpu_native_semantic_layer_mask_resources.hpp
+    src/Scene/progpu_native_path_boolean_validation.hpp
     src/Scene/progpu_native_semantic_text_style.cpp
     src/Scene/progpu_native_semantic_text_style.hpp
     src/Scene/progpu_native_semantic_effect_cache.cpp

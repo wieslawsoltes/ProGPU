@@ -65,13 +65,13 @@ static_assert(sizeof(progpu_native_spline) ==
     (sizeof(std::size_t) == 8U ? 112U : 88U));
 static_assert(sizeof(progpu_native_path_segment) == 48U);
 static_assert(sizeof(progpu_native_path_fill) ==
-    (sizeof(std::size_t) == 8U ? 80U : 72U));
+    (sizeof(std::size_t) == 8U ? 96U : 80U));
 static_assert(sizeof(progpu_native_geometry_frame) ==
     (sizeof(std::size_t) == 8U ? 152U : 96U));
 static_assert(offsetof(progpu_native_geometry_frame, reserved) ==
     (sizeof(std::size_t) == 8U ? 60U : 48U));
 static_assert(sizeof(progpu_native_path_frame) ==
-    (sizeof(std::size_t) == 8U ? 88U : 64U));
+    (sizeof(std::size_t) == 8U ? 104U : 72U));
 static_assert(sizeof(progpu_native_image_frame) ==
     (sizeof(std::size_t) == 8U ? 224U : 200U));
 static_assert(sizeof(progpu_native_image_frame_metrics) == 72U);

@@ -1769,10 +1769,14 @@ public readonly struct NativeScenePathFill
         Vector4 color,
         Matrix3x2 transform,
         NativeFillRule fillRule = NativeFillRule.NonZero,
-        uint sampleGrid = 4)
+        uint sampleGrid = 4,
+        ulong booleanNodeOffset = 0U,
+        ulong booleanNodeCount = 0U)
     {
         SegmentOffset = segmentOffset;
         SegmentCount = segmentCount;
+        BooleanNodeOffset = booleanNodeOffset;
+        BooleanNodeCount = booleanNodeCount;
         Minimum = minimum;
         Maximum = maximum;
         Color = color;
@@ -1783,6 +1787,8 @@ public readonly struct NativeScenePathFill
 
     public readonly ulong SegmentOffset;
     public readonly ulong SegmentCount;
+    public readonly ulong BooleanNodeOffset;
+    public readonly ulong BooleanNodeCount;
     public readonly Vector2 Minimum;
     public readonly Vector2 Maximum;
     public readonly Vector4 Color;
@@ -2741,10 +2747,14 @@ public readonly struct NativePathFill
         Vector4 color,
         Matrix3x2 transform,
         NativeFillRule fillRule = NativeFillRule.NonZero,
-        uint sampleGrid = 4)
+        uint sampleGrid = 4,
+        nuint booleanNodeOffset = 0U,
+        nuint booleanNodeCount = 0U)
     {
         SegmentOffset = segmentOffset;
         SegmentCount = segmentCount;
+        BooleanNodeOffset = booleanNodeOffset;
+        BooleanNodeCount = booleanNodeCount;
         Minimum = minimum;
         Maximum = maximum;
         Color = color;
@@ -2755,6 +2765,8 @@ public readonly struct NativePathFill
 
     public readonly nuint SegmentOffset;
     public readonly nuint SegmentCount;
+    public readonly nuint BooleanNodeOffset;
+    public readonly nuint BooleanNodeCount;
     public readonly Vector2 Minimum;
     public readonly Vector2 Maximum;
     public readonly Vector4 Color;

@@ -83,6 +83,57 @@ progpu_native_status render_scene(
                                      std::size_t stride) noexcept {
         return stride != 0U && size != 0U && size % stride == 0U;
     };
+    const auto try_get_path_resource_counts = [&](
+        const progpu_native_scene_resource& resource,
+        std::uint64_t& path_count,
+        std::uint64_t& segment_count,
+        std::uint64_t& boolean_node_count) noexcept {
+        path_count = 0U;
+        segment_count = 0U;
+        boolean_node_count = 0U;
+        if (!span_is_multiple(
+                resource.payload_size,
+                sizeof(progpu_native_scene_path_fill))) {
+            return false;
+        }
+        path_count = resource.payload_size /
+            sizeof(progpu_native_scene_path_fill);
+        for (std::uint64_t index = 0U; index < path_count; ++index) {
+            progpu_native_scene_path_fill path{};
+            std::memcpy(
+                &path,
+                bytes + resource.payload_offset +
+                    index * sizeof(path),
+                sizeof(path));
+            if (path.segment_offset != segment_count ||
+                (path.boolean_node_count != 0U &&
+                    path.boolean_node_offset != boolean_node_count) ||
+                path.segment_count >
+                    std::numeric_limits<std::uint64_t>::max() -
+                        segment_count ||
+                path.boolean_node_count >
+                    std::numeric_limits<std::uint64_t>::max() -
+                        boolean_node_count) {
+                return false;
+            }
+            segment_count += path.segment_count;
+            boolean_node_count += path.boolean_node_count;
+        }
+        if (segment_count >
+                std::numeric_limits<std::uint64_t>::max() /
+                    sizeof(progpu_native_path_segment) ||
+            boolean_node_count >
+                (std::numeric_limits<std::uint64_t>::max() -
+                    segment_count * sizeof(progpu_native_path_segment)) /
+                    sizeof(progpu_native_scene_path_boolean_node)) {
+            return false;
+        }
+        const std::uint64_t required_auxiliary =
+            segment_count * sizeof(progpu_native_path_segment) +
+            boolean_node_count *
+                sizeof(progpu_native_scene_path_boolean_node);
+        return required_auxiliary == resource.auxiliary_size;
+    };
 
     auto& semantic_brush_page = engine->semantic_brush_cache;
     if (!semantic_brush_page.cache_valid ||
@@ -348,6 +399,7 @@ progpu_native_status render_scene(
     std::uint64_t semantic_analytic_index_bytes = 0U;
     std::uint64_t semantic_path_count = 0U;
     std::uint64_t semantic_path_segment_count = 0U;
+    std::uint64_t semantic_path_boolean_node_count = 0U;
     std::uint64_t semantic_glyph_outline_count = 0U;
     std::uint64_t semantic_glyph_segment_count = 0U;
     std::uint64_t semantic_glyph_count = 0U;
@@ -808,20 +860,24 @@ progpu_native_status render_scene(
                 break;
             }
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH: {
-                valid = span_is_multiple(
-                        resource.payload_size,
-                        sizeof(progpu_native_scene_path_fill)) &&
-                    span_is_multiple(
-                        resource.auxiliary_size,
-                        sizeof(progpu_native_path_segment));
-                const std::uint64_t path_count = resource.payload_size /
-                    sizeof(progpu_native_scene_path_fill);
-                const std::uint64_t segment_count = resource.auxiliary_size /
-                    sizeof(progpu_native_path_segment);
+                std::uint64_t path_count = 0U;
+                std::uint64_t segment_count = 0U;
+                std::uint64_t boolean_node_count = 0U;
+                valid = try_get_path_resource_counts(
+                    resource,
+                    path_count,
+                    segment_count,
+                    boolean_node_count);
                 valid = valid && path_count <= (1U << 20U) &&
                     segment_count <= (1U << 24U) &&
+                    boolean_node_count <= (1U << 22U) &&
                     path_count <=
                         std::numeric_limits<std::uint32_t>::max() / 6U;
+                const auto* boolean_nodes = reinterpret_cast<const
+                    progpu_native_scene_path_boolean_node*>(
+                        bytes + resource.auxiliary_offset +
+                            segment_count *
+                                sizeof(progpu_native_path_segment));
                 compiled_vertex_bytes = path_count * 4U *
                     sizeof(progpu::native::vector_vertex);
                 compiled_index_bytes = path_count * 6U *
@@ -867,6 +923,8 @@ progpu_native_status render_scene(
                     valid = is_valid_semantic_path(
                         path,
                         segment_count,
+                        boolean_nodes,
+                        boolean_node_count,
                         &path_coverage_bytes);
                     budget_valid = valid &&
                         path_coverage_bytes <=
@@ -1125,11 +1183,22 @@ progpu_native_status render_scene(
             semantic_analytic_vertex_bytes += compiled_vertex_bytes;
             semantic_analytic_index_bytes += compiled_index_bytes;
         } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
+            std::uint64_t path_count = 0U;
+            std::uint64_t segment_count = 0U;
+            std::uint64_t boolean_node_count = 0U;
+            if (!try_get_path_resource_counts(
+                    resource,
+                    path_count,
+                    segment_count,
+                    boolean_node_count)) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                    "A validated semantic path resource could not be decoded.");
+            }
             ++semantic_path_draw_count;
-            semantic_path_count += resource.payload_size /
-                sizeof(progpu_native_scene_path_fill);
-            semantic_path_segment_count += resource.auxiliary_size /
-                sizeof(progpu_native_path_segment);
+            semantic_path_count += path_count;
+            semantic_path_segment_count += segment_count;
+            semantic_path_boolean_node_count += boolean_node_count;
         } else if (command.kind ==
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
             std::uint32_t glyph_payload_offset = 0U;
@@ -1271,6 +1340,7 @@ progpu_native_status render_scene(
 
     if (semantic_path_count > (1U << 20U) ||
         semantic_path_segment_count > (1U << 24U) ||
+        semantic_path_boolean_node_count > (1U << 22U) ||
         semantic_path_count >
             std::numeric_limits<std::uint32_t>::max() / 6U) {
         return engine->fail(
@@ -1786,10 +1856,14 @@ progpu_native_status render_scene(
         semantic_path_page.dpi_scale == frame->dpi_scale &&
         semantic_path_page.target_width == frame->width &&
         semantic_path_page.target_height == frame->height &&
+        semantic_path_page.boolean_nodes.size() ==
+            semantic_path_boolean_node_count &&
         semantic_path_page.draws.size() == semantic_path_draw_count;
     if (semantic_path_draw_count != 0U && !semantic_path_page_hit) {
         std::vector<progpu_native_scene_path_fill> compiled_paths;
         std::vector<progpu_native_path_segment> compiled_segments;
+        std::vector<progpu_native_scene_path_boolean_node>
+            compiled_boolean_nodes;
         std::vector<std::uint32_t> compiled_brush_indices;
         std::vector<semantic_path_draw> compiled_draws;
         try {
@@ -1797,6 +1871,9 @@ progpu_native_status render_scene(
                 static_cast<std::size_t>(semantic_path_count));
             compiled_segments.reserve(
                 static_cast<std::size_t>(semantic_path_segment_count));
+            compiled_boolean_nodes.reserve(
+                static_cast<std::size_t>(
+                    semantic_path_boolean_node_count));
             compiled_brush_indices.reserve(
                 static_cast<std::size_t>(semantic_path_count));
             compiled_draws.reserve(semantic_path_draw_count);
@@ -1821,10 +1898,26 @@ progpu_native_status render_scene(
                 const auto resource = read_resource(command.resource_index);
                 const std::size_t path_start = compiled_paths.size();
                 const std::size_t segment_start = compiled_segments.size();
-                const std::size_t path_count = resource.payload_size /
-                    sizeof(progpu_native_scene_path_fill);
-                const std::size_t segment_count = resource.auxiliary_size /
-                    sizeof(progpu_native_path_segment);
+                const std::size_t boolean_node_start =
+                    compiled_boolean_nodes.size();
+                std::uint64_t path_count64 = 0U;
+                std::uint64_t segment_count64 = 0U;
+                std::uint64_t boolean_node_count64 = 0U;
+                if (!try_get_path_resource_counts(
+                        resource,
+                        path_count64,
+                        segment_count64,
+                        boolean_node_count64)) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                        "A validated semantic path page could not be decoded.");
+                }
+                const std::size_t path_count =
+                    static_cast<std::size_t>(path_count64);
+                const std::size_t segment_count =
+                    static_cast<std::size_t>(segment_count64);
+                const std::size_t boolean_node_count =
+                    static_cast<std::size_t>(boolean_node_count64);
                 const auto* source_segments = reinterpret_cast<
                     const progpu_native_path_segment*>(
                         bytes + resource.auxiliary_offset);
@@ -1832,6 +1925,20 @@ progpu_native_status render_scene(
                     compiled_segments.end(),
                     source_segments,
                     source_segments + segment_count);
+                const auto* source_boolean_nodes = reinterpret_cast<const
+                    progpu_native_scene_path_boolean_node*>(
+                        bytes + resource.auxiliary_offset +
+                            segment_count *
+                                sizeof(progpu_native_path_segment));
+                for (std::size_t node_index = 0U;
+                     node_index < boolean_node_count;
+                     ++node_index) {
+                    auto node = source_boolean_nodes[node_index];
+                    if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF) {
+                        node.segment_offset += segment_start;
+                    }
+                    compiled_boolean_nodes.push_back(node);
+                }
                 for (std::size_t path_index = 0U;
                      path_index < path_count;
                      ++path_index) {
@@ -1861,6 +1968,9 @@ progpu_native_status render_scene(
                         apply_path_material(path, *brush);
                     }
                     path.segment_offset += segment_start;
+                    if (path.boolean_node_count != 0U) {
+                        path.boolean_node_offset += boolean_node_start;
+                    }
                     compiled_paths.push_back(path);
                     compiled_brush_indices.push_back(brush_index);
                 }
@@ -1875,6 +1985,8 @@ progpu_native_status render_scene(
         }
         if (compiled_paths.size() != semantic_path_count ||
             compiled_segments.size() != semantic_path_segment_count ||
+            compiled_boolean_nodes.size() !=
+                semantic_path_boolean_node_count ||
             compiled_brush_indices.size() != semantic_path_count ||
             compiled_draws.size() != semantic_path_draw_count) {
             return engine->fail(
@@ -1883,6 +1995,8 @@ progpu_native_status render_scene(
         }
         semantic_path_page.paths = std::move(compiled_paths);
         semantic_path_page.segments = std::move(compiled_segments);
+        semantic_path_page.boolean_nodes =
+            std::move(compiled_boolean_nodes);
         semantic_path_page.brush_indices =
             std::move(compiled_brush_indices);
         semantic_path_page.draws = std::move(compiled_draws);
@@ -2768,16 +2882,29 @@ progpu_native_status render_scene(
             fill_rule) == offsetof(
             progpu_native_path_fill,
             fill_rule));
+        static_assert(sizeof(progpu_native_scene_path_boolean_node) ==
+            sizeof(progpu_native_path_boolean_node));
         family.paths = reinterpret_cast<const progpu_native_path_fill*>(
             semantic_path_page.paths.data());
         family.path_count = semantic_path_page.paths.size();
+        family.boolean_nodes = reinterpret_cast<const
+            progpu_native_path_boolean_node*>(
+                semantic_path_page.boolean_nodes.data());
+        family.boolean_node_count =
+            semantic_path_page.boolean_nodes.size();
 #else
         std::vector<progpu_native_path_fill> translated_paths;
+        std::vector<progpu_native_path_boolean_node>
+            translated_boolean_nodes;
         try {
             translated_paths.reserve(semantic_path_page.paths.size());
+            translated_boolean_nodes.reserve(
+                semantic_path_page.boolean_nodes.size());
             for (const auto& source : semantic_path_page.paths) {
                 if (source.segment_offset > SIZE_MAX ||
-                    source.segment_count > SIZE_MAX) {
+                    source.segment_count > SIZE_MAX ||
+                    source.boolean_node_offset > SIZE_MAX ||
+                    source.boolean_node_count > SIZE_MAX) {
                     discard_encoder();
                     return engine->fail(
                         PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
@@ -2786,6 +2913,8 @@ progpu_native_status render_scene(
                 translated_paths.push_back({
                     static_cast<std::size_t>(source.segment_offset),
                     static_cast<std::size_t>(source.segment_count),
+                    static_cast<std::size_t>(source.boolean_node_offset),
+                    static_cast<std::size_t>(source.boolean_node_count),
                     source.min_x,
                     source.min_y,
                     source.max_x,
@@ -2795,6 +2924,26 @@ progpu_native_status render_scene(
                     source.fill_rule,
                     source.sample_grid});
             }
+            for (const auto& source : semantic_path_page.boolean_nodes) {
+                if (source.segment_offset > SIZE_MAX ||
+                    source.segment_count > SIZE_MAX) {
+                    discard_encoder();
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                        "A semantic boolean-path index exceeds the wasm32 address range.");
+                }
+                translated_boolean_nodes.push_back({
+                    static_cast<std::size_t>(source.segment_offset),
+                    static_cast<std::size_t>(source.segment_count),
+                    source.min_x,
+                    source.min_y,
+                    source.max_x,
+                    source.max_y,
+                    source.fill_rule,
+                    source.kind,
+                    source.reserved0,
+                    source.reserved1});
+            }
         } catch (const std::bad_alloc&) {
             discard_encoder();
             return engine->fail(
@@ -2803,6 +2952,8 @@ progpu_native_status render_scene(
         }
         family.paths = translated_paths.data();
         family.path_count = translated_paths.size();
+        family.boolean_nodes = translated_boolean_nodes.data();
+        family.boolean_node_count = translated_boolean_nodes.size();
 #endif
         family.segments = semantic_path_page.segments.data();
         family.segment_count = semantic_path_page.segments.size();

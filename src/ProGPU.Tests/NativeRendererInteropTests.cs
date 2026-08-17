@@ -90,12 +90,19 @@ public class NativeRendererInteropTests
         Assert.Equal(32, Unsafe.SizeOf<NativeDashStyle>());
         Assert.Equal(112, Unsafe.SizeOf<NativeSpline>());
         Assert.Equal(48, Unsafe.SizeOf<NativePathSegment>());
-        Assert.Equal(80, Unsafe.SizeOf<NativePathFill>());
-        Assert.Equal(88, Unsafe.SizeOf<NativeMethods.PathFrame>());
+        Assert.Equal(IntPtr.Size == 8 ? 96 : 80, Unsafe.SizeOf<NativePathFill>());
+        Assert.Equal(
+            IntPtr.Size == 8 ? 16 : 8,
+            OffsetOf<NativePathFill>(nameof(NativePathFill.BooleanNodeOffset)));
+        Assert.Equal(104, Unsafe.SizeOf<NativeMethods.PathFrame>());
         Assert.Equal(
             80,
             OffsetOf<NativeMethods.PathFrame>(
                 nameof(NativeMethods.PathFrame.DrawState)));
+        Assert.Equal(
+            88,
+            OffsetOf<NativeMethods.PathFrame>(
+                nameof(NativeMethods.PathFrame.BooleanNodes)));
         Assert.Equal(96, Unsafe.SizeOf<NativeMethods.PathFrameMetrics>());
         Assert.Equal(40, Unsafe.SizeOf<NativeGlyphOutline>());
         Assert.Equal(64, Unsafe.SizeOf<NativePositionedGlyph>());
@@ -292,7 +299,11 @@ public class NativeRendererInteropTests
         Assert.Equal(80, Unsafe.SizeOf<NativeSceneLayerCoverageMask>());
         Assert.Equal(16, Unsafe.SizeOf<NativeSceneEffectChain>());
         Assert.Equal(56, Unsafe.SizeOf<NativeSceneEffect>());
-        Assert.Equal(80, Unsafe.SizeOf<NativeScenePathFill>());
+        Assert.Equal(96, Unsafe.SizeOf<NativeScenePathFill>());
+        Assert.Equal(
+            16,
+            OffsetOf<NativeScenePathFill>(
+                nameof(NativeScenePathFill.BooleanNodeOffset)));
         Assert.Equal(40, Unsafe.SizeOf<NativeSceneGlyphOutline>());
         Assert.Equal(56, Unsafe.SizeOf<NativeMethods.SceneFrame>());
         Assert.Equal(256, Unsafe.SizeOf<NativeSceneBrush>());
@@ -378,7 +389,7 @@ public class NativeRendererInteropTests
             88,
             OffsetOf<NativeSceneLayerMask>(nameof(NativeSceneLayerMask.Opacity)));
         Assert.Equal(
-            32,
+            48,
             OffsetOf<NativeScenePathFill>(
                 nameof(NativeScenePathFill.Color)));
         Assert.Equal(
@@ -2449,6 +2460,86 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void SemanticSceneBuilderWritesCanonicalCombinedPathProgram()
+    {
+        Span<NativePathSegment> segments = stackalloc NativePathSegment[6]
+        {
+            new(NativePathSegmentKind.Line, new(0f, 0f), new(12f, 0f)),
+            new(NativePathSegmentKind.Line, new(12f, 0f), new(6f, 12f)),
+            new(NativePathSegmentKind.Line, new(6f, 12f), new(0f, 0f)),
+            new(NativePathSegmentKind.Line, new(4f, 3f), new(8f, 3f)),
+            new(NativePathSegmentKind.Line, new(8f, 3f), new(6f, 8f)),
+            new(NativePathSegmentKind.Line, new(6f, 8f), new(4f, 3f))
+        };
+        Span<NativeScenePathBooleanNode> nodes =
+            stackalloc NativeScenePathBooleanNode[3]
+        {
+            new(0U, 3U, Vector2.Zero, new(12f, 12f),
+                NativeFillRule.NonZero, NativePathBooleanNodeKind.Leaf),
+            new(3U, 3U, new(4f, 3f), new(8f, 8f),
+                NativeFillRule.NonZero, NativePathBooleanNodeKind.Leaf),
+            new(0U, 0U, Vector2.Zero, Vector2.Zero,
+                NativeFillRule.NonZero, NativePathBooleanNodeKind.Difference)
+        };
+        Span<NativeScenePathFill> paths = stackalloc NativeScenePathFill[1]
+        {
+            new(
+                0U,
+                6U,
+                Vector2.Zero,
+                new Vector2(12f, 12f),
+                Vector4.One,
+                Matrix3x2.Identity,
+                NativeFillRule.NonZero,
+                8U,
+                0U,
+                3U)
+        };
+        Span<byte> destination = stackalloc byte[4096];
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            97U,
+            2U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+        Assert.True(builder.TryAddPathResource(
+            1U, 2U, paths, segments, nodes, out uint resourceIndex));
+        Assert.True(builder.TryDrawPath(
+            1U,
+            resourceIndex,
+            new NativeImageRect(0f, 0f, 12f, 12f)));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[checked((int)header.ResourceOffset)..]);
+        Assert.Equal(
+            checked((uint)(
+                segments.Length * Unsafe.SizeOf<NativePathSegment>() +
+                nodes.Length * Unsafe.SizeOf<NativeScenePathBooleanNode>())),
+            resource.AuxiliarySize);
+
+        paths[0] = new NativeScenePathFill(
+            0U,
+            6U,
+            Vector2.Zero,
+            new Vector2(12f, 12f),
+            Vector4.One,
+            Matrix3x2.Identity,
+            NativeFillRule.NonZero,
+            8U,
+            0U,
+            2U);
+        builder = new NativeSceneStreamBuilder(
+            destination,
+            98U,
+            2U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+        Assert.False(builder.TryAddPathResource(
+            1U, 2U, paths, segments, nodes[..2], out _));
+    }
+
+    [Fact]
     public void SemanticSceneBuilderWritesTypedMixedPayloadsWithoutAllocation()
     {
         Span<byte> destination = stackalloc byte[4096];
@@ -3212,12 +3303,27 @@ public class NativeRendererInteropTests
         Assert.Equal(24, OffsetOf<NativePathSegment>(nameof(NativePathSegment.P3)));
         Assert.Equal(32, OffsetOf<NativePathSegment>(nameof(NativePathSegment.Kind)));
         Assert.Equal(0, OffsetOf<NativePathFill>(nameof(NativePathFill.SegmentOffset)));
-        Assert.Equal(16, OffsetOf<NativePathFill>(nameof(NativePathFill.Minimum)));
-        Assert.Equal(24, OffsetOf<NativePathFill>(nameof(NativePathFill.Maximum)));
-        Assert.Equal(32, OffsetOf<NativePathFill>(nameof(NativePathFill.Color)));
-        Assert.Equal(48, OffsetOf<NativePathFill>(nameof(NativePathFill.Transform)));
-        Assert.Equal(72, OffsetOf<NativePathFill>(nameof(NativePathFill.FillRule)));
-        Assert.Equal(76, OffsetOf<NativePathFill>(nameof(NativePathFill.SampleGrid)));
+        Assert.Equal(
+            IntPtr.Size == 8 ? 16 : 8,
+            OffsetOf<NativePathFill>(nameof(NativePathFill.BooleanNodeOffset)));
+        Assert.Equal(
+            IntPtr.Size == 8 ? 32 : 16,
+            OffsetOf<NativePathFill>(nameof(NativePathFill.Minimum)));
+        Assert.Equal(
+            IntPtr.Size == 8 ? 40 : 24,
+            OffsetOf<NativePathFill>(nameof(NativePathFill.Maximum)));
+        Assert.Equal(
+            IntPtr.Size == 8 ? 48 : 32,
+            OffsetOf<NativePathFill>(nameof(NativePathFill.Color)));
+        Assert.Equal(
+            IntPtr.Size == 8 ? 64 : 48,
+            OffsetOf<NativePathFill>(nameof(NativePathFill.Transform)));
+        Assert.Equal(
+            IntPtr.Size == 8 ? 88 : 72,
+            OffsetOf<NativePathFill>(nameof(NativePathFill.FillRule)));
+        Assert.Equal(
+            IntPtr.Size == 8 ? 92 : 76,
+            OffsetOf<NativePathFill>(nameof(NativePathFill.SampleGrid)));
     }
 
     [Fact]

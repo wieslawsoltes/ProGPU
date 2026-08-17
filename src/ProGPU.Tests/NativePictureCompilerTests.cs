@@ -2456,6 +2456,111 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerLowersCombinedPathFillToGpuBooleanProgram()
+    {
+        var path = new PathGeometry
+        {
+            IsCombined = true,
+            Op = 0,
+            PathA = PrimitivePathGeometry.CreateRectangle(4f, 4f, 52f, 40f),
+            PathB = PrimitivePathGeometry.CreateRectangle(20f, 12f, 24f, 22f)
+        };
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawPath,
+                    Path = path,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Transform = Matrix4x4.Identity
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            31U,
+            2U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.PathCount);
+        Assert.Equal(8, compiled.PathSegmentCount);
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            compiled.Stream.Slice(checked((int)header.ResourceOffset)));
+        Assert.Equal(NativeSceneResourceKind.PathBatch, resource.Kind);
+        var fill = MemoryMarshal.Read<NativeScenePathFill>(
+            compiled.Stream.Slice(checked((int)resource.PayloadOffset)));
+        Assert.Equal(0UL, fill.SegmentOffset);
+        Assert.Equal(8UL, fill.SegmentCount);
+        Assert.Equal(0UL, fill.BooleanNodeOffset);
+        Assert.Equal(3UL, fill.BooleanNodeCount);
+        Assert.Equal(
+            checked((uint)(
+                8 * Unsafe.SizeOf<NativePathSegment>() +
+                3 * Unsafe.SizeOf<NativeScenePathBooleanNode>())),
+            resource.AuxiliarySize);
+        ReadOnlySpan<NativeScenePathBooleanNode> nodes = MemoryMarshal.Cast<
+            byte,
+            NativeScenePathBooleanNode>(compiled.Stream.Slice(
+                checked((int)resource.AuxiliaryOffset) +
+                    8 * Unsafe.SizeOf<NativePathSegment>(),
+                3 * Unsafe.SizeOf<NativeScenePathBooleanNode>()));
+        Assert.Equal(NativePathBooleanNodeKind.Leaf, nodes[0].Kind);
+        Assert.Equal(0UL, nodes[0].SegmentOffset);
+        Assert.Equal(NativePathBooleanNodeKind.Leaf, nodes[1].Kind);
+        Assert.Equal(4UL, nodes[1].SegmentOffset);
+        Assert.Equal(NativePathBooleanNodeKind.Difference, nodes[2].Kind);
+    }
+
+    [Fact]
+    public void CompilerDropsProvablyEmptyPathDraw()
+    {
+        PathGeometry path = PathOpGeometrySolver.Combine(
+            new PathGeometry(),
+            PrimitivePathGeometry.CreateRectangle(0f, 0f, 8f, 8f),
+            op: 0);
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawPath,
+                    Path = path,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Rect = new Rect(12f, 12f, 4f, 4f),
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Transform = Matrix4x4.Identity
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            32U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure), failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.NativeCommandCount);
+        Assert.Equal(0, compiled.PathCount);
+        Assert.Equal(0, compiled.PathSegmentCount);
+    }
+
+    [Fact]
     public void CompilerLowersCombinedGeometryClipToGpuBooleanProgram()
     {
         var clip = new PathGeometry

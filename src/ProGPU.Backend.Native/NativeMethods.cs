@@ -236,6 +236,8 @@ internal static unsafe partial class NativeMethods
         internal uint Flags;
         internal uint ContentRevision;
         internal DrawState* DrawState;
+        internal NativePathBooleanNode* BooleanNodes;
+        internal nuint BooleanNodeCount;
     }
 
     [StructLayout(LayoutKind.Sequential)]

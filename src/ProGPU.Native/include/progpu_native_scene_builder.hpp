@@ -187,7 +187,9 @@ public:
         std::span<const std::uint32_t> brush_indices,
         progpu_native_image_rect bounds,
         std::uint32_t state_resource_index =
-            PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+        std::span<const progpu_native_scene_path_boolean_node>
+            boolean_nodes = {}) noexcept;
 
     bool draw_image(
         std::uint32_t image_resource_index,

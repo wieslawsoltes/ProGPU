@@ -1284,6 +1284,10 @@ typedef struct progpu_native_scene_glyph_draw {
 typedef struct progpu_native_scene_path_fill {
     uint64_t segment_offset;
     uint64_t segment_count;
+    /* Optional resource-local canonical postfix program; zero count means a
+       conventional single-path fill and requires a zero offset. */
+    uint64_t boolean_node_offset;
+    uint64_t boolean_node_count;
     float min_x;
     float min_y;
     float max_x;
@@ -1676,6 +1680,10 @@ typedef struct progpu_native_path_segment {
 typedef struct progpu_native_path_fill {
     size_t segment_offset;
     size_t segment_count;
+    /* Optional frame-local canonical postfix program; zero count means a
+       conventional single-path fill and requires a zero offset. */
+    size_t boolean_node_offset;
+    size_t boolean_node_count;
     float min_x;
     float min_y;
     float max_x;
@@ -2090,6 +2098,9 @@ typedef struct progpu_native_path_frame {
     /* Nonzero caller-owned content revision when retention is requested. */
     uint32_t content_revision;
     const progpu_native_draw_state* draw_state;
+    /* Optional canonical postfix programs referenced by path records. */
+    const progpu_native_path_boolean_node* boolean_nodes;
+    size_t boolean_node_count;
 } progpu_native_path_frame;
 
 typedef struct progpu_native_path_frame_metrics {

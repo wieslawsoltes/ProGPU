@@ -16,7 +16,9 @@ bool semantic_scene_builder::draw_paths(
     std::span<const progpu_native_path_segment> segments,
     std::span<const std::uint32_t> brush_indices,
     progpu_native_image_rect bounds,
-    std::uint32_t state_resource_index) noexcept {
+    std::uint32_t state_resource_index,
+    std::span<const progpu_native_scene_path_boolean_node>
+        boolean_nodes) noexcept {
     if (paths.empty() || segments.empty() || !finite_rect(bounds) ||
         !implementation_->valid_state_index(state_resource_index) ||
         (!brush_indices.empty() && brush_indices.size() != paths.size()) ||
@@ -27,17 +29,29 @@ bool semantic_scene_builder::draw_paths(
         return implementation_->fail(scene_build_error::invalid_argument);
     }
     std::uint64_t expected_segment_offset = 0U;
+    std::uint64_t expected_boolean_node_offset = 0U;
     for (const auto& path : paths) {
         if (path.segment_offset != expected_segment_offset ||
-            !semantic::is_valid_semantic_path(path, segments.size()) ||
+            (path.boolean_node_count != 0U &&
+                path.boolean_node_offset != expected_boolean_node_offset) ||
+            !semantic::is_valid_semantic_path(
+                path,
+                segments.size(),
+                boolean_nodes.data(),
+                boolean_nodes.size()) ||
             path.segment_count >
                 std::numeric_limits<std::uint64_t>::max() -
-                    expected_segment_offset) {
+                    expected_segment_offset ||
+            path.boolean_node_count >
+                std::numeric_limits<std::uint64_t>::max() -
+                    expected_boolean_node_offset) {
             return implementation_->fail(scene_build_error::invalid_argument);
         }
         expected_segment_offset += path.segment_count;
+        expected_boolean_node_offset += path.boolean_node_count;
     }
-    if (expected_segment_offset != segments.size()) {
+    if (expected_segment_offset != segments.size() ||
+        expected_boolean_node_offset != boolean_nodes.size()) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
     for (const auto& segment : segments) {
@@ -62,7 +76,18 @@ bool semantic_scene_builder::draw_paths(
         resource.record.resource_id = implementation_->resources.size() + 1U;
         resource.record.generation = implementation_->generation;
         resource.payload = copy_bytes(paths);
-        resource.auxiliary = copy_bytes(segments);
+        resource.auxiliary.resize(
+            segments.size_bytes() + boolean_nodes.size_bytes());
+        std::memcpy(
+            resource.auxiliary.data(),
+            segments.data(),
+            segments.size_bytes());
+        if (!boolean_nodes.empty()) {
+            std::memcpy(
+                resource.auxiliary.data() + segments.size_bytes(),
+                boolean_nodes.data(),
+                boolean_nodes.size_bytes());
+        }
         const std::uint32_t resource_index = static_cast<std::uint32_t>(
             implementation_->resources.size());
 

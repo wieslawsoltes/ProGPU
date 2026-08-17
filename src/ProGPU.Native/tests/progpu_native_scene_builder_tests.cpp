@@ -127,10 +127,34 @@ bool semantic_scene_builder_is_deterministic_and_valid() {
             PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
         progpu_native_path_segment{
             {30.0F, 42.0F}, {20.0F, 20.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {27.0F, 25.0F}, {33.0F, 25.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {33.0F, 25.0F}, {30.0F, 34.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {30.0F, 34.0F}, {27.0F, 25.0F}, {}, {},
             PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const std::array path_boolean_nodes{
+        progpu_native_scene_path_boolean_node{
+            0U, 3U, 20.0F, 20.0F, 40.0F, 42.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            3U, 3U, 27.0F, 25.0F, 33.0F, 34.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE, 0U, 0U}};
     const progpu_native_scene_path_fill path{
         0U,
         path_segments.size(),
+        0U,
+        path_boolean_nodes.size(),
         20.0F,
         20.0F,
         40.0F,
@@ -143,7 +167,9 @@ bool semantic_scene_builder_is_deterministic_and_valid() {
             std::span<const progpu_native_scene_path_fill>(&path, 1U),
             path_segments,
             std::span<const std::uint32_t>(&amber, 1U),
-            {18.0F, 18.0F, 24.0F, 26.0F}) ||
+            {18.0F, 18.0F, 24.0F, 26.0F},
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            path_boolean_nodes) ||
         !builder.restore()) {
         return false;
     }
@@ -206,7 +232,8 @@ bool semantic_scene_builder_is_deterministic_and_valid() {
             sizeof(stroke_points) + sizeof(stroke_doubles) &&
         path_resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH &&
         path_resource.payload_size == sizeof(path) &&
-        path_resource.auxiliary_size == sizeof(path_segments);
+        path_resource.auxiliary_size ==
+            sizeof(path_segments) + sizeof(path_boolean_nodes);
 }
 
 bool semantic_scene_builder_records_general_brushes() {

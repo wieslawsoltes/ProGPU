@@ -2650,3 +2650,35 @@ and second stable render protect the boolean contract, final atlas-denominator
 rule, and zero-upload replay. On the managed comparator, a
 full-live-set shrink result is memoized by atlas generation, dimensions, and
 path count, so retained replay does not periodically allocate packing scratch.
+
+## Direct combined filled-path qualification
+
+The direct-fill continuation adds a visible rounded-rectangle-minus-rounded-
+rectangle draw after the mixed scene and inside the retained clip chain. This
+forces `DRAW_PATH`, independently of clip construction, through the same
+three-instruction postfix program and canonical `PathRasterizer.wgsl`. The
+pointer-free snapshot is 118,900 bytes and contains 402 source commands, 39
+native commands, 23 draws, 33 paths, 112 path segments, and the direct boolean
+program. Stable replay remains one submission with zero vertex, index, texture,
+uniform, coverage, brush, gradient-stop, text-style, or color-glyph upload.
+
+On Apple M3 Pro/Metal, 300 alternating warm-up pairs followed by 1,000 matched
+frames measured native versus managed CPU submission p50/p95/p99 at
+`0.1843/0.3517/0.4384 ms` versus `1.1729/1.9885/2.5796 ms`. End-to-end
+completion-inclusive p50/p95/p99 was `2.6947/3.9065/4.1812 ms` versus
+`3.7455/4.6593/5.3257 ms`. Native submission and end-to-end percentiles are
+lower throughout the measured distribution, and neither route allocates
+managed memory per stable frame.
+
+Across 518,400 pixels, maximum channel difference remains `11/255`, exactly
+three independently anti-aliased edge pixels exceed `3/255`, and mean absolute
+channel difference is `0.000161555/255`. The native and managed screenshots
+visibly retain the filled outer shape and transparent inner hole. Evidence is
+stored under
+`artifacts/progpu-native/benchmarks/managed-picture-combined-fill-1000.json`
+and `artifacts/progpu-native/differential/managed-picture-vector-clip/`.
+The JSON, native PNG, managed PNG, and amplified difference PNG SHA-256 values
+are respectively `00818eafe791a9fd5e09312bc373ab7ccbbafb36bee400b8b285008ae1ca1877`,
+`7b8aa3ec712b0456c5c2dca441d98212d5416df369b9d3f06e5f231e864d3d48`,
+`bb355d0551464352ce8fdcdca887495101cd5343734fc74589f3cf4fbead813d`,
+and `104a10fe1ce6a99fa283af9166a0c084d8237dd89777e09c961490324d9bd61c`.

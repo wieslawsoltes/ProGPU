@@ -46,6 +46,7 @@ struct semantic_path_page {
     bool cache_valid = false;
     std::vector<progpu_native_scene_path_fill> paths;
     std::vector<progpu_native_path_segment> segments;
+    std::vector<progpu_native_scene_path_boolean_node> boolean_nodes;
     std::vector<std::uint32_t> brush_indices;
     std::vector<semantic_path_draw> draws;
 };

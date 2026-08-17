@@ -946,7 +946,8 @@ public sealed unsafe class NativeCompositor : IDisposable
         Vector4 clearColor,
         bool capturePayloadHash = false,
         uint contentRevision = 0,
-        NativeDrawState drawState = default)
+        NativeDrawState drawState = default,
+        ReadOnlySpan<NativePathBooleanNode> booleanNodes = default)
     {
         ValidateTarget(target);
         NativeMethods.GroupMask nativeGroupMask = default;
@@ -966,6 +967,7 @@ public sealed unsafe class NativeCompositor : IDisposable
 
         fixed (NativePathFill* pathPointer = paths)
         fixed (NativePathSegment* segmentPointer = segments)
+        fixed (NativePathBooleanNode* booleanNodePointer = booleanNodes)
         {
             var frame = new NativeMethods.PathFrame
             {
@@ -992,7 +994,9 @@ public sealed unsafe class NativeCompositor : IDisposable
                         ? NativeMethods.GeometryFrameRetainCompiledPayload
                         : 0U),
                 ContentRevision = contentRevision,
-                DrawState = &nativeDrawState
+                DrawState = &nativeDrawState,
+                BooleanNodes = booleanNodePointer,
+                BooleanNodeCount = (nuint)booleanNodes.Length
             };
             var metrics = new NativeMethods.PathFrameMetrics
             {

@@ -29,6 +29,13 @@ bool is_valid_semantic_segment(
 bool is_valid_semantic_path(
     const progpu_native_scene_path_fill& path,
     std::uint64_t segment_count,
+    const progpu_native_scene_path_boolean_node* boolean_nodes,
+    std::uint64_t boolean_node_count,
+    std::uint64_t* coverage_bytes = nullptr) noexcept;
+
+bool is_valid_semantic_path(
+    const progpu_native_scene_path_fill& path,
+    std::uint64_t segment_count,
     std::uint64_t* coverage_bytes = nullptr) noexcept;
 
 bool is_valid_semantic_glyph_outline(

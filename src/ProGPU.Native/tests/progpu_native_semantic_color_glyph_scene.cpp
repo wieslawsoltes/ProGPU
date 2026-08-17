@@ -88,11 +88,11 @@ std::vector<std::byte> create_semantic_color_glyph_scene_stream(
             PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}
     }};
     const std::array<progpu_native_scene_path_fill, 2U> vector_layers{{
-        {0U, 4U, 0.0F, 0.0F, vector_size, vector_size,
+        {0U, 4U, 0U, 0U, 0.0F, 0.0F, vector_size, vector_size,
             {1.0F, 0.0F, 1.0F, 1.0F},
             {1.0F, 0.0F, 0.0F, 1.0F, vector_x, vector_y},
             PROGPU_NATIVE_FILL_RULE_NON_ZERO, 8U},
-        {4U, 4U, vector_inset, vector_inset,
+        {4U, 4U, 0U, 0U, vector_inset, vector_inset,
             vector_size - vector_inset, vector_size - vector_inset,
             {0.0F, 1.0F, 1.0F, 1.0F},
             {1.0F, 0.0F, 0.0F, 1.0F, vector_x, vector_y},

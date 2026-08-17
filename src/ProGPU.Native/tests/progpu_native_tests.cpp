@@ -548,7 +548,7 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(sizeof(progpu_native_scene_layer_mask_chain) == 432U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_effect_chain) == 16U);
     PROGPU_REQUIRE(sizeof(progpu_native_group_effect) == 56U);
-    PROGPU_REQUIRE(sizeof(progpu_native_scene_path_fill) == 80U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_path_fill) == 96U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_stroke) == 160U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_glyph_outline) == 40U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_frame) == 56U);
@@ -609,7 +609,7 @@ void api_contract_is_versioned() {
         opacity) == 88U);
     PROGPU_REQUIRE(offsetof(
         progpu_native_scene_path_fill,
-        color) == 32U);
+        color) == 48U);
     PROGPU_REQUIRE(offsetof(
         progpu_native_scene_glyph_outline,
         raster_scale) == 32U);

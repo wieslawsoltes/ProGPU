@@ -306,10 +306,34 @@ bool render_browser_frame(double, void*) {
             PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
         progpu_native_path_segment{
             {156.0F, 88.0F}, {150.0F, 44.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {163.0F, 58.0F}, {187.0F, 64.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {187.0F, 64.0F}, {166.0F, 75.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {166.0F, 75.0F}, {163.0F, 58.0F}, {}, {},
             PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const std::array builder_path_boolean_nodes{
+        progpu_native_scene_path_boolean_node{
+            0U, 3U, 150.0F, 44.0F, 206.0F, 88.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            3U, 3U, 163.0F, 58.0F, 187.0F, 75.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE, 0U, 0U}};
     const progpu_native_scene_path_fill builder_path{
         0U,
         builder_path_segments.size(),
+        0U,
+        builder_path_boolean_nodes.size(),
         150.0F,
         44.0F,
         206.0F,
@@ -454,7 +478,9 @@ bool render_browser_frame(double, void*) {
                 1U),
             builder_path_segments,
             std::span<const std::uint32_t>(&builder_brush, 1U),
-            {146.0F, 40.0F, 64.0F, 52.0F}) ||
+            {146.0F, 40.0F, 64.0F, 52.0F},
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            builder_path_boolean_nodes) ||
         !native_builder.add_rgba8_image(
             2U,
             2U,

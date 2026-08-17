@@ -383,6 +383,7 @@ public static partial class GpuPictureNativeSceneCompiler
         var geometryBrushIndices = new List<uint>();
         var paths = new List<NativeScenePathFill>();
         var pathSegments = new List<NativePathSegment>();
+        var pathBooleanNodes = new List<NativeScenePathBooleanNode>();
         var pathBrushIndices = new List<uint>();
         var pointBatches = new List<NativeScenePointBatch>();
         var points = new List<Vector2>();
@@ -532,6 +533,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     geometryBrushIndices,
                     paths,
                     pathSegments,
+                    pathBooleanNodes,
                     pathBrushIndices,
                     pointBatches,
                     points,
@@ -613,6 +615,8 @@ public static partial class GpuPictureNativeSceneCompiler
                 geometry.Count * Unsafe.SizeOf<NativeGeometryPrimitive>() +
                 paths.Count * Unsafe.SizeOf<NativeScenePathFill>() +
                 pathSegments.Count * Unsafe.SizeOf<NativePathSegment>() +
+                pathBooleanNodes.Count *
+                    Unsafe.SizeOf<NativeScenePathBooleanNode>() +
                 pointBatches.Count * Unsafe.SizeOf<NativeScenePointBatch>() +
                 points.Count * Unsafe.SizeOf<Vector2>() +
                 vertexMeshes.Count * Unsafe.SizeOf<NativeSceneVertexMesh>() +
@@ -677,6 +681,8 @@ public static partial class GpuPictureNativeSceneCompiler
                 CollectionsMarshal.AsSpan(paths);
             Span<NativePathSegment> pathSegmentSpan =
                 CollectionsMarshal.AsSpan(pathSegments);
+            Span<NativeScenePathBooleanNode> pathBooleanNodeSpan =
+                CollectionsMarshal.AsSpan(pathBooleanNodes);
             Span<NativeScenePointBatch> pointBatchSpan =
                 CollectionsMarshal.AsSpan(pointBatches);
             Span<Vector2> pointSpan = CollectionsMarshal.AsSpan(points);
@@ -742,6 +748,9 @@ public static partial class GpuPictureNativeSceneCompiler
                         pathSegmentSpan.Slice(
                             batch.AuxiliaryStart,
                             batch.AuxiliaryCount),
+                        pathBooleanNodeSpan.Slice(
+                            batch.SecondaryStart,
+                            batch.SecondaryCount),
                         out batch.ResourceIndex)
                     : batch.Kind == BatchKind.PointBatch
                     ? builder.TryAddPointBatchResource(
@@ -1341,6 +1350,7 @@ public static partial class GpuPictureNativeSceneCompiler
         List<uint> geometryBrushIndices,
         List<NativeScenePathFill> paths,
         List<NativePathSegment> pathSegments,
+        List<NativeScenePathBooleanNode> pathBooleanNodes,
         List<uint> pathBrushIndices,
         List<NativeScenePointBatch> pointBatches,
         List<Vector2> points,
@@ -1450,6 +1460,7 @@ public static partial class GpuPictureNativeSceneCompiler
                         transform,
                         paths,
                         pathSegments,
+                        pathBooleanNodes,
                         pathBrushIndices,
                         batches,
                         operations,
@@ -1563,6 +1574,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     geometryBrushIndices,
                     paths,
                     pathSegments,
+                    pathBooleanNodes,
                     pathBrushIndices,
                     batches,
                     operations,
@@ -1578,6 +1590,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     geometryBrushIndices,
                     paths,
                     pathSegments,
+                    pathBooleanNodes,
                     pathBrushIndices,
                     batches,
                     operations,
@@ -2769,6 +2782,7 @@ public static partial class GpuPictureNativeSceneCompiler
         List<uint> geometryBrushIndices,
         List<NativeScenePathFill> nativePaths,
         List<NativePathSegment> nativeSegments,
+        List<NativeScenePathBooleanNode> nativeBooleanNodes,
         List<uint> pathBrushIndices,
         List<Batch> batches,
         List<Operation> operations,
@@ -2780,6 +2794,12 @@ public static partial class GpuPictureNativeSceneCompiler
         {
             error = NativePictureCompileError.InvalidGeometry;
             return false;
+        }
+        if ((path.IsCombined &&
+                path.CombinedQueryKind == CombinedPathQueryKind.Empty) ||
+            (!path.IsCombined && path.Figures.Count == 0))
+        {
+            return true;
         }
         if (command.Brush is null && command.Pen is null)
         {
@@ -2796,6 +2816,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     transform,
                     nativePaths,
                     nativeSegments,
+                    nativeBooleanNodes,
                     pathBrushIndices,
                     batches,
                     operations,
@@ -3317,6 +3338,29 @@ public static partial class GpuPictureNativeSceneCompiler
         List<Batch> batches,
         List<Operation> operations,
         NativeBrushTableBuilder materials,
+        out NativePictureCompileError error) =>
+        TryAppendPathFill(
+            command,
+            transform,
+            nativePaths,
+            nativeSegments,
+            null,
+            brushIndices,
+            batches,
+            operations,
+            materials,
+            out error);
+
+    private static bool TryAppendPathFill(
+        in RenderCommand command,
+        Matrix3x2 transform,
+        List<NativeScenePathFill> nativePaths,
+        List<NativePathSegment> nativeSegments,
+        List<NativeScenePathBooleanNode>? nativeBooleanNodes,
+        List<uint> brushIndices,
+        List<Batch> batches,
+        List<Operation> operations,
+        NativeBrushTableBuilder materials,
         out NativePictureCompileError error)
     {
         error = NativePictureCompileError.None;
@@ -3330,51 +3374,78 @@ public static partial class GpuPictureNativeSceneCompiler
             error = NativePictureCompileError.InvalidGeometry;
             return false;
         }
-        if (path.IsCombined)
-        {
-            error = NativePictureCompileError.UnsupportedCommand;
-            return false;
-        }
         if (MathF.Abs(transform.GetDeterminant()) <= 0.000001f)
         {
             error = NativePictureCompileError.UnsupportedTransform;
             return false;
         }
 
-        (_, GpuPathSegment[] segments) = PathAtlas.CompileFillPath(
-            path,
-            out float minimumX,
-            out float minimumY,
-            out float maximumX,
-            out float maximumY);
-        if (segments.Length == 0 || !float.IsFinite(minimumX) ||
-            !float.IsFinite(minimumY) || !float.IsFinite(maximumX) ||
-            !float.IsFinite(maximumY) || maximumX <= minimumX ||
-            maximumY <= minimumY)
+        NativePathSegment[] segments;
+        NativeScenePathBooleanNode[] booleanNodes;
+        Vector2 minimum;
+        Vector2 maximum;
+        NativeFillRule fillRule;
+        if (path.IsCombined)
         {
-            error = NativePictureCompileError.InvalidGeometry;
-            return false;
+            if (nativeBooleanNodes is null ||
+                !TryCompileBooleanVectorMaskGeometry(
+                    path,
+                    transform,
+                    out NativeSceneClipPath compiled,
+                    out segments,
+                    out booleanNodes,
+                    out error))
+            {
+                if (error == NativePictureCompileError.None)
+                    error = NativePictureCompileError.UnsupportedCommand;
+                return false;
+            }
+            minimum = compiled.Minimum;
+            maximum = compiled.Maximum;
+            fillRule = NativeFillRule.NonZero;
         }
-        for (int index = 0; index < segments.Length; index++)
+        else
         {
-            ref readonly GpuPathSegment segment = ref segments[index];
-            if (segment.SegmentType > (uint)NativePathSegmentKind.Arc ||
-                !IsFinite(segment.P0) || !IsFinite(segment.P1) ||
-                !IsFinite(segment.P2) || !IsFinite(segment.P3) ||
-                (segment.SegmentType == (uint)NativePathSegmentKind.Arc
-                    ? segment.P3.X <= 0f || segment.P3.Y <= 0f ||
-                        !float.IsFinite(BitConverter.Int32BitsToSingle(
-                            unchecked((int)segment.Pad0))) ||
-                        !float.IsFinite(BitConverter.Int32BitsToSingle(
-                            unchecked((int)segment.Pad1))) ||
-                        !float.IsFinite(BitConverter.Int32BitsToSingle(
-                            unchecked((int)segment.Pad2)))
-                    : segment.Pad0 != 0U || segment.Pad1 != 0U ||
-                        segment.Pad2 != 0U))
+            (_, GpuPathSegment[] sourceSegments) = PathAtlas.CompileFillPath(
+                path,
+                out float minimumX,
+                out float minimumY,
+                out float maximumX,
+                out float maximumY);
+            if (sourceSegments.Length == 0 || !float.IsFinite(minimumX) ||
+                !float.IsFinite(minimumY) || !float.IsFinite(maximumX) ||
+                !float.IsFinite(maximumY) || maximumX <= minimumX ||
+                maximumY <= minimumY)
             {
                 error = NativePictureCompileError.InvalidGeometry;
                 return false;
             }
+            segments = GC.AllocateUninitializedArray<NativePathSegment>(
+                sourceSegments.Length);
+            for (int index = 0; index < sourceSegments.Length; index++)
+            {
+                ref readonly GpuPathSegment segment = ref sourceSegments[index];
+                if (!IsValidCompiledPathSegment(in segment))
+                {
+                    error = NativePictureCompileError.InvalidGeometry;
+                    return false;
+                }
+                segments[index] = new NativePathSegment(
+                    (NativePathSegmentKind)segment.SegmentType,
+                    segment.P0,
+                    segment.P1,
+                    segment.P2,
+                    segment.P3,
+                    segment.Pad0,
+                    segment.Pad1,
+                    segment.Pad2);
+            }
+            booleanNodes = [];
+            minimum = new Vector2(minimumX, minimumY);
+            maximum = new Vector2(maximumX, maximumY);
+            fillRule = path.FillRule == FillRule.EvenOdd
+                ? NativeFillRule.EvenOdd
+                : NativeFillRule.NonZero;
         }
         if (!materials.TryRegister(command.Brush, out uint brushIndex, out error))
         {
@@ -3388,20 +3459,28 @@ public static partial class GpuPictureNativeSceneCompiler
         ulong resourceSegmentOffset = continuing
             ? checked((ulong)batches[^1].AuxiliaryCount)
             : 0U;
+        ulong resourceBooleanNodeOffset = continuing
+            ? checked((ulong)batches[^1].SecondaryCount)
+            : 0U;
         int pathStart = nativePaths.Count;
         int segmentStart = nativeSegments.Count;
         for (int index = 0; index < segments.Length; index++)
         {
-            ref readonly GpuPathSegment segment = ref segments[index];
-            nativeSegments.Add(new(
-                (NativePathSegmentKind)segment.SegmentType,
-                segment.P0,
-                segment.P1,
-                segment.P2,
-                segment.P3,
-                segment.Pad0,
-                segment.Pad1,
-                segment.Pad2));
+            nativeSegments.Add(segments[index]);
+        }
+        int booleanNodeStart = nativeBooleanNodes?.Count ?? 0;
+        for (int index = 0; index < booleanNodes.Length; index++)
+        {
+            NativeScenePathBooleanNode node = booleanNodes[index];
+            nativeBooleanNodes!.Add(node.Kind == NativePathBooleanNodeKind.Leaf
+                ? new NativeScenePathBooleanNode(
+                    checked(resourceSegmentOffset + node.SegmentOffset),
+                    node.SegmentCount,
+                    node.Minimum,
+                    node.Maximum,
+                    node.FillRule,
+                    node.Kind)
+                : node);
         }
         uint sampleGrid = command.PathSampleGrid >=
             PathAtlas.HighPrecisionCoverageSampleGrid
@@ -3410,14 +3489,14 @@ public static partial class GpuPictureNativeSceneCompiler
         nativePaths.Add(new(
             resourceSegmentOffset,
             checked((ulong)segments.Length),
-            new Vector2(minimumX, minimumY),
-            new Vector2(maximumX, maximumY),
+            minimum,
+            maximum,
             Vector4.One,
             transform,
-            path.FillRule == FillRule.EvenOdd
-                ? NativeFillRule.EvenOdd
-                : NativeFillRule.NonZero,
-            sampleGrid));
+            fillRule,
+            sampleGrid,
+            booleanNodes.Length == 0 ? 0U : resourceBooleanNodeOffset,
+            checked((ulong)booleanNodes.Length)));
         brushIndices.Add(brushIndex);
         AppendBatch(
             batches,
@@ -3428,13 +3507,15 @@ public static partial class GpuPictureNativeSceneCompiler
             1,
             TransformBounds(
                 new Rect(
-                    minimumX,
-                    minimumY,
-                    maximumX - minimumX,
-                    maximumY - minimumY),
+                    minimum.X,
+                    minimum.Y,
+                    maximum.X - minimum.X,
+                    maximum.Y - minimum.Y),
                 transform),
             segmentStart,
-            segments.Length);
+            segments.Length,
+            booleanNodeStart,
+            booleanNodes.Length);
         return true;
     }
 
@@ -4110,8 +4191,10 @@ public static partial class GpuPictureNativeSceneCompiler
                 previous.Start + previous.Count == start &&
                 previous.BrushStart + previous.Count == brushStart &&
                 (kind != BatchKind.Path ||
-                    previous.AuxiliaryStart + previous.AuxiliaryCount ==
-                        auxiliaryStart) &&
+                    (previous.AuxiliaryStart + previous.AuxiliaryCount ==
+                        auxiliaryStart &&
+                     previous.SecondaryStart + previous.SecondaryCount ==
+                        secondaryStart)) &&
                 (kind != BatchKind.PointBatch ||
                     previous.AuxiliaryStart + previous.AuxiliaryCount ==
                         auxiliaryStart) &&

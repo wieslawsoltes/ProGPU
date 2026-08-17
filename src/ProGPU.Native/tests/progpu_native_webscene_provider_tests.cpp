@@ -481,6 +481,8 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
     const progpu_native_scene_path_fill path{
         0U,
         std::size(path_segments),
+        0U,
+        0U,
         0.0F,
         0.0F,
         12.0F,
@@ -970,9 +972,41 @@ std::vector<std::byte> create_semantic_opacity_layer_scene_stream(
         {{0.0F, 12.0F}, {0.0F, 0.0F}, {}, {},
             PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}
     };
+    const std::array path_segments{
+        square_segments[0],
+        square_segments[1],
+        square_segments[2],
+        square_segments[3],
+        progpu_native_path_segment{
+            {3.0F, 3.0F}, {9.0F, 3.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {9.0F, 3.0F}, {9.0F, 9.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {9.0F, 9.0F}, {3.0F, 9.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {3.0F, 9.0F}, {3.0F, 3.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const std::array path_boolean_nodes{
+        progpu_native_scene_path_boolean_node{
+            0U, 4U, 0.0F, 0.0F, 12.0F, 12.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            4U, 4U, 3.0F, 3.0F, 9.0F, 9.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE, 0U, 0U}};
     const progpu_native_scene_path_fill outer_path{
         0U,
-        std::size(square_segments),
+        path_segments.size(),
+        0U,
+        path_boolean_nodes.size(),
         0.0F,
         0.0F,
         12.0F,
@@ -987,8 +1021,17 @@ std::vector<std::byte> create_semantic_opacity_layer_scene_stream(
         1U);
     const std::uint32_t outer_path_segment_offset = append_scene_payload(
         stream,
-        square_segments,
-        std::size(square_segments));
+        path_segments.data(),
+        path_segments.size());
+    const std::uint32_t outer_path_boolean_node_offset =
+        append_scene_payload(
+            stream,
+            path_boolean_nodes.data(),
+            path_boolean_nodes.size());
+    if (outer_path_boolean_node_offset !=
+        outer_path_segment_offset + sizeof(path_segments)) {
+        std::abort();
+    }
 
     const progpu_native_scene_glyph_outline inner_outline{
         0U,
@@ -1167,7 +1210,7 @@ std::vector<std::byte> create_semantic_opacity_layer_scene_stream(
         outer_path_offset,
         sizeof(outer_path),
         outer_path_segment_offset,
-        sizeof(square_segments)};
+        sizeof(path_segments) + sizeof(path_boolean_nodes)};
     resources[2] = {
         sizeof(progpu_native_scene_resource),
         PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN,
@@ -1851,19 +1894,22 @@ void verify_semantic_layer_scene(
     const auto* red = pixel(8U * scale, 8U * scale);
     const auto* unshifted_green = pixel(24U * scale, 8U * scale);
     const auto* bounded_green = pixel(20U * scale, 28U * scale);
-    const auto* green = pixel(24U * scale, 28U * scale);
+    const auto* green = pixel(22U * scale, 28U * scale);
+    const auto* path_hole = pixel(26U * scale, 28U * scale);
     const auto* blue = pixel(40U * scale, 28U * scale);
     const auto* magenta = pixel(8U * scale, 28U * scale);
     const auto* yellow = pixel(56U * scale, 8U * scale);
     std::fprintf(stderr,
         "semantic-layer clear=%u,%u,%u,%u red=%u,%u,%u,%u "
         "green=%u,%u,%u,%u blue=%u,%u,%u,%u "
+        "path-hole=%u,%u,%u,%u "
         "magenta=%u,%u,%u,%u "
         "yellow=%u,%u,%u,%u\n",
         clear[0], clear[1], clear[2], clear[3],
         red[0], red[1], red[2], red[3],
         green[0], green[1], green[2], green[3],
         blue[0], blue[1], blue[2], blue[3],
+        path_hole[0], path_hole[1], path_hole[2], path_hole[3],
         magenta[0], magenta[1], magenta[2], magenta[3],
         yellow[0], yellow[1], yellow[2], yellow[3]);
     require(is_bgra(clear, 10U, 8U, 5U),
@@ -1876,6 +1922,8 @@ void verify_semantic_layer_scene(
         "bounded semantic layer did not crop its left edge");
     require(is_bgra(green, 5U, 131U, 3U),
         "outer semantic group opacity is incorrect");
+    require(is_bgra(path_hole, 10U, 8U, 5U),
+        "combined path subtraction did not preserve its GPU hole");
     require(is_bgra(blue, 71U, 6U, 4U),
         "nested semantic group opacity is incorrect");
     require(is_bgra(magenta, 74U, 8U, 69U, 4),

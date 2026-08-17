@@ -1,4 +1,5 @@
 #include "progpu_native_frame_execution_common.hpp"
+#include "progpu_native_path_boolean_gpu.hpp"
 
 namespace progpu::native::execution {
 
@@ -29,9 +30,25 @@ progpu_native_status render_paths(
                 PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                 "The path frame descriptor is invalid.");
     }
+    const bool has_boolean_program_fields =
+        frame->struct_size >= sizeof(progpu_native_path_frame);
+    const auto* boolean_nodes = has_boolean_program_fields
+        ? frame->boolean_nodes
+        : nullptr;
+    const std::size_t boolean_node_count = has_boolean_program_fields
+        ? frame->boolean_node_count
+        : 0U;
+    if (boolean_node_count > (1U << 22U) ||
+        (boolean_node_count != 0U && boolean_nodes == nullptr)) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "The path boolean-program arena is invalid.");
+    }
     resolved_draw_state draw_state{};
     const auto* requested_draw_state =
-        frame->struct_size >= sizeof(progpu_native_path_frame)
+        frame->struct_size >= offsetof(
+            progpu_native_path_frame,
+            boolean_nodes)
             ? frame->draw_state
             : nullptr;
     if (!resolve_draw_state(
@@ -119,7 +136,8 @@ progpu_native_status render_paths(
             engine->path_brush_bytes.clear();
             engine->path_rasters.clear();
             path_uniforms.reserve(frame->path_count);
-            path_records.reserve(frame->path_count);
+            path_records.reserve(
+                frame->path_count + boolean_node_count * 2U);
             engine->path_rasters.reserve(frame->path_count);
             engine->path_vertices.reserve(frame->path_count * 4U);
             engine->path_indices.reserve(frame->path_count * 6U);
@@ -164,6 +182,7 @@ progpu_native_status render_paths(
                         "A path segment kind, point, arc, or reserved field is invalid.");
                 }
             }
+            std::size_t expected_boolean_node_offset = 0U;
             for (std::size_t index = 0U;
                  index < frame->path_count;
                  ++index) {
@@ -181,11 +200,19 @@ progpu_native_status render_paths(
                     !progpu::native::is_finite(path.color) ||
                     !progpu::native::is_finite(path.transform) ||
                     path.fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD ||
-                    (path.sample_grid != 4U && path.sample_grid != 8U)) {
+                    (path.sample_grid != 4U && path.sample_grid != 8U) ||
+                    (path.boolean_node_count != 0U &&
+                        path.boolean_node_offset !=
+                            expected_boolean_node_offset) ||
+                    !path_boolean::validate(
+                        path,
+                        boolean_nodes,
+                        boolean_node_count)) {
                     return engine->fail(
                         PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                         "A path range, bound, transform, fill rule, or sample grid is invalid.");
                 }
+                expected_boolean_node_offset += path.boolean_node_count;
                 float maximum_scale = 0.0F;
                 float minimum_scale = 0.0F;
                 if (!progpu::native::try_get_stroke_scales(
@@ -205,6 +232,8 @@ progpu_native_status render_paths(
                 native_path_cache_key cache_key{};
                 cache_key.segment_offset = path.segment_offset;
                 cache_key.segment_count = path.segment_count;
+                cache_key.boolean_node_offset = path.boolean_node_offset;
+                cache_key.boolean_node_count = path.boolean_node_count;
                 cache_key.min_x = std::bit_cast<std::uint32_t>(path.min_x);
                 cache_key.min_y = std::bit_cast<std::uint32_t>(path.min_y);
                 cache_key.max_x = std::bit_cast<std::uint32_t>(path.max_x);
@@ -292,29 +321,23 @@ progpu_native_status render_paths(
                         subpixel_x,
                         subpixel_y
                     });
+                    const auto program = path_boolean::append_gpu_records(
+                        path,
+                        boolean_nodes,
+                        path_records);
                     path_uniforms.push_back({
                         raster_min_x - subpixel_x,
                         raster_min_y - subpixel_y,
                         raster_scale,
                         raster_scale,
-                        static_cast<std::uint32_t>(raster_index),
+                        program.path_record_index,
                         output_offset / 4U,
                         output_bytes_per_row / 4U,
                         width,
                         height,
                         path.sample_grid,
-                        0U,
-                        0U
-                    });
-                    path_records.push_back({
-                        static_cast<std::uint32_t>(path.segment_offset),
-                        static_cast<std::uint32_t>(path.segment_count),
-                        path.min_x,
-                        path.min_y,
-                        path.max_x,
-                        path.max_y,
-                        path.fill_rule,
-                        0U
+                        program.program_index,
+                        program.operation_kind
                     });
                     retained_tiles.emplace(cache_key, raster_index);
                     output_offset = static_cast<std::uint32_t>(next_output);
@@ -377,6 +400,11 @@ progpu_native_status render_paths(
                         sizeof(path.color));
                 }
 
+            }
+            if (expected_boolean_node_offset != boolean_node_count) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                    "Every path boolean-program node must have one owner.");
             }
             coverage_staging_bytes = output_offset;
             rasterized_path_count = static_cast<std::uint32_t>(

@@ -454,6 +454,8 @@ int main(int argc, char** argv) {
     const progpu_native_scene_path_fill native_path{
         0U,
         native_path_segments.size(),
+        0U,
+        0U,
         566.0F,
         228.0F,
         616.0F,

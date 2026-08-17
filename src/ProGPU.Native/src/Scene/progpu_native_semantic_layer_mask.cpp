@@ -1,4 +1,5 @@
 #include "progpu_native_semantic_layer_mask.hpp"
+#include "progpu_native_path_boolean_validation.hpp"
 
 #include <algorithm>
 #include <array>
@@ -142,57 +143,10 @@ bool valid_vector_path(
         path.reserved == 0U)) {
         return false;
     }
-    if (path.boolean_node_count == 0U) {
-        return path.boolean_node_offset == 0U;
-    }
-    if (path.boolean_node_count > 63U || boolean_nodes == nullptr ||
-        path.boolean_node_offset > boolean_node_count ||
-        path.boolean_node_count >
-            boolean_node_count - path.boolean_node_offset) {
-        return false;
-    }
-    std::uint32_t stack_depth = 0U;
-    const std::uint64_t segment_end =
-        path.segment_offset + path.segment_count;
-    for (std::uint64_t index = path.boolean_node_offset;
-         index < path.boolean_node_offset + path.boolean_node_count;
-         ++index) {
-        const auto& node = boolean_nodes[index];
-        if (node.kind > PROGPU_NATIVE_PATH_BOOLEAN_REVERSE_DIFFERENCE ||
-            node.reserved0 != 0U || node.reserved1 != 0U) {
-            return false;
-        }
-        if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF) {
-            if (stack_depth >= 16U || node.segment_count == 0U ||
-                node.segment_offset < path.segment_offset ||
-                node.segment_offset > segment_end ||
-                node.segment_count > segment_end - node.segment_offset ||
-                !std::isfinite(node.min_x) || !std::isfinite(node.min_y) ||
-                !std::isfinite(node.max_x) || !std::isfinite(node.max_y) ||
-                node.max_x <= node.min_x || node.max_y <= node.min_y ||
-                node.fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD) {
-                return false;
-            }
-            ++stack_depth;
-        } else if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_EMPTY) {
-            if (stack_depth >= 16U || node.segment_offset != 0U ||
-                node.segment_count != 0U || node.min_x != 0.0F ||
-                node.min_y != 0.0F || node.max_x != 0.0F ||
-                node.max_y != 0.0F || node.fill_rule != 0U) {
-                return false;
-            }
-            ++stack_depth;
-        } else {
-            if (stack_depth < 2U || node.segment_offset != 0U ||
-                node.segment_count != 0U || node.min_x != 0.0F ||
-                node.min_y != 0.0F || node.max_x != 0.0F ||
-                node.max_y != 0.0F || node.fill_rule != 0U) {
-                return false;
-            }
-            --stack_depth;
-        }
-    }
-    return stack_depth == 1U;
+    return path_boolean::validate(
+        path,
+        boolean_nodes,
+        boolean_node_count);
 }
 
 bool valid_vector(

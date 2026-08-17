@@ -1139,9 +1139,9 @@ ordered semantic layers now own bounded backdrop input.
 - retained filled-path transfer, native compute orchestration, 64-phase
   ordinary-path keys, a bounded geometrically growing R8 atlas, published
   generation, and stable replay are implemented
-  with the production `PathRasterizer.wgsl`; boolean programs are implemented
-  for combined-path clips, while direct filled-path boolean programs,
-  multi-page eviction/recovery, and cache compaction remain;
+  with the production `PathRasterizer.wgsl`; the same bounded postfix boolean
+  programs are implemented for combined-path clips and direct combined fills,
+  while multi-page eviction/recovery and cache compaction remain;
 - positioned glyph-run transfer, glyph compute orchestration reusing
   `GlyphRasterizer.wgsl`, a bounded native text atlas, production `Text.wgsl`
   composition, Retina DPI, quarter-pixel phase input, and retained replay are
@@ -1369,7 +1369,8 @@ input before child commands execute; restore opacity, mask, and blend remain a
 single pop operation.
 
 The implemented typed payload prefixes are fixed-width: 72-byte analytic
-primitives, 80-byte semantic path fills with 64-bit segment indices, 48-byte
+primitives, 96-byte semantic path fills with 64-bit segment and boolean-program
+indices, 48-byte
 path segments, 40-byte semantic glyph outlines with 64-bit segment indices,
 64-byte positioned glyphs, and 88-byte image draws. Current x64/arm64 packages
 consume the two 64-bit-index records zero-copy because their native family
@@ -1434,12 +1435,16 @@ The managed substitution adapter also targets the existing semantic
 tessellator. Consecutive fill-only `DrawPath` commands compile once through
 the shared CPU path-segment canonicalizer, then coalesce into one pointer-free
 resource whose fixed-width records reference a contiguous line, quadratic,
-cubic, and analytic-arc segment arena. Nonzero/even-odd fill rules, 4x4/8x8
+cubic, and analytic-arc segment arena. Combined fills additionally reference a
+contiguous resource-local arena of canonical 48-byte postfix nodes.
+Nonzero/even-odd fill rules, 4x4/8x8
 coverage selection, affine transforms, and the shared solid/gradient brush
 table remain explicit. Every segment and transformed bound is finite-checked;
-singular transforms, combined boolean paths, and `DrawPath` strokes fail with typed
-diagnostics until their dedicated continuation slices land. Changed lowering
-is `O(P + S)` time and storage for `P` paths and `S` segments; unchanged
+singular transforms and unsupported combined-boundary strokes fail with typed
+diagnostics. A combined program is bounded to 63 instructions and a stack
+depth of 16; leaf ranges must remain inside the owning path segment slice.
+Changed lowering is `O(P + S + B)` time and storage for `P` paths, `S`
+segments, and `B` boolean instructions; unchanged
 render-bundle replay performs no path translation, managed allocation,
 coverage recomputation, or upload.
 
@@ -1657,7 +1662,7 @@ per-frame stream rebuilding. The current accepted prefix is intentionally
 narrow: affine analytic primitives, affine geometry, periodic dot grids, and
 square/round point batches including one-device-pixel hairlines, indexed or
 unindexed vertex meshes, connected polylines and adaptive NURBS strokes, plus
-non-combined retained path fills containing line,
+ordinary and combined retained path fills containing line,
 quadratic, cubic, or analytic-arc segments, with solid,
 linear, radial, two-point conical, or sweep-gradient brushes. Brush
 opacity, sorted
@@ -1671,9 +1676,10 @@ existing native absolute-state resources and save/restore commands. State
 boundaries terminate draw batches; stable replay does not inspect or rebuild
 the managed state stack. Geometry-mask affine transforms may rotate or shear;
 ordinary rectangular scissors and direct solid opacity masks retain their
-axis-aligned subset. Non-finite or non-invertible transforms, nested/general
-vector masks, and mismatched or unterminated scopes fail with typed
-source-command diagnostics. Perlin materials,
+axis-aligned subset. Non-finite or non-invertible transforms, malformed or
+over-budget vector programs, unsupported picture/gradient opacity masks, and
+mismatched or unterminated scopes fail with typed source-command diagnostics.
+Perlin materials,
 color/vector/bitmap glyphs, text decorations, text masks, typed 2D/3D geometry,
 advanced blend isolation, and ordinary straight-alpha image draws are now
 retained. Images preserve source rectangles, all managed sampling modes,
@@ -1690,7 +1696,7 @@ fixed-color, and atlas-color patch kinds, destination transforms, blend modes,
 custom-cubic opacity sign, pixel snapping, every mip-filter combination, and
 bounded anisotropy in one C++ GPU draw. The remaining
 explicit exclusions are
-combined geometry draws, opaque static-DXF
+combined-boundary path strokes, opaque static-DXF
 extension objects, mutable embedded `Visual` instances, and
 non-affine image effects. Those records fail with a
 typed source-command diagnostic; no managed

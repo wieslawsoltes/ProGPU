@@ -1,6 +1,7 @@
 #include "progpu_native_semantic_validation.hpp"
 
 #include "progpu_native_geometry.hpp"
+#include "progpu_native_path_boolean_validation.hpp"
 
 #include <bit>
 #include <cmath>
@@ -117,6 +118,8 @@ bool is_valid_semantic_segment(
 bool is_valid_semantic_path(
     const progpu_native_scene_path_fill& path,
     std::uint64_t segment_count,
+    const progpu_native_scene_path_boolean_node* boolean_nodes,
+    std::uint64_t boolean_node_count,
     std::uint64_t* coverage_bytes) noexcept {
     if (path.segment_count == 0U ||
         path.segment_offset > segment_count ||
@@ -127,6 +130,12 @@ bool is_valid_semantic_path(
         !is_finite(path.color) || !is_finite(path.transform) ||
         path.fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD ||
         (path.sample_grid != 4U && path.sample_grid != 8U)) {
+        return false;
+    }
+    if (!path_boolean::validate(
+            path,
+            boolean_nodes,
+            static_cast<std::size_t>(boolean_node_count))) {
         return false;
     }
     float maximum_scale = 0.0F;
@@ -156,6 +165,18 @@ bool is_valid_semantic_path(
             align_up(width, copy_row_alignment)) * height;
     }
     return valid;
+}
+
+bool is_valid_semantic_path(
+    const progpu_native_scene_path_fill& path,
+    std::uint64_t segment_count,
+    std::uint64_t* coverage_bytes) noexcept {
+    return is_valid_semantic_path(
+        path,
+        segment_count,
+        nullptr,
+        0U,
+        coverage_bytes);
 }
 
 bool is_valid_semantic_glyph_outline(

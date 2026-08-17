@@ -8,7 +8,7 @@ always returns a typed failure without partially committing a scene.
 
 | Route | Commands | Current boundary |
 | --- | --- | --- |
-| Direct draw | Rect, path fill, exact general-path stroke, text, image, analytic geometry, polyline/spline, point/mesh/chart, glyph, and 3D line/mesh families | CPU-only combined-path materialization remains a typed payload exclusion. |
+| Direct draw | Rect, ordinary and combined path fill, exact general-path stroke, text, image, analytic geometry, polyline/spline, point/mesh/chart, glyph, and 3D line/mesh families | Combined fills retain the canonical bounded GPU postfix program. Combined-boundary strokes remain a typed exclusion because the managed renderer has no exact combined-stroke contract; operand-outline approximation is forbidden. |
 | State scope | Clip, opacity, geometry-mask, opacity-mask, and blend push/pop | Canonical affine rectangles/rounded rectangles use the 1–4-node analytic fast path. Arbitrary line/quadratic/cubic/arc geometry, combined-path boolean clips, and 5–64 nested intersect/difference clips use retained GPU vector masks. Solid opacity folding is implemented; gradient/picture opacity-mask content remains a typed exclusion. |
 | Nested picture | `DrawPicture` | Immutable retained children are recursively flattened with state-boundary validation. |
 | Built-in extension | `DrawExtension` | Line/spline/chart/3D/hatch built-ins are selected by stable extension ID; hatch boundaries reuse retained path batches and shared hatch material kinds, while unknown or object-backed extensions fail closed. |
@@ -44,6 +44,18 @@ Stable replay performs one scene submission with no retained upload or managed
 allocation. The native atlas normalizes every packed UV only after the final
 atlas size is known, so a later path that grows the atlas cannot invalidate an
 earlier path's sampling coordinates.
+
+Direct combined fills reuse that exact representation and GPU program rather
+than materializing a CPU path operation. Each semantic path record owns a
+contiguous segment slice plus an optional resource-local postfix slice; direct
+frames expose the same node arena through the append-only frame suffix. C# and
+C++ validate canonical leaf ownership, finite bounds and fill rules, at most 63
+instructions, and a maximum evaluation depth of 16 before any GPU resource is
+created. Native x64/arm64 replay consumes the fixed-width records directly;
+wasm32 performs one checked translation into host-sized offsets. The existing
+`PathRasterizer.wgsl` evaluates both ordinary and combined fills, so this adds
+no shader fork, CPU boolean flattening, per-command interop, or stable-frame
+upload.
 
 General-path strokes retain their source line, quadratic, cubic, and analytic
 arc records. The managed compiler materializes dash intervals only when the

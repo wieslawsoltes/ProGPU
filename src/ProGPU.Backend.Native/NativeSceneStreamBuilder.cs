@@ -514,14 +514,91 @@ public ref struct NativeSceneStreamBuilder
         scoped ReadOnlySpan<NativePathSegment> segments,
         out uint resourceIndex,
         NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required) =>
-        TryAddResource(
-            NativeSceneResourceKind.PathBatch,
+        TryAddPathResource(
             resourceId,
             generation,
-            MemoryMarshal.AsBytes(paths),
+            paths,
+            segments,
+            default,
             out resourceIndex,
-            MemoryMarshal.AsBytes(segments),
             flags);
+
+    public bool TryAddPathResource(
+        ulong resourceId,
+        ulong generation,
+        scoped ReadOnlySpan<NativeScenePathFill> paths,
+        scoped ReadOnlySpan<NativePathSegment> segments,
+        scoped ReadOnlySpan<NativeScenePathBooleanNode> booleanNodes,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        if (_built || _resourceCount == _resourceCapacity ||
+            resourceId == 0U || resourceId <= _lastResourceId ||
+            generation == 0U || flags != NativeSceneRecordFlags.Required ||
+            paths.IsEmpty || segments.IsEmpty ||
+            (uint)paths.Length > NativeMethods.SceneMaximumDrawBrushIndices)
+        {
+            return false;
+        }
+        ulong expectedSegmentOffset = 0U;
+        ulong expectedBooleanNodeOffset = 0U;
+        for (int index = 0; index < paths.Length; index++)
+        {
+            ref readonly NativeScenePathFill path = ref paths[index];
+            if (path.SegmentOffset != expectedSegmentOffset ||
+                (path.BooleanNodeCount != 0U &&
+                    path.BooleanNodeOffset != expectedBooleanNodeOffset) ||
+                !IsValidScenePathFill(in path, segments.Length, booleanNodes) ||
+                path.SegmentCount > ulong.MaxValue - expectedSegmentOffset ||
+                path.BooleanNodeCount > ulong.MaxValue - expectedBooleanNodeOffset)
+            {
+                return false;
+            }
+            expectedSegmentOffset += path.SegmentCount;
+            expectedBooleanNodeOffset += path.BooleanNodeCount;
+        }
+        if (expectedSegmentOffset != (ulong)segments.Length ||
+            expectedBooleanNodeOffset != (ulong)booleanNodes.Length)
+        {
+            return false;
+        }
+        foreach (ref readonly NativePathSegment segment in segments)
+        {
+            if (!IsValidPathSegment(in segment))
+                return false;
+        }
+
+        int originalArenaSize = _arenaSize;
+        ReadOnlySpan<byte> payload = MemoryMarshal.AsBytes(paths);
+        ReadOnlySpan<byte> segmentBytes = MemoryMarshal.AsBytes(segments);
+        ReadOnlySpan<byte> booleanNodeBytes = MemoryMarshal.AsBytes(booleanNodes);
+        if (!TryWriteArena(payload, out uint payloadOffset) ||
+            !TryWriteArena(segmentBytes, out uint auxiliaryOffset) ||
+            (!booleanNodeBytes.IsEmpty &&
+                (!TryWriteArena(booleanNodeBytes, out uint booleanNodeOffset) ||
+                    booleanNodeOffset != auxiliaryOffset + (uint)segmentBytes.Length)))
+        {
+            _arenaSize = originalArenaSize;
+            return false;
+        }
+        var resource = new NativeMethods.SceneResource
+        {
+            StructSize = ResourceSize,
+            Kind = NativeSceneResourceKind.PathBatch,
+            Flags = flags,
+            ResourceId = resourceId,
+            Generation = generation,
+            PayloadOffset = payloadOffset,
+            PayloadSize = (uint)payload.Length,
+            AuxiliaryOffset = auxiliaryOffset,
+            AuxiliarySize = checked((uint)(segmentBytes.Length + booleanNodeBytes.Length))
+        };
+        Write(_resourceOffset + _resourceCount * ResourceSize, resource);
+        resourceIndex = (uint)_resourceCount++;
+        _lastResourceId = resourceId;
+        return true;
+    }
 
     public bool TryAddGlyphResource(
         ulong resourceId,
@@ -2209,26 +2286,72 @@ public ref struct NativeSceneStreamBuilder
             IsValidSceneBooleanProgram(in path, booleanNodes, available);
     }
 
+    private static bool IsValidScenePathFill(
+        in NativeScenePathFill path,
+        int segmentCount,
+        ReadOnlySpan<NativeScenePathBooleanNode> booleanNodes)
+    {
+        ulong available = checked((ulong)segmentCount);
+        return path.SegmentCount > 0U &&
+            path.SegmentOffset <= available &&
+            path.SegmentCount <= available - path.SegmentOffset &&
+            IsFinite(path.Minimum) && IsFinite(path.Maximum) &&
+            path.Maximum.X > path.Minimum.X &&
+            path.Maximum.Y > path.Minimum.Y &&
+            IsFinite(path.Color) && IsFinite(path.Transform) &&
+            MathF.Abs(path.Transform.GetDeterminant()) > 0.000001f &&
+            path.FillRule <= NativeFillRule.EvenOdd &&
+            path.SampleGrid is 4U or 8U &&
+            IsValidSceneBooleanProgram(in path, booleanNodes, available);
+    }
+
+    private static bool IsValidSceneBooleanProgram(
+        in NativeScenePathFill path,
+        ReadOnlySpan<NativeScenePathBooleanNode> nodes,
+        ulong segmentCount) =>
+        IsValidSceneBooleanProgram(
+            path.SegmentOffset,
+            path.SegmentCount,
+            path.BooleanNodeOffset,
+            path.BooleanNodeCount,
+            nodes,
+            segmentCount);
+
     private static bool IsValidSceneBooleanProgram(
         in NativeSceneClipPath path,
         ReadOnlySpan<NativeScenePathBooleanNode> nodes,
+        ulong segmentCount) =>
+        IsValidSceneBooleanProgram(
+            path.SegmentOffset,
+            path.SegmentCount,
+            path.BooleanNodeOffset,
+            path.BooleanNodeCount,
+            nodes,
+            segmentCount);
+
+    private static bool IsValidSceneBooleanProgram(
+        ulong segmentOffset,
+        ulong segmentLength,
+        ulong booleanNodeOffset,
+        ulong booleanNodeLength,
+        ReadOnlySpan<NativeScenePathBooleanNode> nodes,
         ulong segmentCount)
     {
-        if (path.BooleanNodeCount == 0U)
+        if (booleanNodeLength == 0U)
         {
-            return path.BooleanNodeOffset == 0U;
+            return booleanNodeOffset == 0U;
         }
         ulong availableNodes = checked((ulong)nodes.Length);
-        if (path.BooleanNodeCount > 63U ||
-            path.BooleanNodeOffset > availableNodes ||
-            path.BooleanNodeCount > availableNodes - path.BooleanNodeOffset)
+        if (booleanNodeLength > 63U ||
+            booleanNodeOffset > availableNodes ||
+            booleanNodeLength > availableNodes - booleanNodeOffset)
         {
             return false;
         }
         int stackDepth = 0;
-        ulong pathSegmentEnd = path.SegmentOffset + path.SegmentCount;
-        int start = checked((int)path.BooleanNodeOffset);
-        int end = checked(start + (int)path.BooleanNodeCount);
+        ulong pathSegmentEnd = segmentOffset + segmentLength;
+        int start = checked((int)booleanNodeOffset);
+        int end = checked(start + (int)booleanNodeLength);
         for (int index = start; index < end; index++)
         {
             ref readonly NativeScenePathBooleanNode node = ref nodes[index];
@@ -2240,7 +2363,7 @@ public ref struct NativeSceneStreamBuilder
             if (node.Kind == NativePathBooleanNodeKind.Leaf)
             {
                 if (stackDepth == 16 || node.SegmentCount == 0U ||
-                    node.SegmentOffset < path.SegmentOffset ||
+                    node.SegmentOffset < segmentOffset ||
                     node.SegmentOffset > pathSegmentEnd ||
                     node.SegmentCount > pathSegmentEnd - node.SegmentOffset ||
                     !IsFinite(node.Minimum) || !IsFinite(node.Maximum) ||
