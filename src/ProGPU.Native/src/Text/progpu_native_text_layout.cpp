@@ -56,13 +56,29 @@ float horizontal_advance(
     return static_cast<float>(glyph.advance_x) * scale;
 }
 
+bool has_flag(
+    shaping_glyph_flags value,
+    shaping_glyph_flags flag) noexcept {
+    return (static_cast<std::uint32_t>(value) &
+        static_cast<std::uint32_t>(flag)) != 0U;
+}
+
+bool is_safe_break_before(
+    std::span<const shaping_glyph> glyphs,
+    std::size_t index) noexcept {
+    return index == 0U || index >= glyphs.size() ||
+        (glyphs[index - 1U].cluster != glyphs[index].cluster &&
+            !has_flag(
+                glyphs[index].flags,
+                shaping_glyph_flags::unsafe_to_break));
+}
+
 bool can_break_after(
     std::span<const shaping_glyph> glyphs,
     std::span<const text_line_break_kind> breaks_after,
     std::size_t index) noexcept {
     return breaks_after[index] != text_line_break_kind::prohibited &&
-        (index + 1U == glyphs.size() ||
-            glyphs[index].cluster != glyphs[index + 1U].cluster);
+        is_safe_break_before(glyphs, index + 1U);
 }
 
 struct line_scan final {
@@ -133,8 +149,7 @@ line_scan scan_line(
     float cluster_width = 0.0F;
     std::size_t last_cluster_break = start;
     for (std::size_t index = start; index < glyphs.size(); ++index) {
-        if (index > start &&
-            glyphs[index - 1U].cluster != glyphs[index].cluster) {
+        if (index > start && is_safe_break_before(glyphs, index)) {
             last_cluster_break = index;
             cluster_width = width;
         }
@@ -159,8 +174,7 @@ line_scan scan_line(
             std::size_t hard_end = index + 1U;
             float hard_width = next_width;
             while (hard_end < glyphs.size() &&
-                glyphs[hard_end - 1U].cluster ==
-                    glyphs[hard_end].cluster) {
+                !is_safe_break_before(glyphs, hard_end)) {
                 hard_width += horizontal_advance(
                     glyphs[hard_end], options.scale);
                 ++hard_end;

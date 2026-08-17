@@ -624,8 +624,12 @@ caller-supplied break decisions, preserving the managed ProGPU separation
 between reusable shaping, Unicode paragraph analysis, and viewport-dependent
 wrapping. It performs one bounded requirements pass and one write pass over
 caller-owned glyph and line spans. Breaks inside an equal-cluster sequence are
-ignored, mandatory and hard-wrap boundaries are explicit, and maximum-line
-clipping is reported rather than silently discarding state. Work is `O(G)` and
+ignored, and shaped `unsafe_to_break` dependencies suppress boundaries even
+across distinct clusters. When a hard wrap has no preceding safe boundary, the
+line advances through the dependency chain to the next safe boundary instead
+of splitting complex-script output. Mandatory and hard-wrap boundaries are
+explicit, and maximum-line clipping is reported rather than silently
+discarding state. Work is `O(G)` and
 internal storage is `O(1)` for `G` shaped glyphs; invalid options and short
 buffers leave output counts at zero.
 

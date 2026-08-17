@@ -5793,6 +5793,30 @@ void native_positioned_text_layout_wraps_without_allocation() {
         &error));
     require(line_count == 3U && narrow_lines[0U].glyph_count == 2U);
 
+    auto unsafe = glyphs;
+    unsafe[1U].flags = shaping_glyph_flags::unsafe_to_break;
+    unsafe[2U].flags = shaping_glyph_flags::unsafe_to_break;
+    constexpr std::array<text_line_break_kind, 4U> unsafe_breaks{
+        text_line_break_kind::opportunity,
+        text_line_break_kind::opportunity,
+        text_line_break_kind::opportunity,
+        text_line_break_kind::opportunity};
+    require(try_get_text_layout_requirements(
+        unsafe, unsafe_breaks, narrow_options, requirements, &error));
+    require(requirements.line_capacity == 2U);
+    require(try_layout_shaped_text(
+        unsafe,
+        unsafe_breaks,
+        narrow_options,
+        positioned,
+        narrow_lines,
+        glyph_count,
+        line_count,
+        &error));
+    require(line_count == 2U && narrow_lines[0U].glyph_count == 3U &&
+        narrow_lines[0U].width == 30.0F &&
+        narrow_lines[1U].glyph_count == 1U);
+
     auto clipped_options = options;
     clipped_options.maximum_lines = 1U;
     positioned.fill(positioned_text_glyph{});

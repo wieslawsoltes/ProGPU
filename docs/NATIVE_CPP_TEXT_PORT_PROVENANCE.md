@@ -1148,6 +1148,15 @@ used by visual-input and logical-input native layout, performs one in-place
 wrapped lines, justify identity, and right-aligned mixed-direction visual
 output.
 
+Cluster-safe wrapping now also directly ports ProGPU-owned
+`TextLayout.IsSafeBreakBefore` and `FindNextSafeBreak` from checkpoint
+`1c16061f`. A shaped `unsafe_to_break` flag suppresses the boundary before its
+glyph even when adjacent cluster ids differ; a forced width overflow walks
+forward through the full dependency chain to the next safe boundary. The scan
+remains one-pass `O(G)` with `O(1)` state and no allocation. Tests cover a
+multi-cluster unsafe chain whose first line intentionally exceeds the requested
+width rather than corrupting the shaped sequence.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with
