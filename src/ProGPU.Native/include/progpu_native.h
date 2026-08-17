@@ -77,6 +77,7 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_PARAGRAPH (UINT64_C(1) << 45U)
 #define PROGPU_NATIVE_CAPABILITY_BULK_TEXT_VERTICAL_LAYOUT (UINT64_C(1) << 46U)
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_IMAGE_PATCH_BATCH (UINT64_C(1) << 47U)
+#define PROGPU_NATIVE_CAPABILITY_SEMANTIC_IMAGE_MIPMAP_SAMPLING (UINT64_C(1) << 48U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -248,7 +249,14 @@ enum {
 typedef enum progpu_native_image_sampling {
     PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST = 0,
     PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR = 1,
-    PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC = 2
+    PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC = 2,
+    PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR_MIPMAP = 3,
+    PROGPU_NATIVE_IMAGE_SAMPLING_MAG_LINEAR_MIN_LINEAR_MIP_NEAREST = 4,
+    PROGPU_NATIVE_IMAGE_SAMPLING_MAG_LINEAR_MIN_NEAREST_MIP_LINEAR = 5,
+    PROGPU_NATIVE_IMAGE_SAMPLING_MAG_LINEAR_MIN_NEAREST_MIP_NEAREST = 6,
+    PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_LINEAR_MIP_LINEAR = 7,
+    PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_LINEAR_MIP_NEAREST = 8,
+    PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_NEAREST_MIP_LINEAR = 9
 } progpu_native_image_sampling;
 
 typedef enum progpu_native_scene_image_patch_kind {
@@ -1050,9 +1058,10 @@ typedef struct progpu_native_scene_layer_mask_chain {
 } progpu_native_scene_layer_mask_chain;
 
 /*
- * Version-one upload-backed image command payload. Its resource payload is a
- * tightly owned RGBA8 byte span. External views remain on the existing typed
- * image API until a device-domain scene resource registry is introduced.
+ * Version-one upload-backed or external image command payload. Sampling values
+ * cover the complete ProGPU.Scene.TextureSamplingMode contract. max_anisotropy is canonical
+ * one except for LINEAR_MIPMAP, where values two through sixteen select the
+ * matching WebGPU anisotropic sampler. Legacy zero is accepted as one.
  */
 typedef struct progpu_native_scene_image_draw {
     uint32_t struct_size;
@@ -1065,7 +1074,7 @@ typedef struct progpu_native_scene_image_draw {
     progpu_native_image_rect destination_rect;
     progpu_native_affine_2d transform;
     float opacity;
-    uint32_t reserved;
+    uint32_t max_anisotropy;
 } progpu_native_scene_image_draw;
 
 /*

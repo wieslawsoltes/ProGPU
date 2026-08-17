@@ -305,10 +305,7 @@ progpu_native_status encode_semantic_image_draw(
     WGPUBindGroup mask_bind_group,
     WGPUBindGroup mask_chain_bind_group) {
     auto& page = engine.semantic_image_cache;
-    WGPUBindGroup texture_group =
-        draw.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
-        ? draw.nearest_bind_group
-        : draw.linear_bind_group;
+    WGPUBindGroup texture_group = draw.texture_bind_group;
     WGPUBindGroup uniform_group =
         select_semantic_image_uniform_bind_group(
             engine,

@@ -13,11 +13,66 @@
 #include "progpu_native_engine.hpp"
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_semantic_image_resources.hpp"
+#include "progpu_native_semantic_validation.hpp"
 
 #include <array>
 #include <cstring>
 
 namespace progpu::native::semantic {
+
+WGPUSampler resolve_semantic_image_sampler(
+    progpu_native_engine& engine,
+    std::uint32_t sampling,
+    std::uint32_t max_anisotropy) noexcept {
+    semantic_image_sampler_options options{};
+    if (!resolve_semantic_image_sampler_options(
+            sampling, max_anisotropy, options)) {
+        return nullptr;
+    }
+    if (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST) {
+        return engine.image_nearest_sampler;
+    }
+    if (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR ||
+        sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC) {
+        return engine.image_linear_sampler;
+    }
+
+    WGPUSampler* cache = nullptr;
+    if (sampling == PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR_MIPMAP) {
+        cache = options.max_anisotropy > 1U
+            ? &engine.image_anisotropic_samplers[
+                options.max_anisotropy - 2U]
+            : &engine.image_mipmap_sampler;
+    } else {
+        cache = &engine.image_filtered_samplers[
+            sampling -
+                PROGPU_NATIVE_IMAGE_SAMPLING_MAG_LINEAR_MIN_LINEAR_MIP_NEAREST];
+    }
+    if (*cache != nullptr) {
+        return *cache;
+    }
+
+    WGPUSamplerDescriptor descriptor{};
+    descriptor.label = webgpu::string_view(
+        "ProGPU semantic retained image sampling");
+    descriptor.addressModeU = WGPUAddressMode_ClampToEdge;
+    descriptor.addressModeV = WGPUAddressMode_ClampToEdge;
+    descriptor.addressModeW = WGPUAddressMode_ClampToEdge;
+    descriptor.magFilter = options.mag_linear
+        ? WGPUFilterMode_Linear
+        : WGPUFilterMode_Nearest;
+    descriptor.minFilter = options.min_linear
+        ? WGPUFilterMode_Linear
+        : WGPUFilterMode_Nearest;
+    descriptor.mipmapFilter = options.mip_linear
+        ? WGPUMipmapFilterMode_Linear
+        : WGPUMipmapFilterMode_Nearest;
+    descriptor.lodMinClamp = 0.0F;
+    descriptor.lodMaxClamp = 32.0F;
+    descriptor.maxAnisotropy = options.max_anisotropy;
+    *cache = wgpuDeviceCreateSampler(engine.device, &descriptor);
+    return *cache;
+}
 
 bool create_semantic_image_color_matrix_resources(
     progpu_native_engine& engine,

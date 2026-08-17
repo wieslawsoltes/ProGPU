@@ -146,7 +146,8 @@ std::vector<std::byte> create_semantic_image_patch_scene_stream(
     image.image_width = 2U;
     image.image_height = 2U;
     image.row_bytes = 8U;
-    image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+    image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR_MIPMAP;
+    image.max_anisotropy = 8U;
     image.source_rect = {0.0F, 0.0F, 2.0F, 2.0F};
     image.destination_rect = {0.0F, 0.0F, 1.0F, 1.0F};
     image.transform = semantic_scene_builder::identity_transform();

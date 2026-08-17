@@ -141,7 +141,6 @@ bool semantic_scene_builder::draw_image(
     const auto& resource = implementation_->resources[image_resource_index];
     progpu_native_scene_image_draw image = source;
     image.struct_size = sizeof(image);
-    image.reserved = 0U;
     if ((image.flags & PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH) != 0U) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
@@ -251,7 +250,6 @@ bool semantic_scene_builder::draw_image_patches(
     progpu_native_scene_image_draw image = source;
     image.struct_size = sizeof(image);
     image.flags |= PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH;
-    image.reserved = 0U;
     const bool wants_sampling =
         image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC;
     const bool wants_matrix =

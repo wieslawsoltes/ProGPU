@@ -3300,6 +3300,27 @@ public static partial class GpuPictureNativeSceneCompiler
             case TextureSamplingMode.Cubic:
                 sampling = NativeImageSampling.Cubic;
                 break;
+            case TextureSamplingMode.LinearMipmap:
+                sampling = NativeImageSampling.LinearMipmap;
+                break;
+            case TextureSamplingMode.MagLinearMinLinearMipNearest:
+                sampling = NativeImageSampling.MagLinearMinLinearMipNearest;
+                break;
+            case TextureSamplingMode.MagLinearMinNearestMipLinear:
+                sampling = NativeImageSampling.MagLinearMinNearestMipLinear;
+                break;
+            case TextureSamplingMode.MagLinearMinNearestMipNearest:
+                sampling = NativeImageSampling.MagLinearMinNearestMipNearest;
+                break;
+            case TextureSamplingMode.MagNearestMinLinearMipLinear:
+                sampling = NativeImageSampling.MagNearestMinLinearMipLinear;
+                break;
+            case TextureSamplingMode.MagNearestMinLinearMipNearest:
+                sampling = NativeImageSampling.MagNearestMinLinearMipNearest;
+                break;
+            case TextureSamplingMode.MagNearestMinNearestMipLinear:
+                sampling = NativeImageSampling.MagNearestMinNearestMipLinear;
+                break;
             default:
                 error = NativePictureCompileError.UnsupportedCommand;
                 return false;
@@ -3480,7 +3501,10 @@ public static partial class GpuPictureNativeSceneCompiler
                 hasPatches ? 1f : command.Rect.Height),
             transform,
             1f,
-            flags);
+            flags,
+            sampling == NativeImageSampling.LinearMipmap
+                ? (byte)Math.Clamp((int)command.TextureMaxAnisotropy, 1, 16)
+                : (byte)1);
         int drawIndex = externalImages.Count;
         externalImages.Add(new(
             texture,

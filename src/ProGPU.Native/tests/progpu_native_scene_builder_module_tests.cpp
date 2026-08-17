@@ -19,7 +19,8 @@ int main() {
     image.image_width = 2U;
     image.image_height = 2U;
     image.row_bytes = 8U;
-    image.sampling = progpu::native::PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+    image.sampling = progpu::native::PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR_MIPMAP;
+    image.max_anisotropy = 8U;
     image.source_rect = {0.0F, 0.0F, 2.0F, 2.0F};
     image.destination_rect = {0.0F, 0.0F, 8.0F, 8.0F};
     image.transform = builder.identity_transform();

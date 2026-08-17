@@ -176,6 +176,9 @@ struct progpu_native_engine {
     WGPUBindGroup image_uniform_bind_group = nullptr;
     WGPUSampler image_nearest_sampler = nullptr;
     WGPUSampler image_linear_sampler = nullptr;
+    WGPUSampler image_mipmap_sampler = nullptr;
+    std::array<WGPUSampler, 6U> image_filtered_samplers{};
+    std::array<WGPUSampler, 15U> image_anisotropic_samplers{};
     WGPUTexture image_texture = nullptr;
     WGPUTextureView image_texture_view = nullptr;
     WGPUBindGroup image_nearest_bind_group = nullptr;
@@ -991,11 +994,8 @@ struct progpu_native_engine {
                 wgpuBufferDestroy(draw.color_matrix_buffer);
                 wgpuBufferRelease(draw.color_matrix_buffer);
             }
-            if (draw.linear_bind_group != nullptr) {
-                wgpuBindGroupRelease(draw.linear_bind_group);
-            }
-            if (draw.nearest_bind_group != nullptr) {
-                wgpuBindGroupRelease(draw.nearest_bind_group);
+            if (draw.texture_bind_group != nullptr) {
+                wgpuBindGroupRelease(draw.texture_bind_group);
             }
             if (draw.view != nullptr) {
                 wgpuTextureViewRelease(draw.view);
@@ -1383,6 +1383,19 @@ struct progpu_native_engine {
         }
         if (image_nearest_sampler != nullptr) {
             wgpuSamplerRelease(image_nearest_sampler);
+        }
+        if (image_mipmap_sampler != nullptr) {
+            wgpuSamplerRelease(image_mipmap_sampler);
+        }
+        for (auto sampler : image_filtered_samplers) {
+            if (sampler != nullptr) {
+                wgpuSamplerRelease(sampler);
+            }
+        }
+        for (auto sampler : image_anisotropic_samplers) {
+            if (sampler != nullptr) {
+                wgpuSamplerRelease(sampler);
+            }
         }
         if (image_uniform_bind_group != nullptr) {
             wgpuBindGroupRelease(image_uniform_bind_group);

@@ -2,6 +2,7 @@
 
 #include "progpu_native.h"
 #include "progpu_native_semantic_image.hpp"
+#include "progpu_native_semantic_validation.hpp"
 
 #include <array>
 #include <cstddef>
@@ -16,6 +17,66 @@ bool semantic_image_sampling_payload_is_exact_and_bounded() {
     static_assert(sizeof(progpu_native_scene_image_effect) == 304U);
     static_assert(sizeof(progpu_native_scene_image_patch_batch) == 16U);
     static_assert(sizeof(progpu_native_scene_image_patch) == 88U);
+    struct sampler_case final {
+        std::uint32_t sampling;
+        bool mag_linear;
+        bool min_linear;
+        bool mip_linear;
+    };
+    constexpr std::array<sampler_case, 10U> sampler_cases{{
+        {PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST, false, false, false},
+        {PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR, true, true, false},
+        {PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC, true, true, false},
+        {PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR_MIPMAP, true, true, true},
+        {PROGPU_NATIVE_IMAGE_SAMPLING_MAG_LINEAR_MIN_LINEAR_MIP_NEAREST,
+            true, true, false},
+        {PROGPU_NATIVE_IMAGE_SAMPLING_MAG_LINEAR_MIN_NEAREST_MIP_LINEAR,
+            true, false, true},
+        {PROGPU_NATIVE_IMAGE_SAMPLING_MAG_LINEAR_MIN_NEAREST_MIP_NEAREST,
+            true, false, false},
+        {PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_LINEAR_MIP_LINEAR,
+            false, true, true},
+        {PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_LINEAR_MIP_NEAREST,
+            false, true, false},
+        {PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_NEAREST_MIP_LINEAR,
+            false, false, true}
+    }};
+    for (const auto& expected : sampler_cases) {
+        semantic::semantic_image_sampler_options actual{};
+        if (!semantic::resolve_semantic_image_sampler_options(
+                expected.sampling, 1U, actual) ||
+            actual.mag_linear != expected.mag_linear ||
+            actual.min_linear != expected.min_linear ||
+            actual.mip_linear != expected.mip_linear ||
+            actual.max_anisotropy != 1U) {
+            return false;
+        }
+    }
+    semantic::semantic_image_sampler_options anisotropic{};
+    if (!semantic::resolve_semantic_image_sampler_options(
+            PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR_MIPMAP,
+            0U,
+            anisotropic) ||
+        anisotropic.max_anisotropy != 1U ||
+        !semantic::resolve_semantic_image_sampler_options(
+            PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR_MIPMAP,
+            16U,
+            anisotropic) ||
+        anisotropic.max_anisotropy != 16U ||
+        semantic::resolve_semantic_image_sampler_options(
+            PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR,
+            2U,
+            anisotropic) ||
+        semantic::resolve_semantic_image_sampler_options(
+            PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR_MIPMAP,
+            17U,
+            anisotropic) ||
+        semantic::resolve_semantic_image_sampler_options(
+            10U,
+            1U,
+            anisotropic)) {
+        return false;
+    }
     constexpr auto base_size = sizeof(progpu_native_scene_image_draw);
     std::array<std::byte,
         base_size + sizeof(progpu_native_scene_image_sampling_options) +

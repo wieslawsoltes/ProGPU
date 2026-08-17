@@ -232,7 +232,14 @@ public enum NativeImageSampling : uint
 {
     Nearest = 0,
     Linear = 1,
-    Cubic = 2
+    Cubic = 2,
+    LinearMipmap = 3,
+    MagLinearMinLinearMipNearest = 4,
+    MagLinearMinNearestMipLinear = 5,
+    MagLinearMinNearestMipNearest = 6,
+    MagNearestMinLinearMipLinear = 7,
+    MagNearestMinLinearMipNearest = 8,
+    MagNearestMinNearestMipLinear = 9
 }
 
 public enum NativeSceneImagePatchKind : uint
@@ -403,7 +410,8 @@ public enum NativeRendererCapabilities : ulong
     BulkTextBidi = 1UL << 44,
     BulkTextParagraph = 1UL << 45,
     BulkTextVerticalLayout = 1UL << 46,
-    SemanticImagePatchBatch = 1UL << 47
+    SemanticImagePatchBatch = 1UL << 47,
+    SemanticImageMipmapSampling = 1UL << 48
 }
 
 public enum NativeSceneResourceKind : uint
@@ -1052,7 +1060,8 @@ public readonly struct NativeSceneImageDraw
         NativeImageRect destinationRect,
         Matrix3x2 transform,
         float opacity,
-        NativeSceneImageFlags flags = NativeSceneImageFlags.None)
+        NativeSceneImageFlags flags = NativeSceneImageFlags.None,
+        byte maxAnisotropy = 1)
     {
         StructSize = (uint)Unsafe.SizeOf<NativeSceneImageDraw>();
         Flags = flags;
@@ -1064,7 +1073,7 @@ public readonly struct NativeSceneImageDraw
         DestinationRect = destinationRect;
         Transform = transform;
         Opacity = opacity;
-        Reserved = 0U;
+        MaxAnisotropy = maxAnisotropy;
     }
 
     public readonly uint StructSize;
@@ -1077,7 +1086,13 @@ public readonly struct NativeSceneImageDraw
     public readonly NativeImageRect DestinationRect;
     public readonly Matrix3x2 Transform;
     public readonly float Opacity;
-    private readonly uint Reserved;
+    public readonly uint MaxAnisotropy;
+
+    internal bool HasCanonicalSampling =>
+        Sampling <= NativeImageSampling.MagNearestMinNearestMipLinear &&
+        MaxAnisotropy <= 16U &&
+        (Sampling == NativeImageSampling.LinearMipmap ||
+            MaxAnisotropy is 0U or 1U);
 }
 
 [StructLayout(LayoutKind.Sequential)]

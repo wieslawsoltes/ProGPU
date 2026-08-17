@@ -7,6 +7,18 @@
 
 namespace progpu::native::semantic {
 
+struct semantic_image_sampler_options final {
+    bool mag_linear = false;
+    bool min_linear = false;
+    bool mip_linear = false;
+    std::uint16_t max_anisotropy = 1U;
+};
+
+bool resolve_semantic_image_sampler_options(
+    std::uint32_t sampling,
+    std::uint32_t max_anisotropy,
+    semantic_image_sampler_options& options) noexcept;
+
 bool is_valid_semantic_analytic(
     const progpu_native_analytic_primitive& primitive) noexcept;
 

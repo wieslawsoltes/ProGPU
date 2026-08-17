@@ -9,6 +9,60 @@
 
 namespace progpu::native::semantic {
 
+bool resolve_semantic_image_sampler_options(
+    std::uint32_t sampling,
+    std::uint32_t max_anisotropy,
+    semantic_image_sampler_options& options) noexcept {
+    options = {};
+    const std::uint32_t canonical_anisotropy = max_anisotropy == 0U
+        ? 1U
+        : max_anisotropy;
+    if (canonical_anisotropy > 16U ||
+        (sampling != PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR_MIPMAP &&
+            canonical_anisotropy != 1U)) {
+        return false;
+    }
+    options.max_anisotropy = static_cast<std::uint16_t>(
+        canonical_anisotropy);
+    switch (sampling) {
+        case PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST:
+            return true;
+        case PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR:
+        case PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC:
+            options.mag_linear = true;
+            options.min_linear = true;
+            return true;
+        case PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR_MIPMAP:
+            options.mag_linear = true;
+            options.min_linear = true;
+            options.mip_linear = true;
+            return true;
+        case PROGPU_NATIVE_IMAGE_SAMPLING_MAG_LINEAR_MIN_LINEAR_MIP_NEAREST:
+            options.mag_linear = true;
+            options.min_linear = true;
+            return true;
+        case PROGPU_NATIVE_IMAGE_SAMPLING_MAG_LINEAR_MIN_NEAREST_MIP_LINEAR:
+            options.mag_linear = true;
+            options.mip_linear = true;
+            return true;
+        case PROGPU_NATIVE_IMAGE_SAMPLING_MAG_LINEAR_MIN_NEAREST_MIP_NEAREST:
+            options.mag_linear = true;
+            return true;
+        case PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_LINEAR_MIP_LINEAR:
+            options.min_linear = true;
+            options.mip_linear = true;
+            return true;
+        case PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_LINEAR_MIP_NEAREST:
+            options.min_linear = true;
+            return true;
+        case PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_NEAREST_MIP_LINEAR:
+            options.mip_linear = true;
+            return true;
+        default:
+            return false;
+    }
+}
+
 namespace {
 
 constexpr float antialias_padding_pixels = 1.5F;
@@ -209,15 +263,17 @@ bool is_valid_semantic_image(
         PROGPU_NATIVE_SCENE_IMAGE_SNAP_TO_PIXELS |
         PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED |
         PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH;
+    semantic_image_sampler_options sampler{};
     return image.struct_size >= sizeof(image) &&
         (image.flags & ~known_flags) == 0U &&
         (image.flags & known_flags) != known_flags &&
-        image.reserved == 0U && image.image_width != 0U &&
+        image.image_width != 0U &&
         image.image_height != 0U && image.image_width <= 16384U &&
         image.image_height <= 16384U &&
         image.row_bytes >= minimum_row_bytes &&
         required_pixels <= pixel_bytes &&
-        image.sampling <= PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC &&
+        resolve_semantic_image_sampler_options(
+            image.sampling, image.max_anisotropy, sampler) &&
         !((image.flags & PROGPU_NATIVE_SCENE_IMAGE_EFFECT) != 0U &&
             image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC) &&
         valid_rect(image.source_rect) && valid_rect(image.destination_rect) &&

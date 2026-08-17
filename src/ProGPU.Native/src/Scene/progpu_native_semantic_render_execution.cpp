@@ -2153,11 +2153,8 @@ progpu_native_status render_scene(
                     wgpuBufferDestroy(draw.color_matrix_buffer);
                     wgpuBufferRelease(draw.color_matrix_buffer);
                 }
-                if (draw.linear_bind_group != nullptr) {
-                    wgpuBindGroupRelease(draw.linear_bind_group);
-                }
-                if (draw.nearest_bind_group != nullptr) {
-                    wgpuBindGroupRelease(draw.nearest_bind_group);
+                if (draw.texture_bind_group != nullptr) {
+                    wgpuBindGroupRelease(draw.texture_bind_group);
                 }
                 if (draw.view != nullptr) {
                     wgpuTextureViewRelease(draw.view);
@@ -2417,17 +2414,17 @@ progpu_native_status render_scene(
                 if (!external_image && draw.texture != nullptr) {
                     draw.view = wgpuTextureCreateView(draw.texture, nullptr);
                 }
-                if (draw.view != nullptr) {
-                    draw.nearest_bind_group = create_image_texture_bind_group(
+                const WGPUSampler image_sampler =
+                    semantic::resolve_semantic_image_sampler(
                         *engine,
-                        engine->image_nearest_sampler,
-                        draw.view,
-                        "ProGPU semantic nearest image bind group");
-                    draw.linear_bind_group = create_image_texture_bind_group(
+                        image.sampling,
+                        image.max_anisotropy);
+                if (draw.view != nullptr && image_sampler != nullptr) {
+                    draw.texture_bind_group = create_image_texture_bind_group(
                         *engine,
-                        engine->image_linear_sampler,
+                        image_sampler,
                         draw.view,
-                        "ProGPU semantic linear image bind group");
+                        "ProGPU semantic retained image bind group");
                     if (draw.has_color_matrix &&
                         !create_semantic_image_color_matrix_resources(
                             *engine,
@@ -2477,10 +2474,7 @@ progpu_native_status render_scene(
                             requires_effect_mask
                                 ? effect_mask_binding->height
                                 : 0U,
-                            image.sampling ==
-                                PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
-                                ? engine->image_nearest_sampler
-                                : engine->image_linear_sampler,
+                            image_sampler,
                             render_effect,
                             draw.effect_uniform_buffer,
                             draw.effect_mask_uniform_buffer,
@@ -2494,8 +2488,7 @@ progpu_native_status render_scene(
                 auto& retained_draw = compiled_draws.back();
                 if ((!external_image && retained_draw.texture == nullptr) ||
                     retained_draw.view == nullptr ||
-                    retained_draw.nearest_bind_group == nullptr ||
-                    retained_draw.linear_bind_group == nullptr ||
+                    retained_draw.texture_bind_group == nullptr ||
                     (image_options.has_color_matrix &&
                         retained_draw.color_matrix_bind_group == nullptr) ||
                     (image_options.has_effect &&

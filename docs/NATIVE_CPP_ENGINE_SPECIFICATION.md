@@ -103,7 +103,7 @@ submission percentiles in its matched managed/native qualification.
 | [WebGPU `copyTextureToTexture`](https://www.w3.org/TR/webgpu/#dom-gpucommandencoder-copytexturetotexture) | A command encoder can copy one bounded, copy-compatible texture region into another when source and destination declare the corresponding usages. Commands outside render/compute passes retain encoder order. | Route any backdrop scene through a sampleable internal root, finish the parent pass, then copy the exact intersected parent region into its reusable depth slot. Do not read back, sample an external target, or count the copy as a draw call. |
 | [WebGPU `setScissorRect`](https://gpuweb.github.io/gpuweb/#dom-gpurendercommandsmixin-setscissorrect) | The scissor is an integer physical-pixel rectangle bounded by the render attachment; fragments outside it are discarded. | Convert one logical clip to a conservatively rounded physical scissor, intersect it with the target, and skip the draw for an empty result rather than submitting an invalid zero-size scissor. |
 | [WebGPU queue completion](https://gpuweb.github.io/gpuweb/#dom-gpuqueue-onsubmittedworkdone) and the pinned [wgpu-native submission-index extension](https://github.com/gfx-rs/wgpu-native/blob/33133da4ec5a0174cb21539ef2d3346f75200411/ffi/wgpu.h) | Queue completion is ordered after work submitted before the observation point; wgpu-native additionally returns an opaque submission index and can poll or wait for that index. | Publish the pinned backend index as a typed, compositor-local token. External-image owners retain their texture lease until nonblocking poll or explicit wait completes; the hot render path never waits and the ABI allocates no per-frame callback state. |
-| [WebGPU `GPUQueue.writeTexture`](https://www.w3.org/TR/webgpu/#dom-gpuqueue-writetexture) and [sampled textures](https://www.w3.org/TR/webgpu/#sampled-texture) | Queue writes copy caller memory into texture subresources with an explicit data layout; sampling is pipeline/resource state rather than per-pixel CPU work. | Validate one borrowed RGBA payload at a revision boundary, upload it once, retain the texture/view/sampler bind groups, and submit only a four-vertex image quad on stable replay. |
+| [WebGPU `GPUQueue.writeTexture`](https://www.w3.org/TR/webgpu/#dom-gpuqueue-writetexture), [sampled textures](https://www.w3.org/TR/webgpu/#sampled-texture), and [`GPUSampler`](https://www.w3.org/TR/webgpu/#gpusampler) | Queue writes copy caller memory into texture subresources with an explicit data layout. Magnification, minification, mip filtering, LOD bounds, and anisotropy are immutable sampler state rather than per-pixel CPU work. | Validate one borrowed RGBA payload at a revision boundary, upload it once, and cache the exact managed sampler tuple. Retain one selected image bind group and submit only the retained quad or patch batch on stable replay. |
 | [WebGPU texture formats](https://www.w3.org/TR/webgpu/#texture-formats) and [DirectWrite `IDWriteGlyphRunAnalysis::CreateAlphaTexture`](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwriteglyphrunanalysis-createalphatexture) | WebGPU defines `r8unorm` as a filterable one-channel normalized format. DirectWrite exposes bounded glyph coverage as caller-owned alpha bytes for a physical rectangle, separating text analysis from later compositing. | Add one exact pointer-free R8 coverage-mask resource for precomputed text, image-alpha, or reusable visual coverage. Upload the immutable bytes once, retain the texture/view/binding with the compiled replay span, and apply its independently invertible affine in the production mask shader. ProGPU does not adopt DirectWrite's rasterizer or buffer organization. |
 | [wgpu-native pinned C API](https://github.com/gfx-rs/wgpu-native/tree/33133da4ec5a0174cb21539ef2d3346f75200411/ffi) | A native WebGPU C ABI over Metal, Vulkan, and D3D12. Header layouts are revision-sensitive. | The Silk lane is compiled only against commit `33133da4...` and headers `aef5e428...`; incompatible ABIs are rejected before handle use. |
 | [Dawn architecture overview](https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/overview.md) | Native WebGPU implementation with proc dispatch, validation, backend abstraction, wire support, and Tint. | Add a separately compiled Dawn adapter. Do not reinterpret current Dawn handles through the older Silk/wgpu-native structs. |
@@ -114,7 +114,7 @@ submission percentiles in its matched managed/native qualification.
 | [Skia `SkCanvas::drawPoints`](https://api.skia.org/classSkCanvas.html#a312223428af45c5d42a47f79905e9217), [Direct2D `ID2D1RenderTarget::FillGeometry`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-fillgeometry), and [Direct2D `ID2D1RenderTarget::FillMesh`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-fillmesh) | Point lists and immutable geometry/mesh resources are submitted in batches; reusable geometry state is separate from device-dependent drawing. | Retain one compact point arena plus fixed-size batch metadata, validate the complete range transactionally, and expand changed points directly into the existing packed vector page. Do not create one semantic primitive, managed object, native call, or GPU draw per point. WebRender/Vello retained-scene research supports the same reuse boundary, while HarfBuzz remains deliberately outside this non-text geometry slice. |
 | [Skia text shaper design](https://skia.org/docs/dev/design/text_shaper/) and [SkParagraph](https://skia.googlesource.com/skia/+/refs/heads/main/modules/skparagraph/) | Unicode shaping and paragraph layout are reusable CPU results distinct from glyph rendering. | Preserve ProGPU.Text shaped results during migration, then fully port the proven ProGPU-owned parser, shaper, fallback, and layout algorithms to C++ while keeping the reusable CPU-result/GPU-rendering boundary. |
 | [Direct2D resources and resource domains](https://learn.microsoft.com/en-us/windows/win32/direct2d/resources-and-resource-domains) and [render targets](https://learn.microsoft.com/en-us/windows/win32/direct2d/render-targets-overview) | Device-dependent resources belong to a render-target/resource domain; drawing is batched and failures are observed at submission boundaries. | Every native handle is domain-stamped. Cross-device use fails before submission. Deferred errors and device loss invalidate the entire dependent cache generation. |
-| [Direct2D `DrawBitmap`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-drawbitmap) | Source and destination rectangles, opacity, and interpolation are draw state over a retained device bitmap. | Mirror this separation in the typed image frame and keep nearest/linear samplers persistent. Mips, cubic filtering, and external textures remain explicit later capabilities. |
+| [Direct2D `DrawBitmap`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-drawbitmap) | Source and destination rectangles, opacity, and interpolation are draw state over a retained device bitmap. | Mirror this separation in typed image records. Keep direct-frame nearest/linear samplers persistent and make the semantic lane's full managed sampling contract explicit, cached, and independent from image ownership. |
 | [Direct2D `FillOpacityMask`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-fillopacitymask) | A sampled mask alpha modulates a brush over explicit source and destination rectangles. | Keep mask mapping independent from image mapping, use the red coverage channel accepted by production WGSL, and retain the same-device mask view rather than reading it back. |
 | [Direct2D opacity masks overview](https://learn.microsoft.com/en-us/windows/win32/direct2d/opacity-masks-overview) | Opacity-mask content and the content being masked are independent resources; a layer is required when one mask must affect a composed group. | Apply a common mask to the pooled family result, not to every family primitive. Retain the mask view and its mapping independently from the retained content revision. |
 | [Skia `SkCanvas::saveLayer`](https://api.skia.org/classSkCanvas.html) and [`SaveLayerRec`](https://api.skia.org/structSkCanvas_1_1SaveLayerRec.html) | Layer restore applies paint alpha, blend, and filtering to an offscreen result. An optional backdrop filter initializes the new layer from filtered prior canvas content before later child drawing. | Keep direct masks independent. For a semantic backdrop push, snapshot/filter the already rendered parent first, draw child commands over that result, then apply restore opacity/mask/blend exactly once at pop. |
@@ -711,7 +711,8 @@ out of the stable renderer ABI. Browser external textures remain a separate
 browser-host acquisition concern. The retained semantic stream represents
 these images with pointer-free resource identities and installs borrowed views
 through one bulk, owner-thread-affine binding call. Retained draws support
-source subrects, nearest/linear/custom-cubic sampling, and one fused
+source subrects, the complete managed nearest/linear/custom-cubic/mip-filter
+sampling contract, and one fused
 straight-RGBA 4x5 color transform without copying pixels into the stream or
 native texture storage. Stable replay uploads zero image bytes and the existing
 submission token is the consumer fence for every bound view. Optional image
@@ -728,8 +729,19 @@ modes, custom-cubic opacity signaling, and final DPI-grid pixel snapping. It
 emits six vertices per patch into one non-indexed triangle-list draw, preserving
 one image resource, one binding, one semantic command, and one GPU draw for the
 whole batch. Changed compilation is O(P) time and storage for P patches; stable
-replay uploads zero image or patch bytes. Mipmaps and anisotropy remain explicit
-typed failures rather than approximations. The retained effect suffix now
+replay uploads zero image or patch bytes. The sampler parity increment is a
+direct port of the authoritative ProGPU-owned
+`Compositor.GetTextureSampler`, `GetFilteredTextureSampler`, and
+`GetAnisotropicTextureSampler` implementations. All ten managed modes map to
+the same magnification, minification, and mip filters; `LinearMipmap` clamps
+anisotropy to one through sixteen exactly as managed rendering does. Sampler
+resolution is O(1). Six filter combinations, one trilinear sampler, and fifteen
+anisotropic variants are created lazily and retained per device, while each
+image draw now owns one selected texture bind group instead of parallel nearest
+and linear groups. Upload-backed semantic images intentionally own one base mip;
+borrowed external views preserve and sample the producer-owned mip chain. No CPU
+mip generation, extra scene crossing, per-frame allocation, or shader fork is
+introduced. The retained effect suffix now
 shares the
 production image-effect shader for bounded blur, spherical mapping, luminance
 conversion, zero-copy paired luma/chroma views, and explicit R8 effect masks.
@@ -1115,9 +1127,12 @@ ordered semantic layers now own bounded backdrop input.
   opacity, persistent nearest/linear sampling, independent image/content
   revisions, and zero-upload stable replay are implemented with production
   `Texture.wgsl`; same-device straight-alpha RGBA/BGRA texture-view sampling
-  with zero CPU transfer and explicit borrowed lifetime is implemented;
-  premultiplied formats, subrect updates, mips,
-  cubic/anisotropic sampling, image/color transforms, layers, masks, tiling,
+  with zero CPU transfer and explicit borrowed lifetime is implemented. The
+  semantic scene lane additionally preserves premultiplied source identity and
+  all ten managed sampling modes, including producer-owned mip chains and
+  anisotropy through sixteen, in one selected retained bind group;
+  direct-frame subrect updates and mip ownership/generation,
+  remaining image/color transforms, layers, masks, tiling,
   a zero-allocation same-queue submission timeline is implemented for retained
   external-image leases; native platform texture import and cross-API producer
   fences remain;
@@ -1149,8 +1164,9 @@ ordered semantic layers now own bounded backdrop input.
   analytic batches, general geometry primitives, and connected polyline/NURBS
   strokes with canonical point/knot/weight/dash arenas, plus retained path
   fills with exact line/quadratic/cubic/analytic-arc segment streams and
-  retained RGBA8 images referenced by one or more nearest/linear/cubic draw
-  commands with optional exact color matrices, plus retained vector-glyph
+  retained RGBA8 images referenced by one or more draws covering all ten
+  managed nearest/linear/cubic/mip-filter sampling modes and bounded anisotropy,
+  with optional exact color matrices, plus retained vector-glyph
   outline/segment resources, positioned runs, and deduplicated text styles,
   plus typed rounded/coverage/analytic-chain masks, per-draw mask states,
   bounded Gaussian/drop-shadow effect chains, and balanced isolated/backdrop
@@ -1621,8 +1637,8 @@ vector masks, and mismatched or unterminated scopes fail with typed
 source-command diagnostics. Perlin materials,
 color/vector/bitmap glyphs, text decorations, text masks, typed 2D/3D geometry,
 advanced blend isolation, and ordinary straight-alpha image draws are now
-retained. Images preserve source rectangles, nearest/linear/custom-cubic
-sampling, a same-device external view, a fused affine color transform, and
+retained. Images preserve source rectangles, all managed sampling modes,
+bounded anisotropy, a same-device external view, a fused affine color transform, and
 submission-token lifetime fencing. Pointer-free image flags now preserve
 managed `SnapTextureToPixels`; C++ performs the final per-corner DPI-grid
 rounding without a payload suffix, shader fork, or additional managed/native
@@ -1632,10 +1648,11 @@ reuse the canonical `Texture.wgsl` RGB opacity-scale path, so source RGB and
 alpha receive retained opacity exactly once without an unpremultiply/reupload
 pass. Pointer-free texture-patch batches preserve the managed texture,
 fixed-color, and atlas-color patch kinds, destination transforms, blend modes,
-custom-cubic opacity sign, and pixel snapping in one C++ GPU draw. The remaining
+custom-cubic opacity sign, pixel snapping, every mip-filter combination, and
+bounded anisotropy in one C++ GPU draw. The remaining
 explicit exclusions are
 combined geometry, opaque static-DXF
-extension objects, mutable embedded `Visual` instances, mipmaps/anisotropy, and
+extension objects, mutable embedded `Visual` instances, and
 non-affine image effects. Those records fail with a
 typed source-command diagnostic; no managed
 fallback or semantic approximation is inserted.

@@ -867,6 +867,83 @@ public class NativePictureCompilerTests
             command.PayloadSize);
     }
 
+    [Theory]
+    [InlineData(TextureSamplingMode.Nearest, NativeImageSampling.Nearest, 1U)]
+    [InlineData(TextureSamplingMode.Linear, NativeImageSampling.Linear, 1U)]
+    [InlineData(TextureSamplingMode.Cubic, NativeImageSampling.Cubic, 1U)]
+    [InlineData(
+        TextureSamplingMode.LinearMipmap,
+        NativeImageSampling.LinearMipmap,
+        16U)]
+    [InlineData(
+        TextureSamplingMode.MagLinearMinLinearMipNearest,
+        NativeImageSampling.MagLinearMinLinearMipNearest,
+        1U)]
+    [InlineData(
+        TextureSamplingMode.MagLinearMinNearestMipLinear,
+        NativeImageSampling.MagLinearMinNearestMipLinear,
+        1U)]
+    [InlineData(
+        TextureSamplingMode.MagLinearMinNearestMipNearest,
+        NativeImageSampling.MagLinearMinNearestMipNearest,
+        1U)]
+    [InlineData(
+        TextureSamplingMode.MagNearestMinLinearMipLinear,
+        NativeImageSampling.MagNearestMinLinearMipLinear,
+        1U)]
+    [InlineData(
+        TextureSamplingMode.MagNearestMinLinearMipNearest,
+        NativeImageSampling.MagNearestMinLinearMipNearest,
+        1U)]
+    [InlineData(
+        TextureSamplingMode.MagNearestMinNearestMipLinear,
+        NativeImageSampling.MagNearestMinNearestMipLinear,
+        1U)]
+    public void CompilerCarriesEveryManagedTextureSamplerIntoNativeScene(
+        TextureSamplingMode sourceSampling,
+        NativeImageSampling expectedSampling,
+        uint expectedMaxAnisotropy)
+    {
+        using GpuTexture texture = CreateUnbackedTexture(16U, 8U);
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawTexture,
+                    Texture = texture,
+                    Rect = new Rect(1f, 2f, 4f, 3f),
+                    SrcRect = new Rect(2f, 1f, 8f, 4f),
+                    TextureSamplingMode = sourceSampling,
+                    TextureMaxAnisotropy = 64,
+                    Transform = Matrix4x4.Identity
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            126U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        NativeMethods.SceneCommand command =
+            MemoryMarshal.Read<NativeMethods.SceneCommand>(
+                compiled.Stream.Slice(checked((int)header.CommandOffset)));
+        NativeSceneImageDraw draw =
+            MemoryMarshal.Read<NativeSceneImageDraw>(
+                compiled.Stream.Slice(checked((int)command.PayloadOffset)));
+        Assert.Equal(expectedSampling, draw.Sampling);
+        Assert.Equal(expectedMaxAnisotropy, draw.MaxAnisotropy);
+    }
+
     [Fact]
     public void CompilerLowersTexturePatchesToOneNativeImageDraw()
     {

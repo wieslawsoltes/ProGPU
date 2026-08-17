@@ -8,6 +8,11 @@ struct semantic_image_page;
 
 namespace progpu::native::semantic {
 
+WGPUSampler resolve_semantic_image_sampler(
+    progpu_native_engine& engine,
+    std::uint32_t sampling,
+    std::uint32_t max_anisotropy) noexcept;
+
 bool create_semantic_image_color_matrix_resources(
     progpu_native_engine& engine,
     WGPUTextureView image_view,

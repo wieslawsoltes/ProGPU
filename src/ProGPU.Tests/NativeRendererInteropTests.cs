@@ -715,6 +715,31 @@ public class NativeRendererInteropTests
         Assert.Equal(
             140737488355328UL,
             (ulong)NativeRendererCapabilities.SemanticImagePatchBatch);
+        Assert.Equal(
+            281474976710656UL,
+            (ulong)NativeRendererCapabilities.SemanticImageMipmapSampling);
+        Assert.Equal(0U, (uint)NativeImageSampling.Nearest);
+        Assert.Equal(1U, (uint)NativeImageSampling.Linear);
+        Assert.Equal(2U, (uint)NativeImageSampling.Cubic);
+        Assert.Equal(3U, (uint)NativeImageSampling.LinearMipmap);
+        Assert.Equal(
+            4U,
+            (uint)NativeImageSampling.MagLinearMinLinearMipNearest);
+        Assert.Equal(
+            5U,
+            (uint)NativeImageSampling.MagLinearMinNearestMipLinear);
+        Assert.Equal(
+            6U,
+            (uint)NativeImageSampling.MagLinearMinNearestMipNearest);
+        Assert.Equal(
+            7U,
+            (uint)NativeImageSampling.MagNearestMinLinearMipLinear);
+        Assert.Equal(
+            8U,
+            (uint)NativeImageSampling.MagNearestMinLinearMipNearest);
+        Assert.Equal(
+            9U,
+            (uint)NativeImageSampling.MagNearestMinNearestMipLinear);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
@@ -2359,6 +2384,52 @@ public class NativeRendererInteropTests
             new NativeImageRect(0f, 0f, 8f, 8f),
             in image,
             in invalid));
+    }
+
+    [Fact]
+    public void SemanticImageBuilderValidatesManagedMipmapSamplerContract()
+    {
+        static bool TryRecord(NativeImageSampling sampling, byte anisotropy)
+        {
+            Span<byte> destination = stackalloc byte[1024];
+            Span<byte> pixels = stackalloc byte[16];
+            var image = new NativeSceneImageDraw(
+                2,
+                2,
+                8,
+                sampling,
+                new NativeImageRect(0f, 0f, 2f, 2f),
+                new NativeImageRect(0f, 0f, 8f, 8f),
+                Matrix3x2.Identity,
+                1f,
+                maxAnisotropy: anisotropy);
+            var builder = new NativeSceneStreamBuilder(
+                destination,
+                91U,
+                1U,
+                commandCapacity: 1,
+                resourceCapacity: 1);
+            return builder.TryAddImageResource(
+                    1U,
+                    1U,
+                    pixels,
+                    out uint resource) &&
+                builder.TryDrawImage(
+                    1U,
+                    resource,
+                    new NativeImageRect(0f, 0f, 8f, 8f),
+                    in image) &&
+                builder.TryBuild(out _);
+        }
+
+        Assert.True(TryRecord(NativeImageSampling.LinearMipmap, 0));
+        Assert.True(TryRecord(NativeImageSampling.LinearMipmap, 16));
+        Assert.True(TryRecord(
+            NativeImageSampling.MagNearestMinNearestMipLinear,
+            1));
+        Assert.False(TryRecord(NativeImageSampling.LinearMipmap, 17));
+        Assert.False(TryRecord(NativeImageSampling.Linear, 2));
+        Assert.False(TryRecord((NativeImageSampling)10U, 1));
     }
 
     [Fact]

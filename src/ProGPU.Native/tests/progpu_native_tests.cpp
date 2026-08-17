@@ -525,6 +525,8 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_STROKE_BATCH) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_IMAGE_PATCH_BATCH) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_SEMANTIC_IMAGE_MIPMAP_SAMPLING) != 0U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_header) == 80U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_resource) == 48U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_command) == 64U);

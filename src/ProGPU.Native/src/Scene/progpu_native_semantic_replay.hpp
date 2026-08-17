@@ -83,8 +83,7 @@ struct semantic_glyph_page {
 struct semantic_image_draw {
     WGPUTexture texture = nullptr;
     WGPUTextureView view = nullptr;
-    WGPUBindGroup nearest_bind_group = nullptr;
-    WGPUBindGroup linear_bind_group = nullptr;
+    WGPUBindGroup texture_bind_group = nullptr;
     WGPUBuffer color_matrix_buffer = nullptr;
     WGPUBindGroup color_matrix_bind_group = nullptr;
     WGPUBuffer effect_uniform_buffer = nullptr;
