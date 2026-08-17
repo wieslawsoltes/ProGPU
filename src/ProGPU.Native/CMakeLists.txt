@@ -588,6 +588,7 @@ add_library(progpu_native_text STATIC
     src/Text/Shaping/progpu_native_shaping_route.cpp
     src/Text/Shaping/progpu_native_shaping_features.cpp
     src/Text/Shaping/progpu_native_shaping_request_features.cpp
+    src/Text/Shaping/progpu_native_shaping_configuration.cpp
     src/Text/Shaping/progpu_native_space_fallback.cpp
     src/Text/Shaping/progpu_native_use_diacritics.cpp
     src/Text/Shaping/progpu_native_vowel_constraints.cpp

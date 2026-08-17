@@ -100,6 +100,11 @@ using progpu::native::text::try_resolve_open_type_feature_plan;
 using progpu::native::text::open_type_requested_feature_requirements;
 using progpu::native::text::try_get_open_type_requested_feature_requirements;
 using progpu::native::text::try_resolve_open_type_requested_features;
+using progpu::native::text::open_type_shape_configuration_request;
+using progpu::native::text::open_type_shape_configuration_requirements;
+using progpu::native::text::open_type_shape_configuration;
+using progpu::native::text::try_get_open_type_shape_configuration_requirements;
+using progpu::native::text::try_prepare_open_type_shape_configuration;
 using progpu::native::text::open_type_shape_run_scratch;
 using progpu::native::text::open_type_shape_run_requirements;
 using progpu::native::text::try_get_open_type_shape_run_requirements;
@@ -3600,6 +3605,121 @@ void open_type_requested_features_match_managed_cpu_shaper_normalization() {
     require(!try_get_open_type_requested_feature_requirements(
         invalid, requirements, &error));
     require(error == font_error::invalid_argument);
+}
+
+void open_type_shape_configuration_connects_managed_planning_stages() {
+    constexpr auto tag = [](char a, char b, char c, char d) {
+        return open_type_tag::from_chars(a, b, c, d);
+    };
+    std::vector<std::byte> gsub(18U);
+    write_u16(gsub, 0U, 1U);
+    write_u16(gsub, 2U, 0U);
+    write_u16(gsub, 4U, 10U);
+    write_u16(gsub, 10U, 1U);
+    write_u32(gsub, 12U, tag('d', 'e', 'v', '2').value);
+    const std::array tables{table_data{
+        tag('G', 'S', 'U', 'B'), std::move(gsub)}};
+    const auto data = make_font(
+        0U, 22U, 0U, false, false, false, tables);
+    sfnt_font_view font{};
+    font_error error = font_error::invalid_argument;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+
+    constexpr std::array input{
+        unicode_scalar{0x0915U, 0U, 1U},
+        unicode_scalar{0x093FU, 1U, 1U}};
+    constexpr std::array features{
+        shaping_feature{tag('l', 'i', 'g', 'a'), 0U, 0U, 0xFFFFFFFFU},
+        shaping_feature{tag('c', 'v', '0', '1'), 2U, 1U, 2U},
+        shaping_feature{tag('z', 'z', 'z', 'z'), 0U, 0U, 1U}};
+    const open_type_shape_configuration_request request{
+        {}, "pl", shaping_direction::unspecified, features};
+    open_type_shape_configuration_requirements requirements{};
+    require(try_get_open_type_shape_configuration_requirements(
+        font, input, request, requirements, &error));
+    require(error == font_error::none &&
+        requirements.base_feature_capacity == 27U &&
+        requirements.explicit_feature_capacity == 3U &&
+        requirements.requested_feature_capacity == 59U &&
+        requirements.feature_setting_capacity == 61U);
+
+    std::vector<open_type_feature_setting> base(
+        requirements.base_feature_capacity);
+    std::vector<open_type_tag> explicit_tags(
+        requirements.explicit_feature_capacity);
+    std::vector<open_type_tag> requested(
+        requirements.requested_feature_capacity);
+    std::vector<shaping_feature> settings(
+        requirements.feature_setting_capacity);
+    open_type_shape_configuration configuration{};
+    require(try_prepare_open_type_shape_configuration(
+        font,
+        input,
+        request,
+        base,
+        explicit_tags,
+        requested,
+        settings,
+        configuration,
+        &error));
+    const auto contains_tag = [](auto values, open_type_tag value) {
+        return std::find(values.begin(), values.end(), value) != values.end();
+    };
+    require(error == font_error::none &&
+        configuration.route.unicode_script == tag('d', 'e', 'v', 'a') &&
+        configuration.route.layout_script == tag('d', 'e', 'v', '2') &&
+        configuration.route.indic_shaper &&
+        configuration.route.complex_script == open_type_complex_script::indic &&
+        configuration.options.unicode_script == tag('d', 'e', 'v', 'a') &&
+        configuration.options.script == tag('d', 'e', 'v', '2') &&
+        configuration.options.language == tag('P', 'L', 'K', ' ') &&
+        configuration.options.direction == shaping_direction::left_to_right &&
+        configuration.base_features_written == 27U &&
+        configuration.explicit_features_written == 3U &&
+        contains_tag(configuration.options.requested_features,
+            tag('l', 't', 'r', 'a')) &&
+        contains_tag(configuration.options.requested_features,
+            tag('c', 'v', '0', '1')) &&
+        !contains_tag(configuration.options.requested_features,
+            tag('z', 'z', 'z', 'z')) &&
+        contains_tag(configuration.options.explicit_features,
+            tag('z', 'z', 'z', 'z')));
+    const auto find_setting = [&](open_type_tag value) {
+        return std::find_if(
+            configuration.options.feature_settings.begin(),
+            configuration.options.feature_settings.end(),
+            [value](const shaping_feature& item) {
+                return item.tag == value;
+            });
+    };
+    const auto cv01 = find_setting(tag('c', 'v', '0', '1'));
+    require(cv01 != configuration.options.feature_settings.end() &&
+        cv01->value == 2U && cv01->start == 1U && cv01->end == 2U &&
+        find_setting(tag('z', 'z', 'z', 'z')) ==
+            configuration.options.feature_settings.end());
+
+    base.assign(base.size(), open_type_feature_setting{
+        tag('z', 'z', 'z', 'z'), 9U});
+    explicit_tags.assign(explicit_tags.size(), tag('z', 'z', 'z', 'z'));
+    requested.assign(requested.size(), tag('z', 'z', 'z', 'z'));
+    settings.assign(settings.size(), shaping_feature{
+        tag('z', 'z', 'z', 'z'), 9U, 2U, 3U});
+    require(!try_prepare_open_type_shape_configuration(
+        font,
+        input,
+        request,
+        base,
+        explicit_tags,
+        std::span<open_type_tag>{requested}.first(requested.size() - 1U),
+        settings,
+        configuration,
+        &error));
+    require(error == font_error::insufficient_buffer &&
+        configuration.requested_features_written == 0U &&
+        base.front().value == 9U &&
+        explicit_tags.front() == tag('z', 'z', 'z', 'z') &&
+        requested.front() == tag('z', 'z', 'z', 'z') &&
+        settings.front().value == 9U);
 }
 
 void open_type_common_preprocessing_matches_managed_stages() {
@@ -9211,6 +9331,7 @@ int main() {
     open_type_shaping_route_matches_managed_plan_selection();
     open_type_feature_plan_matches_managed_script_and_direction_policy();
     open_type_requested_features_match_managed_cpu_shaper_normalization();
+    open_type_shape_configuration_connects_managed_planning_stages();
     open_type_common_preprocessing_matches_managed_stages();
     directional_code_point_fallback_matches_managed_stages();
     special_space_fallback_matches_managed_metrics();

@@ -54,6 +54,12 @@ int main() {
         feature_plan_requirements{};
     const progpu::native::text::open_type_requested_feature_requirements
         requested_feature_requirements{};
+    const progpu::native::text::open_type_shape_configuration_request
+        shape_configuration_request{};
+    const progpu::native::text::open_type_shape_configuration_requirements
+        shape_configuration_requirements{};
+    const progpu::native::text::open_type_shape_configuration
+        shape_configuration{};
     const auto shaping_route_resolver =
         &progpu::native::text::try_resolve_open_type_shaping_route;
     const auto language_tag =
@@ -66,6 +72,10 @@ int main() {
         &progpu::native::text::try_get_open_type_requested_feature_requirements;
     const auto requested_feature_resolver =
         &progpu::native::text::try_resolve_open_type_requested_features;
+    const auto shape_configuration_requirements_resolver =
+        &progpu::native::text::try_get_open_type_shape_configuration_requirements;
+    const auto shape_configuration_resolver =
+        &progpu::native::text::try_prepare_open_type_shape_configuration;
     const auto default_feature_settings =
         progpu::native::text::get_default_open_type_feature_settings();
     static_assert(progpu::native::text::sfnt_name_ids::family_name == 1U);
@@ -129,10 +139,15 @@ int main() {
         feature_setting.value != 1U ||
         feature_plan_requirements.requested_feature_capacity != 0U ||
         requested_feature_requirements.base_feature_capacity != 0U ||
+        shape_configuration_request.unicode_script.value != 0U ||
+        shape_configuration_requirements.base_feature_capacity != 0U ||
+        shape_configuration.options.script.value != 0U ||
         feature_plan_requirements_resolver == nullptr ||
         feature_plan_resolver == nullptr ||
         requested_feature_requirements_resolver == nullptr ||
         requested_feature_resolver == nullptr ||
+        shape_configuration_requirements_resolver == nullptr ||
+        shape_configuration_resolver == nullptr ||
         default_feature_settings.size() != 26U ||
         shaping_route_resolver == nullptr ||
         !shape_options.pre_context.empty() ||

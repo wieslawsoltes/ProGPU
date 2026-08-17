@@ -536,6 +536,17 @@ requirements/write pair preserves duplicate enablement needed above a disabled
 baseline and lets hosts concatenate partial ranges with the feature planner's
 non-default global values without per-feature calls.
 
+The native configuration boundary now composes those proven stages into the
+managed `ShapeCore` planning contract in one allocation-free call. It infers
+the Unicode script from the decoded run when the caller leaves it unspecified,
+selects the font's exact OpenType layout generation, resolves direction and
+language, normalizes caller feature ranges, and returns complete borrowed run
+options over caller-owned buffers. Inactive zero-valued partial ranges are
+discarded exactly when managed feature selection would omit their lookup tag.
+The implementation directly composes the ProGPU-owned managed planning code
+and granular native ports at checkpoint `9089d6ca`; it does not introduce a
+parallel shaping policy or per-feature managed/native crossings.
+
 Native fallback accepts a bulk span of borrowed, already-parsed SFNT faces from
 the platform provider boundary. It preserves extended graphemes, tries the
 preferred face first, coalesces adjacent face runs, reports unresolved coverage

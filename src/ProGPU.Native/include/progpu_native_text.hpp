@@ -1129,6 +1129,61 @@ struct open_type_shape_run_options final {
     open_type_tag unicode_script{};
 };
 
+struct open_type_shape_configuration_request final {
+    open_type_tag unicode_script{};
+    std::string_view language{};
+    shaping_direction direction = shaping_direction::unspecified;
+    std::span<const shaping_feature> features{};
+    std::span<const std::int16_t> normalized_coordinates{};
+    std::uint32_t alternate_value = 1U;
+    bool zero_mark_advances = true;
+    shaping_cluster_level cluster_level =
+        shaping_cluster_level::monotone_graphemes;
+    shaping_buffer_flags buffer_flags = shaping_buffer_flags::none;
+    const unicode_normalization_data* normalization_data = nullptr;
+    std::span<const unicode_scalar> pre_context{};
+    std::span<const unicode_scalar> post_context{};
+};
+
+struct open_type_shape_configuration_requirements final {
+    std::uint32_t base_feature_capacity = 0U;
+    std::uint32_t explicit_feature_capacity = 0U;
+    std::uint32_t requested_feature_capacity = 0U;
+    std::uint32_t feature_setting_capacity = 0U;
+};
+
+struct open_type_shape_configuration final {
+    open_type_shaping_route route{};
+    open_type_shape_run_options options{};
+    std::uint32_t base_features_written = 0U;
+    std::uint32_t requested_features_written = 0U;
+    std::uint32_t explicit_features_written = 0U;
+    std::uint32_t feature_settings_written = 0U;
+};
+
+/* One allocation-free managed-equivalent planning boundary for a decoded
+ * uniform run. It infers/canonicalizes the Unicode script, selects the font's
+ * layout generation, normalizes caller feature ranges, resolves ordered
+ * script/direction features, maps language, and returns run options borrowing
+ * only caller-owned buffers. The capacity pass is a safe upper bound. */
+bool try_get_open_type_shape_configuration_requirements(
+    const sfnt_font_view& font,
+    std::span<const unicode_scalar> input,
+    const open_type_shape_configuration_request& request,
+    open_type_shape_configuration_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_prepare_open_type_shape_configuration(
+    const sfnt_font_view& font,
+    std::span<const unicode_scalar> input,
+    const open_type_shape_configuration_request& request,
+    std::span<open_type_feature_setting> base_feature_scratch,
+    std::span<open_type_tag> explicit_feature_storage,
+    std::span<open_type_tag> requested_feature_storage,
+    std::span<shaping_feature> feature_setting_storage,
+    open_type_shape_configuration& result,
+    font_error* error = nullptr) noexcept;
+
 struct open_type_shape_run_scratch final {
     std::span<unicode_grapheme_cluster> grapheme_clusters{};
     std::span<std::uint16_t> gsub_lookups{};
