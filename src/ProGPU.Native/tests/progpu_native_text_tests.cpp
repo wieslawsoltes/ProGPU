@@ -168,6 +168,10 @@ using progpu::native::text::try_reorder_text_line_visual;
 using progpu::native::text::try_get_text_line_visual_indices;
 using progpu::native::text::text_logical_layout_scratch;
 using progpu::native::text::try_layout_logical_shaped_text;
+using progpu::native::text::positioned_text_column;
+using progpu::native::text::text_vertical_layout_requirements;
+using progpu::native::text::try_get_vertical_text_layout_requirements;
+using progpu::native::text::try_layout_vertical_shaped_text;
 using progpu::native::text::text_cluster_box;
 using progpu::native::text::text_caret_stop;
 using progpu::native::text::text_rectangle;
@@ -5884,6 +5888,14 @@ void native_positioned_text_layout_wraps_without_allocation() {
         &error));
     require(error == font_error::insufficient_buffer &&
         glyph_count == 0U && line_count == 0U);
+
+    auto vertical_options = options;
+    vertical_options.direction =
+        progpu::native::text::shaping_direction::top_to_bottom;
+    require(!try_get_text_layout_requirements(
+        glyphs, breaks, vertical_options, requirements, &error));
+    require(error == font_error::invalid_argument &&
+        requirements.glyph_capacity == 0U);
 }
 
 void native_text_visual_order_matches_managed_cluster_policy() {
@@ -6040,6 +6052,115 @@ void native_logical_text_layout_reorders_bidi_per_line() {
         &error));
     require(error == font_error::insufficient_buffer && glyph_count == 0U &&
         line_count == 0U && indices[0U] == 99U);
+}
+
+void native_vertical_text_layout_matches_managed_columns() {
+    const std::array<shaping_glyph, 4U> top_to_bottom{
+        shaping_glyph{1U, 0x4E00U, 0, shaping_glyph_flags::none, 0, 8},
+        shaping_glyph{2U, 0x4E01U, 1, shaping_glyph_flags::none, 0, 8},
+        shaping_glyph{3U, 0x4E02U, 2, shaping_glyph_flags::none, 0, 8},
+        shaping_glyph{4U, 0x4E03U, 3, shaping_glyph_flags::none, 0, 8}};
+    constexpr std::array<text_line_break_kind, 4U> breaks{
+        text_line_break_kind::prohibited,
+        text_line_break_kind::mandatory,
+        text_line_break_kind::prohibited,
+        text_line_break_kind::mandatory};
+    const text_layout_options options{
+        1.0F,
+        30.0F,
+        10.0F,
+        0U,
+        progpu::native::text::shaping_direction::top_to_bottom,
+        text_trimming::none,
+        text_alignment::center};
+
+    text_vertical_layout_requirements requirements{};
+    font_error error = font_error::invalid_argument;
+    require(try_get_vertical_text_layout_requirements(
+        top_to_bottom, breaks, options, requirements, &error));
+    require(error == font_error::none &&
+        requirements.glyph_capacity == 4U &&
+        requirements.column_capacity == 2U);
+
+    std::array<positioned_text_glyph, 4U> positioned{};
+    std::array<positioned_text_column, 2U> columns{};
+    std::uint32_t glyph_count = 0U;
+    std::uint32_t column_count = 0U;
+    require(try_layout_vertical_shaped_text(
+        top_to_bottom,
+        breaks,
+        options,
+        positioned,
+        columns,
+        glyph_count,
+        column_count,
+        &error));
+    require(glyph_count == 4U && column_count == 2U &&
+        positioned[0U].x == 10.0F && positioned[0U].y == 0.0F &&
+        positioned[1U].x == 10.0F && positioned[1U].y == 8.0F &&
+        positioned[2U].x == 20.0F && positioned[2U].y == 0.0F &&
+        positioned[3U].x == 20.0F && positioned[3U].y == 8.0F);
+    require(columns[0U].glyph_start == 0U &&
+        columns[0U].glyph_count == 2U && columns[0U].height == 16.0F &&
+        columns[0U].x == 5.0F && columns[0U].width == 10.0F &&
+        !columns[0U].clipped && columns[1U].x == 15.0F);
+
+    auto bottom_to_top = top_to_bottom;
+    for (auto& glyph : bottom_to_top) glyph.advance_y = -8;
+    auto reverse_options = options;
+    reverse_options.direction =
+        progpu::native::text::shaping_direction::bottom_to_top;
+    require(try_layout_vertical_shaped_text(
+        bottom_to_top,
+        breaks,
+        reverse_options,
+        positioned,
+        columns,
+        glyph_count,
+        column_count,
+        &error));
+    require(positioned[0U].y == 0.0F && positioned[1U].y == -8.0F &&
+        positioned[0U].advance_y == -8.0F && columns[0U].height == 16.0F);
+
+    auto clipped_options = options;
+    clipped_options.maximum_lines = 1U;
+    require(try_get_vertical_text_layout_requirements(
+        top_to_bottom, breaks, clipped_options, requirements, &error));
+    require(requirements.glyph_capacity == 2U &&
+        requirements.column_capacity == 1U);
+    require(try_layout_vertical_shaped_text(
+        top_to_bottom,
+        breaks,
+        clipped_options,
+        positioned,
+        columns,
+        glyph_count,
+        column_count,
+        &error));
+    require(glyph_count == 2U && column_count == 1U && columns[0U].clipped);
+
+    positioned.fill(positioned_text_glyph{99U});
+    glyph_count = 99U;
+    column_count = 99U;
+    require(!try_layout_vertical_shaped_text(
+        top_to_bottom,
+        breaks,
+        options,
+        std::span<positioned_text_glyph>{positioned}.first(3U),
+        columns,
+        glyph_count,
+        column_count,
+        &error));
+    require(error == font_error::insufficient_buffer && glyph_count == 0U &&
+        column_count == 0U && positioned[0U].glyph_index == 99U);
+
+    auto invalid_options = options;
+    invalid_options.direction =
+        progpu::native::text::shaping_direction::left_to_right;
+    require(!try_get_vertical_text_layout_requirements(
+        top_to_bottom, breaks, invalid_options, requirements, &error));
+    require(error == font_error::invalid_argument &&
+        requirements.glyph_capacity == 0U);
 }
 
 void unicode_line_breaks_feed_native_layout_without_allocation() {
@@ -10158,6 +10279,7 @@ int main() {
     native_positioned_text_layout_wraps_without_allocation();
     native_text_visual_order_matches_managed_cluster_policy();
     native_logical_text_layout_reorders_bidi_per_line();
+    native_vertical_text_layout_matches_managed_columns();
     unicode_line_breaks_feed_native_layout_without_allocation();
     complex_script_properties_and_syllable_machines_are_bounded();
     woff1_normalization_is_bounded_and_transactional();

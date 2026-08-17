@@ -25,7 +25,8 @@ bool valid_options(const text_layout_options& options) noexcept {
         std::isfinite(options.maximum_width) &&
         options.maximum_width >= 0.0F &&
         std::isfinite(options.line_height) && options.line_height >= 0.0F &&
-        options.direction != shaping_direction::unspecified &&
+        (options.direction == shaping_direction::left_to_right ||
+            options.direction == shaping_direction::right_to_left) &&
         static_cast<std::uint8_t>(options.trimming) <=
             static_cast<std::uint8_t>(text_trimming::word_ellipsis) &&
         static_cast<std::uint8_t>(options.alignment) <=

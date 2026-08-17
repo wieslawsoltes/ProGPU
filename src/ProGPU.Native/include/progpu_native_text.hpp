@@ -1615,6 +1615,46 @@ struct text_layout_requirements final {
     std::uint32_t line_capacity = 0U;
 };
 
+struct positioned_text_column final {
+    std::uint32_t glyph_start = 0U;
+    std::uint32_t glyph_count = 0U;
+    std::int32_t input_start = 0;
+    std::int32_t input_end = 0;
+    float height = 0.0F;
+    float x = 0.0F;
+    float width = 0.0F;
+    bool clipped = false;
+    std::uint8_t reserved0 = 0U;
+    std::uint8_t reserved1 = 0U;
+    std::uint8_t reserved2 = 0U;
+};
+
+struct text_vertical_layout_requirements final {
+    std::uint32_t glyph_capacity = 0U;
+    std::uint32_t column_capacity = 0U;
+};
+
+/* Ports TextLayout.GenerateVerticalShapedLayout over already-shaped visual
+ * glyphs. Mandatory boundaries start a new column; ordinary opportunities do
+ * not wrap vertical text. maximum_lines bounds columns; vertical trimming is
+ * rejected until a managed semantic exists to port. */
+bool try_get_vertical_text_layout_requirements(
+    std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks_after,
+    const text_layout_options& options,
+    text_vertical_layout_requirements& result,
+    font_error* error = nullptr) noexcept;
+
+bool try_layout_vertical_shaped_text(
+    std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks_after,
+    const text_layout_options& options,
+    std::span<positioned_text_glyph> positioned_glyphs,
+    std::span<positioned_text_column> columns,
+    std::uint32_t& glyph_count,
+    std::uint32_t& column_count,
+    font_error* error = nullptr) noexcept;
+
 struct text_visual_cluster_group final {
     std::uint32_t glyph_start = 0U;
     std::uint32_t glyph_count = 0U;

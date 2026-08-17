@@ -1157,6 +1157,18 @@ remains one-pass `O(G)` with `O(1)` state and no allocation. Tests cover a
 multi-cluster unsafe chain whose first line intentionally exceeds the requested
 width rather than corrupting the shaped sequence.
 
+Vertical positioned columns directly port the applicable ProGPU-owned
+`TextLayout.GenerateVerticalShapedLayout` behavior from checkpoint `9abefe6d`.
+The native API retains signed top-to-bottom or bottom-to-top advances, places
+glyphs at the center of each fixed-width column, starts a new column only at a
+mandatory boundary, and applies the same whole-content horizontal alignment.
+The native maximum-line extension clips only complete columns; unsupported
+vertical ellipsis fails explicitly rather than pretending to use horizontal
+trimming. Requirements and population are each `O(G)` with `O(1)` internal
+state and caller-owned outputs. Tests cover both advance directions, two
+columns, center alignment, bounded-column clipping, invalid direction, and
+transactional short output.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

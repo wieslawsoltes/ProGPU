@@ -654,6 +654,17 @@ when the finite layout width exceeds the line width, while left and the
 currently non-expanding managed justify mode preserve the line origin. The
 alignment pass is `O(G)` and reuses the output span in place.
 
+Vertical visual runs use a separate positioned-column contract mirroring
+`TextLayout.GenerateVerticalShapedLayout`. Top-to-bottom and bottom-to-top
+glyph advances remain signed, mandatory boundaries start columns, regular line
+opportunities do not wrap them, column spacing comes from the supplied line
+height, and center/right alignment shifts the complete column set. A native
+maximum-line limit bounds whole columns and marks the final retained column as
+clipped. Requirements and population are `O(G)` with `O(1)` internal storage;
+vertical ellipsis is rejected because the authoritative managed layout does not
+define it. Horizontal layout rejects vertical directions so callers cannot
+silently receive horizontal placement for an accepted vertical request.
+
 Character and word ellipsis use the same bounded layout pass. The caller
 supplies one already-shaped ellipsis glyph id and font-unit advance; layout
 removes only complete source clusters, uses resolved break boundaries for word
