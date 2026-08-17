@@ -1458,6 +1458,7 @@ struct open_type_shape_plan final {
     std::uint32_t face_index = 0U;
     open_type_tag script{};
     open_type_tag language{};
+    bool has_gpos_kerning = false;
     bool has_gdef = false;
 
     bool matches(

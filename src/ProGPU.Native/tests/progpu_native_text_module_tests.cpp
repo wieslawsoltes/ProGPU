@@ -87,6 +87,7 @@ int main() {
         context_requirements{};
     const progpu::native::text::open_type_lookup_accelerator
         lookup_accelerator{};
+    const progpu::native::text::open_type_shape_plan shape_plan{};
     const progpu::native::text::open_type_shaping_route shaping_route{};
     const progpu::native::text::open_type_feature_setting feature_setting{};
     const progpu::native::text::open_type_feature_plan_requirements
@@ -255,6 +256,7 @@ int main() {
         lookup_accelerator.feature.value != 0U ||
         lookup_accelerator.feature_found ||
         lookup_accelerator.feature_required ||
+        shape_plan.has_gpos_kerning ||
         shape_options.normalization_data != nullptr ||
         !shape_verification.glyphs.empty() ||
         shape_options.unicode_script.value != 0U ||

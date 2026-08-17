@@ -2116,6 +2116,9 @@ bool try_shape_open_type_run(
         const bool has_accelerators = plan != nullptr &&
             excluded_fraction.empty() &&
             plan->gpos_accelerators.size() == selected_lookups.size();
+        if (has_accelerators) {
+            has_gpos_kerning = plan->has_gpos_kerning;
+        }
         const auto buffer_digest = has_accelerators
             ? create_glyph_digest(glyphs)
             : open_type_glyph_set_digest{};
@@ -2136,9 +2139,12 @@ bool try_shape_open_type_run(
                     return false;
                 }
             }
-            has_gpos_kerning |= (resolution.required || resolution.found) &&
-                (resolution.feature == kern_feature ||
-                    resolution.feature == distance_feature);
+            if (!has_accelerators) {
+                has_gpos_kerning |=
+                    (resolution.required || resolution.found) &&
+                    (resolution.feature == kern_feature ||
+                        resolution.feature == distance_feature);
+            }
             if (has_accelerators &&
                 plan->gpos_accelerators[index].has_digest &&
                 !plan->gpos_accelerators[index].digest.may_intersect(

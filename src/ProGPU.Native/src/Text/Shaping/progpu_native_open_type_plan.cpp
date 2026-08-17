@@ -518,6 +518,19 @@ bool try_build_shape_plan(
                 error))) {
         return false;
     }
+    constexpr auto kern_tag =
+        open_type_tag::from_chars('k', 'e', 'r', 'n');
+    constexpr auto distance_tag =
+        open_type_tag::from_chars('d', 'i', 's', 't');
+    bool has_gpos_kerning = false;
+    for (const auto& accelerator : gpos_accelerators) {
+        if ((accelerator.feature_found || accelerator.feature_required) &&
+            (accelerator.feature == kern_tag ||
+                accelerator.feature == distance_tag)) {
+            has_gpos_kerning = true;
+            break;
+        }
+    }
 
     open_type_gdef_view gdef{};
     bool has_gdef = false;
@@ -552,6 +565,7 @@ bool try_build_shape_plan(
         font.face_index(),
         options.script,
         options.language,
+        has_gpos_kerning,
         has_gdef};
     set_error(error, font_error::none);
     return true;

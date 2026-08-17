@@ -1342,8 +1342,10 @@ with `O(1)` internal state; there is no per-run allocation, parser graph, or
 managed/native crossing. Each selected plan entry also retains its resolved
 feature tag plus required/found state. Stable replay therefore does not rescan
 Script/LangSys/Feature membership to recover ranged feature values or detect
-GPOS kerning; changing range values remains valid because lookup selection and
-the cached tag depend on the ordered requested tags, not per-cluster values.
+GPOS kerning, and the managed `PositioningPlan.HasKerning` decision is retained
+once across the selected GPOS entries. Changing range values remains valid
+because lookup selection and the cached tag depend on the ordered requested
+tags, not per-cluster values.
 Direct fixtures cover format-1 digest construction, intended hash false
 positives, whole-lookup and per-candidate GSUB/GPOS negative rejection,
 format-3 contextual digest and exact ordered rejection, lookup-flag fail-open,

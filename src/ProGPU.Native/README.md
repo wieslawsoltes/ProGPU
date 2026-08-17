@@ -426,7 +426,8 @@ the authoritative exact executor.
 Each selected plan entry also caches the managed `EnabledLookup` feature tag
 and required/found state. Ranged GSUB/GPOS replay and GPOS kerning detection
 reuse that metadata rather than walking Script/LangSys/Feature membership on
-every run; per-cluster feature values remain caller-owned run input.
+every run; the managed-equivalent positioning-plan kerning bit is retained once
+at plan build. Per-cluster feature values remain caller-owned run input.
 GSUB adds newly produced glyph IDs to the run digest
 after each applied lookup, preserving later-lookup dependencies without a
 rescan allocation. A plan is keyed by the exact font

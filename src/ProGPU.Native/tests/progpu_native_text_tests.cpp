@@ -11096,6 +11096,7 @@ void production_inter_shaping_is_stable_and_reusable() {
         plan.gsub, plan.gsub_lookups, plan.gsub_accelerators);
     require_cached_features(
         plan.gpos, plan.gpos_lookups, plan.gpos_accelerators);
+    require(plan.has_gpos_kerning);
 
     std::array<shaping_glyph, 64U> glyphs{};
     std::array<unicode_grapheme_cluster, 16U> graphemes{};
