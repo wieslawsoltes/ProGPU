@@ -666,6 +666,7 @@ bool try_build_paragraph_capacities(
         !size.add<unicode_bidi_level_run>(input_count) ||
         !size.add<unicode_bidi_bracket_pair>(input_count / 2U) ||
         !size.add<unicode_bidi_level>(input_count) ||
+        !size.add<unicode_script_run>(input_count) ||
         !size.add<unicode_line_break_class>(input_count) ||
         !size.add<text_line_break_kind>(input_count) ||
         !size.add<shaping_glyph>(glyph_count) ||
@@ -1690,6 +1691,7 @@ progpu_native_status progpu_native_text_context_layout_paragraph(
         std::span<unicode_bidi_level_run> bidi_runs{};
         std::span<unicode_bidi_bracket_pair> bidi_pairs{};
         std::span<unicode_bidi_level> scalar_levels{};
+        std::span<unicode_script_run> script_runs{};
         std::span<unicode_line_break_class> line_classes{};
         std::span<text_line_break_kind> scalar_breaks{};
         std::span<shaping_glyph> logical_glyphs{};
@@ -1707,6 +1709,7 @@ progpu_native_status progpu_native_text_context_layout_paragraph(
             !arena.take(input_count, bidi_runs) ||
             !arena.take(input_count / 2U, bidi_pairs) ||
             !arena.take(input_count, scalar_levels) ||
+            !arena.take(input_count, script_runs) ||
             !arena.take(input_count, line_classes) ||
             !arena.take(input_count, scalar_breaks) ||
             !arena.take(glyph_limit, logical_glyphs) ||
@@ -1748,6 +1751,32 @@ progpu_native_status progpu_native_text_context_layout_paragraph(
             return status_from_unicode_error(unicode_result);
         }
         result->paragraph_level = paragraph_level;
+        const bool itemize_scripts = shaping->unicode_script == 0U ||
+            shaping->unicode_script == default_script.value;
+        std::uint32_t script_run_count = 1U;
+        if (itemize_scripts) {
+            if (!try_itemize_unicode_scripts(
+                    native_input,
+                    script_runs,
+                    script_run_count,
+                    &unicode_result)) {
+                result->error_code =
+                    static_cast<std::uint32_t>(unicode_result);
+                result->error_stage =
+                    PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
+                return status_from_unicode_error(unicode_result);
+            }
+        } else {
+            script_runs[0U] = unicode_script_run{
+                0U,
+                static_cast<std::uint32_t>(input_count),
+                native_input.front().input_index,
+                static_cast<std::uint32_t>(
+                    static_cast<std::uint64_t>(native_input.back().input_index) +
+                    native_input.back().input_length -
+                    native_input.front().input_index),
+                open_type_tag{shaping->unicode_script}};
+        }
         if (!try_resolve_unicode_line_breaks(
                 native_input,
                 line_classes,
@@ -1761,10 +1790,28 @@ progpu_native_status progpu_native_text_context_layout_paragraph(
 
         std::uint32_t logical_count = 0U;
         std::size_t scalar_start = 0U;
+        std::size_t script_run_index = 0U;
         while (scalar_start < input_count) {
+            while (script_run_index < script_run_count &&
+                scalar_start >= static_cast<std::size_t>(
+                    script_runs[script_run_index].scalar_start) +
+                    script_runs[script_run_index].scalar_count) {
+                ++script_run_index;
+            }
+            if (script_run_index >= script_run_count) {
+                result->error_code =
+                    static_cast<std::uint32_t>(font_error::invalid_argument);
+                result->error_stage =
+                    PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
+                return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+            }
+            const auto& script_run = script_runs[script_run_index];
+            const std::size_t script_end =
+                static_cast<std::size_t>(script_run.scalar_start) +
+                script_run.scalar_count;
             const std::int8_t level = scalar_levels[scalar_start].level;
             std::size_t scalar_end = scalar_start + 1U;
-            while (scalar_end < input_count &&
+            while (scalar_end < input_count && scalar_end < script_end &&
                 scalar_levels[scalar_end].level == level) {
                 ++scalar_end;
             }
@@ -1775,6 +1822,10 @@ progpu_native_status progpu_native_text_context_layout_paragraph(
             run_request.direction = (level & 1) == 0
                 ? PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT
                 : PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT;
+            if (shaping->unicode_script == 0U ||
+                shaping->unicode_script == default_script.value) {
+                run_request.unicode_script = script_run.script.value;
+            }
             if (scalar_start != 0U) {
                 run_request.pre_context = shaping->input;
                 run_request.pre_context_count =
@@ -1816,6 +1867,7 @@ progpu_native_status progpu_native_text_context_layout_paragraph(
                     PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_SHAPING;
                 return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
             }
+            ++result->shaping_run_count;
             scalar_start = scalar_end;
         }
         result->shaped_glyph_count = logical_count;

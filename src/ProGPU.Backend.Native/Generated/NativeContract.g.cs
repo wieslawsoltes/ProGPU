@@ -273,7 +273,7 @@ public partial struct NativeTextParagraphResult
     public int ParagraphLevel;
     public uint ErrorCode;
     public uint ErrorStage;
-    public uint Reserved;
+    public uint ShapingRunCount;
     public float ContentWidth;
     public float ContentHeight;
     public float MeasuredWidth;

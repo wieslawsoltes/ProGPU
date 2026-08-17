@@ -415,11 +415,51 @@ void bulk_shape_is_deterministic_and_caller_owned() {
                 &paragraph_result) == PROGPU_NATIVE_STATUS_SUCCESS);
     require(paragraph_result.paragraph_level == 0 &&
         paragraph_result.glyph_count == mixed_input.size() &&
-        paragraph_result.line_count == 1U);
+        paragraph_result.line_count == 1U &&
+        paragraph_result.shaping_run_count == 2U);
     constexpr std::uint32_t expected_clusters[]{0U, 1U, 2U, 3U, 6U, 5U, 4U};
     for (std::size_t index = 0U; index < mixed_input.size(); ++index) {
         require(paragraph_glyphs[index].cluster ==
             static_cast<std::int32_t>(expected_clusters[index]));
+    }
+
+    const std::vector<progpu_native_text_scalar> mixed_script_input{
+        {0x61U, 0U, 1U, 0U, 0U, 0U},
+        {0x62U, 1U, 1U, 0U, 0U, 0U},
+        {0x03B1U, 2U, 1U, 0U, 0U, 0U},
+        {0x03B2U, 3U, 1U, 0U, 0U, 0U}};
+    mixed_request.input = mixed_script_input.data();
+    mixed_request.input_count =
+        static_cast<std::uint32_t>(mixed_script_input.size());
+    paragraph_requirements.struct_size = sizeof(paragraph_requirements);
+    require(progpu_native_text_context_get_paragraph_requirements(
+                context,
+                &mixed_request,
+                &mixed_options,
+                &paragraph_requirements) == PROGPU_NATIVE_STATUS_SUCCESS);
+    paragraph_glyphs.resize(paragraph_requirements.glyph_capacity);
+    paragraph_lines.resize(paragraph_requirements.line_capacity);
+    paragraph_scratch.resize(
+        static_cast<std::size_t>(paragraph_requirements.scratch_bytes));
+    paragraph_result.struct_size = sizeof(paragraph_result);
+    require(progpu_native_text_context_layout_paragraph(
+                context,
+                &mixed_request,
+                &mixed_options,
+                paragraph_glyphs.data(),
+                static_cast<std::uint32_t>(paragraph_glyphs.size()),
+                paragraph_lines.data(),
+                static_cast<std::uint32_t>(paragraph_lines.size()),
+                paragraph_scratch.data(),
+                paragraph_scratch.size(),
+                &paragraph_result) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(paragraph_result.paragraph_level == 0 &&
+        paragraph_result.glyph_count == mixed_script_input.size() &&
+        paragraph_result.line_count == 1U &&
+        paragraph_result.shaping_run_count == 2U);
+    for (std::size_t index = 0U; index < mixed_script_input.size(); ++index) {
+        require(paragraph_glyphs[index].cluster ==
+            static_cast<std::int32_t>(index));
     }
 
     progpu_native_text_layout_result short_layout_result{};
