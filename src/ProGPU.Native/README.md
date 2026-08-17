@@ -417,6 +417,12 @@ accelerator directly ports the managed three-mask glyph-set digest: a negative
 intersection skips a GSUB/GPOS lookup, while every positive result still uses
 the exact coverage parser. Positive lookup intersections also use the matching
 `MayHave` mask at each candidate start glyph before entering subtable parsing.
+Managed-equivalent format-3 Context and ChainContext requirements are cached in
+caller-owned plan spans as borrowed coverage views plus per-coverage digests.
+Disjoint required coverages reject the lookup first; flag-zero lookups then use
+an exact ordered backtrack/input/lookahead preflight. Unsupported formats,
+mark-filtering, ignore flags, and malformed cache metadata always fail open to
+the authoritative exact executor.
 GSUB adds newly produced glyph IDs to the run digest
 after each applied lookup, preserving later-lookup dependencies without a
 rescan allocation. A plan is keyed by the exact font
@@ -425,12 +431,15 @@ normalized variation-coordinate hash; incompatible reuse fails before glyph
 output is touched. OpenType 1.1 FeatureVariations condition sets select the
 first matching alternate Feature table for both general and staged GSUB/GPOS
 lookups, using inclusive F2Dot14 axis ranges and caller-borrowed coordinates.
-Plan creation is `O(T + V + F + L)`
-for table validation, selected features, and lookups, while a compatible run
+Plan creation is `O(T + V + F + L + C)`
+for table validation, selected features, lookups, and cached contextual
+coverages, while a compatible run
 reuses the parsed views and selected lookup order with `O(1)` plan validation,
-an `O(G)` run-digest build, `O(1)` negative rejection per accelerated lookup,
-no allocation, and no font-table, feature-list, or coordinate copy. Here `V`
-is the bounded FeatureVariations condition/substitution scan.
+an `O(G)` run-digest build, `O(1)` digest rejection per accelerated lookup, and
+an ordered `O(G * C)` worst-case contextual preflight only after every required
+coverage may be present. Replay has no allocation and no font-table,
+feature-list, or coordinate copy. Here `V` is the bounded FeatureVariations
+condition/substitution scan and `C` is contextual coverage count.
 
 Arabic-family uniform runs now reuse the managed shaper's Unicode 17 packed
 joining classes and 42-entry state machine. Form actions survive substitutions

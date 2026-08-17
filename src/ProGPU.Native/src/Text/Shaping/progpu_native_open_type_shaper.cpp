@@ -1810,6 +1810,13 @@ bool try_shape_open_type_run(
                         buffer_digest)) {
                     continue;
                 }
+                if (has_accelerators &&
+                    !plan->gsub_lookup_may_match_context(
+                        index,
+                        glyph_storage.first(glyph_count),
+                        buffer_digest)) {
+                    continue;
+                }
                 const auto* lookup_digest = has_accelerators &&
                     plan->gsub_accelerators[index].has_digest
                     ? &plan->gsub_accelerators[index].digest
@@ -2121,6 +2128,11 @@ bool try_shape_open_type_run(
                 plan->gpos_accelerators[index].has_digest &&
                 !plan->gpos_accelerators[index].digest.may_intersect(
                     buffer_digest)) {
+                continue;
+            }
+            if (has_accelerators &&
+                !plan->gpos_lookup_may_match_context(
+                    index, glyphs, buffer_digest)) {
                 continue;
             }
             auto lookup_apply_options = apply_options;

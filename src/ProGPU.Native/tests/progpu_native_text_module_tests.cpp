@@ -79,6 +79,12 @@ int main() {
     const progpu::native::text::open_type_shape_verification_scratch
         shape_verification{};
     const progpu::native::text::open_type_glyph_set_digest glyph_digest{};
+    const progpu::native::text::open_type_context_coverage_requirement
+        context_coverage{};
+    const progpu::native::text::open_type_context_subtable_requirement
+        context_subtable{};
+    const progpu::native::text::open_type_context_accelerator_requirements
+        context_requirements{};
     const progpu::native::text::open_type_lookup_accelerator
         lookup_accelerator{};
     const progpu::native::text::open_type_shaping_route shaping_route{};
@@ -242,7 +248,10 @@ int main() {
         simple_run_requirements.glyph_count != 0U ||
         simple_glyph_metrics.advance_width != 0U ||
         fallback_mark.ligature_component != 0xFFU ||
-        glyph_digest.shift0 != 0U || lookup_accelerator.has_digest ||
+        glyph_digest.shift0 != 0U ||
+        context_coverage.digest.shift0 != 0U ||
+        context_subtable.coverage_count != 0U ||
+        context_requirements.supported || lookup_accelerator.has_digest ||
         shape_options.normalization_data != nullptr ||
         !shape_verification.glyphs.empty() ||
         shape_options.unicode_script.value != 0U ||

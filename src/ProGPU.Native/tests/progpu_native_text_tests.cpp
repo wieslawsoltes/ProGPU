@@ -81,6 +81,9 @@ using progpu::native::text::open_type_class_definition_view;
 using progpu::native::text::open_type_lookup_view;
 using progpu::native::text::open_type_layout_table_view;
 using progpu::native::text::open_type_glyph_set_digest;
+using progpu::native::text::open_type_context_coverage_requirement;
+using progpu::native::text::open_type_context_subtable_requirement;
+using progpu::native::text::open_type_context_accelerator_requirements;
 using progpu::native::text::open_type_lookup_accelerator;
 using progpu::native::text::open_type_glyph_class;
 using progpu::native::text::open_type_gdef_view;
@@ -1369,6 +1372,59 @@ void open_type_gsub_context_format3_applies_bounded_nested_lookups() {
     open_type_layout_table_view gsub{};
     font_error error = font_error::invalid_argument;
     require(open_type_layout_table_view::try_create(context, gsub, &error));
+    open_type_context_accelerator_requirements context_requirements{};
+    require(gsub.try_get_lookup_context_accelerator_requirements(
+        0U, 7U, context_requirements, &error));
+    require(context_requirements.supported &&
+        context_requirements.subtable_capacity == 1U &&
+        context_requirements.coverage_capacity == 2U);
+    std::array<open_type_context_subtable_requirement, 1U>
+        context_subtables{};
+    std::array<open_type_context_coverage_requirement, 2U>
+        context_coverages{};
+    std::uint16_t context_flags = 99U;
+    bool has_context = false;
+    require(gsub.try_build_lookup_context_accelerator(
+        0U,
+        7U,
+        context_subtables,
+        context_coverages,
+        context_flags,
+        has_context,
+        &error));
+    require(has_context && context_flags == 0U &&
+        context_subtables[0U].coverage_offset == 0U &&
+        context_subtables[0U].coverage_count == 2U &&
+        context_subtables[0U].backtrack_count == 0U &&
+        context_subtables[0U].input_count == 2U &&
+        context_coverages[0U].coverage.find(5U) == 0 &&
+        context_coverages[1U].coverage.find(6U) == 0);
+
+    std::array<open_type_lookup_accelerator, 1U> accelerators{};
+    accelerators[0U].has_context = true;
+    accelerators[0U].context_subtable_count = 1U;
+    open_type_shape_plan context_plan{};
+    context_plan.gsub_accelerators = accelerators;
+    context_plan.gsub_context_subtables = context_subtables;
+    context_plan.gsub_context_coverages = context_coverages;
+    std::array<shaping_glyph, 2U> matching_context{
+        shaping_glyph{5U}, shaping_glyph{6U}};
+    open_type_glyph_set_digest matching_digest{};
+    matching_digest.add(5U);
+    matching_digest.add(6U);
+    require(context_plan.gsub_lookup_may_match_context(
+        0U, matching_context, matching_digest));
+    std::array<shaping_glyph, 2U> missing_context{
+        shaping_glyph{5U}, shaping_glyph{8U}};
+    open_type_glyph_set_digest missing_digest{};
+    missing_digest.add(5U);
+    missing_digest.add(8U);
+    require(!context_plan.gsub_lookup_may_match_context(
+        0U, missing_context, missing_digest));
+    accelerators[0U].lookup_flags = 0x0008U;
+    require(context_plan.gsub_lookup_may_match_context(
+        0U, missing_context, missing_digest));
+
     std::array<shaping_glyph, 4U> glyphs{
         shaping_glyph{5U}, shaping_glyph{6U}};
     std::uint32_t count = 2U;
@@ -1420,6 +1476,46 @@ void open_type_gsub_context_format3_applies_bounded_nested_lookups() {
     write_u16(chaining, 82U, 1U);
     write_u16(chaining, 84U, 5U);
     require(open_type_layout_table_view::try_create(chaining, gsub, &error));
+    context_requirements = {};
+    require(gsub.try_get_lookup_context_accelerator_requirements(
+        0U, 7U, context_requirements, &error));
+    require(context_requirements.supported &&
+        context_requirements.subtable_capacity == 1U &&
+        context_requirements.coverage_capacity == 3U);
+    std::array<open_type_context_subtable_requirement, 1U>
+        chaining_subtables{};
+    std::array<open_type_context_coverage_requirement, 3U>
+        chaining_coverages{};
+    require(gsub.try_build_lookup_context_accelerator(
+        0U,
+        7U,
+        chaining_subtables,
+        chaining_coverages,
+        context_flags,
+        has_context,
+        &error));
+    require(has_context && chaining_subtables[0U].backtrack_count == 1U &&
+        chaining_subtables[0U].input_count == 1U &&
+        chaining_subtables[0U].coverage_count == 3U);
+    accelerators[0U].lookup_flags = context_flags;
+    context_plan.gsub_context_subtables = chaining_subtables;
+    context_plan.gsub_context_coverages = chaining_coverages;
+    const std::array<shaping_glyph, 3U> matching_chain{
+        shaping_glyph{1U}, shaping_glyph{5U}, shaping_glyph{7U}};
+    open_type_glyph_set_digest matching_chain_digest{};
+    matching_chain_digest.add(1U);
+    matching_chain_digest.add(5U);
+    matching_chain_digest.add(7U);
+    require(context_plan.gsub_lookup_may_match_context(
+        0U, matching_chain, matching_chain_digest));
+    const std::array<shaping_glyph, 3U> missing_lookahead{
+        shaping_glyph{1U}, shaping_glyph{5U}, shaping_glyph{9U}};
+    open_type_glyph_set_digest missing_lookahead_digest{};
+    missing_lookahead_digest.add(1U);
+    missing_lookahead_digest.add(5U);
+    missing_lookahead_digest.add(9U);
+    require(!context_plan.gsub_lookup_may_match_context(
+        0U, missing_lookahead, missing_lookahead_digest));
     glyphs = {shaping_glyph{1U}, shaping_glyph{5U}, shaping_glyph{7U}};
     count = 3U;
     require(try_apply_open_type_gsub_lookup(
@@ -10921,6 +11017,18 @@ void production_inter_shaping_is_stable_and_reusable() {
     std::array<std::uint16_t, 128U> plan_gpos{};
     std::array<open_type_lookup_accelerator, 128U> plan_gsub_accelerators{};
     std::array<open_type_lookup_accelerator, 128U> plan_gpos_accelerators{};
+    std::vector<open_type_context_subtable_requirement>
+        plan_gsub_context_subtables(
+            plan_requirements.gsub_context_subtable_capacity);
+    std::vector<open_type_context_coverage_requirement>
+        plan_gsub_context_coverages(
+            plan_requirements.gsub_context_coverage_capacity);
+    std::vector<open_type_context_subtable_requirement>
+        plan_gpos_context_subtables(
+            plan_requirements.gpos_context_subtable_capacity);
+    std::vector<open_type_context_coverage_requirement>
+        plan_gpos_context_coverages(
+            plan_requirements.gpos_context_coverage_capacity);
     open_type_shape_plan plan{};
     require(try_build_open_type_shape_plan(
         font,
@@ -10933,10 +11041,22 @@ void production_inter_shaping_is_stable_and_reusable() {
             plan_requirements.gsub_accelerator_capacity),
         std::span<open_type_lookup_accelerator>(plan_gpos_accelerators).first(
             plan_requirements.gpos_accelerator_capacity),
+        plan_gsub_context_subtables,
+        plan_gsub_context_coverages,
+        plan_gpos_context_subtables,
+        plan_gpos_context_coverages,
         plan,
         &error));
     require(plan.gsub_accelerators.size() == plan.gsub_lookups.size() &&
-        plan.gpos_accelerators.size() == plan.gpos_lookups.size());
+        plan.gpos_accelerators.size() == plan.gpos_lookups.size() &&
+        plan.gsub_context_subtables.size() <=
+            plan_requirements.gsub_context_subtable_capacity &&
+        plan.gsub_context_coverages.size() <=
+            plan_requirements.gsub_context_coverage_capacity &&
+        plan.gpos_context_subtables.size() <=
+            plan_requirements.gpos_context_subtable_capacity &&
+        plan.gpos_context_coverages.size() <=
+            plan_requirements.gpos_context_coverage_capacity);
 
     std::array<shaping_glyph, 64U> glyphs{};
     std::array<unicode_grapheme_cluster, 16U> graphemes{};

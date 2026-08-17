@@ -783,6 +783,24 @@ struct open_type_glyph_set_digest final {
     bool may_intersect(const open_type_glyph_set_digest& other) const noexcept;
 };
 
+struct open_type_context_coverage_requirement final {
+    open_type_coverage_view coverage{};
+    open_type_glyph_set_digest digest{};
+};
+
+struct open_type_context_subtable_requirement final {
+    std::uint32_t coverage_offset = 0U;
+    std::uint32_t coverage_count = 0U;
+    std::uint16_t backtrack_count = 0U;
+    std::uint16_t input_count = 0U;
+};
+
+struct open_type_context_accelerator_requirements final {
+    std::uint32_t subtable_capacity = 0U;
+    std::uint32_t coverage_capacity = 0U;
+    bool supported = false;
+};
+
 /*
  * Borrowed common GSUB/GPOS table header and LookupList. Creation validates
  * the version and top-level offset arrays. Individual Lookup records are
@@ -809,6 +827,21 @@ public:
         std::uint16_t extension_lookup_type,
         open_type_glyph_set_digest& result,
         bool& has_digest,
+        font_error* error = nullptr) const noexcept;
+
+    bool try_get_lookup_context_accelerator_requirements(
+        std::uint16_t index,
+        std::uint16_t extension_lookup_type,
+        open_type_context_accelerator_requirements& result,
+        font_error* error = nullptr) const noexcept;
+
+    bool try_build_lookup_context_accelerator(
+        std::uint16_t index,
+        std::uint16_t extension_lookup_type,
+        std::span<open_type_context_subtable_requirement> subtable_storage,
+        std::span<open_type_context_coverage_requirement> coverage_storage,
+        std::uint16_t& lookup_flags,
+        bool& has_context,
         font_error* error = nullptr) const noexcept;
 
     struct lookup_selection_requirements final {
@@ -1382,11 +1415,19 @@ struct open_type_shape_plan_requirements final {
     std::uint32_t gpos_lookup_capacity = 0U;
     std::uint32_t gsub_accelerator_capacity = 0U;
     std::uint32_t gpos_accelerator_capacity = 0U;
+    std::uint32_t gsub_context_subtable_capacity = 0U;
+    std::uint32_t gsub_context_coverage_capacity = 0U;
+    std::uint32_t gpos_context_subtable_capacity = 0U;
+    std::uint32_t gpos_context_coverage_capacity = 0U;
 };
 
 struct open_type_lookup_accelerator final {
     open_type_glyph_set_digest digest{};
+    std::uint32_t context_subtable_offset = 0U;
+    std::uint32_t context_subtable_count = 0U;
+    std::uint16_t lookup_flags = 0U;
     bool has_digest = false;
+    bool has_context = false;
 };
 
 /* Borrowed reusable shaping plan. The font bytes and caller-owned lookup
@@ -1399,6 +1440,14 @@ struct open_type_shape_plan final {
     std::span<const std::uint16_t> gpos_lookups{};
     std::span<const open_type_lookup_accelerator> gsub_accelerators{};
     std::span<const open_type_lookup_accelerator> gpos_accelerators{};
+    std::span<const open_type_context_subtable_requirement>
+        gsub_context_subtables{};
+    std::span<const open_type_context_coverage_requirement>
+        gsub_context_coverages{};
+    std::span<const open_type_context_subtable_requirement>
+        gpos_context_subtables{};
+    std::span<const open_type_context_coverage_requirement>
+        gpos_context_coverages{};
     const std::byte* font_data = nullptr;
     std::size_t font_size = 0U;
     std::uint64_t feature_hash = 0U;
@@ -1411,6 +1460,16 @@ struct open_type_shape_plan final {
     bool matches(
         const sfnt_font_view& font,
         const open_type_shape_run_options& options) const noexcept;
+
+    bool gsub_lookup_may_match_context(
+        std::size_t accelerator_index,
+        std::span<const shaping_glyph> glyphs,
+        const open_type_glyph_set_digest& buffer_digest) const noexcept;
+
+    bool gpos_lookup_may_match_context(
+        std::size_t accelerator_index,
+        std::span<const shaping_glyph> glyphs,
+        const open_type_glyph_set_digest& buffer_digest) const noexcept;
 };
 
 bool try_get_open_type_shape_plan_requirements(
@@ -1419,6 +1478,26 @@ bool try_get_open_type_shape_plan_requirements(
     open_type_shape_plan_requirements& result,
     font_error* error = nullptr) noexcept;
 
+bool try_build_open_type_shape_plan(
+    const sfnt_font_view& font,
+    const open_type_shape_run_options& options,
+    std::span<std::uint16_t> gsub_lookup_storage,
+    std::span<std::uint16_t> gpos_lookup_storage,
+    std::span<open_type_lookup_accelerator> gsub_accelerator_storage,
+    std::span<open_type_lookup_accelerator> gpos_accelerator_storage,
+    std::span<open_type_context_subtable_requirement>
+        gsub_context_subtable_storage,
+    std::span<open_type_context_coverage_requirement>
+        gsub_context_coverage_storage,
+    std::span<open_type_context_subtable_requirement>
+        gpos_context_subtable_storage,
+    std::span<open_type_context_coverage_requirement>
+        gpos_context_coverage_storage,
+    open_type_shape_plan& result,
+    font_error* error = nullptr) noexcept;
+
+/* Compatibility overload retains lookup digests without contextual-plan
+ * storage. Exact contextual execution remains available. */
 bool try_build_open_type_shape_plan(
     const sfnt_font_view& font,
     const open_type_shape_run_options& options,

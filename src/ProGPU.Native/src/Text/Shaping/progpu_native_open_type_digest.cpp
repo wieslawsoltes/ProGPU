@@ -5,9 +5,10 @@
 #include <limits>
 #include <span>
 
-// Direct C++20 port of ProGPU-owned OpenTypeTextShaper.GlyphSetDigest and
-// TryCreateRawLookupDigest at checkpoint e7374eb1. The digest is a
-// negative-only accelerator; exact coverage parsing remains authoritative.
+// Direct C++20 port of ProGPU-owned OpenTypeTextShaper.GlyphSetDigest,
+// TryCreateRawLookupDigest, and format-3 RawContextRequirements at checkpoint
+// e7374eb1. These are negative-only accelerators; exact lookup execution
+// remains authoritative.
 
 namespace progpu::native::text {
 namespace {
@@ -111,6 +112,151 @@ bool collect_coverage_digest(
     return true;
 }
 
+bool try_resolve_subtable(
+    const open_type_lookup_view& lookup,
+    std::uint16_t subtable_index,
+    std::uint16_t extension_lookup_type,
+    std::size_t& subtable,
+    std::uint16_t& effective_type) noexcept {
+    subtable = 0U;
+    effective_type = lookup.type;
+    if (!lookup.try_get_subtable(subtable_index, subtable) ||
+        !can_read(lookup.table, subtable, 4U)) {
+        return false;
+    }
+    if (lookup.type != extension_lookup_type) {
+        return true;
+    }
+    if (!can_read(lookup.table, subtable, 8U) ||
+        read_u16(lookup.table, subtable) != 1U) {
+        return false;
+    }
+    effective_type = read_u16(lookup.table, subtable + 2U);
+    return try_add(
+            subtable,
+            read_u32(lookup.table, subtable + 4U),
+            subtable) &&
+        can_read(lookup.table, subtable, 4U);
+}
+
+bool try_collect_context_coverage(
+    std::span<const std::byte> table,
+    std::size_t subtable,
+    std::size_t relative_record,
+    std::span<open_type_context_coverage_requirement> output,
+    std::uint32_t& written) noexcept {
+    if (!can_read(table, relative_record, 2U)) {
+        return false;
+    }
+    const auto relative = read_u16(table, relative_record);
+    std::size_t coverage_offset = 0U;
+    open_type_context_coverage_requirement requirement{};
+    if (relative == 0U || !try_add(subtable, relative, coverage_offset) ||
+        !open_type_coverage_view::try_create(
+            table, coverage_offset, requirement.coverage) ||
+        !collect_coverage_digest(
+            table, coverage_offset, requirement.digest)) {
+        return false;
+    }
+    if (!output.empty()) {
+        if (written >= output.size()) {
+            return false;
+        }
+        output[written] = requirement;
+    }
+    ++written;
+    return true;
+}
+
+bool try_parse_context_subtable(
+    std::span<const std::byte> table,
+    std::size_t subtable,
+    std::uint16_t effective_type,
+    std::uint16_t context_type,
+    std::uint16_t chain_context_type,
+    std::span<open_type_context_coverage_requirement> coverage_output,
+    open_type_context_subtable_requirement& result) noexcept {
+    result = {};
+    if ((effective_type != context_type &&
+            effective_type != chain_context_type) ||
+        !can_read(table, subtable, 6U) ||
+        read_u16(table, subtable) != 3U) {
+        return false;
+    }
+
+    std::uint32_t coverage_count = 0U;
+    if (effective_type == context_type) {
+        const auto input_count = read_u16(table, subtable + 2U);
+        const auto record_count = read_u16(table, subtable + 4U);
+        const std::size_t coverage_records = subtable + 6U;
+        const std::size_t coverage_bytes =
+            static_cast<std::size_t>(input_count) * 2U;
+        const std::size_t lookup_records = coverage_records + coverage_bytes;
+        if (input_count == 0U ||
+            !can_read(table, coverage_records, coverage_bytes) ||
+            !can_read(
+                table,
+                lookup_records,
+                static_cast<std::size_t>(record_count) * 4U)) {
+            return false;
+        }
+        for (std::uint16_t index = 0U; index < input_count; ++index) {
+            if (!try_collect_context_coverage(
+                    table,
+                    subtable,
+                    coverage_records + static_cast<std::size_t>(index) * 2U,
+                    coverage_output,
+                    coverage_count)) {
+                return false;
+            }
+        }
+        result.coverage_count = coverage_count;
+        result.input_count = input_count;
+        return true;
+    }
+
+    std::size_t cursor = subtable + 2U;
+    std::uint16_t section_counts[3]{};
+    for (std::size_t section = 0U; section < 3U; ++section) {
+        if (!can_read(table, cursor, 2U)) {
+            return false;
+        }
+        const auto count = read_u16(table, cursor);
+        section_counts[section] = count;
+        cursor += 2U;
+        if ((section == 1U && count == 0U) ||
+            !can_read(
+                table, cursor, static_cast<std::size_t>(count) * 2U)) {
+            return false;
+        }
+        for (std::uint16_t index = 0U; index < count; ++index) {
+            if (!try_collect_context_coverage(
+                    table,
+                    subtable,
+                    cursor + static_cast<std::size_t>(index) * 2U,
+                    coverage_output,
+                    coverage_count)) {
+                return false;
+            }
+        }
+        cursor += static_cast<std::size_t>(count) * 2U;
+    }
+    if (!can_read(table, cursor, 2U)) {
+        return false;
+    }
+    const auto record_count = read_u16(table, cursor);
+    if (!can_read(
+            table,
+            cursor + 2U,
+            static_cast<std::size_t>(record_count) * 4U)) {
+        return false;
+    }
+    result.coverage_count = coverage_count;
+    result.backtrack_count = section_counts[0];
+    result.input_count = section_counts[1];
+    return true;
+}
+
 } // namespace
 
 void open_type_glyph_set_digest::add(std::uint16_t glyph) noexcept {
@@ -194,6 +340,130 @@ bool open_type_layout_table_view::try_get_lookup_digest(
         }
     }
     has_digest = true;
+    set_error(error, font_error::none);
+    return true;
+}
+
+bool open_type_layout_table_view::
+    try_get_lookup_context_accelerator_requirements(
+        std::uint16_t index,
+        std::uint16_t extension_lookup_type,
+        open_type_context_accelerator_requirements& result,
+        font_error* error) const noexcept {
+    result = {};
+    open_type_lookup_view lookup{};
+    if (!try_get_lookup(index, lookup, error)) {
+        return false;
+    }
+    if (lookup.subtable_count == 0U) {
+        set_error(error, font_error::none);
+        return true;
+    }
+    const auto context_type = static_cast<std::uint16_t>(
+        extension_lookup_type == 7U ? 5U : 7U);
+    const auto chain_context_type = static_cast<std::uint16_t>(
+        extension_lookup_type == 7U ? 6U : 8U);
+    std::uint32_t coverage_capacity = 0U;
+    for (std::uint16_t subtable_index = 0U;
+         subtable_index < lookup.subtable_count;
+         ++subtable_index) {
+        std::size_t subtable = 0U;
+        std::uint16_t effective_type = 0U;
+        open_type_context_subtable_requirement subtable_requirement{};
+        if (!try_resolve_subtable(
+                lookup,
+                subtable_index,
+                extension_lookup_type,
+                subtable,
+                effective_type) ||
+            !try_parse_context_subtable(
+                lookup.table,
+                subtable,
+                effective_type,
+                context_type,
+                chain_context_type,
+                {},
+                subtable_requirement) ||
+            subtable_requirement.coverage_count >
+                std::numeric_limits<std::uint32_t>::max() -
+                    coverage_capacity) {
+            result = {};
+            set_error(error, font_error::none);
+            return true;
+        }
+        coverage_capacity += subtable_requirement.coverage_count;
+    }
+    result.subtable_capacity = lookup.subtable_count;
+    result.coverage_capacity = coverage_capacity;
+    result.supported = true;
+    set_error(error, font_error::none);
+    return true;
+}
+
+bool open_type_layout_table_view::try_build_lookup_context_accelerator(
+    std::uint16_t index,
+    std::uint16_t extension_lookup_type,
+    std::span<open_type_context_subtable_requirement> subtable_storage,
+    std::span<open_type_context_coverage_requirement> coverage_storage,
+    std::uint16_t& lookup_flags,
+    bool& has_context,
+    font_error* error) const noexcept {
+    lookup_flags = 0U;
+    has_context = false;
+    open_type_context_accelerator_requirements requirements{};
+    if (!try_get_lookup_context_accelerator_requirements(
+            index, extension_lookup_type, requirements, error)) {
+        return false;
+    }
+    if (!requirements.supported) {
+        set_error(error, font_error::none);
+        return true;
+    }
+    if (subtable_storage.size() < requirements.subtable_capacity ||
+        coverage_storage.size() < requirements.coverage_capacity) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
+    }
+
+    open_type_lookup_view lookup{};
+    if (!try_get_lookup(index, lookup, error)) {
+        return false;
+    }
+    const auto context_type = static_cast<std::uint16_t>(
+        extension_lookup_type == 7U ? 5U : 7U);
+    const auto chain_context_type = static_cast<std::uint16_t>(
+        extension_lookup_type == 7U ? 6U : 8U);
+    std::uint32_t coverage_cursor = 0U;
+    for (std::uint16_t subtable_index = 0U;
+         subtable_index < lookup.subtable_count;
+         ++subtable_index) {
+        std::size_t subtable = 0U;
+        std::uint16_t effective_type = 0U;
+        auto& subtable_result = subtable_storage[subtable_index];
+        if (!try_resolve_subtable(
+                lookup,
+                subtable_index,
+                extension_lookup_type,
+                subtable,
+                effective_type) ||
+            !try_parse_context_subtable(
+                lookup.table,
+                subtable,
+                effective_type,
+                context_type,
+                chain_context_type,
+                coverage_storage.subspan(coverage_cursor),
+                subtable_result)) {
+            lookup_flags = 0U;
+            has_context = false;
+            set_error(error, font_error::none);
+            return true;
+        }
+        subtable_result.coverage_offset = coverage_cursor;
+        coverage_cursor += subtable_result.coverage_count;
+    }
+    lookup_flags = lookup.flags;
+    has_context = true;
     set_error(error, font_error::none);
     return true;
 }

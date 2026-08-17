@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 
 // Reusable borrowed shaping-plan ownership around the allocation-free GSUB and
@@ -95,13 +96,55 @@ bool try_get_selection_capacity(
     return true;
 }
 
+bool try_get_context_capacities(
+    const open_type_layout_table_view& layout,
+    std::uint16_t extension_lookup_type,
+    std::uint32_t& subtable_capacity,
+    std::uint32_t& coverage_capacity,
+    font_error* error) noexcept {
+    subtable_capacity = 0U;
+    coverage_capacity = 0U;
+    for (std::uint16_t index = 0U;
+         index < layout.lookup_count();
+         ++index) {
+        open_type_context_accelerator_requirements requirements{};
+        if (!layout.try_get_lookup_context_accelerator_requirements(
+                index, extension_lookup_type, requirements, error)) {
+            return false;
+        }
+        if (!requirements.supported) {
+            continue;
+        }
+        if (requirements.subtable_capacity >
+                std::numeric_limits<std::uint32_t>::max() -
+                    subtable_capacity ||
+            requirements.coverage_capacity >
+                std::numeric_limits<std::uint32_t>::max() -
+                    coverage_capacity) {
+            set_error(error, font_error::invalid_face);
+            return false;
+        }
+        subtable_capacity += requirements.subtable_capacity;
+        coverage_capacity += requirements.coverage_capacity;
+    }
+    return true;
+}
+
 bool try_build_accelerators(
     const open_type_layout_table_view& layout,
     std::span<const std::uint16_t> lookups,
     std::uint16_t extension_lookup_type,
     std::span<open_type_lookup_accelerator> storage,
+    std::span<open_type_context_subtable_requirement> context_subtables,
+    std::span<open_type_context_coverage_requirement> context_coverages,
+    bool build_context,
+    std::uint32_t& context_subtable_count,
+    std::uint32_t& context_coverage_count,
     font_error* error) noexcept {
+    context_subtable_count = 0U;
+    context_coverage_count = 0U;
     for (std::size_t index = 0U; index < lookups.size(); ++index) {
+        storage[index] = {};
         if (!layout.try_get_lookup_digest(
                 lookups[index],
                 extension_lookup_type,
@@ -110,8 +153,162 @@ bool try_build_accelerators(
                 error)) {
             return false;
         }
+        if (!build_context) {
+            continue;
+        }
+        open_type_context_accelerator_requirements requirements{};
+        if (!layout.try_get_lookup_context_accelerator_requirements(
+                lookups[index],
+                extension_lookup_type,
+                requirements,
+                error)) {
+            return false;
+        }
+        if (!requirements.supported) {
+            continue;
+        }
+        if (context_subtable_count > context_subtables.size() ||
+            requirements.subtable_capacity >
+                context_subtables.size() - context_subtable_count ||
+            context_coverage_count > context_coverages.size() ||
+            requirements.coverage_capacity >
+                context_coverages.size() - context_coverage_count) {
+            set_error(error, font_error::insufficient_buffer);
+            return false;
+        }
+        auto subtables = context_subtables.subspan(
+            context_subtable_count,
+            requirements.subtable_capacity);
+        auto coverages = context_coverages.subspan(
+            context_coverage_count,
+            requirements.coverage_capacity);
+        if (!layout.try_build_lookup_context_accelerator(
+                lookups[index],
+                extension_lookup_type,
+                subtables,
+                coverages,
+                storage[index].lookup_flags,
+                storage[index].has_context,
+                error)) {
+            return false;
+        }
+        if (!storage[index].has_context) {
+            continue;
+        }
+        storage[index].context_subtable_offset = context_subtable_count;
+        storage[index].context_subtable_count =
+            requirements.subtable_capacity;
+        for (auto& subtable : subtables) {
+            subtable.coverage_offset += context_coverage_count;
+        }
+        context_subtable_count += requirements.subtable_capacity;
+        context_coverage_count += requirements.coverage_capacity;
     }
     return true;
+}
+
+bool lookup_may_match_context(
+    const open_type_lookup_accelerator& accelerator,
+    std::span<const open_type_context_subtable_requirement> subtables,
+    std::span<const open_type_context_coverage_requirement> coverages,
+    std::span<const shaping_glyph> glyphs,
+    const open_type_glyph_set_digest& buffer_digest) noexcept {
+    if (!accelerator.has_context ||
+        (accelerator.lookup_flags & 0xFF1EU) != 0U) {
+        return true;
+    }
+    if (accelerator.context_subtable_offset > subtables.size() ||
+        accelerator.context_subtable_count >
+            subtables.size() - accelerator.context_subtable_offset) {
+        return true;
+    }
+    const auto lookup_subtables = subtables.subspan(
+        accelerator.context_subtable_offset,
+        accelerator.context_subtable_count);
+    for (const auto& subtable : lookup_subtables) {
+        if (subtable.coverage_offset > coverages.size() ||
+            subtable.coverage_count >
+                coverages.size() - subtable.coverage_offset ||
+            subtable.input_count == 0U ||
+            static_cast<std::uint32_t>(subtable.backtrack_count) +
+                    subtable.input_count >
+                subtable.coverage_count) {
+            return true;
+        }
+        const auto required = coverages.subspan(
+            subtable.coverage_offset,
+            subtable.coverage_count);
+        bool all_present = true;
+        for (const auto& coverage : required) {
+            if (!coverage.digest.may_intersect(buffer_digest)) {
+                all_present = false;
+                break;
+            }
+        }
+        if (!all_present) {
+            continue;
+        }
+        for (std::size_t position = 0U; position < glyphs.size(); ++position) {
+            std::size_t match = position;
+            bool matches = true;
+            for (std::size_t index = 0U;
+                 index < subtable.backtrack_count;
+                 ++index) {
+                if (match == 0U) {
+                    matches = false;
+                    break;
+                }
+                --match;
+                const auto glyph = glyphs[match].glyph_id;
+                if (glyph > 0xFFFFU ||
+                    required[index].coverage.find(
+                        static_cast<std::uint16_t>(glyph)) < 0) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (!matches) {
+                continue;
+            }
+            match = position;
+            const std::size_t input_end =
+                static_cast<std::size_t>(subtable.backtrack_count) +
+                subtable.input_count;
+            for (std::size_t index = subtable.backtrack_count;
+                 index < input_end;
+                 ++index) {
+                if (index != subtable.backtrack_count) {
+                    ++match;
+                }
+                if (match >= glyphs.size() ||
+                    glyphs[match].glyph_id > 0xFFFFU ||
+                    required[index].coverage.find(static_cast<std::uint16_t>(
+                        glyphs[match].glyph_id)) < 0) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (!matches) {
+                continue;
+            }
+            for (std::size_t index = input_end;
+                 index < required.size();
+                 ++index) {
+                ++match;
+                if (match >= glyphs.size() ||
+                    glyphs[match].glyph_id > 0xFFFFU ||
+                    required[index].coverage.find(static_cast<std::uint16_t>(
+                        glyphs[match].glyph_id)) < 0) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 } // namespace
@@ -125,6 +322,32 @@ bool open_type_shape_plan::matches(
         language == options.language &&
         feature_hash == hash_features(options.requested_features) &&
         coordinate_hash == hash_coordinates(options.normalized_coordinates);
+}
+
+bool open_type_shape_plan::gsub_lookup_may_match_context(
+    std::size_t accelerator_index,
+    std::span<const shaping_glyph> glyphs,
+    const open_type_glyph_set_digest& buffer_digest) const noexcept {
+    return accelerator_index >= gsub_accelerators.size() ||
+        lookup_may_match_context(
+            gsub_accelerators[accelerator_index],
+            gsub_context_subtables,
+            gsub_context_coverages,
+            glyphs,
+            buffer_digest);
+}
+
+bool open_type_shape_plan::gpos_lookup_may_match_context(
+    std::size_t accelerator_index,
+    std::span<const shaping_glyph> glyphs,
+    const open_type_glyph_set_digest& buffer_digest) const noexcept {
+    return accelerator_index >= gpos_accelerators.size() ||
+        lookup_may_match_context(
+            gpos_accelerators[accelerator_index],
+            gpos_context_subtables,
+            gpos_context_coverages,
+            glyphs,
+            buffer_digest);
 }
 
 bool try_get_open_type_shape_plan_requirements(
@@ -142,7 +365,19 @@ bool try_get_open_type_shape_plan_requirements(
         !try_get_selection_capacity(
             gsub, options, result.gsub_lookup_capacity, error) ||
         !try_get_selection_capacity(
-            gpos, options, result.gpos_lookup_capacity, error)) {
+            gpos, options, result.gpos_lookup_capacity, error) ||
+        !try_get_context_capacities(
+            gsub,
+            7U,
+            result.gsub_context_subtable_capacity,
+            result.gsub_context_coverage_capacity,
+            error) ||
+        !try_get_context_capacities(
+            gpos,
+            9U,
+            result.gpos_context_subtable_capacity,
+            result.gpos_context_coverage_capacity,
+            error)) {
         result = {};
         return false;
     }
@@ -161,7 +396,16 @@ bool try_build_shape_plan(
     std::span<std::uint16_t> gpos_lookup_storage,
     std::span<open_type_lookup_accelerator> gsub_accelerator_storage,
     std::span<open_type_lookup_accelerator> gpos_accelerator_storage,
+    std::span<open_type_context_subtable_requirement>
+        gsub_context_subtable_storage,
+    std::span<open_type_context_coverage_requirement>
+        gsub_context_coverage_storage,
+    std::span<open_type_context_subtable_requirement>
+        gpos_context_subtable_storage,
+    std::span<open_type_context_coverage_requirement>
+        gpos_context_coverage_storage,
     bool build_accelerators,
+    bool build_context,
     open_type_shape_plan& result,
     font_error* error) noexcept {
     result = {};
@@ -176,7 +420,16 @@ bool try_build_shape_plan(
             (gsub_accelerator_storage.size() <
                     requirements.gsub_accelerator_capacity ||
                 gpos_accelerator_storage.size() <
-                    requirements.gpos_accelerator_capacity))) {
+                    requirements.gpos_accelerator_capacity)) ||
+        (build_context &&
+            (gsub_context_subtable_storage.size() <
+                    requirements.gsub_context_subtable_capacity ||
+                gsub_context_coverage_storage.size() <
+                    requirements.gsub_context_coverage_capacity ||
+                gpos_context_subtable_storage.size() <
+                    requirements.gpos_context_subtable_capacity ||
+                gpos_context_coverage_storage.size() <
+                    requirements.gpos_context_coverage_capacity))) {
         set_error(error, font_error::insufficient_buffer);
         return false;
     }
@@ -219,11 +472,33 @@ bool try_build_shape_plan(
     auto gpos_accelerators = build_accelerators
         ? gpos_accelerator_storage.first(gpos_count)
         : std::span<open_type_lookup_accelerator>{};
+    std::uint32_t gsub_context_subtable_count = 0U;
+    std::uint32_t gsub_context_coverage_count = 0U;
+    std::uint32_t gpos_context_subtable_count = 0U;
+    std::uint32_t gpos_context_coverage_count = 0U;
     if (build_accelerators &&
         (!try_build_accelerators(
-                gsub, gsub_lookups, 7U, gsub_accelerators, error) ||
+                gsub,
+                gsub_lookups,
+                7U,
+                gsub_accelerators,
+                gsub_context_subtable_storage,
+                gsub_context_coverage_storage,
+                build_context,
+                gsub_context_subtable_count,
+                gsub_context_coverage_count,
+                error) ||
             !try_build_accelerators(
-                gpos, gpos_lookups, 9U, gpos_accelerators, error))) {
+                gpos,
+                gpos_lookups,
+                9U,
+                gpos_accelerators,
+                gpos_context_subtable_storage,
+                gpos_context_coverage_storage,
+                build_context,
+                gpos_context_subtable_count,
+                gpos_context_coverage_count,
+                error))) {
         return false;
     }
 
@@ -249,6 +524,10 @@ bool try_build_shape_plan(
         gpos_lookups,
         gsub_accelerators,
         gpos_accelerators,
+        gsub_context_subtable_storage.first(gsub_context_subtable_count),
+        gsub_context_coverage_storage.first(gsub_context_coverage_count),
+        gpos_context_subtable_storage.first(gpos_context_subtable_count),
+        gpos_context_coverage_storage.first(gpos_context_coverage_count),
         bytes.data(),
         bytes.size(),
         hash_features(options.requested_features),
@@ -270,6 +549,14 @@ bool try_build_open_type_shape_plan(
     std::span<std::uint16_t> gpos_lookup_storage,
     std::span<open_type_lookup_accelerator> gsub_accelerator_storage,
     std::span<open_type_lookup_accelerator> gpos_accelerator_storage,
+    std::span<open_type_context_subtable_requirement>
+        gsub_context_subtable_storage,
+    std::span<open_type_context_coverage_requirement>
+        gsub_context_coverage_storage,
+    std::span<open_type_context_subtable_requirement>
+        gpos_context_subtable_storage,
+    std::span<open_type_context_coverage_requirement>
+        gpos_context_coverage_storage,
     open_type_shape_plan& result,
     font_error* error) noexcept {
     return try_build_shape_plan(
@@ -279,7 +566,38 @@ bool try_build_open_type_shape_plan(
         gpos_lookup_storage,
         gsub_accelerator_storage,
         gpos_accelerator_storage,
+        gsub_context_subtable_storage,
+        gsub_context_coverage_storage,
+        gpos_context_subtable_storage,
+        gpos_context_coverage_storage,
         true,
+        true,
+        result,
+        error);
+}
+
+bool try_build_open_type_shape_plan(
+    const sfnt_font_view& font,
+    const open_type_shape_run_options& options,
+    std::span<std::uint16_t> gsub_lookup_storage,
+    std::span<std::uint16_t> gpos_lookup_storage,
+    std::span<open_type_lookup_accelerator> gsub_accelerator_storage,
+    std::span<open_type_lookup_accelerator> gpos_accelerator_storage,
+    open_type_shape_plan& result,
+    font_error* error) noexcept {
+    return try_build_shape_plan(
+        font,
+        options,
+        gsub_lookup_storage,
+        gpos_lookup_storage,
+        gsub_accelerator_storage,
+        gpos_accelerator_storage,
+        {},
+        {},
+        {},
+        {},
+        true,
+        false,
         result,
         error);
 }
@@ -298,6 +616,11 @@ bool try_build_open_type_shape_plan(
         gpos_lookup_storage,
         {},
         {},
+        {},
+        {},
+        {},
+        {},
+        false,
         false,
         result,
         error);

@@ -1318,7 +1318,8 @@ fall-through.
 
 Reusable native GSUB/GPOS lookup acceleration directly ports ProGPU-owned
 `OpenTypeTextShaper.GlyphSetDigest`, `TryCreateRawLookupDigest`,
-`CreateGlyphDigest`, and `AddGlyphs` from checkpoint `e7374eb1`. The native
+`CreateGlyphDigest`, `AddGlyphs`, `RawContextRequirements`, and
+`TryCreateRawContextRequirements` from checkpoint `e7374eb1`. The native
 layout view builds the same three 64-bit approximate masks from Coverage format
 1 glyphs and format 2 ranges, including Extension lookup indirection. Shape
 plans retain one caller-owned digest record per selected lookup. A planned run
@@ -1328,12 +1329,20 @@ three-mask test before subtable traversal, and after each executed GSUB lookup
 adds the current glyph
 IDs so later dependent lookups cannot be falsely rejected. Positives and
 unaccelerated/malformed metadata always fall through to the exact bounded
-executor, so the optimization cannot change shaping output. Storage is
-`O(L)` caller-owned records for `L` selected lookups and `O(1)` internal state;
-there is no per-run allocation, parser graph, or managed/native crossing.
+executor, so the optimization cannot change shaping output. Format-3 Context
+and ChainContext lookups additionally retain caller-owned borrowed coverage
+views, per-coverage digests, and subtable ranges. All required coverage digests
+must intersect before the exact ordered backtrack/input/lookahead preflight;
+mark-filtering and other nonzero ignore flags fail open to the exact executor.
+Plan requirements conservatively report capacities across the table once, and
+only selected supported lookups populate those spans. Storage is `O(L + C)`
+caller-owned records for `L` selected lookups and `C` cached coverage records,
+with `O(1)` internal state; there is no per-run allocation, parser graph, or
+managed/native crossing.
 Direct fixtures cover format-1 digest construction, intended hash false
-positives, whole-lookup and per-candidate GSUB/GPOS negative rejection, range
-endpoints, invalid lookup
+positives, whole-lookup and per-candidate GSUB/GPOS negative rejection,
+format-3 contextual digest and exact ordered rejection, lookup-flag fail-open,
+range endpoints, invalid lookup
 transactionality, optional-plan compatibility, production-font stable replay,
 the C++20 named-module consumer, and ASan/UBSan execution.
 
