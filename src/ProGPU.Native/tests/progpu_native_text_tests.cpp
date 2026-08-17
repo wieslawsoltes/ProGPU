@@ -171,6 +171,7 @@ using progpu::native::text::positioned_text_line;
 using progpu::native::text::text_layout_requirements;
 using progpu::native::text::try_get_text_layout_requirements;
 using progpu::native::text::try_layout_shaped_text;
+using progpu::native::text::try_layout_open_type_text;
 using progpu::native::text::text_visual_cluster_group;
 using progpu::native::text::text_visual_order_requirements;
 using progpu::native::text::try_get_text_visual_order_requirements;
@@ -184,6 +185,8 @@ using progpu::native::text::text_vertical_open_type_metrics;
 using progpu::native::text::try_get_vertical_text_layout_requirements;
 using progpu::native::text::try_layout_vertical_shaped_text;
 using progpu::native::text::try_layout_vertical_open_type_text;
+using progpu::native::text::open_type_shaped_glyph;
+using progpu::native::text::try_project_open_type_shape_result;
 using progpu::native::text::text_layout_metrics;
 using progpu::native::text::try_measure_positioned_text_lines;
 using progpu::native::text::try_measure_positioned_text_columns;
@@ -5874,6 +5877,55 @@ void native_positioned_text_layout_wraps_without_allocation() {
         lines[0U].width == 20.0F && !lines[0U].clipped);
     require(lines[1U].glyph_start == 2U && lines[1U].glyph_count == 2U &&
         lines[1U].baseline_y == 12.0F);
+
+    auto open_type_glyphs = glyphs;
+    open_type_glyphs[0U].advance_y = -4;
+    open_type_glyphs[0U].offset_y = -3;
+    std::array<shaping_glyph, 4U> public_metric_scratch{};
+    require(try_layout_open_type_text(
+        open_type_glyphs,
+        breaks,
+        options,
+        public_metric_scratch,
+        positioned,
+        lines,
+        glyph_count,
+        line_count,
+        &error));
+    require(glyph_count == 4U && line_count == 2U &&
+        public_metric_scratch[0U].advance_y == 4 &&
+        public_metric_scratch[0U].offset_y == 3 &&
+        positioned[0U].advance_y == 4.0F && positioned[0U].y == 3.0F);
+    positioned[0U].glyph_id = 99U;
+    require(!try_layout_open_type_text(
+        open_type_glyphs,
+        breaks,
+        options,
+        std::span<shaping_glyph>{public_metric_scratch}.first(3U),
+        positioned,
+        lines,
+        glyph_count,
+        line_count,
+        &error));
+    require(error == font_error::insufficient_buffer &&
+        glyph_count == 0U && line_count == 0U &&
+        positioned[0U].glyph_id == 99U);
+    auto invalid_open_type_glyphs = open_type_glyphs;
+    invalid_open_type_glyphs[3U].offset_y =
+        std::numeric_limits<std::int32_t>::min();
+    public_metric_scratch[0U].glyph_id = 98U;
+    require(!try_layout_open_type_text(
+        invalid_open_type_glyphs,
+        breaks,
+        options,
+        public_metric_scratch,
+        positioned,
+        lines,
+        glyph_count,
+        line_count,
+        &error));
+    require(error == font_error::invalid_argument &&
+        public_metric_scratch[0U].glyph_id == 98U);
     text_layout_metrics metrics{};
     require(try_measure_positioned_text_lines(
         lines, options.maximum_width, metrics, &error));
@@ -7556,6 +7608,83 @@ void vertical_font_metrics_and_shaping_match_managed_policy() {
         glyphs[0].cluster == 0 && glyphs[1].cluster == 1);
     require(glyphs[0].advance_x == 0 && glyphs[0].advance_y == -900);
     require(glyphs[0].offset_x == -300 && glyphs[0].offset_y == -110);
+
+    static_assert(sizeof(open_type_shaped_glyph) == 32U);
+    std::array<open_type_shaped_glyph, 2U> projected{};
+    require(try_project_open_type_shape_result(
+        font,
+        {},
+        std::span<const shaping_glyph>{glyphs}.first(glyph_count),
+        500.0F,
+        shaping_direction::top_to_bottom,
+        projected,
+        nullptr,
+        &error));
+    require(projected[0U].glyph_id == 4U &&
+        projected[0U].code_point == 0x41U &&
+        projected[0U].cluster == 0 &&
+        projected[0U].advance_x == 0.0F &&
+        projected[0U].advance_y == 450.0F &&
+        projected[0U].offset_x == -150.0F &&
+        projected[0U].offset_y == 55.0F);
+
+    constexpr std::array<shaping_glyph, 1U> horizontal_design{{
+        {4U,
+            0x41U,
+            7,
+            shaping_glyph_flags::unsafe_to_break,
+            600,
+            -20,
+            30,
+            -40}}};
+    std::array<open_type_shaped_glyph, 1U> horizontal_projected{};
+    require(try_project_open_type_shape_result(
+        font,
+        {},
+        horizontal_design,
+        500.0F,
+        shaping_direction::left_to_right,
+        horizontal_projected,
+        nullptr,
+        &error));
+    require(horizontal_projected[0U].glyph_id == 4U &&
+        horizontal_projected[0U].cluster == 7 &&
+        horizontal_projected[0U].flags ==
+            shaping_glyph_flags::unsafe_to_break &&
+        horizontal_projected[0U].advance_x == 300.0F &&
+        horizontal_projected[0U].advance_y == 10.0F &&
+        horizontal_projected[0U].offset_x == 15.0F &&
+        horizontal_projected[0U].offset_y == 20.0F);
+
+    projected[0U].glyph_id = 99U;
+    require(!try_project_open_type_shape_result(
+        font,
+        {},
+        std::span<const shaping_glyph>{glyphs}.first(glyph_count),
+        500.0F,
+        shaping_direction::top_to_bottom,
+        std::span<open_type_shaped_glyph>{projected}.first(1U),
+        nullptr,
+        &error));
+    require(error == font_error::insufficient_buffer &&
+        projected[0U].glyph_id == 99U);
+
+    auto invalid_projection_glyphs =
+        std::array<shaping_glyph, 2U>{glyphs[0U], glyphs[1U]};
+    invalid_projection_glyphs[1U].glyph_id = 0x10000U;
+    projected[0U].glyph_id = 98U;
+    projected[1U].glyph_id = 97U;
+    require(!try_project_open_type_shape_result(
+        font,
+        {},
+        invalid_projection_glyphs,
+        500.0F,
+        shaping_direction::top_to_bottom,
+        projected,
+        nullptr,
+        &error));
+    require(error == font_error::invalid_glyph &&
+        projected[0U].glyph_id == 98U && projected[1U].glyph_id == 97U);
 
     constexpr std::array<text_line_break_kind, 2U> vertical_breaks{
         text_line_break_kind::prohibited,

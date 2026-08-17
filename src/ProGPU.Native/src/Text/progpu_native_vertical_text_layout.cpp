@@ -1,5 +1,7 @@
 #include "progpu_native_text.hpp"
 
+#include "Shaping/progpu_native_open_type_projection_internal.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -79,24 +81,6 @@ float alignment_shift(
             return 0.0F;
     }
     return 0.0F;
-}
-
-bool try_round_to_even(float value, std::int32_t& result) noexcept {
-    result = 0;
-    if (!std::isfinite(value)) return false;
-    const double floor_value = std::floor(static_cast<double>(value));
-    const double fraction = static_cast<double>(value) - floor_value;
-    double rounded = floor_value;
-    if (fraction > 0.5 ||
-        (fraction == 0.5 && std::fmod(std::abs(floor_value), 2.0) != 0.0)) {
-        rounded = floor_value + 1.0;
-    }
-    if (rounded < static_cast<double>(std::numeric_limits<std::int32_t>::min()) ||
-        rounded > static_cast<double>(std::numeric_limits<std::int32_t>::max())) {
-        return false;
-    }
-    result = static_cast<std::int32_t>(rounded);
-    return true;
 }
 
 template<typename ProjectMetrics>
@@ -265,83 +249,23 @@ bool try_layout_vertical_open_type_text(
     for (std::uint32_t index = 0U;
         index < requirements.glyph_capacity;
         ++index) {
-        const auto& glyph = glyphs[index];
-        if (glyph.glyph_id > std::numeric_limits<std::uint16_t>::max()) {
-            set_error(error, font_error::invalid_glyph);
-            return false;
-        }
-        const auto glyph_id = static_cast<std::uint16_t>(glyph.glyph_id);
-        std::int32_t design_advance_height = 0;
-        std::int32_t design_origin_y = 0;
-        if (!font.try_get_design_advance_height(
-                glyph_id, design_advance_height) ||
-            !font.try_get_design_vertical_origin_y(
-                glyph_id, design_origin_y)) {
-            set_error(error, font_error::invalid_face);
-            return false;
-        }
-        sfnt_design_advance_width_requirements advance_requirements{};
-        if (!font.try_get_design_advance_width_requirements(
-                glyph_id,
+        open_type_shaped_glyph projected{};
+        if (!detail::try_project_open_type_shape_glyph(
+                font,
                 normalized_coordinates,
-                advance_requirements,
+                glyphs[index],
+                options.scale,
+                options.direction,
+                projected,
+                advance_scratch,
                 error)) {
             return false;
         }
-        float design_advance_width = 0.0F;
-        const bool needs_phantom_scratch =
-            advance_requirements.glyph_variation_item_count != 0U;
-        if (needs_phantom_scratch && advance_scratch == nullptr) {
-            set_error(error, font_error::insufficient_buffer);
-            return false;
-        }
-        const bool has_advance = needs_phantom_scratch
-            ? font.try_get_design_advance_width(
-                glyph_id,
-                normalized_coordinates,
-                design_advance_width,
-                *advance_scratch,
-                error)
-            : font.try_get_design_advance_width(
-                glyph_id,
-                normalized_coordinates,
-                design_advance_width,
-                error);
-        if (!has_advance) return false;
-
-        std::int32_t base_width = 0;
-        std::int32_t scaled_width = 0;
-        std::int32_t scaled_advance_height = 0;
-        std::int32_t scaled_origin_y = 0;
-        if (!try_round_to_even(design_advance_width, base_width) ||
-            !try_round_to_even(
-                design_advance_width * options.scale, scaled_width) ||
-            !try_round_to_even(
-                static_cast<float>(design_advance_height) * options.scale,
-                scaled_advance_height) ||
-            !try_round_to_even(
-                static_cast<float>(design_origin_y) * options.scale,
-                scaled_origin_y)) {
-            set_error(error, font_error::invalid_argument);
-            return false;
-        }
-        const std::int32_t base_offset_x = -(base_width / 2);
-        const std::int32_t scaled_offset_x = -(scaled_width / 2);
-        const std::int32_t base_advance_y = -design_advance_height;
-        const std::int32_t scaled_advance_y = -scaled_advance_height;
-        const std::int32_t base_offset_y = -design_origin_y;
-        const std::int32_t scaled_offset_y = -scaled_origin_y;
         metric_scratch[index] = text_vertical_open_type_metrics{
-            static_cast<float>(glyph.advance_x) * options.scale,
-            -(((static_cast<float>(glyph.advance_y) -
-                static_cast<float>(base_advance_y)) *
-                options.scale) + static_cast<float>(scaled_advance_y)),
-            ((static_cast<float>(glyph.offset_x) -
-                static_cast<float>(base_offset_x)) *
-                options.scale) + static_cast<float>(scaled_offset_x),
-            -(((static_cast<float>(glyph.offset_y) -
-                static_cast<float>(base_offset_y)) *
-                options.scale) + static_cast<float>(scaled_offset_y))};
+            projected.advance_x,
+            projected.advance_y,
+            projected.offset_x,
+            projected.offset_y};
     }
 
     layout_vertical_core(

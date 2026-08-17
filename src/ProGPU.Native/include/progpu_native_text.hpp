@@ -265,6 +265,20 @@ struct shaping_glyph final {
     std::int32_t offset_y = 0;
 };
 
+/* Exact public projection of ProGPU.Text.ShapedGlyph. The native shaping
+ * engine retains integer design units internally; this record carries the
+ * managed public font-size-scaled, Y-down metric convention. */
+struct open_type_shaped_glyph final {
+    std::uint32_t glyph_id = 0U;
+    std::uint32_t code_point = 0U;
+    std::int32_t cluster = 0;
+    shaping_glyph_flags flags = shaping_glyph_flags::none;
+    float advance_x = 0.0F;
+    float advance_y = 0.0F;
+    float offset_x = 0.0F;
+    float offset_y = 0.0F;
+};
+
 struct unicode_decode_requirements final {
     std::uint32_t scalar_count = 0U;
 };
@@ -1790,6 +1804,20 @@ bool try_layout_shaped_text(
     std::uint32_t& line_count,
     font_error* error = nullptr) noexcept;
 
+/* Consumes try_shape_open_type_run output directly for horizontal layout.
+ * The caller-owned scratch receives the managed public Y-down design-unit
+ * convention once; wrapping and placement then reuse try_layout_shaped_text. */
+bool try_layout_open_type_text(
+    std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks_after,
+    const text_layout_options& options,
+    std::span<shaping_glyph> public_metric_scratch,
+    std::span<positioned_text_glyph> positioned_glyphs,
+    std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count,
+    std::uint32_t& line_count,
+    font_error* error = nullptr) noexcept;
+
 struct text_logical_layout_scratch final {
     std::span<text_visual_cluster_group> visual_groups{};
     std::span<std::uint32_t> visual_indices{};
@@ -2042,6 +2070,20 @@ bool try_shape_open_type_run(
     std::uint32_t& glyph_count,
     font_error* error = nullptr,
     const open_type_shape_plan* plan = nullptr) noexcept;
+
+/* Projects one completed design-unit shape result to the exact managed
+ * OpenTypeTextShaper.Shape metric convention in one bulk call. Vertical
+ * projection preserves the managed scale-before-midpoint-division order.
+ * Output remains unchanged on validation or metric failure. */
+bool try_project_open_type_shape_result(
+    const sfnt_font_view& font,
+    std::span<const std::int16_t> normalized_coordinates,
+    std::span<const shaping_glyph> glyphs,
+    float font_size,
+    shaping_direction direction,
+    std::span<open_type_shaped_glyph> output,
+    sfnt_glyph_phantom_variation_scratch* advance_scratch = nullptr,
+    font_error* error = nullptr) noexcept;
 
 struct sfnt_table_view final {
     open_type_tag tag{};

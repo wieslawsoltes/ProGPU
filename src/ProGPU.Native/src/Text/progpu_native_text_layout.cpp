@@ -515,4 +515,48 @@ bool try_layout_logical_shaped_text(
     return true;
 }
 
+bool try_layout_open_type_text(
+    std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks_after,
+    const text_layout_options& options,
+    std::span<shaping_glyph> public_metric_scratch,
+    std::span<positioned_text_glyph> positioned_glyphs,
+    std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count,
+    std::uint32_t& line_count,
+    font_error* error) noexcept {
+    glyph_count = 0U;
+    line_count = 0U;
+    if (public_metric_scratch.size() < glyphs.size()) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
+    }
+    if (options.direction != shaping_direction::left_to_right &&
+        options.direction != shaping_direction::right_to_left) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    for (const auto& glyph : glyphs) {
+        if (glyph.advance_y == std::numeric_limits<std::int32_t>::min() ||
+            glyph.offset_y == std::numeric_limits<std::int32_t>::min()) {
+            set_error(error, font_error::invalid_argument);
+            return false;
+        }
+    }
+    for (std::size_t index = 0U; index < glyphs.size(); ++index) {
+        public_metric_scratch[index] = glyphs[index];
+        public_metric_scratch[index].advance_y = -glyphs[index].advance_y;
+        public_metric_scratch[index].offset_y = -glyphs[index].offset_y;
+    }
+    return try_layout_shaped_text(
+        public_metric_scratch.first(glyphs.size()),
+        breaks_after,
+        options,
+        positioned_glyphs,
+        lines,
+        glyph_count,
+        line_count,
+        error);
+}
+
 } // namespace progpu::native::text

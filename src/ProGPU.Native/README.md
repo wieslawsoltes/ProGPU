@@ -316,6 +316,13 @@ to/from/ordinary/EOF transitions for the Indic, USE, Myanmar, and Khmer
 syllable machines. Invalid indices fail transactionally and no second native
 table representation is maintained.
 
+Completed design-unit shape results can now be projected in one allocation-
+free C++20 call to the exact managed `ShapedGlyph` font-size-scaled Y-down
+contract. Horizontal layout consumes that convention through a caller-owned
+scratch span; vertical projection and layout share the same implementation so
+scale-sensitive advance/origin midpoint rounding cannot drift between public
+shape results and positioned columns.
+
 Canonical normalization consumes the same
 `UnicodeNormalizationData.bin` resource as managed ProGPU through a validated,
 borrowed view. A requirements pass reports maximum FormD capacity; the write

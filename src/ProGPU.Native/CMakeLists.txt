@@ -584,6 +584,8 @@ add_library(progpu_native_text STATIC
     src/Text/Shaping/progpu_native_fallback_marks_internal.hpp
     src/Text/Shaping/progpu_native_open_type_plan.cpp
     src/Text/Shaping/progpu_native_open_type_shaper.cpp
+    src/Text/Shaping/progpu_native_open_type_projection.cpp
+    src/Text/Shaping/progpu_native_open_type_projection_internal.hpp
     src/Text/Shaping/progpu_native_initial_mapping.cpp
     src/Text/Shaping/progpu_native_initial_mapping_internal.hpp
     src/Text/Shaping/progpu_native_shaping_route.cpp

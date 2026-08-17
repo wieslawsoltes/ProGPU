@@ -1273,6 +1273,21 @@ and named-module fixtures cover mark categories, first/three-scalar vowel
 constraints, all four machines, invalid indices/states, and the exact 103
 managed constraint count.
 
+The managed public shape-result boundary now directly ports ProGPU-owned
+`OpenTypeTextShaper.Shape` from checkpoint `53bb824b`. Native OpenType
+execution continues to retain compact integer design units, while the new
+bulk projection publishes the exact font-size-scaled `ShapedGlyph` semantics:
+horizontal and vertical Y axes are converted to the managed Y-down convention,
+and vertical metrics preserve scale-before-midpoint-to-even advance and origin
+rounding. The existing vertical layout seam now calls the same granular
+projection implementation, and the horizontal layout seam converts one
+caller-owned design-unit span before reusing the existing wrap/trim/placement
+core. Projection is `O(G * M)` for glyphs `G` and bounded metric lookup `M`,
+with `O(G)` caller output/scratch and `O(1)` internal storage. Validation is
+transactional; direct and named-module fixtures cover horizontal sign/scale,
+vertical advance/origin conversion, flags and clusters, short buffers,
+out-of-range glyph IDs, and sanitizer execution.
+
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.
 2. Port TrueType/CFF, variation, bitmap/color, and SVG glyph data paths with

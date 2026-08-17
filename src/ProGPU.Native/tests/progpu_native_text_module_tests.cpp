@@ -55,6 +55,8 @@ int main() {
         vertical_layout_requirements{};
     const progpu::native::text::text_vertical_open_type_metrics
         vertical_open_type_metrics{};
+    const progpu::native::text::open_type_shaped_glyph
+        projected_open_type_glyph{};
     const progpu::native::text::unicode_vowel_constraint vowel_constraint{};
     const progpu::native::text::text_layout_metrics layout_metrics{};
     const progpu::native::text::text_vertical_cluster_box
@@ -120,12 +122,16 @@ int main() {
         &progpu::native::text::try_get_text_line_visual_indices;
     const auto logical_layout_resolver =
         &progpu::native::text::try_layout_logical_shaped_text;
+    const auto open_type_layout_resolver =
+        &progpu::native::text::try_layout_open_type_text;
     const auto vertical_layout_requirements_resolver =
         &progpu::native::text::try_get_vertical_text_layout_requirements;
     const auto vertical_layout_resolver =
         &progpu::native::text::try_layout_vertical_shaped_text;
     const auto vertical_open_type_layout_resolver =
         &progpu::native::text::try_layout_vertical_open_type_text;
+    const auto open_type_projection_resolver =
+        &progpu::native::text::try_project_open_type_shape_result;
     const auto line_metrics_resolver =
         &progpu::native::text::try_measure_positioned_text_lines;
     const auto column_metrics_resolver =
@@ -259,9 +265,11 @@ int main() {
         visual_order_resolver == nullptr ||
         visual_index_resolver == nullptr ||
         logical_layout_resolver == nullptr ||
+        open_type_layout_resolver == nullptr ||
         vertical_layout_requirements_resolver == nullptr ||
         vertical_layout_resolver == nullptr ||
         vertical_open_type_layout_resolver == nullptr ||
+        open_type_projection_resolver == nullptr ||
         line_metrics_resolver == nullptr ||
         column_metrics_resolver == nullptr ||
         vertical_interaction_requirements_resolver == nullptr ||
@@ -287,6 +295,7 @@ int main() {
         !shape_options.pre_context.empty() ||
         !shape_options.post_context.empty() ||
         vertical_open_type_metrics.advance_y != 0.0F ||
+        projected_open_type_glyph.advance_y != 0.0F ||
         fallback_mark.positioned) {
         return 1;
     }
