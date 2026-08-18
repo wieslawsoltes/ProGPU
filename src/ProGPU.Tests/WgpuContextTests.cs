@@ -47,12 +47,27 @@ public sealed class WgpuContextTests
             TextureFormat.Bgra8Unorm,
             supportsTextureFormatsTier1: true,
             adapterBackendType: BackendType.Metal,
-            adapterName: "Test Dawn Metal");
+            adapterName: "Test Dawn Metal",
+            adapterType: AdapterType.IntegratedGPU,
+            adapterDriverDescription: "Test Metal Driver",
+            adapterVendorId: 0x106B,
+            adapterDeviceId: 0x1234);
 
         Assert.True(context.IsInitialized);
         Assert.Equal(WgpuBackendKind.DawnNative, context.BackendKind);
         Assert.Equal(BackendType.Metal, context.AdapterBackendType);
         Assert.Equal("Test Dawn Metal", context.AdapterName);
+        Assert.Equal(
+            new WgpuAdapterSelectionDiagnostics(
+                "Test Dawn Metal",
+                BackendType.Metal,
+                AdapterType.IntegratedGPU,
+                "Test Metal Driver",
+                0x106B,
+                0x1234,
+                false,
+                WgpuAdapterSelectionReason.ExternalNativeHost),
+            context.AdapterSelectionDiagnostics);
         Assert.True(context.SupportsTextureFormatsTier1);
 
         context.PollDevice(wait: false);

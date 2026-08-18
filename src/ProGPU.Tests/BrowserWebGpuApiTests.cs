@@ -23,6 +23,11 @@ public unsafe sealed class BrowserWebGpuApiTests
 
         Assert.True(context.IsInitialized);
         Assert.Same(context, WgpuContext.Current);
+        Assert.Equal(
+            WgpuAdapterSelectionReason.ExternalBrowserHost,
+            context.AdapterSelectionDiagnostics.SelectionReason);
+        Assert.True(
+            context.AdapterSelectionDiagnostics.RequiredCompatibleSurface);
     }
 
     [Fact]
