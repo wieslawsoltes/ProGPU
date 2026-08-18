@@ -48,7 +48,7 @@ public sealed class WgpuContextTests
             supportsTextureFormatsTier1: true,
             adapterBackendType: BackendType.Metal,
             adapterName: "Test Dawn Metal",
-            adapterType: AdapterType.IntegratedGPU,
+            adapterType: AdapterType.IntegratedGpu,
             adapterDriverDescription: "Test Metal Driver",
             adapterVendorId: 0x106B,
             adapterDeviceId: 0x1234);
@@ -61,7 +61,7 @@ public sealed class WgpuContextTests
             new WgpuAdapterSelectionDiagnostics(
                 "Test Dawn Metal",
                 BackendType.Metal,
-                AdapterType.IntegratedGPU,
+                AdapterType.IntegratedGpu,
                 "Test Metal Driver",
                 0x106B,
                 0x1234,
