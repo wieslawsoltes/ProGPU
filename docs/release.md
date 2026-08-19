@@ -5,14 +5,12 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 It also builds the separately versioned Avalonia 11 and 12 integration packages
 from `scripts/progpu-package-list.sh`.
 
-Preview.49 adds an immutable WebGPU adapter-selection diagnostic snapshot on
-top of the successfully published preview.48 boundary. Native contexts expose
-the selected adapter's backend, adapter type, driver description, vendor and
-device IDs, whether presentation-surface compatibility constrained the
-request, and the selection reason. Browser-hosted, external-native, and
-shared-device contexts expose the same stable contract while preserving the
-existing adapter name and backend properties. Opt-in backend diagnostics emit
-the complete native selection without changing adapter-selection policy.
+Preview.50 adds a framework-neutral portable WPF window-icon contract on top
+of the successfully published preview.49 boundary. Portable window state can
+carry an opaque, framework-owned icon source, and activation callbacks can
+update or clear that source after host creation. The interop package does not
+take a WPF or Silk.NET dependency; conversion and native ownership remain the
+responsibility of the consuming host.
 
 WinUI remains at 4,952 exact of 16,579 official declarations with 11,627
 remaining, and the XAML compiler remains pre-MVP. These are continuation
@@ -20,15 +18,15 @@ ledgers rather than behavioral-completion claims. Detailed remaining work is
 pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 `docs/xaml-compiler/ROADMAP.md`.
 
-## Preview.49 closure and continuation
+## Preview.50 closure and continuation
 
-The release boundary is intentionally narrow: it contains the adapter
-diagnostic contract and its native, external, browser-hosted, and shared-device
-population paths. It does not change adapter ranking, backend selection,
-rendering semantics, or native ABI ownership. The diagnostics are the evidence
-surface required for subsequent hardware-first adapter policy work.
+The release boundary is intentionally narrow: it contains the portable window
+icon state and activation callback contract plus focused contract tests. It
+does not implement framework-specific icon discovery, pixel conversion, or
+native-window behavior, and it does not change rendering semantics or native
+ABI ownership.
 
-The next WinUI parity branch starts from the immutable preview.49 tag. It must
+The next WinUI parity branch starts from the immutable preview.50 tag. It must
 retain the official NuGet metadata comparator and proceed through API-contract
 markers, retained WebGPU Composition families, behavior-complete XAML control
 and property-system clusters, removal of accidental ProGPU-only declarations,
@@ -36,7 +34,7 @@ and matched rendering/performance validation. The exact baseline remains 4,952
 of 16,579 declarations; behavior, accessibility, device-loss, and rendering
 quality remain independently gated.
 
-The XAML compiler remains pre-MVP. Preview.49 retains automatic projection of
+The XAML compiler remains pre-MVP. Preview.50 retains automatic projection of
 changed stable XAML identities to detached Roslyn metadata diagnostic origins.
 The five remaining product blockers are runtime capability adapters; atomic
 metadata apply, XAML publication, joint commit, and recovery;
@@ -106,19 +104,19 @@ test project builds without warnings or errors.
 
 ## Avalonia Integration Packages
 
-- `ProGPU.Avalonia.Rendering` `12.0.5-preview.49`
-- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.49`
-- `ProGPU.Avalonia.Rendering` `11.3.18-preview.49`
-- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.49`
+- `ProGPU.Avalonia.Rendering` `12.0.5-preview.50`
+- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.50`
+- `ProGPU.Avalonia.Rendering` `11.3.18-preview.50`
+- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.50`
 
 These packages are packed on the portable runner and published after the
-`0.1.0-preview.49` runtime package set so their exact ProGPU dependencies are
+`0.1.0-preview.50` runtime package set so their exact ProGPU dependencies are
 available first.
 
 ## Local Package Build
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.49 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.50 ./eng/progpu-pack.sh
 PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
 ```
 
@@ -136,7 +134,7 @@ release workflow combines and re-verifies both outputs before publishing.
 ```bash
 read -rsp "NuGet API key: " NUGET_API_KEY
 export NUGET_API_KEY
-PROGPU_PACKAGE_VERSION=0.1.0-preview.49 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.50 ./eng/progpu-publish.sh
 ./scripts/progpu-publish.sh
 unset NUGET_API_KEY
 ```
@@ -154,7 +152,7 @@ feed.
 - `Release` validates and packs portable packages and the Avalonia integration lanes on Linux, packs mobile packages on macOS, verifies the combined runtime dependency closure, publishes runtime packages followed by Avalonia packages, and creates a tag-driven GitHub Release.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
-for example `v0.1.0-preview.49`.
+for example `v0.1.0-preview.50`.
 
 ## NuGet Publishing
 
