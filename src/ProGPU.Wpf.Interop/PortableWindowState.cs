@@ -11,6 +11,20 @@ public sealed class PortableWindowState
 
     public string? Title { get; set; }
 
+    /// <summary>
+    /// Gets or sets whether <see cref="Icon"/> contains the window icon source.
+    /// </summary>
+    public bool HasIcon { get; set; }
+
+    /// <summary>
+    /// Gets or sets the framework-owned window icon source.
+    /// </summary>
+    /// <remarks>
+    /// The interop assembly deliberately keeps this value opaque so portable hosts can
+    /// adapt the source without taking a dependency on a particular UI framework.
+    /// </remarks>
+    public object? Icon { get; set; }
+
     public bool HasWidth { get; set; }
 
     public double Width { get; set; }
