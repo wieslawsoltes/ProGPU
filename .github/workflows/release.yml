@@ -32,9 +32,9 @@ jobs:
           submodules: recursive
 
       - name: Install Linux WebGPU dependencies
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          ./eng/progpu-install-linux-packages.sh \
             libvulkan1 \
             mesa-vulkan-drivers \
             libx11-xcb1 \
