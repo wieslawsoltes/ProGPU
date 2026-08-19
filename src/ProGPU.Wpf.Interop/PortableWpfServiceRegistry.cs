@@ -476,7 +476,8 @@ public sealed class PortableWindowActivationCallbacks
         Func<object, bool>? dragMove = null,
         Func<object, IntPtr>? getHandle = null,
         Func<IntPtr, PortableWindowRegion, bool>? setWindowRegion = null,
-        Func<object, bool>? requestActivation = null)
+        Func<object, bool>? requestActivation = null,
+        Action<object, object?>? setIcon = null)
     {
         Activate = activate ?? throw new ArgumentNullException(nameof(activate));
         Show = show;
@@ -494,6 +495,7 @@ public sealed class PortableWindowActivationCallbacks
         GetHandle = getHandle;
         SetWindowRegion = setWindowRegion;
         RequestActivation = requestActivation;
+        SetIcon = setIcon;
     }
 
     public Func<object, object?> Activate { get; }
@@ -535,6 +537,12 @@ public sealed class PortableWindowActivationCallbacks
     /// when the native platform accepted the foreground request.
     /// </remarks>
     public Func<object, bool>? RequestActivation { get; }
+
+    /// <summary>
+    /// Updates the framework-owned icon source for an existing portable window host.
+    /// A <see langword="null"/> source clears the native window icon.
+    /// </summary>
+    public Action<object, object?>? SetIcon { get; }
 }
 
 public sealed class PortableWindowInputEvent
