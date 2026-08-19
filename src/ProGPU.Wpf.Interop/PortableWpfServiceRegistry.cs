@@ -680,6 +680,7 @@ public static class PortableWpfServiceRegistry
     private static readonly Dictionary<PortableWpfServiceKey, IPortableFontDialogServiceRegistrar> FontDialogServices = new();
     private static readonly Dictionary<PortableWpfServiceKey, PopupServiceRouter> PopupServiceRouters = new();
     private static readonly Dictionary<PortableWpfServiceKey, IPortableSystemThemeSource> SystemThemeSources = new();
+    private static readonly Dictionary<PortableWpfServiceKey, IPortableDisplayMetricsSource> DisplayMetricsSources = new();
 
     public static event Action<IPortableClipboardServiceRegistrar>? ClipboardServiceRegistered;
 
@@ -696,6 +697,12 @@ public static class PortableWpfServiceRegistry
     /// or when the active source for a service key is replaced or removed.
     /// </summary>
     public static event EventHandler? SystemThemeChanged;
+
+    /// <summary>
+    /// Raised when a registered platform display source reports a geometry change,
+    /// or when the active source for a service key is replaced or removed.
+    /// </summary>
+    public static event EventHandler? DisplayMetricsChanged;
 
     public static IDisposable RegisterWindowActivationService(IPortableWindowActivationServiceRegistrar service)
     {
@@ -953,6 +960,44 @@ public static class PortableWpfServiceRegistry
     private static void OnSystemThemeSourceChanged(object? sender, EventArgs e)
     {
         SystemThemeChanged?.Invoke(sender, e);
+    }
+
+    public static IDisposable RegisterDisplayMetricsSource(IPortableDisplayMetricsSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ValidateServiceKey(source.ServiceKey, nameof(source));
+
+        IPortableDisplayMetricsSource? replacedSource = null;
+        lock (SyncRoot)
+        {
+            if (DisplayMetricsSources.TryGetValue(source.ServiceKey, out replacedSource))
+            {
+                replacedSource.DisplayMetricsChanged -= OnDisplayMetricsSourceChanged;
+            }
+
+            DisplayMetricsSources[source.ServiceKey] = source;
+            source.DisplayMetricsChanged += OnDisplayMetricsSourceChanged;
+        }
+
+        DisplayMetricsChanged?.Invoke(source, EventArgs.Empty);
+        return new DisplayMetricsSourceRegistration(source);
+    }
+
+    public static bool TryGetDisplayMetricsSource(
+        PortableWpfServiceKey serviceKey,
+        out IPortableDisplayMetricsSource source)
+    {
+        ValidateServiceKey(serviceKey, nameof(serviceKey));
+
+        lock (SyncRoot)
+        {
+            return DisplayMetricsSources.TryGetValue(serviceKey, out source!);
+        }
+    }
+
+    private static void OnDisplayMetricsSourceChanged(object? sender, EventArgs e)
+    {
+        DisplayMetricsChanged?.Invoke(sender, e);
     }
 
     private static void ValidateServiceKey(PortableWpfServiceKey serviceKey, string parameterName)
@@ -1285,6 +1330,42 @@ public static class PortableWpfServiceRegistry
             if (removed)
             {
                 SystemThemeChanged?.Invoke(source, EventArgs.Empty);
+            }
+        }
+    }
+
+    private sealed class DisplayMetricsSourceRegistration : IDisposable
+    {
+        private IPortableDisplayMetricsSource? _source;
+
+        public DisplayMetricsSourceRegistration(IPortableDisplayMetricsSource source)
+        {
+            _source = source;
+        }
+
+        public void Dispose()
+        {
+            IPortableDisplayMetricsSource? source = Interlocked.Exchange(ref _source, null);
+            if (source is null)
+            {
+                return;
+            }
+
+            bool removed = false;
+            lock (SyncRoot)
+            {
+                if (DisplayMetricsSources.TryGetValue(source.ServiceKey, out IPortableDisplayMetricsSource? current) &&
+                    ReferenceEquals(current, source))
+                {
+                    source.DisplayMetricsChanged -= OnDisplayMetricsSourceChanged;
+                    DisplayMetricsSources.Remove(source.ServiceKey);
+                    removed = true;
+                }
+            }
+
+            if (removed)
+            {
+                DisplayMetricsChanged?.Invoke(source, EventArgs.Empty);
             }
         }
     }

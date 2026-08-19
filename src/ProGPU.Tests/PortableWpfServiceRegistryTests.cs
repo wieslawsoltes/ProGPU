@@ -90,6 +90,43 @@ public sealed class PortableWpfServiceRegistryTests
         Assert.Equal(1, second.CreateAttempts);
     }
 
+    [Fact]
+    public void DisplayMetricsSourceReplacementAndDisposalKeepCurrentRegistration()
+    {
+        PortableWpfServiceKey serviceKey = new($"DisplayTests-{Guid.NewGuid():N}");
+        var first = new TestDisplayMetricsSource(serviceKey, 1920, 1080);
+        var second = new TestDisplayMetricsSource(serviceKey, 2560, 1440);
+        int changeCount = 0;
+        EventHandler handler = (_, _) => changeCount++;
+        PortableWpfServiceRegistry.DisplayMetricsChanged += handler;
+
+        try
+        {
+            using IDisposable firstRegistration = PortableWpfServiceRegistry.RegisterDisplayMetricsSource(first);
+            Assert.True(PortableWpfServiceRegistry.TryGetDisplayMetricsSource(serviceKey, out var current));
+            Assert.Same(first, current);
+            first.RaiseChanged();
+
+            using IDisposable secondRegistration = PortableWpfServiceRegistry.RegisterDisplayMetricsSource(second);
+            Assert.True(PortableWpfServiceRegistry.TryGetDisplayMetricsSource(serviceKey, out current));
+            Assert.Same(second, current);
+            first.RaiseChanged();
+            second.RaiseChanged();
+
+            firstRegistration.Dispose();
+            Assert.True(PortableWpfServiceRegistry.TryGetDisplayMetricsSource(serviceKey, out current));
+            Assert.Same(second, current);
+
+            secondRegistration.Dispose();
+            Assert.False(PortableWpfServiceRegistry.TryGetDisplayMetricsSource(serviceKey, out _));
+            Assert.Equal(5, changeCount);
+        }
+        finally
+        {
+            PortableWpfServiceRegistry.DisplayMetricsChanged -= handler;
+        }
+    }
+
     private static PortablePopupCreateRequest CreateRequest(object owner)
     {
         return new PortablePopupCreateRequest(
@@ -156,6 +193,28 @@ public sealed class PortableWpfServiceRegistryTests
         {
             OperationCount++;
             return _popups.Contains(presentationSource);
+        }
+    }
+
+    private sealed class TestDisplayMetricsSource(
+        PortableWpfServiceKey serviceKey,
+        double width,
+        double height) : IPortableDisplayMetricsSource
+    {
+        public PortableWpfServiceKey ServiceKey { get; } = serviceKey;
+
+        public event EventHandler? DisplayMetricsChanged;
+
+        public bool TryGetDisplayMetrics(out PortableDisplayMetrics metrics)
+        {
+            PortableRect screen = new(0, 0, width, height);
+            metrics = new PortableDisplayMetrics(screen, screen, screen);
+            return true;
+        }
+
+        public void RaiseChanged()
+        {
+            DisplayMetricsChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 }
