@@ -33,6 +33,11 @@ public interface IPortableMessageBoxServiceRegistrar
 
     IDisposable Register(Func<PortableMessageBoxRequest, string?> show);
 
+    IDisposable RegisterFallback(Func<PortableMessageBoxRequest, string?> show)
+    {
+        return Register(show);
+    }
+
     void Clear();
 }
 
