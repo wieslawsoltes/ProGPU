@@ -678,7 +678,7 @@ public static class PortableWpfServiceRegistry
     private static readonly Dictionary<PortableWpfServiceKey, IPortableFileDialogServiceRegistrar> FileDialogServices = new();
     private static readonly Dictionary<PortableWpfServiceKey, IPortableColorDialogServiceRegistrar> ColorDialogServices = new();
     private static readonly Dictionary<PortableWpfServiceKey, IPortableFontDialogServiceRegistrar> FontDialogServices = new();
-    private static readonly Dictionary<PortableWpfServiceKey, IPortablePopupServiceRegistrar> PopupServices = new();
+    private static readonly Dictionary<PortableWpfServiceKey, PopupServiceRouter> PopupServiceRouters = new();
     private static readonly Dictionary<PortableWpfServiceKey, IPortableSystemThemeSource> SystemThemeSources = new();
 
     public static event Action<IPortableClipboardServiceRegistrar>? ClipboardServiceRegistered;
@@ -882,12 +882,19 @@ public static class PortableWpfServiceRegistry
         ArgumentNullException.ThrowIfNull(service);
         ValidateServiceKey(service.ServiceKey, nameof(service));
 
+        PopupServiceRouter router;
         lock (SyncRoot)
         {
-            PopupServices[service.ServiceKey] = service;
+            if (!PopupServiceRouters.TryGetValue(service.ServiceKey, out router!))
+            {
+                router = new PopupServiceRouter(service.ServiceKey);
+                PopupServiceRouters.Add(service.ServiceKey, router);
+            }
+
+            router.Add(service);
         }
 
-        return new Registration<IPortablePopupServiceRegistrar>(service, PopupServices);
+        return new PopupServiceRegistration(router, service);
     }
 
     public static bool TryGetPopupService(
@@ -898,7 +905,15 @@ public static class PortableWpfServiceRegistry
 
         lock (SyncRoot)
         {
-            return PopupServices.TryGetValue(serviceKey, out service!);
+            if (PopupServiceRouters.TryGetValue(serviceKey, out PopupServiceRouter? router) &&
+                router.HasServices)
+            {
+                service = router;
+                return true;
+            }
+
+            service = null!;
+            return false;
         }
     }
 
@@ -995,6 +1010,246 @@ public static class PortableWpfServiceRegistry
                 IPortablePopupServiceRegistrar popupService => popupService.ServiceKey,
                 _ => throw new InvalidOperationException("Unsupported portable WPF service registrar.")
             };
+        }
+    }
+
+    private sealed class PopupServiceRegistration : IDisposable
+    {
+        private PopupServiceRouter? _router;
+        private IPortablePopupServiceRegistrar? _service;
+
+        public PopupServiceRegistration(
+            PopupServiceRouter router,
+            IPortablePopupServiceRegistrar service)
+        {
+            _router = router;
+            _service = service;
+        }
+
+        public void Dispose()
+        {
+            IPortablePopupServiceRegistrar? service = Interlocked.Exchange(ref _service, null);
+            PopupServiceRouter? router = Interlocked.Exchange(ref _router, null);
+            if (service != null && router != null)
+            {
+                router.Remove(service);
+            }
+        }
+    }
+
+    private sealed class PopupServiceRouter : IPortablePopupServiceRegistrar
+    {
+        private readonly object _gate = new();
+        private readonly List<IPortablePopupServiceRegistrar> _services = new();
+        private readonly Dictionary<object, IPortablePopupServiceRegistrar> _popupOwners =
+            new(ReferenceEqualityComparer.Instance);
+
+        public PopupServiceRouter(PortableWpfServiceKey serviceKey)
+        {
+            ServiceKey = serviceKey;
+        }
+
+        public PortableWpfServiceKey ServiceKey { get; }
+
+        public bool HasServices
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _services.Count != 0;
+                }
+            }
+        }
+
+        public void Add(IPortablePopupServiceRegistrar service)
+        {
+            lock (_gate)
+            {
+                _services.Add(service);
+            }
+        }
+
+        public void Remove(IPortablePopupServiceRegistrar service)
+        {
+            lock (_gate)
+            {
+                for (int index = _services.Count - 1; index >= 0; index--)
+                {
+                    if (ReferenceEquals(_services[index], service))
+                    {
+                        _services.RemoveAt(index);
+                        break;
+                    }
+                }
+
+                if (_popupOwners.Count == 0)
+                {
+                    return;
+                }
+
+                object[] ownedPopups = _popupOwners
+                    .Where(pair => ReferenceEquals(pair.Value, service))
+                    .Select(static pair => pair.Key)
+                    .ToArray();
+                foreach (object popup in ownedPopups)
+                {
+                    _popupOwners.Remove(popup);
+                }
+            }
+        }
+
+        public bool TryCreatePopup(PortablePopupCreateRequest request, out object? presentationSource)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+
+            IPortablePopupServiceRegistrar[] services = GetServicesNewestFirst();
+            foreach (IPortablePopupServiceRegistrar service in services)
+            {
+                if (!service.TryCreatePopup(request, out presentationSource))
+                {
+                    continue;
+                }
+
+                if (presentationSource != null)
+                {
+                    lock (_gate)
+                    {
+                        _popupOwners[presentationSource] = service;
+                    }
+                }
+
+                return true;
+            }
+
+            presentationSource = null;
+            return false;
+        }
+
+        public bool TrySetPopupPosition(object presentationSource, int x, int y)
+        {
+            ArgumentNullException.ThrowIfNull(presentationSource);
+            return TryRoute(
+                presentationSource,
+                service => service.TrySetPopupPosition(presentationSource, x, y));
+        }
+
+        public bool TrySetPopupSize(object presentationSource, int width, int height)
+        {
+            ArgumentNullException.ThrowIfNull(presentationSource);
+            return TryRoute(
+                presentationSource,
+                service => service.TrySetPopupSize(presentationSource, width, height));
+        }
+
+        public bool TryShowPopup(object presentationSource)
+        {
+            ArgumentNullException.ThrowIfNull(presentationSource);
+            return TryRoute(presentationSource, service => service.TryShowPopup(presentationSource));
+        }
+
+        public bool TryHidePopup(object presentationSource)
+        {
+            ArgumentNullException.ThrowIfNull(presentationSource);
+            return TryRoute(presentationSource, service => service.TryHidePopup(presentationSource));
+        }
+
+        public bool TrySetPopupHitTestable(object presentationSource, bool hitTestable)
+        {
+            ArgumentNullException.ThrowIfNull(presentationSource);
+            return TryRoute(
+                presentationSource,
+                service => service.TrySetPopupHitTestable(presentationSource, hitTestable));
+        }
+
+        public bool TryDestroyPopup(object presentationSource)
+        {
+            ArgumentNullException.ThrowIfNull(presentationSource);
+
+            IPortablePopupServiceRegistrar? owner = GetPopupOwner(presentationSource);
+            if (owner != null)
+            {
+                bool destroyed = owner.TryDestroyPopup(presentationSource);
+                if (destroyed)
+                {
+                    lock (_gate)
+                    {
+                        _popupOwners.Remove(presentationSource);
+                    }
+                }
+
+                return destroyed;
+            }
+
+            foreach (IPortablePopupServiceRegistrar service in GetServicesNewestFirst())
+            {
+                if (service.TryDestroyPopup(presentationSource))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public void Clear()
+        {
+            IPortablePopupServiceRegistrar[] services = GetServicesNewestFirst();
+            lock (_gate)
+            {
+                _popupOwners.Clear();
+            }
+
+            foreach (IPortablePopupServiceRegistrar service in services)
+            {
+                service.Clear();
+            }
+        }
+
+        private bool TryRoute(
+            object presentationSource,
+            Func<IPortablePopupServiceRegistrar, bool> operation)
+        {
+            IPortablePopupServiceRegistrar? owner = GetPopupOwner(presentationSource);
+            if (owner != null)
+            {
+                return operation(owner);
+            }
+
+            foreach (IPortablePopupServiceRegistrar service in GetServicesNewestFirst())
+            {
+                if (operation(service))
+                {
+                    lock (_gate)
+                    {
+                        _popupOwners[presentationSource] = service;
+                    }
+
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private IPortablePopupServiceRegistrar? GetPopupOwner(object presentationSource)
+        {
+            lock (_gate)
+            {
+                return _popupOwners.TryGetValue(presentationSource, out IPortablePopupServiceRegistrar? owner)
+                    ? owner
+                    : null;
+            }
+        }
+
+        private IPortablePopupServiceRegistrar[] GetServicesNewestFirst()
+        {
+            lock (_gate)
+            {
+                IPortablePopupServiceRegistrar[] services = _services.ToArray();
+                Array.Reverse(services);
+                return services;
+            }
         }
     }
 
