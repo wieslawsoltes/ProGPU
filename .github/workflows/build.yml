@@ -363,6 +363,26 @@ jobs:
             -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
             -p:ProGpuNativePackageVersion="${version}"
 
+      - name: Publish and run NativeAOT package consumer
+        shell: bash
+        run: |
+          version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
+          output="${GITHUB_WORKSPACE}/artifacts/progpu-native/package-consumer-aot/${{ matrix.rid }}"
+          dotnet publish tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
+            --configuration Release \
+            --runtime "${{ matrix.rid }}" \
+            --self-contained true \
+            --output "${output}" \
+            -p:PublishAot=true \
+            -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
+            -p:ProGpuNativePackageVersion="${version}"
+          executable="${output}/ProGPU.Native.PackageConsumer"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            executable="${executable}.exe"
+          fi
+          test -x "${executable}"
+          "${executable}"
+
   avalonia-compositor-contract:
     name: Avalonia retained compositor contract
     runs-on: ubuntu-latest

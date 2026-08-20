@@ -2448,6 +2448,15 @@ runtime asset. Both package consumers use an isolated package cache; the real
 Dawn gate also uses a commit-qualified package version and disables HTTP/cache
 reuse.
 
+The same source-independent package consumer is additionally published with
+NativeAOT and executed on every runnable desktop RID. This is a deployment
+gate, not a metadata-only trim check: the native executable resolves the
+packaged wgpu-native renderer and provider-resolved Dawn adapter, creates a
+real WebGPU target, submits one draw, validates submission-token ownership and
+completion, and reads back nonempty pixels. The boundary therefore remains
+source-generated and runtime-marshalling-free under NativeAOT, while the
+package must carry the exact RID-native libraries beside the executable.
+
 The pointer-free 3D extension keeps local line/ACIS endpoints and indexed mesh
 positions, normals, UVs, model/normal matrices, camera matrices, and bounded
 material-lighting state in the retained stream. Projection, physical-pixel
