@@ -1209,8 +1209,22 @@ ordered semantic layers now own bounded backdrop input.
   layer scopes with exact opacity/blend/revision state, then
   deterministically emits the same bounded,
   pointer-free version-one stream consumed by the native compiler. The
+  header and named-module surfaces expose an allocation-free two-pass
+  serialization contract: `required_stream_size()` validates and measures the
+  immutable generation, while `build_into(...)` writes directly into one
+  caller-owned contiguous span and reports the exact byte count. A short span
+  is rejected before any byte is written. Measurement is `O(C + R)` for `C`
+  commands and `R` resources with `O(1)` scratch; serialization is
+  `O(C + R + B)` for `B` output bytes with `O(1)` extra storage. The original
+  `build(std::vector<...>&)` overload remains a convenience wrapper over the
+  same writer rather than a semantic fork. Serialization is isolated in the
+  matching `Scene/Builder/progpu_native_scene_builder_serialization.cpp`
+  translation unit so the granular native folder layout continues to mirror
+  the managed scene domain. The
   desktop sample now uses this builder end to end, and the Emscripten gate
-  compiles, submits, and stable-replays the same native-owned builder path.
+  compiles, submits, and stable-replays the same native-owned builder path;
+  both consumers now exercise the exact-size caller-owned writer rather than
+  the allocating convenience wrapper.
   Decoded straight-alpha RGBA8 color-bitmap glyph metadata/pixels are now
   generation-owned by the same builder, validated through the production
   color-atlas contract, and referenced by positioned runs without a font or

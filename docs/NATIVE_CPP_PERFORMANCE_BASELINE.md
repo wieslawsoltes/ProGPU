@@ -2516,6 +2516,38 @@ uploads zero bytes. This is family-granular reuse; sub-page replacement of one
 resource within a family containing multiple resources remains a separate
 optimization milestone.
 
+## Caller-owned native scene serialization checkpoint
+
+The standalone C++ scene builder now separates exact measurement from writing.
+`required_stream_size()` validates the complete immutable generation and
+`build_into(...)` serializes directly into one preallocated span. It does not
+materialize temporary command, resource, brush, gradient-stop, or text-style
+byte vectors. A destination one byte short returns `capacity_exceeded`, reports
+zero bytes written, and remains untouched; the compatibility vector overload
+delegates to the same writer after allocating its owned destination.
+
+The focused Release benchmark used exact implementation commit
+`9c298bc25b47de63744d3a954fabd2687a5dd866`, Apple Clang 21.0.0,
+arm64 macOS 26.6 on Apple M3 Pro, and a retained scene with 1,024 analytic
+primitives. Each of seven repetitions performed 20,000 warmed serializations. A
+test-local global `operator new` replacement counted C++ heap allocations only
+during each measured interval; it is not a claim about driver, GPU, or
+process-wide allocation.
+
+| Path | Median | Seven-run range | C++ allocations / 20,000 builds |
+| --- | ---: | ---: | ---: |
+| caller-owned `build_into` | 1.203 us/build | 1.180-1.230 us | 0 |
+| compatibility `build(vector)` | 1.777 us/build | 1.759-1.808 us | 20,000 |
+
+The caller-owned route is 32.3% lower at the median and removes the one
+destination allocation per compatibility build. Both routes produced
+byte-identical streams before timing. The strict AppleClang header suite passes
+6/6, the LLVM named-module suite passes 8/8, the Metal desktop sample renders
+the same retained scene, and Emscripten 4.0.18 plus real Chromium WebGPU passes
+initial, incremental-image, stable-replay, and vector-mask scenes through
+`build_into`. This is scene-serialization evidence; it does not replace the
+separate managed/native GPU-completion comparison.
+
 ## Windows native CI build-time checkpoint
 
 The exact `aae5ec3e7b0b78c1525451c982db758950c64d23` cold-cache GitHub
