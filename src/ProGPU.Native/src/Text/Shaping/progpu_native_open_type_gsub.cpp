@@ -82,6 +82,27 @@ void record_context_match(
     }
 }
 
+std::uint32_t adjust_context_match_end_after_substitution(
+    std::uint32_t exclusive_end,
+    std::uint32_t count_before,
+    std::uint32_t count_after) noexcept {
+    if (exclusive_end == 0U || count_before == count_after) {
+        return std::min(exclusive_end, count_after);
+    }
+
+    // Context match boundaries are captured before nested substitutions run.
+    // Translate that boundary into the mutated glyph buffer so a contracting
+    // lookup does not skip the next candidate and an expanding lookup does not
+    // feed newly inserted output back through the same top-level lookup.
+    const auto adjusted = static_cast<std::int64_t>(exclusive_end) +
+        static_cast<std::int64_t>(count_after) -
+        static_cast<std::int64_t>(count_before);
+    return static_cast<std::uint32_t>(std::clamp<std::int64_t>(
+        adjusted,
+        0,
+        static_cast<std::int64_t>(count_after)));
+}
+
 std::uint16_t read_u16(
     std::span<const std::byte> bytes,
     std::size_t offset) noexcept {
@@ -1568,6 +1589,10 @@ bool try_apply_open_type_gsub_lookup(
             }
             if (result == apply_result::applied) {
                 applied = true;
+                context_match_end = adjust_context_match_end_after_substitution(
+                    context_match_end,
+                    count_before,
+                    glyph_count);
                 if (options.mark_substituted && position < glyph_count) {
                     glyph_storage[position].flags =
                         static_cast<shaping_glyph_flags>(
@@ -1621,6 +1646,10 @@ bool try_apply_open_type_gsub_lookup_at(
         return true;
     }
     auto effective_options = options;
+    std::uint32_t context_match_end = 0U;
+    if (options.context_match_end != nullptr) {
+        effective_options.context_match_end = &context_match_end;
+    }
     if (effective_options.restrict_to_syllable) {
         effective_options.restricted_syllable =
             static_cast<std::uint8_t>(
@@ -1629,6 +1658,7 @@ bool try_apply_open_type_gsub_lookup_at(
                     complex_syllable_mask) >>
                 complex_syllable_shift);
     }
+    const std::uint32_t count_before = glyph_count;
     const apply_result result = apply_lookup_at(
         gsub,
         lookup_index,
@@ -1646,6 +1676,16 @@ bool try_apply_open_type_gsub_lookup_at(
         return false;
     }
     applied = result == apply_result::applied;
+    if (applied && options.context_match_end != nullptr) {
+        const auto adjusted_context_match_end =
+            adjust_context_match_end_after_substitution(
+                context_match_end,
+                count_before,
+                glyph_count);
+        if (adjusted_context_match_end > *options.context_match_end) {
+            *options.context_match_end = adjusted_context_match_end;
+        }
+    }
     if (applied && options.mark_substituted && position < glyph_count) {
         glyph_storage[position].flags = static_cast<shaping_glyph_flags>(
             static_cast<std::uint32_t>(glyph_storage[position].flags) |

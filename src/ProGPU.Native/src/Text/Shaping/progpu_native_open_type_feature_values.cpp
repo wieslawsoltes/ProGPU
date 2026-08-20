@@ -391,7 +391,8 @@ bool apply_gsub_lookup_with_feature_values(
         lookup_context_subtables,
     std::span<const open_type_context_coverage_requirement>
         lookup_context_coverages,
-    const lookup_feature_resolution* cached_resolution) noexcept {
+    const lookup_feature_resolution* cached_resolution,
+    bool restrict_to_syllable) noexcept {
     if (options.feature_settings.empty()) {
         bool applied = false;
         open_type_gsub_apply_options apply_options{
@@ -405,6 +406,7 @@ bool apply_gsub_lookup_with_feature_values(
         apply_options.lookup_coverage = lookup_coverage;
         apply_options.lookup_context_subtables = lookup_context_subtables;
         apply_options.lookup_context_coverages = lookup_context_coverages;
+        apply_options.restrict_to_syllable = restrict_to_syllable;
         return try_apply_open_type_gsub_lookup(
             gsub,
             lookup,
@@ -435,6 +437,7 @@ bool apply_gsub_lookup_with_feature_values(
         apply_options.lookup_coverage = lookup_coverage;
         apply_options.lookup_context_subtables = lookup_context_subtables;
         apply_options.lookup_context_coverages = lookup_context_coverages;
+        apply_options.restrict_to_syllable = restrict_to_syllable;
         return try_apply_open_type_gsub_lookup(
             gsub,
             lookup,
@@ -488,6 +491,7 @@ bool apply_gsub_lookup_with_feature_values(
             resolution.feature ==
                 open_type_tag::from_chars('r', 'a', 'n', 'd') &&
             feature_value == std::numeric_limits<std::uint16_t>::max();
+        apply_options.restrict_to_syllable = restrict_to_syllable;
         if (!try_apply_open_type_gsub_lookup_at(
                 gsub,
                 lookup,

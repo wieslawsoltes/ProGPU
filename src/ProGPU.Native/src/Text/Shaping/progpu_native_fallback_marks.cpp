@@ -93,11 +93,10 @@ bool is_default_ignorable(std::uint32_t value) noexcept {
 }
 
 bool is_unicode_mark(std::uint32_t code_point) noexcept {
-    const auto grapheme = get_unicode_grapheme_break_class(code_point);
-    return get_unicode_bidi_class(code_point) ==
-            unicode_bidi_class::nonspacing_mark ||
-        grapheme == unicode_grapheme_break_class::spacing_mark ||
-        get_unicode_canonical_combining_class(code_point) != 0U;
+    const auto category = get_unicode_general_category(code_point);
+    return category == unicode_general_category::nonspacing_mark ||
+        category == unicode_general_category::spacing_combining_mark ||
+        category == unicode_general_category::enclosing_mark;
 }
 
 std::int32_t recategorize_combining_class(

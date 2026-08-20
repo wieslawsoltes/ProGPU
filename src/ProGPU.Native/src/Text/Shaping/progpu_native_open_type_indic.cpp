@@ -1,6 +1,7 @@
 #include "progpu_native_open_type_complex_internal.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -349,6 +350,48 @@ bool below_mode_is_pre_and_post(open_type_tag script) noexcept {
         script != open_type_tag::from_chars('k','n','d','a');
 }
 
+bool is_init_continuation(std::uint32_t code_point) noexcept {
+    switch (get_unicode_general_category(code_point)) {
+        case unicode_general_category::uppercase_letter:
+        case unicode_general_category::lowercase_letter:
+        case unicode_general_category::titlecase_letter:
+        case unicode_general_category::modifier_letter:
+        case unicode_general_category::other_letter:
+        case unicode_general_category::nonspacing_mark:
+        case unicode_general_category::spacing_combining_mark:
+        case unicode_general_category::enclosing_mark:
+        case unicode_general_category::format:
+        case unicode_general_category::surrogate:
+        case unicode_general_category::private_use:
+        case unicode_general_category::other_not_assigned:
+            return true;
+        default:
+            return false;
+    }
+}
+
+void mark_dependency(
+    std::span<shaping_glyph> glyphs,
+    std::size_t first,
+    std::size_t last) noexcept {
+    if (first >= last || last >= glyphs.size()) {
+        return;
+    }
+    auto minimum = glyphs[first].cluster;
+    for (std::size_t index = first + 1U; index <= last; ++index) {
+        minimum = std::min(minimum, glyphs[index].cluster);
+    }
+    constexpr auto flags =
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_break) |
+        static_cast<std::uint32_t>(shaping_glyph_flags::unsafe_to_concat);
+    for (std::size_t index = first; index <= last; ++index) {
+        if (glyphs[index].cluster != minimum) {
+            glyphs[index].flags = static_cast<shaping_glyph_flags>(
+                raw_flags(glyphs[index]) | flags);
+        }
+    }
+}
+
 void update_consonant_positions(
     const sfnt_font_view& font,
     open_type_tag unicode_script,
@@ -366,18 +409,22 @@ void update_consonant_positions(
             continue;
         }
         const auto glyph_id = static_cast<std::uint16_t>(glyph.glyph_id);
-        const std::array first{virama_glyph, glyph_id};
-        const std::array second{glyph_id, virama_glyph};
-        const bool below = would_substitute(probe, blwf_tag, first) ||
-            would_substitute(probe, blwf_tag, second) ||
-            would_substitute(probe, vatu_tag, first) ||
-            would_substitute(probe, vatu_tag, second);
+        const std::array<std::uint16_t, 2U> first{virama_glyph, glyph_id};
+        const std::array<std::uint16_t, 2U> second{glyph_id, virama_glyph};
+        const auto first_span = std::span<const std::uint16_t>{
+            first.data(), first.size()};
+        const auto second_span = std::span<const std::uint16_t>{
+            second.data(), second.size()};
+        const bool below = would_substitute(probe, blwf_tag, first_span) ||
+            would_substitute(probe, blwf_tag, second_span) ||
+            would_substitute(probe, vatu_tag, first_span) ||
+            would_substitute(probe, vatu_tag, second_span);
         if (below) {
             set_position(glyph, position_below_consonant);
-        } else if (would_substitute(probe, pstf_tag, first) ||
-            would_substitute(probe, pstf_tag, second) ||
-            would_substitute(probe, pref_tag, first) ||
-            would_substitute(probe, pref_tag, second)) {
+        } else if (would_substitute(probe, pstf_tag, first_span) ||
+            would_substitute(probe, pstf_tag, second_span) ||
+            would_substitute(probe, pref_tag, first_span) ||
+            would_substitute(probe, pref_tag, second_span)) {
             set_position(glyph, position_post_consonant);
         }
     }
@@ -411,13 +458,16 @@ void initial_reorder_syllable(
          (mode == reph_mode::explicit_mode &&
             category(glyphs[start + 2U]) == zwj))) {
         const std::size_t length = mode == reph_mode::explicit_mode ? 3U : 2U;
-        const std::array ids{
+        const std::array<std::uint16_t, 3U> ids{
             static_cast<std::uint16_t>(glyphs[start].glyph_id),
             static_cast<std::uint16_t>(glyphs[start + 1U].glyph_id),
             static_cast<std::uint16_t>(glyphs[start + 2U].glyph_id)};
+        const auto ids_span = std::span<const std::uint16_t>{
+            ids.data(), ids.size()};
         if (would_substitute(probe, rphf_tag,
-                std::span<const std::uint16_t>{ids}.first(2U)) ||
-            (length == 3U && would_substitute(probe, rphf_tag, ids))) {
+                ids_span.first(2U)) ||
+            (length == 3U &&
+                would_substitute(probe, rphf_tag, ids_span))) {
             limit += 2U;
             while (limit < end && is_joiner(glyphs[limit])) {
                 ++limit;
@@ -534,10 +584,12 @@ void initial_reorder_syllable(
                 glyphs[index + 1U].glyph_id > 0xFFFFU) {
                 continue;
             }
-            const std::array ids{
+            const std::array<std::uint16_t, 2U> ids{
                 static_cast<std::uint16_t>(glyphs[index].glyph_id),
                 static_cast<std::uint16_t>(glyphs[index + 1U].glyph_id)};
-            if (!would_substitute(probe, pref_tag, ids)) {
+            const auto ids_span = std::span<const std::uint16_t>{
+                ids.data(), ids.size()};
+            if (!would_substitute(probe, pref_tag, ids_span)) {
                 continue;
             }
             add_feature(glyphs[index], pref_mask);
@@ -727,7 +779,12 @@ void final_reorder_indic(
             merge_cluster(glyphs, start, end);
         }
         if (position(glyphs[start]) == position_pre_matra) {
-            add_feature(glyphs[start], init_mask);
+            if (start == 0U ||
+                !is_init_continuation(glyphs[start - 1U].code_point)) {
+                add_feature(glyphs[start], init_mask);
+            } else {
+                mark_dependency(glyphs, start - 1U, start);
+            }
         }
         start = end;
     }

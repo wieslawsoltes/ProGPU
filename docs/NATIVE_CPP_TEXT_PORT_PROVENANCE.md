@@ -110,6 +110,24 @@ executor. The implementation is isolated in
 `progpu_native_open_type_feature_values.cpp`, keeping the uniform-run
 orchestrator focused on stage ordering and preserving C++20 module builds.
 
+The complex-script stage follow-up directly ports the ProGPU-owned
+`ApplySubstitutions`, USE stage ordering, Khmer character-cluster mapping,
+Indic `init` boundary rule, and Unicode mark classification from
+`src/ProGPU.Text/OpenTypeTextShaper.cs` and the generated
+`src/ProGPU.Text/UnicodeGeneralCategoryData.Generated.cs` at checkpoint
+`64c530e4`. Basic and presentation features now retain their managed
+per-syllable scope, while a contextual GSUB match boundary is translated into
+the mutated glyph-buffer coordinate space after nested expansion or
+contraction. This preserves `O(G * L)` lookup work for glyphs `G` and lookups
+`L`, adds no heap storage, and prevents a ligature in one syllable from
+skipping the next syllable's lookup candidate. Synthetic two-syllable
+contextual-ligature, Indic word-boundary, Khmer post-COENG, USE reorder, and
+Unicode mark-category fixtures cover these contracts. The bulk differential
+harness additionally matches managed glyph IDs, clusters, code points,
+advances, offsets, and flags for representative Devanagari, Gujarati,
+Gurmukhi, Tamil, Telugu, Kannada, Malayalam, Sinhala, Khmer, Myanmar, Thai,
+and Lao system fonts.
+
 Unicode bidi analysis ports the ProGPU-owned `Bidi/Uax9Resolver.cs` at
 checkpoint `d9e89879`. The generator now copies the already generated Unicode
 17 bidi-class and paired-bracket packed records from

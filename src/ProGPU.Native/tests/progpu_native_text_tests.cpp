@@ -1644,6 +1644,92 @@ void open_type_gsub_context_format3_applies_bounded_nested_lookups() {
     require(applied && glyphs[1U].glyph_id == 12U);
 }
 
+void open_type_gsub_context_contraction_advances_in_mutated_space() {
+    // Lookup 0 is ContextSubst format 3 for [5, 6]. Its nested lookup 1
+    // contracts that pair to ligature glyph 12. Repeating the same pair in a
+    // second syllable verifies that the top-level iterator advances against
+    // the post-substitution buffer rather than the stale input match end.
+    std::array<std::byte, 86U> context{};
+    write_u16(context, 0U, 1U);
+    write_u16(context, 4U, 10U);
+    write_u16(context, 6U, 12U);
+    write_u16(context, 8U, 14U);
+    write_u16(context, 14U, 2U);
+    write_u16(context, 16U, 6U);
+    write_u16(context, 18U, 40U);
+    write_u16(context, 20U, 5U);
+    write_u16(context, 24U, 1U);
+    write_u16(context, 26U, 8U);
+    write_u16(context, 28U, 3U);
+    write_u16(context, 30U, 2U);
+    write_u16(context, 32U, 1U);
+    write_u16(context, 34U, 14U);
+    write_u16(context, 36U, 20U);
+    write_u16(context, 38U, 0U);
+    write_u16(context, 40U, 1U);
+    write_u16(context, 42U, 1U);
+    write_u16(context, 44U, 1U);
+    write_u16(context, 46U, 5U);
+    write_u16(context, 48U, 1U);
+    write_u16(context, 50U, 1U);
+    write_u16(context, 52U, 6U);
+    write_u16(context, 54U, 4U);
+    write_u16(context, 58U, 1U);
+    write_u16(context, 60U, 8U);
+    write_u16(context, 62U, 1U);
+    write_u16(context, 64U, 8U);
+    write_u16(context, 66U, 1U);
+    write_u16(context, 68U, 14U);
+    write_u16(context, 70U, 1U);
+    write_u16(context, 72U, 1U);
+    write_u16(context, 74U, 5U);
+    write_u16(context, 76U, 1U);
+    write_u16(context, 78U, 4U);
+    write_u16(context, 80U, 12U);
+    write_u16(context, 82U, 2U);
+    write_u16(context, 84U, 6U);
+
+    open_type_layout_table_view gsub{};
+    font_error error = font_error::invalid_argument;
+    require(open_type_layout_table_view::try_create(context, gsub, &error));
+    constexpr auto first_syllable =
+        static_cast<shaping_glyph_flags>(1U << 13U);
+    constexpr auto second_syllable =
+        static_cast<shaping_glyph_flags>(2U << 13U);
+    std::array<shaping_glyph, 4U> glyphs{
+        shaping_glyph{5U}, shaping_glyph{6U},
+        shaping_glyph{5U}, shaping_glyph{6U}};
+    glyphs[0U].flags = first_syllable;
+    glyphs[1U].flags = first_syllable;
+    glyphs[2U].flags = second_syllable;
+    glyphs[3U].flags = second_syllable;
+
+    open_type_gsub_apply_options options{};
+    options.restrict_to_syllable = true;
+    std::uint32_t count = 4U;
+    std::uint32_t context_match_end = 0U;
+    options.context_match_end = &context_match_end;
+    bool applied = false;
+    require(try_apply_open_type_gsub_lookup_at(
+        gsub, 0U, glyphs, count, 0U, options, applied, &error));
+    require(applied && count == 3U && context_match_end == 1U &&
+        glyphs[0U].glyph_id == 12U && glyphs[1U].glyph_id == 5U &&
+        glyphs[2U].glyph_id == 6U);
+
+    glyphs = {shaping_glyph{5U}, shaping_glyph{6U},
+        shaping_glyph{5U}, shaping_glyph{6U}};
+    glyphs[0U].flags = first_syllable;
+    glyphs[1U].flags = first_syllable;
+    glyphs[2U].flags = second_syllable;
+    glyphs[3U].flags = second_syllable;
+    count = 4U;
+    context_match_end = 0U;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, options, applied, &error));
+    require(applied && count == 2U && glyphs[0U].glyph_id == 12U &&
+        glyphs[1U].glyph_id == 12U);
+}
+
 void open_type_gsub_context_glyph_and_class_rules_are_bounded() {
     std::array<std::byte, 76U> glyph_rules{};
     write_u16(glyph_rules, 0U, 1U);
@@ -5633,6 +5719,86 @@ void open_type_use_preparation_reorders_prebase_vowels() {
     require(glyph_count == 2U && glyphs[0U].code_point == 0x0DD9U &&
         glyphs[1U].code_point == 0x0D9AU && glyphs[0U].cluster == 0 &&
         glyphs[1U].cluster == 0);
+
+    // USE topographical substitutions run after reordering. This `isol`
+    // ligature intentionally matches only the reordered [prebase-vowel,
+    // consonant] sequence; applying topographical forms in the basic stage
+    // would leave two glyphs and never revisit the lookup.
+    std::vector<std::byte> topographical_gsub(84U);
+    write_u16(topographical_gsub, 0U, 1U);
+    write_u16(topographical_gsub, 4U, 10U);
+    write_u16(topographical_gsub, 6U, 32U);
+    write_u16(topographical_gsub, 8U, 48U);
+    write_u16(topographical_gsub, 10U, 1U);
+    write_u32(topographical_gsub, 12U,
+        open_type_tag::from_chars('s', 'i', 'n', 'h').value);
+    write_u16(topographical_gsub, 16U, 8U);
+    write_u16(topographical_gsub, 18U, 4U);
+    write_u16(topographical_gsub, 20U, 0U);
+    write_u16(topographical_gsub, 22U, 0U);
+    write_u16(topographical_gsub, 24U, 0xFFFFU);
+    write_u16(topographical_gsub, 26U, 1U);
+    write_u16(topographical_gsub, 28U, 0U);
+    write_u16(topographical_gsub, 32U, 1U);
+    write_u32(topographical_gsub, 34U,
+        open_type_tag::from_chars('i', 's', 'o', 'l').value);
+    write_u16(topographical_gsub, 38U, 8U);
+    write_u16(topographical_gsub, 40U, 0U);
+    write_u16(topographical_gsub, 42U, 1U);
+    write_u16(topographical_gsub, 44U, 0U);
+    write_u16(topographical_gsub, 48U, 1U);
+    write_u16(topographical_gsub, 50U, 4U);
+    write_u16(topographical_gsub, 52U, 4U);
+    write_u16(topographical_gsub, 54U, 0U);
+    write_u16(topographical_gsub, 56U, 1U);
+    write_u16(topographical_gsub, 58U, 8U);
+    write_u16(topographical_gsub, 60U, 1U);
+    write_u16(topographical_gsub, 62U, 18U);
+    write_u16(topographical_gsub, 64U, 1U);
+    write_u16(topographical_gsub, 66U, 8U);
+    write_u16(topographical_gsub, 68U, 1U);
+    write_u16(topographical_gsub, 70U, 4U);
+    write_u16(topographical_gsub, 72U, 9U);
+    write_u16(topographical_gsub, 74U, 2U);
+    write_u16(topographical_gsub, 76U, 2U);
+    write_u16(topographical_gsub, 78U, 1U);
+    write_u16(topographical_gsub, 80U, 1U);
+    write_u16(topographical_gsub, 82U, 3U);
+    const std::array topographical_tables{
+        table_data{open_type_tag::from_chars('G', 'S', 'U', 'B'),
+            std::move(topographical_gsub)}};
+    const auto topographical_data = make_font(
+        0U, 22U, 0U, false, false, false, topographical_tables, cmap);
+    require(sfnt_font_view::try_create(
+        topographical_data, 0U, font, &error));
+    constexpr std::array topographical_features{
+        open_type_tag::from_chars('i', 's', 'o', 'l')};
+    options.requested_features = topographical_features;
+    std::array<std::uint16_t, 1U> lookup_scratch{};
+    glyphs.fill({});
+    graphemes.fill({});
+    attachments.fill({});
+    states.fill({});
+    categories.fill({});
+    syllables.fill({});
+    indices.fill({});
+    glyph_count = 0U;
+    require(try_shape_open_type_run(
+        font,
+        input,
+        options,
+        glyphs,
+        open_type_shape_run_scratch{
+            .grapheme_clusters = graphemes,
+            .gsub_lookups = lookup_scratch,
+            .attachments = attachments,
+            .attachment_states = states,
+            .script_categories = categories,
+            .script_syllables = syllables,
+            .script_indices = indices},
+        glyph_count,
+        &error));
+    require(glyph_count == 1U && glyphs[0U].glyph_id == 9U);
 }
 
 void open_type_use_diacritic_normalization_matches_managed() {
@@ -6062,6 +6228,111 @@ void open_type_indic_preparation_reorders_prebase_matras() {
         });
     require(final_matra != devanagari_glyphs.begin() + glyph_count &&
         (static_cast<std::uint32_t>(final_matra->flags) & unsafe) == unsafe);
+
+    // A pre-base matra at a word-internal syllable boundary depends on the
+    // preceding letter. The managed final reorder suppresses `init` there and
+    // marks the moved matra unsafe instead of losing that boundary metadata.
+    constexpr std::array malayalam_mappings{
+        std::pair{0x0D2EU, 2U},
+        std::pair{0x0D28U, 3U},
+        std::pair{0x0D47U, 4U},
+        std::pair{0x25CCU, 1U}};
+    const auto malayalam_cmap = make_cmap_groups(malayalam_mappings);
+    const auto malayalam_data = make_font(
+        0U, 22U, 0U, false, false, false, {}, malayalam_cmap);
+    require(sfnt_font_view::try_create(malayalam_data, 0U, font, &error));
+    constexpr std::array malayalam_input{
+        unicode_scalar{0x0D2EU, 0U, 1U},
+        unicode_scalar{0x0D28U, 1U, 1U},
+        unicode_scalar{0x0D47U, 2U, 1U}};
+    std::array<shaping_glyph, 9U> malayalam_glyphs{};
+    std::array<unicode_grapheme_cluster, 3U> malayalam_graphemes{};
+    std::array<shaping_attachment, 9U> malayalam_attachments{};
+    std::array<std::uint8_t, 9U> malayalam_states{};
+    std::array<std::uint8_t, 9U> malayalam_categories{};
+    std::array<std::uint8_t, 9U> malayalam_syllables{};
+    std::array<std::uint32_t, 10U> malayalam_indices{};
+    options.script = open_type_tag::from_chars('m', 'l', 'm', '2');
+    glyph_count = 0U;
+    require(try_shape_open_type_run(
+        font,
+        malayalam_input,
+        options,
+        malayalam_glyphs,
+        open_type_shape_run_scratch{
+            .grapheme_clusters = malayalam_graphemes,
+            .attachments = malayalam_attachments,
+            .attachment_states = malayalam_states,
+            .script_categories = malayalam_categories,
+            .script_syllables = malayalam_syllables,
+            .script_indices = malayalam_indices},
+        glyph_count,
+        &error));
+    const auto malayalam_matra = std::find_if(
+        malayalam_glyphs.begin(),
+        malayalam_glyphs.begin() + glyph_count,
+        [](const shaping_glyph& glyph) {
+            return glyph.code_point == 0x0D47U;
+        });
+    require(malayalam_matra !=
+            malayalam_glyphs.begin() + glyph_count &&
+        (static_cast<std::uint32_t>(malayalam_matra->flags) & unsafe) ==
+            unsafe);
+
+    // Khmer starts a new shaping cluster after COENG when another base
+    // follows, even though the public UAX #29 grapheme remains joined. The
+    // pre-base vowel is then moved and cluster-merged while retaining the
+    // unsafe dependency established from that script-specific boundary.
+    constexpr std::array khmer_cluster_mappings{
+        std::pair{0x1781U, 2U},
+        std::pair{0x17D2U, 3U},
+        std::pair{0x1798U, 4U},
+        std::pair{0x17C2U, 5U},
+        std::pair{0x25CCU, 1U}};
+    const auto khmer_cluster_cmap =
+        make_cmap_groups(khmer_cluster_mappings);
+    const auto khmer_cluster_data = make_font(
+        0U, 22U, 0U, false, false, false, {}, khmer_cluster_cmap);
+    require(sfnt_font_view::try_create(
+        khmer_cluster_data, 0U, font, &error));
+    constexpr std::array khmer_cluster_input{
+        unicode_scalar{0x1781U, 0U, 1U},
+        unicode_scalar{0x17D2U, 1U, 1U},
+        unicode_scalar{0x1798U, 2U, 1U},
+        unicode_scalar{0x17C2U, 3U, 1U}};
+    std::array<shaping_glyph, 12U> khmer_cluster_glyphs{};
+    std::array<unicode_grapheme_cluster, 4U> khmer_cluster_graphemes{};
+    std::array<shaping_attachment, 12U> khmer_cluster_attachments{};
+    std::array<std::uint8_t, 12U> khmer_cluster_states{};
+    std::array<std::uint8_t, 12U> khmer_cluster_categories{};
+    std::array<std::uint8_t, 12U> khmer_cluster_syllables{};
+    auto khmer_cluster_options = open_type_shape_run_options{
+        open_type_tag::from_chars('k', 'h', 'm', 'r')};
+    khmer_cluster_options.complex_script =
+        open_type_complex_script::khmer;
+    glyph_count = 0U;
+    require(try_shape_open_type_run(
+        font,
+        khmer_cluster_input,
+        khmer_cluster_options,
+        khmer_cluster_glyphs,
+        open_type_shape_run_scratch{
+            .grapheme_clusters = khmer_cluster_graphemes,
+            .attachments = khmer_cluster_attachments,
+            .attachment_states = khmer_cluster_states,
+            .script_categories = khmer_cluster_categories,
+            .script_syllables = khmer_cluster_syllables},
+        glyph_count,
+        &error));
+    const auto khmer_prebase = std::find_if(
+        khmer_cluster_glyphs.begin(),
+        khmer_cluster_glyphs.begin() + glyph_count,
+        [](const shaping_glyph& glyph) {
+            return glyph.code_point == 0x17C2U;
+        });
+    require(khmer_prebase != khmer_cluster_glyphs.begin() + glyph_count &&
+        (static_cast<std::uint32_t>(khmer_prebase->flags) & unsafe) ==
+            unsafe);
 }
 
 void open_type_hangul_preparation_composes_and_decomposes() {
@@ -7343,6 +7614,8 @@ void complex_script_properties_and_syllable_machines_are_bounded() {
     require(get_unicode_use_shaping_category(0x25CCU) == 1U);
     require(get_unicode_use_shaping_category(0x110000U) == 0U);
     require(is_unicode_mark(0x093FU));
+    require(is_unicode_mark(0x0DCFU));
+    require(is_unicode_mark(0x1038U));
     require(is_unicode_mark(0x20DDU));
     require(!is_unicode_mark(0x0915U));
     require(!is_unicode_mark(0x110000U));
@@ -11693,6 +11966,7 @@ int main() {
     open_type_gsub_basic_lookups_use_caller_owned_storage();
     open_type_gsub_reverse_chaining_matches_bounded_context();
     open_type_gsub_context_format3_applies_bounded_nested_lookups();
+    open_type_gsub_context_contraction_advances_in_mutated_space();
     open_type_gsub_context_glyph_and_class_rules_are_bounded();
     open_type_gsub_chaining_glyph_rules_apply_nested_lookup();
     open_type_script_language_feature_selection_is_bounded();

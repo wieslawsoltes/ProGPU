@@ -76,7 +76,8 @@ bool apply_gsub_lookup_with_feature_values(
         lookup_context_subtables = {},
     std::span<const open_type_context_coverage_requirement>
         lookup_context_coverages = {},
-    const lookup_feature_resolution* cached_resolution = nullptr) noexcept;
+    const lookup_feature_resolution* cached_resolution = nullptr,
+    bool restrict_to_syllable = false) noexcept;
 
 bool apply_gpos_lookup_with_feature_values(
     const open_type_layout_table_view& gpos,

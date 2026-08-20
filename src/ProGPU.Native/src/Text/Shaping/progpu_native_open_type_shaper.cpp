@@ -170,11 +170,10 @@ bool is_default_ignorable(std::uint32_t value) noexcept {
 }
 
 bool is_unicode_mark(std::uint32_t code_point) noexcept {
-    const auto grapheme = get_unicode_grapheme_break_class(code_point);
-    return get_unicode_bidi_class(code_point) ==
-            unicode_bidi_class::nonspacing_mark ||
-        grapheme == unicode_grapheme_break_class::spacing_mark ||
-        get_unicode_canonical_combining_class(code_point) != 0U;
+    const auto category = get_unicode_general_category(code_point);
+    return category == unicode_general_category::nonspacing_mark ||
+        category == unicode_general_category::spacing_combining_mark ||
+        category == unicode_general_category::enclosing_mark;
 }
 
 bool is_positioning_mark(
@@ -285,6 +284,13 @@ bool may_expand_preprocessing(
 bool is_variation_selector(std::uint32_t code_point) noexcept {
     return (code_point >= 0xFE00U && code_point <= 0xFE0FU) ||
         (code_point >= 0xE0100U && code_point <= 0xE01EFU);
+}
+
+bool is_khmer_base_category(std::uint32_t code_point) noexcept {
+    const auto category =
+        get_unicode_indic_shaping_properties(code_point).category;
+    return category == 1U || category == 2U || category == 10U ||
+        category == 11U || category == 15U;
 }
 
 bool is_printable_ascii(std::span<const unicode_scalar> input) noexcept {
@@ -566,7 +572,13 @@ bool contains_feature(
         features.end();
 }
 
-bool is_complex_per_syllable_feature(open_type_tag feature) noexcept {
+bool is_complex_per_syllable_feature(
+    open_type_tag feature,
+    open_type_complex_script script,
+    bool presentation_stage) noexcept {
+    if (script == open_type_complex_script::none) {
+        return false;
+    }
     constexpr std::array features{
         open_type_tag::from_chars('l', 'o', 'c', 'l'),
         open_type_tag::from_chars('c', 'c', 'm', 'p'),
@@ -581,7 +593,25 @@ bool is_complex_per_syllable_feature(open_type_tag feature) noexcept {
         open_type_tag::from_chars('p', 's', 't', 'f'),
         open_type_tag::from_chars('v', 'a', 't', 'u'),
         open_type_tag::from_chars('c', 'j', 'c', 't')};
-    return contains_feature(features, feature);
+    if (contains_feature(features, feature)) {
+        return true;
+    }
+    if (script == open_type_complex_script::khmer &&
+        feature == open_type_tag::from_chars('c', 'f', 'a', 'r')) {
+        return true;
+    }
+    if (!presentation_stage ||
+        script != open_type_complex_script::indic) {
+        return false;
+    }
+    constexpr std::array indic_presentation{
+        open_type_tag::from_chars('i', 'n', 'i', 't'),
+        open_type_tag::from_chars('p', 'r', 'e', 's'),
+        open_type_tag::from_chars('a', 'b', 'v', 's'),
+        open_type_tag::from_chars('b', 'l', 'w', 's'),
+        open_type_tag::from_chars('p', 's', 't', 's'),
+        open_type_tag::from_chars('h', 'a', 'l', 'n')};
+    return contains_feature(indic_presentation, feature);
 }
 
 struct indic_probe_context final {
@@ -664,7 +694,8 @@ bool apply_complex_feature(
     std::span<shaping_glyph> glyph_storage,
     std::uint32_t& glyph_count,
     const open_type_gdef_view* gdef,
-    font_error* error) noexcept {
+    font_error* error,
+    bool presentation_stage = false) noexcept {
     if (!contains_feature(run_options.requested_features, feature)) {
         return true;
     }
@@ -687,8 +718,10 @@ bool apply_complex_feature(
             : required_private_mask << complex_detail::feature_shift,
         true};
     apply_options.restrict_to_syllable =
-        run_options.complex_script != open_type_complex_script::none &&
-        is_complex_per_syllable_feature(feature);
+        is_complex_per_syllable_feature(
+            feature,
+            run_options.complex_script,
+            presentation_stage);
     for (std::uint32_t index = 0U; index < lookup_count; ++index) {
         if (!has_feature_settings(run_options, feature)) {
             bool applied = false;
@@ -847,6 +880,9 @@ bool apply_complex_script_features(
         open_type_tag::from_chars('d', 'n', 'o', 'm'),
         open_type_tag::from_chars('l', 'o', 'c', 'l'),
         open_type_tag::from_chars('c', 'c', 'm', 'p')};
+    constexpr std::array use_preprocessing_extra{
+        open_type_tag::from_chars('n', 'u', 'k', 't'),
+        open_type_tag::from_chars('a', 'k', 'h', 'n')};
     if (!apply_complex_feature_group(
             gsub, options, directional, lookup_scratch, glyph_storage,
             glyph_count, gdef, error)) {
@@ -858,8 +894,13 @@ bool apply_complex_script_features(
                 gsub, options, lookup, resolution, error)) {
             return false;
         }
+        const bool preprocessing_feature =
+            contains_feature(preprocessing, resolution.feature) ||
+            (options.complex_script == open_type_complex_script::use &&
+                contains_feature(
+                    use_preprocessing_extra, resolution.feature));
         if (resolution.required || !resolution.found ||
-            !contains_feature(preprocessing, resolution.feature)) {
+            !preprocessing_feature) {
             continue;
         }
         fraction_feature_kind fraction_kind = fraction_feature_kind::none;
@@ -893,7 +934,17 @@ bool apply_complex_script_features(
                 glyph_storage,
                 glyph_count,
                 gdef,
-                error)) {
+                error,
+                nullptr,
+                nullptr,
+                nullptr,
+                {},
+                {},
+                &resolution,
+                is_complex_per_syllable_feature(
+                    resolution.feature,
+                    options.complex_script,
+                    false))) {
             return false;
         }
     }
@@ -926,15 +977,14 @@ bool apply_complex_script_features(
     constexpr std::array use_prebase{
         open_type_tag::from_chars('p', 'r', 'e', 'f')};
     constexpr std::array use_basic{
-        open_type_tag::from_chars('n', 'u', 'k', 't'),
-        open_type_tag::from_chars('a', 'k', 'h', 'n'),
         open_type_tag::from_chars('r', 'k', 'r', 'f'),
         open_type_tag::from_chars('a', 'b', 'v', 'f'),
         open_type_tag::from_chars('b', 'l', 'w', 'f'),
         open_type_tag::from_chars('h', 'a', 'l', 'f'),
         open_type_tag::from_chars('p', 's', 't', 'f'),
         open_type_tag::from_chars('v', 'a', 't', 'u'),
-        open_type_tag::from_chars('c', 'j', 'c', 't'),
+        open_type_tag::from_chars('c', 'j', 'c', 't')};
+    constexpr std::array use_topographical{
         open_type_tag::from_chars('i', 's', 'o', 'l'),
         open_type_tag::from_chars('i', 'n', 'i', 't'),
         open_type_tag::from_chars('m', 'e', 'd', 'i'),
@@ -1011,25 +1061,45 @@ bool apply_complex_script_features(
                 glyph_count,
                 error);
         }
+        if (known_applied) {
+            known_applied = apply_complex_feature_group(
+                gsub, options, use_topographical, lookup_scratch,
+                glyph_storage, glyph_count, gdef, error);
+        }
     }
     if (!known_applied) {
         return false;
     }
 
     for (const auto feature : options.requested_features) {
-            if (contains_feature(directional, feature) ||
-            contains_feature(preprocessing, feature) ||
-            contains_feature(khmer_basic, feature) ||
-            contains_feature(myanmar_basic, feature) ||
-            contains_feature(indic_basic, feature) ||
-            contains_feature(use_repha, feature) ||
-            contains_feature(use_prebase, feature) ||
-            contains_feature(use_basic, feature)) {
+        bool already_applied =
+            contains_feature(directional, feature) ||
+            contains_feature(preprocessing, feature);
+        if (options.complex_script == open_type_complex_script::khmer) {
+            already_applied = already_applied ||
+                contains_feature(khmer_basic, feature);
+        } else if (
+            options.complex_script == open_type_complex_script::myanmar) {
+            already_applied = already_applied ||
+                contains_feature(myanmar_basic, feature);
+        } else if (
+            options.complex_script == open_type_complex_script::indic) {
+            already_applied = already_applied ||
+                contains_feature(indic_basic, feature);
+        } else {
+            already_applied = already_applied ||
+                contains_feature(use_preprocessing_extra, feature) ||
+                contains_feature(use_repha, feature) ||
+                contains_feature(use_prebase, feature) ||
+                contains_feature(use_basic, feature) ||
+                contains_feature(use_topographical, feature);
+        }
+        if (already_applied) {
             continue;
         }
         if (!apply_complex_feature(
                 gsub, options, feature, 0U, lookup_scratch, glyph_storage,
-                glyph_count, gdef, error)) {
+                glyph_count, gdef, error, true)) {
             return false;
         }
     }
@@ -1740,23 +1810,33 @@ bool try_shape_open_type_run(
          cluster_index < grapheme_count;
          ++cluster_index) {
         const auto cluster = scratch.grapheme_clusters[cluster_index];
+        std::uint32_t script_cluster = cluster.input_index;
+        std::uint32_t previous_code_point = 0U;
         for (std::uint32_t offset = 0U; offset < cluster.scalar_count; ++offset) {
             const std::size_t scalar_index = cluster.scalar_index + offset;
+            const auto code_point = input[scalar_index].code_point;
+            if (options.complex_script == open_type_complex_script::khmer &&
+                (code_point == 0x200CU || code_point == 0x200DU ||
+                    (previous_code_point == 0x17D2U &&
+                        is_khmer_base_category(code_point)))) {
+                script_cluster = input[scalar_index].input_index;
+            }
             if (offset != 0U && mapped_count != 0U &&
-                is_variation_selector(input[scalar_index].code_point)) {
+                is_variation_selector(code_point)) {
                 std::uint16_t variation_glyph = 0U;
                 if (font.try_get_variation_glyph(
                         glyph_storage[mapped_count - 1U].code_point,
-                        input[scalar_index].code_point,
+                        code_point,
                         variation_glyph)) {
                     glyph_storage[mapped_count - 1U].glyph_id = variation_glyph;
+                    previous_code_point = code_point;
                     continue;
                 }
             }
             detail::initial_mapping mapping{};
             if (!detail::try_resolve_initial_mapping(
                     font,
-                    input[scalar_index].code_point,
+                    code_point,
                     options.complex_script,
                     options.normalization_data,
                     mapping,
@@ -1781,7 +1861,15 @@ bool try_shape_open_type_run(
                 glyph_storage[mapped_count] = shaping_glyph{
                     glyph,
                     code_point,
-                    static_cast<std::int32_t>(cluster.input_index)};
+                    static_cast<std::int32_t>(
+                        options.complex_script ==
+                                open_type_complex_script::khmer &&
+                            (options.cluster_level ==
+                                    shaping_cluster_level::monotone_characters ||
+                                options.cluster_level ==
+                                    shaping_cluster_level::characters)
+                            ? input[scalar_index].input_index
+                            : script_cluster)};
                 if (arabic_joining) {
                     set_arabic_action(
                         glyph_storage[mapped_count],
@@ -1795,6 +1883,7 @@ bool try_shape_open_type_run(
                 }
                 ++mapped_count;
             }
+            previous_code_point = code_point;
         }
     }
     glyph_count = mapped_count;
