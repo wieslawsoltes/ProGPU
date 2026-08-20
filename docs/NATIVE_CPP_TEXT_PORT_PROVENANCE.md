@@ -1392,6 +1392,30 @@ tables. Negative results skip impossible candidates; positive and malformed
 cases retain the full native OpenType executor. Production Inter planned versus
 unplanned differentials cover contextual substitution and automatic fractions.
 
+Indic final reordering now directly ports the complete ProGPU-owned managed
+implementation from checkpoints `dab84492`, `850e352b`, and `7e9fbddc`.
+Native GSUB records the same private substituted, ligated, and multiplied
+provenance on the glyph actually changed by single, alternate, multiple,
+ligature, reverse-chain, and nested contextual substitutions. The metadata is
+used only while shaping and is removed before the public result boundary.
+Final reordering consequently preserves virama recovery, failed and successful
+pre-base forms, Malayalam below-base selection, halant/nukta base correction,
+pre-matra movement, script-specific reph placement, cluster merging, and the
+cross-syllable `init` dependency contract. Work remains `O(G + S)` per run for
+glyphs `G` and bounded syllables `S`, with in-place rotation and `O(1)` internal
+storage. The stable C ABI also explicitly projects internal OpenType Y-up
+design units into the managed public Y-down convention, using overflow-safe
+unchecked-compatible negation; native layout consumes that wire convention
+without a second transform.
+
+Exact direct managed/native production-font differentials now cover
+Devanagari, Bengali, Gurmukhi, Gujarati, Oriya, Tamil, Telugu, Kannada,
+Malayalam, Sinhala, Khmer, Myanmar, Thai, and Lao, including conjunct, reph,
+pre-base, and combining-mark samples. Focused native tests additionally cover
+single/multiple/ligature provenance, contextual contraction, metadata
+scrubbing, and the direct C ABI Y-axis projection. The same sources pass the
+LLVM 22 C++20 named-module consumer and ASan/UBSan lane.
+
 On the final Apple M3 Pro Release binaries, three 200-warm-up/6,000-measurement
 repeats report a 130-scalar median-of-medians of `101.000 us` managed versus
 `66.042 us` native, exact output, one crossing, and `0 B/run` native-path

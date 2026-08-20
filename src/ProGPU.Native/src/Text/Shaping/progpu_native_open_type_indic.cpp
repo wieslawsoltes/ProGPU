@@ -77,14 +77,23 @@ bool has_flag(shaping_buffer_flags value, shaping_buffer_flags flag) noexcept {
 
 bool is_joiner(const shaping_glyph& glyph) noexcept {
     const auto value = category(glyph);
-    return value == zwj || value == zwnj;
+    return !ligated(glyph) && (value == zwj || value == zwnj);
 }
 
 bool is_consonant(const shaping_glyph& glyph) noexcept {
     const auto value = category(glyph);
-    return value == consonant || value == consonant_with_stacker ||
-        value == ra || value == consonant_medial || value == vowel ||
-        value == placeholder || value == dotted_circle;
+    return !ligated(glyph) &&
+        (value == consonant || value == consonant_with_stacker ||
+            value == ra || value == consonant_medial || value == vowel ||
+            value == placeholder || value == dotted_circle);
+}
+
+bool is_halant(const shaping_glyph& glyph) noexcept {
+    return !ligated(glyph) && category(glyph) == halant;
+}
+
+bool has_feature(const shaping_glyph& glyph, std::uint8_t mask) noexcept {
+    return (get_field(glyph, feature_mask, feature_shift) & mask) != 0U;
 }
 
 bool would_substitute(
@@ -390,6 +399,89 @@ void mark_dependency(
                 raw_flags(glyphs[index]) | flags);
         }
     }
+}
+
+void move_glyph(
+    std::span<shaping_glyph> glyphs,
+    std::size_t source,
+    std::size_t destination) noexcept {
+    if (source == destination || source >= glyphs.size() ||
+        destination >= glyphs.size()) {
+        return;
+    }
+    if (source < destination) {
+        std::rotate(
+            glyphs.begin() + static_cast<std::ptrdiff_t>(source),
+            glyphs.begin() + static_cast<std::ptrdiff_t>(source + 1U),
+            glyphs.begin() + static_cast<std::ptrdiff_t>(destination + 1U));
+    } else {
+        std::rotate(
+            glyphs.begin() + static_cast<std::ptrdiff_t>(destination),
+            glyphs.begin() + static_cast<std::ptrdiff_t>(source),
+            glyphs.begin() + static_cast<std::ptrdiff_t>(source + 1U));
+    }
+}
+
+std::size_t find_reph_destination(
+    std::span<const shaping_glyph> glyphs,
+    std::size_t start,
+    std::size_t end,
+    std::size_t base,
+    open_type_tag script) noexcept {
+    const auto desired = reph_position(script);
+    if (desired != position_after_post) {
+        auto explicit_halant = start + 1U;
+        while (explicit_halant < base &&
+            !is_halant(glyphs[explicit_halant])) {
+            ++explicit_halant;
+        }
+        if (explicit_halant < base) {
+            if (explicit_halant + 1U < base &&
+                is_joiner(glyphs[explicit_halant + 1U])) {
+                ++explicit_halant;
+            }
+            return explicit_halant;
+        }
+    }
+    if (desired == position_after_main) {
+        auto destination = base;
+        while (destination + 1U < end &&
+            position(glyphs[destination + 1U]) <= position_after_main) {
+            ++destination;
+        }
+        if (destination < end) {
+            return destination;
+        }
+    }
+    if (desired == position_after_sub) {
+        auto destination = base;
+        while (destination + 1U < end &&
+            position(glyphs[destination + 1U]) != position_post_consonant &&
+            position(glyphs[destination + 1U]) != position_after_post &&
+            position(glyphs[destination + 1U]) !=
+                position_syllable_modifier) {
+            ++destination;
+        }
+        if (destination < end) {
+            return destination;
+        }
+    }
+
+    auto destination = end - 1U;
+    while (destination > start &&
+        position(glyphs[destination]) == position_syllable_modifier) {
+        --destination;
+    }
+    if (is_halant(glyphs[destination])) {
+        for (auto index = base + 1U; index < destination; ++index) {
+            const auto value = category(glyphs[index]);
+            if (value == matra || value == matra_post) {
+                --destination;
+                break;
+            }
+        }
+    }
+    return destination;
 }
 
 void update_consonant_positions(
@@ -747,8 +839,20 @@ bool try_initial_reorder_indic(
 }
 
 void final_reorder_indic(
+    const sfnt_font_view& font,
     open_type_tag script,
     std::span<shaping_glyph> glyphs) noexcept {
+    script = legacy_script(script);
+    std::uint16_t virama_glyph = 0U;
+    const auto virama = virama_code_point(script);
+    const bool has_virama = virama != 0U &&
+        font.try_get_glyph_index(virama, virama_glyph) &&
+        virama_glyph != 0U;
+    constexpr auto malayalam =
+        open_type_tag::from_chars('m', 'l', 'y', 'm');
+    constexpr auto tamil =
+        open_type_tag::from_chars('t', 'a', 'm', 'l');
+
     for (std::size_t start = 0U; start < glyphs.size();) {
         const auto current = syllable(glyphs[start]);
         std::size_t end = start + 1U;
@@ -756,25 +860,185 @@ void final_reorder_indic(
             ++end;
         }
         bool reordered = false;
+
+        if (has_virama) {
+            for (std::size_t index = start; index < end; ++index) {
+                if (glyphs[index].glyph_id != virama_glyph ||
+                    !ligated(glyphs[index]) ||
+                    !multiplied(glyphs[index])) {
+                    continue;
+                }
+                set_category(glyphs[index], halant);
+                clear_ligated(glyphs[index]);
+                clear_multiplied(glyphs[index]);
+            }
+        }
+
+        bool try_prebase = false;
+        for (std::size_t index = start; index < end; ++index) {
+            if (has_feature(glyphs[index], pref_mask)) {
+                try_prebase = true;
+                break;
+            }
+        }
+
         std::size_t base = start;
         while (base < end && position(glyphs[base]) < position_base) {
             ++base;
         }
-        if (start + 1U < end && start < base &&
-            position(glyphs[start]) == position_ra_reph &&
-            (category(glyphs[start]) == repha || substituted(glyphs[start]))) {
-            const auto desired = reph_position(script);
-            std::size_t destination = base < end ? base : end - 1U;
-            while (destination + 1U < end &&
-                position(glyphs[destination + 1U]) <= desired) {
-                ++destination;
+
+        if (try_prebase && base + 1U < end) {
+            for (std::size_t index = base + 1U; index < end; ++index) {
+                if (!has_feature(glyphs[index], pref_mask)) {
+                    continue;
+                }
+                if (!(substituted(glyphs[index]) &&
+                        ligated(glyphs[index]) &&
+                        !multiplied(glyphs[index]))) {
+                    base = index;
+                    while (base < end && is_halant(glyphs[base])) {
+                        ++base;
+                    }
+                    if (base < end) {
+                        set_position(glyphs[base], position_base);
+                    }
+                    try_prebase = false;
+                }
+                break;
             }
-            merge_cluster(glyphs, start, destination + 1U);
-            std::rotate(glyphs.begin() + static_cast<std::ptrdiff_t>(start),
-                glyphs.begin() + static_cast<std::ptrdiff_t>(start + 1U),
-                glyphs.begin() + static_cast<std::ptrdiff_t>(destination + 1U));
-            reordered = true;
         }
+
+        if (script == malayalam && base < end) {
+            auto index = base + 1U;
+            while (index < end) {
+                while (index < end && is_joiner(glyphs[index])) {
+                    ++index;
+                }
+                if (index == end || !is_halant(glyphs[index])) {
+                    break;
+                }
+                ++index;
+                while (index < end && is_joiner(glyphs[index])) {
+                    ++index;
+                }
+                if (index < end && is_consonant(glyphs[index]) &&
+                    position(glyphs[index]) == position_below_consonant) {
+                    base = index;
+                    set_position(glyphs[base], position_base);
+                }
+                ++index;
+            }
+        }
+
+        if (base < end && base > start &&
+            position(glyphs[base]) > position_base) {
+            --base;
+        }
+        if (base == end && end > start && category(glyphs[end - 1U]) == zwj) {
+            --base;
+        }
+        while (base > start && base < end &&
+            ((!ligated(glyphs[base]) && category(glyphs[base]) == nukta) ||
+                is_halant(glyphs[base]))) {
+            --base;
+        }
+
+        if (start + 1U < end && start < base) {
+            auto destination = base == end ? base - 2U : base - 1U;
+            if (script != malayalam && script != tamil) {
+                while (true) {
+                    while (destination > start &&
+                        category(glyphs[destination]) != matra &&
+                        category(glyphs[destination]) != matra_post &&
+                        category(glyphs[destination]) != halant) {
+                        --destination;
+                    }
+                    if (!is_halant(glyphs[destination]) ||
+                        position(glyphs[destination]) == position_pre_matra) {
+                        destination = start;
+                        break;
+                    }
+                    if (destination + 1U < end &&
+                        category(glyphs[destination + 1U]) == zwj &&
+                        destination > start) {
+                        --destination;
+                        continue;
+                    }
+                    break;
+                }
+            }
+            if (destination > start &&
+                position(glyphs[destination]) != position_pre_matra) {
+                for (auto index = destination; index > start; --index) {
+                    if (position(glyphs[index - 1U]) != position_pre_matra) {
+                        continue;
+                    }
+                    move_glyph(glyphs, index - 1U, destination);
+                    merge_cluster(
+                        glyphs,
+                        destination,
+                        std::min(end, base + 1U));
+                    reordered = true;
+                    --destination;
+                }
+            } else {
+                for (std::size_t index = start; index < base; ++index) {
+                    if (position(glyphs[index]) == position_pre_matra) {
+                        merge_cluster(
+                            glyphs,
+                            index,
+                            std::min(end, base + 1U));
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (start + 1U < end &&
+            position(glyphs[start]) == position_ra_reph &&
+            ((category(glyphs[start]) == repha) !=
+                (ligated(glyphs[start]) && !multiplied(glyphs[start])))) {
+            const auto destination = find_reph_destination(
+                glyphs, start, end, base, script);
+            merge_cluster(glyphs, start, destination + 1U);
+            move_glyph(glyphs, start, destination);
+            reordered = true;
+            if (start < base && base <= destination) {
+                --base;
+            }
+        }
+
+        if (try_prebase && base + 1U < end) {
+            for (std::size_t index = base + 1U; index < end; ++index) {
+                if (!has_feature(glyphs[index], pref_mask)) {
+                    continue;
+                }
+                if (ligated(glyphs[index]) && !multiplied(glyphs[index])) {
+                    auto destination = base;
+                    if (script != malayalam && script != tamil) {
+                        while (destination > start &&
+                            category(glyphs[destination - 1U]) != matra &&
+                            category(glyphs[destination - 1U]) != matra_post &&
+                            category(glyphs[destination - 1U]) != halant) {
+                            --destination;
+                        }
+                    }
+                    if (destination > start &&
+                        is_halant(glyphs[destination - 1U]) &&
+                        destination < end && is_joiner(glyphs[destination])) {
+                        ++destination;
+                    }
+                    merge_cluster(glyphs, destination, index + 1U);
+                    move_glyph(glyphs, index, destination);
+                    reordered = true;
+                    if (destination <= base && base < index) {
+                        ++base;
+                    }
+                }
+                break;
+            }
+        }
+
         if (reordered || position(glyphs[start]) == position_pre_matra) {
             merge_cluster(glyphs, start, end);
         }

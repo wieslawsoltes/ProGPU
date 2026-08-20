@@ -203,6 +203,36 @@ void bulk_shape_is_deterministic_and_caller_owned() {
             left.offset_y == right.offset_y);
     }
 
+    const std::vector<progpu_native_text_scalar> mark_input{
+        progpu_native_text_scalar{0x61U, 0U, 1U, 0U, 0U, 0U},
+        progpu_native_text_scalar{0x0315U, 1U, 1U, 0U, 0U, 0U}};
+    auto mark_request = request;
+    mark_request.input = mark_input.data();
+    mark_request.input_count =
+        static_cast<std::uint32_t>(mark_input.size());
+    progpu_native_text_shape_requirements mark_requirements{};
+    mark_requirements.struct_size = sizeof(mark_requirements);
+    require(progpu_native_text_get_shape_requirements(
+                &mark_request,
+                &mark_requirements) == PROGPU_NATIVE_STATUS_SUCCESS);
+    std::vector<progpu_native_text_shaping_glyph> mark_glyphs(
+        mark_requirements.glyph_capacity);
+    std::vector<std::uint8_t> mark_scratch(
+        static_cast<std::size_t>(mark_requirements.scratch_bytes));
+    progpu_native_text_shape_result mark_result{};
+    mark_result.struct_size = sizeof(mark_result);
+    require(progpu_native_text_shape(
+                &mark_request,
+                mark_glyphs.data(),
+                static_cast<std::uint32_t>(mark_glyphs.size()),
+                mark_scratch.data(),
+                mark_scratch.size(),
+                &mark_result) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(mark_result.glyph_count == 2U &&
+        mark_glyphs[1U].code_point == 0x0315U &&
+        mark_glyphs[1U].advance_y == 0 &&
+        mark_glyphs[1U].offset_y < 0);
+
     progpu_native_text_context* context = nullptr;
     require(progpu_native_text_context_create(
                 PROGPU_NATIVE_ABI_VERSION,

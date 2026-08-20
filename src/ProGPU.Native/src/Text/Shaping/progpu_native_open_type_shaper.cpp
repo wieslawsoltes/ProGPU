@@ -1028,6 +1028,7 @@ bool apply_complex_script_features(
         }
         if (known_applied) {
             complex_detail::final_reorder_indic(
+                font,
                 effective_unicode_script(options),
                 glyph_storage.first(glyph_count));
         }
@@ -2507,6 +2508,7 @@ bool try_shape_open_type_run(
                 error);
             if (reordered) {
                 complex_detail::final_reorder_indic(
+                    font,
                     unicode_script, glyph_storage.first(glyph_count));
             }
         }

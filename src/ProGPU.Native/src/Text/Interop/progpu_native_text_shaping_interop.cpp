@@ -160,6 +160,14 @@ constexpr std::uint32_t policy_feature_capacity = 32U;
 constexpr std::uint32_t allowed_shape_flags =
     PROGPU_NATIVE_TEXT_SHAPE_ZERO_MARK_ADVANCES;
 
+std::int32_t negate_managed_metric(std::int32_t value) noexcept {
+    // C# unchecked integer negation preserves Int32.MinValue. Avoid signed
+    // overflow while keeping the stable native boundary bit-identical.
+    return value == std::numeric_limits<std::int32_t>::min()
+        ? value
+        : -value;
+}
+
 struct shape_capacities final {
     std::uint32_t glyphs = 0U;
     std::uint32_t graphemes = 0U;
@@ -1150,15 +1158,20 @@ progpu_native_status shape_core(
     }
     for (std::uint32_t index = 0U; index < written; ++index) {
         const auto& source = native_glyphs[index];
+        // The shaping engine retains OpenType Y-up design units internally.
+        // The stable C ABI is the .NET/WebScene substitution boundary and
+        // publishes the same Y-down design-unit convention as managed
+        // ShapedGlyph at fontSize == unitsPerEm. Horizontal/vertical layout
+        // therefore consumes the returned records without a second transform.
         glyphs[index] = progpu_native_text_shaping_glyph{
             source.glyph_id,
             source.code_point,
             source.cluster,
             static_cast<std::uint32_t>(source.flags),
             source.advance_x,
-            source.advance_y,
+            negate_managed_metric(source.advance_y),
             source.offset_x,
-            source.offset_y};
+            negate_managed_metric(source.offset_y)};
     }
     result.glyph_count = written;
     result.error_code = static_cast<std::uint32_t>(font_error::none);

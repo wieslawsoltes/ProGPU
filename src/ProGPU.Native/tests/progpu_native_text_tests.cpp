@@ -1141,7 +1141,8 @@ void open_type_gsub_basic_lookups_use_caller_owned_storage() {
     require(try_apply_open_type_gsub_lookup(
         gsub, 0U, glyphs, count, gated, applied, &error));
     require(applied && glyphs[0U].glyph_id == 9U &&
-        (static_cast<std::uint32_t>(glyphs[0U].flags) & 0x80000000U) != 0U);
+        (static_cast<std::uint32_t>(glyphs[0U].flags) & 0xE0000000U) ==
+            0x80000000U);
 
     // One MultipleSubst: glyph 5 -> [8, 9], preserving source metadata.
     std::array<std::byte, 46U> multiple{};
@@ -1173,6 +1174,26 @@ void open_type_gsub_basic_lookups_use_caller_owned_storage() {
     require(applied && count == 3U && glyphs[0U].glyph_id == 8U &&
         glyphs[1U].glyph_id == 9U && glyphs[1U].cluster == 12 &&
         glyphs[2U].glyph_id == 7U);
+
+    glyphs = {shaping_glyph{5U, 0x66U, 12},
+        shaping_glyph{7U, 0x78U, 13}};
+    count = 2U;
+    open_type_gsub_apply_options substitution_provenance{};
+    substitution_provenance.mark_substituted = true;
+    require(try_apply_open_type_gsub_lookup(
+        gsub,
+        0U,
+        glyphs,
+        count,
+        substitution_provenance,
+        applied,
+        &error));
+    require(applied && count == 3U &&
+        (static_cast<std::uint32_t>(glyphs[0U].flags) & 0xE0000000U) ==
+            0xA0000000U &&
+        (static_cast<std::uint32_t>(glyphs[1U].flags) & 0xE0000000U) ==
+            0xA0000000U &&
+        (static_cast<std::uint32_t>(glyphs[2U].flags) & 0xE0000000U) == 0U);
 
     glyphs = {shaping_glyph{5U, 0x66U, 12},
         shaping_glyph{7U, 0x78U, 13}};
@@ -1282,10 +1303,13 @@ void open_type_gsub_basic_lookups_use_caller_owned_storage() {
     open_type_gsub_apply_options ligature_options{};
     ligature_options.gdef = &gdef;
     ligature_options.track_fallback_mark_metadata = true;
+    ligature_options.mark_substituted = true;
     require(try_apply_open_type_gsub_lookup(
         gsub, 0U, glyphs, count, ligature_options, applied, &error));
     require(applied && count == 2U && glyphs[0U].glyph_id == 12U &&
         glyphs[1U].glyph_id == 11U);
+    require((static_cast<std::uint32_t>(glyphs[0U].flags) &
+            0xE0000000U) == 0xC0000000U);
     require(((static_cast<std::uint32_t>(glyphs[0U].flags) >> 3U) &
             0xFFU) == 2U);
     require(((static_cast<std::uint32_t>(glyphs[1U].flags) >> 11U) &
@@ -1706,6 +1730,7 @@ void open_type_gsub_context_contraction_advances_in_mutated_space() {
 
     open_type_gsub_apply_options options{};
     options.restrict_to_syllable = true;
+    options.mark_substituted = true;
     std::uint32_t count = 4U;
     std::uint32_t context_match_end = 0U;
     options.context_match_end = &context_match_end;
@@ -1714,7 +1739,10 @@ void open_type_gsub_context_contraction_advances_in_mutated_space() {
         gsub, 0U, glyphs, count, 0U, options, applied, &error));
     require(applied && count == 3U && context_match_end == 1U &&
         glyphs[0U].glyph_id == 12U && glyphs[1U].glyph_id == 5U &&
-        glyphs[2U].glyph_id == 6U);
+        glyphs[2U].glyph_id == 6U &&
+        (static_cast<std::uint32_t>(glyphs[0U].flags) & 0xE0000000U) ==
+            0xC0000000U &&
+        (static_cast<std::uint32_t>(glyphs[1U].flags) & 0xE0000000U) == 0U);
 
     glyphs = {shaping_glyph{5U}, shaping_glyph{6U},
         shaping_glyph{5U}, shaping_glyph{6U}};
@@ -1727,7 +1755,11 @@ void open_type_gsub_context_contraction_advances_in_mutated_space() {
     require(try_apply_open_type_gsub_lookup(
         gsub, 0U, glyphs, count, options, applied, &error));
     require(applied && count == 2U && glyphs[0U].glyph_id == 12U &&
-        glyphs[1U].glyph_id == 12U);
+        glyphs[1U].glyph_id == 12U &&
+        (static_cast<std::uint32_t>(glyphs[0U].flags) & 0xE0000000U) ==
+            0xC0000000U &&
+        (static_cast<std::uint32_t>(glyphs[1U].flags) & 0xE0000000U) ==
+            0xC0000000U);
 }
 
 void open_type_gsub_context_glyph_and_class_rules_are_bounded() {

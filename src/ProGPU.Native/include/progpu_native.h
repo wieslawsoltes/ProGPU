@@ -397,6 +397,7 @@ typedef struct progpu_native_text_feature {
     uint32_t end;
 } progpu_native_text_feature;
 
+/* Design-unit glyph metrics in the managed public Y-down convention. */
 /* PROGPU_CSHARP_STRUCT: Public.NativeTextShapingGlyph */
 typedef struct progpu_native_text_shaping_glyph {
     uint32_t glyph_id;

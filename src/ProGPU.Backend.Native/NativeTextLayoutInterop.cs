@@ -4,7 +4,8 @@ namespace ProGPU.Backend.Native;
 
 /// <summary>
 /// Caller-owned options for one synchronous native horizontal layout pass.
-/// Glyph metrics remain in the design-unit convention returned by native shaping.
+/// Glyph metrics remain in the managed-compatible Y-down design-unit convention
+/// returned by native shaping.
 /// </summary>
 public readonly ref struct NativeTextLayoutInput
 {
