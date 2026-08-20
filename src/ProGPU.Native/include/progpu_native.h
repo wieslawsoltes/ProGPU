@@ -1278,8 +1278,11 @@ typedef struct progpu_native_scene_glyph_draw {
 /*
  * Semantic path/glyph resource records use fixed 64-bit arena indices rather
  * than host-sized size_t. Current 64-bit native packages consume these
- * records zero-copy; a future wasm32 build translates the fixed prefix while
- * preserving the same version-one byte stream.
+ * records zero-copy; wasm32 translates the fixed prefix while preserving the
+ * same version-one byte stream. Path segment ranges are resource-local and
+ * may share or overlap an earlier densely covered range, allowing repeated
+ * transformed instances to retain one immutable outline. Boolean-program
+ * ranges remain canonical, contiguous, and independently bounded.
  */
 typedef struct progpu_native_scene_path_fill {
     uint64_t segment_offset;

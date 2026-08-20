@@ -46,10 +46,12 @@ atlas size is known, so a later path that grows the atlas cannot invalidate an
 earlier path's sampling coordinates.
 
 Direct combined fills reuse that exact representation and GPU program rather
-than materializing a CPU path operation. Each semantic path record owns a
-contiguous segment slice plus an optional resource-local postfix slice; direct
-frames expose the same node arena through the append-only frame suffix. C# and
-C++ validate canonical leaf ownership, finite bounds and fill rules, at most 63
+than materializing a CPU path operation. Semantic path records reference one
+dense resource-local segment arena; later records may share or overlap already
+covered ranges, so transformed instances retain one immutable outline instead
+of duplicating segment bytes. Optional resource-local postfix ranges remain
+canonical and contiguous. C# and C++ validate gap-free segment coverage,
+canonical leaf ownership, finite bounds and fill rules, at most 63
 instructions, and a maximum evaluation depth of 16 before any GPU resource is
 created. Native x64/arm64 replay consumes the fixed-width records directly;
 wasm32 performs one checked translation into host-sized offsets. The existing

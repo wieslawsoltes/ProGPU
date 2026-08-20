@@ -105,18 +105,20 @@ progpu_native_status render_scene(
                 bytes + resource.payload_offset +
                     index * sizeof(path),
                 sizeof(path));
-            if (path.segment_offset != segment_count ||
+            if (path.segment_offset > segment_count ||
                 (path.boolean_node_count != 0U &&
                     path.boolean_node_offset != boolean_node_count) ||
                 path.segment_count >
                     std::numeric_limits<std::uint64_t>::max() -
-                        segment_count ||
+                        path.segment_offset ||
                 path.boolean_node_count >
                     std::numeric_limits<std::uint64_t>::max() -
                         boolean_node_count) {
                 return false;
             }
-            segment_count += path.segment_count;
+            segment_count = std::max(
+                segment_count,
+                path.segment_offset + path.segment_count);
             boolean_node_count += path.boolean_node_count;
         }
         if (segment_count >

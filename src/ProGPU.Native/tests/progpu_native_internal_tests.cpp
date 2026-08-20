@@ -777,6 +777,8 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_builder_is_deterministic_and_valid());
     require(progpu::native::tests::
+        semantic_scene_builder_preserves_shared_path_segments());
+    require(progpu::native::tests::
         semantic_scene_builder_records_general_brushes());
     require(progpu::native::tests::
         semantic_scene_builder_records_native_svg_layers());

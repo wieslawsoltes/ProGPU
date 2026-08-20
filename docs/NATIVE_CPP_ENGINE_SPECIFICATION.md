@@ -1435,8 +1435,11 @@ The managed substitution adapter also targets the existing semantic
 tessellator. Consecutive fill-only `DrawPath` commands compile once through
 the shared CPU path-segment canonicalizer, then coalesce into one pointer-free
 resource whose fixed-width records reference a contiguous line, quadratic,
-cubic, and analytic-arc segment arena. Combined fills additionally reference a
-contiguous resource-local arena of canonical 48-byte postfix nodes.
+cubic, and analytic-arc segment arena. Record ranges may share or overlap an
+already covered prefix, preserving repeated transformed instances without
+duplicating immutable segments; the union must remain gap-free and consume the
+complete arena. Combined fills additionally reference a contiguous
+resource-local arena of canonical 48-byte postfix nodes.
 Nonzero/even-odd fill rules, 4x4/8x8
 coverage selection, affine transforms, and the shared solid/gradient brush
 table remain explicit. Every segment and transformed bound is finite-checked;

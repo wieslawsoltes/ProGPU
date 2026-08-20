@@ -507,6 +507,11 @@ public ref struct NativeSceneStreamBuilder
         return true;
     }
 
+    /// <summary>
+    /// Adds path records over one densely covered segment arena. Records may
+    /// share or overlap an earlier segment range so repeated transforms retain
+    /// one immutable outline; optional boolean programs remain contiguous.
+    /// </summary>
     public bool TryAddPathResource(
         ulong resourceId,
         ulong generation,
@@ -541,24 +546,26 @@ public ref struct NativeSceneStreamBuilder
         {
             return false;
         }
-        ulong expectedSegmentOffset = 0U;
+        ulong coveredSegmentCount = 0U;
         ulong expectedBooleanNodeOffset = 0U;
         for (int index = 0; index < paths.Length; index++)
         {
             ref readonly NativeScenePathFill path = ref paths[index];
-            if (path.SegmentOffset != expectedSegmentOffset ||
+            if (path.SegmentOffset > coveredSegmentCount ||
                 (path.BooleanNodeCount != 0U &&
                     path.BooleanNodeOffset != expectedBooleanNodeOffset) ||
                 !IsValidScenePathFill(in path, segments.Length, booleanNodes) ||
-                path.SegmentCount > ulong.MaxValue - expectedSegmentOffset ||
+                path.SegmentCount > ulong.MaxValue - path.SegmentOffset ||
                 path.BooleanNodeCount > ulong.MaxValue - expectedBooleanNodeOffset)
             {
                 return false;
             }
-            expectedSegmentOffset += path.SegmentCount;
+            coveredSegmentCount = Math.Max(
+                coveredSegmentCount,
+                path.SegmentOffset + path.SegmentCount);
             expectedBooleanNodeOffset += path.BooleanNodeCount;
         }
-        if (expectedSegmentOffset != (ulong)segments.Length ||
+        if (coveredSegmentCount != (ulong)segments.Length ||
             expectedBooleanNodeOffset != (ulong)booleanNodes.Length)
         {
             return false;

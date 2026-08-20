@@ -28,10 +28,10 @@ bool semantic_scene_builder::draw_paths(
             PROGPU_NATIVE_SCENE_MAX_COMMANDS) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
-    std::uint64_t expected_segment_offset = 0U;
+    std::uint64_t covered_segment_count = 0U;
     std::uint64_t expected_boolean_node_offset = 0U;
     for (const auto& path : paths) {
-        if (path.segment_offset != expected_segment_offset ||
+        if (path.segment_offset > covered_segment_count ||
             (path.boolean_node_count != 0U &&
                 path.boolean_node_offset != expected_boolean_node_offset) ||
             !semantic::is_valid_semantic_path(
@@ -41,16 +41,18 @@ bool semantic_scene_builder::draw_paths(
                 boolean_nodes.size()) ||
             path.segment_count >
                 std::numeric_limits<std::uint64_t>::max() -
-                    expected_segment_offset ||
+                    path.segment_offset ||
             path.boolean_node_count >
                 std::numeric_limits<std::uint64_t>::max() -
                     expected_boolean_node_offset) {
             return implementation_->fail(scene_build_error::invalid_argument);
         }
-        expected_segment_offset += path.segment_count;
+        covered_segment_count = std::max(
+            covered_segment_count,
+            path.segment_offset + path.segment_count);
         expected_boolean_node_offset += path.boolean_node_count;
     }
-    if (expected_segment_offset != segments.size() ||
+    if (covered_segment_count != segments.size() ||
         expected_boolean_node_offset != boolean_nodes.size()) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }

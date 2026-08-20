@@ -236,6 +236,64 @@ bool semantic_scene_builder_is_deterministic_and_valid() {
             sizeof(path_segments) + sizeof(path_boolean_nodes);
 }
 
+bool semantic_scene_builder_preserves_shared_path_segments() {
+    const std::array segments{
+        progpu_native_path_segment{
+            {0.0F, 0.0F}, {12.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {12.0F, 0.0F}, {6.0F, 12.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {6.0F, 12.0F}, {0.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    auto first = progpu_native_scene_path_fill{};
+    first.segment_count = segments.size();
+    first.min_x = 0.0F;
+    first.min_y = 0.0F;
+    first.max_x = 12.0F;
+    first.max_y = 12.0F;
+    first.color = {1.0F, 1.0F, 1.0F, 1.0F};
+    first.transform = semantic_scene_builder::identity_transform();
+    first.fill_rule = PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+    first.sample_grid = 4U;
+    auto second = first;
+    second.transform.m31 = 18.0F;
+    const std::array paths{first, second};
+
+    semantic_scene_builder builder(702U, 1U);
+    if (!builder.reserve(1U, 1U, 1024U) ||
+        !builder.draw_paths(
+            paths,
+            segments,
+            {},
+            {0.0F, 0.0F, 30.0F, 12.0F})) {
+        return false;
+    }
+    std::vector<std::byte> stream;
+    if (!builder.build(stream)) {
+        return false;
+    }
+    const auto validated = scene::validate(stream.data(), stream.size());
+    if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        validated.header.resource_count != 1U || validated.draw_count != 1U) {
+        return false;
+    }
+    const auto resource = read<progpu_native_scene_resource>(
+        stream, validated.header.resource_offset);
+    const auto stored_first = read<progpu_native_scene_path_fill>(
+        stream, resource.payload_offset);
+    const auto stored_second = read<progpu_native_scene_path_fill>(
+        stream, resource.payload_offset + sizeof(stored_first));
+    return resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH &&
+        resource.payload_size == sizeof(paths) &&
+        resource.auxiliary_size == sizeof(segments) &&
+        stored_first.segment_offset == 0U &&
+        stored_second.segment_offset == 0U &&
+        stored_first.segment_count == segments.size() &&
+        stored_second.segment_count == segments.size();
+}
+
 bool semantic_scene_builder_records_general_brushes() {
     semantic_scene_builder builder(710U, 2U);
     progpu_native_scene_brush linear{};

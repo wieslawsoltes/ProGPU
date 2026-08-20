@@ -208,11 +208,13 @@ bool semantic_scene_builder::add_vector_clip_mask(
             resource.auxiliary.data() + paths.size_bytes(),
             segments.data(),
             segments.size_bytes());
-        std::memcpy(
-            resource.auxiliary.data() + paths.size_bytes() +
-                segments.size_bytes(),
-            boolean_nodes.data(),
-            boolean_nodes.size_bytes());
+        if (!boolean_nodes.empty()) {
+            std::memcpy(
+                resource.auxiliary.data() + paths.size_bytes() +
+                    segments.size_bytes(),
+                boolean_nodes.data(),
+                boolean_nodes.size_bytes());
+        }
         resource_index = static_cast<std::uint32_t>(
             implementation_->resources.size());
         implementation_->resources.push_back(std::move(resource));
