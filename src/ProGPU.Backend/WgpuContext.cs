@@ -50,6 +50,8 @@ public unsafe class WgpuContext : IDisposable
     public bool SupportsTextureFormatsTier1 { get; private set; }
     public BackendType AdapterBackendType { get; private set; } = BackendType.Undefined;
     public string AdapterName { get; private set; } = string.Empty;
+    public WgpuAdapterSelectionDiagnostics AdapterSelectionDiagnostics { get; private set; } =
+        WgpuAdapterSelectionDiagnostics.Unknown;
     public IProGpuExternalTextureImporter?
         ExternalTextureImporter { get; private set; }
     internal WgpuDeviceResourceDomain DeviceResourceDomain =>
@@ -866,9 +868,29 @@ public unsafe class WgpuContext : IDisposable
 
         var adapterProperties = new AdapterProperties();
         Wgpu.AdapterGetProperties(Adapter, &adapterProperties);
-        AdapterBackendType = adapterProperties.BackendType;
-        AdapterName = adapterProperties.Name == null ? string.Empty : ReadNativeMessage(adapterProperties.Name);
-        SafeLog($"[WGPUCONTEXT] Adapter '{AdapterName}', backend={AdapterBackendType}\n");
+        SetAdapterSelectionDiagnostics(new WgpuAdapterSelectionDiagnostics(
+            adapterProperties.Name == null ? string.Empty : ReadNativeMessage(adapterProperties.Name),
+            adapterProperties.BackendType,
+            adapterProperties.AdapterType,
+            adapterProperties.DriverDescription == null
+                ? string.Empty
+                : ReadNativeMessage(adapterProperties.DriverDescription),
+            adapterProperties.VendorID,
+            adapterProperties.DeviceID,
+            Surface != null,
+            Surface != null
+                ? WgpuAdapterSelectionReason.HighPerformanceSurfaceCompatible
+                : WgpuAdapterSelectionReason.HighPerformance));
+        string adapterDiagnostic =
+            $"[WGPUCONTEXT] Adapter '{AdapterName}', backend={AdapterBackendType}, " +
+            $"type={AdapterSelectionDiagnostics.AdapterType}, " +
+            $"driver='{AdapterSelectionDiagnostics.DriverDescription}', " +
+            $"vendor=0x{AdapterSelectionDiagnostics.VendorId:X4}, " +
+            $"device=0x{AdapterSelectionDiagnostics.DeviceId:X4}, " +
+            $"surfaceCompatible={AdapterSelectionDiagnostics.RequiredCompatibleSurface}, " +
+            $"reason={AdapterSelectionDiagnostics.SelectionReason}";
+        SafeLog(adapterDiagnostic + "\n");
+        ProGpuBackendDiagnostics.WriteLine(adapterDiagnostic);
         if (OperatingSystem.IsAndroid() && AdapterBackendType != BackendType.Vulkan)
         {
             ReleaseAdapterInitializationResources();
@@ -1296,6 +1318,15 @@ public unsafe class WgpuContext : IDisposable
         _isSurfaceConfigured = true;
         _lastWidth = 1;
         _lastHeight = 1;
+        SetAdapterSelectionDiagnostics(new WgpuAdapterSelectionDiagnostics(
+            string.Empty,
+            BackendType.Undefined,
+            AdapterType.Unknown,
+            string.Empty,
+            0,
+            0,
+            true,
+            WgpuAdapterSelectionReason.ExternalBrowserHost));
 
         lock (_activeContexts)
         {
@@ -1328,7 +1359,11 @@ public unsafe class WgpuContext : IDisposable
         bool supportsReadOnlyAndReadWriteStorageTextures = false,
         bool supportsTextureFormatsTier1 = false,
         BackendType adapterBackendType = BackendType.Undefined,
-        string? adapterName = null)
+        string? adapterName = null,
+        AdapterType adapterType = AdapterType.Unknown,
+        string? adapterDriverDescription = null,
+        uint adapterVendorId = 0,
+        uint adapterDeviceId = 0)
     {
         ArgumentNullException.ThrowIfNull(api);
         ArgumentNullException.ThrowIfNull(lifetime);
@@ -1357,8 +1392,15 @@ public unsafe class WgpuContext : IDisposable
             supportsReadOnlyAndReadWriteStorageTextures;
         SupportsTextureFormatsTier1 =
             supportsTextureFormatsTier1;
-        AdapterBackendType = adapterBackendType;
-        AdapterName = adapterName ?? string.Empty;
+        SetAdapterSelectionDiagnostics(new WgpuAdapterSelectionDiagnostics(
+            adapterName ?? string.Empty,
+            adapterBackendType,
+            adapterType,
+            adapterDriverDescription ?? string.Empty,
+            adapterVendorId,
+            adapterDeviceId,
+            false,
+            WgpuAdapterSelectionReason.ExternalNativeHost));
         _externalDeviceLifetime = lifetime;
         _deviceResourceDomain = new WgpuDeviceResourceDomain(Api, Device);
 
@@ -1453,8 +1495,7 @@ public unsafe class WgpuContext : IDisposable
         SupportsReadOnlyAndReadWriteStorageTextures = deviceOwner.SupportsReadOnlyAndReadWriteStorageTextures;
         SupportsTextureFormatsTier1 =
             deviceOwner.SupportsTextureFormatsTier1;
-        AdapterBackendType = deviceOwner.AdapterBackendType;
-        AdapterName = deviceOwner.AdapterName;
+        SetAdapterSelectionDiagnostics(deviceOwner.AdapterSelectionDiagnostics);
         _deviceResourceDomain = deviceOwner._deviceResourceDomain;
         _sharedDeviceLifetime = sharedDeviceLifetime;
         RenderLock = deviceOwner.RenderLock;
@@ -1488,6 +1529,14 @@ public unsafe class WgpuContext : IDisposable
         }
 
         return window is INativeWindowSource { Native: not null };
+    }
+
+    private void SetAdapterSelectionDiagnostics(
+        WgpuAdapterSelectionDiagnostics diagnostics)
+    {
+        AdapterSelectionDiagnostics = diagnostics;
+        AdapterBackendType = diagnostics.BackendType;
+        AdapterName = diagnostics.Name;
     }
 
     /// <summary>

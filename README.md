@@ -65,7 +65,7 @@ intentionally not packed.
 Local package build:
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.48 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.53 ./eng/progpu-pack.sh
 ```
 
 Pack both Avalonia integration lanes after the portable ProGPU runtime packages:
@@ -327,7 +327,7 @@ Without these headers, `Auto` uses the ordinary OffscreenCanvas worker when avai
 Local publishing reads the API key from `NUGET_API_KEY` without storing it in the repository:
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.48 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.53 ./eng/progpu-publish.sh
 ```
 
 The release workflow validates docs, restores, builds, tests, packs `.nupkg`/`.snupkg` artifacts, and can publish to NuGet.org when `NUGET_API_KEY` is configured. See [docs/release.md](docs/release.md).
@@ -377,8 +377,8 @@ two NuGet package IDs and are distinguished by their package versions:
 
 | Avalonia | Rendering package | Silk.NET package |
 | --- | --- | --- |
-| 12.0.5 | `ProGPU.Avalonia.Rendering` `12.0.5-preview.48` | `ProGPU.Avalonia.SilkNet` `12.0.5-preview.48` |
-| 11.3.18 | `ProGPU.Avalonia.Rendering` `11.3.18-preview.48` | `ProGPU.Avalonia.SilkNet` `11.3.18-preview.48` |
+| 12.0.5 | `ProGPU.Avalonia.Rendering` `12.0.5-preview.53` | `ProGPU.Avalonia.SilkNet` `12.0.5-preview.53` |
+| 11.3.18 | `ProGPU.Avalonia.Rendering` `11.3.18-preview.53` | `ProGPU.Avalonia.SilkNet` `11.3.18-preview.53` |
 
 The Avalonia 12 artifacts are built from
 `src/ProGPU.Avalonia.Rendering` and `src/ProGPU.Avalonia.SilkNet`. The Avalonia
@@ -390,11 +390,11 @@ projects, which source-link the shared implementation and define
 Install the Avalonia 12 packages with:
 
 ```bash
-dotnet add package ProGPU.Avalonia.Rendering --version 12.0.5-preview.48
-dotnet add package ProGPU.Avalonia.SilkNet --version 12.0.5-preview.48
+dotnet add package ProGPU.Avalonia.Rendering --version 12.0.5-preview.53
+dotnet add package ProGPU.Avalonia.SilkNet --version 12.0.5-preview.53
 ```
 
-For Avalonia 11, use the same package IDs with `11.3.18-preview.48` and pin all
+For Avalonia 11, use the same package IDs with `11.3.18-preview.53` and pin all
 Avalonia packages to `11.3.18`. Configure the application with
 `UseSilkNet().UseProGpu()` before starting the desktop lifetime. Complete
 startup, API-lease, local packaging, and package-only validation instructions

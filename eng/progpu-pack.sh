@@ -10,7 +10,7 @@ if [[ ! -x "${dotnet}" ]]; then
 fi
 
 configuration="${PROGPU_CONFIGURATION:-Release}"
-package_version="${PROGPU_PACKAGE_VERSION:-0.1.0-preview.48}"
+package_version="${PROGPU_PACKAGE_VERSION:-0.1.0-preview.53}"
 package_output="${PROGPU_PACKAGE_OUTPUT:-${repo_root}/artifacts/packages/${configuration}}"
 package_group="${PROGPU_PACKAGE_GROUP:-all}"
 

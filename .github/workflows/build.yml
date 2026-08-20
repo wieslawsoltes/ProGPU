@@ -97,9 +97,9 @@ jobs:
 
       - name: Install Linux WebGPU dependencies
         if: runner.os == 'Linux'
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          ./eng/progpu-install-linux-packages.sh \
             clang \
             clang-tools \
             cmake \
@@ -217,9 +217,9 @@ jobs:
 
       - name: Install GCC compatibility dependencies
         if: matrix.compiler == 'GCC'
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          ./eng/progpu-install-linux-packages.sh \
             cmake \
             g++ \
             ninja-build \
@@ -269,9 +269,9 @@ jobs:
           global-json-file: global.json
 
       - name: Install Linux WebGPU dependencies
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
+          ./eng/progpu-install-linux-packages.sh libvulkan1 mesa-vulkan-drivers
 
       - name: Download native runtimes
         uses: actions/download-artifact@v8
@@ -341,9 +341,9 @@ jobs:
 
       - name: Install Linux WebGPU dependencies
         if: runner.os == 'Linux'
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
+          ./eng/progpu-install-linux-packages.sh libvulkan1 mesa-vulkan-drivers
 
       - name: Download native NuGet package
         uses: actions/download-artifact@v8
@@ -427,9 +427,9 @@ jobs:
 
       - name: Install Linux X11 and Vulkan software adapter
         if: runner.os == 'Linux'
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          ./eng/progpu-install-linux-packages.sh \
             libc++1 \
             libvulkan1 \
             mesa-vulkan-drivers \
@@ -523,9 +523,9 @@ jobs:
 
       - name: Install Linux WebGPU dependencies
         if: runner.os == 'Linux'
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          ./eng/progpu-install-linux-packages.sh \
             libvulkan1 \
             mesa-vulkan-drivers \
             libx11-xcb1 \

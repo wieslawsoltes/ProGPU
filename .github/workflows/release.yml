@@ -6,7 +6,7 @@ on:
       version:
         description: NuGet package version to build.
         required: true
-        default: 0.1.0-preview.48
+        default: 0.1.0-preview.53
       publish:
         description: Push packages to NuGet.org after validation.
         required: true
@@ -54,9 +54,9 @@ jobs:
 
       - name: Install Linux WebGPU dependencies
         if: runner.os == 'Linux'
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          ./eng/progpu-install-linux-packages.sh \
             clang \
             clang-tools \
             cmake \
@@ -147,9 +147,9 @@ jobs:
           submodules: recursive
 
       - name: Install Linux WebGPU dependencies
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          ./eng/progpu-install-linux-packages.sh \
             libvulkan1 \
             mesa-vulkan-drivers \
             libx11-xcb1 \
@@ -276,9 +276,9 @@ jobs:
 
       - name: Install Linux WebGPU dependencies
         if: runner.os == 'Linux'
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
+          ./eng/progpu-install-linux-packages.sh libvulkan1 mesa-vulkan-drivers
 
       - name: Resolve release version
         shell: bash
