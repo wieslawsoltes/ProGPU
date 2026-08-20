@@ -706,13 +706,10 @@ progpu_native_status begin_hit_test(
         &readback_destination,
         &readback_extent);
 #else
-    wgpuCommandEncoderCopyBufferToBuffer(
-        encoder,
-        engine->semantic_hit_test_result_buffer,
-        0U,
-        engine->semantic_hit_test_readback_buffer,
-        0U,
-        copy_bytes);
+    // Keep the compute and readback copies as distinct submissions. This is
+    // the same ordering used by the authoritative managed hit-test path and
+    // avoids a wgpu-native Vulkan hazard where a storage write followed by a
+    // copy in the same command buffer can expose the untouched readback page.
 #endif
     WGPUCommandBufferDescriptor command_descriptor{};
     command_descriptor.label = webgpu::string_view(
@@ -728,6 +725,40 @@ progpu_native_status begin_hit_test(
     }
     engine->submit(command);
     wgpuCommandBufferRelease(command);
+#if !defined(PROGPU_NATIVE_BROWSER)
+    WGPUCommandEncoderDescriptor readback_encoder_descriptor{};
+    readback_encoder_descriptor.label = webgpu::string_view(
+        "ProGPU retained GPU hit-test readback encoder");
+    WGPUCommandEncoder readback_encoder = wgpuDeviceCreateCommandEncoder(
+        engine->device,
+        &readback_encoder_descriptor);
+    if (readback_encoder == nullptr) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The retained GPU hit-test readback encoder could not be created.");
+    }
+    wgpuCommandEncoderCopyBufferToBuffer(
+        readback_encoder,
+        engine->semantic_hit_test_result_buffer,
+        0U,
+        engine->semantic_hit_test_readback_buffer,
+        0U,
+        copy_bytes);
+    WGPUCommandBufferDescriptor readback_command_descriptor{};
+    readback_command_descriptor.label = webgpu::string_view(
+        "ProGPU retained GPU hit-test readback submission");
+    WGPUCommandBuffer readback_command = wgpuCommandEncoderFinish(
+        readback_encoder,
+        &readback_command_descriptor);
+    wgpuCommandEncoderRelease(readback_encoder);
+    if (readback_command == nullptr) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The retained GPU hit-test readback command could not be finished.");
+    }
+    engine->submit(readback_command);
+    wgpuCommandBufferRelease(readback_command);
+#endif
     const std::uint64_t map_bytes =
 #if defined(PROGPU_NATIVE_BROWSER)
         browser_readback_buffer_size;
