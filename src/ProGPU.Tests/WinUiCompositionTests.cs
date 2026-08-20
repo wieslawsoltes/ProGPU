@@ -63,6 +63,16 @@ public sealed class WinUiCompositionTests
 
         brush.Offset = Vector2.Zero;
         brush.Scale = Vector2.One;
+        // Exercise both mutating setter routes before measuring. Linux JITs the
+        // enum setter lazily after the vector invalidation path, while the hot
+        // contract is allocation-free once both retained routes are compiled.
+        for (int index = 0; index < 32; index++)
+        {
+            brush.Offset = new Vector2(index & 1, 0f);
+            brush.BitmapInterpolationMode = (index & 1) == 0
+                ? CompositionBitmapInterpolationMode.Linear
+                : CompositionBitmapInterpolationMode.NearestNeighbor;
+        }
         long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
         for (int index = 0; index < 10_000; index++)
         {

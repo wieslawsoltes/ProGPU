@@ -17,10 +17,12 @@
 #include "progpu_native_semantic_replay.hpp"
 #include "progpu_webgpu_compat.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <new>
 #include <vector>
@@ -221,8 +223,12 @@ bool create_semantic_picture_mask_binding(
     operation.mask_texture_view = source_view;
     operation.mask_uniform_buffer = sampling_uniform_buffer;
     operation.mask_bind_group = sampling_bind_group;
-    operation.mask_uniform_upload_bytes =
+    const std::uint64_t uniform_upload_bytes =
         sizeof(sampling) + child_metrics.uniform_upload_bytes;
+    operation.mask_uniform_upload_bytes = static_cast<std::uint32_t>(
+        std::min<std::uint64_t>(
+            uniform_upload_bytes,
+            std::numeric_limits<std::uint32_t>::max()));
     operation.mask_source_x = target_extent.x;
     operation.mask_source_y = target_extent.y;
     operation.mask_uses_alpha_channel = true;
