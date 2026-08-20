@@ -137,7 +137,8 @@ fn sample_mask_alpha(position: vec2<f32>) -> f32 {
             dot(vec3<f32>(targetPosition, 1.0), maskSampling.coordinate0.xyz),
             dot(vec3<f32>(targetPosition, 1.0), maskSampling.coordinate1.xyz));
     }
-    let sampled = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0))).r;
+    let sample = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)));
+    let sampled = select(sample.r, sample.a, maskSampling.options.w > 1.5);
     let inside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
     let textureOpacity = select(1.0, maskSampling.options.y,
         maskSampling.options.w > 0.5);

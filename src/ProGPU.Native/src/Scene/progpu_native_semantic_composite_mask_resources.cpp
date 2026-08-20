@@ -295,8 +295,10 @@ bool create_semantic_composite_mask_binding(
     }
     for (std::uint32_t index = 0U; index < source.component_count; ++index) {
         const gpu_clip_compose_uniforms uniforms{
-            0U,
-            index == 0U ? 1U : 0U,
+            (children[index].mask_source_x << 16U) |
+                (children[index].mask_uses_alpha_channel ? 2U : 0U),
+            (children[index].mask_source_y << 16U) |
+                (index == 0U ? 1U : 0U),
             target_extent.width,
             target_extent.height};
         std::memcpy(

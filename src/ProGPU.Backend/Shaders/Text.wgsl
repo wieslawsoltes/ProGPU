@@ -223,9 +223,12 @@ fn sample_mask_alpha(position: vec2<f32>) -> f32 {
             maskSampling.options.y;
     }
     let uv = (targetPosition - maskSampling.coordinate0.xy) * maskSampling.coordinate1.xy;
-    let sampled = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0))).r;
+    let sample = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)));
+    let sampled = select(sample.r, sample.a, maskSampling.options.w > 1.5);
     let inside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
-    return select(0.0, sampled, inside);
+    let textureOpacity = select(1.0, maskSampling.options.y,
+        maskSampling.options.w > 0.5);
+    return select(0.0, sampled * textureOpacity, inside);
 }
 
 fn text_coverage_to_alpha(alpha: f32, contrast: f32, gamma: f32, aliasedText: bool) -> f32 {

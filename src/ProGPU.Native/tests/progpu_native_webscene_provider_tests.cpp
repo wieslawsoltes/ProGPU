@@ -4210,7 +4210,7 @@ int main(int argc, char** argv) {
         &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
         semantic_metrics.command_count == 3U &&
         semantic_metrics.draw_call_count == 2U &&
-        semantic_metrics.submission_count == 3U &&
+        semantic_metrics.submission_count == 2U &&
         semantic_metrics.texture_upload_bytes == 0U &&
         semantic_metrics.uniform_upload_bytes >=
             28U * sizeof(float),

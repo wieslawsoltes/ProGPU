@@ -1218,8 +1218,8 @@ Current native parity:
   mixed brush/vector/picture stacks use one bounded 64-byte composite prefix
   (with legacy 48-byte read compatibility) and shared GPU coverage
   multiplication. Retained-picture masks carry recursively validated nested
-  semantic streams, render on the same WebGPU device/queue, and extract bounded
-  alpha GPU-to-GPU; isolated-layer analytic chains remain typed fail-closed
+  semantic streams, render on the same WebGPU device/queue, and sample the
+  retained child RGBA alpha channel directly; isolated-layer analytic chains remain typed fail-closed
   rather than approximated;
 - pointer-free retained semantic solid/linear/radial/two-point-conical/sweep
   brushes with exact production `GpuBrush`/gradient-stop layout, compact

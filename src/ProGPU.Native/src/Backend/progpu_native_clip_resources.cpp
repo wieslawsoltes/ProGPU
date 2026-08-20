@@ -27,7 +27,6 @@ using progpu::native::gpu_clip_vertex;
 bool create_clip_chain_resources(progpu_native_engine& engine) {
     if (engine.clip_path_pipeline != nullptr &&
         engine.clip_compose_pipeline != nullptr &&
-        engine.clip_alpha_extract_pipeline != nullptr &&
         engine.clip_compose_layout != nullptr &&
         engine.clip_sampler != nullptr) {
         return true;
@@ -37,7 +36,6 @@ bool create_clip_chain_resources(progpu_native_engine& engine) {
         engine.clip_compose_shader != nullptr ||
         engine.clip_path_pipeline != nullptr ||
         engine.clip_compose_pipeline != nullptr ||
-        engine.clip_alpha_extract_pipeline != nullptr ||
         engine.clip_compose_layout != nullptr ||
         engine.clip_sampler != nullptr) {
         return false;
@@ -157,20 +155,9 @@ bool create_clip_chain_resources(progpu_native_engine& engine) {
     engine.clip_compose_pipeline = wgpuDeviceCreateRenderPipeline(
         engine.device,
         &compose_descriptor);
-    WGPUFragmentState extract_fragment = compose_fragment;
-    extract_fragment.entryPoint =
-        progpu::native::webgpu::string_view("fs_extract_alpha");
-    WGPURenderPipelineDescriptor extract_descriptor = compose_descriptor;
-    extract_descriptor.label = progpu::native::webgpu::string_view(
-        "ProGPU native retained picture-mask alpha extraction pipeline");
-    extract_descriptor.fragment = &extract_fragment;
-    engine.clip_alpha_extract_pipeline = wgpuDeviceCreateRenderPipeline(
-        engine.device,
-        &extract_descriptor);
     wgpuPipelineLayoutRelease(pipeline_layout);
     if (engine.clip_path_pipeline == nullptr ||
-        engine.clip_compose_pipeline == nullptr ||
-        engine.clip_alpha_extract_pipeline == nullptr) {
+        engine.clip_compose_pipeline == nullptr) {
         return false;
     }
 

@@ -2842,8 +2842,10 @@ The managed native-scene compiler now directly ports ProGPU's immutable
 `GpuPicture` opacity-mask ownership and command semantics into a bounded nested
 semantic stream. C++ recursively validates that stream, shares the parent
 WebGPU instance/device/queue/dispatch table with a child engine, renders the
-picture into same-format RGBA, and uses the canonical `ClipCompose.wgsl`
-`fs_extract_alpha` entry point to produce bounded R8 entirely on the GPU.
+picture into same-format RGBA, and samples the retained texture's alpha channel
+directly through the canonical vector/text/texture sampled-mask contract.
+Composite nodes select the same alpha channel through canonical
+`ClipCompose.wgsl`; their fixed command words carry the bounded source origin.
 Standalone and composite picture masks share the same implementation. Stable
 replay retains the mask binding, performs one scene submission, uploads zero
 retained bytes, and allocates zero managed bytes per frame.
@@ -2855,17 +2857,32 @@ median-of-run results were:
 
 | Metric | Native C++ | Managed compositor | Native delta |
 |---|---:|---:|---:|
-| p50 CPU submission | 0.0660 ms | 0.4450 ms | 6.74x lower |
-| p50 GPU-complete total | 3.0853 ms | 1.9679 ms | 56.8% higher |
-| p95 GPU-complete total | 3.2201 ms | 2.8177 ms | 14.3% higher |
+| p50 CPU submission | 0.0660 ms | 0.4446 ms | 6.74x lower |
+| p50 GPU-complete total | 3.0852 ms | 1.9712 ms | 56.5% higher |
+| p95 GPU-complete total | 3.2105 ms | 2.7590 ms | 16.4% higher |
+| p99 GPU-complete total | 3.3602 ms | 2.9363 ms | 14.4% higher |
 | Managed allocation / stable frame | 0 bytes | 0 bytes | equal |
 
 The native CPU boundary is already substantially cheaper, but GPU-complete
-time is not yet on par. The current exact implementation pays for a child-scene
-RGBA pass followed by a separate alpha-extraction pass; fusing compatible
-picture content directly into bounded mask coverage, or at minimum encoding
-child rendering and extraction into one retained command graph, is the next
-measured optimization target. No performance win is claimed for this slice.
+time is not yet on par. Direct alpha sampling removes one immutable R8 texture,
+pipeline, render pass, and submission; Metal and browser integration now
+observe two initial picture-mask submissions instead of three. The five-process
+stable-replay distribution is essentially unchanged because the removed work
+was outside that phase. A matched 384-primitive no-mask control measured about
+3.09 ms native versus 1.95 ms managed, locating the remaining steady gap in
+general native GPU work/scheduling rather than picture-mask extraction.
+
+Launch-isolated Instruments captures against the final benchmark executable
+measured 600 synchronized frames under Metal System Trace at 2.5763 ms/frame
+native and 2.1942 ms/frame managed, and 1,200 frames under Time Profiler at
+2.1727 ms/frame native and 1.9806 ms/frame managed. The Metal command-buffer
+table contains no alpha-extraction encoder after warm-up; retained native replay
+uses the single semantic-bundle pass. The Allocations template requested an
+interactive administrator credential before recording and therefore could not
+be collected unattended; the benchmark's own Release counter remained zero
+managed bytes per stable frame on both paths. Temporary `.trace` bundles and
+exports were removed after this summary was recorded. No stable-replay
+performance win is claimed for this slice.
 
 Across 518,400 pixels the maximum channel difference was 35/255, 55 pixels
 exceeded 3/255, and mean absolute channel difference was

@@ -251,7 +251,6 @@ struct progpu_native_engine {
     WGPUShaderModule clip_compose_shader = nullptr;
     WGPURenderPipeline clip_path_pipeline = nullptr;
     WGPURenderPipeline clip_compose_pipeline = nullptr;
-    WGPURenderPipeline clip_alpha_extract_pipeline = nullptr;
     WGPUBindGroupLayout clip_compose_layout = nullptr;
     WGPUSampler clip_sampler = nullptr;
     WGPUTexture clip_atlas_texture = nullptr;
@@ -543,10 +542,6 @@ struct progpu_native_engine {
         if (clip_compose_pipeline != nullptr) {
             wgpuRenderPipelineRelease(clip_compose_pipeline);
             clip_compose_pipeline = nullptr;
-        }
-        if (clip_alpha_extract_pipeline != nullptr) {
-            wgpuRenderPipelineRelease(clip_alpha_extract_pipeline);
-            clip_alpha_extract_pipeline = nullptr;
         }
         if (clip_path_pipeline != nullptr) {
             wgpuRenderPipelineRelease(clip_path_pipeline);

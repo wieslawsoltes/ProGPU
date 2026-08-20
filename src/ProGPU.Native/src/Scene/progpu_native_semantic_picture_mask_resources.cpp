@@ -17,21 +17,16 @@
 #include "progpu_native_semantic_replay.hpp"
 #include "progpu_webgpu_compat.hpp"
 
-#include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <limits>
 #include <memory>
 #include <new>
 #include <vector>
 
 namespace progpu::native::execution {
 namespace {
-
-constexpr std::uint64_t dynamic_uniform_alignment = 256U;
 
 WGPUBuffer create_uniform_buffer(
     progpu_native_engine& engine,
@@ -81,7 +76,6 @@ bool create_semantic_picture_mask_binding(
         !std::isfinite(dpi_scale) || dpi_scale <= 0.0F ||
         target_extent.x > 16384U - target_extent.width ||
         target_extent.y > 16384U - target_extent.height ||
-        !create_clip_chain_resources(engine) ||
         !create_layer_mask_resources(engine)) {
         return false;
     }
@@ -92,44 +86,21 @@ bool create_semantic_picture_mask_binding(
         target_extent.y + target_extent.height;
     const std::uint64_t source_bytes =
         static_cast<std::uint64_t>(source_width) * source_height * 4U;
-    const std::uint64_t mask_bytes =
-        static_cast<std::uint64_t>(target_extent.width) * target_extent.height;
-    if (source_bytes > PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES ||
-        mask_bytes > PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES - source_bytes) {
+    if (source_bytes > PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES) {
         return false;
     }
 
     WGPUTexture source_texture = nullptr;
     WGPUTextureView source_view = nullptr;
-    WGPUTexture mask_texture = nullptr;
-    WGPUTextureView mask_view = nullptr;
-    WGPUBuffer extract_uniform_buffer = nullptr;
     WGPUBuffer sampling_uniform_buffer = nullptr;
-    WGPUBindGroup extract_bind_group = nullptr;
     WGPUBindGroup sampling_bind_group = nullptr;
-    WGPUCommandEncoder encoder = nullptr;
-    WGPUCommandBuffer command = nullptr;
     std::unique_ptr<progpu_native_engine> child;
     const auto cleanup = [&]() noexcept {
-        if (command != nullptr) {
-            wgpuCommandBufferRelease(command);
-            command = nullptr;
-        }
-        if (encoder != nullptr) {
-            wgpuCommandEncoderRelease(encoder);
-            encoder = nullptr;
-        }
         if (sampling_bind_group != nullptr) {
             wgpuBindGroupRelease(sampling_bind_group);
             sampling_bind_group = nullptr;
         }
-        if (extract_bind_group != nullptr) {
-            wgpuBindGroupRelease(extract_bind_group);
-            extract_bind_group = nullptr;
-        }
         release_buffer(sampling_uniform_buffer);
-        release_buffer(extract_uniform_buffer);
-        release_texture(mask_texture, mask_view);
         release_texture(source_texture, source_view);
     };
 
@@ -213,121 +184,16 @@ bool create_semantic_picture_mask_binding(
     engine.submission_count += child->submission_count;
     child.reset();
 
-    WGPUTextureDescriptor mask_descriptor{};
-    mask_descriptor.label = webgpu::string_view(
-        "ProGPU retained picture opacity-mask R8 coverage");
-    mask_descriptor.usage = WGPUTextureUsage_RenderAttachment |
-        WGPUTextureUsage_TextureBinding;
-    mask_descriptor.dimension = WGPUTextureDimension_2D;
-    mask_descriptor.size = {
-        target_extent.width,
-        target_extent.height,
-        1U};
-    mask_descriptor.format = WGPUTextureFormat_R8Unorm;
-    mask_descriptor.mipLevelCount = 1U;
-    mask_descriptor.sampleCount = 1U;
-    mask_texture = wgpuDeviceCreateTexture(engine.device, &mask_descriptor);
-    mask_view = mask_texture == nullptr
-        ? nullptr
-        : wgpuTextureCreateView(mask_texture, nullptr);
-    extract_uniform_buffer = create_uniform_buffer(
-        engine,
-        "ProGPU retained picture-mask alpha extraction uniforms",
-        dynamic_uniform_alignment);
-    if (mask_view == nullptr || extract_uniform_buffer == nullptr) {
-        cleanup();
-        return false;
-    }
-    const gpu_clip_compose_uniforms extract_uniforms{
-        target_extent.x,
-        target_extent.y,
-        source_width,
-        source_height};
-    wgpuQueueWriteBuffer(
-        engine.queue,
-        extract_uniform_buffer,
-        0U,
-        &extract_uniforms,
-        sizeof(extract_uniforms));
-    const std::array<WGPUBindGroupEntry, 4U> entries{{
-        {nullptr, 0U, nullptr, 0U, 0U, engine.clip_sampler, nullptr},
-        {nullptr, 1U, nullptr, 0U, 0U, nullptr, source_view},
-        {nullptr, 2U, nullptr, 0U, 0U, nullptr, source_view},
-        {nullptr, 3U, extract_uniform_buffer, 0U,
-            sizeof(gpu_clip_compose_uniforms), nullptr, nullptr}
-    }};
-    WGPUBindGroupDescriptor bind_descriptor{};
-    bind_descriptor.label = webgpu::string_view(
-        "ProGPU retained picture-mask alpha extraction binding");
-    bind_descriptor.layout = engine.clip_compose_layout;
-    bind_descriptor.entryCount = entries.size();
-    bind_descriptor.entries = entries.data();
-    extract_bind_group = wgpuDeviceCreateBindGroup(
-        engine.device,
-        &bind_descriptor);
-    if (extract_bind_group == nullptr) {
-        cleanup();
-        return false;
-    }
-
-    WGPUCommandEncoderDescriptor encoder_descriptor{};
-    encoder_descriptor.label = webgpu::string_view(
-        "ProGPU retained picture-mask alpha extraction encoder");
-    encoder = wgpuDeviceCreateCommandEncoder(
-        engine.device,
-        &encoder_descriptor);
-    WGPURenderPassColorAttachment color{};
-    webgpu::initialize_color_attachment(color);
-    color.view = mask_view;
-    color.loadOp = WGPULoadOp_Clear;
-    color.storeOp = WGPUStoreOp_Store;
-    WGPURenderPassDescriptor pass_descriptor{};
-    pass_descriptor.label = webgpu::string_view(
-        "ProGPU retained picture-mask alpha extraction pass");
-    pass_descriptor.colorAttachmentCount = 1U;
-    pass_descriptor.colorAttachments = &color;
-    WGPURenderPassEncoder pass = encoder == nullptr
-        ? nullptr
-        : wgpuCommandEncoderBeginRenderPass(encoder, &pass_descriptor);
-    if (pass == nullptr) {
-        cleanup();
-        return false;
-    }
-    const std::uint32_t dynamic_offset = 0U;
-    wgpuRenderPassEncoderSetPipeline(
-        pass,
-        engine.clip_alpha_extract_pipeline);
-    wgpuRenderPassEncoderSetBindGroup(
-        pass,
-        0U,
-        extract_bind_group,
-        1U,
-        &dynamic_offset);
-    wgpuRenderPassEncoderDraw(pass, 3U, 1U, 0U, 0U);
-    wgpuRenderPassEncoderEnd(pass);
-    wgpuRenderPassEncoderRelease(pass);
-    WGPUCommandBufferDescriptor command_descriptor{};
-    command_descriptor.label = webgpu::string_view(
-        "ProGPU retained picture-mask alpha extraction commands");
-    command = wgpuCommandEncoderFinish(encoder, &command_descriptor);
-    wgpuCommandEncoderRelease(encoder);
-    encoder = nullptr;
-    if (command == nullptr) {
-        cleanup();
-        return false;
-    }
-    engine.submit(command);
-    wgpuCommandBufferRelease(command);
-    command = nullptr;
-
     gpu_mask_sampling_uniforms sampling{};
     sampling.coordinate1[0] =
-        1.0F / static_cast<float>(target_extent.width);
+        1.0F / static_cast<float>(source_width);
     sampling.coordinate1[1] =
-        1.0F / static_cast<float>(target_extent.height);
+        1.0F / static_cast<float>(source_height);
     sampling.options[0] = 1.0F;
     sampling.options[1] = picture.opacity;
-    sampling.options[3] = 1.0F;
+    // Two selects the RGBA source alpha channel; one retains the existing R8
+    // red-channel contract for all other sampled masks.
+    sampling.options[3] = 2.0F;
     sampling_uniform_buffer = create_uniform_buffer(
         engine,
         "ProGPU retained picture-mask sampling uniforms",
@@ -337,7 +203,7 @@ bool create_semantic_picture_mask_binding(
         : create_layer_mask_bind_group(
             engine,
             engine.image_linear_sampler,
-            mask_view,
+            source_view,
             "ProGPU retained picture-mask sampling binding",
             sampling_uniform_buffer);
     if (sampling_bind_group == nullptr) {
@@ -351,23 +217,19 @@ bool create_semantic_picture_mask_binding(
         &sampling,
         sizeof(sampling));
 
-    operation.mask_texture = mask_texture;
-    operation.mask_texture_view = mask_view;
+    operation.mask_texture = source_texture;
+    operation.mask_texture_view = source_view;
     operation.mask_uniform_buffer = sampling_uniform_buffer;
     operation.mask_bind_group = sampling_bind_group;
     operation.mask_uniform_upload_bytes =
-        sizeof(sampling) + sizeof(extract_uniforms) +
-        child_metrics.uniform_upload_bytes;
-    mask_texture = nullptr;
-    mask_view = nullptr;
+        sizeof(sampling) + child_metrics.uniform_upload_bytes;
+    operation.mask_source_x = target_extent.x;
+    operation.mask_source_y = target_extent.y;
+    operation.mask_uses_alpha_channel = true;
+    source_texture = nullptr;
+    source_view = nullptr;
     sampling_uniform_buffer = nullptr;
     sampling_bind_group = nullptr;
-    release_buffer(extract_uniform_buffer);
-    if (extract_bind_group != nullptr) {
-        wgpuBindGroupRelease(extract_bind_group);
-        extract_bind_group = nullptr;
-    }
-    release_texture(source_texture, source_view);
     ++engine.layer_mask_bind_group_generation;
     return true;
 }

@@ -1512,9 +1512,12 @@ composed initial transform and clip, assigns deterministic child scene/resource
 namespaces, merges external image bindings, rejects cycles, and limits mask
 nesting to 16. Native validation recursively checks the complete child stream
 before resource creation. Execution uses a child engine sharing the exact
-parent device, queue, adapter limits, and dispatch table, renders RGBA on the
-GPU, and crops alpha into bounded R8 through canonical `ClipCompose.wgsl` with
-no CPU readback. Stroked-path masks reuse the exact retained geometry expansion
+parent device, queue, adapter limits, and dispatch table and renders RGBA on the
+GPU. Standalone masks bind the retained child texture and select its alpha
+channel in the canonical sampled-mask shader contract. Composite masks pack
+the bounded source origin and alpha-channel flag into their fixed command words
+and load that same channel through canonical `ClipCompose.wgsl`. No extraction
+texture, pass, submission, or CPU readback is required. Stroked-path masks reuse the exact retained geometry expansion
 and canonical pen material described below. Multiple active brush,
 stroked-geometry, picture, and clip masks use the exact bounded GPU composite
 route described below.

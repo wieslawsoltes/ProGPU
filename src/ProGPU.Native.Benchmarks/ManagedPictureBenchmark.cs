@@ -30,6 +30,13 @@ internal static class ManagedPictureBenchmark
         int iterationCount = ReadPositive(args, "--iterations", 300);
         string? outputJson = ReadString(args, "--output-json");
         bool writeImages = HasFlag(args, "--write-images");
+        bool profileNativeOnly = HasFlag(args, "--profile-native-only");
+        bool profileManagedOnly = HasFlag(args, "--profile-managed-only");
+        if (profileNativeOnly && profileManagedOnly)
+        {
+            throw new ArgumentException(
+                "Select only one managed-picture profiling path.");
+        }
 
         using GpuPicture picture = CreatePicture(
             primitiveCount,
@@ -114,6 +121,44 @@ internal static class ManagedPictureBenchmark
                 padding: 0f,
                 dpiScale: 1f,
                 ClearColor);
+        }
+
+        if (profileNativeOnly || profileManagedOnly)
+        {
+            for (int index = 0; index <= warmupCount; index++)
+            {
+                if (profileNativeOnly)
+                {
+                    RenderNative();
+                    native.WaitForSubmission(native.GetLastSubmissionToken());
+                }
+                else
+                {
+                    RenderManaged();
+                    context.PollDevice(wait: true);
+                }
+            }
+
+            long profileStart = Stopwatch.GetTimestamp();
+            for (int index = 0; index < iterationCount; index++)
+            {
+                if (profileNativeOnly)
+                {
+                    RenderNative();
+                    native.WaitForSubmission(native.GetLastSubmissionToken());
+                }
+                else
+                {
+                    RenderManaged();
+                    context.PollDevice(wait: true);
+                }
+            }
+            double elapsed = Stopwatch.GetElapsedTime(profileStart).TotalMilliseconds;
+            Console.WriteLine(
+                $"Managed-picture {((profileNativeOnly) ? "native" : "managed")} " +
+                $"profile: {iterationCount} synchronized frames in " +
+                $"{elapsed:F3} ms ({elapsed / iterationCount:F4} ms/frame).");
+            return;
         }
 
         RenderNative();

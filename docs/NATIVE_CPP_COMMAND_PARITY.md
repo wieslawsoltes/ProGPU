@@ -9,7 +9,7 @@ always returns a typed failure without partially committing a scene.
 | Route | Commands | Current boundary |
 | --- | --- | --- |
 | Direct draw | Rect, ordinary and combined path fill, exact general-path stroke, text, image, analytic geometry, polyline/spline, point/mesh/chart, glyph, and 3D line/mesh families | Combined fills retain the canonical bounded GPU postfix program. Combined-boundary strokes remain a typed exclusion because the managed renderer has no exact combined-stroke contract; operand-outline approximation is forbidden. |
-| State scope | Clip, opacity, geometry-mask, opacity-mask, and blend push/pop | Canonical affine rectangles/rounded rectangles use the 1–4-node analytic fast path. Arbitrary line/quadratic/cubic/arc geometry, combined-path boolean clips, and 5–64 nested intersect/difference clips use retained GPU vector masks. Axis-aligned solid opacity folds into state; transformed solid, linear/radial/conical/sweep gradient, hatch, and Perlin brush masks retain the exact 256-byte material plus stop arena and generate R8 coverage through shared `Vector.wgsl`. Stroked-path opacity masks retain the proven general-stroke geometry, pen material, and explicit padded bounds. Immutable picture masks carry a nested pointer-free semantic scene and render through a same-device child engine before GPU-only alpha extraction. Up to 64 nested brush, stroked-geometry, vector, and picture components lower to one bounded composite resource and multiply their GPU-generated coverage through shared `ClipCompose.wgsl`. |
+| State scope | Clip, opacity, geometry-mask, opacity-mask, and blend push/pop | Canonical affine rectangles/rounded rectangles use the 1–4-node analytic fast path. Arbitrary line/quadratic/cubic/arc geometry, combined-path boolean clips, and 5–64 nested intersect/difference clips use retained GPU vector masks. Axis-aligned solid opacity folds into state; transformed solid, linear/radial/conical/sweep gradient, hatch, and Perlin brush masks retain the exact 256-byte material plus stop arena and generate R8 coverage through shared `Vector.wgsl`. Stroked-path opacity masks retain the proven general-stroke geometry, pen material, and explicit padded bounds. Immutable picture masks carry a nested pointer-free semantic scene, render through a same-device child engine, and bind the retained RGBA alpha channel directly without extraction or readback. Up to 64 nested brush, stroked-geometry, vector, and picture components lower to one bounded composite resource and multiply their GPU-generated coverage through shared `ClipCompose.wgsl`. |
 | Nested picture | `DrawPicture` | Immutable retained children are recursively flattened with state-boundary validation. |
 | Built-in extension | `DrawExtension` | Line/spline/chart/3D/hatch built-ins are selected by stable extension ID; hatch boundaries reuse retained path batches and shared hatch material kinds, while unknown or object-backed extensions fail closed. |
 | Explicitly unsupported | `DrawStaticDxf`, `DrawVisual` | Static DXF and embedded visual commands retain live managed/GPU ownership and cannot enter the pointer-free immutable scene contract. |
@@ -70,8 +70,11 @@ materialization renders each immutable component
 to R8 and multiplies the results through shared `ClipCompose.wgsl`; stable replay
 retains only the final texture binding and performs no mask upload. Picture
 masks recursively validate and execute their nested scene on the same WebGPU
-device and queue, then use canonical `fs_extract_alpha` to crop RGBA output to
-bounded R8 without a CPU readback. Picture nesting is limited to 16 and cycles
+device and queue. Standalone masks sample the retained child RGBA alpha channel
+directly; composite masks carry the source origin and channel selection in
+their fixed command words and load the same alpha through canonical
+`fs_compose`. This removes the extraction texture, pipeline, pass, and
+submission without a CPU readback. Picture nesting is limited to 16 and cycles
 fail before native execution. The Dawn/Metal fixture verifies transparent,
 multiplied partial-alpha, multiplied opaque pixels, explicit padded stroke
 bounds, separated picture regions, and GPU completion. The
