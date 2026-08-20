@@ -576,7 +576,9 @@ internal static class NativeRendererSamplePage
                     NativeImageSampling.Nearest,
                     new Vector4(0.015f, 0.02f, 0.035f, 1f),
                     _imageRevision,
-                    _contentRevision);
+                    _contentRevision,
+                    drawState: default,
+                    maxAnisotropy: 1);
                 _imageNeedsUpload = false;
                 drawCallCount = metrics.DrawCallCount;
                 vertexCount = metrics.VertexCount;
@@ -596,7 +598,9 @@ internal static class NativeRendererSamplePage
                     NativeImageSampling.Nearest,
                     new Vector4(0.015f, 0.02f, 0.035f, 1f),
                     _imageRevision,
-                    _contentRevision);
+                    _contentRevision,
+                    drawState: default,
+                    maxAnisotropy: 1);
                 drawCallCount = metrics.DrawCallCount;
                 vertexCount = metrics.VertexCount;
                 uploadBytes = metrics.TextureUploadBytes +
@@ -620,7 +624,9 @@ internal static class NativeRendererSamplePage
                         new Vector4(0.015f, 0.02f, 0.035f, 1f),
                         _imageRevision,
                         _imageRevision,
-                        _contentRevision);
+                        _contentRevision,
+                        drawState: default,
+                        maxAnisotropy: 1);
                 drawCallCount = metrics.DrawCallCount;
                 vertexCount = metrics.VertexCount;
                 uploadBytes = metrics.TextureUploadBytes +

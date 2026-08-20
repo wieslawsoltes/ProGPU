@@ -10,7 +10,7 @@ std::vector<std::byte> create_semantic_brush_mask_scene_stream(
     std::uint32_t target_width,
     std::uint32_t target_height);
 
-std::vector<std::byte> create_semantic_composite_brush_mask_scene_stream(
+std::vector<std::byte> create_semantic_composite_geometry_mask_scene_stream(
     std::uint32_t target_width,
     std::uint32_t target_height);
 

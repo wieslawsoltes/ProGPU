@@ -15,12 +15,15 @@ struct semantic_layer_mask final {
     progpu_native_scene_layer_mask_chain chain{};
     progpu_native_scene_layer_vector_mask vector{};
     progpu_native_scene_layer_brush_mask brush{};
+    progpu_native_scene_layer_geometry_mask geometry{};
     progpu_native_scene_layer_composite_mask composite{};
     const progpu_native_scene_clip_path* vector_paths = nullptr;
     const progpu_native_path_segment* vector_segments = nullptr;
     const progpu_native_scene_path_boolean_node* vector_boolean_nodes = nullptr;
     const progpu_native_scene_gradient_stop* brush_stops = nullptr;
     const progpu_native_scene_layer_brush_mask* composite_brushes = nullptr;
+    const progpu_native_scene_layer_geometry_mask* composite_geometry_masks = nullptr;
+    const progpu_native_geometry_primitive* composite_geometry_primitives = nullptr;
     const progpu_native_scene_clip_path* composite_paths = nullptr;
     const progpu_native_path_segment* composite_segments = nullptr;
     const progpu_native_scene_path_boolean_node* composite_boolean_nodes = nullptr;
@@ -47,9 +50,16 @@ bool is_valid_semantic_layer_brush_mask(
     const progpu_native_scene_layer_brush_mask& mask,
     std::span<const progpu_native_scene_gradient_stop> stops) noexcept;
 
+bool is_valid_semantic_layer_geometry_mask(
+    const progpu_native_scene_layer_geometry_mask& mask,
+    std::span<const progpu_native_geometry_primitive> primitives,
+    std::span<const progpu_native_scene_gradient_stop> stops) noexcept;
+
 bool is_valid_semantic_layer_composite_mask(
     const progpu_native_scene_layer_composite_mask& mask,
     std::span<const progpu_native_scene_layer_brush_mask> brushes,
+    std::span<const progpu_native_scene_layer_geometry_mask> geometry_masks,
+    std::span<const progpu_native_geometry_primitive> geometry_primitives,
     std::span<const progpu_native_scene_clip_path> paths,
     std::span<const progpu_native_path_segment> segments,
     std::span<const progpu_native_scene_path_boolean_node> boolean_nodes,

@@ -272,6 +272,7 @@ progpu_native_status render_scene(
                         mask_kind ==
                             PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN ||
                         mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH ||
+                        mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY ||
                         mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE
                     ? PROGPU_NATIVE_GROUP_MASK_TEXTURE
                     : PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE;
@@ -280,6 +281,7 @@ progpu_native_status render_scene(
                     mask_kind ==
                         PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN ||
                     mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH ||
+                    mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY ||
                     mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {
                     std::uint64_t texture_multiplier = 1U;
                     if (mask_kind ==
@@ -494,6 +496,7 @@ progpu_native_status render_scene(
                 mask_kind !=
                     PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN &&
                 mask_kind != PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH &&
+                mask_kind != PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY &&
                 mask_kind != PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_UNSUPPORTED,
@@ -502,6 +505,7 @@ progpu_native_status render_scene(
             if ((mask_kind ==
                     PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN ||
                     mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH ||
+                    mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY ||
                     mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) &&
                 semantic_generated_masks_budgeted[
                     state.mask_resource_index] == 0U) {

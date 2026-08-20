@@ -213,11 +213,40 @@ public static partial class GpuPictureNativeSceneCompiler
         public int GradientStopCount { get; }
     }
 
+    private sealed class GeometryMaskNode
+    {
+        public GeometryMaskNode(
+            GeometryMaskNode? parent,
+            in NativeSceneLayerGeometryMask mask,
+            NativeGeometryPrimitive[] primitives,
+            NativeSceneGradientStop[] stops)
+        {
+            Parent = parent;
+            Mask = mask;
+            Primitives = primitives;
+            Stops = stops;
+            Count = checked((parent?.Count ?? 0) + 1);
+            PrimitiveCount = checked(
+                (parent?.PrimitiveCount ?? 0) + primitives.Length);
+            GradientStopCount = checked(
+                (parent?.GradientStopCount ?? 0) + stops.Length);
+        }
+
+        public GeometryMaskNode? Parent { get; }
+        public NativeSceneLayerGeometryMask Mask { get; }
+        public NativeGeometryPrimitive[] Primitives { get; }
+        public NativeSceneGradientStop[] Stops { get; }
+        public int Count { get; }
+        public int PrimitiveCount { get; }
+        public int GradientStopCount { get; }
+    }
+
     private enum StateMaskProgramKind
     {
         Analytic,
         Vector,
         Brush,
+        Geometry,
         Composite
     }
 
@@ -229,7 +258,8 @@ public static partial class GpuPictureNativeSceneCompiler
         NativeSceneLayerMask Mask2,
         NativeSceneLayerMask Mask3,
         VectorMaskNode? VectorMask,
-        BrushMaskNode? BrushMasks)
+        BrushMaskNode? BrushMasks,
+        GeometryMaskNode? GeometryMasks)
     {
         public StateMaskProgram(
             NativeSceneLayerMask mask,
@@ -242,6 +272,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 default,
                 default,
                 vectorMask,
+                null,
                 null)
         {
         }
@@ -255,6 +286,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 default,
                 default,
                 vectorMask,
+                null,
                 null)
         {
         }
@@ -270,16 +302,43 @@ public static partial class GpuPictureNativeSceneCompiler
                 default,
                 default,
                 null,
-                new BrushMaskNode(null, in brushMask, brushStops))
+                new BrushMaskNode(null, in brushMask, brushStops),
+                null)
+        {
+        }
+
+        public StateMaskProgram(
+            in NativeSceneLayerGeometryMask geometryMask,
+            NativeGeometryPrimitive[] primitives,
+            NativeSceneGradientStop[] stops)
+            : this(
+                StateMaskProgramKind.Geometry,
+                0,
+                default,
+                default,
+                default,
+                default,
+                null,
+                null,
+                new GeometryMaskNode(
+                    null,
+                    in geometryMask,
+                    primitives,
+                    stops))
         {
         }
 
         public StateMaskProgram(
             VectorMaskNode? vectorMask,
-            BrushMaskNode brushMasks)
+            BrushMaskNode? brushMasks,
+            GeometryMaskNode? geometryMasks = null)
             : this(
-                brushMasks.Count == 1 && vectorMask is null
+                brushMasks?.Count == 1 && vectorMask is null &&
+                    geometryMasks is null
                     ? StateMaskProgramKind.Brush
+                    : geometryMasks?.Count == 1 && vectorMask is null &&
+                        brushMasks is null
+                        ? StateMaskProgramKind.Geometry
                     : StateMaskProgramKind.Composite,
                 0,
                 default,
@@ -287,7 +346,8 @@ public static partial class GpuPictureNativeSceneCompiler
                 default,
                 default,
                 vectorMask,
-                brushMasks)
+                brushMasks,
+                geometryMasks)
         {
         }
 
@@ -353,17 +413,28 @@ public static partial class GpuPictureNativeSceneCompiler
                 Unsafe.SizeOf<NativeSceneLayerBrushMask>() +
                 (BrushMasks?.Stops.Length ?? 0) *
                     Unsafe.SizeOf<NativeSceneGradientStop>()),
+            StateMaskProgramKind.Geometry => checked(
+                Unsafe.SizeOf<NativeSceneLayerGeometryMask>() +
+                (GeometryMasks?.Primitives.Length ?? 0) *
+                    Unsafe.SizeOf<NativeGeometryPrimitive>() +
+                (GeometryMasks?.Stops.Length ?? 0) *
+                    Unsafe.SizeOf<NativeSceneGradientStop>()),
             StateMaskProgramKind.Composite => checked(
                 Unsafe.SizeOf<NativeSceneLayerCompositeMask>() +
                 (BrushMasks?.Count ?? 0) *
                     Unsafe.SizeOf<NativeSceneLayerBrushMask>() +
+                (GeometryMasks?.Count ?? 0) *
+                    Unsafe.SizeOf<NativeSceneLayerGeometryMask>() +
+                (GeometryMasks?.PrimitiveCount ?? 0) *
+                    Unsafe.SizeOf<NativeGeometryPrimitive>() +
                 (VectorMask?.Count ?? 0) *
                     Unsafe.SizeOf<NativeSceneClipPath>() +
                 (VectorMask?.SegmentCount ?? 0) *
                     Unsafe.SizeOf<NativePathSegment>() +
                 (VectorMask?.BooleanNodeCount ?? 0) *
                     Unsafe.SizeOf<NativeScenePathBooleanNode>() +
-                (BrushMasks?.GradientStopCount ?? 0) *
+                ((BrushMasks?.GradientStopCount ?? 0) +
+                    (GeometryMasks?.GradientStopCount ?? 0)) *
                     Unsafe.SizeOf<NativeSceneGradientStop>()),
             _ => throw new InvalidOperationException("Unknown state mask program.")
         };
@@ -408,16 +479,62 @@ public static partial class GpuPictureNativeSceneCompiler
             return auxiliary;
         }
 
+        public byte[] CreateGeometryAuxiliary(
+            out NativeSceneLayerGeometryMask mask)
+        {
+            if (Kind != StateMaskProgramKind.Geometry ||
+                GeometryMasks is null)
+            {
+                throw new InvalidOperationException(
+                    "Only geometry mask programs have a geometry auxiliary span.");
+            }
+            GeometryMaskNode node = GeometryMasks;
+            int primitiveBytes = checked(
+                node.Primitives.Length *
+                    Unsafe.SizeOf<NativeGeometryPrimitive>());
+            int stopBytes = checked(
+                node.Stops.Length *
+                    Unsafe.SizeOf<NativeSceneGradientStop>());
+            byte[] auxiliary = GC.AllocateUninitializedArray<byte>(checked(
+                primitiveBytes + stopBytes));
+            node.Primitives.CopyTo(MemoryMarshal.Cast<
+                byte,
+                NativeGeometryPrimitive>(auxiliary.AsSpan(0, primitiveBytes)));
+            node.Stops.CopyTo(MemoryMarshal.Cast<
+                byte,
+                NativeSceneGradientStop>(auxiliary.AsSpan(primitiveBytes)));
+            NativeSceneLayerGeometryMask source = node.Mask;
+            NativeSceneBrush brush = source.Brush;
+            brush.StopOffset = 0U;
+            mask = new NativeSceneLayerGeometryMask(
+                0U,
+                checked((uint)node.Primitives.Length),
+                source.Bounds,
+                source.Transform,
+                in brush,
+                checked((uint)node.Stops.Length),
+                source.Opacity);
+            return auxiliary;
+        }
+
         public byte[] CreateCompositeAuxiliary(
             out NativeSceneLayerCompositeMask mask)
         {
-            if (Kind != StateMaskProgramKind.Composite || BrushMasks is null)
+            if (Kind != StateMaskProgramKind.Composite ||
+                (BrushMasks is null && GeometryMasks is null))
             {
                 throw new InvalidOperationException(
                     "Only composite mask programs have a composite auxiliary span.");
             }
             int brushBytes = checked(
-                BrushMasks.Count * Unsafe.SizeOf<NativeSceneLayerBrushMask>());
+                (BrushMasks?.Count ?? 0) *
+                    Unsafe.SizeOf<NativeSceneLayerBrushMask>());
+            int geometryMaskBytes = checked(
+                (GeometryMasks?.Count ?? 0) *
+                    Unsafe.SizeOf<NativeSceneLayerGeometryMask>());
+            int geometryPrimitiveBytes = checked(
+                (GeometryMasks?.PrimitiveCount ?? 0) *
+                    Unsafe.SizeOf<NativeGeometryPrimitive>());
             int pathBytes = checked(
                 (VectorMask?.Count ?? 0) *
                     Unsafe.SizeOf<NativeSceneClipPath>());
@@ -428,31 +545,42 @@ public static partial class GpuPictureNativeSceneCompiler
                 (VectorMask?.BooleanNodeCount ?? 0) *
                     Unsafe.SizeOf<NativeScenePathBooleanNode>());
             int stopBytes = checked(
-                BrushMasks.GradientStopCount *
+                ((BrushMasks?.GradientStopCount ?? 0) +
+                    (GeometryMasks?.GradientStopCount ?? 0)) *
                     Unsafe.SizeOf<NativeSceneGradientStop>());
             byte[] auxiliary = GC.AllocateUninitializedArray<byte>(checked(
-                brushBytes + pathBytes + segmentBytes + booleanNodeBytes +
-                stopBytes));
+                brushBytes + geometryMaskBytes + geometryPrimitiveBytes +
+                pathBytes + segmentBytes + booleanNodeBytes + stopBytes));
             Span<NativeSceneLayerBrushMask> brushes = MemoryMarshal.Cast<
                 byte,
                 NativeSceneLayerBrushMask>(auxiliary.AsSpan(0, brushBytes));
+            Span<NativeSceneLayerGeometryMask> geometryMasks =
+                MemoryMarshal.Cast<byte, NativeSceneLayerGeometryMask>(
+                    auxiliary.AsSpan(brushBytes, geometryMaskBytes));
+            Span<NativeGeometryPrimitive> geometryPrimitives =
+                MemoryMarshal.Cast<byte, NativeGeometryPrimitive>(
+                    auxiliary.AsSpan(
+                        brushBytes + geometryMaskBytes,
+                        geometryPrimitiveBytes));
+            int pathOffset = brushBytes + geometryMaskBytes +
+                geometryPrimitiveBytes;
             Span<NativeSceneClipPath> paths = MemoryMarshal.Cast<
                 byte,
-                NativeSceneClipPath>(auxiliary.AsSpan(brushBytes, pathBytes));
+                NativeSceneClipPath>(auxiliary.AsSpan(pathOffset, pathBytes));
             Span<NativePathSegment> segments = MemoryMarshal.Cast<
                 byte,
                 NativePathSegment>(auxiliary.AsSpan(
-                    brushBytes + pathBytes,
+                    pathOffset + pathBytes,
                     segmentBytes));
             Span<NativeScenePathBooleanNode> booleanNodes = MemoryMarshal.Cast<
                 byte,
                 NativeScenePathBooleanNode>(auxiliary.AsSpan(
-                    brushBytes + pathBytes + segmentBytes,
+                    pathOffset + pathBytes + segmentBytes,
                     booleanNodeBytes));
             Span<NativeSceneGradientStop> stops = MemoryMarshal.Cast<
                 byte,
                 NativeSceneGradientStop>(auxiliary.AsSpan(
-                    brushBytes + pathBytes + segmentBytes + booleanNodeBytes,
+                    pathOffset + pathBytes + segmentBytes + booleanNodeBytes,
                     stopBytes));
 
             BrushMaskNode? brushNode = BrushMasks;
@@ -474,6 +602,31 @@ public static partial class GpuPictureNativeSceneCompiler
                     source.Opacity);
                 brushNode = brushNode.Parent;
             }
+            GeometryMaskNode? geometryNode = GeometryMasks;
+            int geometryIndex = geometryMasks.Length;
+            int primitiveIndex = geometryPrimitives.Length;
+            while (geometryNode is not null)
+            {
+                geometryIndex--;
+                primitiveIndex -= geometryNode.Primitives.Length;
+                stopIndex -= geometryNode.Stops.Length;
+                geometryNode.Primitives.CopyTo(
+                    geometryPrimitives[primitiveIndex..]);
+                geometryNode.Stops.CopyTo(stops[stopIndex..]);
+                NativeSceneLayerGeometryMask source = geometryNode.Mask;
+                NativeSceneBrush brush = source.Brush;
+                brush.StopOffset = checked((uint)stopIndex);
+                geometryMasks[geometryIndex] =
+                    new NativeSceneLayerGeometryMask(
+                        checked((uint)primitiveIndex),
+                        checked((uint)geometryNode.Primitives.Length),
+                        source.Bounds,
+                        source.Transform,
+                        in brush,
+                        checked((uint)geometryNode.Stops.Length),
+                        source.Opacity);
+                geometryNode = geometryNode.Parent;
+            }
             if (VectorMask is not null)
             {
                 WriteVectorRecords(
@@ -485,12 +638,15 @@ public static partial class GpuPictureNativeSceneCompiler
 
             uint vectorComponent = VectorMask is null ? 0U : 1U;
             mask = new NativeSceneLayerCompositeMask(
-                checked((uint)BrushMasks.Count + vectorComponent),
-                checked((uint)BrushMasks.Count),
+                checked((uint)(BrushMasks?.Count ?? 0) +
+                    (uint)(GeometryMasks?.Count ?? 0) + vectorComponent),
+                checked((uint)(BrushMasks?.Count ?? 0)),
                 checked((uint)(VectorMask?.Count ?? 0)),
                 checked((uint)(VectorMask?.SegmentCount ?? 0)),
                 checked((uint)(VectorMask?.BooleanNodeCount ?? 0)),
-                checked((uint)BrushMasks.GradientStopCount));
+                checked((uint)stops.Length),
+                checked((uint)(GeometryMasks?.Count ?? 0)),
+                checked((uint)(GeometryMasks?.PrimitiveCount ?? 0)));
             return auxiliary;
         }
 
@@ -1114,6 +1270,17 @@ public static partial class GpuPictureNativeSceneCompiler
                         generation,
                         in brushMask,
                         brushNode.Stops,
+                        out maskResourceIndices[index]);
+                }
+                else if (program.Kind == StateMaskProgramKind.Geometry)
+                {
+                    byte[] auxiliary = program.CreateGeometryAuxiliary(
+                        out NativeSceneLayerGeometryMask geometryMask);
+                    added = builder.TryAddLayerGeometryMaskResource(
+                        resourceId,
+                        generation,
+                        in geometryMask,
+                        auxiliary,
                         out maskResourceIndices[index]);
                 }
                 else
@@ -3442,6 +3609,62 @@ public static partial class GpuPictureNativeSceneCompiler
                         maximum.Y - minimum.Y),
                     transform),
                 strokeExtent));
+        return true;
+    }
+
+    private static bool TryCreateStrokeGeometryMask(
+        in RenderCommand command,
+        PathGeometry path,
+        Matrix3x2 transform,
+        out NativeSceneLayerGeometryMask mask,
+        out NativeGeometryPrimitive[] primitives,
+        out NativeSceneGradientStop[] stops,
+        out NativePictureCompileError error)
+    {
+        mask = default;
+        primitives = [];
+        stops = [];
+        var geometry = new List<NativeGeometryPrimitive>();
+        var brushIndices = new List<uint>();
+        var batches = new List<Batch>();
+        var operations = new List<Operation>();
+        var materials = new NativeBrushTableBuilder();
+        if (!TryAppendGeneralPathStroke(
+                command,
+                path,
+                transform,
+                geometry,
+                brushIndices,
+                batches,
+                operations,
+                materials,
+                out error))
+        {
+            return false;
+        }
+        if (geometry.Count == 0 || brushIndices.Count != geometry.Count ||
+            materials.BrushCount != 1 ||
+            brushIndices.Exists(static index => index != 0U))
+        {
+            error = NativePictureCompileError.UnsupportedStroke;
+            return false;
+        }
+        NativeSceneBrush brush = materials.Brushes[0];
+        stops = materials.GradientStops.ToArray();
+        brush.StopOffset = 0U;
+        primitives = geometry.ToArray();
+        mask = new NativeSceneLayerGeometryMask(
+            0U,
+            checked((uint)primitives.Length),
+            new NativeImageRect(
+                command.Rect.X,
+                command.Rect.Y,
+                command.Rect.Width,
+                command.Rect.Height),
+            transform,
+            in brush,
+            checked((uint)stops.Length));
+        error = NativePictureCompileError.None;
         return true;
     }
 

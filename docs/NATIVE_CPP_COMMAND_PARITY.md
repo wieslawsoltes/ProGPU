@@ -9,7 +9,7 @@ always returns a typed failure without partially committing a scene.
 | Route | Commands | Current boundary |
 | --- | --- | --- |
 | Direct draw | Rect, ordinary and combined path fill, exact general-path stroke, text, image, analytic geometry, polyline/spline, point/mesh/chart, glyph, and 3D line/mesh families | Combined fills retain the canonical bounded GPU postfix program. Combined-boundary strokes remain a typed exclusion because the managed renderer has no exact combined-stroke contract; operand-outline approximation is forbidden. |
-| State scope | Clip, opacity, geometry-mask, opacity-mask, and blend push/pop | Canonical affine rectangles/rounded rectangles use the 1–4-node analytic fast path. Arbitrary line/quadratic/cubic/arc geometry, combined-path boolean clips, and 5–64 nested intersect/difference clips use retained GPU vector masks. Axis-aligned solid opacity folds into state; transformed solid, linear/radial/conical/sweep gradient, hatch, and Perlin brush masks retain the exact 256-byte material plus stop arena and generate R8 coverage through shared `Vector.wgsl`. Up to 64 nested brush and geometry components lower to one bounded composite resource and multiply their GPU-generated coverage through shared `ClipCompose.wgsl`. Retained-picture mask content remains a typed exclusion. |
+| State scope | Clip, opacity, geometry-mask, opacity-mask, and blend push/pop | Canonical affine rectangles/rounded rectangles use the 1–4-node analytic fast path. Arbitrary line/quadratic/cubic/arc geometry, combined-path boolean clips, and 5–64 nested intersect/difference clips use retained GPU vector masks. Axis-aligned solid opacity folds into state; transformed solid, linear/radial/conical/sweep gradient, hatch, and Perlin brush masks retain the exact 256-byte material plus stop arena and generate R8 coverage through shared `Vector.wgsl`. Stroked-path opacity masks retain the proven general-stroke geometry, pen material, and explicit padded bounds. Up to 64 nested brush, stroked-geometry, and vector components lower to one bounded composite resource and multiply their GPU-generated coverage through shared `ClipCompose.wgsl`. Retained-picture mask content remains a typed exclusion. |
 | Nested picture | `DrawPicture` | Immutable retained children are recursively flattened with state-boundary validation. |
 | Built-in extension | `DrawExtension` | Line/spline/chart/3D/hatch built-ins are selected by stable extension ID; hatch boundaries reuse retained path batches and shared hatch material kinds, while unknown or object-backed extensions fail closed. |
 | Explicitly unsupported | `DrawStaticDxf`, `DrawVisual` | Static DXF and embedded visual commands retain live managed/GPU ownership and cannot enter the pointer-free immutable scene contract. |
@@ -34,7 +34,7 @@ This inventory distinguishes parity work from intentional ownership
 boundaries; it must not be used to convert an unsupported command into a silent
 no-op or an approximate fallback.
 
-## GPU-generated brush opacity masks
+## GPU-generated brush and stroked-geometry opacity masks
 
 This route directly ports the ProGPU-owned managed brush snapshot and opacity-
 mask semantics. `progpu_native.h` owns one fixed 320-byte pointer-free mask
@@ -57,15 +57,21 @@ vertex, texture, uniform, brush, or gradient-stop upload.
 The managed compiler keeps the existing axis-aligned solid opacity/clip fold
 because it is exact and avoids an offscreen texture. Other supported brush
 kinds and rotated/sheared solids use the GPU mask. Nested arbitrary masks carry
-one 48-byte composite prefix followed by canonical brush records, the cumulative
-vector chain, and one shared stop arena. The component count is bounded to 64;
-validation is `O(B + P + S + N)` for brush records `B`, paths `P`, segments `S`,
-and boolean nodes `N`. Native materialization renders each immutable component
+one 48-byte composite prefix followed by canonical brush and stroked-geometry
+records, the stroke primitive arena, the cumulative vector chain, and one
+shared stop arena. A standalone stroked mask uses one 336-byte record and
+directly ports the existing ProGPU general-path stroke expansion; the native
+renderer evaluates those primitives with the same canonical `Vector.wgsl`
+shader used by ordinary geometry. The component count is bounded to 64;
+validation is `O(B + G + P + S + N)` for brush records `B`, geometry
+primitives `G`, paths `P`, segments `S`, and boolean nodes `N`. Native
+materialization renders each immutable component
 to R8 and multiplies the results through shared `ClipCompose.wgsl`; stable replay
 retains only the final texture binding and performs no mask upload. Retained-
 picture masks still fail with `UnsupportedCommand` rather than changing content
 ownership or overlap semantics. The Dawn/Metal fixture verifies transparent,
-multiplied partial-alpha, and multiplied opaque pixels plus GPU completion. The
+multiplied partial-alpha, multiplied opaque pixels, explicit padded stroke
+bounds, and GPU completion. The
 Emscripten/Chromium fixture builds and executes the same C++ sources and
 canonical shaders and requires one zero-upload submission on stable replay.
 

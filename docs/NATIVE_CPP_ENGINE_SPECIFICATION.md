@@ -1506,9 +1506,11 @@ isolated-layer approximation: opacity remains per draw, preserving overlap
 behavior and avoiding an offscreen allocation. Rotated/sheared solid masks,
 linear/radial/two-point-conical/sweep gradients, hatch/cross-hatch, and Perlin
 masks now use the pointer-free GPU-generated brush-mask route below.
-Retained-picture masks and stroked-path mask content fail closed until the scene
-ABI can express their immutable drawing ownership. Multiple active brush and
-geometry masks use the exact bounded GPU composite route described below.
+Retained-picture masks fail closed until the scene ABI can express their
+immutable drawing ownership. Stroked-path masks reuse the exact retained
+geometry expansion and canonical pen material described below. Multiple active
+brush, stroked-geometry, and clip masks use the exact bounded GPU composite
+route described below.
 Compilation adds one fixed 64-byte state resource and paired save/restore
 commands; stable replay adds no upload or managed allocation.
 
@@ -1527,20 +1529,38 @@ the managed `Compositor.PushOpacityMaskValue(Brush, Rect, Matrix4x4)` behavior,
 `ProGPU.Backend/Shaders/Vector.wgsl`; no third-party implementation source is
 used.
 
+The stroked-path mask route carries one fixed 336-byte record containing an
+offset/count into a contiguous `progpu_native_geometry_primitive` arena,
+explicit logical bounds and affine transform, scalar opacity, and the same
+canonical 256-byte brush. The managed compiler directly reuses
+`TryAppendGeneralPathStroke`, including local, fixed-device, and hairline
+thickness, analytic arcs, joins, caps, and dash expansion; it does not flatten
+the stroke to coverage pixels or introduce a second geometry algorithm. Native
+materialization reuses the production geometry expansion and `Vector.wgsl`
+mask fragment entry point. The explicit bounds become a padded
+two-physical-pixel GPU scissor matching managed bounded-mask semantics. Scene
+translation is `O(G)` for `G` retained geometry primitives, immutable GPU
+generation is bounded by covered pixels, and stable replay retains one R8
+binding with zero scene upload.
+
 Nested arbitrary opacity masks use a fixed 48-byte composite prefix and one
-pointer-free auxiliary arena. The arena contains up to 64 canonical brush-mask
-records plus at most one cumulative vector chain; every brush addresses one
-shared resource-local gradient-stop range. The managed compiler preserves the
+pointer-free auxiliary arena. The arena contains up to 64 canonical brush or
+stroked-geometry mask records, the geometry primitives they address, plus at
+most one cumulative vector chain; every brush addresses one shared
+resource-local gradient-stop range. The managed compiler preserves the
 analytic one-to-four-mask fast path until a brush requires GPU composition,
 then carries the already retained geometry chain without flattening it. Native
 code generates each component in R8 and applies ordered intersection with the
 same `ClipCompose.wgsl` multiplication used by retained vector clips. Changed
-materialization is bounded `O(C * W * H + P + S + N)` GPU work and `O(C * W *
-H)` transient coverage at the conservative budget boundary for `C` components;
+materialization is bounded `O(C * W * H + G + P + S + N)` GPU work and `O(C *
+W * H)` transient coverage at the conservative budget boundary for `C`
+components and `G` stroke primitives;
 stable replay is one texture sample per covered output fragment, with zero scene
-translation or retained upload. The Dawn/Metal and real Chromium fixtures use a
-linear gradient intersected with a half-alpha solid brush, check multiplied
-edge/midpoint coverage, and require a single zero-upload stable submission.
+translation or retained upload. The Dawn/Metal fixture uses a linear gradient
+intersected with a half-alpha solid brush and a thick bounded stroke and checks
+multiplied edge/midpoint coverage plus the explicit stroke-mask bounds. The
+real Chromium fixture executes the same three-component resource and requires
+a single zero-upload stable submission.
 
 The mask differential also identified and fixed a shared vertex-mesh opacity
 ordering defect. Vertex-color blend modes now consume the retained brush at
@@ -1643,8 +1663,8 @@ for vector, glyph, plain-image, and color-matrix-image draws. Text and image
 pipelines use canonical explicit layouts; a color matrix occupies an
 independent fourth bind group so it can be fused with the state mask in one
 draw. The managed picture compiler emits canonical analytic masks, retained
-vector masks, GPU-generated brush masks, and bounded composite brush/vector
-masks. Combined-path clips use the same GPU postfix program as managed
+vector masks, GPU-generated brush and stroked-geometry masks, and bounded
+composite mask programs. Combined-path clips use the same GPU postfix program as managed
 `PathAtlas`; retained-picture opacity-mask
 content remains typed fail-closed and is not approximated with an isolated
 group.
@@ -1708,7 +1728,7 @@ stop ownership, spread, color-interpolation mode, optional conical outside
 color, and affine coordinate transforms are snapshotted into one deduplicated
 retained brush page. Nested `PushOpacity`/`PopOpacity`, affine axis-aligned
 `PushClip`/`PopClip`, one canonical affine rectangle/rounded-rectangle
-`PushGeometryClip`/`PopGeometryClip`, and supported brush
+`PushGeometryClip`/`PopGeometryClip`, and supported brush or stroked-path
 `PushOpacityMask`/`PopOpacityMask` scopes are lowered in exact display-list order to the
 existing native absolute-state resources and save/restore commands. State
 boundaries terminate draw batches; stable replay does not inspect or rebuild
@@ -1717,7 +1737,7 @@ ordinary rectangular scissors and the direct solid-opacity fold retain their
 axis-aligned subset, while other supported brush masks preserve full affine
 coverage through a retained GPU-generated R8 texture. Non-finite or
 non-invertible transforms, malformed or over-budget vector/composite programs,
-unsupported picture opacity masks, and
+unsupported retained-picture opacity masks, and
 mismatched or unterminated scopes fail with typed source-command diagnostics.
 Perlin materials,
 color/vector/bitmap glyphs, text decorations, text masks, typed 2D/3D geometry,

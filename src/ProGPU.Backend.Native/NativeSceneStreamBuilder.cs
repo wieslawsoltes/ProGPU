@@ -1014,7 +1014,89 @@ public ref struct NativeSceneStreamBuilder
     }
 
     /// <summary>
-    /// Adds one bounded GPU-composed intersection of brush and vector masks.
+    /// Adds one retained GPU-generated stroked-geometry opacity mask.
+    /// Auxiliary stores the primitive prefix followed by exact brush stops.
+    /// </summary>
+    public bool TryAddLayerGeometryMaskResource(
+        ulong resourceId,
+        ulong generation,
+        in NativeSceneLayerGeometryMask mask,
+        scoped ReadOnlySpan<byte> auxiliary,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        int primitiveBytes;
+        int stopBytes;
+        try
+        {
+            primitiveBytes = checked(
+                (int)mask.PrimitiveCount *
+                    Unsafe.SizeOf<NativeGeometryPrimitive>());
+            stopBytes = checked(
+                (int)mask.GradientStopCount *
+                    Unsafe.SizeOf<NativeSceneGradientStop>());
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+        if (mask.StructSize != Unsafe.SizeOf<NativeSceneLayerGeometryMask>() ||
+            mask.Kind != NativeSceneLayerMaskKind.Geometry ||
+            mask.Flags != 0U || !mask.HasCanonicalReservedFields ||
+            mask.PrimitiveOffset != 0U || mask.PrimitiveCount == 0U ||
+            mask.GradientStopCount > NativeMethods.SceneMaximumGradientStops ||
+            primitiveBytes + stopBytes != auxiliary.Length ||
+            !IsFinitePositive(mask.Bounds) || !IsFinite(mask.Transform) ||
+            !Matrix3x2.Invert(mask.Transform, out Matrix3x2 inverse) ||
+            !IsFinite(inverse) ||
+            MathF.Abs(mask.Transform.GetDeterminant()) <= 0.000001f ||
+            !float.IsFinite(mask.Opacity) || mask.Opacity is < 0f or > 1f)
+        {
+            return false;
+        }
+        ReadOnlySpan<NativeSceneBrush> brush =
+            MemoryMarshal.CreateReadOnlySpan(
+                ref Unsafe.AsRef(in mask.Brush),
+                1);
+        ReadOnlySpan<NativeSceneGradientStop> stops = MemoryMarshal.Cast<
+            byte,
+            NativeSceneGradientStop>(auxiliary[primitiveBytes..]);
+        uint storedStopCount = mask.Brush.Kind switch
+        {
+            NativeSceneBrushKind.LinearGradient or
+            NativeSceneBrushKind.RadialGradient or
+            NativeSceneBrushKind.TwoPointConicalGradient or
+            NativeSceneBrushKind.SweepGradient => mask.Brush.StopCount,
+            NativeSceneBrushKind.PerlinNoise
+                when mask.Brush.StopCount != 0U &&
+                    mask.Brush.Interpolation ==
+                        NativeSceneGradientInterpolation.ScRgb =>
+                NativeSceneBrush.PerlinTableRecordCount,
+            _ => 0U
+        };
+        if (mask.Brush.StopOffset != 0U ||
+            mask.GradientStopCount != storedStopCount ||
+            !IsValidBrushTable(brush, stops))
+        {
+            return false;
+        }
+        return TryAddResource(
+            NativeSceneResourceKind.LayerMask,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(
+                MemoryMarshal.CreateReadOnlySpan(
+                    ref Unsafe.AsRef(in mask),
+                    1)),
+            out resourceIndex,
+            auxiliary,
+            flags);
+    }
+
+    /// <summary>
+    /// Adds one bounded GPU-composed intersection of brush, stroked-geometry,
+    /// and vector masks.
     /// The auxiliary layout is fixed by <see cref="NativeSceneLayerCompositeMask"/>.
     /// </summary>
     public bool TryAddLayerCompositeMaskResource(
@@ -1027,6 +1109,8 @@ public ref struct NativeSceneStreamBuilder
     {
         resourceIndex = NativeMethods.SceneNoIndex;
         int brushBytes;
+        int geometryMaskBytes;
+        int geometryPrimitiveBytes;
         int pathBytes;
         int segmentBytes;
         int booleanNodeBytes;
@@ -1036,6 +1120,12 @@ public ref struct NativeSceneStreamBuilder
             brushBytes = checked(
                 (int)mask.BrushMaskCount *
                     Unsafe.SizeOf<NativeSceneLayerBrushMask>());
+            geometryMaskBytes = checked(
+                (int)mask.GeometryMaskCount *
+                    Unsafe.SizeOf<NativeSceneLayerGeometryMask>());
+            geometryPrimitiveBytes = checked(
+                (int)mask.GeometryPrimitiveCount *
+                    Unsafe.SizeOf<NativeGeometryPrimitive>());
             pathBytes = checked(
                 (int)mask.PathCount * Unsafe.SizeOf<NativeSceneClipPath>());
             segmentBytes = checked(
@@ -1054,11 +1144,16 @@ public ref struct NativeSceneStreamBuilder
         uint vectorComponent = mask.PathCount == 0U ? 0U : 1U;
         if (mask.StructSize != Unsafe.SizeOf<NativeSceneLayerCompositeMask>() ||
             mask.Kind != NativeSceneLayerMaskKind.Composite ||
-            mask.Flags != 0U || !mask.HasCanonicalReservedFields ||
-            mask.ComponentCount != mask.BrushMaskCount + vectorComponent ||
+            mask.Flags != 0U ||
+            mask.ComponentCount != mask.BrushMaskCount +
+                mask.GeometryMaskCount + vectorComponent ||
             mask.ComponentCount is < 2U or >
                 NativeSceneLayerCompositeMask.MaximumComponentCount ||
-            mask.BrushMaskCount == 0U ||
+            mask.BrushMaskCount == 0U && mask.GeometryMaskCount == 0U ||
+            mask.GeometryMaskCount >
+                NativeSceneLayerCompositeMask.MaximumComponentCount ||
+            (mask.GeometryMaskCount == 0U) !=
+                (mask.GeometryPrimitiveCount == 0U) ||
             mask.GradientStopCount > NativeMethods.SceneMaximumGradientStops ||
             !float.IsFinite(mask.Opacity) ||
             mask.Opacity is < 0f or > 1f ||
@@ -1067,8 +1162,9 @@ public ref struct NativeSceneStreamBuilder
             (mask.PathCount != 0U &&
                 (mask.PathCount > 64U || mask.SegmentCount == 0U ||
                     mask.BooleanNodeCount > 64U * 63U)) ||
-            (long)brushBytes + pathBytes + segmentBytes + booleanNodeBytes +
-                stopBytes != auxiliary.Length)
+            (long)brushBytes + geometryMaskBytes + geometryPrimitiveBytes +
+                pathBytes + segmentBytes + booleanNodeBytes + stopBytes !=
+                auxiliary.Length)
         {
             return false;
         }
@@ -1076,23 +1172,33 @@ public ref struct NativeSceneStreamBuilder
         ReadOnlySpan<NativeSceneLayerBrushMask> brushes = MemoryMarshal.Cast<
             byte,
             NativeSceneLayerBrushMask>(auxiliary[..brushBytes]);
+        ReadOnlySpan<NativeSceneLayerGeometryMask> geometryMasks =
+            MemoryMarshal.Cast<byte, NativeSceneLayerGeometryMask>(
+                auxiliary.Slice(brushBytes, geometryMaskBytes));
+        ReadOnlySpan<NativeGeometryPrimitive> geometryPrimitives =
+            MemoryMarshal.Cast<byte, NativeGeometryPrimitive>(
+                auxiliary.Slice(
+                    brushBytes + geometryMaskBytes,
+                    geometryPrimitiveBytes));
+        int pathOffset = brushBytes + geometryMaskBytes +
+            geometryPrimitiveBytes;
         ReadOnlySpan<NativeSceneClipPath> paths = MemoryMarshal.Cast<
             byte,
-            NativeSceneClipPath>(auxiliary.Slice(brushBytes, pathBytes));
+            NativeSceneClipPath>(auxiliary.Slice(pathOffset, pathBytes));
         ReadOnlySpan<NativePathSegment> segments = MemoryMarshal.Cast<
             byte,
             NativePathSegment>(auxiliary.Slice(
-                brushBytes + pathBytes,
+                pathOffset + pathBytes,
                 segmentBytes));
         ReadOnlySpan<NativeScenePathBooleanNode> booleanNodes =
             MemoryMarshal.Cast<byte, NativeScenePathBooleanNode>(
                 auxiliary.Slice(
-                    brushBytes + pathBytes + segmentBytes,
+                    pathOffset + pathBytes + segmentBytes,
                     booleanNodeBytes));
         ReadOnlySpan<NativeSceneGradientStop> stops = MemoryMarshal.Cast<
             byte,
             NativeSceneGradientStop>(auxiliary[
-                (brushBytes + pathBytes + segmentBytes + booleanNodeBytes)..]);
+                (pathOffset + pathBytes + segmentBytes + booleanNodeBytes)..]);
         bool validateStops = true;
         foreach (ref readonly NativeSceneLayerBrushMask brushMask in brushes)
         {
@@ -1131,6 +1237,61 @@ public ref struct NativeSceneStreamBuilder
                 return false;
             }
             validateStops = false;
+        }
+        uint expectedPrimitiveOffset = 0U;
+        foreach (ref readonly NativeSceneLayerGeometryMask geometryMask in
+            geometryMasks)
+        {
+            uint storedStopCount = geometryMask.Brush.Kind switch
+            {
+                NativeSceneBrushKind.LinearGradient or
+                NativeSceneBrushKind.RadialGradient or
+                NativeSceneBrushKind.TwoPointConicalGradient or
+                NativeSceneBrushKind.SweepGradient =>
+                    geometryMask.Brush.StopCount,
+                NativeSceneBrushKind.PerlinNoise
+                    when geometryMask.Brush.StopCount != 0U &&
+                        geometryMask.Brush.Interpolation ==
+                            NativeSceneGradientInterpolation.ScRgb =>
+                    NativeSceneBrush.PerlinTableRecordCount,
+                _ => 0U
+            };
+            ReadOnlySpan<NativeSceneBrush> oneBrush =
+                MemoryMarshal.CreateReadOnlySpan(
+                    ref Unsafe.AsRef(in geometryMask.Brush),
+                    1);
+            if (geometryMask.StructSize !=
+                    Unsafe.SizeOf<NativeSceneLayerGeometryMask>() ||
+                geometryMask.Kind != NativeSceneLayerMaskKind.Geometry ||
+                geometryMask.Flags != 0U ||
+                !geometryMask.HasCanonicalReservedFields ||
+                geometryMask.PrimitiveOffset != expectedPrimitiveOffset ||
+                geometryMask.PrimitiveCount == 0U ||
+                expectedPrimitiveOffset > (uint)geometryPrimitives.Length ||
+                geometryMask.PrimitiveCount >
+                    (uint)geometryPrimitives.Length - expectedPrimitiveOffset ||
+                geometryMask.GradientStopCount != storedStopCount ||
+                !IsFinitePositive(geometryMask.Bounds) ||
+                !IsFinite(geometryMask.Transform) ||
+                !Matrix3x2.Invert(
+                    geometryMask.Transform,
+                    out Matrix3x2 geometryInverse) ||
+                !IsFinite(geometryInverse) ||
+                MathF.Abs(geometryMask.Transform.GetDeterminant()) <=
+                    0.000001f ||
+                !float.IsFinite(geometryMask.Opacity) ||
+                geometryMask.Opacity is < 0f or > 1f ||
+                !IsValidBrushTable(oneBrush, stops, validateStops))
+            {
+                return false;
+            }
+            validateStops = false;
+            expectedPrimitiveOffset = checked(
+                expectedPrimitiveOffset + geometryMask.PrimitiveCount);
+        }
+        if (expectedPrimitiveOffset != mask.GeometryPrimitiveCount)
+        {
+            return false;
         }
 
         ulong expectedBooleanNodeOffset = 0U;

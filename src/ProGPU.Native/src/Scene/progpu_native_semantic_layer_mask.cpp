@@ -1,6 +1,7 @@
 #include "progpu_native_semantic_layer_mask.hpp"
 #include "progpu_native_semantic_brush.hpp"
 #include "progpu_native_path_boolean_validation.hpp"
+#include "progpu_native_geometry_stroke.hpp"
 
 #include <algorithm>
 #include <array>
@@ -251,9 +252,48 @@ bool valid_composite_brush(
                 stop_count));
 }
 
+bool valid_geometry_mask(
+    const progpu_native_scene_layer_geometry_mask& mask,
+    const progpu_native_geometry_primitive* primitives,
+    std::uint32_t primitive_count,
+    const progpu_native_scene_gradient_stop* stops,
+    std::uint32_t stop_count) noexcept {
+    const std::uint32_t stored_stop_count =
+        semantic_brush_stored_stop_count(mask.brush);
+    if (mask.struct_size != sizeof(mask) ||
+        mask.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY ||
+        mask.flags != 0U || mask.reserved0 != 0U ||
+        mask.reserved1 != 0U || mask.reserved2 != 0U ||
+        mask.primitive_count == 0U ||
+        mask.primitive_offset > primitive_count ||
+        mask.primitive_count > primitive_count - mask.primitive_offset ||
+        mask.gradient_stop_count != stored_stop_count ||
+        !valid_bounds(mask.bounds) || !valid_transform(mask.transform) ||
+        !std::isfinite(mask.opacity) || mask.opacity < 0.0F ||
+        mask.opacity > 1.0F || mask.brush.stop_offset > stop_count ||
+        stored_stop_count > stop_count - mask.brush.stop_offset ||
+        primitives == nullptr ||
+        !is_valid_semantic_brush(
+            mask.brush,
+            std::span<const progpu_native_scene_gradient_stop>(
+                stops,
+                stop_count))) {
+        return false;
+    }
+    for (std::uint32_t index = 0U; index < mask.primitive_count; ++index) {
+        if (!::progpu::native::is_valid_geometry_primitive(
+                primitives[mask.primitive_offset + index])) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool valid_composite(
     const progpu_native_scene_layer_composite_mask& mask,
     const progpu_native_scene_layer_brush_mask* brushes,
+    const progpu_native_scene_layer_geometry_mask* geometry_masks,
+    const progpu_native_geometry_primitive* geometry_primitives,
     const progpu_native_scene_clip_path* paths,
     const progpu_native_path_segment* segments,
     const progpu_native_scene_path_boolean_node* boolean_nodes,
@@ -262,6 +302,12 @@ bool valid_composite(
     const std::uint32_t vector_component = mask.path_count == 0U ? 0U : 1U;
     const std::uint64_t brush_bytes =
         static_cast<std::uint64_t>(mask.brush_mask_count) * sizeof(*brushes);
+    const std::uint64_t geometry_mask_bytes =
+        static_cast<std::uint64_t>(mask.geometry_mask_count) *
+            sizeof(*geometry_masks);
+    const std::uint64_t geometry_primitive_bytes =
+        static_cast<std::uint64_t>(mask.geometry_primitive_count) *
+            sizeof(*geometry_primitives);
     const std::uint64_t path_bytes =
         static_cast<std::uint64_t>(mask.path_count) * sizeof(*paths);
     const std::uint64_t segment_bytes =
@@ -273,10 +319,17 @@ bool valid_composite(
         static_cast<std::uint64_t>(mask.gradient_stop_count) * sizeof(*stops);
     if (mask.struct_size != sizeof(mask) ||
         mask.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE ||
-        mask.flags != 0U || mask.reserved0 != 0U || mask.reserved1 != 0U ||
-        mask.component_count != mask.brush_mask_count + vector_component ||
+        mask.flags != 0U ||
+        mask.component_count != mask.brush_mask_count +
+            mask.geometry_mask_count + vector_component ||
         mask.component_count < 2U || mask.component_count > 64U ||
-        mask.brush_mask_count == 0U || brushes == nullptr ||
+        (mask.brush_mask_count == 0U && mask.geometry_mask_count == 0U) ||
+        (mask.brush_mask_count != 0U && brushes == nullptr) ||
+        (mask.geometry_mask_count != 0U && geometry_masks == nullptr) ||
+        (mask.geometry_mask_count == 0U) !=
+            (mask.geometry_primitive_count == 0U) ||
+        (mask.geometry_primitive_count != 0U &&
+            geometry_primitives == nullptr) ||
         mask.gradient_stop_count > PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS ||
         !std::isfinite(mask.opacity) || mask.opacity < 0.0F ||
         mask.opacity > 1.0F ||
@@ -286,7 +339,8 @@ bool valid_composite(
             (mask.path_count > 64U || mask.segment_count == 0U ||
                 paths == nullptr || segments == nullptr ||
                 (mask.boolean_node_count != 0U && boolean_nodes == nullptr))) ||
-        brush_bytes + path_bytes + segment_bytes + boolean_bytes + stop_bytes !=
+        brush_bytes + geometry_mask_bytes + geometry_primitive_bytes +
+                path_bytes + segment_bytes + boolean_bytes + stop_bytes !=
             auxiliary_size ||
         (mask.gradient_stop_count != 0U && stops == nullptr)) {
         return false;
@@ -296,6 +350,23 @@ bool valid_composite(
                 brushes[index], stops, mask.gradient_stop_count)) {
             return false;
         }
+    }
+    std::uint32_t expected_primitive_offset = 0U;
+    for (std::uint32_t index = 0U; index < mask.geometry_mask_count; ++index) {
+        if (geometry_masks[index].primitive_offset !=
+                expected_primitive_offset ||
+            !valid_geometry_mask(
+                geometry_masks[index],
+                geometry_primitives,
+                mask.geometry_primitive_count,
+                stops,
+                mask.gradient_stop_count)) {
+            return false;
+        }
+        expected_primitive_offset += geometry_masks[index].primitive_count;
+    }
+    if (expected_primitive_offset != mask.geometry_primitive_count) {
+        return false;
     }
     if (mask.path_count != 0U) {
         const progpu_native_scene_layer_vector_mask vector{
@@ -374,19 +445,41 @@ bool is_valid_semantic_layer_brush_mask(
             static_cast<std::uint32_t>(auxiliary_size));
 }
 
+bool is_valid_semantic_layer_geometry_mask(
+    const progpu_native_scene_layer_geometry_mask& mask,
+    std::span<const progpu_native_geometry_primitive> primitives,
+    std::span<const progpu_native_scene_gradient_stop> stops) noexcept {
+    return primitives.size() <= std::numeric_limits<std::uint32_t>::max() &&
+        stops.size() <= std::numeric_limits<std::uint32_t>::max() &&
+        mask.primitive_offset == 0U &&
+        mask.primitive_count == primitives.size() &&
+        valid_geometry_mask(
+            mask,
+            primitives.data(),
+            static_cast<std::uint32_t>(primitives.size()),
+            stops.data(),
+            static_cast<std::uint32_t>(stops.size()));
+}
+
 bool is_valid_semantic_layer_composite_mask(
     const progpu_native_scene_layer_composite_mask& mask,
     std::span<const progpu_native_scene_layer_brush_mask> brushes,
+    std::span<const progpu_native_scene_layer_geometry_mask> geometry_masks,
+    std::span<const progpu_native_geometry_primitive> geometry_primitives,
     std::span<const progpu_native_scene_clip_path> paths,
     std::span<const progpu_native_path_segment> segments,
     std::span<const progpu_native_scene_path_boolean_node> boolean_nodes,
     std::span<const progpu_native_scene_gradient_stop> stops) noexcept {
-    const std::uint64_t size = brushes.size_bytes() + paths.size_bytes() +
-        segments.size_bytes() + boolean_nodes.size_bytes() + stops.size_bytes();
+    const std::uint64_t size = brushes.size_bytes() +
+        geometry_masks.size_bytes() + geometry_primitives.size_bytes() +
+        paths.size_bytes() + segments.size_bytes() +
+        boolean_nodes.size_bytes() + stops.size_bytes();
     return size <= std::numeric_limits<std::uint32_t>::max() &&
         valid_composite(
             mask,
             brushes.data(),
+            geometry_masks.data(),
+            geometry_primitives.data(),
             paths.data(),
             segments.data(),
             boolean_nodes.data(),
@@ -495,6 +588,36 @@ bool validate_layer_mask_resource(
                 resource.auxiliary_size)) {
             return false;
         }
+    } else if (kind == PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY) {
+        if (resource.payload_size != sizeof(result.geometry)) {
+            return false;
+        }
+        std::memcpy(&result.geometry, bytes + resource.payload_offset,
+            sizeof(result.geometry));
+        const std::uint64_t primitive_bytes =
+            static_cast<std::uint64_t>(result.geometry.primitive_count) *
+                sizeof(progpu_native_geometry_primitive);
+        const std::uint64_t stop_bytes =
+            static_cast<std::uint64_t>(result.geometry.gradient_stop_count) *
+                sizeof(progpu_native_scene_gradient_stop);
+        if (primitive_bytes + stop_bytes != resource.auxiliary_size) {
+            return false;
+        }
+        const auto* auxiliary = bytes + resource.auxiliary_offset;
+        result.composite_geometry_primitives = reinterpret_cast<
+            const progpu_native_geometry_primitive*>(auxiliary);
+        result.brush_stops = reinterpret_cast<
+            const progpu_native_scene_gradient_stop*>(
+                auxiliary + primitive_bytes);
+        if (result.geometry.primitive_offset != 0U ||
+            !valid_geometry_mask(
+                result.geometry,
+                result.composite_geometry_primitives,
+                result.geometry.primitive_count,
+                result.brush_stops,
+                result.geometry.gradient_stop_count)) {
+            return false;
+        }
     } else if (kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {
         if (resource.payload_size != sizeof(result.composite)) {
             return false;
@@ -504,6 +627,13 @@ bool validate_layer_mask_resource(
         const std::uint64_t brush_bytes =
             static_cast<std::uint64_t>(result.composite.brush_mask_count) *
                 sizeof(progpu_native_scene_layer_brush_mask);
+        const std::uint64_t geometry_mask_bytes =
+            static_cast<std::uint64_t>(result.composite.geometry_mask_count) *
+                sizeof(progpu_native_scene_layer_geometry_mask);
+        const std::uint64_t geometry_primitive_bytes =
+            static_cast<std::uint64_t>(
+                result.composite.geometry_primitive_count) *
+                sizeof(progpu_native_geometry_primitive);
         const std::uint64_t path_bytes =
             static_cast<std::uint64_t>(result.composite.path_count) *
                 sizeof(progpu_native_scene_clip_path);
@@ -516,28 +646,39 @@ bool validate_layer_mask_resource(
         const std::uint64_t stop_bytes =
             static_cast<std::uint64_t>(result.composite.gradient_stop_count) *
                 sizeof(progpu_native_scene_gradient_stop);
-        if (brush_bytes + path_bytes + segment_bytes + boolean_bytes +
-                stop_bytes != resource.auxiliary_size) {
+        if (brush_bytes + geometry_mask_bytes + geometry_primitive_bytes +
+                path_bytes + segment_bytes + boolean_bytes + stop_bytes !=
+            resource.auxiliary_size) {
             return false;
         }
         const auto* auxiliary = bytes + resource.auxiliary_offset;
         result.composite_brushes = reinterpret_cast<
             const progpu_native_scene_layer_brush_mask*>(auxiliary);
+        result.composite_geometry_masks = reinterpret_cast<
+            const progpu_native_scene_layer_geometry_mask*>(
+                auxiliary + brush_bytes);
+        result.composite_geometry_primitives = reinterpret_cast<
+            const progpu_native_geometry_primitive*>(
+                auxiliary + brush_bytes + geometry_mask_bytes);
+        const std::uint64_t path_offset = brush_bytes + geometry_mask_bytes +
+            geometry_primitive_bytes;
         result.composite_paths = reinterpret_cast<
-            const progpu_native_scene_clip_path*>(auxiliary + brush_bytes);
+            const progpu_native_scene_clip_path*>(auxiliary + path_offset);
         result.composite_segments = reinterpret_cast<
             const progpu_native_path_segment*>(
-                auxiliary + brush_bytes + path_bytes);
+                auxiliary + path_offset + path_bytes);
         result.composite_boolean_nodes = reinterpret_cast<
             const progpu_native_scene_path_boolean_node*>(
-                auxiliary + brush_bytes + path_bytes + segment_bytes);
+                auxiliary + path_offset + path_bytes + segment_bytes);
         result.composite_stops = reinterpret_cast<
             const progpu_native_scene_gradient_stop*>(
-                auxiliary + brush_bytes + path_bytes + segment_bytes +
+                auxiliary + path_offset + path_bytes + segment_bytes +
                     boolean_bytes);
         if (!valid_composite(
                 result.composite,
                 result.composite_brushes,
+                result.composite_geometry_masks,
+                result.composite_geometry_primitives,
                 result.composite_paths,
                 result.composite_segments,
                 result.composite_boolean_nodes,

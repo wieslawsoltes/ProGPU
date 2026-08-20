@@ -786,6 +786,14 @@ bool create_semantic_layer_mask_binding(
             dpi_scale,
             operation);
     }
+    if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY) {
+        return create_semantic_geometry_mask_binding(
+            engine,
+            parsed,
+            target_extent,
+            dpi_scale,
+            operation);
+    }
     if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {
         return create_semantic_composite_mask_binding(
             engine,

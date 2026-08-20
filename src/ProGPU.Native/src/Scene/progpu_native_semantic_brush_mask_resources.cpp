@@ -12,6 +12,7 @@
 
 #include "progpu_native_engine.hpp"
 #include "progpu_native_geometry_analytic.hpp"
+#include "progpu_native_geometry_stroke.hpp"
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_pipeline.hpp"
 #include "progpu_native_replay_execution.hpp"
@@ -51,6 +52,64 @@ void release_transient_buffer(WGPUBuffer buffer, bool submitted) noexcept {
     wgpuBufferRelease(buffer);
 }
 
+semantic::scissor geometry_mask_scissor(
+    const progpu_native_scene_layer_geometry_mask& mask,
+    const semantic::scissor& target_extent,
+    float dpi_scale) noexcept {
+    constexpr double antialias_padding_pixels = 2.0;
+    const auto transform_point = [&](double x, double y) noexcept {
+        return std::array<double, 2U>{
+            (x * mask.transform.m11 + y * mask.transform.m21 +
+                mask.transform.m31) * dpi_scale - target_extent.x,
+            (x * mask.transform.m12 + y * mask.transform.m22 +
+                mask.transform.m32) * dpi_scale - target_extent.y};
+    };
+    const double right = mask.bounds.x + mask.bounds.width;
+    const double bottom = mask.bounds.y + mask.bounds.height;
+    const std::array<std::array<double, 2U>, 4U> corners{
+        transform_point(mask.bounds.x, mask.bounds.y),
+        transform_point(right, mask.bounds.y),
+        transform_point(mask.bounds.x, bottom),
+        transform_point(right, bottom)};
+    double minimum_x = corners[0][0];
+    double minimum_y = corners[0][1];
+    double maximum_x = corners[0][0];
+    double maximum_y = corners[0][1];
+    for (std::size_t index = 1U; index < corners.size(); ++index) {
+        minimum_x = std::min(minimum_x, corners[index][0]);
+        minimum_y = std::min(minimum_y, corners[index][1]);
+        maximum_x = std::max(maximum_x, corners[index][0]);
+        maximum_y = std::max(maximum_y, corners[index][1]);
+    }
+    minimum_x = std::clamp(
+        std::floor(minimum_x - antialias_padding_pixels),
+        0.0,
+        static_cast<double>(target_extent.width));
+    minimum_y = std::clamp(
+        std::floor(minimum_y - antialias_padding_pixels),
+        0.0,
+        static_cast<double>(target_extent.height));
+    maximum_x = std::clamp(
+        std::ceil(maximum_x + antialias_padding_pixels),
+        0.0,
+        static_cast<double>(target_extent.width));
+    maximum_y = std::clamp(
+        std::ceil(maximum_y + antialias_padding_pixels),
+        0.0,
+        static_cast<double>(target_extent.height));
+    if (maximum_x <= minimum_x || maximum_y <= minimum_y) {
+        return semantic::scissor{0U, 0U, 1U, 1U, false};
+    }
+    const auto x = static_cast<std::uint32_t>(minimum_x);
+    const auto y = static_cast<std::uint32_t>(minimum_y);
+    return semantic::scissor{
+        x,
+        y,
+        static_cast<std::uint32_t>(maximum_x) - x,
+        static_cast<std::uint32_t>(maximum_y) - y,
+        true};
+}
+
 } // namespace
 
 bool create_semantic_brush_mask_binding(
@@ -59,7 +118,17 @@ bool create_semantic_brush_mask_binding(
     const semantic::scissor& target_extent,
     float dpi_scale,
     semantic_render_bundle_span& operation) {
-    const auto& source = parsed.brush;
+    const bool geometry_mask = parsed.kind ==
+        PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY;
+    const auto& source_brush = geometry_mask
+        ? parsed.geometry.brush
+        : parsed.brush.brush;
+    const std::uint32_t gradient_stop_count = geometry_mask
+        ? parsed.geometry.gradient_stop_count
+        : parsed.brush.gradient_stop_count;
+    const float mask_opacity = geometry_mask
+        ? parsed.geometry.opacity
+        : parsed.brush.opacity;
     if (target_extent.width == 0U || target_extent.height == 0U ||
         !std::isfinite(dpi_scale) || dpi_scale <= 0.0F ||
         !create_layer_mask_resources(engine) ||
@@ -67,38 +136,61 @@ bool create_semantic_brush_mask_binding(
         return false;
     }
 
-    progpu_native_analytic_primitive primitive{};
-    primitive.kind = PROGPU_NATIVE_PRIMITIVE_RECTANGLE;
-    primitive.x = source.bounds.x;
-    primitive.y = source.bounds.y;
-    primitive.width = source.bounds.width;
-    primitive.height = source.bounds.height;
-    primitive.color = source.brush.type == PROGPU_NATIVE_SCENE_BRUSH_SOLID
-        ? source.brush.colors[0]
-        : progpu_native_color{
-            primitive.x + primitive.width * 0.5F,
-            primitive.y + primitive.height * 0.5F,
-            0.0F,
-            1.0F};
-    primitive.transform = source.transform;
-    primitive.transform.m31 -=
-        static_cast<float>(target_extent.x) / dpi_scale;
-    primitive.transform.m32 -=
-        static_cast<float>(target_extent.y) / dpi_scale;
-
-    float minimum_scale = 0.0F;
     std::vector<vector_vertex> vertices;
     std::vector<std::uint32_t> indices;
     try {
-        vertices.reserve(4U);
-        indices.reserve(6U);
-        if (!try_get_minimum_scale(primitive.transform, minimum_scale) ||
-            !append_analytic_primitive(
-                primitive,
-                antialias_padding_pixels / minimum_scale,
-                vertices,
-                indices)) {
-            return false;
+        if (geometry_mask) {
+            for (std::uint32_t index = 0U;
+                 index < parsed.geometry.primitive_count;
+                 ++index) {
+                auto primitive = parsed.composite_geometry_primitives[
+                    parsed.geometry.primitive_offset + index];
+                primitive.transform.m31 -=
+                    static_cast<float>(target_extent.x) / dpi_scale;
+                primitive.transform.m32 -=
+                    static_cast<float>(target_extent.y) / dpi_scale;
+                if (source_brush.type == PROGPU_NATIVE_SCENE_BRUSH_SOLID) {
+                    primitive.color = source_brush.colors[0];
+                }
+                if (!append_geometry_primitive(
+                        primitive,
+                        0.0F,
+                        vertices,
+                        indices)) {
+                    return false;
+                }
+            }
+        } else {
+            progpu_native_analytic_primitive primitive{};
+            primitive.kind = PROGPU_NATIVE_PRIMITIVE_RECTANGLE;
+            primitive.x = parsed.brush.bounds.x;
+            primitive.y = parsed.brush.bounds.y;
+            primitive.width = parsed.brush.bounds.width;
+            primitive.height = parsed.brush.bounds.height;
+            primitive.color =
+                source_brush.type == PROGPU_NATIVE_SCENE_BRUSH_SOLID
+                    ? source_brush.colors[0]
+                    : progpu_native_color{
+                        primitive.x + primitive.width * 0.5F,
+                        primitive.y + primitive.height * 0.5F,
+                        0.0F,
+                        1.0F};
+            primitive.transform = parsed.brush.transform;
+            primitive.transform.m31 -=
+                static_cast<float>(target_extent.x) / dpi_scale;
+            primitive.transform.m32 -=
+                static_cast<float>(target_extent.y) / dpi_scale;
+            float minimum_scale = 0.0F;
+            vertices.reserve(4U);
+            indices.reserve(6U);
+            if (!try_get_minimum_scale(primitive.transform, minimum_scale) ||
+                !append_analytic_primitive(
+                    primitive,
+                    antialias_padding_pixels / minimum_scale,
+                    vertices,
+                    indices)) {
+                return false;
+            }
         }
     } catch (const std::bad_alloc&) {
         return false;
@@ -107,7 +199,7 @@ bool create_semantic_brush_mask_binding(
     const std::uint64_t vertex_bytes = vertices.size() * sizeof(vector_vertex);
     const std::uint64_t index_bytes = indices.size() * sizeof(std::uint32_t);
     const std::uint64_t gradient_bytes = std::max<std::uint64_t>(
-        static_cast<std::uint64_t>(source.gradient_stop_count) *
+        static_cast<std::uint64_t>(gradient_stop_count) *
             sizeof(progpu_native_scene_gradient_stop),
         sizeof(progpu_native_scene_gradient_stop));
     WGPUBuffer vertex_buffer = create_buffer(
@@ -212,7 +304,7 @@ bool create_semantic_brush_mask_binding(
     mask_uniforms.coordinate1[1] =
         1.0F / static_cast<float>(target_extent.height);
     mask_uniforms.options[0] = 1.0F;
-    mask_uniforms.options[1] = source.opacity;
+    mask_uniforms.options[1] = mask_opacity;
     mask_uniforms.options[2] = 0.0F;
     mask_uniforms.options[3] = 1.0F;
     mask_uniform_buffer = create_buffer(
@@ -247,13 +339,13 @@ bool create_semantic_brush_mask_binding(
         engine.queue, frame_buffer, 0U, &frame_uniforms,
         sizeof(frame_uniforms));
     wgpuQueueWriteBuffer(
-        engine.queue, brush_buffer, 0U, &source.brush,
-        sizeof(source.brush));
+        engine.queue, brush_buffer, 0U, &source_brush,
+        sizeof(source_brush));
     wgpuQueueWriteBuffer(
         engine.queue,
         gradient_buffer,
         0U,
-        source.gradient_stop_count == 0U
+        gradient_stop_count == 0U
             ? static_cast<const void*>(gradient_sentinel.data())
             : static_cast<const void*>(parsed.brush_stops),
         static_cast<std::size_t>(gradient_bytes));
@@ -301,13 +393,29 @@ bool create_semantic_brush_mask_binding(
         pass, 0U, vertex_buffer, 0U, vertex_bytes);
     wgpuRenderPassEncoderSetIndexBuffer(
         pass, index_buffer, WGPUIndexFormat_Uint32, 0U, index_bytes);
-    wgpuRenderPassEncoderDrawIndexed(
-        pass,
-        static_cast<std::uint32_t>(indices.size()),
-        1U,
-        0U,
-        0,
-        0U);
+    const semantic::scissor draw_extent = geometry_mask
+        ? geometry_mask_scissor(parsed.geometry, target_extent, dpi_scale)
+        : semantic::scissor{
+            0U,
+            0U,
+            target_extent.width,
+            target_extent.height,
+            true};
+    if (draw_extent.drawable) {
+        wgpuRenderPassEncoderSetScissorRect(
+            pass,
+            draw_extent.x,
+            draw_extent.y,
+            draw_extent.width,
+            draw_extent.height);
+        wgpuRenderPassEncoderDrawIndexed(
+            pass,
+            static_cast<std::uint32_t>(indices.size()),
+            1U,
+            0U,
+            0,
+            0U);
+    }
     wgpuRenderPassEncoderEnd(pass);
     wgpuRenderPassEncoderRelease(pass);
 
@@ -338,6 +446,20 @@ bool create_semantic_brush_mask_binding(
     cleanup();
     ++engine.layer_mask_bind_group_generation;
     return true;
+}
+
+bool create_semantic_geometry_mask_binding(
+    progpu_native_engine& engine,
+    const semantic::semantic_layer_mask& parsed,
+    const semantic::scissor& target_extent,
+    float dpi_scale,
+    semantic_render_bundle_span& operation) {
+    return create_semantic_brush_mask_binding(
+        engine,
+        parsed,
+        target_extent,
+        dpi_scale,
+        operation);
 }
 
 } // namespace progpu::native::execution

@@ -200,6 +200,29 @@ bool create_semantic_composite_mask_binding(
         }
         children.push_back(child_operation);
     }
+    for (std::uint32_t index = 0U;
+         index < source.geometry_mask_count;
+         ++index) {
+        semantic::semantic_layer_mask child{};
+        child.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY;
+        child.geometry = parsed.composite_geometry_masks[index];
+        child.composite_geometry_primitives =
+            parsed.composite_geometry_primitives;
+        const std::uint32_t stop_offset = child.geometry.brush.stop_offset;
+        child.geometry.brush.stop_offset = 0U;
+        child.brush_stops = parsed.composite_stops + stop_offset;
+        semantic_render_bundle_span child_operation{};
+        if (!create_semantic_geometry_mask_binding(
+                engine,
+                child,
+                target_extent,
+                dpi_scale,
+                child_operation)) {
+            cleanup();
+            return false;
+        }
+        children.push_back(child_operation);
+    }
     for (std::uint32_t index = 0U; index < source.brush_mask_count; ++index) {
         semantic::semantic_layer_mask child{};
         child.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH;

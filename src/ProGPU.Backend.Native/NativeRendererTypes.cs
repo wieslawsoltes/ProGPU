@@ -490,7 +490,8 @@ public enum NativeSceneLayerMaskKind : uint
     AnalyticChain = 3,
     VectorClipChain = 4,
     Brush = 5,
-    Composite = 6
+    Composite = 6,
+    Geometry = 7
 }
 
 public enum NativeSceneCommandKind : uint
@@ -1702,9 +1703,59 @@ public readonly struct NativeSceneLayerBrushMask
 }
 
 /// <summary>
-/// Pointer-free retained intersection of arbitrary GPU-generated vector and
-/// brush masks. Its auxiliary span owns the brush descriptors, vector records,
-/// and one shared resource-local gradient-stop arena.
+/// Pointer-free retained stroked-geometry opacity mask. Primitive and stop
+/// offsets address the owning resource auxiliary arenas.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneLayerGeometryMask
+{
+    public NativeSceneLayerGeometryMask(
+        uint primitiveOffset,
+        uint primitiveCount,
+        NativeImageRect bounds,
+        Matrix3x2 transform,
+        in NativeSceneBrush brush,
+        uint gradientStopCount,
+        float opacity = 1f)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneLayerGeometryMask>();
+        Kind = NativeSceneLayerMaskKind.Geometry;
+        Flags = 0U;
+        PrimitiveOffset = primitiveOffset;
+        PrimitiveCount = primitiveCount;
+        GradientStopCount = gradientStopCount;
+        Reserved0 = 0U;
+        Reserved1 = 0U;
+        Bounds = bounds;
+        Transform = transform;
+        Opacity = opacity;
+        Reserved2 = 0U;
+        Brush = brush;
+    }
+
+    public readonly uint StructSize;
+    public readonly NativeSceneLayerMaskKind Kind;
+    public readonly uint Flags;
+    public readonly uint PrimitiveOffset;
+    public readonly uint PrimitiveCount;
+    public readonly uint GradientStopCount;
+    private readonly uint Reserved0;
+    private readonly uint Reserved1;
+    public readonly NativeImageRect Bounds;
+    public readonly Matrix3x2 Transform;
+    public readonly float Opacity;
+    private readonly uint Reserved2;
+    public readonly NativeSceneBrush Brush;
+
+    internal bool HasCanonicalReservedFields =>
+        Reserved0 == 0U && Reserved1 == 0U && Reserved2 == 0U;
+}
+
+/// <summary>
+/// Pointer-free retained intersection of arbitrary GPU-generated vector,
+/// brush, and stroked-geometry masks. Its auxiliary span owns the mask
+/// descriptors, geometry primitives, vector records, and one shared
+/// resource-local gradient-stop arena.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct NativeSceneLayerCompositeMask
@@ -1718,6 +1769,8 @@ public readonly struct NativeSceneLayerCompositeMask
         uint segmentCount,
         uint booleanNodeCount,
         uint gradientStopCount,
+        uint geometryMaskCount = 0U,
+        uint geometryPrimitiveCount = 0U,
         float opacity = 1f)
     {
         StructSize = (uint)Unsafe.SizeOf<NativeSceneLayerCompositeMask>();
@@ -1730,8 +1783,8 @@ public readonly struct NativeSceneLayerCompositeMask
         BooleanNodeCount = booleanNodeCount;
         GradientStopCount = gradientStopCount;
         Opacity = opacity;
-        Reserved0 = 0U;
-        Reserved1 = 0U;
+        GeometryMaskCount = geometryMaskCount;
+        GeometryPrimitiveCount = geometryPrimitiveCount;
     }
 
     public readonly uint StructSize;
@@ -1744,11 +1797,8 @@ public readonly struct NativeSceneLayerCompositeMask
     public readonly uint BooleanNodeCount;
     public readonly uint GradientStopCount;
     public readonly float Opacity;
-    private readonly uint Reserved0;
-    private readonly uint Reserved1;
-
-    internal bool HasCanonicalReservedFields =>
-        Reserved0 == 0U && Reserved1 == 0U;
+    public readonly uint GeometryMaskCount;
+    public readonly uint GeometryPrimitiveCount;
 }
 
 /// <summary>

@@ -150,6 +150,7 @@ bool finish_evidence_frame(double, void*) {
         document.body.dataset.progpuNativeStateMasks = "passed";
         document.body.dataset.progpuNativeStateMaskMedia = "passed";
         document.body.dataset.progpuNativeVectorClipMasks = "passed";
+        document.body.dataset.progpuNativeCompositeGeometryMasks = "passed";
         document.body.dataset.progpuNativeSemanticGeometry = "passed";
         document.body.dataset.progpuNativeSceneBuilder = "passed";
         document.body.dataset.progpuNativePngDecode = "passed";
@@ -1365,7 +1366,7 @@ bool render_browser_frame(double, void*) {
     }
 
     auto brush_mask_scene =
-        progpu::native::tests::create_semantic_composite_brush_mask_scene_stream(
+        progpu::native::tests::create_semantic_composite_geometry_mask_scene_stream(
             width,
             height);
     progpu_native_scene_metrics brush_mask_scene_metrics{};
@@ -1391,7 +1392,7 @@ bool render_browser_frame(double, void*) {
             &brush_mask_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
         brush_mask_metrics.command_count != 3U ||
         brush_mask_metrics.draw_call_count != 2U ||
-        brush_mask_metrics.submission_count != 4U ||
+        brush_mask_metrics.submission_count != 5U ||
         brush_mask_metrics.texture_upload_bytes != 0U ||
         brush_mask_metrics.uniform_upload_bytes <
             24U * sizeof(float)) {

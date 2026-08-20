@@ -167,7 +167,8 @@ typedef enum progpu_native_scene_layer_mask_kind {
     PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN = 3,
     PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN = 4,
     PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH = 5,
-    PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE = 6
+    PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE = 6,
+    PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY = 7
 } progpu_native_scene_layer_mask_kind;
 
 enum {
@@ -1263,12 +1264,38 @@ typedef struct progpu_native_scene_layer_brush_mask {
 } progpu_native_scene_layer_brush_mask;
 
 /*
+ * Pointer-free retained stroked-geometry opacity mask. PrimitiveOffset and
+ * PrimitiveCount address progpu_native_geometry_primitive records in the
+ * owning resource auxiliary arena. Bounds/transform retain the caller mask
+ * storage boundary; the embedded canonical brush and its shared stop range
+ * preserve the exact pen material. The executor expands the proven geometry
+ * primitives and rasterizes their alpha through production Vector.wgsl.
+ */
+typedef struct progpu_native_scene_layer_geometry_mask {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint32_t flags;
+    uint32_t primitive_offset;
+    uint32_t primitive_count;
+    uint32_t gradient_stop_count;
+    uint32_t reserved0;
+    uint32_t reserved1;
+    progpu_native_image_rect bounds;
+    progpu_native_affine_2d transform;
+    float opacity;
+    uint32_t reserved2;
+    progpu_native_scene_brush brush;
+} progpu_native_scene_layer_geometry_mask;
+
+/*
  * Pointer-free retained intersection of arbitrary GPU-generated masks. The
  * auxiliary span contains brush_mask_count brush-mask records, followed by
- * path_count clip paths, segment_count path segments, boolean_node_count
- * postfix nodes, and gradient_stop_count shared gradient records. A non-empty
- * vector range contributes one component; each brush record contributes one
- * component. Brush stop offsets address the shared resource-local stop span.
+ * geometry_mask_count geometry-mask records, geometry_primitive_count
+ * geometry primitives, path_count clip paths, segment_count path segments,
+ * boolean_node_count postfix nodes, and gradient_stop_count shared gradient
+ * records. A non-empty vector range contributes one component; each brush or
+ * geometry record contributes one component. Primitive and stop offsets
+ * address their shared resource-local spans.
  * The executor evaluates every component on the GPU and multiplies their R8
  * coverage through the canonical ClipCompose.wgsl program. All fields remain
  * fixed-width on wasm32 and native hosts.
@@ -1284,8 +1311,8 @@ typedef struct progpu_native_scene_layer_composite_mask {
     uint32_t boolean_node_count;
     uint32_t gradient_stop_count;
     float opacity;
-    uint32_t reserved0;
-    uint32_t reserved1;
+    uint32_t geometry_mask_count;
+    uint32_t geometry_primitive_count;
 } progpu_native_scene_layer_composite_mask;
 
 /*

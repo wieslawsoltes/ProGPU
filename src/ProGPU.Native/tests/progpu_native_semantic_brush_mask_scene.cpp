@@ -91,16 +91,47 @@ std::vector<std::byte> create_semantic_brush_mask_scene_stream_impl(
             mask,
             half
         }};
+        progpu_native_scene_layer_geometry_mask geometry_mask{};
+        geometry_mask.struct_size = sizeof(geometry_mask);
+        geometry_mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY;
+        geometry_mask.primitive_count = 1U;
+        geometry_mask.bounds = {
+            8.0F * scale_x,
+            18.0F * scale_y,
+            48.0F * scale_x,
+            12.0F * scale_y};
+        geometry_mask.transform = identity;
+        geometry_mask.opacity = 1.0F;
+        geometry_mask.brush.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+        geometry_mask.brush.opacity = 1.0F;
+        geometry_mask.brush.colors[0] = {1.0F, 1.0F, 1.0F, 1.0F};
+        geometry_mask.brush.coordinate_transform0[0] = 1.0F;
+        geometry_mask.brush.coordinate_transform1[1] = 1.0F;
+        const progpu_native_geometry_primitive geometry_primitive{
+            PROGPU_NATIVE_GEOMETRY_LINE,
+            0U,
+            {0.0F, 24.0F * scale_y},
+            {static_cast<float>(target_width), 24.0F * scale_y},
+            {},
+            {},
+            36.0F * scale_y,
+            0.0F,
+            {1.0F, 1.0F, 1.0F, 1.0F},
+            identity};
         progpu_native_scene_layer_composite_mask composite_mask{};
         composite_mask.struct_size = sizeof(composite_mask);
         composite_mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE;
-        composite_mask.component_count = brushes.size();
+        composite_mask.component_count = brushes.size() + 1U;
         composite_mask.brush_mask_count = brushes.size();
+        composite_mask.geometry_mask_count = 1U;
+        composite_mask.geometry_primitive_count = 1U;
         composite_mask.gradient_stop_count = stops.size();
         composite_mask.opacity = 1.0F;
         mask_offset = append(stream, &composite_mask, 1U);
         mask_size = sizeof(composite_mask);
         auxiliary_offset = append(stream, brushes.data(), brushes.size());
+        append(stream, &geometry_mask, 1U);
+        append(stream, &geometry_primitive, 1U);
         const std::uint32_t stops_offset = append(
             stream,
             stops.data(),
@@ -196,7 +227,7 @@ std::vector<std::byte> create_semantic_brush_mask_scene_stream(
         false);
 }
 
-std::vector<std::byte> create_semantic_composite_brush_mask_scene_stream(
+std::vector<std::byte> create_semantic_composite_geometry_mask_scene_stream(
     std::uint32_t target_width,
     std::uint32_t target_height) {
     return create_semantic_brush_mask_scene_stream_impl(

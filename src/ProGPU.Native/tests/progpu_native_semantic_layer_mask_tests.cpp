@@ -15,6 +15,7 @@ bool semantic_layer_coverage_mask_is_exact_and_bounded() {
     static_assert(sizeof(progpu_native_scene_layer_mask_chain) == 432U);
     static_assert(sizeof(progpu_native_scene_layer_vector_mask) == 32U);
     static_assert(sizeof(progpu_native_scene_layer_brush_mask) == 320U);
+    static_assert(sizeof(progpu_native_scene_layer_geometry_mask) == 336U);
     static_assert(sizeof(progpu_native_scene_layer_composite_mask) == 48U);
     static_assert(sizeof(progpu_native_scene_clip_path) == 88U);
     static_assert(sizeof(progpu_native_scene_path_boolean_node) == 48U);
@@ -280,6 +281,49 @@ bool semantic_layer_coverage_mask_is_exact_and_bounded() {
     resource.auxiliary_size = brush_auxiliary_size;
     if (semantic::validate_layer_mask_resource(
             brush_bytes.data(), resource, error_offset)) {
+        return false;
+    }
+
+    constexpr std::size_t geometry_auxiliary_size =
+        sizeof(progpu_native_geometry_primitive);
+    std::array<std::byte,
+        sizeof(progpu_native_scene_layer_geometry_mask) +
+            geometry_auxiliary_size> geometry_bytes{};
+    progpu_native_scene_layer_geometry_mask geometry_mask{};
+    geometry_mask.struct_size = sizeof(geometry_mask);
+    geometry_mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY;
+    geometry_mask.primitive_count = 1U;
+    geometry_mask.bounds = {0.0F, 0.0F, 20.0F, 20.0F};
+    geometry_mask.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    geometry_mask.opacity = 1.0F;
+    geometry_mask.brush = solid_brush_mask.brush;
+    progpu_native_geometry_primitive geometry_primitive{};
+    geometry_primitive.kind = PROGPU_NATIVE_GEOMETRY_LINE;
+    geometry_primitive.p0 = {2.0F, 10.0F};
+    geometry_primitive.p1 = {18.0F, 10.0F};
+    geometry_primitive.stroke_thickness = 4.0F;
+    geometry_primitive.color = {1.0F, 1.0F, 1.0F, 0.5F};
+    geometry_primitive.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    std::memcpy(geometry_bytes.data(), &geometry_mask, sizeof(geometry_mask));
+    std::memcpy(
+        geometry_bytes.data() + sizeof(geometry_mask),
+        &geometry_primitive,
+        sizeof(geometry_primitive));
+    resource.payload_size = sizeof(geometry_mask);
+    resource.auxiliary_offset = sizeof(geometry_mask);
+    resource.auxiliary_size = geometry_auxiliary_size;
+    if (!semantic::validate_layer_mask_resource(
+            geometry_bytes.data(), resource, error_offset, &parsed) ||
+        parsed.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY ||
+        parsed.geometry.primitive_count != 1U ||
+        parsed.composite_geometry_primitives[0].kind !=
+            PROGPU_NATIVE_GEOMETRY_LINE) {
+        return false;
+    }
+    geometry_mask.primitive_offset = 1U;
+    std::memcpy(geometry_bytes.data(), &geometry_mask, sizeof(geometry_mask));
+    if (semantic::validate_layer_mask_resource(
+            geometry_bytes.data(), resource, error_offset)) {
         return false;
     }
 

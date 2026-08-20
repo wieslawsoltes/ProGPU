@@ -227,7 +227,7 @@ using progpu::native::tests::create_semantic_backdrop_scene_stream;
 using progpu::native::tests::create_semantic_color_glyph_scene_stream;
 using progpu::native::tests::create_semantic_coverage_mask_scene_stream;
 using progpu::native::tests::create_semantic_brush_mask_scene_stream;
-using progpu::native::tests::create_semantic_composite_brush_mask_scene_stream;
+using progpu::native::tests::create_semantic_composite_geometry_mask_scene_stream;
 using progpu::native::tests::create_semantic_image_patch_scene_stream;
 using progpu::native::tests::
     create_semantic_state_mask_chain_media_scene_stream;
@@ -2167,6 +2167,7 @@ void verify_semantic_brush_mask_scene(
     const auto* left = pixel(10U, 24U);
     const auto* middle = pixel(32U, 24U);
     const auto* right = pixel(52U, 24U);
+    const auto* outside_geometry_bounds = pixel(52U, 12U);
     require(left[0] <= 32U && left[1] <= 32U && left[2] <= 32U,
         "GPU brush mask did not preserve its transparent gradient edge");
     require(middle[0] >= 42U && middle[0] <= 90U &&
@@ -2175,6 +2176,10 @@ void verify_semantic_brush_mask_scene(
     require(right[0] >= 95U && right[0] <= 150U &&
             right[1] >= 75U && right[1] <= 130U && right[2] <= 32U,
         "GPU composite brush mask lost its multiplied opaque edge");
+    require(outside_geometry_bounds[0] <= 16U &&
+            outside_geometry_bounds[1] <= 16U &&
+            outside_geometry_bounds[2] <= 16U,
+        "GPU stroked-geometry mask escaped its explicit padded bounds");
 
     if (output_path != nullptr && output_path[0] != '\0') {
         std::FILE* output = std::fopen(output_path, "wb");
@@ -4024,7 +4029,7 @@ int main(int argc, char** argv) {
     require(view != nullptr,
         "semantic brush-mask target view creation failed");
     auto brush_mask_scene =
-        create_semantic_composite_brush_mask_scene_stream(64U, 48U);
+        create_semantic_composite_geometry_mask_scene_stream(64U, 48U);
     scene_metrics = {};
     scene_metrics.struct_size = sizeof(scene_metrics);
     require(progpu_native_engine_update_scene(
@@ -4049,7 +4054,7 @@ int main(int argc, char** argv) {
         &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
         semantic_metrics.command_count == 3U &&
         semantic_metrics.draw_call_count == 2U &&
-        semantic_metrics.submission_count == 4U &&
+        semantic_metrics.submission_count == 5U &&
         semantic_metrics.texture_upload_bytes == 0U &&
         semantic_metrics.uniform_upload_bytes >= 24U * sizeof(float),
         "semantic GPU-generated brush-mask rendering failed");

@@ -298,6 +298,7 @@ public class NativeRendererInteropTests
                 nameof(NativeSceneLayerMaskChain.Mask3)));
         Assert.Equal(80, Unsafe.SizeOf<NativeSceneLayerCoverageMask>());
         Assert.Equal(320, Unsafe.SizeOf<NativeSceneLayerBrushMask>());
+        Assert.Equal(336, Unsafe.SizeOf<NativeSceneLayerGeometryMask>());
         Assert.Equal(48, Unsafe.SizeOf<NativeSceneLayerCompositeMask>());
         Assert.Equal(
             16,
@@ -319,6 +320,14 @@ public class NativeRendererInteropTests
             64,
             OffsetOf<NativeSceneLayerBrushMask>(
                 nameof(NativeSceneLayerBrushMask.Brush)));
+        Assert.Equal(
+            32,
+            OffsetOf<NativeSceneLayerGeometryMask>(
+                nameof(NativeSceneLayerGeometryMask.Bounds)));
+        Assert.Equal(
+            80,
+            OffsetOf<NativeSceneLayerGeometryMask>(
+                nameof(NativeSceneLayerGeometryMask.Brush)));
         Assert.Equal(16, Unsafe.SizeOf<NativeSceneEffectChain>());
         Assert.Equal(56, Unsafe.SizeOf<NativeSceneEffect>());
         Assert.Equal(96, Unsafe.SizeOf<NativeScenePathFill>());

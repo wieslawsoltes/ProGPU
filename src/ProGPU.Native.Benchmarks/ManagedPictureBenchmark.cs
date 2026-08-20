@@ -20,6 +20,7 @@ internal static class ManagedPictureBenchmark
     {
         bool useVectorClipMask = HasFlag(args, "--vector-clip-mask");
         bool useCompositeBrushMask = HasFlag(args, "--composite-brush-mask");
+        bool useStrokedPathMask = HasFlag(args, "--stroked-path-mask");
         int primitiveCount = ReadPositive(args, "--rectangles", 384);
         int warmupCount = ReadNonNegative(
             args,
@@ -32,7 +33,8 @@ internal static class ManagedPictureBenchmark
         using GpuPicture picture = CreatePicture(
             primitiveCount,
             useVectorClipMask,
-            useCompositeBrushMask);
+            useCompositeBrushMask,
+            useStrokedPathMask);
         const ulong sceneId = 0x5049435455524542UL;
         const ulong generation = 1UL;
         long compileAllocationStart = GC.GetAllocatedBytesForCurrentThread();
@@ -214,6 +216,7 @@ internal static class ManagedPictureBenchmark
             Backend: context.AdapterBackendType.ToString(),
             VectorClipMask: useVectorClipMask,
             CompositeBrushMask: useCompositeBrushMask,
+            StrokedPathMask: useStrokedPathMask,
             SourceCommandCount: compiled.SourceCommandCount,
             NativeCommandCount: compiled.NativeCommandCount,
             AnalyticPrimitiveCount: compiled.AnalyticPrimitiveCount,
@@ -305,7 +308,8 @@ internal static class ManagedPictureBenchmark
     private static GpuPicture CreatePicture(
         int primitiveCount,
         bool useVectorClipMask,
-        bool useCompositeBrushMask)
+        bool useCompositeBrushMask,
+        bool useStrokedPathMask)
     {
         GradientStop[] coolStops =
         [
@@ -494,6 +498,36 @@ internal static class ManagedPictureBenchmark
             drawing.PushOpacityMask(horizontalMask, maskBounds);
             drawing.PushOpacityMask(radialMask, maskBounds);
             opacityMaskCount = 2;
+        }
+        if (useStrokedPathMask)
+        {
+            PathGeometry strokeMask =
+                PrimitivePathGeometry.CreateRoundedRectangle(
+                    34f,
+                    28f,
+                    Width - 68f,
+                    Height - 56f,
+                    54f,
+                    42f);
+            var strokeBrush = new LinearGradientBrush(
+                new Vector2(0f, Height * 0.5f),
+                new Vector2(Width, Height * 0.5f),
+                [
+                    new GradientStop(
+                        new Vector4(1f, 1f, 1f, 0.35f),
+                        0f),
+                    new GradientStop(Vector4.One, 0.5f),
+                    new GradientStop(
+                        new Vector4(1f, 1f, 1f, 0.45f),
+                        1f)
+                ]);
+            var strokePen = new Pen(strokeBrush, 72f, PenLineJoin.Round);
+            drawing.PushOpacityMask(
+                strokeMask,
+                strokePen,
+                new Rect(0f, 0f, Width, Height),
+                Matrix4x4.Identity);
+            opacityMaskCount++;
         }
         int pointBatchCount = Math.Min(
             primitiveCount - 1,
@@ -925,6 +959,7 @@ internal static class ManagedPictureBenchmark
         string Backend,
         bool VectorClipMask,
         bool CompositeBrushMask,
+        bool StrokedPathMask,
         int SourceCommandCount,
         int NativeCommandCount,
         int AnalyticPrimitiveCount,

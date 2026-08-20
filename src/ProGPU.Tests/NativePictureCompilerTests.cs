@@ -2991,6 +2991,193 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerLowersStrokedPathOpacityMaskToGpuGeometryMask()
+    {
+        var gradient = new LinearGradientBrush(
+            Vector2.Zero,
+            new Vector2(20f, 0f),
+            [
+                new GradientStop(Vector4.One, 0f),
+                new GradientStop(new Vector4(1f, 1f, 1f, 0.25f), 1f)
+            ]);
+        var path = new PathGeometry();
+        var figure = new PathFigure(new Vector2(2f, 10f), false);
+        figure.Segments.Add(new LineSegment(new Vector2(18f, 10f)));
+        path.Figures.Add(figure);
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushOpacityMask,
+                    Path = path,
+                    Pen = new Pen(gradient, 4f),
+                    Rect = new Rect(0f, 0f, 20f, 20f),
+                    Transform = Matrix4x4.Identity,
+                    IsPenThicknessLocal = true,
+                    GeometryCache = RenderCommandGeometryCache.ForStrokePath(path)
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Rect = new Rect(0f, 0f, 20f, 20f),
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand { Type = RenderCommandType.PopOpacityMask }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        bool success = GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            24U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure);
+        Assert.True(success, failure.ToString());
+        Assert.NotNull(compiled);
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(
+            compiled.Stream);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)header.ResourceCount) *
+                        Unsafe.SizeOf<NativeMethods.SceneResource>()));
+        NativeMethods.SceneResource resource = resources.ToArray().Single(
+            static item =>
+                item.Kind == NativeSceneResourceKind.LayerMask &&
+                item.PayloadSize ==
+                    Unsafe.SizeOf<NativeSceneLayerGeometryMask>());
+        var stored = MemoryMarshal.Read<NativeSceneLayerGeometryMask>(
+            compiled.Stream.Slice(checked((int)resource.PayloadOffset)));
+        Assert.Equal(NativeSceneLayerMaskKind.Geometry, stored.Kind);
+        Assert.Equal(1U, stored.PrimitiveCount);
+        Assert.Equal(2U, stored.GradientStopCount);
+        Assert.Equal(0U, stored.Brush.StopOffset);
+        var primitive = MemoryMarshal.Read<NativeGeometryPrimitive>(
+            compiled.Stream.Slice(checked((int)resource.AuxiliaryOffset)));
+        Assert.Equal(NativeGeometryPrimitiveKind.Line, primitive.Kind);
+        Assert.Equal(4f, primitive.StrokeThickness);
+    }
+
+    [Fact]
+    public void CompilerComposesBrushVectorAndStrokedPathOpacityMasks()
+    {
+        var horizontal = new LinearGradientBrush(
+            Vector2.Zero,
+            new Vector2(20f, 0f),
+            [
+                new GradientStop(Vector4.One, 0f),
+                new GradientStop(new Vector4(1f, 1f, 1f, 0.25f), 1f)
+            ]);
+        var vertical = new LinearGradientBrush(
+            Vector2.Zero,
+            new Vector2(0f, 20f),
+            [
+                new GradientStop(new Vector4(1f, 1f, 1f, 0.5f), 0f),
+                new GradientStop(Vector4.One, 1f)
+            ]);
+        PathGeometry clip = PrimitivePathGeometry.CreateRectangle(
+            1f,
+            2f,
+            18f,
+            16f);
+        var stroke = new PathGeometry();
+        var figure = new PathFigure(new Vector2(2f, 10f), false);
+        figure.Segments.Add(new LineSegment(new Vector2(18f, 10f)));
+        stroke.Figures.Add(figure);
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushOpacityMask,
+                    Brush = horizontal,
+                    Rect = new Rect(0f, 0f, 20f, 20f),
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushGeometryClip,
+                    Path = clip,
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushOpacityMask,
+                    Path = stroke,
+                    Pen = new Pen(vertical, 4f),
+                    Rect = new Rect(0f, 0f, 20f, 20f),
+                    Transform = Matrix4x4.Identity,
+                    IsPenThicknessLocal = true,
+                    GeometryCache = RenderCommandGeometryCache.ForStrokePath(stroke)
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Rect = new Rect(0f, 0f, 20f, 20f),
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand { Type = RenderCommandType.PopOpacityMask },
+                new RenderCommand { Type = RenderCommandType.PopGeometryClip },
+                new RenderCommand { Type = RenderCommandType.PopOpacityMask }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        bool success = GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            25U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure);
+        Assert.True(success, failure.ToString());
+        Assert.NotNull(compiled);
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(
+            compiled.Stream);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)header.ResourceCount) *
+                        Unsafe.SizeOf<NativeMethods.SceneResource>()));
+        NativeMethods.SceneResource resource = resources.ToArray().Last(
+            static item =>
+                item.Kind == NativeSceneResourceKind.LayerMask &&
+                item.PayloadSize ==
+                    Unsafe.SizeOf<NativeSceneLayerCompositeMask>());
+        var stored = MemoryMarshal.Read<NativeSceneLayerCompositeMask>(
+            compiled.Stream.Slice(checked((int)resource.PayloadOffset)));
+        Assert.Equal(3U, stored.ComponentCount);
+        Assert.Equal(1U, stored.BrushMaskCount);
+        Assert.Equal(1U, stored.GeometryMaskCount);
+        Assert.Equal(1U, stored.GeometryPrimitiveCount);
+        Assert.Equal(1U, stored.PathCount);
+        Assert.Equal(4U, stored.GradientStopCount);
+
+        int auxiliaryOffset = checked((int)resource.AuxiliaryOffset);
+        var brushMask = MemoryMarshal.Read<NativeSceneLayerBrushMask>(
+            compiled.Stream.Slice(auxiliaryOffset));
+        auxiliaryOffset += Unsafe.SizeOf<NativeSceneLayerBrushMask>();
+        var geometryMask = MemoryMarshal.Read<NativeSceneLayerGeometryMask>(
+            compiled.Stream.Slice(auxiliaryOffset));
+        auxiliaryOffset += Unsafe.SizeOf<NativeSceneLayerGeometryMask>();
+        var primitive = MemoryMarshal.Read<NativeGeometryPrimitive>(
+            compiled.Stream.Slice(auxiliaryOffset));
+        Assert.Equal(2U, brushMask.Brush.StopOffset);
+        Assert.Equal(0U, geometryMask.Brush.StopOffset);
+        Assert.Equal(0U, geometryMask.PrimitiveOffset);
+        Assert.Equal(1U, geometryMask.PrimitiveCount);
+        Assert.Equal(NativeGeometryPrimitiveKind.Line, primitive.Kind);
+        Assert.Equal(4f, primitive.StrokeThickness);
+    }
+
+    [Fact]
     public void CompilerFlattensNestedPicturesWithOwnerBuffersAndTransforms()
     {
         var fill = new SolidColorBrush(new Vector4(0.8f, 0.2f, 0.1f, 1f));

@@ -2729,7 +2729,7 @@ or sampling. The retained shaping CPU gap is closed for this representative
 Latin workload; complex-script differentials and final paragraph qualification
 remain separate release gates.
 
-## GPU-generated brush-mask checkpoint
+## GPU-generated opacity-mask checkpoint
 
 The managed picture compiler now snapshots transformed solid and supported
 gradient/procedural opacity brushes into one fixed 320-byte mask record plus
@@ -2753,19 +2753,23 @@ the wider mask-heavy picture benchmark rather than a claim based on this small
 correctness fixture.
 
 The nested continuation keeps that single-mask fast path and adds a fixed
-48-byte composite prefix for two to 64 arbitrary brush/vector components. Its
-pointer-free auxiliary arena stores canonical 320-byte brush-mask records, at
+48-byte composite prefix for two to 64 arbitrary brush, stroked-geometry, or
+vector components. Its pointer-free auxiliary arena stores canonical 320-byte
+brush-mask and 336-byte geometry-mask records, retained stroke primitives, at
 most one cumulative vector chain, and one shared stop table. Changed-scene
 validation is linear in those retained records. Each component is generated in
 R8 and shared `ClipCompose.wgsl` multiplies the coverage entirely on the GPU;
 no coverage bytes cross the ABI. The conservative preflight budget includes all
 component textures plus two ping-pong attachments. The current changed-scene
 implementation intentionally favors exactness and bounded lifetime over a
-premature fused-material shader: two brush components require three generation
-submissions plus the scene submission. Stable replay still requires exactly one
+premature fused-material shader: the current two-brush plus stroked-geometry
+fixture requires four generation submissions plus the scene submission. Stable
+replay still requires exactly one
 submission and zero vertex, texture, uniform, brush, or stop upload. The real
-Dawn/Metal and Chromium fixtures now run this two-brush product and check half-
-scaled midpoint/right-edge pixels. No timing comparison is claimed from the
+Dawn/Metal and Chromium fixtures run this three-component product; Dawn checks
+half-scaled midpoint/right-edge pixels plus the explicit padded stroke bounds,
+while Chromium checks successful GPU execution and stable zero-upload replay.
+No timing comparison is claimed from the
 `64x48` correctness fixture.
 
 The matched wider checkpoint used the exact local Release C++ library on Apple
@@ -2797,3 +2801,34 @@ The changed scene still uses one submission per component plus one composition
 submission before the scene submission; a later matched changed-scene profile
 must determine whether fusing component generation into one command buffer is
 material. No fusion benefit is claimed from the stable benchmark.
+
+The stroked-path continuation adds one gradient round-join path mask around the
+same two nested brush masks and directly reuses the managed general-stroke
+geometry. The Apple M3 Pro/Metal Release comparison again used 192
+deterministic public-picture primitives, 100 alternating warm-up pairs, 500
+alternating synchronized frames per run, and five independent runs. The
+median-of-run results were:
+
+| Metric | Native C++ | Managed compositor |
+|---|---:|---:|
+| p50 CPU submission | 0.0623 ms | 0.3492 ms |
+| p50 GPU-complete total | 2.5825 ms | 2.8822 ms |
+| p95 GPU-complete total | 2.7489 ms | 3.4420 ms |
+| p99 GPU-complete total | 2.8345 ms | 3.6359 ms |
+| Managed allocation / stable frame | 0 bytes | 0 bytes |
+
+Native CPU submission is 5.61 times lower; native GPU-complete p50, p95, and
+p99 are respectively 10.4%, 20.1%, and 22.0% lower for this retained workload.
+Native p50 ranged 2.5798--2.5852 ms and managed p50 ranged
+2.8736--2.8920 ms. Every run retained one native submission and zero vertex,
+index, texture, uniform, coverage, brush, gradient-stop, text-style, or color-
+glyph upload. The deterministic 960-by-540 output reported a maximum channel
+delta of 6/255, 30 of 518,400 pixels over 3/255, and mean absolute channel
+delta 0.00980613/255; inspection of the native, managed, and 32-times
+difference images confines the residual to antialiased boundaries. Ignored
+evidence is stored under
+`artifacts/progpu-native/benchmarks/composite-mask/stroked-repeats/` and
+`artifacts/progpu-native/differential/managed-picture-composite-mask/`.
+This remains a stable-replay Metal checkpoint rather than the final
+cross-platform or Instruments qualification; immutable materialization is
+covered separately by Dawn/Metal and Chromium integration assertions.
