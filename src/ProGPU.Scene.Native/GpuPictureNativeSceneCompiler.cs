@@ -191,23 +191,67 @@ public static partial class GpuPictureNativeSceneCompiler
         }
     }
 
+    private enum StateMaskProgramKind
+    {
+        Analytic,
+        Vector,
+        Brush
+    }
+
     private readonly record struct StateMaskProgram(
+        StateMaskProgramKind Kind,
         int Count,
         NativeSceneLayerMask Mask0,
         NativeSceneLayerMask Mask1,
         NativeSceneLayerMask Mask2,
         NativeSceneLayerMask Mask3,
-        VectorMaskNode VectorMask)
+        VectorMaskNode? VectorMask,
+        NativeSceneLayerBrushMask BrushMask,
+        NativeSceneGradientStop[]? BrushStops)
     {
         public StateMaskProgram(
             NativeSceneLayerMask mask,
             VectorMaskNode vectorMask)
-            : this(1, mask, default, default, default, vectorMask)
+            : this(
+                StateMaskProgramKind.Analytic,
+                1,
+                mask,
+                default,
+                default,
+                default,
+                vectorMask,
+                default,
+                null)
         {
         }
 
         public StateMaskProgram(VectorMaskNode vectorMask)
-            : this(0, default, default, default, default, vectorMask)
+            : this(
+                StateMaskProgramKind.Vector,
+                0,
+                default,
+                default,
+                default,
+                default,
+                vectorMask,
+                default,
+                null)
+        {
+        }
+
+        public StateMaskProgram(
+            in NativeSceneLayerBrushMask brushMask,
+            NativeSceneGradientStop[] brushStops)
+            : this(
+                StateMaskProgramKind.Brush,
+                0,
+                default,
+                default,
+                default,
+                default,
+                null,
+                brushMask,
+                brushStops)
         {
         }
 
@@ -216,6 +260,11 @@ public static partial class GpuPictureNativeSceneCompiler
             VectorMaskNode vectorMask,
             out StateMaskProgram result)
         {
+            if (Kind != StateMaskProgramKind.Analytic)
+            {
+                result = this;
+                return false;
+            }
             result = Count switch
             {
                 1 => this with
@@ -251,21 +300,30 @@ public static partial class GpuPictureNativeSceneCompiler
             return new NativeSceneLayerMaskChain(masks);
         }
 
-        public int SerializedSize => Count > 0
-            ? Count == 1
+        public int SerializedSize => Kind switch
+        {
+            StateMaskProgramKind.Analytic => Count == 1
                 ? Unsafe.SizeOf<NativeSceneLayerMask>()
-                : Unsafe.SizeOf<NativeSceneLayerMaskChain>()
-            : checked(
+                : Unsafe.SizeOf<NativeSceneLayerMaskChain>(),
+            StateMaskProgramKind.Vector => checked(
                 Unsafe.SizeOf<NativeSceneLayerVectorMask>() +
-                VectorMask.Count * Unsafe.SizeOf<NativeSceneClipPath>() +
-                VectorMask.SegmentCount * Unsafe.SizeOf<NativePathSegment>() +
-                VectorMask.BooleanNodeCount *
-                    Unsafe.SizeOf<NativeScenePathBooleanNode>());
+                (VectorMask?.Count ?? 0) *
+                    Unsafe.SizeOf<NativeSceneClipPath>() +
+                (VectorMask?.SegmentCount ?? 0) *
+                    Unsafe.SizeOf<NativePathSegment>() +
+                (VectorMask?.BooleanNodeCount ?? 0) *
+                    Unsafe.SizeOf<NativeScenePathBooleanNode>()),
+            StateMaskProgramKind.Brush => checked(
+                Unsafe.SizeOf<NativeSceneLayerBrushMask>() +
+                (BrushStops?.Length ?? 0) *
+                    Unsafe.SizeOf<NativeSceneGradientStop>()),
+            _ => throw new InvalidOperationException("Unknown state mask program.")
+        };
 
         public byte[] CreateVectorAuxiliary(
             out NativeSceneLayerVectorMask mask)
         {
-            if (Count != 0)
+            if (Kind != StateMaskProgramKind.Vector || VectorMask is null)
             {
                 throw new InvalidOperationException(
                     "Only vector mask programs have a vector auxiliary span.");
@@ -863,7 +921,8 @@ public static partial class GpuPictureNativeSceneCompiler
                 StateMaskProgram program = maskSpan[index];
                 ulong resourceId = nextResourceId++;
                 bool added;
-                if (program.Count == 1)
+                if (program.Kind == StateMaskProgramKind.Analytic &&
+                    program.Count == 1)
                 {
                     NativeSceneLayerMask mask = program.Mask0;
                     added = builder.TryAddLayerMaskResource(
@@ -872,7 +931,7 @@ public static partial class GpuPictureNativeSceneCompiler
                         in mask,
                         out maskResourceIndices[index]);
                 }
-                else if (program.Count > 1)
+                else if (program.Kind == StateMaskProgramKind.Analytic)
                 {
                     NativeSceneLayerMaskChain chain = program.ToChain();
                     added = builder.TryAddLayerMaskChainResource(
@@ -881,7 +940,7 @@ public static partial class GpuPictureNativeSceneCompiler
                         in chain,
                         out maskResourceIndices[index]);
                 }
-                else
+                else if (program.Kind == StateMaskProgramKind.Vector)
                 {
                     byte[] auxiliary = program.CreateVectorAuxiliary(
                         out NativeSceneLayerVectorMask vectorMask);
@@ -890,6 +949,18 @@ public static partial class GpuPictureNativeSceneCompiler
                         generation,
                         in vectorMask,
                         auxiliary,
+                        out maskResourceIndices[index]);
+                }
+                else
+                {
+                    NativeSceneGradientStop[] stops =
+                        program.BrushStops ?? [];
+                    NativeSceneLayerBrushMask brushMask = program.BrushMask;
+                    added = builder.TryAddLayerBrushMaskResource(
+                        resourceId,
+                        generation,
+                        in brushMask,
+                        stops,
                         out maskResourceIndices[index]);
                 }
                 if (!added)
@@ -1158,9 +1229,10 @@ public static partial class GpuPictureNativeSceneCompiler
                     states,
                     operations);
             case RenderCommandType.PushOpacityMask:
-                if (!TryGetSolidOpacityMaskState(
+                if (!TryGetOpacityMaskState(
                         command,
                         current,
+                        stateMasks,
                         out StateSnapshot maskState,
                         out error))
                 {

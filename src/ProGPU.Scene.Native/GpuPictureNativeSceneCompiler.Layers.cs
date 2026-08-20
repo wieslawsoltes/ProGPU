@@ -21,6 +21,12 @@ public static partial class GpuPictureNativeSceneCompiler
             error = NativePictureCompileError.UnsupportedCommand;
             return false;
         }
+        if (current.MaskIndex >= 0 &&
+            stateMasks[current.MaskIndex].Kind == StateMaskProgramKind.Brush)
+        {
+            error = NativePictureCompileError.UnsupportedCommand;
+            return false;
+        }
         if (!TryGetAffine(command.Transform, out Matrix3x2 transform))
         {
             error = NativePictureCompileError.UnsupportedTransform;
@@ -83,7 +89,8 @@ public static partial class GpuPictureNativeSceneCompiler
 
         bool requiresVector = !canonical ||
             (current.MaskIndex >= 0 &&
-                stateMasks[current.MaskIndex].Count == 0) ||
+                stateMasks[current.MaskIndex].Kind ==
+                    StateMaskProgramKind.Vector) ||
             (current.MaskIndex >= 0 &&
                 stateMasks[current.MaskIndex].Count >=
                     NativeSceneLayerMaskChain.MaximumMaskCount);
@@ -448,48 +455,90 @@ public static partial class GpuPictureNativeSceneCompiler
                     source.Pad2 == 0U);
     }
 
-    private static bool TryGetSolidOpacityMaskState(
+    private static bool TryGetOpacityMaskState(
         in RenderCommand command,
         StateSnapshot current,
+        List<StateMaskProgram> stateMasks,
         out StateSnapshot next,
         out NativePictureCompileError error)
     {
         next = current;
         error = NativePictureCompileError.None;
         if (command.Picture is not null || command.Path is not null ||
-            command.Brush is not SolidColorBrush solid)
+            command.Brush is null)
         {
             error = NativePictureCompileError.UnsupportedCommand;
             return false;
         }
         if (!IsFiniteRect(command.Rect) || command.Rect.IsEmpty ||
-            !TryGetAffine(command.Transform, out Matrix3x2 transform) ||
-            !IsAxisAlignedClipTransform(transform))
+            !TryGetAffine(command.Transform, out Matrix3x2 transform))
         {
             error = NativePictureCompileError.InvalidState;
             return false;
         }
 
-        float sourceAlpha = solid.Color.W * solid.Opacity;
-        if (!float.IsFinite(solid.Color.W) ||
-            !float.IsFinite(solid.Opacity) ||
-            !float.IsFinite(sourceAlpha))
+        if (command.Brush is SolidColorBrush solid &&
+            IsAxisAlignedClipTransform(transform))
         {
-            error = NativePictureCompileError.InvalidState;
+            float sourceAlpha = solid.Color.W * solid.Opacity;
+            if (!float.IsFinite(solid.Color.W) ||
+                !float.IsFinite(solid.Opacity) ||
+                !float.IsFinite(sourceAlpha))
+            {
+                error = NativePictureCompileError.InvalidState;
+                return false;
+            }
+            float alpha = Math.Clamp(sourceAlpha, 0f, 1f);
+            NativeImageRect clip = TransformBounds(command.Rect, transform);
+            if (current.HasClip)
+            {
+                clip = Intersect(current.ClipRect, clip);
+            }
+            next = current with
+            {
+                Opacity = current.Opacity * alpha,
+                HasClip = true,
+                ClipRect = clip
+            };
+            return true;
+        }
+
+        if (current.MaskIndex >= 0)
+        {
+            error = NativePictureCompileError.UnsupportedCommand;
             return false;
         }
-        float alpha = Math.Clamp(sourceAlpha, 0f, 1f);
-        NativeImageRect clip = TransformBounds(command.Rect, transform);
-        if (current.HasClip)
+        float determinant = transform.GetDeterminant();
+        if (!float.IsFinite(determinant) ||
+            MathF.Abs(determinant) <= 0.000001f ||
+            !Matrix3x2.Invert(transform, out Matrix3x2 inverse) ||
+            !IsFinite(inverse))
         {
-            clip = Intersect(current.ClipRect, clip);
+            error = NativePictureCompileError.UnsupportedTransform;
+            return false;
         }
-        next = current with
+
+        var snapshot = new NativeBrushTableBuilder();
+        if (!snapshot.TrySnapshot(
+                command.Brush,
+                out NativeSceneBrush nativeBrush,
+                out NativeSceneGradientStop[] stops,
+                out error))
         {
-            Opacity = current.Opacity * alpha,
-            HasClip = true,
-            ClipRect = clip
-        };
+            return false;
+        }
+        var mask = new NativeSceneLayerBrushMask(
+            new NativeImageRect(
+                command.Rect.X,
+                command.Rect.Y,
+                command.Rect.Width,
+                command.Rect.Height),
+            transform,
+            in nativeBrush,
+            checked((uint)stops.Length));
+        int maskIndex = stateMasks.Count;
+        stateMasks.Add(new StateMaskProgram(in mask, stops));
+        next = current with { MaskIndex = maskIndex };
         return true;
     }
 }

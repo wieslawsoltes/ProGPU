@@ -6,6 +6,7 @@
 #include "progpu_native_semantic_backdrop_scene.hpp"
 #include "progpu_native_semantic_color_glyph_scene.hpp"
 #include "progpu_native_semantic_coverage_mask_scene.hpp"
+#include "progpu_native_semantic_brush_mask_scene.hpp"
 #include "progpu_native_semantic_geometry_scene.hpp"
 #include "progpu_native_semantic_image_scene.hpp"
 #include "progpu_native_semantic_rounded_mask_scene.hpp"
@@ -1361,6 +1362,52 @@ bool render_browser_frame(double, void*) {
         vector_mask_metrics.vertex_upload_bytes != 0U ||
         vector_mask_metrics.uniform_upload_bytes != 0U) {
         fail_engine("The stable browser GPU vector mask was rebuilt.");
+    }
+
+    auto brush_mask_scene =
+        progpu::native::tests::create_semantic_brush_mask_scene_stream(
+            width,
+            height);
+    progpu_native_scene_metrics brush_mask_scene_metrics{};
+    brush_mask_scene_metrics.struct_size =
+        sizeof(brush_mask_scene_metrics);
+    if (progpu_native_engine_update_scene(
+            resources.engine,
+            brush_mask_scene.data(),
+            brush_mask_scene.size(),
+            &brush_mask_scene_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        brush_mask_scene_metrics.command_count != 3U ||
+        brush_mask_scene_metrics.resource_count != 2U ||
+        brush_mask_scene_metrics.draw_count != 1U) {
+        fail_engine("The browser brush-mask scene update failed.");
+    }
+    semantic_frame.scene_id = 106U;
+    semantic_frame.generation = 1U;
+    progpu_native_scene_frame_metrics brush_mask_metrics{};
+    brush_mask_metrics.struct_size = sizeof(brush_mask_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &brush_mask_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        brush_mask_metrics.command_count != 3U ||
+        brush_mask_metrics.draw_call_count != 2U ||
+        brush_mask_metrics.submission_count != 2U ||
+        brush_mask_metrics.texture_upload_bytes != 0U ||
+        brush_mask_metrics.uniform_upload_bytes <
+            24U * sizeof(float)) {
+        fail_engine("The browser GPU-generated brush-mask render failed.");
+    }
+    brush_mask_metrics = {};
+    brush_mask_metrics.struct_size = sizeof(brush_mask_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &brush_mask_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        brush_mask_metrics.submission_count != 1U ||
+        brush_mask_metrics.texture_upload_bytes != 0U ||
+        brush_mask_metrics.vertex_upload_bytes != 0U ||
+        brush_mask_metrics.uniform_upload_bytes != 0U) {
+        fail_engine("The stable browser GPU brush mask was rebuilt.");
     }
 
     auto coverage_scene =

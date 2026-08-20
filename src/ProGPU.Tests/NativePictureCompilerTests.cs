@@ -2252,13 +2252,12 @@ public class NativePictureCompilerTests
             Array.Empty<Line3D>(),
             Array.Empty<float>());
 
-        bool success = GpuPictureNativeSceneCompiler.TryCompile(
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
             picture,
             1U,
             1U,
             out NativeCompiledPicture? compiled,
-            out NativePictureCompileFailure failure);
-        Assert.True(success, failure.ToString());
+            out NativePictureCompileFailure failure));
         Assert.Equal(NativePictureCompileFailure.None, failure);
         Assert.NotNull(compiled);
         var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(
@@ -2336,12 +2335,13 @@ public class NativePictureCompilerTests
             Array.Empty<Line3D>(),
             Array.Empty<float>());
 
-        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+        bool success = GpuPictureNativeSceneCompiler.TryCompile(
             picture,
             1U,
             1U,
             out NativeCompiledPicture? compiled,
-            out NativePictureCompileFailure failure));
+            out NativePictureCompileFailure failure);
+        Assert.True(success, failure.ToString());
         Assert.Equal(NativePictureCompileFailure.None, failure);
         Assert.NotNull(compiled);
         var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(
@@ -2732,7 +2732,7 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
-    public void CompilerFailsClosedForNonSolidOpacityMask()
+    public void CompilerLowersGradientOpacityMaskToGpuGeneratedNativeMask()
     {
         var gradient = new LinearGradientBrush(
             Vector2.Zero,
@@ -2750,6 +2750,13 @@ public class NativePictureCompilerTests
                     Rect = new Rect(0f, 0f, 10f, 10f),
                     Transform = Matrix4x4.Identity
                 },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Rect = new Rect(0f, 0f, 10f, 10f),
+                    Transform = Matrix4x4.Identity
+                },
                 new RenderCommand { Type = RenderCommandType.PopOpacityMask }
             ],
             Array.Empty<Vector2>(),
@@ -2757,20 +2764,48 @@ public class NativePictureCompilerTests
             Array.Empty<Line3D>(),
             Array.Empty<float>());
 
-        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+        bool success = GpuPictureNativeSceneCompiler.TryCompile(
             picture,
             1U,
             1U,
             out NativeCompiledPicture? compiled,
-            out NativePictureCompileFailure failure));
-        Assert.Null(compiled);
-        Assert.Equal(NativePictureCompileError.UnsupportedCommand, failure.Error);
-        Assert.Equal(0, failure.CommandIndex);
-        Assert.Equal(RenderCommandType.PushOpacityMask, failure.CommandType);
+            out NativePictureCompileFailure failure);
+        Assert.True(success, failure.ToString());
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(
+            compiled.Stream);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)header.ResourceCount) *
+                        Unsafe.SizeOf<NativeMethods.SceneResource>()));
+        NativeMethods.SceneResource resource = Assert.Single(
+            resources.ToArray(),
+            static item =>
+                item.Kind == NativeSceneResourceKind.LayerMask &&
+                item.PayloadSize == Unsafe.SizeOf<NativeSceneLayerBrushMask>());
+        var stored = MemoryMarshal.Read<NativeSceneLayerBrushMask>(
+            compiled.Stream.Slice(checked((int)resource.PayloadOffset)));
+        Assert.Equal(NativeSceneLayerMaskKind.Brush, stored.Kind);
+        Assert.Equal(2U, stored.GradientStopCount);
+        Assert.Equal(NativeSceneBrushKind.LinearGradient, stored.Brush.Kind);
+        Assert.Equal(2U, stored.Brush.StopCount);
+        Assert.Equal(0U, stored.Brush.StopOffset);
+        ReadOnlySpan<NativeSceneGradientStop> stops = MemoryMarshal.Cast<
+            byte,
+            NativeSceneGradientStop>(compiled.Stream.Slice(
+                checked((int)resource.AuxiliaryOffset),
+                checked((int)resource.AuxiliarySize)));
+        Assert.Equal(2, stops.Length);
+        Assert.Equal(0f, stops[0].Offset);
+        Assert.Equal(1f, stops[1].Offset);
     }
 
     [Fact]
-    public void CompilerFailsClosedForRotatedSolidOpacityMask()
+    public void CompilerLowersRotatedSolidOpacityMaskToGpuGeneratedNativeMask()
     {
         using var picture = new GpuPicture(
             [
@@ -2781,6 +2816,13 @@ public class NativePictureCompilerTests
                     Rect = new Rect(0f, 0f, 10f, 10f),
                     Transform = Matrix4x4.CreateRotationZ(0.2f)
                 },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Rect = new Rect(0f, 0f, 10f, 10f),
+                    Transform = Matrix4x4.Identity
+                },
                 new RenderCommand { Type = RenderCommandType.PopOpacityMask }
             ],
             Array.Empty<Vector2>(),
@@ -2788,16 +2830,26 @@ public class NativePictureCompilerTests
             Array.Empty<Line3D>(),
             Array.Empty<float>());
 
-        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+        bool success = GpuPictureNativeSceneCompiler.TryCompile(
             picture,
             1U,
             1U,
             out NativeCompiledPicture? compiled,
-            out NativePictureCompileFailure failure));
-        Assert.Null(compiled);
-        Assert.Equal(NativePictureCompileError.InvalidState, failure.Error);
-        Assert.Equal(0, failure.CommandIndex);
-        Assert.Equal(RenderCommandType.PushOpacityMask, failure.CommandType);
+            out NativePictureCompileFailure failure);
+        Assert.True(success, failure.ToString());
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(
+            compiled.Stream);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)header.ResourceCount) *
+                        Unsafe.SizeOf<NativeMethods.SceneResource>()));
+        Assert.Contains(resources.ToArray(), static item =>
+            item.Kind == NativeSceneResourceKind.LayerMask &&
+            item.PayloadSize == Unsafe.SizeOf<NativeSceneLayerBrushMask>());
     }
 
     [Fact]

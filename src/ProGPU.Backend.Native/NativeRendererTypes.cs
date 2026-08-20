@@ -488,7 +488,8 @@ public enum NativeSceneLayerMaskKind : uint
     RoundedRectangle = 1,
     CoverageBitmap = 2,
     AnalyticChain = 3,
-    VectorClipChain = 4
+    VectorClipChain = 4,
+    Brush = 5
 }
 
 public enum NativeSceneCommandKind : uint
@@ -1659,6 +1660,44 @@ public readonly struct NativeSceneLayerVectorMask
     private readonly uint Reserved1;
 
     internal bool HasCanonicalReservedFields => Reserved1 == 0U;
+}
+
+/// <summary>
+/// Pointer-free retained brush opacity mask. The auxiliary resource span owns
+/// exactly <see cref="GradientStopCount"/> canonical gradient-stop records.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneLayerBrushMask
+{
+    public NativeSceneLayerBrushMask(
+        NativeImageRect bounds,
+        Matrix3x2 transform,
+        in NativeSceneBrush brush,
+        uint gradientStopCount,
+        float opacity = 1f)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneLayerBrushMask>();
+        Kind = NativeSceneLayerMaskKind.Brush;
+        Flags = 0U;
+        GradientStopCount = gradientStopCount;
+        Bounds = bounds;
+        Transform = transform;
+        Opacity = opacity;
+        Reserved0 = 0U;
+        Brush = brush;
+    }
+
+    public readonly uint StructSize;
+    public readonly NativeSceneLayerMaskKind Kind;
+    public readonly uint Flags;
+    public readonly uint GradientStopCount;
+    public readonly NativeImageRect Bounds;
+    public readonly Matrix3x2 Transform;
+    public readonly float Opacity;
+    private readonly uint Reserved0;
+    public readonly NativeSceneBrush Brush;
+
+    internal bool HasCanonicalReservedFields => Reserved0 == 0U;
 }
 
 /// <summary>

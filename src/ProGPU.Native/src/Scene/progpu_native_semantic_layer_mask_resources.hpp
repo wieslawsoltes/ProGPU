@@ -32,5 +32,12 @@ bool create_semantic_vector_mask_binding(
     float dpi_scale,
     semantic_render_bundle_span& operation);
 
+bool create_semantic_brush_mask_binding(
+    progpu_native_engine& engine,
+    const semantic::semantic_layer_mask& parsed,
+    const semantic::scissor& target_extent,
+    float dpi_scale,
+    semantic_render_bundle_span& operation);
+
 } // namespace execution
 } // namespace progpu::native

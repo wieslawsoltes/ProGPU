@@ -9,7 +9,7 @@ always returns a typed failure without partially committing a scene.
 | Route | Commands | Current boundary |
 | --- | --- | --- |
 | Direct draw | Rect, ordinary and combined path fill, exact general-path stroke, text, image, analytic geometry, polyline/spline, point/mesh/chart, glyph, and 3D line/mesh families | Combined fills retain the canonical bounded GPU postfix program. Combined-boundary strokes remain a typed exclusion because the managed renderer has no exact combined-stroke contract; operand-outline approximation is forbidden. |
-| State scope | Clip, opacity, geometry-mask, opacity-mask, and blend push/pop | Canonical affine rectangles/rounded rectangles use the 1–4-node analytic fast path. Arbitrary line/quadratic/cubic/arc geometry, combined-path boolean clips, and 5–64 nested intersect/difference clips use retained GPU vector masks. Solid opacity folding is implemented; gradient/picture opacity-mask content remains a typed exclusion. |
+| State scope | Clip, opacity, geometry-mask, opacity-mask, and blend push/pop | Canonical affine rectangles/rounded rectangles use the 1–4-node analytic fast path. Arbitrary line/quadratic/cubic/arc geometry, combined-path boolean clips, and 5–64 nested intersect/difference clips use retained GPU vector masks. Axis-aligned solid opacity folds into state; transformed solid, linear/radial/conical/sweep gradient, hatch, and Perlin brush masks retain the exact 256-byte material plus stop arena and generate R8 coverage through shared `Vector.wgsl`. Nested brush masks and retained-picture mask content remain typed exclusions. |
 | Nested picture | `DrawPicture` | Immutable retained children are recursively flattened with state-boundary validation. |
 | Built-in extension | `DrawExtension` | Line/spline/chart/3D/hatch built-ins are selected by stable extension ID; hatch boundaries reuse retained path batches and shared hatch material kinds, while unknown or object-backed extensions fail closed. |
 | Explicitly unsupported | `DrawStaticDxf`, `DrawVisual` | Static DXF and embedded visual commands retain live managed/GPU ownership and cannot enter the pointer-free immutable scene contract. |
@@ -33,6 +33,36 @@ materialization or extra texture pass.
 This inventory distinguishes parity work from intentional ownership
 boundaries; it must not be used to convert an unsupported command into a silent
 no-op or an approximate fallback.
+
+## GPU-generated brush opacity masks
+
+This route directly ports the ProGPU-owned managed brush snapshot and opacity-
+mask semantics. `progpu_native.h` owns one fixed 320-byte pointer-free mask
+record: logical bounds, a full invertible affine, scalar opacity, and the exact
+canonical 256-byte brush ABI. Its auxiliary span contains only the resource-
+local 32-byte gradient records required by that brush; offsets are rebased to
+zero before crossing the managed/native boundary. C# and C++ validate the same
+kind, range, finiteness, ordering, and reserved-zero contract.
+
+C++ expands one bounded rectangle when the immutable mask changes, evaluates
+the existing production `Vector.wgsl` `fs_mask_unmasked` entry point into a
+filterable `R8Unorm` attachment, and samples that GPU result from the existing
+masked vector/text/image/layer pipelines. No brush is evaluated on the CPU and
+no mask pixels cross the ABI. Generation submits once before the scene pass;
+the command buffer owns its transient vertex/index/material resources through
+completion, while retained replay keeps only the R8 texture, view, sampling
+uniform, and bind group. Stable replay is one submission with zero retained
+vertex, texture, uniform, brush, or gradient-stop upload.
+
+The managed compiler keeps the existing axis-aligned solid opacity/clip fold
+because it is exact and avoids an offscreen texture. Other supported brush
+kinds and rotated/sheared solids use the GPU mask. A brush mask cannot yet be
+combined with another active brush/vector mask or retained-picture mask; those
+cases fail with `UnsupportedCommand` rather than changing overlap semantics.
+The Dawn/Metal fixture verifies transparent, partial-alpha, and opaque gradient
+pixels plus GPU completion. The Emscripten/Chromium fixture builds and executes
+the same C++ sources and canonical shader, requires two initial submissions,
+and requires one zero-upload submission on stable replay.
 
 The arbitrary clip route is a direct cross-language port of ProGPU-owned
 `Compositor.PushGeometryMask` and `PathAtlas.CompileFillPath` behavior. The

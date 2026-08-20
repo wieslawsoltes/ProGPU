@@ -40,6 +40,7 @@ bool ensure_analytic_brush_buffer(
 bool create_analytic_pipeline(progpu_native_engine& engine);
 bool create_analytic_bind_group_layouts(progpu_native_engine& engine);
 bool create_analytic_masked_pipeline(progpu_native_engine& engine);
+bool create_analytic_brush_mask_pipeline(progpu_native_engine& engine);
 bool create_text_pipeline(progpu_native_engine& engine);
 bool create_text_masked_pipeline(progpu_native_engine& engine);
 bool create_semantic_vector_mask_chain_pipeline(progpu_native_engine& engine);

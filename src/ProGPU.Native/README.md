@@ -823,7 +823,11 @@ color-glyph fixture validates the decoded-RGBA resource on wasm32, executes the
 production color-atlas branch of `Text.wgsl`, requires the exact 16-byte first
 upload, and requires zero color-atlas/vertex/coverage upload on stable replay.
 Independent mask fixtures then verify both isolated-layer and exact per-draw
-semantics. The state-mask fixture binds one transformed analytic rounded mask
+semantics. A GPU-generated brush-mask fixture uses the shared production
+`Vector.wgsl` material program to rasterize a retained linear gradient into
+`R8Unorm`: its first frame requires the generation plus scene submissions with
+zero texture upload, while stable replay requires one submission and zero
+vertex, texture, or uniform upload. The state-mask fixture binds one transformed analytic rounded mask
 to two overlapping translucent rectangles in one vector batch: three semantic
 commands, three typed resources, one GPU draw, exact premultiplied overlap
 pixels, and zero-upload replay. A second state-mask fixture binds one retained

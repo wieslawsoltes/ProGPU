@@ -14,6 +14,7 @@ bool semantic_layer_coverage_mask_is_exact_and_bounded() {
     static_assert(sizeof(progpu_native_scene_layer_coverage_mask) == 80U);
     static_assert(sizeof(progpu_native_scene_layer_mask_chain) == 432U);
     static_assert(sizeof(progpu_native_scene_layer_vector_mask) == 32U);
+    static_assert(sizeof(progpu_native_scene_layer_brush_mask) == 320U);
     static_assert(sizeof(progpu_native_scene_clip_path) == 88U);
     static_assert(sizeof(progpu_native_scene_path_boolean_node) == 48U);
     constexpr std::size_t coverage_size = 16U;
@@ -209,8 +210,75 @@ bool semantic_layer_coverage_mask_is_exact_and_bounded() {
     }
     nodes[2].kind = PROGPU_NATIVE_PATH_BOOLEAN_LEAF;
     std::memcpy(boolean_bytes.data() + offset, nodes.data(), sizeof(nodes));
+    if (semantic::validate_layer_mask_resource(
+            boolean_bytes.data(), resource, error_offset)) {
+        return false;
+    }
+
+    constexpr std::size_t brush_stop_count = 2U;
+    constexpr std::size_t brush_auxiliary_size =
+        brush_stop_count * sizeof(progpu_native_scene_gradient_stop);
+    std::array<std::byte,
+        sizeof(progpu_native_scene_layer_brush_mask) +
+            brush_auxiliary_size> brush_bytes{};
+    progpu_native_scene_layer_brush_mask brush_mask{};
+    brush_mask.struct_size = sizeof(brush_mask);
+    brush_mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH;
+    brush_mask.gradient_stop_count = brush_stop_count;
+    brush_mask.bounds = {1.0F, 2.0F, 40.0F, 20.0F};
+    brush_mask.transform = {1.0F, 0.25F, -0.1F, 1.0F, 3.0F, 4.0F};
+    brush_mask.opacity = 0.75F;
+    brush_mask.brush.type = PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT;
+    brush_mask.brush.opacity = 0.8F;
+    brush_mask.brush.start_point = {1.0F, 2.0F};
+    brush_mask.brush.end_point = {41.0F, 2.0F};
+    brush_mask.brush.stop_count = brush_stop_count;
+    brush_mask.brush.coordinate_transform0[0] = 1.0F;
+    brush_mask.brush.coordinate_transform1[1] = 1.0F;
+    std::array<progpu_native_scene_gradient_stop, brush_stop_count>
+        brush_stops{};
+    brush_stops[0].color = {1.0F, 1.0F, 1.0F, 1.0F};
+    brush_stops[1].color = {0.0F, 0.0F, 0.0F, 0.0F};
+    brush_stops[1].offset = 1.0F;
+    std::memcpy(brush_bytes.data(), &brush_mask, sizeof(brush_mask));
+    std::memcpy(
+        brush_bytes.data() + sizeof(brush_mask),
+        brush_stops.data(),
+        sizeof(brush_stops));
+    resource.payload_size = sizeof(brush_mask);
+    resource.auxiliary_offset = sizeof(brush_mask);
+    resource.auxiliary_size = brush_auxiliary_size;
+    if (!semantic::validate_layer_mask_resource(
+            brush_bytes.data(), resource, error_offset, &parsed) ||
+        parsed.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH ||
+        parsed.brush.gradient_stop_count != brush_stop_count ||
+        parsed.brush_stops[1].offset != 1.0F) {
+        return false;
+    }
+
+    auto solid_brush_mask = brush_mask;
+    solid_brush_mask.gradient_stop_count = 0U;
+    solid_brush_mask.brush.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+    solid_brush_mask.brush.stop_count = 0U;
+    solid_brush_mask.brush.colors[0] = {1.0F, 1.0F, 1.0F, 0.5F};
+    std::memcpy(
+        brush_bytes.data(),
+        &solid_brush_mask,
+        sizeof(solid_brush_mask));
+    resource.auxiliary_size = 0U;
+    if (!semantic::validate_layer_mask_resource(
+            brush_bytes.data(), resource, error_offset, &parsed) ||
+        parsed.brush.gradient_stop_count != 0U ||
+        parsed.brush.brush.type != PROGPU_NATIVE_SCENE_BRUSH_SOLID ||
+        parsed.brush_stops != nullptr) {
+        return false;
+    }
+
+    brush_mask.brush.stop_offset = 1U;
+    std::memcpy(brush_bytes.data(), &brush_mask, sizeof(brush_mask));
+    resource.auxiliary_size = brush_auxiliary_size;
     return !semantic::validate_layer_mask_resource(
-        boolean_bytes.data(), resource, error_offset);
+        brush_bytes.data(), resource, error_offset);
 }
 
 } // namespace progpu::native::tests

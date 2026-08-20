@@ -1,4 +1,5 @@
 #include "progpu_native_semantic_layer_mask.hpp"
+#include "progpu_native_semantic_brush.hpp"
 #include "progpu_native_path_boolean_validation.hpp"
 
 #include <algorithm>
@@ -201,6 +202,34 @@ bool valid_vector(
     return true;
 }
 
+bool valid_brush_mask(
+    const progpu_native_scene_layer_brush_mask& mask,
+    const progpu_native_scene_gradient_stop* stops,
+    std::uint32_t stop_count,
+    std::uint32_t auxiliary_size) noexcept {
+    const std::uint64_t expected_bytes =
+        static_cast<std::uint64_t>(stop_count) *
+            sizeof(progpu_native_scene_gradient_stop);
+    if (mask.struct_size != sizeof(mask) ||
+        mask.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH ||
+        mask.flags != 0U || mask.gradient_stop_count != stop_count ||
+        semantic_brush_stored_stop_count(mask.brush) != stop_count ||
+        expected_bytes != auxiliary_size ||
+        stop_count > PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS ||
+        !valid_bounds(mask.bounds) || !valid_transform(mask.transform) ||
+        !std::isfinite(mask.opacity) || mask.opacity < 0.0F ||
+        mask.opacity > 1.0F || mask.reserved0 != 0U ||
+        mask.brush.stop_offset != 0U ||
+        (stop_count != 0U && stops == nullptr)) {
+        return false;
+    }
+    return is_valid_semantic_brush(
+        mask.brush,
+        std::span<const progpu_native_scene_gradient_stop>(
+            stops,
+            stop_count));
+}
+
 } // namespace
 
 bool is_valid_semantic_layer_mask(
@@ -239,6 +268,19 @@ bool is_valid_semantic_layer_vector_mask(
             paths.data(),
             segments.data(),
             boolean_nodes.data(),
+            static_cast<std::uint32_t>(auxiliary_size));
+}
+
+bool is_valid_semantic_layer_brush_mask(
+    const progpu_native_scene_layer_brush_mask& mask,
+    std::span<const progpu_native_scene_gradient_stop> stops) noexcept {
+    const std::uint64_t auxiliary_size = stops.size_bytes();
+    return stops.size() <= std::numeric_limits<std::uint32_t>::max() &&
+        auxiliary_size <= std::numeric_limits<std::uint32_t>::max() &&
+        valid_brush_mask(
+            mask,
+            stops.data(),
+            static_cast<std::uint32_t>(stops.size()),
             static_cast<std::uint32_t>(auxiliary_size));
 }
 
@@ -319,6 +361,27 @@ bool validate_layer_mask_resource(
                 result.vector_paths,
                 result.vector_segments,
                 result.vector_boolean_nodes,
+                resource.auxiliary_size)) {
+            return false;
+        }
+    } else if (kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH) {
+        if (resource.payload_size != sizeof(result.brush) ||
+            resource.auxiliary_size %
+                sizeof(progpu_native_scene_gradient_stop) != 0U) {
+            return false;
+        }
+        std::memcpy(&result.brush, bytes + resource.payload_offset,
+            sizeof(result.brush));
+        const std::uint32_t stop_count = resource.auxiliary_size /
+            sizeof(progpu_native_scene_gradient_stop);
+        result.brush_stops = stop_count == 0U
+            ? nullptr
+            : reinterpret_cast<const progpu_native_scene_gradient_stop*>(
+                bytes + resource.auxiliary_offset);
+        if (!valid_brush_mask(
+                result.brush,
+                result.brush_stops,
+                stop_count,
                 resource.auxiliary_size)) {
             return false;
         }

@@ -2728,3 +2728,26 @@ The borrowed views add no font-table copy or per-run allocation. The benchmark
 or sampling. The retained shaping CPU gap is closed for this representative
 Latin workload; complex-script differentials and final paragraph qualification
 remain separate release gates.
+
+## GPU-generated brush-mask checkpoint
+
+The managed picture compiler now snapshots transformed solid and supported
+gradient/procedural opacity brushes into one fixed 320-byte mask record plus
+their exact resource-local stop span. C++ generates coverage with the canonical
+`Vector.wgsl` material program directly into `R8Unorm`; no CPU mask pixels,
+texture upload, per-primitive interop, or shader fork is introduced. The first
+GPU-complete Dawn frame records two draws and two submissions (mask generation,
+then scene rendering). Stable replay records one submission and exactly zero
+vertex, texture, uniform, brush, or gradient-stop upload. Generation buffers
+and their bind group are released immediately after submission; WebGPU command
+ownership keeps them alive only until completion, while the retained scene owns
+the resulting mask texture and sampling binding.
+
+The `64x48` Metal fixture checks the transparent left edge, partial-alpha
+midpoint, opaque right edge, completion token, and zero-upload replay. The same
+C++ source files and production shader compile and execute through
+Emscripten/Emdawnwebgpu in Chromium with identical initial/stable submission
+and upload assertions. This checkpoint establishes the resource and replay
+cost contract; a matched managed/native timing distribution remains part of
+the wider mask-heavy picture benchmark rather than a claim based on this small
+correctness fixture.

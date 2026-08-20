@@ -165,7 +165,8 @@ typedef enum progpu_native_scene_layer_mask_kind {
     PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE = 1,
     PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP = 2,
     PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN = 3,
-    PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN = 4
+    PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN = 4,
+    PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH = 5
 } progpu_native_scene_layer_mask_kind;
 
 enum {
@@ -1237,6 +1238,28 @@ typedef struct progpu_native_scene_gradient_stop {
     uint32_t reserved1;
     uint32_t reserved2;
 } progpu_native_scene_gradient_stop;
+
+/*
+ * Pointer-free retained brush opacity mask. Bounds are mask-local logical
+ * coordinates and transform maps them into logical target coordinates. The
+ * embedded 256-byte brush is the exact canonical Vector.wgsl material record;
+ * StopOffset is resource-local and must be zero. The auxiliary span contains
+ * exactly gradient_stop_count progpu_native_scene_gradient_stop records.
+ * The executor rasterizes the rectangle into an R8 texture entirely on the
+ * GPU through the shared fs_mask_unmasked shader and retains that texture for
+ * stable replay. All flags and reserved fields remain zero.
+ */
+typedef struct progpu_native_scene_layer_brush_mask {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint32_t flags;
+    uint32_t gradient_stop_count;
+    progpu_native_image_rect bounds;
+    progpu_native_affine_2d transform;
+    float opacity;
+    uint32_t reserved0;
+    progpu_native_scene_brush brush;
+} progpu_native_scene_layer_brush_mask;
 
 /*
  * Optional DRAW_ANALYTIC/DRAW_PATH command payload prefix. Exactly

@@ -952,6 +952,67 @@ public ref struct NativeSceneStreamBuilder
             flags);
     }
 
+    /// <summary>
+    /// Adds one retained GPU-generated brush opacity mask. The brush offset is
+    /// local to this resource and its exact stop records live in auxiliary.
+    /// </summary>
+    public bool TryAddLayerBrushMaskResource(
+        ulong resourceId,
+        ulong generation,
+        in NativeSceneLayerBrushMask mask,
+        scoped ReadOnlySpan<NativeSceneGradientStop> gradientStops,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        ReadOnlySpan<NativeSceneBrush> brush =
+            MemoryMarshal.CreateReadOnlySpan(
+                ref Unsafe.AsRef(in mask.Brush),
+                1);
+        uint storedStopCount = mask.Brush.Kind switch
+        {
+            NativeSceneBrushKind.LinearGradient or
+            NativeSceneBrushKind.RadialGradient or
+            NativeSceneBrushKind.TwoPointConicalGradient or
+            NativeSceneBrushKind.SweepGradient => mask.Brush.StopCount,
+            NativeSceneBrushKind.PerlinNoise
+                when mask.Brush.StopCount != 0U &&
+                    mask.Brush.Interpolation ==
+                        NativeSceneGradientInterpolation.ScRgb =>
+                NativeSceneBrush.PerlinTableRecordCount,
+            _ => 0U
+        };
+        if (mask.StructSize != Unsafe.SizeOf<NativeSceneLayerBrushMask>() ||
+            mask.Kind != NativeSceneLayerMaskKind.Brush ||
+            mask.Flags != 0U || !mask.HasCanonicalReservedFields ||
+            mask.GradientStopCount != (uint)gradientStops.Length ||
+            mask.GradientStopCount != storedStopCount ||
+            mask.GradientStopCount > NativeMethods.SceneMaximumGradientStops ||
+            !IsFinitePositive(mask.Bounds) || !IsFinite(mask.Transform) ||
+            !Matrix3x2.Invert(mask.Transform, out Matrix3x2 inverse) ||
+            !IsFinite(inverse) ||
+            MathF.Abs(mask.Transform.GetDeterminant()) <= 0.000001f ||
+            !float.IsFinite(mask.Opacity) ||
+            mask.Opacity is < 0f or > 1f ||
+            mask.Brush.StopOffset != 0U ||
+            !IsValidBrushTable(brush, gradientStops))
+        {
+            return false;
+        }
+
+        return TryAddResource(
+            NativeSceneResourceKind.LayerMask,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(
+                MemoryMarshal.CreateReadOnlySpan(
+                    ref Unsafe.AsRef(in mask),
+                    1)),
+            out resourceIndex,
+            MemoryMarshal.AsBytes(gradientStops),
+            flags);
+    }
+
     public bool TryAddEffectChainResource(
         ulong resourceId,
         ulong generation,

@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace progpu::native::semantic {
@@ -21,6 +22,13 @@ struct semantic_brush_page final {
     std::vector<std::uint32_t> remapped_indices;
     std::vector<semantic_brush_draw> command_draws;
 };
+
+std::uint32_t semantic_brush_stored_stop_count(
+    const progpu_native_scene_brush& brush) noexcept;
+
+bool is_valid_semantic_brush(
+    const progpu_native_scene_brush& brush,
+    std::span<const progpu_native_scene_gradient_stop> stops) noexcept;
 
 bool validate_brush_table(
     const std::byte* bytes,

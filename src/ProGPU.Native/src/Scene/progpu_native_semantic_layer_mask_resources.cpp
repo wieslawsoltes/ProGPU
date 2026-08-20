@@ -360,7 +360,7 @@ bool create_semantic_vector_mask_binding(
             1.0F / static_cast<float>(target_extent.height);
         uniforms.options[0] = 1.0F;
         uniforms.options[1] = parsed.vector.opacity;
-        uniforms.options[2] = 1.0F;
+        uniforms.options[2] = 0.0F;
         uniforms.options[3] = 1.0F;
         WGPUBufferDescriptor buffer_descriptor{};
         buffer_descriptor.label = webgpu::string_view(

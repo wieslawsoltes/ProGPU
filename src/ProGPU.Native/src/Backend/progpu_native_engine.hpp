@@ -51,6 +51,7 @@ struct progpu_native_engine {
     WGPURenderPipeline analytic_pipeline = nullptr;
     WGPURenderPipeline analytic_masked_pipeline = nullptr;
     WGPURenderPipeline analytic_mask_chain_pipeline = nullptr;
+    WGPURenderPipeline analytic_brush_mask_pipeline = nullptr;
     WGPUBindGroupLayout uniform_layout = nullptr;
     WGPUBindGroupLayout analytic_uniform_layout = nullptr;
     WGPUBindGroupLayout analytic_atlas_layout = nullptr;
@@ -1573,6 +1574,9 @@ struct progpu_native_engine {
         }
         if (analytic_mask_chain_pipeline != nullptr) {
             wgpuRenderPipelineRelease(analytic_mask_chain_pipeline);
+        }
+        if (analytic_brush_mask_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(analytic_brush_mask_pipeline);
         }
         if (semantic_mask_chain_layout != nullptr) {
             wgpuBindGroupLayoutRelease(semantic_mask_chain_layout);

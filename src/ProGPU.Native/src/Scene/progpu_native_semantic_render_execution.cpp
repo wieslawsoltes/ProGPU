@@ -237,6 +237,7 @@ progpu_native_status render_scene(
     std::uint64_t semantic_layer_coverage_texture_bytes = 0U;
     for (std::uint32_t index = 0U; index < header.command_count; ++index) {
         const auto command = read_command(index);
+        const auto parent_target_extent = layer_budget_cursor.current();
         const auto target_extent = layer_budget_cursor.advance(command);
         if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
             auto layer = semantic_default_layer();
@@ -269,18 +270,21 @@ progpu_native_status render_scene(
                 semantic_layer_mask_kind = mask_kind ==
                         PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP ||
                         mask_kind ==
-                            PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN
+                            PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN ||
+                        mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH
                     ? PROGPU_NATIVE_GROUP_MASK_TEXTURE
                     : PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE;
                 if (mask_kind ==
                         PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP ||
                     mask_kind ==
-                        PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN) {
+                        PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN ||
+                    mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH) {
                     const std::uint64_t mask_texture_bytes = mask_kind ==
                             PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP
                         ? mask_resource.auxiliary_size
-                        : static_cast<std::uint64_t>(target_extent.width) *
-                            target_extent.height;
+                        : static_cast<std::uint64_t>(
+                            parent_target_extent.width) *
+                            parent_target_extent.height;
                     if (mask_texture_bytes >
                             PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES -
                                 semantic_layer_coverage_texture_bytes) {
@@ -422,9 +426,9 @@ progpu_native_status render_scene(
         frame->width,
         frame->height,
         frame->dpi_scale);
-    std::vector<std::uint8_t> semantic_vector_masks_budgeted;
+    std::vector<std::uint8_t> semantic_generated_masks_budgeted;
     try {
-        semantic_vector_masks_budgeted.resize(header.resource_count, 0U);
+        semantic_generated_masks_budgeted.resize(header.resource_count, 0U);
     } catch (const std::bad_alloc&) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
@@ -474,14 +478,16 @@ progpu_native_status render_scene(
                 mask_kind !=
                     PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN &&
                 mask_kind !=
-                    PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN) {
+                    PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN &&
+                mask_kind != PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH) {
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_UNSUPPORTED,
                     "The per-draw semantic mask kind is unsupported.");
             }
-            if (mask_kind ==
-                    PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN &&
-                semantic_vector_masks_budgeted[
+            if ((mask_kind ==
+                    PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN ||
+                    mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH) &&
+                semantic_generated_masks_budgeted[
                     state.mask_resource_index] == 0U) {
                 const std::uint64_t mask_texture_bytes =
                     static_cast<std::uint64_t>(target_extent.width) *
@@ -491,10 +497,10 @@ progpu_native_status render_scene(
                             semantic_layer_coverage_texture_bytes) {
                     return engine->fail(
                         PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
-                        "The semantic vector-mask textures exceed their bounded aggregate budget.");
+                        "The semantic generated-mask textures exceed their bounded aggregate budget.");
                 }
                 semantic_layer_coverage_texture_bytes += mask_texture_bytes;
-                semantic_vector_masks_budgeted[
+                semantic_generated_masks_budgeted[
                     state.mask_resource_index] = 1U;
             }
             semantic_has_state_masks = true;

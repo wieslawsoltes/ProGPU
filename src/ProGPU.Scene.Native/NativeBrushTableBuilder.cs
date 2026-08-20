@@ -263,6 +263,54 @@ internal sealed class NativeBrushTableBuilder
         return true;
     }
 
+    internal bool TrySnapshot(
+        Brush brush,
+        out NativeSceneBrush native,
+        out NativeSceneGradientStop[] stops,
+        out NativePictureCompileError error)
+    {
+        native = default;
+        stops = [];
+        if (!TryRegister(brush, out uint index, out error))
+        {
+            return false;
+        }
+
+        native = _brushes[checked((int)index)];
+        uint storedStopCount = native.Kind switch
+        {
+            NativeSceneBrushKind.LinearGradient or
+            NativeSceneBrushKind.RadialGradient or
+            NativeSceneBrushKind.TwoPointConicalGradient or
+            NativeSceneBrushKind.SweepGradient => native.StopCount,
+            NativeSceneBrushKind.PerlinNoise
+                when native.StopCount != 0U &&
+                    native.Interpolation ==
+                        NativeSceneGradientInterpolation.ScRgb =>
+                NativeSceneBrush.PerlinTableRecordCount,
+            _ => 0U
+        };
+        if (native.StopOffset > (uint)_gradientStops.Count ||
+            storedStopCount > (uint)_gradientStops.Count - native.StopOffset)
+        {
+            error = NativePictureCompileError.UnsupportedBrush;
+            native = default;
+            return false;
+        }
+
+        if (storedStopCount != 0U)
+        {
+            stops = CollectionsMarshal.AsSpan(_gradientStops)
+                .Slice(
+                    checked((int)native.StopOffset),
+                    checked((int)storedStopCount))
+                .ToArray();
+        }
+        native.StopOffset = 0U;
+        error = NativePictureCompileError.None;
+        return true;
+    }
+
     private bool TryAppendStops(
         GradientStop[]? source,
         out uint offset,

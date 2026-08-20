@@ -1497,17 +1497,34 @@ exceeded `3/255`, and mean absolute channel delta was
 This is a local Metal checkpoint, not the final cross-platform or Instruments
 qualification.
 
-The next substitution increment lowers the exact direct-mask subset already
-observable in the managed compositor: an axis-aligned, invertibly transformed
-solid-brush `PushOpacityMask` becomes one absolute semantic state containing
+The direct-mask fast path lowers the exact subset already observable in the
+managed compositor: an axis-aligned, invertibly transformed solid-brush
+`PushOpacityMask` becomes one absolute semantic state containing
 the intersected target clip and `currentOpacity * clamp(colorAlpha *
 brushOpacity)`. Its matching pop restores the previous state. This is not an
 isolated-layer approximation: opacity remains per draw, preserving overlap
 behavior and avoiding an offscreen allocation. Rotated/sheared solid masks,
-gradient masks, retained-picture masks, and stroked-path masks fail closed
-until the pointer-free scene ABI can express their exact per-fragment coverage.
+linear/radial/two-point-conical/sweep gradients, hatch/cross-hatch, and Perlin
+masks now use the pointer-free GPU-generated brush-mask route below.
+Retained-picture masks, stroked-path masks, and a second active brush mask fail
+closed until the scene ABI can express their exact composed coverage.
 Compilation adds one fixed 64-byte state resource and paired save/restore
 commands; stable replay adds no upload or managed allocation.
+
+The GPU brush-mask route carries one 320-byte record containing logical bounds,
+the complete affine, opacity, and the exact canonical 256-byte ProGPU material;
+its contiguous auxiliary span owns the required 32-byte stop records. The C++
+executor directly reuses production `Vector.wgsl` to render the brush into a
+filterable `R8Unorm` attachment. Generation is one GPU submission at immutable
+scene materialization, with zero CPU mask pixels and zero texture upload. The
+generation command retains its transient buffers internally through submission
+completion; stable scene ownership retains only the resulting texture and mask
+binding. The following stable frame is one submission with no vertex, texture,
+uniform, brush, or gradient-stop upload. The exact in-repository provenance is
+the managed `Compositor.PushOpacityMaskValue(Brush, Rect, Matrix4x4)` behavior,
+`NativeBrushTableBuilder`, the semantic layer-mask executor, and canonical
+`ProGPU.Backend/Shaders/Vector.wgsl`; no third-party implementation source is
+used.
 
 The mask differential also identified and fixed a shared vertex-mesh opacity
 ordering defect. Vertex-color blend modes now consume the retained brush at
@@ -1609,10 +1626,11 @@ consumer now accepts either the analytic mask or a retained R8 coverage mask
 for vector, glyph, plain-image, and color-matrix-image draws. Text and image
 pipelines use canonical explicit layouts; a color matrix occupies an
 independent fourth bind group so it can be fused with the state mask in one
-draw. The managed picture compiler does not yet emit arbitrary sampled opacity
-masks. Combined-path clips use the same GPU postfix program as managed
-`PathAtlas`; gradient/picture opacity-mask content and an isolated-layer chain
-remain typed fail-closed, and neither is approximated with an isolated group.
+draw. The managed picture compiler emits canonical analytic masks, retained
+vector masks, and GPU-generated brush masks. Combined-path clips use the same
+GPU postfix program as managed `PathAtlas`; retained-picture opacity-mask
+content and a nested brush-mask chain remain typed fail-closed, and neither is
+approximated with an isolated group.
 
 The Apple M3 Pro matched `960x540` state-mask checkpoint used one Release
 process, 100 alternating warm-up pairs, and 1,000 alternating synchronized
@@ -1673,14 +1691,16 @@ stop ownership, spread, color-interpolation mode, optional conical outside
 color, and affine coordinate transforms are snapshotted into one deduplicated
 retained brush page. Nested `PushOpacity`/`PopOpacity`, affine axis-aligned
 `PushClip`/`PopClip`, one canonical affine rectangle/rounded-rectangle
-`PushGeometryClip`/`PopGeometryClip`, and axis-aligned solid-brush
+`PushGeometryClip`/`PopGeometryClip`, and supported brush
 `PushOpacityMask`/`PopOpacityMask` scopes are lowered in exact display-list order to the
 existing native absolute-state resources and save/restore commands. State
 boundaries terminate draw batches; stable replay does not inspect or rebuild
 the managed state stack. Geometry-mask affine transforms may rotate or shear;
-ordinary rectangular scissors and direct solid opacity masks retain their
-axis-aligned subset. Non-finite or non-invertible transforms, malformed or
-over-budget vector programs, unsupported picture/gradient opacity masks, and
+ordinary rectangular scissors and the direct solid-opacity fold retain their
+axis-aligned subset, while other supported brush masks preserve full affine
+coverage through a retained GPU-generated R8 texture. Non-finite or
+non-invertible transforms, malformed or over-budget vector programs,
+unsupported picture/nested brush opacity masks, and
 mismatched or unterminated scopes fail with typed source-command diagnostics.
 Perlin materials,
 color/vector/bitmap glyphs, text decorations, text masks, typed 2D/3D geometry,
