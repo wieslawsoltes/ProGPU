@@ -1506,8 +1506,9 @@ isolated-layer approximation: opacity remains per draw, preserving overlap
 behavior and avoiding an offscreen allocation. Rotated/sheared solid masks,
 linear/radial/two-point-conical/sweep gradients, hatch/cross-hatch, and Perlin
 masks now use the pointer-free GPU-generated brush-mask route below.
-Retained-picture masks, stroked-path masks, and a second active brush mask fail
-closed until the scene ABI can express their exact composed coverage.
+Retained-picture masks and stroked-path mask content fail closed until the scene
+ABI can express their immutable drawing ownership. Multiple active brush and
+geometry masks use the exact bounded GPU composite route described below.
 Compilation adds one fixed 64-byte state resource and paired save/restore
 commands; stable replay adds no upload or managed allocation.
 
@@ -1525,6 +1526,21 @@ the managed `Compositor.PushOpacityMaskValue(Brush, Rect, Matrix4x4)` behavior,
 `NativeBrushTableBuilder`, the semantic layer-mask executor, and canonical
 `ProGPU.Backend/Shaders/Vector.wgsl`; no third-party implementation source is
 used.
+
+Nested arbitrary opacity masks use a fixed 48-byte composite prefix and one
+pointer-free auxiliary arena. The arena contains up to 64 canonical brush-mask
+records plus at most one cumulative vector chain; every brush addresses one
+shared resource-local gradient-stop range. The managed compiler preserves the
+analytic one-to-four-mask fast path until a brush requires GPU composition,
+then carries the already retained geometry chain without flattening it. Native
+code generates each component in R8 and applies ordered intersection with the
+same `ClipCompose.wgsl` multiplication used by retained vector clips. Changed
+materialization is bounded `O(C * W * H + P + S + N)` GPU work and `O(C * W *
+H)` transient coverage at the conservative budget boundary for `C` components;
+stable replay is one texture sample per covered output fragment, with zero scene
+translation or retained upload. The Dawn/Metal and real Chromium fixtures use a
+linear gradient intersected with a half-alpha solid brush, check multiplied
+edge/midpoint coverage, and require a single zero-upload stable submission.
 
 The mask differential also identified and fixed a shared vertex-mesh opacity
 ordering defect. Vertex-color blend modes now consume the retained brush at
@@ -1627,10 +1643,11 @@ for vector, glyph, plain-image, and color-matrix-image draws. Text and image
 pipelines use canonical explicit layouts; a color matrix occupies an
 independent fourth bind group so it can be fused with the state mask in one
 draw. The managed picture compiler emits canonical analytic masks, retained
-vector masks, and GPU-generated brush masks. Combined-path clips use the same
-GPU postfix program as managed `PathAtlas`; retained-picture opacity-mask
-content and a nested brush-mask chain remain typed fail-closed, and neither is
-approximated with an isolated group.
+vector masks, GPU-generated brush masks, and bounded composite brush/vector
+masks. Combined-path clips use the same GPU postfix program as managed
+`PathAtlas`; retained-picture opacity-mask
+content remains typed fail-closed and is not approximated with an isolated
+group.
 
 The Apple M3 Pro matched `960x540` state-mask checkpoint used one Release
 process, 100 alternating warm-up pairs, and 1,000 alternating synchronized
@@ -1699,8 +1716,8 @@ the managed state stack. Geometry-mask affine transforms may rotate or shear;
 ordinary rectangular scissors and the direct solid-opacity fold retain their
 axis-aligned subset, while other supported brush masks preserve full affine
 coverage through a retained GPU-generated R8 texture. Non-finite or
-non-invertible transforms, malformed or over-budget vector programs,
-unsupported picture/nested brush opacity masks, and
+non-invertible transforms, malformed or over-budget vector/composite programs,
+unsupported picture opacity masks, and
 mismatched or unterminated scopes fail with typed source-command diagnostics.
 Perlin materials,
 color/vector/bitmap glyphs, text decorations, text masks, typed 2D/3D geometry,

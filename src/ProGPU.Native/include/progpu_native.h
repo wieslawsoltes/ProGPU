@@ -166,7 +166,8 @@ typedef enum progpu_native_scene_layer_mask_kind {
     PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP = 2,
     PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN = 3,
     PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN = 4,
-    PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH = 5
+    PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH = 5,
+    PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE = 6
 } progpu_native_scene_layer_mask_kind;
 
 enum {
@@ -1260,6 +1261,32 @@ typedef struct progpu_native_scene_layer_brush_mask {
     uint32_t reserved0;
     progpu_native_scene_brush brush;
 } progpu_native_scene_layer_brush_mask;
+
+/*
+ * Pointer-free retained intersection of arbitrary GPU-generated masks. The
+ * auxiliary span contains brush_mask_count brush-mask records, followed by
+ * path_count clip paths, segment_count path segments, boolean_node_count
+ * postfix nodes, and gradient_stop_count shared gradient records. A non-empty
+ * vector range contributes one component; each brush record contributes one
+ * component. Brush stop offsets address the shared resource-local stop span.
+ * The executor evaluates every component on the GPU and multiplies their R8
+ * coverage through the canonical ClipCompose.wgsl program. All fields remain
+ * fixed-width on wasm32 and native hosts.
+ */
+typedef struct progpu_native_scene_layer_composite_mask {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint32_t flags;
+    uint32_t component_count;
+    uint32_t brush_mask_count;
+    uint32_t path_count;
+    uint32_t segment_count;
+    uint32_t boolean_node_count;
+    uint32_t gradient_stop_count;
+    float opacity;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_scene_layer_composite_mask;
 
 /*
  * Optional DRAW_ANALYTIC/DRAW_PATH command payload prefix. Exactly

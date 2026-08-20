@@ -1013,6 +1013,166 @@ public ref struct NativeSceneStreamBuilder
             flags);
     }
 
+    /// <summary>
+    /// Adds one bounded GPU-composed intersection of brush and vector masks.
+    /// The auxiliary layout is fixed by <see cref="NativeSceneLayerCompositeMask"/>.
+    /// </summary>
+    public bool TryAddLayerCompositeMaskResource(
+        ulong resourceId,
+        ulong generation,
+        in NativeSceneLayerCompositeMask mask,
+        scoped ReadOnlySpan<byte> auxiliary,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        int brushBytes;
+        int pathBytes;
+        int segmentBytes;
+        int booleanNodeBytes;
+        int stopBytes;
+        try
+        {
+            brushBytes = checked(
+                (int)mask.BrushMaskCount *
+                    Unsafe.SizeOf<NativeSceneLayerBrushMask>());
+            pathBytes = checked(
+                (int)mask.PathCount * Unsafe.SizeOf<NativeSceneClipPath>());
+            segmentBytes = checked(
+                (int)mask.SegmentCount * Unsafe.SizeOf<NativePathSegment>());
+            booleanNodeBytes = checked(
+                (int)mask.BooleanNodeCount *
+                    Unsafe.SizeOf<NativeScenePathBooleanNode>());
+            stopBytes = checked(
+                (int)mask.GradientStopCount *
+                    Unsafe.SizeOf<NativeSceneGradientStop>());
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+        uint vectorComponent = mask.PathCount == 0U ? 0U : 1U;
+        if (mask.StructSize != Unsafe.SizeOf<NativeSceneLayerCompositeMask>() ||
+            mask.Kind != NativeSceneLayerMaskKind.Composite ||
+            mask.Flags != 0U || !mask.HasCanonicalReservedFields ||
+            mask.ComponentCount != mask.BrushMaskCount + vectorComponent ||
+            mask.ComponentCount is < 2U or >
+                NativeSceneLayerCompositeMask.MaximumComponentCount ||
+            mask.BrushMaskCount == 0U ||
+            mask.GradientStopCount > NativeMethods.SceneMaximumGradientStops ||
+            !float.IsFinite(mask.Opacity) ||
+            mask.Opacity is < 0f or > 1f ||
+            (mask.PathCount == 0U &&
+                (mask.SegmentCount != 0U || mask.BooleanNodeCount != 0U)) ||
+            (mask.PathCount != 0U &&
+                (mask.PathCount > 64U || mask.SegmentCount == 0U ||
+                    mask.BooleanNodeCount > 64U * 63U)) ||
+            (long)brushBytes + pathBytes + segmentBytes + booleanNodeBytes +
+                stopBytes != auxiliary.Length)
+        {
+            return false;
+        }
+
+        ReadOnlySpan<NativeSceneLayerBrushMask> brushes = MemoryMarshal.Cast<
+            byte,
+            NativeSceneLayerBrushMask>(auxiliary[..brushBytes]);
+        ReadOnlySpan<NativeSceneClipPath> paths = MemoryMarshal.Cast<
+            byte,
+            NativeSceneClipPath>(auxiliary.Slice(brushBytes, pathBytes));
+        ReadOnlySpan<NativePathSegment> segments = MemoryMarshal.Cast<
+            byte,
+            NativePathSegment>(auxiliary.Slice(
+                brushBytes + pathBytes,
+                segmentBytes));
+        ReadOnlySpan<NativeScenePathBooleanNode> booleanNodes =
+            MemoryMarshal.Cast<byte, NativeScenePathBooleanNode>(
+                auxiliary.Slice(
+                    brushBytes + pathBytes + segmentBytes,
+                    booleanNodeBytes));
+        ReadOnlySpan<NativeSceneGradientStop> stops = MemoryMarshal.Cast<
+            byte,
+            NativeSceneGradientStop>(auxiliary[
+                (brushBytes + pathBytes + segmentBytes + booleanNodeBytes)..]);
+        bool validateStops = true;
+        foreach (ref readonly NativeSceneLayerBrushMask brushMask in brushes)
+        {
+            uint storedStopCount = brushMask.Brush.Kind switch
+            {
+                NativeSceneBrushKind.LinearGradient or
+                NativeSceneBrushKind.RadialGradient or
+                NativeSceneBrushKind.TwoPointConicalGradient or
+                NativeSceneBrushKind.SweepGradient => brushMask.Brush.StopCount,
+                NativeSceneBrushKind.PerlinNoise
+                    when brushMask.Brush.StopCount != 0U &&
+                        brushMask.Brush.Interpolation ==
+                            NativeSceneGradientInterpolation.ScRgb =>
+                    NativeSceneBrush.PerlinTableRecordCount,
+                _ => 0U
+            };
+            ReadOnlySpan<NativeSceneBrush> oneBrush =
+                MemoryMarshal.CreateReadOnlySpan(
+                    ref Unsafe.AsRef(in brushMask.Brush),
+                    1);
+            if (brushMask.StructSize !=
+                    Unsafe.SizeOf<NativeSceneLayerBrushMask>() ||
+                brushMask.Kind != NativeSceneLayerMaskKind.Brush ||
+                brushMask.Flags != 0U ||
+                !brushMask.HasCanonicalReservedFields ||
+                brushMask.GradientStopCount != storedStopCount ||
+                !IsFinitePositive(brushMask.Bounds) ||
+                !IsFinite(brushMask.Transform) ||
+                !Matrix3x2.Invert(brushMask.Transform, out Matrix3x2 inverse) ||
+                !IsFinite(inverse) ||
+                MathF.Abs(brushMask.Transform.GetDeterminant()) <= 0.000001f ||
+                !float.IsFinite(brushMask.Opacity) ||
+                brushMask.Opacity is < 0f or > 1f ||
+                !IsValidBrushTable(oneBrush, stops, validateStops))
+            {
+                return false;
+            }
+            validateStops = false;
+        }
+
+        ulong expectedBooleanNodeOffset = 0U;
+        for (int index = 0; index < paths.Length; index++)
+        {
+            if (!IsValidSceneClipPath(
+                    in paths[index],
+                    segments.Length,
+                    booleanNodes) ||
+                (paths[index].BooleanNodeCount != 0U &&
+                    paths[index].BooleanNodeOffset !=
+                        expectedBooleanNodeOffset))
+            {
+                return false;
+            }
+            expectedBooleanNodeOffset += paths[index].BooleanNodeCount;
+        }
+        if (expectedBooleanNodeOffset != mask.BooleanNodeCount)
+        {
+            return false;
+        }
+        foreach (ref readonly NativePathSegment segment in segments)
+        {
+            if (!IsValidPathSegment(in segment))
+            {
+                return false;
+            }
+        }
+
+        return TryAddResource(
+            NativeSceneResourceKind.LayerMask,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(
+                MemoryMarshal.CreateReadOnlySpan(
+                    ref Unsafe.AsRef(in mask),
+                    1)),
+            out resourceIndex,
+            auxiliary,
+            flags);
+    }
+
     public bool TryAddEffectChainResource(
         ulong resourceId,
         ulong generation,
@@ -2128,14 +2288,18 @@ public ref struct NativeSceneStreamBuilder
 
     private static bool IsValidBrushTable(
         ReadOnlySpan<NativeSceneBrush> brushes,
-        ReadOnlySpan<NativeSceneGradientStop> gradientStops)
+        ReadOnlySpan<NativeSceneGradientStop> gradientStops,
+        bool validateGradientStops = true)
     {
-        foreach (ref readonly NativeSceneGradientStop stop in gradientStops)
+        if (validateGradientStops)
         {
-            if (!stop.HasCanonicalReservedFields ||
-                !IsFinite(stop.Color) || !float.IsFinite(stop.Offset))
+            foreach (ref readonly NativeSceneGradientStop stop in gradientStops)
             {
-                return false;
+                if (!stop.HasCanonicalReservedFields ||
+                    !IsFinite(stop.Color) || !float.IsFinite(stop.Offset))
+                {
+                    return false;
+                }
             }
         }
 

@@ -501,6 +501,7 @@ set(PROGPU_NATIVE_SCENE_SOURCES
     src/Scene/progpu_native_semantic_layer_mask_resources.cpp
     src/Scene/progpu_native_semantic_layer_mask_resources.hpp
     src/Scene/progpu_native_semantic_brush_mask_resources.cpp
+    src/Scene/progpu_native_semantic_composite_mask_resources.cpp
     src/Scene/progpu_native_path_boolean_validation.hpp
     src/Scene/progpu_native_semantic_text_style.cpp
     src/Scene/progpu_native_semantic_text_style.hpp

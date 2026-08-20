@@ -21,12 +21,6 @@ public static partial class GpuPictureNativeSceneCompiler
             error = NativePictureCompileError.UnsupportedCommand;
             return false;
         }
-        if (current.MaskIndex >= 0 &&
-            stateMasks[current.MaskIndex].Kind == StateMaskProgramKind.Brush)
-        {
-            error = NativePictureCompileError.UnsupportedCommand;
-            return false;
-        }
         if (!TryGetAffine(command.Transform, out Matrix3x2 transform))
         {
             error = NativePictureCompileError.UnsupportedTransform;
@@ -92,6 +86,8 @@ public static partial class GpuPictureNativeSceneCompiler
                 stateMasks[current.MaskIndex].Kind ==
                     StateMaskProgramKind.Vector) ||
             (current.MaskIndex >= 0 &&
+                stateMasks[current.MaskIndex].BrushMasks is not null) ||
+            (current.MaskIndex >= 0 &&
                 stateMasks[current.MaskIndex].Count >=
                     NativeSceneLayerMaskChain.MaximumMaskCount);
         if (requiresVector && !TryCompileVectorMaskChain(
@@ -102,7 +98,22 @@ public static partial class GpuPictureNativeSceneCompiler
         }
 
         StateMaskProgram program;
-        if (canonical)
+        BrushMaskNode? activeBrushes = current.MaskIndex >= 0
+            ? stateMasks[current.MaskIndex].BrushMasks
+            : null;
+        if (activeBrushes is not null)
+        {
+            if (checked(activeBrushes.Count + 1) >
+                NativeSceneLayerCompositeMask.MaximumComponentCount)
+            {
+                error = NativePictureCompileError.CapacityExceeded;
+                return false;
+            }
+            program = new StateMaskProgram(
+                retainedVectorMask,
+                activeBrushes);
+        }
+        else if (canonical)
         {
             var mask = new NativeSceneLayerMask(
                 new NativeImageRect(
@@ -503,11 +514,6 @@ public static partial class GpuPictureNativeSceneCompiler
             return true;
         }
 
-        if (current.MaskIndex >= 0)
-        {
-            error = NativePictureCompileError.UnsupportedCommand;
-            return false;
-        }
         float determinant = transform.GetDeterminant();
         if (!float.IsFinite(determinant) ||
             MathF.Abs(determinant) <= 0.000001f ||
@@ -536,8 +542,36 @@ public static partial class GpuPictureNativeSceneCompiler
             transform,
             in nativeBrush,
             checked((uint)stops.Length));
+        StateMaskProgram program;
+        if (current.MaskIndex < 0)
+        {
+            program = new StateMaskProgram(in mask, stops);
+        }
+        else
+        {
+            StateMaskProgram active = stateMasks[current.MaskIndex];
+            var brushNode = new BrushMaskNode(
+                active.BrushMasks,
+                in mask,
+                stops);
+            uint vectorComponent = active.VectorMask is null ? 0U : 1U;
+            if (checked((uint)brushNode.Count + vectorComponent) >
+                NativeSceneLayerCompositeMask.MaximumComponentCount)
+            {
+                error = NativePictureCompileError.CapacityExceeded;
+                return false;
+            }
+            if (active.Kind == StateMaskProgramKind.Analytic &&
+                !TryCompileVectorMaskChain(active.VectorMask!, out error))
+            {
+                return false;
+            }
+            program = new StateMaskProgram(
+                active.VectorMask,
+                brushNode);
+        }
         int maskIndex = stateMasks.Count;
-        stateMasks.Add(new StateMaskProgram(in mask, stops));
+        stateMasks.Add(program);
         next = current with { MaskIndex = maskIndex };
         return true;
     }

@@ -489,7 +489,8 @@ public enum NativeSceneLayerMaskKind : uint
     CoverageBitmap = 2,
     AnalyticChain = 3,
     VectorClipChain = 4,
-    Brush = 5
+    Brush = 5,
+    Composite = 6
 }
 
 public enum NativeSceneCommandKind : uint
@@ -1698,6 +1699,56 @@ public readonly struct NativeSceneLayerBrushMask
     public readonly NativeSceneBrush Brush;
 
     internal bool HasCanonicalReservedFields => Reserved0 == 0U;
+}
+
+/// <summary>
+/// Pointer-free retained intersection of arbitrary GPU-generated vector and
+/// brush masks. Its auxiliary span owns the brush descriptors, vector records,
+/// and one shared resource-local gradient-stop arena.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneLayerCompositeMask
+{
+    public const uint MaximumComponentCount = 64U;
+
+    public NativeSceneLayerCompositeMask(
+        uint componentCount,
+        uint brushMaskCount,
+        uint pathCount,
+        uint segmentCount,
+        uint booleanNodeCount,
+        uint gradientStopCount,
+        float opacity = 1f)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneLayerCompositeMask>();
+        Kind = NativeSceneLayerMaskKind.Composite;
+        Flags = 0U;
+        ComponentCount = componentCount;
+        BrushMaskCount = brushMaskCount;
+        PathCount = pathCount;
+        SegmentCount = segmentCount;
+        BooleanNodeCount = booleanNodeCount;
+        GradientStopCount = gradientStopCount;
+        Opacity = opacity;
+        Reserved0 = 0U;
+        Reserved1 = 0U;
+    }
+
+    public readonly uint StructSize;
+    public readonly NativeSceneLayerMaskKind Kind;
+    public readonly uint Flags;
+    public readonly uint ComponentCount;
+    public readonly uint BrushMaskCount;
+    public readonly uint PathCount;
+    public readonly uint SegmentCount;
+    public readonly uint BooleanNodeCount;
+    public readonly uint GradientStopCount;
+    public readonly float Opacity;
+    private readonly uint Reserved0;
+    private readonly uint Reserved1;
+
+    internal bool HasCanonicalReservedFields =>
+        Reserved0 == 0U && Reserved1 == 0U;
 }
 
 /// <summary>

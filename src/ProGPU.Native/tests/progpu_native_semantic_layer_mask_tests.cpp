@@ -15,6 +15,7 @@ bool semantic_layer_coverage_mask_is_exact_and_bounded() {
     static_assert(sizeof(progpu_native_scene_layer_mask_chain) == 432U);
     static_assert(sizeof(progpu_native_scene_layer_vector_mask) == 32U);
     static_assert(sizeof(progpu_native_scene_layer_brush_mask) == 320U);
+    static_assert(sizeof(progpu_native_scene_layer_composite_mask) == 48U);
     static_assert(sizeof(progpu_native_scene_clip_path) == 88U);
     static_assert(sizeof(progpu_native_scene_path_boolean_node) == 48U);
     constexpr std::size_t coverage_size = 16U;
@@ -277,8 +278,45 @@ bool semantic_layer_coverage_mask_is_exact_and_bounded() {
     brush_mask.brush.stop_offset = 1U;
     std::memcpy(brush_bytes.data(), &brush_mask, sizeof(brush_mask));
     resource.auxiliary_size = brush_auxiliary_size;
+    if (semantic::validate_layer_mask_resource(
+            brush_bytes.data(), resource, error_offset)) {
+        return false;
+    }
+
+    constexpr std::size_t composite_brush_count = 2U;
+    constexpr std::size_t composite_auxiliary_size =
+        composite_brush_count * sizeof(progpu_native_scene_layer_brush_mask);
+    std::array<std::byte,
+        sizeof(progpu_native_scene_layer_composite_mask) +
+            composite_auxiliary_size> composite_bytes{};
+    progpu_native_scene_layer_composite_mask composite{};
+    composite.struct_size = sizeof(composite);
+    composite.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE;
+    composite.component_count = composite_brush_count;
+    composite.brush_mask_count = composite_brush_count;
+    composite.opacity = 1.0F;
+    std::array<progpu_native_scene_layer_brush_mask, composite_brush_count>
+        composite_brushes{solid_brush_mask, solid_brush_mask};
+    std::memcpy(composite_bytes.data(), &composite, sizeof(composite));
+    std::memcpy(
+        composite_bytes.data() + sizeof(composite),
+        composite_brushes.data(),
+        sizeof(composite_brushes));
+    resource.payload_size = sizeof(composite);
+    resource.auxiliary_offset = sizeof(composite);
+    resource.auxiliary_size = composite_auxiliary_size;
+    if (!semantic::validate_layer_mask_resource(
+            composite_bytes.data(), resource, error_offset, &parsed) ||
+        parsed.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE ||
+        parsed.composite.component_count != composite_brush_count ||
+        parsed.composite_brushes[1].brush.type !=
+            PROGPU_NATIVE_SCENE_BRUSH_SOLID) {
+        return false;
+    }
+    composite.component_count = 1U;
+    std::memcpy(composite_bytes.data(), &composite, sizeof(composite));
     return !semantic::validate_layer_mask_resource(
-        brush_bytes.data(), resource, error_offset);
+        composite_bytes.data(), resource, error_offset);
 }
 
 } // namespace progpu::native::tests

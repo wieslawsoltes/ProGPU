@@ -271,20 +271,34 @@ progpu_native_status render_scene(
                         PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP ||
                         mask_kind ==
                             PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN ||
-                        mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH
+                        mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH ||
+                        mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE
                     ? PROGPU_NATIVE_GROUP_MASK_TEXTURE
                     : PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE;
                 if (mask_kind ==
                         PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP ||
                     mask_kind ==
                         PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN ||
-                    mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH) {
+                    mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH ||
+                    mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {
+                    std::uint64_t texture_multiplier = 1U;
+                    if (mask_kind ==
+                        PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {
+                        progpu_native_scene_layer_composite_mask composite{};
+                        std::memcpy(
+                            &composite,
+                            bytes + mask_resource.payload_offset,
+                            sizeof(composite));
+                        texture_multiplier =
+                            static_cast<std::uint64_t>(
+                                composite.component_count) + 2U;
+                    }
                     const std::uint64_t mask_texture_bytes = mask_kind ==
                             PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP
                         ? mask_resource.auxiliary_size
                         : static_cast<std::uint64_t>(
                             parent_target_extent.width) *
-                            parent_target_extent.height;
+                            parent_target_extent.height * texture_multiplier;
                     if (mask_texture_bytes >
                             PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES -
                                 semantic_layer_coverage_texture_bytes) {
@@ -479,19 +493,32 @@ progpu_native_status render_scene(
                     PROGPU_NATIVE_SCENE_LAYER_MASK_ANALYTIC_CHAIN &&
                 mask_kind !=
                     PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN &&
-                mask_kind != PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH) {
+                mask_kind != PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH &&
+                mask_kind != PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_UNSUPPORTED,
                     "The per-draw semantic mask kind is unsupported.");
             }
             if ((mask_kind ==
                     PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN ||
-                    mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH) &&
+                    mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH ||
+                    mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) &&
                 semantic_generated_masks_budgeted[
                     state.mask_resource_index] == 0U) {
+                std::uint64_t texture_multiplier = 1U;
+                if (mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {
+                    progpu_native_scene_layer_composite_mask composite{};
+                    std::memcpy(
+                        &composite,
+                        bytes + mask_resource.payload_offset,
+                        sizeof(composite));
+                    texture_multiplier =
+                        static_cast<std::uint64_t>(
+                            composite.component_count) + 2U;
+                }
                 const std::uint64_t mask_texture_bytes =
                     static_cast<std::uint64_t>(target_extent.width) *
-                        target_extent.height;
+                        target_extent.height * texture_multiplier;
                 if (mask_texture_bytes >
                         PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES -
                             semantic_layer_coverage_texture_bytes) {

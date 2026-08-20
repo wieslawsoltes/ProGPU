@@ -230,6 +230,96 @@ bool valid_brush_mask(
             stop_count));
 }
 
+bool valid_composite_brush(
+    const progpu_native_scene_layer_brush_mask& mask,
+    const progpu_native_scene_gradient_stop* stops,
+    std::uint32_t stop_count) noexcept {
+    const std::uint32_t stored_stop_count =
+        semantic_brush_stored_stop_count(mask.brush);
+    return mask.struct_size == sizeof(mask) &&
+        mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH &&
+        mask.flags == 0U && mask.gradient_stop_count == stored_stop_count &&
+        valid_bounds(mask.bounds) && valid_transform(mask.transform) &&
+        std::isfinite(mask.opacity) && mask.opacity >= 0.0F &&
+        mask.opacity <= 1.0F && mask.reserved0 == 0U &&
+        mask.brush.stop_offset <= stop_count &&
+        stored_stop_count <= stop_count - mask.brush.stop_offset &&
+        is_valid_semantic_brush(
+            mask.brush,
+            std::span<const progpu_native_scene_gradient_stop>(
+                stops,
+                stop_count));
+}
+
+bool valid_composite(
+    const progpu_native_scene_layer_composite_mask& mask,
+    const progpu_native_scene_layer_brush_mask* brushes,
+    const progpu_native_scene_clip_path* paths,
+    const progpu_native_path_segment* segments,
+    const progpu_native_scene_path_boolean_node* boolean_nodes,
+    const progpu_native_scene_gradient_stop* stops,
+    std::uint32_t auxiliary_size) noexcept {
+    const std::uint32_t vector_component = mask.path_count == 0U ? 0U : 1U;
+    const std::uint64_t brush_bytes =
+        static_cast<std::uint64_t>(mask.brush_mask_count) * sizeof(*brushes);
+    const std::uint64_t path_bytes =
+        static_cast<std::uint64_t>(mask.path_count) * sizeof(*paths);
+    const std::uint64_t segment_bytes =
+        static_cast<std::uint64_t>(mask.segment_count) * sizeof(*segments);
+    const std::uint64_t boolean_bytes =
+        static_cast<std::uint64_t>(mask.boolean_node_count) *
+            sizeof(*boolean_nodes);
+    const std::uint64_t stop_bytes =
+        static_cast<std::uint64_t>(mask.gradient_stop_count) * sizeof(*stops);
+    if (mask.struct_size != sizeof(mask) ||
+        mask.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE ||
+        mask.flags != 0U || mask.reserved0 != 0U || mask.reserved1 != 0U ||
+        mask.component_count != mask.brush_mask_count + vector_component ||
+        mask.component_count < 2U || mask.component_count > 64U ||
+        mask.brush_mask_count == 0U || brushes == nullptr ||
+        mask.gradient_stop_count > PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS ||
+        !std::isfinite(mask.opacity) || mask.opacity < 0.0F ||
+        mask.opacity > 1.0F ||
+        (mask.path_count == 0U &&
+            (mask.segment_count != 0U || mask.boolean_node_count != 0U)) ||
+        (mask.path_count != 0U &&
+            (mask.path_count > 64U || mask.segment_count == 0U ||
+                paths == nullptr || segments == nullptr ||
+                (mask.boolean_node_count != 0U && boolean_nodes == nullptr))) ||
+        brush_bytes + path_bytes + segment_bytes + boolean_bytes + stop_bytes !=
+            auxiliary_size ||
+        (mask.gradient_stop_count != 0U && stops == nullptr)) {
+        return false;
+    }
+    for (std::uint32_t index = 0U; index < mask.brush_mask_count; ++index) {
+        if (!valid_composite_brush(
+                brushes[index], stops, mask.gradient_stop_count)) {
+            return false;
+        }
+    }
+    if (mask.path_count != 0U) {
+        const progpu_native_scene_layer_vector_mask vector{
+            sizeof(progpu_native_scene_layer_vector_mask),
+            PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN,
+            0U,
+            mask.path_count,
+            mask.segment_count,
+            1.0F,
+            mask.boolean_node_count,
+            0U};
+        if (!valid_vector(
+                vector,
+                paths,
+                segments,
+                boolean_nodes,
+                static_cast<std::uint32_t>(
+                    path_bytes + segment_bytes + boolean_bytes))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 bool is_valid_semantic_layer_mask(
@@ -282,6 +372,26 @@ bool is_valid_semantic_layer_brush_mask(
             stops.data(),
             static_cast<std::uint32_t>(stops.size()),
             static_cast<std::uint32_t>(auxiliary_size));
+}
+
+bool is_valid_semantic_layer_composite_mask(
+    const progpu_native_scene_layer_composite_mask& mask,
+    std::span<const progpu_native_scene_layer_brush_mask> brushes,
+    std::span<const progpu_native_scene_clip_path> paths,
+    std::span<const progpu_native_path_segment> segments,
+    std::span<const progpu_native_scene_path_boolean_node> boolean_nodes,
+    std::span<const progpu_native_scene_gradient_stop> stops) noexcept {
+    const std::uint64_t size = brushes.size_bytes() + paths.size_bytes() +
+        segments.size_bytes() + boolean_nodes.size_bytes() + stops.size_bytes();
+    return size <= std::numeric_limits<std::uint32_t>::max() &&
+        valid_composite(
+            mask,
+            brushes.data(),
+            paths.data(),
+            segments.data(),
+            boolean_nodes.data(),
+            stops.data(),
+            static_cast<std::uint32_t>(size));
 }
 
 bool validate_layer_mask_resource(
@@ -382,6 +492,56 @@ bool validate_layer_mask_resource(
                 result.brush,
                 result.brush_stops,
                 stop_count,
+                resource.auxiliary_size)) {
+            return false;
+        }
+    } else if (kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {
+        if (resource.payload_size != sizeof(result.composite)) {
+            return false;
+        }
+        std::memcpy(&result.composite, bytes + resource.payload_offset,
+            sizeof(result.composite));
+        const std::uint64_t brush_bytes =
+            static_cast<std::uint64_t>(result.composite.brush_mask_count) *
+                sizeof(progpu_native_scene_layer_brush_mask);
+        const std::uint64_t path_bytes =
+            static_cast<std::uint64_t>(result.composite.path_count) *
+                sizeof(progpu_native_scene_clip_path);
+        const std::uint64_t segment_bytes =
+            static_cast<std::uint64_t>(result.composite.segment_count) *
+                sizeof(progpu_native_path_segment);
+        const std::uint64_t boolean_bytes =
+            static_cast<std::uint64_t>(result.composite.boolean_node_count) *
+                sizeof(progpu_native_scene_path_boolean_node);
+        const std::uint64_t stop_bytes =
+            static_cast<std::uint64_t>(result.composite.gradient_stop_count) *
+                sizeof(progpu_native_scene_gradient_stop);
+        if (brush_bytes + path_bytes + segment_bytes + boolean_bytes +
+                stop_bytes != resource.auxiliary_size) {
+            return false;
+        }
+        const auto* auxiliary = bytes + resource.auxiliary_offset;
+        result.composite_brushes = reinterpret_cast<
+            const progpu_native_scene_layer_brush_mask*>(auxiliary);
+        result.composite_paths = reinterpret_cast<
+            const progpu_native_scene_clip_path*>(auxiliary + brush_bytes);
+        result.composite_segments = reinterpret_cast<
+            const progpu_native_path_segment*>(
+                auxiliary + brush_bytes + path_bytes);
+        result.composite_boolean_nodes = reinterpret_cast<
+            const progpu_native_scene_path_boolean_node*>(
+                auxiliary + brush_bytes + path_bytes + segment_bytes);
+        result.composite_stops = reinterpret_cast<
+            const progpu_native_scene_gradient_stop*>(
+                auxiliary + brush_bytes + path_bytes + segment_bytes +
+                    boolean_bytes);
+        if (!valid_composite(
+                result.composite,
+                result.composite_brushes,
+                result.composite_paths,
+                result.composite_segments,
+                result.composite_boolean_nodes,
+                result.composite_stops,
                 resource.auxiliary_size)) {
             return false;
         }

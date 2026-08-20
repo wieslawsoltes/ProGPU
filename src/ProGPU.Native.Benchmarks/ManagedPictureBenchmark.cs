@@ -19,6 +19,7 @@ internal static class ManagedPictureBenchmark
     internal static void Run(string[] args)
     {
         bool useVectorClipMask = HasFlag(args, "--vector-clip-mask");
+        bool useCompositeBrushMask = HasFlag(args, "--composite-brush-mask");
         int primitiveCount = ReadPositive(args, "--rectangles", 384);
         int warmupCount = ReadNonNegative(
             args,
@@ -28,7 +29,10 @@ internal static class ManagedPictureBenchmark
         string? outputJson = ReadString(args, "--output-json");
         bool writeImages = HasFlag(args, "--write-images");
 
-        using GpuPicture picture = CreatePicture(primitiveCount, useVectorClipMask);
+        using GpuPicture picture = CreatePicture(
+            primitiveCount,
+            useVectorClipMask,
+            useCompositeBrushMask);
         const ulong sceneId = 0x5049435455524542UL;
         const ulong generation = 1UL;
         long compileAllocationStart = GC.GetAllocatedBytesForCurrentThread();
@@ -184,6 +188,8 @@ internal static class ManagedPictureBenchmark
             string directory = Path.GetFullPath(
                 useVectorClipMask
                     ? "artifacts/progpu-native/differential/managed-picture-vector-clip"
+                    : useCompositeBrushMask
+                        ? "artifacts/progpu-native/differential/managed-picture-composite-mask"
                     : "artifacts/progpu-native/differential/managed-picture");
             Directory.CreateDirectory(directory);
             nativeImagePath = Path.Combine(directory, "managed-picture-native.ppm");
@@ -207,6 +213,7 @@ internal static class ManagedPictureBenchmark
             Adapter: context.AdapterName,
             Backend: context.AdapterBackendType.ToString(),
             VectorClipMask: useVectorClipMask,
+            CompositeBrushMask: useCompositeBrushMask,
             SourceCommandCount: compiled.SourceCommandCount,
             NativeCommandCount: compiled.NativeCommandCount,
             AnalyticPrimitiveCount: compiled.AnalyticPrimitiveCount,
@@ -297,7 +304,8 @@ internal static class ManagedPictureBenchmark
 
     private static GpuPicture CreatePicture(
         int primitiveCount,
-        bool useVectorClipMask)
+        bool useVectorClipMask,
+        bool useCompositeBrushMask)
     {
         GradientStop[] coolStops =
         [
@@ -459,6 +467,33 @@ internal static class ManagedPictureBenchmark
                 Matrix4x4.Identity);
             additionalGeometryClipCount++;
 
+        }
+        int opacityMaskCount = 0;
+        if (useCompositeBrushMask)
+        {
+            var horizontalMask = new LinearGradientBrush(
+                new Vector2(20f, 0f),
+                new Vector2(Width - 20f, 0f),
+                [
+                    new GradientStop(
+                        new Vector4(1f, 1f, 1f, 0.12f),
+                        0f),
+                    new GradientStop(Vector4.One, 1f)
+                ]);
+            var radialMask = new RadialGradientBrush(
+                new Vector2(Width * 0.5f, Height * 0.5f),
+                Width * 0.48f,
+                Height * 0.48f,
+                [
+                    new GradientStop(Vector4.One, 0f),
+                    new GradientStop(
+                        new Vector4(1f, 1f, 1f, 0.35f),
+                        1f)
+                ]);
+            var maskBounds = new Rect(20f, 16f, Width - 40f, Height - 32f);
+            drawing.PushOpacityMask(horizontalMask, maskBounds);
+            drawing.PushOpacityMask(radialMask, maskBounds);
+            opacityMaskCount = 2;
         }
         int pointBatchCount = Math.Min(
             primitiveCount - 1,
@@ -740,6 +775,8 @@ internal static class ManagedPictureBenchmark
             };
             drawing.DrawPath(brushes[0], null, combinedFill);
         }
+        for (int index = 0; index < opacityMaskCount; index++)
+            drawing.PopOpacityMask();
         for (int index = 0; index < additionalGeometryClipCount; index++)
             drawing.PopGeometryClip();
         drawing.PopGeometryClip();
@@ -887,6 +924,7 @@ internal static class ManagedPictureBenchmark
         string Adapter,
         string Backend,
         bool VectorClipMask,
+        bool CompositeBrushMask,
         int SourceCommandCount,
         int NativeCommandCount,
         int AnalyticPrimitiveCount,

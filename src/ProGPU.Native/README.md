@@ -823,11 +823,13 @@ color-glyph fixture validates the decoded-RGBA resource on wasm32, executes the
 production color-atlas branch of `Text.wgsl`, requires the exact 16-byte first
 upload, and requires zero color-atlas/vertex/coverage upload on stable replay.
 Independent mask fixtures then verify both isolated-layer and exact per-draw
-semantics. A GPU-generated brush-mask fixture uses the shared production
-`Vector.wgsl` material program to rasterize a retained linear gradient into
-`R8Unorm`: its first frame requires the generation plus scene submissions with
-zero texture upload, while stable replay requires one submission and zero
-vertex, texture, or uniform upload. The state-mask fixture binds one transformed analytic rounded mask
+semantics. A GPU-generated composite brush-mask fixture uses the shared
+production `Vector.wgsl` material program to rasterize a retained linear
+gradient and half-alpha solid mask into `R8Unorm`, then multiplies both entirely
+on the GPU through shared `ClipCompose.wgsl`: its first frame requires only
+generation and scene submissions with zero texture upload, while stable replay
+requires one submission and zero vertex, texture, or uniform upload. The
+state-mask fixture binds one transformed analytic rounded mask
 to two overlapping translucent rectangles in one vector batch: three semantic
 commands, three typed resources, one GPU draw, exact premultiplied overlap
 pixels, and zero-upload replay. A second state-mask fixture binds one retained
@@ -1211,9 +1213,11 @@ Current native parity:
   image chains add no draw or mask texture and retain zero-upload replay;
 - clean-room managed lowering of one to four nested canonical affine rectangle
   or rounded-rectangle `PushGeometryClip` scopes to the exact per-draw mask
-  state, including rotated/sheared finite invertible transforms. A fifth clip,
-  general vector mask, sampled-mask construction, or isolated-layer chain is
-  typed fail-closed rather than approximated;
+  state, including rotated/sheared finite invertible transforms. General and
+  fifth-through-sixty-fourth geometry masks use retained GPU vector coverage;
+  mixed brush/vector stacks use one bounded 48-byte composite prefix and shared
+  GPU coverage multiplication. Retained-picture mask content and isolated-layer
+  analytic chains remain typed fail-closed rather than approximated;
 - pointer-free retained semantic solid/linear/radial/two-point-conical/sweep
   brushes with exact production `GpuBrush`/gradient-stop layout, compact
   analytic/path maps, scene-wide referenced-range deduplication, GPU-only

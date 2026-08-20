@@ -22,9 +22,10 @@ std::uint32_t append(
 
 } // namespace
 
-std::vector<std::byte> create_semantic_brush_mask_scene_stream(
+std::vector<std::byte> create_semantic_brush_mask_scene_stream_impl(
     std::uint32_t target_width,
-    std::uint32_t target_height) {
+    std::uint32_t target_height,
+    bool composite) {
     constexpr std::uint32_t command_count = 3U;
     constexpr std::uint32_t resource_count = 2U;
     constexpr std::uint32_t command_offset =
@@ -69,15 +70,48 @@ std::vector<std::byte> create_semantic_brush_mask_scene_stream(
     mask.brush.offsets0[1] = 1.0F;
     mask.brush.coordinate_transform0[0] = 1.0F;
     mask.brush.coordinate_transform1[1] = 1.0F;
-    const std::uint32_t mask_offset = append(stream, &mask, 1U);
     const std::array<progpu_native_scene_gradient_stop, 2U> stops{{
         {{1.0F, 1.0F, 1.0F, 0.0F}, 0.0F, 0U, 0U, 0U},
         {{1.0F, 1.0F, 1.0F, 1.0F}, 1.0F, 0U, 0U, 0U}
     }};
-    const std::uint32_t stops_offset = append(
-        stream,
-        stops.data(),
-        stops.size());
+    std::uint32_t mask_offset = 0U;
+    std::uint32_t mask_size = 0U;
+    std::uint32_t auxiliary_offset = 0U;
+    std::uint32_t auxiliary_size = 0U;
+    if (composite) {
+        progpu_native_scene_layer_brush_mask half = mask;
+        half.gradient_stop_count = 0U;
+        half.brush = {};
+        half.brush.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+        half.brush.opacity = 1.0F;
+        half.brush.colors[0] = {1.0F, 1.0F, 1.0F, 0.5F};
+        half.brush.coordinate_transform0[0] = 1.0F;
+        half.brush.coordinate_transform1[1] = 1.0F;
+        const std::array<progpu_native_scene_layer_brush_mask, 2U> brushes{{
+            mask,
+            half
+        }};
+        progpu_native_scene_layer_composite_mask composite_mask{};
+        composite_mask.struct_size = sizeof(composite_mask);
+        composite_mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE;
+        composite_mask.component_count = brushes.size();
+        composite_mask.brush_mask_count = brushes.size();
+        composite_mask.gradient_stop_count = stops.size();
+        composite_mask.opacity = 1.0F;
+        mask_offset = append(stream, &composite_mask, 1U);
+        mask_size = sizeof(composite_mask);
+        auxiliary_offset = append(stream, brushes.data(), brushes.size());
+        const std::uint32_t stops_offset = append(
+            stream,
+            stops.data(),
+            stops.size());
+        auxiliary_size = stops_offset + sizeof(stops) - auxiliary_offset;
+    } else {
+        mask_offset = append(stream, &mask, 1U);
+        mask_size = sizeof(mask);
+        auxiliary_offset = append(stream, stops.data(), stops.size());
+        auxiliary_size = sizeof(stops);
+    }
 
     const progpu_native_scene_layer layer{
         sizeof(progpu_native_scene_layer),
@@ -100,7 +134,7 @@ std::vector<std::byte> create_semantic_brush_mask_scene_stream(
     header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
     header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
     header.total_size = static_cast<std::uint32_t>(stream.size());
-    header.scene_id = 106U;
+    header.scene_id = composite ? 107U : 106U;
     header.generation = 1U;
     header.command_offset = command_offset;
     header.command_count = command_count;
@@ -120,7 +154,7 @@ std::vector<std::byte> create_semantic_brush_mask_scene_stream(
         {sizeof(progpu_native_scene_resource),
             PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 2002U, 1U,
-            mask_offset, sizeof(mask), stops_offset, sizeof(stops)}
+            mask_offset, mask_size, auxiliary_offset, auxiliary_size}
     }};
     std::memcpy(
         stream.data() + resource_offset,
@@ -151,6 +185,24 @@ std::vector<std::byte> create_semantic_brush_mask_scene_stream(
         commands.data(),
         sizeof(commands));
     return stream;
+}
+
+std::vector<std::byte> create_semantic_brush_mask_scene_stream(
+    std::uint32_t target_width,
+    std::uint32_t target_height) {
+    return create_semantic_brush_mask_scene_stream_impl(
+        target_width,
+        target_height,
+        false);
+}
+
+std::vector<std::byte> create_semantic_composite_brush_mask_scene_stream(
+    std::uint32_t target_width,
+    std::uint32_t target_height) {
+    return create_semantic_brush_mask_scene_stream_impl(
+        target_width,
+        target_height,
+        true);
 }
 
 } // namespace progpu::native::tests

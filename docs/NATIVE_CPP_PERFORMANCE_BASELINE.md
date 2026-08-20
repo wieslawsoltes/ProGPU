@@ -2751,3 +2751,49 @@ and upload assertions. This checkpoint establishes the resource and replay
 cost contract; a matched managed/native timing distribution remains part of
 the wider mask-heavy picture benchmark rather than a claim based on this small
 correctness fixture.
+
+The nested continuation keeps that single-mask fast path and adds a fixed
+48-byte composite prefix for two to 64 arbitrary brush/vector components. Its
+pointer-free auxiliary arena stores canonical 320-byte brush-mask records, at
+most one cumulative vector chain, and one shared stop table. Changed-scene
+validation is linear in those retained records. Each component is generated in
+R8 and shared `ClipCompose.wgsl` multiplies the coverage entirely on the GPU;
+no coverage bytes cross the ABI. The conservative preflight budget includes all
+component textures plus two ping-pong attachments. The current changed-scene
+implementation intentionally favors exactness and bounded lifetime over a
+premature fused-material shader: two brush components require three generation
+submissions plus the scene submission. Stable replay still requires exactly one
+submission and zero vertex, texture, uniform, brush, or stop upload. The real
+Dawn/Metal and Chromium fixtures now run this two-brush product and check half-
+scaled midpoint/right-edge pixels. No timing comparison is claimed from the
+`64x48` correctness fixture.
+
+The matched wider checkpoint used the exact local Release C++ library on Apple
+M3 Pro/Metal, 192 deterministic public-picture primitives, two nested gradient
+opacity masks, 100 warm-up pairs, and 500 alternating synchronized frames per
+run. Five independent runs produced these median-of-run values:
+
+| Metric | Native C++ | Managed compositor |
+|---|---:|---:|
+| p50 CPU submission | 0.0518 ms | 0.3037 ms |
+| p50 GPU-complete total | 1.5765 ms | 1.8311 ms |
+| p95 GPU-complete total | 3.1395 ms | 3.2496 ms |
+| p99 GPU-complete total | 3.2543 ms | 3.6714 ms |
+| Managed allocation / stable frame | 0 bytes | 0 bytes |
+
+The native CPU-submission median is 5.86 times lower and its synchronized p50
+is 13.9% lower for this retained scene. Native p50 ranged 1.5749--1.5990 ms;
+managed p50 ranged 1.8237--1.8449 ms. Every run reported one stable native
+submission and zero retained upload. The deterministic 960-by-540 comparison
+reported maximum channel delta 80/255, 265 of 518,400 pixels over 3/255, and
+mean absolute channel delta 0.0275386/255; visual inspection confines the
+amplified difference to antialiased boundaries. JSON runs and native, managed,
+and 32-times difference images are retained under ignored
+`artifacts/progpu-native/benchmarks/composite-mask/` and
+`artifacts/progpu-native/differential/managed-picture-composite-mask/`.
+
+This stable-replay result does not measure immutable mask materialization.
+The changed scene still uses one submission per component plus one composition
+submission before the scene submission; a later matched changed-scene profile
+must determine whether fusing component generation into one command buffer is
+material. No fusion benefit is claimed from the stable benchmark.

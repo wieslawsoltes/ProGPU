@@ -191,11 +191,34 @@ public static partial class GpuPictureNativeSceneCompiler
         }
     }
 
+    private sealed class BrushMaskNode
+    {
+        public BrushMaskNode(
+            BrushMaskNode? parent,
+            in NativeSceneLayerBrushMask mask,
+            NativeSceneGradientStop[] stops)
+        {
+            Parent = parent;
+            Mask = mask;
+            Stops = stops;
+            Count = checked((parent?.Count ?? 0) + 1);
+            GradientStopCount = checked(
+                (parent?.GradientStopCount ?? 0) + stops.Length);
+        }
+
+        public BrushMaskNode? Parent { get; }
+        public NativeSceneLayerBrushMask Mask { get; }
+        public NativeSceneGradientStop[] Stops { get; }
+        public int Count { get; }
+        public int GradientStopCount { get; }
+    }
+
     private enum StateMaskProgramKind
     {
         Analytic,
         Vector,
-        Brush
+        Brush,
+        Composite
     }
 
     private readonly record struct StateMaskProgram(
@@ -206,8 +229,7 @@ public static partial class GpuPictureNativeSceneCompiler
         NativeSceneLayerMask Mask2,
         NativeSceneLayerMask Mask3,
         VectorMaskNode? VectorMask,
-        NativeSceneLayerBrushMask BrushMask,
-        NativeSceneGradientStop[]? BrushStops)
+        BrushMaskNode? BrushMasks)
     {
         public StateMaskProgram(
             NativeSceneLayerMask mask,
@@ -220,7 +242,6 @@ public static partial class GpuPictureNativeSceneCompiler
                 default,
                 default,
                 vectorMask,
-                default,
                 null)
         {
         }
@@ -234,7 +255,6 @@ public static partial class GpuPictureNativeSceneCompiler
                 default,
                 default,
                 vectorMask,
-                default,
                 null)
         {
         }
@@ -250,8 +270,24 @@ public static partial class GpuPictureNativeSceneCompiler
                 default,
                 default,
                 null,
-                brushMask,
-                brushStops)
+                new BrushMaskNode(null, in brushMask, brushStops))
+        {
+        }
+
+        public StateMaskProgram(
+            VectorMaskNode? vectorMask,
+            BrushMaskNode brushMasks)
+            : this(
+                brushMasks.Count == 1 && vectorMask is null
+                    ? StateMaskProgramKind.Brush
+                    : StateMaskProgramKind.Composite,
+                0,
+                default,
+                default,
+                default,
+                default,
+                vectorMask,
+                brushMasks)
         {
         }
 
@@ -315,7 +351,19 @@ public static partial class GpuPictureNativeSceneCompiler
                     Unsafe.SizeOf<NativeScenePathBooleanNode>()),
             StateMaskProgramKind.Brush => checked(
                 Unsafe.SizeOf<NativeSceneLayerBrushMask>() +
-                (BrushStops?.Length ?? 0) *
+                (BrushMasks?.Stops.Length ?? 0) *
+                    Unsafe.SizeOf<NativeSceneGradientStop>()),
+            StateMaskProgramKind.Composite => checked(
+                Unsafe.SizeOf<NativeSceneLayerCompositeMask>() +
+                (BrushMasks?.Count ?? 0) *
+                    Unsafe.SizeOf<NativeSceneLayerBrushMask>() +
+                (VectorMask?.Count ?? 0) *
+                    Unsafe.SizeOf<NativeSceneClipPath>() +
+                (VectorMask?.SegmentCount ?? 0) *
+                    Unsafe.SizeOf<NativePathSegment>() +
+                (VectorMask?.BooleanNodeCount ?? 0) *
+                    Unsafe.SizeOf<NativeScenePathBooleanNode>() +
+                (BrushMasks?.GradientStopCount ?? 0) *
                     Unsafe.SizeOf<NativeSceneGradientStop>()),
             _ => throw new InvalidOperationException("Unknown state mask program.")
         };
@@ -348,7 +396,111 @@ public static partial class GpuPictureNativeSceneCompiler
                 NativeScenePathBooleanNode>(auxiliary.AsSpan(
                     pathBytes + segmentBytes,
                     booleanNodeBytes));
-            VectorMaskNode? node = VectorMask;
+            WriteVectorRecords(
+                VectorMask,
+                paths,
+                segments,
+                booleanNodes);
+            mask = new(
+                checked((uint)paths.Length),
+                checked((uint)segments.Length),
+                booleanNodeCount: checked((uint)booleanNodes.Length));
+            return auxiliary;
+        }
+
+        public byte[] CreateCompositeAuxiliary(
+            out NativeSceneLayerCompositeMask mask)
+        {
+            if (Kind != StateMaskProgramKind.Composite || BrushMasks is null)
+            {
+                throw new InvalidOperationException(
+                    "Only composite mask programs have a composite auxiliary span.");
+            }
+            int brushBytes = checked(
+                BrushMasks.Count * Unsafe.SizeOf<NativeSceneLayerBrushMask>());
+            int pathBytes = checked(
+                (VectorMask?.Count ?? 0) *
+                    Unsafe.SizeOf<NativeSceneClipPath>());
+            int segmentBytes = checked(
+                (VectorMask?.SegmentCount ?? 0) *
+                    Unsafe.SizeOf<NativePathSegment>());
+            int booleanNodeBytes = checked(
+                (VectorMask?.BooleanNodeCount ?? 0) *
+                    Unsafe.SizeOf<NativeScenePathBooleanNode>());
+            int stopBytes = checked(
+                BrushMasks.GradientStopCount *
+                    Unsafe.SizeOf<NativeSceneGradientStop>());
+            byte[] auxiliary = GC.AllocateUninitializedArray<byte>(checked(
+                brushBytes + pathBytes + segmentBytes + booleanNodeBytes +
+                stopBytes));
+            Span<NativeSceneLayerBrushMask> brushes = MemoryMarshal.Cast<
+                byte,
+                NativeSceneLayerBrushMask>(auxiliary.AsSpan(0, brushBytes));
+            Span<NativeSceneClipPath> paths = MemoryMarshal.Cast<
+                byte,
+                NativeSceneClipPath>(auxiliary.AsSpan(brushBytes, pathBytes));
+            Span<NativePathSegment> segments = MemoryMarshal.Cast<
+                byte,
+                NativePathSegment>(auxiliary.AsSpan(
+                    brushBytes + pathBytes,
+                    segmentBytes));
+            Span<NativeScenePathBooleanNode> booleanNodes = MemoryMarshal.Cast<
+                byte,
+                NativeScenePathBooleanNode>(auxiliary.AsSpan(
+                    brushBytes + pathBytes + segmentBytes,
+                    booleanNodeBytes));
+            Span<NativeSceneGradientStop> stops = MemoryMarshal.Cast<
+                byte,
+                NativeSceneGradientStop>(auxiliary.AsSpan(
+                    brushBytes + pathBytes + segmentBytes + booleanNodeBytes,
+                    stopBytes));
+
+            BrushMaskNode? brushNode = BrushMasks;
+            int brushIndex = brushes.Length;
+            int stopIndex = stops.Length;
+            while (brushNode is not null)
+            {
+                brushIndex--;
+                stopIndex -= brushNode.Stops.Length;
+                brushNode.Stops.CopyTo(stops[stopIndex..]);
+                NativeSceneLayerBrushMask source = brushNode.Mask;
+                NativeSceneBrush brush = source.Brush;
+                brush.StopOffset = checked((uint)stopIndex);
+                brushes[brushIndex] = new NativeSceneLayerBrushMask(
+                    source.Bounds,
+                    source.Transform,
+                    in brush,
+                    checked((uint)brushNode.Stops.Length),
+                    source.Opacity);
+                brushNode = brushNode.Parent;
+            }
+            if (VectorMask is not null)
+            {
+                WriteVectorRecords(
+                    VectorMask,
+                    paths,
+                    segments,
+                    booleanNodes);
+            }
+
+            uint vectorComponent = VectorMask is null ? 0U : 1U;
+            mask = new NativeSceneLayerCompositeMask(
+                checked((uint)BrushMasks.Count + vectorComponent),
+                checked((uint)BrushMasks.Count),
+                checked((uint)(VectorMask?.Count ?? 0)),
+                checked((uint)(VectorMask?.SegmentCount ?? 0)),
+                checked((uint)(VectorMask?.BooleanNodeCount ?? 0)),
+                checked((uint)BrushMasks.GradientStopCount));
+            return auxiliary;
+        }
+
+        private static void WriteVectorRecords(
+            VectorMaskNode vectorMask,
+            Span<NativeSceneClipPath> paths,
+            Span<NativePathSegment> segments,
+            Span<NativeScenePathBooleanNode> booleanNodes)
+        {
+            VectorMaskNode? node = vectorMask;
             int pathIndex = paths.Length;
             int segmentIndex = segments.Length;
             int booleanNodeIndex = booleanNodes.Length;
@@ -393,11 +545,11 @@ public static partial class GpuPictureNativeSceneCompiler
                     checked((ulong)nodeBooleanNodes.Length));
                 node = node.Parent;
             }
-            mask = new(
-                checked((uint)paths.Length),
-                checked((uint)segments.Length),
-                booleanNodeCount: checked((uint)booleanNodes.Length));
-            return auxiliary;
+            if (pathIndex != 0 || segmentIndex != 0 || booleanNodeIndex != 0)
+            {
+                throw new InvalidOperationException(
+                    "The vector mask chain did not fill its retained arenas.");
+            }
         }
     }
 
@@ -951,16 +1103,28 @@ public static partial class GpuPictureNativeSceneCompiler
                         auxiliary,
                         out maskResourceIndices[index]);
                 }
-                else
+                else if (program.Kind == StateMaskProgramKind.Brush)
                 {
-                    NativeSceneGradientStop[] stops =
-                        program.BrushStops ?? [];
-                    NativeSceneLayerBrushMask brushMask = program.BrushMask;
+                    BrushMaskNode brushNode = program.BrushMasks ??
+                        throw new InvalidOperationException(
+                            "A brush mask program has no retained brush.");
+                    NativeSceneLayerBrushMask brushMask = brushNode.Mask;
                     added = builder.TryAddLayerBrushMaskResource(
                         resourceId,
                         generation,
                         in brushMask,
-                        stops,
+                        brushNode.Stops,
+                        out maskResourceIndices[index]);
+                }
+                else
+                {
+                    byte[] auxiliary = program.CreateCompositeAuxiliary(
+                        out NativeSceneLayerCompositeMask compositeMask);
+                    added = builder.TryAddLayerCompositeMaskResource(
+                        resourceId,
+                        generation,
+                        in compositeMask,
+                        auxiliary,
                         out maskResourceIndices[index]);
                 }
                 if (!added)
