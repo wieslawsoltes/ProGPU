@@ -94,6 +94,9 @@ public class NativeRendererInteropTests
         Assert.Equal(32, Unsafe.SizeOf<NativeGpuHitTestNode>());
         Assert.Equal(40, Unsafe.SizeOf<NativeGpuHitTestQuery>());
         Assert.Equal(32, Unsafe.SizeOf<NativeGpuHitTestResult>());
+        Assert.Equal(
+            IntPtr.Size == 8 ? 16 : 12,
+            Unsafe.SizeOf<NativeGpuHitTestRequestToken>());
         Assert.Equal(40, Unsafe.SizeOf<NativeSceneHitTestIndex>());
         Assert.Equal(IntPtr.Size == 8 ? 96 : 80, Unsafe.SizeOf<NativePathFill>());
         Assert.Equal(
@@ -484,6 +487,44 @@ public class NativeRendererInteropTests
         Assert.Equal(1U, NativeDawnAdapter.AdapterAbiVersion);
         Assert.Equal(2U, NativeDawnAdapter.RequiredProviderAbiVersion);
         Assert.Equal(2U, NativeDawnAdapter.BackendAbi);
+    }
+
+    [Fact]
+    public void GpuHitTestQueryFactoriesEncodeOnlyCallerOwnedFields()
+    {
+        var point = NativeGpuHitTestQuery.PointQuery(new Vector2(3, 5), 7);
+        Assert.Equal(new Vector2(3, 5), point.Point);
+        Assert.Equal(point.Point, point.RegionMax);
+        Assert.Equal(7, point.RequestedResultCapacity);
+        Assert.Equal(7U, point.Flags);
+        Assert.Equal(0U, point.PrimitiveCount);
+        Assert.Equal(0U, point.NodeCount);
+        Assert.Equal(0U, point.PrimitiveIndexCount);
+        Assert.Equal(0U, point.PathSegmentCount);
+
+        var bounds = NativeGpuHitTestQuery.BoundsQuery(
+            new Vector2(1, 2),
+            new Vector2(8, 9),
+            11);
+        Assert.Equal(
+            (uint)NativeGpuHitTestQueryFlags.BoundsRegion | 11U,
+            bounds.Flags);
+
+        var ellipse = NativeGpuHitTestQuery.EllipseQuery(
+            new Vector2(1, 2),
+            new Vector2(8, 9),
+            NativeGpuHitTestQuery.MaximumResultCount);
+        Assert.Equal(
+            (uint)(NativeGpuHitTestQueryFlags.BoundsRegion |
+                NativeGpuHitTestQueryFlags.EllipseRegion) |
+                NativeGpuHitTestQuery.MaximumResultCount,
+            ellipse.Flags);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            NativeGpuHitTestQuery.PointQuery(Vector2.Zero, -1));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            NativeGpuHitTestQuery.PointQuery(
+                Vector2.Zero,
+                NativeGpuHitTestQuery.MaximumResultCount + 1));
     }
 
     [Fact]
@@ -917,6 +958,18 @@ public class NativeRendererInteropTests
         Assert.Equal(
             1125899906842624UL,
             (ulong)NativeRendererCapabilities.SemanticVectorClipMask);
+        Assert.Equal(
+            2251799813685248UL,
+            (ulong)NativeRendererCapabilities.RetainedGpuHitTesting);
+        Assert.Equal(
+            0x0000_FFFFU,
+            (uint)NativeGpuHitTestQueryFlags.ResultCapacityMask);
+        Assert.Equal(
+            0x4000_0000U,
+            (uint)NativeGpuHitTestQueryFlags.EllipseRegion);
+        Assert.Equal(
+            0x8000_0000U,
+            (uint)NativeGpuHitTestQueryFlags.BoundsRegion);
         Assert.Equal(0U, (uint)NativeImageSampling.Nearest);
         Assert.Equal(1U, (uint)NativeImageSampling.Linear);
         Assert.Equal(2U, (uint)NativeImageSampling.Cubic);

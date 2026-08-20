@@ -30,10 +30,21 @@ page.on("pageerror", (error) => errors.push(error.message));
 
 try {
   await page.goto(url, { waitUntil: "domcontentloaded" });
-  await page.waitForFunction(
-    () => document.body.dataset.progpuNative !== "loading",
-    undefined,
-    { timeout: 30_000 });
+  try {
+    await page.waitForFunction(
+      () => document.body.dataset.progpuNative !== "loading",
+      undefined,
+      { timeout: 30_000 });
+  } catch (error) {
+    const stage = await page.evaluate(() =>
+      document.body.dataset.progpuNativeStage ?? "uninitialized");
+    const diagnostics = errors.length === 0 ? "no browser errors" :
+      errors.join(" | ");
+    throw new Error(
+      `Browser smoke timed out at native stage '${stage}': ${diagnostics}.`, {
+      cause: error
+    });
+  }
   const contract = await page.evaluate(() => ({
     status: document.body.dataset.progpuNative,
     semanticCommands: document.body.dataset.progpuNativeSemanticCommands,

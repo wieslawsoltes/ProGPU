@@ -1800,7 +1800,10 @@ typedef enum progpu_native_hit_test_primitive_kind {
 enum {
     PROGPU_NATIVE_HIT_TEST_VISIBLE = 1U << 0U,
     PROGPU_NATIVE_HIT_TEST_VISIBLE_TO_INPUT = 1U << 1U,
-    PROGPU_NATIVE_HIT_TEST_MAX_RESULT_COUNT = 256U
+    PROGPU_NATIVE_HIT_TEST_MAX_RESULT_COUNT = 256U,
+    PROGPU_NATIVE_HIT_TEST_RESULT_CAPACITY_MASK = 0x0000ffffU,
+    PROGPU_NATIVE_HIT_TEST_ELLIPSE_REGION = 0x40000000U,
+    PROGPU_NATIVE_HIT_TEST_BOUNDS_REGION = 0x80000000U
 };
 
 typedef enum progpu_native_hit_test_intersection_detail {
@@ -2475,6 +2478,36 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_render_scene(
     progpu_native_engine* engine,
     const progpu_native_scene_frame* frame,
     progpu_native_scene_frame_metrics* metrics);
+/*
+ * Begins one retained-scene GPU hit test and returns a monotonically
+ * increasing request token. The query point, region_max, root_node_index,
+ * flags, and low sixteen-bit result capacity are caller-owned. Retained array
+ * counts are filled from the immutable scene resource by the engine. At most
+ * one request may be in flight per engine. The command submits once and maps
+ * readback asynchronously; browser callers must poll from later event-loop
+ * turns and must never block the WebGPU callback queue.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_begin_hit_test(
+    progpu_native_engine* engine,
+    const progpu_native_hit_test_query* query,
+    uint64_t* request_token);
+/*
+ * Polls one request without blocking. When complete is zero no other output
+ * is modified. On completion summary receives traversal counters and Hit
+ * stores the total hit count when list capacity is nonzero; for a zero-list
+ * query summary is instead the topmost hit. result_count receives the number
+ * of ordered list records copied, and the request is retired. A null results
+ * pointer with zero capacity explicitly discards the ordered list while still
+ * retiring the request.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_poll_hit_test(
+    progpu_native_engine* engine,
+    uint64_t request_token,
+    progpu_native_hit_test_result* results,
+    uint32_t result_capacity,
+    uint32_t* result_count,
+    progpu_native_hit_test_result* summary,
+    uint8_t* complete);
 PROGPU_NATIVE_API progpu_native_status progpu_native_engine_render(
     progpu_native_engine* engine,
     const progpu_native_frame* frame,

@@ -1599,6 +1599,7 @@ bool render_browser_frame(double, void*) {
         state_mask_media_metrics.texture_upload_bytes != 96U) {
         fail_engine("The browser evidence glyph/image scene did not render.");
     }
+
     resources.render_texture = render_texture;
     resources.render_view = render_view;
     if (!progpu::native::browser::begin_evidence_readback(
@@ -1638,6 +1639,8 @@ int main() {
             PROGPU_NATIVE_CAPABILITY_SEMANTIC_VECTOR_CLIP_MASK) == 0U ||
         (info.capabilities &
             PROGPU_NATIVE_CAPABILITY_DEVICE_LOSS_RECREATION) == 0U ||
+        (info.capabilities &
+            PROGPU_NATIVE_CAPABILITY_RETAINED_GPU_HIT_TESTING) != 0U ||
         (info.capabilities &
             PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE) != 0U) {
         fail("The ProGPU browser ABI/capability contract is invalid.");

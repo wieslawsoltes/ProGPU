@@ -90,6 +90,9 @@ set(PROGPU_NATIVE_ADVANCED_BLEND_SHADER
 set(PROGPU_NATIVE_3D_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Scene/Shaders/Native3D.wgsl"
     CACHE FILEPATH "Shared ProGPU native retained 3D shader source")
+set(PROGPU_NATIVE_HIT_TEST_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Vector/Shaders/GpuHitTesting.wgsl"
+    CACHE FILEPATH "Shared ProGPU retained GPU hit-test shader source")
 set(PROGPU_NATIVE_UNICODE_NORMALIZATION_DATA
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Text/UnicodeNormalizationData.bin"
     CACHE FILEPATH "Shared ProGPU Unicode normalization data")
@@ -181,6 +184,9 @@ if(NOT EXISTS "${PROGPU_NATIVE_ADVANCED_BLEND_SHADER}")
 endif()
 if(NOT EXISTS "${PROGPU_NATIVE_3D_SHADER}")
     message(FATAL_ERROR "The shared ProGPU Native3D.wgsl source is missing")
+endif()
+if(NOT EXISTS "${PROGPU_NATIVE_HIT_TEST_SHADER}")
+    message(FATAL_ERROR "The shared ProGPU GpuHitTesting.wgsl source is missing")
 endif()
 if(NOT EXISTS "${PROGPU_NATIVE_UNICODE_NORMALIZATION_DATA}")
     message(FATAL_ERROR "The shared ProGPU Unicode normalization data is missing")
@@ -411,6 +417,20 @@ add_custom_command(
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU Native3D.wgsl shader"
     VERBATIM)
+set(generated_hit_test_shader
+    "${generated_directory}/GpuHitTestingWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_hit_test_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_HIT_TEST_SHADER}"
+        "-DOUTPUT=${generated_hit_test_shader}"
+        "-DSYMBOL=gpu_hit_testing_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_HIT_TEST_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the shared ProGPU GpuHitTesting.wgsl shader"
+    VERBATIM)
 
 # All renderer variants include the same generated headers. Model generation
 # as one target so multi-config generators cannot race two custom commands
@@ -431,7 +451,8 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_group_drop_shadow_compose_shader}"
         "${generated_group_blend_shader}"
         "${generated_advanced_blend_shader}"
-        "${generated_native_3d_shader}")
+        "${generated_native_3d_shader}"
+        "${generated_hit_test_shader}")
 
 set(PROGPU_NATIVE_BACKEND_SOURCES
     src/Backend/progpu_native_advanced_blend_execution.cpp
@@ -474,7 +495,9 @@ set(PROGPU_NATIVE_BACKEND_SOURCES
     src/Backend/progpu_native_replay_execution.hpp
     src/Backend/progpu_native_webgpu_resources.hpp
     src/Backend/progpu_native_vector_execution.cpp
-    src/Backend/progpu_webgpu_compat.hpp)
+    src/Backend/progpu_webgpu_compat.hpp
+    src/HitTesting/progpu_native_hit_testing_execution.cpp
+    src/HitTesting/progpu_native_hit_testing_execution.hpp)
 
 set(PROGPU_NATIVE_SCENE_SOURCES
     src/Scene/progpu_native_semantic_masked_text_pipeline.cpp

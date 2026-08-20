@@ -28,12 +28,50 @@
 #include <iterator>
 #include <limits>
 #include <mutex>
+#include <span>
+#include <thread>
 #include <type_traits>
 #include <vector>
 
 namespace {
 
 void require(bool condition, const char* message);
+
+std::vector<std::byte> create_gpu_hit_test_scene_stream() {
+    progpu::native::semantic_scene_builder builder(796U, 1U);
+    progpu_native_hit_test_primitive primitive{};
+    primitive.bounds_min = {4.0F, 4.0F};
+    primitive.bounds_max = {20.0F, 20.0F};
+    primitive.data0 = {4.0F, 4.0F, 20.0F, 20.0F};
+    primitive.inverse_transform0 = {1.0F, 0.0F, 0.0F, 0.0F};
+    primitive.inverse_transform1 = {0.0F, 1.0F, 0.0F, 0.0F};
+    primitive.kind = PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL;
+    primitive.flags = PROGPU_NATIVE_HIT_TEST_VISIBLE |
+        PROGPU_NATIVE_HIT_TEST_VISIBLE_TO_INPUT;
+    primitive.id = 796;
+    primitive.z_index = 2.0F;
+    const progpu_native_hit_test_node node{
+        {4.0F, 4.0F},
+        {20.0F, 20.0F},
+        0U,
+        0U,
+        0U,
+        1U};
+    constexpr std::uint32_t primitive_index = 0U;
+    std::uint32_t resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::vector<std::byte> scene;
+    require(builder.add_hit_test_index(
+            std::span<const progpu_native_hit_test_primitive>(
+                &primitive,
+                1U),
+            std::span<const progpu_native_hit_test_node>(&node, 1U),
+            std::span<const std::uint32_t>(&primitive_index, 1U),
+            {},
+            resource_index) &&
+        resource_index == 0U && builder.build(scene),
+        "packaged Dawn GPU hit-test fixture build failed");
+    return scene;
+}
 
 std::vector<std::byte> create_native_3d_scene_stream() {
     using progpu::native::semantic_scene_builder;
@@ -2589,6 +2627,54 @@ int main(int argc, char** argv) {
         semantic_metrics.text_style_upload_bytes == 0U &&
         semantic_metrics.payload_hash == semantic_payload_hash,
         "stable mixed semantic scene replay rebuilt retained resources");
+
+    auto hit_test_scene = create_gpu_hit_test_scene_stream();
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        hit_test_scene.data(),
+        hit_test_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "packaged Dawn GPU hit-test scene update failed");
+    progpu_native_hit_test_query hit_query{};
+    hit_query.point = {8.0F, 8.0F};
+    hit_query.region_max = hit_query.point;
+    hit_query.flags = 1U;
+    std::uint64_t hit_token = 0U;
+    require(progpu_native_engine_begin_hit_test(
+        engine,
+        &hit_query,
+        &hit_token) == PROGPU_NATIVE_STATUS_SUCCESS && hit_token != 0U,
+        "packaged Dawn GPU hit-test submission failed");
+    std::array<progpu_native_hit_test_result, 1U> hit_results{};
+    progpu_native_hit_test_result hit_summary{};
+    std::uint32_t hit_count = 0U;
+    std::uint8_t hit_complete = 0U;
+    const auto hit_deadline = std::chrono::steady_clock::now() +
+        std::chrono::seconds(15);
+    while (hit_complete == 0U &&
+           std::chrono::steady_clock::now() < hit_deadline) {
+        require(progpu_native_engine_poll_hit_test(
+            engine,
+            hit_token,
+            hit_results.data(),
+            hit_results.size(),
+            &hit_count,
+            &hit_summary,
+            &hit_complete) == PROGPU_NATIVE_STATUS_SUCCESS,
+            "packaged Dawn GPU hit-test polling failed");
+        if (hit_complete == 0U) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    require(hit_complete != 0U && hit_summary.hit == 1U &&
+        hit_summary.candidate_count == 1U &&
+        hit_summary.nodes_visited == 1U &&
+        hit_summary.precise_tests == 1U && hit_count == 1U &&
+        hit_results[0U].hit != 0U && hit_results[0U].id == 796 &&
+        hit_results[0U].primitive_index == 0U,
+        "packaged Dawn GPU hit-test result diverged");
 
     auto patch_scene = create_semantic_image_patch_scene_stream(64U, 48U);
     require(!patch_scene.empty(),

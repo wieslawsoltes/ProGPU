@@ -471,6 +471,24 @@ internal static unsafe partial class NativeMethods
         SceneFrame* frame,
         SceneFrameMetrics* metrics);
 
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_begin_hit_test")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus BeginHitTest(
+        nint engine,
+        NativeGpuHitTestQuery* query,
+        ulong* requestToken);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_poll_hit_test")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus PollHitTest(
+        nint engine,
+        ulong requestToken,
+        NativeGpuHitTestResult* results,
+        uint resultCapacity,
+        uint* resultCount,
+        NativeGpuHitTestResult* summary,
+        byte* complete);
+
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_render")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus Render(

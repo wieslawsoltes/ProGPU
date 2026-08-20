@@ -2061,27 +2061,27 @@ fn primitive_can_fully_contain_query_bounds(primitive: HitTestPrimitive) -> bool
 
 fn primitive_uses_precise_bounds_region_test(primitive: HitTestPrimitive) -> bool {
     return primitive_has_clip(primitive) ||
-        primitive_is_axis_aligned(primitive) &&
-        (primitive.kind == KIND_RECT_FILL ||
-            primitive.kind == KIND_RECT_STROKE ||
-            primitive.kind == KIND_ELLIPSE_FILL ||
-            primitive.kind == KIND_ELLIPSE_STROKE ||
-            primitive.kind == KIND_LINE_STROKE ||
-            primitive.kind == KIND_PATH_FILL ||
-            primitive.kind == KIND_PATH_STROKE);
+        (primitive_is_axis_aligned(primitive) &&
+            (primitive.kind == KIND_RECT_FILL ||
+                primitive.kind == KIND_RECT_STROKE ||
+                primitive.kind == KIND_ELLIPSE_FILL ||
+                primitive.kind == KIND_ELLIPSE_STROKE ||
+                primitive.kind == KIND_LINE_STROKE ||
+                primitive.kind == KIND_PATH_FILL ||
+                primitive.kind == KIND_PATH_STROKE));
 }
 
 fn primitive_uses_precise_ellipse_region_test(primitive: HitTestPrimitive) -> bool {
     return primitive_has_clip(primitive) ||
-        primitive_is_axis_aligned(primitive) &&
-        (primitive.kind == KIND_BOUNDS ||
-            primitive.kind == KIND_RECT_FILL ||
-            primitive.kind == KIND_RECT_STROKE ||
-            primitive.kind == KIND_ELLIPSE_FILL ||
-            primitive.kind == KIND_ELLIPSE_STROKE ||
-            primitive.kind == KIND_LINE_STROKE ||
-            primitive.kind == KIND_PATH_FILL ||
-            primitive.kind == KIND_PATH_STROKE);
+        (primitive_is_axis_aligned(primitive) &&
+            (primitive.kind == KIND_BOUNDS ||
+                primitive.kind == KIND_RECT_FILL ||
+                primitive.kind == KIND_RECT_STROKE ||
+                primitive.kind == KIND_ELLIPSE_FILL ||
+                primitive.kind == KIND_ELLIPSE_STROKE ||
+                primitive.kind == KIND_LINE_STROKE ||
+                primitive.kind == KIND_PATH_FILL ||
+                primitive.kind == KIND_PATH_STROKE));
 }
 
 fn classify_ellipse_region_intersection_detail(primitive: HitTestPrimitive) -> u32 {

@@ -506,6 +506,77 @@ public sealed unsafe class NativeCompositor : IDisposable
     }
 
     /// <summary>
+    /// Begins one asynchronous GPU query against the hit-test index carried by
+    /// the installed immutable semantic scene. Stable queries reuse all native
+    /// scene buffers and cross the managed/native boundary once.
+    /// </summary>
+    public NativeGpuHitTestRequestToken BeginGpuHitTest(
+        in NativeGpuHitTestQuery query)
+    {
+        var nativeQuery = query;
+        ulong token = 0;
+        lock (_context.RenderLock)
+        {
+            ThrowIfGpuUnavailable();
+            ThrowForStatus(NativeRendererInterop.BeginHitTest(
+                _interopKind,
+                _engine,
+                &nativeQuery,
+                &token));
+        }
+        return new NativeGpuHitTestRequestToken(token, _engine);
+    }
+
+    /// <summary>
+    /// Polls a GPU hit-test readback without blocking. The supplied span must
+    /// cover the result capacity encoded in the originating query, or be empty
+    /// to explicitly discard the ordered list while retaining the summary.
+    /// In list mode, <paramref name="summary"/>'s Hit field is the total hit
+    /// count and its remaining diagnostic fields describe traversal. In
+    /// zero-list mode it contains the topmost hit instead.
+    /// </summary>
+    public bool TryPollGpuHitTest(
+        NativeGpuHitTestRequestToken token,
+        Span<NativeGpuHitTestResult> results,
+        out int resultCount,
+        out NativeGpuHitTestResult summary)
+    {
+        if (!token.IsValid || token.Owner != _engine)
+        {
+            throw new ArgumentException(
+                "The GPU hit-test token belongs to another native compositor.",
+                nameof(token));
+        }
+        if (results.Length > NativeGpuHitTestQuery.MaximumResultCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(results));
+        }
+
+        uint nativeResultCount = 0;
+        byte complete = 0;
+        NativeGpuHitTestResult nativeSummary = default;
+        fixed (NativeGpuHitTestResult* resultPointer = results)
+        {
+            lock (_context.RenderLock)
+            {
+                ThrowIfGpuUnavailable();
+                ThrowForStatus(NativeRendererInterop.PollHitTest(
+                    _interopKind,
+                    _engine,
+                    token.Value,
+                    resultPointer,
+                    (uint)results.Length,
+                    &nativeResultCount,
+                    &nativeSummary,
+                    &complete));
+            }
+        }
+        resultCount = checked((int)nativeResultCount);
+        summary = nativeSummary;
+        return complete != 0;
+    }
+
+    /// <summary>
     /// Renders the installed immutable semantic scene generation in display
     /// list order to one target.
     /// </summary>

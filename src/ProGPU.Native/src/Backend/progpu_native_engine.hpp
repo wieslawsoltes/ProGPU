@@ -394,6 +394,29 @@ struct progpu_native_engine {
     WGPURenderPipeline semantic_mesh_strip_3d_pipeline = nullptr;
     WGPUBindGroupLayout semantic_3d_layout = nullptr;
     WGPUPipelineLayout semantic_3d_pipeline_layout = nullptr;
+    WGPUShaderModule semantic_hit_test_shader = nullptr;
+    WGPUComputePipeline semantic_hit_test_pipeline = nullptr;
+    WGPUBindGroupLayout semantic_hit_test_layout = nullptr;
+    WGPUPipelineLayout semantic_hit_test_pipeline_layout = nullptr;
+    WGPUBindGroup semantic_hit_test_bind_group = nullptr;
+    WGPUBuffer semantic_hit_test_query_buffer = nullptr;
+    WGPUBuffer semantic_hit_test_node_buffer = nullptr;
+    WGPUBuffer semantic_hit_test_primitive_index_buffer = nullptr;
+    WGPUBuffer semantic_hit_test_primitive_buffer = nullptr;
+    WGPUBuffer semantic_hit_test_result_buffer = nullptr;
+    WGPUBuffer semantic_hit_test_readback_buffer = nullptr;
+    progpu::native::webgpu::buffer_map_read_state
+        semantic_hit_test_map_state{};
+    WGPUBuffer semantic_hit_test_path_segment_buffer = nullptr;
+    std::uint64_t semantic_hit_test_gpu_hash = 0U;
+    std::uint64_t semantic_hit_test_next_token = 0U;
+    std::uint64_t semantic_hit_test_pending_token = 0U;
+    std::uint64_t semantic_hit_test_pending_bytes = 0U;
+    std::uint32_t semantic_hit_test_primitive_count = 0U;
+    std::uint32_t semantic_hit_test_node_count = 0U;
+    std::uint32_t semantic_hit_test_primitive_index_count = 0U;
+    std::uint32_t semantic_hit_test_path_segment_count = 0U;
+    std::uint32_t semantic_hit_test_requested_result_count = 0U;
     std::vector<semantic_render_bundle_span> semantic_render_bundle_spans;
     std::vector<semantic_effect_dispatch> semantic_effect_dispatches;
     std::array<semantic_layer_slot,
@@ -779,6 +802,88 @@ struct progpu_native_engine {
         if (semantic_3d_shader != nullptr) {
             wgpuShaderModuleRelease(semantic_3d_shader);
             semantic_3d_shader = nullptr;
+        }
+    }
+
+    void release_semantic_hit_test_index() noexcept {
+        if (semantic_hit_test_bind_group != nullptr) {
+            wgpuBindGroupRelease(semantic_hit_test_bind_group);
+            semantic_hit_test_bind_group = nullptr;
+        }
+        const auto release = [](WGPUBuffer& buffer) noexcept {
+            if (buffer != nullptr) {
+                wgpuBufferDestroy(buffer);
+                wgpuBufferRelease(buffer);
+                buffer = nullptr;
+            }
+        };
+        release(semantic_hit_test_node_buffer);
+        release(semantic_hit_test_primitive_index_buffer);
+        release(semantic_hit_test_primitive_buffer);
+        release(semantic_hit_test_path_segment_buffer);
+        semantic_hit_test_gpu_hash = 0U;
+        semantic_hit_test_primitive_count = 0U;
+        semantic_hit_test_node_count = 0U;
+        semantic_hit_test_primitive_index_count = 0U;
+        semantic_hit_test_path_segment_count = 0U;
+    }
+
+    void release_semantic_hit_test_resources() noexcept {
+#if !defined(PROGPU_NATIVE_DAWN_ABI)
+        if (semantic_hit_test_readback_buffer != nullptr &&
+            semantic_hit_test_pending_token != 0U &&
+            semantic_hit_test_map_state.completion.load(
+                std::memory_order_acquire) ==
+                progpu::native::webgpu::buffer_map_pending) {
+            wgpuBufferUnmap(semantic_hit_test_readback_buffer);
+            (void)wgpuDevicePoll(device, true, nullptr);
+        }
+#endif
+        if (semantic_hit_test_readback_buffer != nullptr &&
+#if defined(PROGPU_NATIVE_DAWN_ABI)
+            wgpuBufferGetMapState(semantic_hit_test_readback_buffer) ==
+                WGPUBufferMapState_Mapped
+#else
+            semantic_hit_test_map_state.completion.load(
+                std::memory_order_acquire) ==
+                progpu::native::webgpu::buffer_map_succeeded
+#endif
+            ) {
+            progpu::native::webgpu::buffer_unmap(
+                semantic_hit_test_readback_buffer);
+        }
+        semantic_hit_test_pending_token = 0U;
+        semantic_hit_test_pending_bytes = 0U;
+        semantic_hit_test_requested_result_count = 0U;
+        semantic_hit_test_map_state.completion.store(
+            progpu::native::webgpu::buffer_map_pending,
+            std::memory_order_relaxed);
+        release_semantic_hit_test_index();
+        const auto release = [](WGPUBuffer& buffer) noexcept {
+            if (buffer != nullptr) {
+                wgpuBufferDestroy(buffer);
+                wgpuBufferRelease(buffer);
+                buffer = nullptr;
+            }
+        };
+        release(semantic_hit_test_readback_buffer);
+        release(semantic_hit_test_result_buffer);
+        release(semantic_hit_test_query_buffer);
+        if (semantic_hit_test_pipeline != nullptr) {
+            wgpuComputePipelineRelease(semantic_hit_test_pipeline);
+            semantic_hit_test_pipeline = nullptr;
+        }
+        if (semantic_hit_test_pipeline_layout != nullptr) {
+            wgpuPipelineLayoutRelease(semantic_hit_test_pipeline_layout);
+            semantic_hit_test_pipeline_layout = nullptr;
+        }
+        if (semantic_hit_test_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(semantic_hit_test_layout);
+            semantic_hit_test_layout = nullptr;
+        }
+        if (semantic_hit_test_shader != nullptr) {
+            wgpuShaderModuleRelease(semantic_hit_test_shader);
+            semantic_hit_test_shader = nullptr;
         }
     }
 
@@ -1196,6 +1301,7 @@ struct progpu_native_engine {
         release_semantic_external_image_bindings();
         release_semantic_analytic_page();
         release_semantic_3d_resources();
+        release_semantic_hit_test_resources();
         release_effect_resources();
         release_clip_resources();
         if (semantic_advanced_blend_layout != nullptr) {

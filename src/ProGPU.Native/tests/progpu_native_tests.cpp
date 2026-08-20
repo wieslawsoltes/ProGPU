@@ -442,6 +442,23 @@ void fixed_stroke_topology_masks_match_reference_classification() {
 void api_contract_is_versioned() {
     PROGPU_REQUIRE(
         progpu_native_get_abi_version() == PROGPU_NATIVE_ABI_VERSION);
+    progpu_native_hit_test_query query{};
+    std::uint64_t request_token = 0U;
+    PROGPU_REQUIRE(progpu_native_engine_begin_hit_test(
+        nullptr,
+        &query,
+        &request_token) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    progpu_native_hit_test_result summary{};
+    std::uint32_t result_count = 0U;
+    std::uint8_t complete = 0U;
+    PROGPU_REQUIRE(progpu_native_engine_poll_hit_test(
+        nullptr,
+        1U,
+        nullptr,
+        0U,
+        &result_count,
+        &summary,
+        &complete) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
 
     progpu_native_engine_info too_small{};
     too_small.struct_size = sizeof(too_small) - 1U;
@@ -531,6 +548,8 @@ void api_contract_is_versioned() {
         PROGPU_NATIVE_CAPABILITY_IMAGE_FRAME_MIPMAP_SAMPLING) != 0U);
     PROGPU_REQUIRE((info.capabilities &
         PROGPU_NATIVE_CAPABILITY_SEMANTIC_VECTOR_CLIP_MASK) != 0U);
+    PROGPU_REQUIRE((info.capabilities &
+        PROGPU_NATIVE_CAPABILITY_RETAINED_GPU_HIT_TESTING) != 0U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_header) == 80U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_resource) == 48U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_command) == 64U);

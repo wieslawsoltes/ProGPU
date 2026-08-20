@@ -477,6 +477,75 @@ public enum NativeGpuHitTestIntersectionDetail : uint
     Intersects = 4
 }
 
+[Flags]
+public enum NativeGpuHitTestQueryFlags : uint
+{
+    None = 0,
+    ResultCapacityMask = 0x0000_FFFF,
+    EllipseRegion = 0x4000_0000,
+    BoundsRegion = 0x8000_0000
+}
+
+public partial struct NativeGpuHitTestQuery
+{
+    public const int MaximumResultCount = 256;
+
+    public readonly int RequestedResultCapacity =>
+        checked((int)(Flags & (uint)NativeGpuHitTestQueryFlags.ResultCapacityMask));
+
+    public static NativeGpuHitTestQuery PointQuery(
+        Vector2 point,
+        int resultCapacity = 0) => new()
+        {
+            Point = point,
+            RegionMax = point,
+            RootNodeIndex = 0,
+            Flags = ValidateResultCapacity(resultCapacity)
+        };
+
+    public static NativeGpuHitTestQuery BoundsQuery(
+        Vector2 minimum,
+        Vector2 maximum,
+        int resultCapacity) => new()
+        {
+            Point = minimum,
+            RegionMax = maximum,
+            RootNodeIndex = 0,
+            Flags = (uint)NativeGpuHitTestQueryFlags.BoundsRegion |
+                ValidateResultCapacity(resultCapacity)
+        };
+
+    public static NativeGpuHitTestQuery EllipseQuery(
+        Vector2 minimum,
+        Vector2 maximum,
+        int resultCapacity) => new()
+        {
+            Point = minimum,
+            RegionMax = maximum,
+            RootNodeIndex = 0,
+            Flags = (uint)(NativeGpuHitTestQueryFlags.BoundsRegion |
+                NativeGpuHitTestQueryFlags.EllipseRegion) |
+                ValidateResultCapacity(resultCapacity)
+        };
+
+    private static uint ValidateResultCapacity(int resultCapacity)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(resultCapacity);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            resultCapacity,
+            MaximumResultCount);
+        return (uint)resultCapacity;
+    }
+}
+
+public partial struct NativeGpuHitTestResult
+{
+    public readonly bool HasHit => Hit != 0;
+
+    public readonly NativeGpuHitTestIntersectionDetail Detail =>
+        (NativeGpuHitTestIntersectionDetail)IntersectionDetail;
+}
+
 public enum NativeSceneTextRenderingMode : uint
 {
     Grayscale = 0,
@@ -2300,6 +2369,41 @@ public readonly struct NativeSubmissionToken : IEquatable<NativeSubmissionToken>
     public static bool operator !=(
         NativeSubmissionToken left,
         NativeSubmissionToken right) => !left.Equals(right);
+}
+
+/// <summary>
+/// Identifies one asynchronous retained GPU hit-test request.
+/// </summary>
+public readonly struct NativeGpuHitTestRequestToken :
+    IEquatable<NativeGpuHitTestRequestToken>
+{
+    internal NativeGpuHitTestRequestToken(ulong value, nint owner)
+    {
+        Value = value;
+        Owner = owner;
+    }
+
+    public ulong Value { get; }
+
+    internal nint Owner { get; }
+
+    public bool IsValid => Value != 0 && Owner != 0;
+
+    public bool Equals(NativeGpuHitTestRequestToken other) =>
+        Value == other.Value && Owner == other.Owner;
+
+    public override bool Equals(object? obj) =>
+        obj is NativeGpuHitTestRequestToken other && Equals(other);
+
+    public override int GetHashCode() => HashCode.Combine(Value, Owner);
+
+    public static bool operator ==(
+        NativeGpuHitTestRequestToken left,
+        NativeGpuHitTestRequestToken right) => left.Equals(right);
+
+    public static bool operator !=(
+        NativeGpuHitTestRequestToken left,
+        NativeGpuHitTestRequestToken right) => !left.Equals(right);
 }
 
 [StructLayout(LayoutKind.Sequential)]

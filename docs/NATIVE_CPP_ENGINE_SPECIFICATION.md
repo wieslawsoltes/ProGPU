@@ -1185,7 +1185,8 @@ ordered semantic layers now own bounded backdrop input.
 - charts, CAD/DXF/hatch/ACIS, voxel, ShaderToy, meshes, and extension ABI;
 - media textures, NV12 processing, post-processing, and synchronized external
   texture ownership;
-- GPU hit testing and render/hit-test parity.
+- browser GPU hit-test readback and the final render/hit-test differential
+  corpus.
 
 ### Retained GPU hit-test foundation checkpoint
 
@@ -1209,12 +1210,28 @@ the immutable scene changes, takes `O(N * D)` worst-case work for `N`
 primitives and bounded depth `D <= 64`, and owns the resulting contiguous
 arrays for stable replay.
 
-This checkpoint intentionally does not advertise the capability from the
-renderer yet. Completion of the slice still requires embedding the canonical
-shader, retaining its WebGPU buffers, a batched asynchronous query/readback
-contract that works without blocking browser WebGPU, and managed/native/GPU
-pixel-and-result differential coverage. The capability bit becomes observable
-only when those pieces are connected.
+The execution checkpoint directly ports the authoritative ProGPU shader and
+query contract from the same in-repository sources. CMake embeds the canonical
+`GpuHitTesting.wgsl`; the renderer retains one compute pipeline, query/result/
+readback set, and node/primitive/index/path buffers keyed by the hit-test page's
+semantic hash. A scene generation uploads each immutable array at most once.
+Each query performs one batched C ABI begin call, one compute dispatch, one
+bounded result copy, and nonblocking poll calls over caller-owned result memory;
+there is no per-node or per-primitive interop and no per-query managed
+allocation. Work remains `O(N + R)` worst-case for `N` visited candidates and
+bounded result capacity `R <= 256`; retained storage is `O(P + T)` for the
+scene's primitive/path data plus a fixed 257-record result/readback pair.
+
+Direct wgpu-native/Metal and provider-resolved Dawn/Metal execute the same
+shader and exact result fixture, including stable resource reuse and safe
+engine destruction with an outstanding asynchronous map. Desktop libraries now
+advertise `PROGPU_NATIVE_CAPABILITY_RETAINED_GPU_HIT_TESTING`. Emscripten
+continues to compile the exact implementation and its ordinary full-renderer
+Chromium WebGPU gate passes, but Emdawnwebgpu did not complete this additional
+native `mapAsync` readback reliably during qualification. The browser build
+therefore deliberately does not advertise the capability until that event-loop
+completion seam has deterministic runtime evidence; no synchronous wait or
+JavaScript-only semantic fork is substituted.
 
 Primary contract references used for this design are
 [Skia `SkPath::contains`](https://api.skia.org/classSkPath.html),

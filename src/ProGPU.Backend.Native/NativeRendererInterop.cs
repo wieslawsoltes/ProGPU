@@ -86,6 +86,42 @@ internal static unsafe class NativeRendererInterop
             ? NativeDawnMethods.RenderScene(engine, frame, metrics)
             : NativeMethods.RenderScene(engine, frame, metrics);
 
+    internal static NativeRendererStatus BeginHitTest(
+        NativeRendererInteropKind kind,
+        nint engine,
+        NativeGpuHitTestQuery* query,
+        ulong* requestToken) =>
+        kind == NativeRendererInteropKind.Dawn
+            ? NativeDawnMethods.BeginHitTest(engine, query, requestToken)
+            : NativeMethods.BeginHitTest(engine, query, requestToken);
+
+    internal static NativeRendererStatus PollHitTest(
+        NativeRendererInteropKind kind,
+        nint engine,
+        ulong requestToken,
+        NativeGpuHitTestResult* results,
+        uint resultCapacity,
+        uint* resultCount,
+        NativeGpuHitTestResult* summary,
+        byte* complete) =>
+        kind == NativeRendererInteropKind.Dawn
+            ? NativeDawnMethods.PollHitTest(
+                engine,
+                requestToken,
+                results,
+                resultCapacity,
+                resultCount,
+                summary,
+                complete)
+            : NativeMethods.PollHitTest(
+                engine,
+                requestToken,
+                results,
+                resultCapacity,
+                resultCount,
+                summary,
+                complete);
+
     internal static NativeRendererStatus Render(
         NativeRendererInteropKind kind,
         nint engine,

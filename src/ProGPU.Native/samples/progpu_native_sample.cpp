@@ -234,6 +234,69 @@ bool has_expected_colors(
     return yellow_coverage_pixels >= 24U;
 }
 
+bool verify_retained_gpu_hit_test(
+    progpu_native_engine* engine,
+    WGPUDevice device) {
+    progpu_native_hit_test_query query{};
+    query.point = {80.0F, 80.0F};
+    query.region_max = query.point;
+    query.root_node_index = 0U;
+    query.flags = 1U;
+    std::uint64_t token = 0U;
+    const auto begin_status = progpu_native_engine_begin_hit_test(
+            engine,
+            &query,
+            &token);
+    if (begin_status != PROGPU_NATIVE_STATUS_SUCCESS || token == 0U) {
+        std::cerr << "GPU hit-test begin status="
+                  << static_cast<int>(begin_status)
+                  << " token=" << token << '\n';
+        return false;
+    }
+
+    std::array<progpu_native_hit_test_result, 1U> hits{};
+    progpu_native_hit_test_result summary{};
+    std::uint32_t hit_count = 0U;
+    std::uint8_t complete = 0U;
+    while (complete == 0U) {
+        const auto poll_status = progpu_native_engine_poll_hit_test(
+                engine,
+                token,
+                hits.data(),
+                hits.size(),
+                &hit_count,
+                &summary,
+                &complete);
+        if (poll_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+            std::cerr << "GPU hit-test poll status="
+                      << static_cast<int>(poll_status) << '\n';
+            return false;
+        }
+        if (complete == 0U) {
+            (void)wgpuDevicePoll(device, true, nullptr);
+        }
+    }
+    const bool passed = summary.hit == 1U &&
+        summary.candidate_count == 1U &&
+        summary.nodes_visited == 1U && summary.precise_tests == 1U &&
+        hit_count == 1U && hits[0U].hit != 0U && hits[0U].id == 501 &&
+        hits[0U].primitive_index == 0U;
+    if (!passed) {
+        std::cerr << "GPU hit-test result: summary(hit=" << summary.hit
+                  << ", id=" << summary.id
+                  << ", primitive=" << summary.primitive_index
+                  << ", candidates=" << summary.candidate_count
+                  << ", nodes=" << summary.nodes_visited
+                  << ", precise=" << summary.precise_tests
+                  << "), count=" << hit_count
+                  << ", first(hit=" << hits[0U].hit
+                  << ", id=" << hits[0U].id
+                  << ", primitive=" << hits[0U].primitive_index
+                  << ")\n";
+    }
+    return passed;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -639,6 +702,37 @@ int main(int argc, char** argv) {
         std::cerr << "Could not close the native retained layer.\n";
         return EXIT_FAILURE;
     }
+    progpu_native_hit_test_primitive hit_primitive{};
+    hit_primitive.bounds_min = {48.0F, 48.0F};
+    hit_primitive.bounds_max = {228.0F, 168.0F};
+    hit_primitive.data0 = {48.0F, 48.0F, 228.0F, 168.0F};
+    hit_primitive.inverse_transform0 = {1.0F, 0.0F, 0.0F, 0.0F};
+    hit_primitive.inverse_transform1 = {0.0F, 1.0F, 0.0F, 0.0F};
+    hit_primitive.kind = PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL;
+    hit_primitive.flags = PROGPU_NATIVE_HIT_TEST_VISIBLE |
+        PROGPU_NATIVE_HIT_TEST_VISIBLE_TO_INPUT;
+    hit_primitive.id = 501;
+    hit_primitive.z_index = 1.0F;
+    const progpu_native_hit_test_node hit_node{
+        {48.0F, 48.0F},
+        {228.0F, 168.0F},
+        0U,
+        0U,
+        0U,
+        1U};
+    constexpr std::uint32_t hit_primitive_index = 0U;
+    std::uint32_t hit_test_resource = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!scene_builder.add_hit_test_index(
+            std::span<const progpu_native_hit_test_primitive>(
+                &hit_primitive,
+                1U),
+            std::span<const progpu_native_hit_test_node>(&hit_node, 1U),
+            std::span<const std::uint32_t>(&hit_primitive_index, 1U),
+            {},
+            hit_test_resource)) {
+        std::cerr << "Could not record the native retained hit-test index.\n";
+        return EXIT_FAILURE;
+    }
     std::vector<std::byte> scene_stream;
     progpu::native::scene_build_metrics build_metrics{};
     const std::size_t scene_stream_size =
@@ -662,6 +756,16 @@ int main(int argc, char** argv) {
             scene_stream.size(),
             &update_metrics) != PROGPU_NATIVE_STATUS_SUCCESS) {
         std::cerr << "Could not install the native retained scene.\n";
+        return EXIT_FAILURE;
+    }
+    if (!verify_retained_gpu_hit_test(engine, device)) {
+        std::array<char, 512U> error{};
+        progpu_native_engine_get_last_error(
+            engine,
+            error.data(),
+            error.size());
+        std::cerr << "Native retained GPU hit testing failed: "
+                  << error.data() << '\n';
         return EXIT_FAILURE;
     }
 
@@ -729,7 +833,7 @@ int main(int argc, char** argv) {
     }
     const auto* pixels = static_cast<const std::uint8_t*>(
         wgpuBufferGetConstMappedRange(readback, 0U, readback_size));
-    const bool passed =
+    bool passed =
         mapped.status == WGPUBufferMapAsyncStatus_Success &&
         pixels != nullptr &&
         has_expected_colors(pixels, row_bytes, uses_decoded_glyph) &&
@@ -745,6 +849,15 @@ int main(int argc, char** argv) {
     }
     wgpuBufferDestroy(readback);
     wgpuBufferRelease(readback);
+    progpu_native_hit_test_query abandoned_query{};
+    abandoned_query.point = {80.0F, 80.0F};
+    abandoned_query.region_max = abandoned_query.point;
+    std::uint64_t abandoned_token = 0U;
+    passed = passed && progpu_native_engine_begin_hit_test(
+        engine,
+        &abandoned_query,
+        &abandoned_token) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        abandoned_token != 0U;
     progpu_native_engine_destroy(engine);
     wgpuTextureViewRelease(target_view);
     wgpuTextureDestroy(target);
@@ -766,6 +879,7 @@ int main(int argc, char** argv) {
               << "' uploaded " << metrics.vertex_upload_bytes
               << " vertex bytes in " << metrics.draw_call_count
               << " draw call from " << build_metrics.command_count
-              << " native retained command; wrote " << output_path << '\n';
+              << " native retained command; retained GPU hit test passed; wrote "
+              << output_path << '\n';
     return EXIT_SUCCESS;
 }

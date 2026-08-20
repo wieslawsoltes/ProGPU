@@ -2,11 +2,20 @@
 
 #include <webgpu.h>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 
 namespace progpu::native::webgpu {
+
+struct buffer_map_read_state final {
+    std::atomic<std::uint8_t> completion{0U};
+};
+
+inline constexpr std::uint8_t buffer_map_pending = 0U;
+inline constexpr std::uint8_t buffer_map_succeeded = 1U;
+inline constexpr std::uint8_t buffer_map_failed = 2U;
 
 inline void initialize_color_attachment(
     WGPURenderPassColorAttachment& attachment) noexcept {
@@ -24,10 +33,15 @@ using proc_resolver = void* (*)(void* context, const char* name);
     X(BindGroupLayoutRelease) \
     X(BindGroupRelease) \
     X(BufferDestroy) \
+    X(BufferGetConstMappedRange) \
+    X(BufferGetMapState) \
+    X(BufferMapAsync) \
     X(BufferRelease) \
+    X(BufferUnmap) \
     X(CommandBufferRelease) \
     X(CommandEncoderBeginComputePass) \
     X(CommandEncoderBeginRenderPass) \
+    X(CommandEncoderCopyBufferToBuffer) \
     X(CommandEncoderCopyBufferToTexture) \
     X(CommandEncoderCopyTextureToTexture) \
     X(CommandEncoderFinish) \
@@ -256,6 +270,26 @@ inline bool poll_submission(
 #endif
 }
 
+inline WGPUBufferMapState poll_buffer_map(
+    WGPUDevice,
+    WGPUBuffer buffer,
+    const buffer_map_read_state&) noexcept {
+    return active_dispatch().wgpuBufferGetMapState(buffer);
+}
+
+inline const void* buffer_get_const_mapped_range(
+    WGPUBuffer buffer,
+    std::uint64_t size) noexcept {
+    return active_dispatch().wgpuBufferGetConstMappedRange(
+        buffer,
+        0U,
+        size);
+}
+
+inline void buffer_unmap(WGPUBuffer buffer) noexcept {
+    active_dispatch().wgpuBufferUnmap(buffer);
+}
+
 #else
 
 struct dispatch final {
@@ -343,6 +377,30 @@ inline bool poll_submission(
     return wgpuDevicePoll(device, wait, &wrapped) != 0U;
 }
 
+inline WGPUBufferMapState poll_buffer_map(
+    WGPUDevice device,
+    WGPUBuffer,
+    const buffer_map_read_state& state) noexcept {
+    (void)wgpuDevicePoll(device, false, nullptr);
+    const auto completion = state.completion.load(std::memory_order_acquire);
+    if (completion == buffer_map_pending) {
+        return WGPUBufferMapState_Pending;
+    }
+    return completion == buffer_map_succeeded
+        ? WGPUBufferMapState_Mapped
+        : WGPUBufferMapState_Unmapped;
+}
+
+inline const void* buffer_get_const_mapped_range(
+    WGPUBuffer buffer,
+    std::uint64_t size) noexcept {
+    return wgpuBufferGetConstMappedRange(buffer, 0U, size);
+}
+
+inline void buffer_unmap(WGPUBuffer buffer) noexcept {
+    wgpuBufferUnmap(buffer);
+}
+
 #endif
 
 inline WGPUVertexAttribute vertex_attribute(
@@ -365,14 +423,24 @@ inline WGPUVertexAttribute vertex_attribute(
     (::progpu::native::webgpu::active_dispatch().wgpuBindGroupRelease)
 #define wgpuBufferDestroy \
     (::progpu::native::webgpu::active_dispatch().wgpuBufferDestroy)
+#define wgpuBufferGetConstMappedRange \
+    (::progpu::native::webgpu::active_dispatch().wgpuBufferGetConstMappedRange)
+#define wgpuBufferGetMapState \
+    (::progpu::native::webgpu::active_dispatch().wgpuBufferGetMapState)
+#define wgpuBufferMapAsync \
+    (::progpu::native::webgpu::active_dispatch().wgpuBufferMapAsync)
 #define wgpuBufferRelease \
     (::progpu::native::webgpu::active_dispatch().wgpuBufferRelease)
+#define wgpuBufferUnmap \
+    (::progpu::native::webgpu::active_dispatch().wgpuBufferUnmap)
 #define wgpuCommandBufferRelease \
     (::progpu::native::webgpu::active_dispatch().wgpuCommandBufferRelease)
 #define wgpuCommandEncoderBeginComputePass \
     (::progpu::native::webgpu::active_dispatch().wgpuCommandEncoderBeginComputePass)
 #define wgpuCommandEncoderBeginRenderPass \
     (::progpu::native::webgpu::active_dispatch().wgpuCommandEncoderBeginRenderPass)
+#define wgpuCommandEncoderCopyBufferToBuffer \
+    (::progpu::native::webgpu::active_dispatch().wgpuCommandEncoderCopyBufferToBuffer)
 #define wgpuCommandEncoderCopyBufferToTexture \
     (::progpu::native::webgpu::active_dispatch().wgpuCommandEncoderCopyBufferToTexture)
 #define wgpuCommandEncoderCopyTextureToTexture \
