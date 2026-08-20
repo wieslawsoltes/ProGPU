@@ -7,6 +7,7 @@ using ProGPU.Backend.Native;
 using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
 using ProGPU.Scene.Native;
+using ProGPU.Tests.Headless;
 using ProGPU.Text;
 using ProGPU.Vector;
 using Xunit;
@@ -34,7 +35,6 @@ public class NativePictureCompilerTests
             .ToArray();
         Assert.Equal(
             [
-                RenderCommandType.DrawStaticDxf,
                 RenderCommandType.DrawVisual
             ],
             unsupported);
@@ -3612,6 +3612,177 @@ public class NativePictureCompilerTests
                 picture.Dispose();
             }
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CompilerFlattensStaticDxfRetainedSourceWithTransform(
+        bool useLegacyCommand)
+    {
+        var source = new DrawingContext();
+        source.DrawRectangle(
+            new SolidColorBrush(new Vector4(0.8f, 0.2f, 0.1f, 1f)),
+            null,
+            new Rect(2f, 3f, 8f, 6f));
+        using DxfStaticBuffer staticBuffer =
+            HeadlessWindow.Shared.Compositor.CompileStaticDxf(source);
+        source.Clear();
+        source.DrawRectangle(
+            new SolidColorBrush(Vector4.One),
+            null,
+            new Rect(40f, 50f, 60f, 70f));
+        Matrix4x4 placement = Matrix4x4.CreateTranslation(11f, 13f, 0f);
+        RenderCommand command = useLegacyCommand
+            ? new RenderCommand
+            {
+                Type = RenderCommandType.DrawStaticDxf,
+                StaticBuffer = staticBuffer,
+                Transform = placement
+            }
+            : new RenderCommand
+            {
+                Type = RenderCommandType.DrawExtension,
+                ExtensionId = CompositorBuiltInExtensions.StaticDxf,
+                DataParam = staticBuffer,
+                Transform = placement
+            };
+        using var picture = new GpuPicture(
+            [command],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            127U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(2, compiled.SourceCommandCount);
+        Assert.Equal(1, compiled.NativeCommandCount);
+        Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(1, compiled.AnalyticPrimitiveCount);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)(header.ResourceCount * header.ResourceStride))));
+        NativeMethods.SceneResource resource = Assert.Single(
+            resources.ToArray(),
+            static item =>
+                item.Kind == NativeSceneResourceKind.AnalyticBatch);
+        NativeAnalyticPrimitive primitive =
+            MemoryMarshal.Read<NativeAnalyticPrimitive>(
+                compiled.Stream.Slice(checked((int)resource.PayloadOffset)));
+        Assert.Equal(
+            new Matrix3x2(1f, 0f, 0f, 1f, 11f, 13f),
+            primitive.Transform);
+        Assert.Equal(2f, primitive.X);
+        Assert.Equal(3f, primitive.Y);
+        Assert.Equal(8f, primitive.Width);
+        Assert.Equal(6f, primitive.Height);
+    }
+
+    [Fact]
+    public void CompilerAppliesStaticDxfZoomToGlyphRasterScale()
+    {
+        var font = InterFontFamily.Regular;
+        var source = new DrawingContext();
+        source.DrawGlyphRun(
+            [font.GetGlyphIndex('A')],
+            [new Vector2(12f, 28f)],
+            font,
+            16f,
+            new SolidColorBrush(Vector4.One),
+            Vector2.Zero);
+        using DxfStaticBuffer staticBuffer =
+            HeadlessWindow.Shared.Compositor.CompileStaticDxf(
+                source,
+                staticZoom: 3f);
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawExtension,
+                    ExtensionId = CompositorBuiltInExtensions.StaticDxf,
+                    DataParam = staticBuffer
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            128U,
+            1U,
+            new NativePictureCompileOptions(2f),
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(2f, compiled.TargetDpiScale);
+        Assert.Equal(1, compiled.GlyphOutlineCount);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)(header.ResourceCount * header.ResourceStride))));
+        NativeMethods.SceneResource resource = Assert.Single(
+            resources.ToArray(),
+            static item => item.Kind == NativeSceneResourceKind.GlyphRun);
+        NativeSceneGlyphOutline outline =
+            MemoryMarshal.Read<NativeSceneGlyphOutline>(
+                compiled.Stream.Slice(checked((int)resource.PayloadOffset)));
+        Assert.Equal(96f / font.UnitsPerEm, outline.RasterScale, 5);
+    }
+
+    [Fact]
+    public void CompilerRejectsDisposedStaticDxfWithTypedFailure()
+    {
+        var source = new DrawingContext();
+        source.DrawRectangle(
+            new SolidColorBrush(Vector4.One),
+            null,
+            new Rect(0f, 0f, 8f, 8f));
+        DxfStaticBuffer staticBuffer =
+            HeadlessWindow.Shared.Compositor.CompileStaticDxf(source);
+        staticBuffer.Dispose();
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawExtension,
+                    ExtensionId = CompositorBuiltInExtensions.StaticDxf,
+                    DataParam = staticBuffer
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            129U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Null(compiled);
+        Assert.Equal(NativePictureCompileError.InvalidArgument, failure.Error);
+        Assert.Equal(0, failure.CommandIndex);
+        Assert.Equal(RenderCommandType.DrawExtension, failure.CommandType);
     }
 
     [Fact]

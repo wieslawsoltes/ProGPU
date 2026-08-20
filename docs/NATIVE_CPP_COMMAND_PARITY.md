@@ -10,9 +10,9 @@ always returns a typed failure without partially committing a scene.
 | --- | --- | --- |
 | Direct draw | Rect, ordinary and combined path fill, exact general-path stroke, text, image, analytic geometry, polyline/spline, point/mesh/chart, glyph, and 3D line/mesh families | Combined fills retain the canonical bounded GPU postfix program. Combined-boundary strokes remain a typed exclusion because the managed renderer has no exact combined-stroke contract; operand-outline approximation is forbidden. |
 | State scope | Clip, opacity, geometry-mask, opacity-mask, and blend push/pop | Canonical affine rectangles/rounded rectangles use the 1–4-node analytic fast path. Arbitrary line/quadratic/cubic/arc geometry, combined-path boolean clips, and 5–64 nested intersect/difference clips use retained GPU vector masks. Axis-aligned solid opacity folds into state; transformed solid, linear/radial/conical/sweep gradient, hatch, and Perlin brush masks retain the exact 256-byte material plus stop arena and generate R8 coverage through shared `Vector.wgsl`. Stroked-path opacity masks retain the proven general-stroke geometry, pen material, and explicit padded bounds. Immutable picture masks carry a nested pointer-free semantic scene, render through a same-device child engine, and bind the retained RGBA alpha channel directly without extraction or readback. Up to 64 nested brush, stroked-geometry, vector, and picture components lower to one bounded composite resource and multiply their GPU-generated coverage through shared `ClipCompose.wgsl`. |
-| Nested picture | `DrawPicture` | Immutable retained children are recursively flattened with state-boundary validation. |
-| Built-in extension | `DrawExtension` | Line/spline/chart/3D/hatch built-ins are selected by stable extension ID; hatch boundaries reuse retained path batches and shared hatch material kinds, while unknown or object-backed extensions fail closed. |
-| Explicitly unsupported | `DrawStaticDxf`, `DrawVisual` | Static DXF and embedded visual commands retain live managed/GPU ownership and cannot enter the pointer-free immutable scene contract. |
+| Nested picture | `DrawPicture`, `DrawStaticDxf` | Immutable retained children and the backend-neutral source snapshot owned by a compiled static DXF buffer are recursively flattened with state-boundary validation. Static zoom multiplies target glyph-raster DPI without changing logical placement. |
+| Built-in extension | `DrawExtension` | Line/spline/chart/3D/hatch built-ins are selected by stable extension ID. The Static DXF ID follows the same nested-picture route as the legacy command; hatch boundaries reuse retained path batches and shared hatch material kinds, while unknown or object-backed extensions fail closed. |
+| Explicitly unsupported | `DrawVisual` | A mutable embedded visual retains live managed tree state and cannot enter the pointer-free immutable scene contract. |
 
 Image effects include external same-device RGB textures, zero-copy paired
 R8/RG8 or Tier-1 R16/RG16 luma/chroma views, nearest/linear/cubic sampling,
@@ -33,6 +33,27 @@ materialization or extra texture pass.
 This inventory distinguishes parity work from intentional ownership
 boundaries; it must not be used to convert an unsupported command into a silent
 no-op or an approximate fallback.
+
+## Static DXF retained-source lowering
+
+`Compositor.CompileStaticDxf` now retains one immutable backend-neutral
+`GpuPicture` snapshot beside its existing managed GPU buffers. Both the legacy
+`DrawStaticDxf` command and the stable Static DXF extension ID flatten that
+snapshot through the ordinary native scene compiler, so rectangles, paths,
+strokes, shaped glyph runs, state, and supported extensions use the same
+semantic resources and shared shaders as a directly recorded picture. The
+outer affine is composed exactly once, nested state cannot escape the static
+buffer boundary, disposed buffers fail with a typed source-command diagnostic,
+and `staticZoom` multiplies target glyph-raster DPI while the root
+`NativeCompiledPicture.TargetDpiScale` continues to describe the host target.
+
+This is a direct cross-backend port of the ProGPU-owned `DrawingContext`,
+`GpuPicture`, `Compositor.CompileStaticDxf`, and `DxfStaticBuffer` contracts.
+Snapshot creation is one-time `O(C + B)` work and storage for commands `C` and
+command-side buffer entries `B`; recursive native lowering remains `O(C + P)`
+for retained payload `P`. Stable replay adds no managed/native crossing,
+command inspection, allocation, copy, or upload. The native C ABI is unchanged
+because the already pointer-free scene stream remains the only update payload.
 
 ## GPU-generated brush and stroked-geometry opacity masks
 

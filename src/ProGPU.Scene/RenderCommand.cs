@@ -3454,6 +3454,27 @@ public class DrawingContext :
         return leases;
     }
 
+    /// <summary>
+    /// Creates an immutable retained snapshot without clearing this recording
+    /// context. Static-buffer compilation uses the snapshot as the
+    /// backend-neutral source for native scene lowering; all command-side
+    /// arrays and retained resource leases remain independent of later context
+    /// reuse.
+    /// </summary>
+    internal GpuPicture CreatePictureSnapshot() => new(
+        Commands.AsSpan(),
+        CopyBuffer(_pointBuffer),
+        CopyBuffer(_doubleBuffer),
+        CopyBuffer(_line3DBuffer),
+        CopyBuffer(_floatBuffer),
+        CopyImageEffects(),
+        CloneRetainedResources());
+
+    private static T[] CopyBuffer<T>(List<T>? values) =>
+        values is null || values.Count == 0
+            ? Array.Empty<T>()
+            : values.ToArray();
+
     public ReadOnlySpan<Vector2> GetPoints(int offset, int count) => 
         CollectionsMarshal.AsSpan(PointBuffer).Slice(offset, count);
 

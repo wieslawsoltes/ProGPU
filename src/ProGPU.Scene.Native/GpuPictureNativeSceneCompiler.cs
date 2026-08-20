@@ -976,12 +976,14 @@ public static partial class GpuPictureNativeSceneCompiler
             RenderCommandType sourceCommandType;
             int ownerId;
             Matrix3x2 transform;
+            float dpiScaleMultiplier;
             RenderCommand command;
             if (flattenedCommands is null)
             {
                 sourcePicture = picture;
                 sourceCommandIndex = index;
                 ownerId = 0;
+                dpiScaleMultiplier = 1f;
                 command = picture.GetCommand(index);
                 sourceCommandType = command.Type;
                 if ((!IsNative3DCommand(command) && command.UseGpuTransforms) ||
@@ -1023,6 +1025,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 sourceCommandType = source.SourceCommandType;
                 ownerId = source.OwnerId;
                 transform = source.Transform;
+                dpiScaleMultiplier = source.DpiScaleMultiplier;
                 command = source.Picture.GetCommand(source.CommandIndex);
                 if (IsNative3DCommand(command))
                 {
@@ -1039,6 +1042,23 @@ public static partial class GpuPictureNativeSceneCompiler
                     ? default
                     : ToMatrix4x4(transform);
             }
+            float commandDpiScale = options.DpiScale * dpiScaleMultiplier;
+            if (!float.IsFinite(commandDpiScale) || commandDpiScale <= 0f)
+            {
+                failure = new(
+                    NativePictureCompileError.InvalidArgument,
+                    sourceCommandIndex,
+                    sourceCommandType);
+                return false;
+            }
+            NativePictureCompileOptions commandOptions =
+                dpiScaleMultiplier == 1f
+                    ? options
+                    : new NativePictureCompileOptions(
+                        commandDpiScale,
+                        options.Projection3D,
+                        options.View3D,
+                        options.CameraPosition3D);
             if (!TryAppendStateCommand(
                     command,
                     ownerId,
@@ -1048,7 +1068,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     states,
                     stateMasks,
                     operations,
-                    options,
+                    commandOptions,
                     sceneId,
                     generation,
                     pictureMaskContext,
@@ -1105,7 +1125,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     batches,
                     operations,
                     materials,
-                    options,
+                    commandOptions,
                     out NativePictureCompileError error))
             {
                 failure = new(

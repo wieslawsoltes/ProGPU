@@ -14,6 +14,8 @@ public unsafe class DxfStaticBuffer : IDisposable
     private readonly WgpuContext _context;
 
     internal WgpuContext Context => _context;
+    internal GpuPicture? NativeSourcePicture { get; }
+    internal float StaticZoom { get; }
     
     public GpuBuffer? VertexBuffer { get; private set; }
     public GpuBuffer? IndexBuffer { get; private set; }
@@ -85,8 +87,77 @@ public unsafe class DxfStaticBuffer : IDisposable
         GpuBrush[] brushes,
         GpuGradientStop[] gradientStops,
         Compositor.CompositorDrawCall[] drawCalls)
+        : this(
+            context,
+            vertices,
+            indices,
+            textVertices,
+            retainedGlyphRecords,
+            retainedGlyphSegments,
+            retainedGlyphInstances,
+            brushes,
+            gradientStops,
+            drawCalls,
+            nativeSourcePicture: null,
+            staticZoom: 1f,
+            requireNativeSourcePicture: false)
     {
+    }
+
+    internal DxfStaticBuffer(
+        WgpuContext context,
+        VectorVertex[] vertices,
+        uint[] indices,
+        GlyphInstance[] textVertices,
+        GpuPathRecord[] retainedGlyphRecords,
+        GpuPathSegment[] retainedGlyphSegments,
+        RetainedGlyphInstance[] retainedGlyphInstances,
+        GpuBrush[] brushes,
+        GpuGradientStop[] gradientStops,
+        Compositor.CompositorDrawCall[] drawCalls,
+        GpuPicture nativeSourcePicture,
+        float staticZoom)
+        : this(
+            context,
+            vertices,
+            indices,
+            textVertices,
+            retainedGlyphRecords,
+            retainedGlyphSegments,
+            retainedGlyphInstances,
+            brushes,
+            gradientStops,
+            drawCalls,
+            nativeSourcePicture,
+            staticZoom,
+            requireNativeSourcePicture: true)
+    {
+    }
+
+    private DxfStaticBuffer(
+        WgpuContext context,
+        VectorVertex[] vertices,
+        uint[] indices,
+        GlyphInstance[] textVertices,
+        GpuPathRecord[] retainedGlyphRecords,
+        GpuPathSegment[] retainedGlyphSegments,
+        RetainedGlyphInstance[] retainedGlyphInstances,
+        GpuBrush[] brushes,
+        GpuGradientStop[] gradientStops,
+        Compositor.CompositorDrawCall[] drawCalls,
+        GpuPicture? nativeSourcePicture,
+        float staticZoom,
+        bool requireNativeSourcePicture)
+    {
+        if (requireNativeSourcePicture)
+        {
+            ArgumentNullException.ThrowIfNull(nativeSourcePicture);
+        }
         _context = context;
+        NativeSourcePicture = nativeSourcePicture;
+        StaticZoom = float.IsFinite(staticZoom) && staticZoom > 0f
+            ? staticZoom
+            : 1f;
         VectorVertices = vertices;
         TextVertices = textVertices;
         RetainedGlyphRecordCount = (uint)retainedGlyphRecords.Length;
@@ -421,6 +492,7 @@ public unsafe class DxfStaticBuffer : IDisposable
     {
         if (Interlocked.CompareExchange(ref _disposeState, 2, 1) != 1) return;
 
+        NativeSourcePicture?.Dispose();
         lock (_context.RenderLock)
         {
             VertexBuffer?.Dispose();

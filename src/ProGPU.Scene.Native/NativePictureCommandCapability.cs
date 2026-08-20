@@ -63,15 +63,14 @@ public static partial class GpuPictureNativeSceneCompiler
         RenderCommandType.PopBlendMode =>
             NativePictureCommandCapability.StateScope,
 
-        RenderCommandType.DrawPicture =>
+        RenderCommandType.DrawPicture or
+        RenderCommandType.DrawStaticDxf =>
             NativePictureCommandCapability.NestedPicture,
         RenderCommandType.DrawExtension =>
             NativePictureCommandCapability.BuiltInExtension,
 
-        // These commands retain live managed/GPU objects or use a shader
-        // family that has no pointer-free semantic resource yet. They are
-        // rejected transactionally; no command is silently dropped.
-        RenderCommandType.DrawStaticDxf or
+        // DrawVisual retains a live mutable managed visual. It is rejected
+        // transactionally; no command is silently dropped.
         RenderCommandType.DrawVisual =>
             NativePictureCommandCapability.ExplicitlyUnsupported,
 

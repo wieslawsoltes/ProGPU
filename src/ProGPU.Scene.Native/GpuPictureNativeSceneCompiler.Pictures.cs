@@ -14,13 +14,14 @@ public static partial class GpuPictureNativeSceneCompiler
         int SourceCommandIndex,
         RenderCommandType SourceCommandType,
         Matrix4x4 CameraView,
+        float DpiScaleMultiplier,
         bool IsBoundary = false);
 
     private static bool ContainsNestedPicture(GpuPicture picture)
     {
         for (int index = 0; index < picture.CommandCount; index++)
         {
-            if (picture.GetCommand(index).Type == RenderCommandType.DrawPicture)
+            if (IsNestedPictureCommand(picture.GetCommand(index)))
             {
                 return true;
             }
@@ -36,28 +37,45 @@ public static partial class GpuPictureNativeSceneCompiler
         out NativePictureCompileFailure failure)
     {
         var active = new HashSet<GpuPicture>(ReferenceEqualityComparer.Instance);
+        var staticBufferLeases = new List<DxfStaticBuffer.RenderLease>();
         int nextOwnerId = 0;
         sourceCommandCount = 0;
-        return TryFlattenPicture(
-            picture,
-            rootTransform,
-            Matrix4x4.Identity,
-            commands,
-            active,
-            ref nextOwnerId,
-            ref sourceCommandCount,
-            0,
-            -1,
-            default,
-            out failure);
+        try
+        {
+            return TryFlattenPicture(
+                picture,
+                rootTransform,
+                Matrix4x4.Identity,
+                1f,
+                commands,
+                active,
+                staticBufferLeases,
+                ref nextOwnerId,
+                ref sourceCommandCount,
+                0,
+                -1,
+                default,
+                out failure);
+        }
+        finally
+        {
+            for (int index = staticBufferLeases.Count - 1;
+                index >= 0;
+                index--)
+            {
+                staticBufferLeases[index].Dispose();
+            }
+        }
     }
 
     private static bool TryFlattenPicture(
         GpuPicture picture,
         Matrix3x2 parentTransform,
         Matrix4x4 parentCameraView,
+        float parentDpiScaleMultiplier,
         List<FlattenedCommand> commands,
         HashSet<GpuPicture> active,
+        List<DxfStaticBuffer.RenderLease> staticBufferLeases,
         ref int nextOwnerId,
         ref int sourceCommandCount,
         int depth,
@@ -104,8 +122,10 @@ public static partial class GpuPictureNativeSceneCompiler
                 RenderCommandType sourceType = outerCommandIndex >= 0
                     ? outerCommandType
                     : command.Type;
-                bool isPicture = command.Type == RenderCommandType.DrawPicture;
-                if ((!isPicture && command.UseGpuTransforms) ||
+                bool isNestedPicture = IsNestedPictureCommand(command);
+                bool supportsGpuTransforms =
+                    command.Type == RenderCommandType.DrawPicture;
+                if ((!supportsGpuTransforms && command.UseGpuTransforms) ||
                     !TryGetAffine(command.Transform, out Matrix3x2 localTransform))
                 {
                     failure = new(
@@ -116,9 +136,25 @@ public static partial class GpuPictureNativeSceneCompiler
                 }
 
                 Matrix3x2 transform = localTransform * parentTransform;
-                if (isPicture)
+                if (isNestedPicture)
                 {
-                    if (command.Picture is null)
+                    if (!TryGetNestedPicture(
+                            command,
+                            out GpuPicture? nestedPicture,
+                            out float nestedDpiScaleMultiplier,
+                            staticBufferLeases,
+                            out NativePictureCompileError nestedError))
+                    {
+                        failure = new(
+                            nestedError,
+                            sourceIndex,
+                            sourceType);
+                        return false;
+                    }
+                    float dpiScaleMultiplier =
+                        parentDpiScaleMultiplier * nestedDpiScaleMultiplier;
+                    if (!float.IsFinite(dpiScaleMultiplier) ||
+                        dpiScaleMultiplier <= 0f)
                     {
                         failure = new(
                             NativePictureCompileError.InvalidArgument,
@@ -131,11 +167,13 @@ public static partial class GpuPictureNativeSceneCompiler
                         ? command.CameraView * parentCameraView
                         : parentCameraView;
                     if (!TryFlattenPicture(
-                            command.Picture,
+                            nestedPicture!,
                             transform,
                             cameraView,
+                            dpiScaleMultiplier,
                             commands,
                             active,
+                            staticBufferLeases,
                             ref nextOwnerId,
                             ref sourceCommandCount,
                             depth + 1,
@@ -165,7 +203,8 @@ public static partial class GpuPictureNativeSceneCompiler
                     ownerId,
                     sourceIndex,
                     sourceType,
-                    parentCameraView));
+                    parentCameraView,
+                    parentDpiScaleMultiplier));
             }
 
             if (outerCommandIndex >= 0)
@@ -178,6 +217,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     outerCommandIndex,
                     outerCommandType,
                     parentCameraView,
+                    parentDpiScaleMultiplier,
                     IsBoundary: true));
             }
             return true;
@@ -186,6 +226,60 @@ public static partial class GpuPictureNativeSceneCompiler
         {
             active.Remove(picture);
         }
+    }
+
+    private static bool IsNestedPictureCommand(in RenderCommand command) =>
+        command.Type is RenderCommandType.DrawPicture or
+            RenderCommandType.DrawStaticDxf ||
+        command.Type == RenderCommandType.DrawExtension &&
+        command.ExtensionId == CompositorBuiltInExtensions.StaticDxf;
+
+    private static bool TryGetNestedPicture(
+        in RenderCommand command,
+        out GpuPicture? picture,
+        out float dpiScaleMultiplier,
+        List<DxfStaticBuffer.RenderLease> staticBufferLeases,
+        out NativePictureCompileError error)
+    {
+        picture = null;
+        dpiScaleMultiplier = 1f;
+        error = NativePictureCompileError.None;
+        if (command.Type == RenderCommandType.DrawPicture)
+        {
+            picture = command.Picture;
+            if (picture is null)
+            {
+                error = NativePictureCompileError.InvalidArgument;
+                return false;
+            }
+            return true;
+        }
+
+        object? payload = command.Type == RenderCommandType.DrawStaticDxf
+            ? command.StaticBuffer
+            : command.DataParam;
+        if (payload is not DxfStaticBuffer staticBuffer)
+        {
+            error = NativePictureCompileError.InvalidArgument;
+            return false;
+        }
+
+        DxfStaticBuffer.RenderLease renderLease =
+            staticBuffer.AcquireRenderLease();
+        if (!renderLease.IsAcquired)
+        {
+            error = NativePictureCompileError.InvalidArgument;
+            return false;
+        }
+        staticBufferLeases.Add(renderLease);
+        picture = staticBuffer.NativeSourcePicture;
+        if (picture is null)
+        {
+            error = NativePictureCompileError.InvalidArgument;
+            return false;
+        }
+        dpiScaleMultiplier = staticBuffer.StaticZoom;
+        return true;
     }
 
     private static Matrix4x4 ToMatrix4x4(Matrix3x2 value) => new(

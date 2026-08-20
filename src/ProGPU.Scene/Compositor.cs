@@ -16910,6 +16910,23 @@ SceneStateUploadComplete:
         float staticZoom = 1.0f) =>
         CompileStaticDxfCore(commands, staticZoom);
 
+    private static GpuPicture CreateStaticSourcePicture(
+        IReadOnlyList<RenderCommand> commands)
+    {
+        var snapshot = new RenderCommand[commands.Count];
+        for (int index = 0; index < snapshot.Length; index++)
+        {
+            snapshot[index] = commands[index];
+        }
+
+        return new GpuPicture(
+            snapshot,
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+    }
+
     private DxfStaticBuffer CompileStaticDxfCore(
         IReadOnlyList<RenderCommand> commands,
         float staticZoom)
@@ -17265,18 +17282,30 @@ SceneStateUploadComplete:
 
             CommitStaticDrawCalls();
 
-            var staticBuffer = new DxfStaticBuffer(
-                _context,
-                _vectorVerticesList.ToArray(),
-                _vectorIndicesList.ToArray(),
-                _textVerticesList.ToArray(),
-                retainedGlyphBuilder.GetRecords(),
-                retainedGlyphBuilder.GetSegments(),
-                retainedGlyphBuilder.GetInstances(),
-                _activeBrushes.ToArray(),
-                _activeGradientStops.ToArray(),
-                staticDrawCallList.ToArray()
-            );
+            GpuPicture nativeSourcePicture =
+                CreateStaticSourcePicture(commands);
+            DxfStaticBuffer staticBuffer;
+            try
+            {
+                staticBuffer = new DxfStaticBuffer(
+                    _context,
+                    _vectorVerticesList.ToArray(),
+                    _vectorIndicesList.ToArray(),
+                    _textVerticesList.ToArray(),
+                    retainedGlyphBuilder.GetRecords(),
+                    retainedGlyphBuilder.GetSegments(),
+                    retainedGlyphBuilder.GetInstances(),
+                    _activeBrushes.ToArray(),
+                    _activeGradientStops.ToArray(),
+                    staticDrawCallList.ToArray(),
+                    nativeSourcePicture,
+                    staticZoom);
+            }
+            catch
+            {
+                nativeSourcePicture.Dispose();
+                throw;
+            }
 
             staticBuffer.TextRecords = _compiledTextRecords.ToArray();
 
@@ -17788,18 +17817,29 @@ SceneStateUploadComplete:
 
             CommitStaticDrawCalls();
 
-            var staticBuffer = new DxfStaticBuffer(
-                _context,
-                _vectorVerticesList.ToArray(),
-                _vectorIndicesList.ToArray(),
-                _textVerticesList.ToArray(),
-                retainedGlyphBuilder.GetRecords(),
-                retainedGlyphBuilder.GetSegments(),
-                retainedGlyphBuilder.GetInstances(),
-                _activeBrushes.ToArray(),
-                _activeGradientStops.ToArray(),
-                staticDrawCallList.ToArray()
-            );
+            GpuPicture nativeSourcePicture = context.CreatePictureSnapshot();
+            DxfStaticBuffer staticBuffer;
+            try
+            {
+                staticBuffer = new DxfStaticBuffer(
+                    _context,
+                    _vectorVerticesList.ToArray(),
+                    _vectorIndicesList.ToArray(),
+                    _textVerticesList.ToArray(),
+                    retainedGlyphBuilder.GetRecords(),
+                    retainedGlyphBuilder.GetSegments(),
+                    retainedGlyphBuilder.GetInstances(),
+                    _activeBrushes.ToArray(),
+                    _activeGradientStops.ToArray(),
+                    staticDrawCallList.ToArray(),
+                    nativeSourcePicture,
+                    staticZoom);
+            }
+            catch
+            {
+                nativeSourcePicture.Dispose();
+                throw;
+            }
 
             staticBuffer.TextRecords = _compiledTextRecords.ToArray();
 

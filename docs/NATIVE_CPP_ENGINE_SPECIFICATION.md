@@ -1722,6 +1722,21 @@ only `UpdateScene` once and `RenderScene` thereafter. The desktop sample
 exposes this real managed-picture lane beside the lower-level hand-authored
 semantic fixture.
 
+Compiled Static DXF content uses that same adapter rather than crossing a live
+GPU buffer object into C++. `Compositor.CompileStaticDxf` stores one immutable
+backend-neutral `GpuPicture` snapshot next to its existing managed buffers;
+legacy and extension-form Static DXF draws recursively flatten the snapshot,
+compose the outer affine, and enforce an owner state boundary. The stored
+`staticZoom` multiplies only target glyph-raster DPI, preserving managed CAD
+text quality without scaling logical geometry. Snapshot creation is one-time
+`O(C + B)` work and storage for commands `C` and command-side entries `B`;
+native lowering remains `O(C + P)`, and stable replay adds no crossing,
+allocation, source inspection, upload, or ABI record. This is a direct port of
+the ProGPU-owned `DrawingContext`, `GpuPicture`,
+`Compositor.CompileStaticDxf`, and `DxfStaticBuffer` contracts; matched tests
+cover both command forms, affine placement, zoom-sensitive glyph records,
+command accounting, and disposed-buffer failure.
+
 This adapter is an original ProGPU lowering over public project contracts. The
 design adopts retained immutable display-list reuse from the already recorded
 primary-source research for Skia, Direct2D/Win2D, WebRender, and Vello, while
@@ -1766,9 +1781,8 @@ pass. Pointer-free texture-patch batches preserve the managed texture,
 fixed-color, and atlas-color patch kinds, destination transforms, blend modes,
 custom-cubic opacity sign, pixel snapping, every mip-filter combination, and
 bounded anisotropy in one C++ GPU draw. The remaining
-explicit exclusions are
-combined-boundary path strokes, opaque static-DXF
-extension objects, mutable embedded `Visual` instances, and
+explicit exclusions are combined-boundary path strokes, mutable embedded
+`Visual` instances, and
 non-affine image effects. Those records fail with a
 typed source-command diagnostic; no managed
 fallback or semantic approximation is inserted.
