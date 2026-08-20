@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Diagnostics.Tracing;
 using System.Runtime.InteropServices;
+using ProGPU.Backend;
 using Silk.NET.Maths;
 using Silk.NET.Windowing;
 
@@ -48,6 +49,12 @@ internal static class SamplePerformanceBenchmark
     private static double s_presentMilliseconds;
     private static double s_totalFrameMilliseconds;
     private static double s_maximumFrameMilliseconds;
+    private static readonly double[] s_totalFrameSamples =
+        new double[s_measureFrames];
+    private static readonly double[] s_renderSamples =
+        new double[s_measureFrames];
+    private static readonly double[] s_presentSamples =
+        new double[s_measureFrames];
     private static int s_framesOverBudget;
     private static Microsoft.UI.Xaml.Window? s_window;
     private static IWindow? s_resizeWindow;
@@ -244,6 +251,7 @@ internal static class SamplePerformanceBenchmark
         }
 
         s_deltaSeconds += deltaSeconds;
+        int sampleIndex = s_frame - s_warmupFrames - 1;
         if (s_window is { } window)
         {
             var frameMetrics = window.FrameMetrics;
@@ -252,6 +260,11 @@ internal static class SamplePerformanceBenchmark
             s_surfaceAcquireMilliseconds += frameMetrics.SurfaceAcquireTimeMs;
             s_presentMilliseconds += frameMetrics.PresentTimeMs;
             s_totalFrameMilliseconds += frameMetrics.TotalTimeMs;
+            if ((uint)sampleIndex < (uint)s_totalFrameSamples.Length)
+            {
+                s_totalFrameSamples[sampleIndex] = frameMetrics.TotalTimeMs;
+                s_presentSamples[sampleIndex] = frameMetrics.PresentTimeMs;
+            }
             s_maximumFrameMilliseconds = Math.Max(s_maximumFrameMilliseconds, frameMetrics.TotalTimeMs);
             if (frameMetrics.TotalTimeMs > 16.667d) s_framesOverBudget++;
         }
@@ -276,6 +289,10 @@ internal static class SamplePerformanceBenchmark
             }
             s_uploadMilliseconds += metrics.GpuUploadTimeMs;
             s_renderMilliseconds += metrics.RenderPassTimeMs;
+            if ((uint)sampleIndex < (uint)s_renderSamples.Length)
+            {
+                s_renderSamples[sampleIndex] = metrics.RenderPassTimeMs;
+            }
             s_compositorMilliseconds += metrics.FrameTimeMs;
             if (metrics.SceneCacheHit) s_sceneCacheHitFrames++;
         }
@@ -296,6 +313,15 @@ internal static class SamplePerformanceBenchmark
             ? measuredFrames / s_wallClock.Elapsed.TotalSeconds
             : 0d;
         double divisor = Math.Max(1, measuredFrames);
+        double totalFrameP50 = Percentile(s_totalFrameSamples, measuredFrames, 0.50d);
+        double totalFrameP95 = Percentile(s_totalFrameSamples, measuredFrames, 0.95d);
+        double totalFrameP99 = Percentile(s_totalFrameSamples, measuredFrames, 0.99d);
+        double renderP50 = Percentile(s_renderSamples, measuredFrames, 0.50d);
+        double renderP95 = Percentile(s_renderSamples, measuredFrames, 0.95d);
+        double renderP99 = Percentile(s_renderSamples, measuredFrames, 0.99d);
+        double presentP50 = Percentile(s_presentSamples, measuredFrames, 0.50d);
+        double presentP95 = Percentile(s_presentSamples, measuredFrames, 0.95d);
+        double presentP99 = Percentile(s_presentSamples, measuredFrames, 0.99d);
         long allocatedBytes = Math.Max(0, GC.GetTotalAllocatedBytes(precise: false) - s_allocatedBytesAtStart);
         int gen0Collections = GC.CollectionCount(0) - s_gen0CollectionsAtStart;
         int gen1Collections = GC.CollectionCount(1) - s_gen1CollectionsAtStart;
@@ -317,6 +343,9 @@ internal static class SamplePerformanceBenchmark
         ProcessMemorySnapshot processMemory =
             ProcessMemorySnapshot.CaptureCurrent();
         var finalMetrics = AppState._screenCompositor?.Metrics;
+        WgpuAdapterSelectionDiagnostics adapterDiagnostics =
+            AppState._wgpuContext?.AdapterSelectionDiagnostics ??
+            WgpuAdapterSelectionDiagnostics.Unknown;
         var finalResizeMetrics = s_window?.ResizeMetrics ?? default;
         ulong resizeEvents = finalResizeMetrics.LogicalResizeEvents - s_resizeMetricsAtStart.LogicalResizeEvents;
         ulong framebufferResizeEvents = finalResizeMetrics.FramebufferResizeEvents - s_resizeMetricsAtStart.FramebufferResizeEvents;
@@ -448,6 +477,11 @@ internal static class SamplePerformanceBenchmark
 
         Console.WriteLine(
             $"[SampleBenchmark] RESULT page=\"{RequestedPage}\" frames={measuredFrames}" +
+            $" adapter=\"{adapterDiagnostics.Name}\"" +
+            $" adapterBackend={adapterDiagnostics.BackendType}" +
+            $" adapterType={adapterDiagnostics.AdapterType}" +
+            $" adapterDriver=\"{adapterDiagnostics.DriverDescription}\"" +
+            $" adapterReason={adapterDiagnostics.SelectionReason}" +
             $" deltaFps={deltaFps:F2} wallFps={wallFps:F2}" +
             $" compileMs={s_compileMilliseconds / divisor:F4}" +
             $" maxCompileMs={s_maxCompileMilliseconds:F4}" +
@@ -466,6 +500,15 @@ internal static class SamplePerformanceBenchmark
             $" acquireMs={s_surfaceAcquireMilliseconds / divisor:F4}" +
             $" presentMs={s_presentMilliseconds / divisor:F4}" +
             $" totalFrameMs={s_totalFrameMilliseconds / divisor:F4}" +
+            $" renderP50Ms={renderP50:F4}" +
+            $" renderP95Ms={renderP95:F4}" +
+            $" renderP99Ms={renderP99:F4}" +
+            $" presentP50Ms={presentP50:F4}" +
+            $" presentP95Ms={presentP95:F4}" +
+            $" presentP99Ms={presentP99:F4}" +
+            $" totalFrameP50Ms={totalFrameP50:F4}" +
+            $" totalFrameP95Ms={totalFrameP95:F4}" +
+            $" totalFrameP99Ms={totalFrameP99:F4}" +
             $" maxFrameMs={s_maximumFrameMilliseconds:F4}" +
             $" framesOverBudget={s_framesOverBudget}" +
             $" resizeRequests={s_resizeRequests - s_resizeRequestsAtStart}" +
@@ -549,6 +592,30 @@ internal static class SamplePerformanceBenchmark
         }
 
         AppState._window?.Close();
+    }
+
+    private static double Percentile(
+        double[] samples,
+        int count,
+        double percentile)
+    {
+        if (count <= 0)
+        {
+            return 0d;
+        }
+
+        double[] ordered = samples.AsSpan(0, count).ToArray();
+        Array.Sort(ordered);
+        double rank = (ordered.Length - 1) * percentile;
+        int lower = (int)Math.Floor(rank);
+        int upper = (int)Math.Ceiling(rank);
+        if (lower == upper)
+        {
+            return ordered[lower];
+        }
+
+        double weight = rank - lower;
+        return ordered[lower] + (ordered[upper] - ordered[lower]) * weight;
     }
 
     private static void AdvanceResizeWorkload(double _)

@@ -11,6 +11,45 @@ namespace ProGPU.Tests;
 public sealed class WgpuContextTests
 {
     [Fact]
+    public void LinuxBackendPreferenceChoosesAcceleratedGlOverCpuVulkan()
+    {
+        LinuxWebGpuAdapterCandidate[] candidates =
+        [
+            new(AdapterType.Cpu, BackendType.Vulkan),
+            new(AdapterType.IntegratedGpu, BackendType.OpenGL)
+        ];
+
+        Assert.Equal(
+            BackendType.OpenGL,
+            LinuxWebGpuBackendPreference.Choose(candidates));
+    }
+
+    [Fact]
+    public void LinuxBackendPreferenceKeepsAcceleratedVulkan()
+    {
+        LinuxWebGpuAdapterCandidate[] candidates =
+        [
+            new(AdapterType.IntegratedGpu, BackendType.OpenGL),
+            new(AdapterType.IntegratedGpu, BackendType.Vulkan)
+        ];
+
+        Assert.Equal(
+            BackendType.Vulkan,
+            LinuxWebGpuBackendPreference.Choose(candidates));
+    }
+
+    [Fact]
+    public void LinuxBackendPreferenceUsesCpuVulkanAsLastResort()
+    {
+        LinuxWebGpuAdapterCandidate[] candidates =
+        [new(AdapterType.Cpu, BackendType.Vulkan)];
+
+        Assert.Equal(
+            BackendType.Vulkan,
+            LinuxWebGpuBackendPreference.Choose(candidates));
+    }
+
+    [Fact]
     public void DeviceLossInvalidatesExistingContextsButNotReplacements()
     {
         var existing = new WgpuContext();

@@ -24,6 +24,9 @@ namespace ProGPU.Samples.Desktop;
 
 public static class Program
 {
+    private const string WebGpuBackendVariable =
+        "PROGPU_SAMPLE_WEBGPU_IMPLEMENTATION";
+
 #if MACOS
     private const string MediaColorEffectId =
         "ProGPU.Sample.Desktop.VideoColor";
@@ -80,12 +83,28 @@ public static class Program
 #endif
         GlfwWindowing.Use();
         GlfwInput.RegisterPlatform();
-        AppBuilder<App>.Configure()
+        AppBuilder<App> builder = AppBuilder<App>.Configure()
             .WithTitle("ProGPU Substrate - High-Performance WinUI Gallery Dashboard")
-            .WithSize(1280, 800)
-            .WithGpuContextFactory(CreateDesktopGpuContext)
-            .Build()
-            .Run(args);
+            .WithSize(1280, 800);
+        if (!UseSilkWebGpuImplementation())
+        {
+            builder.WithGpuContextFactory(CreateDesktopGpuContext);
+        }
+        builder.Build().Run(args);
+    }
+
+    private static bool UseSilkWebGpuImplementation()
+    {
+        string? value =
+            Environment.GetEnvironmentVariable(WebGpuBackendVariable);
+        return string.Equals(
+            value,
+            "silk",
+            StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(
+                value,
+                "wgpu",
+                StringComparison.OrdinalIgnoreCase);
     }
 
     private static WgpuContext CreateDesktopGpuContext(

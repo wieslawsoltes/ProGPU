@@ -1,0 +1,72 @@
+diff --git a/wgpu-hal/src/gles/egl.rs b/wgpu-hal/src/gles/egl.rs
+index 8b2eb49d6..9d9e10056 100644
+--- a/wgpu-hal/src/gles/egl.rs
++++ b/wgpu-hal/src/gles/egl.rs
+@@ -520,6 +520,8 @@ impl Inner {
+                 log::debug!("\tEGL context: -debug");
+             }
+         }
++        let robustness_attribute_index = context_attributes.len();
++        let mut requested_robustness = false;
+         if needs_robustness {
+             //Note: the core version can fail if robustness is not supported
+             // (regardless of whether the extension is supported!).
+@@ -528,10 +530,12 @@ impl Inner {
+                 log::debug!("\tEGL context: +robust access");
+                 context_attributes.push(khronos_egl::CONTEXT_OPENGL_ROBUST_ACCESS);
+                 context_attributes.push(khronos_egl::TRUE as _);
++                requested_robustness = true;
+             } else if display_extensions.contains("EGL_EXT_create_context_robustness") {
+                 log::debug!("\tEGL context: +robust access EXT");
+                 context_attributes.push(EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT);
+                 context_attributes.push(khronos_egl::TRUE as _);
++                requested_robustness = true;
+             } else {
+                 //Note: we aren't trying `EGL_CONTEXT_OPENGL_ROBUST_ACCESS_BIT_KHR`
+                 // because it's for desktop GL only, not GLES.
+@@ -547,6 +551,23 @@ impl Inner {
+         context_attributes.push(khronos_egl::NONE);
+         let context = match egl.create_context(display, config, None, &context_attributes) {
+             Ok(context) => context,
++            Err(
++                khronos_egl::Error::BadAttribute
++                | khronos_egl::Error::BadMatch
++                | khronos_egl::Error::BadConfig,
++            ) if requested_robustness => {
++                log::warn!("\tEGL context: robust access rejected, retrying without it");
++                context_attributes.drain(
++                    robustness_attribute_index..robustness_attribute_index + 2,
++                );
++                egl.create_context(display, config, None, &context_attributes)
++                    .map_err(|e| {
++                        crate::InstanceError::with_source(
++                            String::from("unable to create GLES 3.x context"),
++                            e,
++                        )
++                    })?
++            }
+             Err(e) => {
+                 return Err(crate::InstanceError::with_source(
+                     String::from("unable to create GLES 3.x context"),
+@@ -709,9 +730,19 @@ impl crate::Instance<super::Api> for Instance {
+-        let wayland_library = if client_ext_str.contains("EGL_EXT_platform_wayland") {
++        let requested_platform = std::env::var("WGPU_EGL_PLATFORM")
++            .ok()
++            .map(|value| value.to_ascii_lowercase());
++        let allow_wayland = requested_platform.as_deref() != Some("x11");
++        let allow_x11 = requested_platform.as_deref() != Some("wayland");
++
++        let wayland_library = if allow_wayland
++            && client_ext_str.contains("EGL_EXT_platform_wayland")
++        {
+             test_wayland_display()
+         } else {
+             None
+         };
+-        let x11_display_library = if client_ext_str.contains("EGL_EXT_platform_x11") {
++        let x11_display_library = if allow_x11
++            && client_ext_str.contains("EGL_EXT_platform_x11")
++        {
+             open_x_display()
+         } else {
+             None

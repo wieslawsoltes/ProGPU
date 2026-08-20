@@ -769,12 +769,13 @@ public unsafe class WgpuContext : IDisposable
 
         SafeLog($"[WGPUCONTEXT] Initialize started, window exists={window != null}\n");
         _window = window;
+        ConfigureLinuxEglPlatform(window);
         Wgpu = CreateNativeWebGpuApi();
         Api = new SilkWebGpuApi(Wgpu);
         
         // 1. Create WebGPU Instance (isolated per context)
         SafeLog("[WGPUCONTEXT] Creating WebGPU Instance\n");
-        var instanceExtras = CreateNativeInstanceExtras();
+        var instanceExtras = CreateNativeInstanceExtras(Wgpu);
         var instanceDesc = new InstanceDescriptor
         {
             NextInChain = instanceExtras.Chain.SType == 0 ? null : &instanceExtras.Chain
@@ -1100,19 +1101,24 @@ public unsafe class WgpuContext : IDisposable
         _hasSurfaceConfigurationCapabilities = false;
     }
 
-    private static NativeInstanceExtras CreateNativeInstanceExtras()
+    private static NativeInstanceExtras CreateNativeInstanceExtras(WebGPU wgpu)
     {
         uint backends = OperatingSystem.IsAndroid()
             ? NativeInstanceExtras.VulkanBackend
             : OperatingSystem.IsIOS()
                 ? NativeInstanceExtras.MetalBackend
-                : 0u;
+                : OperatingSystem.IsLinux()
+                    ? SelectLinuxInstanceBackend(wgpu)
+                    : 0u;
         return backends == 0u
             ? default
             : new NativeInstanceExtras
             {
                 Chain = new ChainedStruct { SType = (SType)NativeInstanceExtras.STypeValue },
-                Backends = backends
+                Backends = backends,
+                Gles3MinorVersion = backends == NativeInstanceExtras.OpenGlBackend
+                    ? NativeInstanceExtras.Gles3MinorVersion1
+                    : NativeInstanceExtras.Gles3MinorVersionAutomatic
             };
     }
 
@@ -1124,7 +1130,10 @@ public unsafe class WgpuContext : IDisposable
     {
         public const uint STypeValue = 0x00030006;
         public const uint VulkanBackend = 1u << 0;
+        public const uint OpenGlBackend = 1u << 1;
         public const uint MetalBackend = 1u << 2;
+        public const int Gles3MinorVersionAutomatic = 0;
+        public const int Gles3MinorVersion1 = 2;
 
         public ChainedStruct Chain;
         public uint Backends;
@@ -1133,6 +1142,195 @@ public unsafe class WgpuContext : IDisposable
         public int Gles3MinorVersion;
         public byte* DxilPath;
         public byte* DxcPath;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeInstanceEnumerateAdapterOptions
+    {
+        public ChainedStruct* NextInChain;
+        public uint Backends;
+    }
+
+    private static void ConfigureLinuxEglPlatform(IWindow? window)
+    {
+        if (!OperatingSystem.IsLinux() ||
+            window is not INativeWindowSource nativeWindowSource ||
+            nativeWindowSource.Native is null)
+        {
+            return;
+        }
+
+        if (nativeWindowSource.Native.X11.HasValue)
+        {
+            Environment.SetEnvironmentVariable("WGPU_EGL_PLATFORM", "x11");
+        }
+        else if (nativeWindowSource.Native.Wayland.HasValue)
+        {
+            Environment.SetEnvironmentVariable("WGPU_EGL_PLATFORM", "wayland");
+        }
+    }
+
+    private static uint SelectLinuxInstanceBackend(WebGPU wgpu)
+    {
+        string? requestedBackend = Environment.GetEnvironmentVariable("WGPU_BACKEND");
+        string? requestedBackendName = null;
+        uint candidateBackends;
+        if (string.Equals(requestedBackend, "gl", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(requestedBackend, "opengl", StringComparison.OrdinalIgnoreCase))
+        {
+            requestedBackendName = "OpenGL";
+            candidateBackends = NativeInstanceExtras.OpenGlBackend;
+        }
+        else if (string.Equals(requestedBackend, "vulkan", StringComparison.OrdinalIgnoreCase))
+        {
+            requestedBackendName = "Vulkan";
+            candidateBackends = NativeInstanceExtras.VulkanBackend;
+        }
+        else
+        {
+            candidateBackends =
+                NativeInstanceExtras.VulkanBackend |
+                NativeInstanceExtras.OpenGlBackend;
+        }
+
+        var probeExtras = new NativeInstanceExtras
+        {
+            Chain = new ChainedStruct
+            {
+                SType = (SType)NativeInstanceExtras.STypeValue
+            },
+            Backends = candidateBackends,
+            // ProGPU relies on compute shaders and vertex/storage buffers. Request
+            // the GLES 3.1 feature floor while probing so an accelerated adapter is
+            // considered only when it can support the renderer's required pipelines.
+            Gles3MinorVersion =
+                (candidateBackends & NativeInstanceExtras.OpenGlBackend) != 0
+                    ? NativeInstanceExtras.Gles3MinorVersion1
+                    : NativeInstanceExtras.Gles3MinorVersionAutomatic
+        };
+        var probeDescriptor = new InstanceDescriptor
+        {
+            NextInChain = &probeExtras.Chain
+        };
+        Instance* probeInstance = wgpu.CreateInstance(&probeDescriptor);
+        if (probeInstance == null)
+        {
+            return LinuxBackendUnavailable(
+                requestedBackendName,
+                "the probe instance could not be created");
+        }
+
+        try
+        {
+            nint enumerateAddress = ResolveLinuxWebGpuSymbol(
+                "wgpuInstanceEnumerateAdapters");
+            if (enumerateAddress == 0)
+            {
+                return LinuxBackendUnavailable(
+                    requestedBackendName,
+                    "wgpuInstanceEnumerateAdapters is unavailable");
+            }
+
+            var enumerate =
+                (delegate* unmanaged[Cdecl]<
+                    Instance*,
+                    NativeInstanceEnumerateAdapterOptions*,
+                    WgpuAdapter**,
+                    nuint>)enumerateAddress;
+            var options = new NativeInstanceEnumerateAdapterOptions
+            {
+                Backends = candidateBackends
+            };
+            nuint count = enumerate(probeInstance, &options, null);
+            if (count == 0 || count > 32)
+            {
+                return LinuxBackendUnavailable(
+                    requestedBackendName,
+                    count == 0
+                        ? "no compatible adapter met the renderer feature floor"
+                        : $"the adapter count {count} is invalid");
+            }
+
+            WgpuAdapter** adapters = stackalloc WgpuAdapter*[checked((int)count)];
+            nuint written = enumerate(probeInstance, &options, adapters);
+            Span<LinuxWebGpuAdapterCandidate> candidates =
+                stackalloc LinuxWebGpuAdapterCandidate[checked((int)written)];
+            try
+            {
+                for (nuint index = 0; index < written; index++)
+                {
+                    var properties = new AdapterProperties();
+                    wgpu.AdapterGetProperties(adapters[index], &properties);
+                    candidates[checked((int)index)] = new LinuxWebGpuAdapterCandidate(
+                        properties.AdapterType,
+                        properties.BackendType);
+                }
+            }
+            finally
+            {
+                for (nuint index = 0; index < written; index++)
+                {
+                    if (adapters[index] != null)
+                    {
+                        wgpu.AdapterRelease(adapters[index]);
+                    }
+                }
+            }
+
+            BackendType selectedBackend =
+                LinuxWebGpuBackendPreference.Choose(candidates);
+            uint selectedMask = selectedBackend switch
+            {
+                BackendType.Vulkan => NativeInstanceExtras.VulkanBackend,
+                BackendType.OpenGL => NativeInstanceExtras.OpenGlBackend,
+                _ => 0u
+            };
+            if (selectedMask == 0)
+            {
+                return LinuxBackendUnavailable(
+                    requestedBackendName,
+                    "no compatible Vulkan or OpenGL adapter was enumerated");
+            }
+
+            ProGpuBackendDiagnostics.WriteLine(
+                $"[WebGPU Context] Linux probe selected {selectedBackend} " +
+                $"from {written} compatible adapter(s); " +
+                $"override={requestedBackendName ?? "automatic"}.");
+            return selectedMask;
+        }
+        catch (DllNotFoundException)
+        {
+            return LinuxBackendUnavailable(
+                requestedBackendName,
+                "libwgpu_native.so could not be loaded");
+        }
+        catch (EntryPointNotFoundException)
+        {
+            return LinuxBackendUnavailable(
+                requestedBackendName,
+                "the native adapter-enumeration entry point is unavailable");
+        }
+        finally
+        {
+            wgpu.InstanceRelease(probeInstance);
+        }
+    }
+
+    private static uint LinuxBackendUnavailable(
+        string? requestedBackendName,
+        string reason)
+    {
+        if (requestedBackendName is not null)
+        {
+            throw new PlatformNotSupportedException(
+                $"The requested Linux WebGPU backend {requestedBackendName} " +
+                $"is unavailable: {reason}.");
+        }
+
+        ProGpuBackendDiagnostics.WriteLine(
+            $"[WebGPU Context] Linux backend probe was inconclusive: {reason}; " +
+            "using native default discovery.");
+        return 0;
     }
 
     // wgpu-native 0.19 surface extension ABI. An Apple frame latency of one
@@ -1164,6 +1362,32 @@ public unsafe class WgpuContext : IDisposable
 
     private static readonly object s_androidWebGpuLibraryLock = new();
     private static nint s_androidWebGpuLibrary;
+    private static readonly object s_linuxWebGpuLibraryLock = new();
+    private static nint s_linuxWebGpuLibrary;
+
+    private static nint ResolveLinuxWebGpuSymbol(string symbol)
+    {
+        if (s_linuxWebGpuLibrary == 0)
+        {
+            lock (s_linuxWebGpuLibraryLock)
+            {
+                if (s_linuxWebGpuLibrary == 0 &&
+                    !NativeLibrary.TryLoad(
+                        "libwgpu_native.so",
+                        out s_linuxWebGpuLibrary))
+                {
+                    return 0;
+                }
+            }
+        }
+
+        return NativeLibrary.TryGetExport(
+            s_linuxWebGpuLibrary,
+            symbol,
+            out nint address)
+                ? address
+                : 0;
+    }
 
     private static nint ResolveAndroidWebGpuSymbol(string symbol)
     {

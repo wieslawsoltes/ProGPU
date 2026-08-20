@@ -2,6 +2,7 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFrameworks>net10.0;net10.0-macos</TargetFrameworks>
+    <TargetFrameworks Condition="'$(ProGpuDesktopLinuxOnly)' == 'true'">net10.0</TargetFrameworks>
     <ApplicationId Condition="'$(TargetFramework)' == 'net10.0-macos'">org.progpu.samples.desktop</ApplicationId>
     <ApplicationTitle Condition="'$(TargetFramework)' == 'net10.0-macos'">ProGPU Samples Desktop</ApplicationTitle>
     <ImplicitUsings>enable</ImplicitUsings>
