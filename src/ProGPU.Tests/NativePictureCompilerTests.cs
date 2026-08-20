@@ -17,6 +17,65 @@ namespace ProGPU.Tests;
 public class NativePictureCompilerTests
 {
     [Fact]
+    public void CompilerTransfersRetainedHitTestIndexInSemanticSceneUpdate()
+    {
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(
+            new Rect(0f, 0f, 64f, 48f));
+        drawing.DrawRectangle(
+            new SolidColorBrush(Vector4.One),
+            null,
+            new Rect(4f, 6f, 20f, 12f));
+        using GpuPicture picture = recorder.EndRecording();
+        GpuHitTestPrimitive[] primitives =
+        [
+            GpuHitTestPrimitive.RectangleFill(
+                42,
+                new Vector2(4f, 6f),
+                new Vector2(24f, 18f),
+                Vector2.Zero)
+        ];
+        GpuHitTestIndex hitTestIndex = GpuHitTestIndex.Build(primitives);
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            330U,
+            2U,
+            NativePictureCompileOptions.Default,
+            hitTestIndex,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)header.ResourceCount *
+                        Unsafe.SizeOf<NativeMethods.SceneResource>())));
+        ref readonly NativeMethods.SceneResource resource = ref resources[^1];
+        Assert.Equal(NativeSceneResourceKind.HitTestIndex, resource.Kind);
+        NativeSceneHitTestIndex page =
+            MemoryMarshal.Read<NativeSceneHitTestIndex>(
+                compiled.Stream.Slice(
+                    checked((int)resource.PayloadOffset)));
+        Assert.Equal(1U, page.PrimitiveCount);
+        Assert.Equal(1U, page.NodeCount);
+        Assert.Equal(1U, page.PrimitiveIndexCount);
+        NativeGpuHitTestPrimitive nativePrimitive =
+            MemoryMarshal.Read<NativeGpuHitTestPrimitive>(
+                compiled.Stream.Slice(
+                    checked((int)resource.AuxiliaryOffset +
+                        (int)page.PrimitiveOffset)));
+        Assert.Equal(42, nativePrimitive.Id);
+        Assert.Equal(
+            (uint)NativeGpuHitTestPrimitiveKind.RectangleFill,
+            nativePrimitive.Kind);
+    }
+
+    [Fact]
     public void EveryRenderCommandHasDocumentedNativeCapability()
     {
         RenderCommandType[] commandTypes =

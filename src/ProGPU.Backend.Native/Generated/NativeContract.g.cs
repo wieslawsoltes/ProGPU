@@ -499,6 +499,22 @@ public partial struct NativeGpuHitTestResult
     public uint IntersectionDetail;
 }
 
+// Native source: progpu_native_scene_hit_test_index.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeSceneHitTestIndex
+{
+    public uint StructSize;
+    public uint Flags;
+    public uint PrimitiveCount;
+    public uint NodeCount;
+    public uint PrimitiveIndexCount;
+    public uint PathSegmentCount;
+    public uint PrimitiveOffset;
+    public uint NodeOffset;
+    public uint PrimitiveIndexOffset;
+    public uint PathSegmentOffset;
+}
+
 internal static unsafe partial class NativeMethods
 {
     // Native source: progpu_native_scene_header.

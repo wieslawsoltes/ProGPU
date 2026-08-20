@@ -125,7 +125,8 @@ typedef enum progpu_native_scene_resource_kind {
     PROGPU_NATIVE_SCENE_RESOURCE_VERTEX_MESH = 12,
     PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH = 13,
     PROGPU_NATIVE_SCENE_RESOURCE_LINE_3D_BATCH = 14,
-    PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH = 15
+    PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH = 15,
+    PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX = 16
 } progpu_native_scene_resource_kind;
 
 typedef enum progpu_native_scene_text_rendering_mode {
@@ -1862,6 +1863,23 @@ typedef struct progpu_native_hit_test_result {
     uint32_t precise_tests;
     uint32_t intersection_detail;
 } progpu_native_hit_test_result;
+
+/* Pointer-free retained hit-test page. All offsets are byte offsets relative
+ * to the resource auxiliary page and are 16-byte aligned except for the
+ * tightly packed uint32 primitive-index range. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeSceneHitTestIndex */
+typedef struct progpu_native_scene_hit_test_index {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t primitive_count;
+    uint32_t node_count;
+    uint32_t primitive_index_count;
+    uint32_t path_segment_count;
+    uint32_t primitive_offset;
+    uint32_t node_offset;
+    uint32_t primitive_index_offset;
+    uint32_t path_segment_offset;
+} progpu_native_scene_hit_test_index;
 
 /*
  * A filled path borrows a contiguous segment range. Bounds are the exact local

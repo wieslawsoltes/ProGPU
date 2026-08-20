@@ -1511,4 +1511,66 @@ bool semantic_scene_content_hashes_isolate_image_updates() {
         first_hashes.image != second_hashes.image;
 }
 
+bool semantic_scene_builder_records_retained_hit_test_index() {
+    semantic_scene_builder builder(711U, 1U);
+    progpu_native_hit_test_primitive primitive{};
+    primitive.bounds_min = {0.0F, 0.0F};
+    primitive.bounds_max = {20.0F, 10.0F};
+    primitive.data0 = {0.0F, 0.0F, 20.0F, 10.0F};
+    primitive.inverse_transform0 = {1.0F, 0.0F, 0.0F, 0.0F};
+    primitive.inverse_transform1 = {0.0F, 1.0F, 0.0F, 0.0F};
+    primitive.kind = PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL;
+    primitive.flags = PROGPU_NATIVE_HIT_TEST_VISIBLE |
+        PROGPU_NATIVE_HIT_TEST_VISIBLE_TO_INPUT;
+    primitive.id = 42;
+    const progpu_native_hit_test_node node{
+        {0.0F, 0.0F},
+        {20.0F, 10.0F},
+        0U,
+        0U,
+        0U,
+        1U};
+    constexpr std::uint32_t primitive_index = 0U;
+    std::uint32_t resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_hit_test_index(
+            std::span<const progpu_native_hit_test_primitive>(
+                &primitive, 1U),
+            std::span<const progpu_native_hit_test_node>(&node, 1U),
+            std::span<const std::uint32_t>(&primitive_index, 1U),
+            {},
+            resource_index) ||
+        resource_index != 0U) {
+        return false;
+    }
+    std::vector<std::byte> stream;
+    if (!builder.build(stream)) {
+        return false;
+    }
+    const auto validated = scene::validate(stream.data(), stream.size());
+    if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return false;
+    }
+    const auto resource = read<progpu_native_scene_resource>(
+        stream, validated.header.resource_offset);
+    auto page = read<progpu_native_scene_hit_test_index>(
+        stream, resource.payload_offset);
+    const auto hashes = semantic::compute_content_hashes(
+        stream.data(), validated.header);
+    if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX ||
+        page.struct_size != sizeof(page) || page.primitive_count != 1U ||
+        page.node_count != 1U || page.primitive_index_count != 1U ||
+        hashes.hit_test == 0U) {
+        return false;
+    }
+
+    auto malformed = stream;
+    page.node_count = 0U;
+    std::memcpy(
+        malformed.data() + resource.payload_offset,
+        &page,
+        sizeof(page));
+    return scene::validate(malformed.data(), malformed.size()).status ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+}
+
 } // namespace progpu::native::tests

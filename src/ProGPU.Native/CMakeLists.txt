@@ -532,6 +532,7 @@ set(PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Backend"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Scene"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Scene/Builder"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/HitTesting"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Text"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Bidi"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Shaping"
@@ -540,6 +541,7 @@ set(PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES
 
 add_library(progpu_native_hit_testing STATIC
     src/HitTesting/progpu_native_hit_testing.cpp
+    src/HitTesting/progpu_native_hit_testing_validation.hpp
     include/progpu_native_hit_testing.hpp)
 target_compile_features(progpu_native_hit_testing PUBLIC cxx_std_20)
 target_include_directories(progpu_native_hit_testing
@@ -769,6 +771,7 @@ add_library(progpu_native_scene_builder STATIC
     src/Scene/Builder/progpu_native_scene_builder_geometry.cpp
     src/Scene/Builder/progpu_native_scene_builder_glyph.cpp
     src/Scene/Builder/progpu_native_scene_builder_image.cpp
+    src/Scene/Builder/progpu_native_scene_builder_hit_testing.cpp
     src/Scene/Builder/progpu_native_scene_builder_layer.cpp
     src/Scene/Builder/progpu_native_scene_builder_path.cpp
     src/Scene/Builder/progpu_native_scene_builder_text.cpp

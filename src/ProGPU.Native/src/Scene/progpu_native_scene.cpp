@@ -1,4 +1,5 @@
 #include "progpu_native_scene.hpp"
+#include "progpu_native_hit_testing_validation.hpp"
 #include "progpu_native_semantic_brush.hpp"
 #include "progpu_native_semantic_color_glyph.hpp"
 #include "progpu_native_semantic_layer_mask.hpp"
@@ -83,7 +84,7 @@ bool span_lives_in_arena(
 
 bool is_known_resource(std::uint32_t kind) noexcept {
     return kind >= PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH &&
-        kind <= PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH;
+        kind <= PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX;
 }
 
 bool is_known_command(std::uint32_t kind) noexcept {
@@ -133,6 +134,150 @@ bool finite_bounds(const progpu_native_scene_command& command) noexcept {
         std::isfinite(command.bounds_width) &&
         std::isfinite(command.bounds_height) &&
         command.bounds_width >= 0.0F && command.bounds_height >= 0.0F;
+}
+
+enum class hit_test_resource_validation {
+    valid,
+    invalid,
+    out_of_memory
+};
+
+hit_test_resource_validation validate_hit_test_resource(
+    const std::byte* bytes,
+    const progpu_native_scene_resource& resource,
+    std::uint32_t& error_offset) noexcept {
+    error_offset = resource.payload_offset;
+    if (resource.payload_size !=
+            sizeof(progpu_native_scene_hit_test_index) ||
+        resource.auxiliary_size == 0U) {
+        return hit_test_resource_validation::invalid;
+    }
+    const auto page = read_record<progpu_native_scene_hit_test_index>(
+        bytes, resource.payload_offset);
+    hit_testing::hit_test_page_layout layout{};
+    if (page.struct_size != sizeof(page) || page.flags != 0U ||
+        page.node_count == 0U ||
+        page.primitive_index_count != page.primitive_count ||
+        !hit_testing::try_get_hit_test_page_layout(
+            page.primitive_count,
+            page.node_count,
+            page.primitive_index_count,
+            page.path_segment_count,
+            layout) ||
+        page.primitive_offset != layout.primitive_offset ||
+        page.node_offset != layout.node_offset ||
+        page.primitive_index_offset != layout.primitive_index_offset ||
+        page.path_segment_offset != layout.path_segment_offset ||
+        resource.auxiliary_size != layout.auxiliary_size) {
+        return hit_test_resource_validation::invalid;
+    }
+
+    try {
+        std::vector<std::uint8_t> primitive_seen(
+            page.primitive_count, 0U);
+        std::vector<std::uint8_t> node_parent_count(
+            page.node_count, 0U);
+        for (std::uint32_t index = 0U;
+             index < page.primitive_count;
+             ++index) {
+            error_offset = resource.auxiliary_offset +
+                page.primitive_offset +
+                index * sizeof(progpu_native_hit_test_primitive);
+            const auto primitive =
+                read_record<progpu_native_hit_test_primitive>(
+                    bytes, error_offset);
+            if (!hit_testing::valid_hit_test_primitive(
+                    primitive, page.path_segment_count)) {
+                return hit_test_resource_validation::invalid;
+            }
+        }
+        for (std::uint32_t index = 0U; index < page.node_count; ++index) {
+            error_offset = resource.auxiliary_offset + page.node_offset +
+                index * sizeof(progpu_native_hit_test_node);
+            const auto node = read_record<progpu_native_hit_test_node>(
+                bytes, error_offset);
+            if (!hit_testing::valid_hit_test_node(
+                    node,
+                    page.node_count,
+                    page.primitive_index_count) ||
+                (node.child_count != 0U && node.first_child <= index)) {
+                return hit_test_resource_validation::invalid;
+            }
+            for (std::uint32_t child = 0U;
+                 child < node.child_count;
+                 ++child) {
+                const auto child_index = node.first_child + child;
+                if (++node_parent_count[child_index] != 1U) {
+                    return hit_test_resource_validation::invalid;
+                }
+                const auto child_node =
+                    read_record<progpu_native_hit_test_node>(
+                        bytes,
+                        resource.auxiliary_offset + page.node_offset +
+                            child_index *
+                                sizeof(progpu_native_hit_test_node));
+                if (child_node.bounds_min.x < node.bounds_min.x ||
+                    child_node.bounds_min.y < node.bounds_min.y ||
+                    child_node.bounds_max.x > node.bounds_max.x ||
+                    child_node.bounds_max.y > node.bounds_max.y) {
+                    return hit_test_resource_validation::invalid;
+                }
+            }
+            for (std::uint32_t primitive_slot = 0U;
+                 primitive_slot < node.primitive_count;
+                 ++primitive_slot) {
+                error_offset = resource.auxiliary_offset +
+                    page.primitive_index_offset +
+                    (node.first_primitive + primitive_slot) *
+                        sizeof(std::uint32_t);
+                const auto primitive_index = read_record<std::uint32_t>(
+                    bytes, error_offset);
+                if (primitive_index >= page.primitive_count ||
+                    ++primitive_seen[primitive_index] != 1U) {
+                    return hit_test_resource_validation::invalid;
+                }
+                const auto primitive =
+                    read_record<progpu_native_hit_test_primitive>(
+                        bytes,
+                        resource.auxiliary_offset + page.primitive_offset +
+                            primitive_index *
+                                sizeof(progpu_native_hit_test_primitive));
+                if (primitive.bounds_min.x < node.bounds_min.x ||
+                    primitive.bounds_min.y < node.bounds_min.y ||
+                    primitive.bounds_max.x > node.bounds_max.x ||
+                    primitive.bounds_max.y > node.bounds_max.y) {
+                    return hit_test_resource_validation::invalid;
+                }
+            }
+        }
+        for (std::uint32_t index = 1U; index < page.node_count; ++index) {
+            if (node_parent_count[index] != 1U) {
+                return hit_test_resource_validation::invalid;
+            }
+        }
+        for (const auto seen : primitive_seen) {
+            if (seen != 1U) {
+                return hit_test_resource_validation::invalid;
+            }
+        }
+        for (std::uint32_t index = 0U;
+             index < page.path_segment_count;
+             ++index) {
+            error_offset = resource.auxiliary_offset +
+                page.path_segment_offset +
+                index * sizeof(progpu_native_path_segment);
+            const auto segment = read_record<progpu_native_path_segment>(
+                bytes, error_offset);
+            if (!semantic::is_valid_semantic_segment(segment, true)) {
+                return hit_test_resource_validation::invalid;
+            }
+        }
+        return hit_test_resource_validation::valid;
+    } catch (const std::bad_alloc&) {
+        return hit_test_resource_validation::out_of_memory;
+    } catch (...) {
+        return hit_test_resource_validation::invalid;
+    }
 }
 
 bool valid_scene_state(const progpu_native_scene_state& state) noexcept {
@@ -544,6 +689,26 @@ validation_result validate(
                     PROGPU_NATIVE_SCENE_VALIDATION_RANGE,
                     offset,
                     PROGPU_NATIVE_STATUS_OUT_OF_MEMORY);
+            }
+        }
+        if (resource.kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX) {
+            std::uint32_t hit_test_error_offset = resource.payload_offset;
+            const auto hit_test_validation = validate_hit_test_resource(
+                bytes, resource, hit_test_error_offset);
+            if (hit_test_validation ==
+                hit_test_resource_validation::out_of_memory) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_RANGE,
+                    hit_test_error_offset,
+                    PROGPU_NATIVE_STATUS_OUT_OF_MEMORY);
+            }
+            if (hit_test_validation != hit_test_resource_validation::valid) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                    hit_test_error_offset);
             }
         }
         if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LINE_3D_BATCH) {

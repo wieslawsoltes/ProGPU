@@ -444,7 +444,37 @@ public enum NativeSceneResourceKind : uint
     VertexMesh = 12,
     StrokeBatch = 13,
     Line3DBatch = 14,
-    Mesh3DBatch = 15
+    Mesh3DBatch = 15,
+    HitTestIndex = 16
+}
+
+public enum NativeGpuHitTestPrimitiveKind : uint
+{
+    AxisAlignedBounds = 0,
+    RectangleFill = 1,
+    RectangleStroke = 2,
+    EllipseFill = 3,
+    EllipseStroke = 4,
+    LineStroke = 5,
+    PathFill = 6,
+    PathStroke = 7
+}
+
+[Flags]
+public enum NativeGpuHitTestPrimitiveFlags : uint
+{
+    None = 0,
+    Visible = 1U << 0,
+    HitTestVisible = 1U << 1
+}
+
+public enum NativeGpuHitTestIntersectionDetail : uint
+{
+    NotCalculated = 0,
+    Empty = 1,
+    FullyInside = 2,
+    FullyContains = 3,
+    Intersects = 4
 }
 
 public enum NativeSceneTextRenderingMode : uint

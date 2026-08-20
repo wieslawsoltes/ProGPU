@@ -1196,7 +1196,12 @@ and its canonical production shader
 `src/ProGPU.Vector/Shaders/GpuHitTesting.wgsl`. The stable C header is the
 wire-layout authority for the 128-byte primitive, 32-byte node, 40-byte query,
 and 32-byte result records; deterministic generation produces the matching C#
-records. The C++20 `progpu.native.hit_testing` module directly ports the
+records. A pointer-free 40-byte hit-test resource page carries the four retained
+arrays in the same immutable semantic-scene update as rendering state. Both the
+native scene builder and managed `GpuPictureNativeSceneCompiler` validate and
+write that page without per-primitive interop or managed allocation, while the
+native scene snapshot validates topology and includes the page in retained
+semantic identity. The C++20 `progpu.native.hit_testing` module directly ports the
 managed bounded quadtree construction, including root-union bounds,
 top-left/top-right/bottom-left/bottom-right child order, crossing-primitive
 retention, maximum depth, and unsplit-child termination. It builds only when
@@ -1207,9 +1212,9 @@ arrays for stable replay.
 This checkpoint intentionally does not advertise the capability from the
 renderer yet. Completion of the slice still requires embedding the canonical
 shader, retaining its WebGPU buffers, a batched asynchronous query/readback
-contract that works without blocking browser WebGPU, semantic-scene transfer,
-and managed/native/GPU pixel-and-result differential coverage. The capability
-bit becomes observable only when those pieces are connected.
+contract that works without blocking browser WebGPU, and managed/native/GPU
+pixel-and-result differential coverage. The capability bit becomes observable
+only when those pieces are connected.
 
 Primary contract references used for this design are
 [Skia `SkPath::contains`](https://api.skia.org/classSkPath.html),

@@ -94,6 +94,7 @@ public class NativeRendererInteropTests
         Assert.Equal(32, Unsafe.SizeOf<NativeGpuHitTestNode>());
         Assert.Equal(40, Unsafe.SizeOf<NativeGpuHitTestQuery>());
         Assert.Equal(32, Unsafe.SizeOf<NativeGpuHitTestResult>());
+        Assert.Equal(40, Unsafe.SizeOf<NativeSceneHitTestIndex>());
         Assert.Equal(IntPtr.Size == 8 ? 96 : 80, Unsafe.SizeOf<NativePathFill>());
         Assert.Equal(
             IntPtr.Size == 8 ? 16 : 8,
@@ -954,6 +955,7 @@ public class NativeRendererInteropTests
         Assert.Equal(22U, (uint)NativeSceneCommandKind.DrawVertexMesh);
         Assert.Equal(160, Unsafe.SizeOf<NativeSceneStroke>());
         Assert.Equal(13U, (uint)NativeSceneResourceKind.StrokeBatch);
+        Assert.Equal(16U, (uint)NativeSceneResourceKind.HitTestIndex);
         Assert.Equal(23U, (uint)NativeSceneCommandKind.DrawStrokeBatch);
         Assert.Equal(6U, (uint)NativeRendererStatus.InternalError);
         Assert.Equal(4U, (uint)NativeRendererTextureFormat.Bgra8UnormSrgb);
@@ -1409,6 +1411,76 @@ public class NativeRendererInteropTests
         var command = MemoryMarshal.Read<NativeMethods.SceneCommand>(
             stream[(int)header.CommandOffset..]);
         Assert.Equal(NativeSceneCommandKind.DrawStrokeBatch, command.Kind);
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderPacksRetainedHitTestIndexWithoutAllocation()
+    {
+        Span<byte> destination = stackalloc byte[2048];
+        Span<NativeGpuHitTestPrimitive> primitives =
+            stackalloc NativeGpuHitTestPrimitive[1];
+        primitives[0] = new NativeGpuHitTestPrimitive
+        {
+            BoundsMin = Vector2.Zero,
+            BoundsMax = new Vector2(20f, 10f),
+            Data0 = new NativeFloat4
+            {
+                X = 0f,
+                Y = 0f,
+                Z = 20f,
+                W = 10f
+            },
+            InverseTransform0 = new NativeFloat4 { X = 1f },
+            InverseTransform1 = new NativeFloat4 { Y = 1f },
+            Kind = (uint)NativeGpuHitTestPrimitiveKind.RectangleFill,
+            Flags = (uint)(NativeGpuHitTestPrimitiveFlags.Visible |
+                NativeGpuHitTestPrimitiveFlags.HitTestVisible),
+            Id = 42
+        };
+        Span<NativeGpuHitTestNode> nodes = stackalloc NativeGpuHitTestNode[1];
+        nodes[0] = new NativeGpuHitTestNode
+        {
+            BoundsMin = Vector2.Zero,
+            BoundsMax = new Vector2(20f, 10f),
+            PrimitiveCount = 1U
+        };
+        Span<uint> primitiveIndices = stackalloc uint[1] { 0U };
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 57U,
+            generation: 1U,
+            commandCapacity: 0,
+            resourceCapacity: 1);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool added = builder.TryAddHitTestIndexResource(
+            100U,
+            1U,
+            primitives,
+            nodes,
+            primitiveIndices,
+            ReadOnlySpan<NativePathSegment>.Empty,
+            out uint resourceIndex);
+        bool built = builder.TryBuild(out ReadOnlySpan<byte> stream);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(added);
+        Assert.True(built);
+        Assert.Equal(0, allocated);
+        Assert.Equal(0U, resourceIndex);
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[(int)header.ResourceOffset..]);
+        var page = MemoryMarshal.Read<NativeSceneHitTestIndex>(
+            stream[(int)resource.PayloadOffset..]);
+        Assert.Equal(NativeSceneResourceKind.HitTestIndex, resource.Kind);
+        Assert.Equal(1U, page.PrimitiveCount);
+        Assert.Equal(1U, page.NodeCount);
+        Assert.Equal(1U, page.PrimitiveIndexCount);
+        Assert.Equal(0U, page.PrimitiveOffset);
+        Assert.Equal(128U, page.NodeOffset);
+        Assert.Equal(160U, page.PrimitiveIndexOffset);
+        Assert.Equal(176U, page.PathSegmentOffset);
+        Assert.Equal(176U, resource.AuxiliarySize);
     }
 
     [Fact]

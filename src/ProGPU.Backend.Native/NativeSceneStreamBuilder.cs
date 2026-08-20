@@ -508,6 +508,135 @@ public ref struct NativeSceneStreamBuilder
     }
 
     /// <summary>
+    /// Adds one immutable retained broad-phase hit-test page. The four input
+    /// spans are copied once into a canonical pointer-free auxiliary page;
+    /// stable queries reuse the native WebGPU buffers for its generation.
+    /// </summary>
+    public bool TryAddHitTestIndexResource(
+        ulong resourceId,
+        ulong generation,
+        scoped ReadOnlySpan<NativeGpuHitTestPrimitive> primitives,
+        scoped ReadOnlySpan<NativeGpuHitTestNode> nodes,
+        scoped ReadOnlySpan<uint> primitiveIndices,
+        scoped ReadOnlySpan<NativePathSegment> pathSegments,
+        out uint resourceIndex)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        if (_built || _resourceCount == _resourceCapacity ||
+            resourceId == 0U || resourceId <= _lastResourceId ||
+            generation == 0U || nodes.IsEmpty ||
+            primitiveIndices.Length != primitives.Length)
+        {
+            return false;
+        }
+        foreach (ref readonly NativeGpuHitTestPrimitive primitive in primitives)
+        {
+            if (!IsValidHitTestPrimitive(primitive, pathSegments.Length))
+                return false;
+        }
+        for (int nodeIndex = 0; nodeIndex < nodes.Length; nodeIndex++)
+        {
+            ref readonly NativeGpuHitTestNode node = ref nodes[nodeIndex];
+            if (!IsFinite(node.BoundsMin) || !IsFinite(node.BoundsMax) ||
+                node.BoundsMin.X > node.BoundsMax.X ||
+                node.BoundsMin.Y > node.BoundsMax.Y ||
+                node.ChildCount > 4U ||
+                node.FirstChild > (uint)nodes.Length ||
+                node.ChildCount > (uint)nodes.Length - node.FirstChild ||
+                (node.ChildCount != 0U &&
+                    node.FirstChild <= (uint)nodeIndex) ||
+                node.FirstPrimitive > (uint)primitiveIndices.Length ||
+                node.PrimitiveCount >
+                    (uint)primitiveIndices.Length - node.FirstPrimitive)
+            {
+                return false;
+            }
+        }
+        foreach (uint primitiveIndex in primitiveIndices)
+        {
+            if (primitiveIndex >= (uint)primitives.Length)
+                return false;
+        }
+        foreach (ref readonly NativePathSegment segment in pathSegments)
+        {
+            if (!IsValidPathSegment(segment))
+                return false;
+        }
+
+        long primitiveBytes = (long)primitives.Length *
+            Unsafe.SizeOf<NativeGpuHitTestPrimitive>();
+        long nodeOffset = Align16(primitiveBytes);
+        long nodeBytes = (long)nodes.Length *
+            Unsafe.SizeOf<NativeGpuHitTestNode>();
+        long primitiveIndexOffset = Align16(nodeOffset + nodeBytes);
+        long primitiveIndexBytes = (long)primitiveIndices.Length * sizeof(uint);
+        long pathSegmentOffset = Align16(
+            primitiveIndexOffset + primitiveIndexBytes);
+        long pathSegmentBytes = (long)pathSegments.Length *
+            Unsafe.SizeOf<NativePathSegment>();
+        long auxiliarySize = pathSegmentOffset + pathSegmentBytes;
+        if (auxiliarySize > NativeMethods.SceneMaximumStreamBytes ||
+            auxiliarySize > int.MaxValue)
+        {
+            return false;
+        }
+
+        var page = new NativeSceneHitTestIndex
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeSceneHitTestIndex>(),
+            PrimitiveCount = (uint)primitives.Length,
+            NodeCount = (uint)nodes.Length,
+            PrimitiveIndexCount = (uint)primitiveIndices.Length,
+            PathSegmentCount = (uint)pathSegments.Length,
+            NodeOffset = (uint)nodeOffset,
+            PrimitiveIndexOffset = (uint)primitiveIndexOffset,
+            PathSegmentOffset = (uint)pathSegmentOffset
+        };
+        int originalArenaSize = _arenaSize;
+        ReadOnlySpan<byte> payload = MemoryMarshal.AsBytes(
+            MemoryMarshal.CreateReadOnlySpan(ref page, 1));
+        if (!TryWriteArena(payload, out uint payloadOffset))
+        {
+            return false;
+        }
+        int auxiliaryRelativeOffset = (int)Align16(_arenaSize);
+        int auxiliaryEnd = auxiliaryRelativeOffset + (int)auxiliarySize;
+        if (_arenaOffset + auxiliaryEnd > _destination.Length)
+        {
+            _arenaSize = originalArenaSize;
+            return false;
+        }
+        Span<byte> auxiliary = _destination.Slice(
+            _arenaOffset + auxiliaryRelativeOffset,
+            (int)auxiliarySize);
+        auxiliary.Clear();
+        MemoryMarshal.AsBytes(primitives).CopyTo(auxiliary);
+        MemoryMarshal.AsBytes(nodes).CopyTo(auxiliary[(int)nodeOffset..]);
+        MemoryMarshal.AsBytes(primitiveIndices).CopyTo(
+            auxiliary[(int)primitiveIndexOffset..]);
+        MemoryMarshal.AsBytes(pathSegments).CopyTo(
+            auxiliary[(int)pathSegmentOffset..]);
+        _arenaSize = auxiliaryEnd;
+        var resource = new NativeMethods.SceneResource
+        {
+            StructSize = ResourceSize,
+            Kind = NativeSceneResourceKind.HitTestIndex,
+            Flags = NativeSceneRecordFlags.Required,
+            ResourceId = resourceId,
+            Generation = generation,
+            PayloadOffset = payloadOffset,
+            PayloadSize = (uint)payload.Length,
+            AuxiliaryOffset = (uint)(
+                _arenaOffset + auxiliaryRelativeOffset),
+            AuxiliarySize = (uint)auxiliarySize
+        };
+        Write(_resourceOffset + _resourceCount * ResourceSize, resource);
+        resourceIndex = (uint)_resourceCount++;
+        _lastResourceId = resourceId;
+        return true;
+    }
+
+    /// <summary>
     /// Adds path records over one densely covered segment arena. Records may
     /// share or overlap an earlier segment range so repeated transforms retain
     /// one immutable outline; optional boolean programs remain contiguous.
@@ -2549,7 +2678,7 @@ public ref struct NativeSceneStreamBuilder
 
     private static bool IsKnownResource(NativeSceneResourceKind kind) =>
         kind is >= NativeSceneResourceKind.AnalyticBatch and
-            <= NativeSceneResourceKind.Mesh3DBatch;
+            <= NativeSceneResourceKind.HitTestIndex;
 
     private static bool IsValidBrushTable(
         ReadOnlySpan<NativeSceneBrush> brushes,
@@ -2916,6 +3045,59 @@ public ref struct NativeSceneStreamBuilder
                     segment.Pad2 == 0U);
     }
 
+    private static bool IsValidHitTestPrimitive(
+        in NativeGpuHitTestPrimitive primitive,
+        int pathSegmentCount)
+    {
+        if (!IsFinite(primitive.BoundsMin) ||
+            !IsFinite(primitive.BoundsMax) ||
+            primitive.BoundsMin.X > primitive.BoundsMax.X ||
+            primitive.BoundsMin.Y > primitive.BoundsMax.Y ||
+            !IsFinite(primitive.Data0) || !IsFinite(primitive.Data1) ||
+            !IsFinite(primitive.Data2) ||
+            !IsFinite(primitive.InverseTransform0) ||
+            !IsFinite(primitive.InverseTransform1) ||
+            !float.IsFinite(primitive.ZIndex) ||
+            primitive.Kind > (uint)NativeGpuHitTestPrimitiveKind.PathStroke ||
+            (primitive.Flags & ~(uint)(
+                NativeGpuHitTestPrimitiveFlags.Visible |
+                NativeGpuHitTestPrimitiveFlags.HitTestVisible)) != 0U ||
+            primitive.ClipFillRule > (uint)NativeFillRule.EvenOdd ||
+            primitive.ClipFlags > 1U ||
+            (primitive.ClipFlags == 0U &&
+                primitive.ClipSegmentCount != 0U) ||
+            (primitive.ClipFlags == 1U &&
+                primitive.ClipSegmentCount == 0U) ||
+            primitive.ClipStartSegment > (uint)pathSegmentCount ||
+            primitive.ClipSegmentCount >
+                (uint)pathSegmentCount - primitive.ClipStartSegment)
+        {
+            return false;
+        }
+        bool path = primitive.Kind is
+            (uint)NativeGpuHitTestPrimitiveKind.PathFill or
+            (uint)NativeGpuHitTestPrimitiveKind.PathStroke;
+        if (!path)
+            return true;
+        float start = primitive.Data1.X;
+        float count = primitive.Data1.Y;
+        if (start < 0f || count <= 0f ||
+            start > uint.MaxValue || count > uint.MaxValue ||
+            MathF.Truncate(start) != start || MathF.Truncate(count) != count)
+        {
+            return false;
+        }
+        ulong end = (ulong)start + (ulong)count;
+        if (end > (uint)pathSegmentCount)
+            return false;
+        return primitive.Kind ==
+                (uint)NativeGpuHitTestPrimitiveKind.PathFill
+            ? primitive.Data1.Z is 0f or 1f
+            : primitive.Data1.Z >= 0f && primitive.Data1.W >= 0f &&
+                primitive.Data2.X is >= 0f and <= 3f &&
+                primitive.Data2.Y is >= 0f and <= 3f;
+    }
+
     private static bool IsValidEffect(in NativeSceneEffect effect)
     {
         if (effect.StructSize != Unsafe.SizeOf<NativeSceneEffect>() ||
@@ -2959,6 +3141,10 @@ public ref struct NativeSceneStreamBuilder
         float.IsFinite(value.X) && float.IsFinite(value.Y) &&
         float.IsFinite(value.Z) && float.IsFinite(value.W);
 
+    private static bool IsFinite(NativeFloat4 value) =>
+        float.IsFinite(value.X) && float.IsFinite(value.Y) &&
+        float.IsFinite(value.Z) && float.IsFinite(value.W);
+
     private static bool IsFinitePositive(NativeImageRect value) =>
         float.IsFinite(value.X) && float.IsFinite(value.Y) &&
         float.IsFinite(value.Width) && float.IsFinite(value.Height) &&
@@ -2979,4 +3165,6 @@ public ref struct NativeSceneStreamBuilder
         layer.EffectResourceIndex != NativeMethods.SceneNoIndex;
 
     private static long Align8(long value) => (value + 7L) & ~7L;
+
+    private static long Align16(long value) => (value + 15L) & ~15L;
 }

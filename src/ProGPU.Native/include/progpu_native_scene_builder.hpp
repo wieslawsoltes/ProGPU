@@ -101,6 +101,12 @@ public:
     bool add_text_style(
         const progpu_native_scene_text_style& style,
         std::uint32_t& style_index) noexcept;
+    bool add_hit_test_index(
+        std::span<const progpu_native_hit_test_primitive> primitives,
+        std::span<const progpu_native_hit_test_node> nodes,
+        std::span<const std::uint32_t> primitive_indices,
+        std::span<const progpu_native_path_segment> path_segments,
+        std::uint32_t& resource_index) noexcept;
     bool add_glyph_outlines(
         std::span<const progpu_native_scene_glyph_outline> outlines,
         std::span<const progpu_native_path_segment> segments,

@@ -34,6 +34,7 @@ static_assert(sizeof(progpu_native_hit_test_primitive) == 128U);
 static_assert(sizeof(progpu_native_hit_test_node) == 32U);
 static_assert(sizeof(progpu_native_hit_test_query) == 40U);
 static_assert(sizeof(progpu_native_hit_test_result) == 32U);
+static_assert(sizeof(progpu_native_scene_hit_test_index) == 40U);
 
 int main() {
     using namespace progpu::native::hit_testing;

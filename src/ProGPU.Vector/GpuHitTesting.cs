@@ -522,6 +522,10 @@ public sealed class GpuHitTestIndex
     public IReadOnlyList<GpuHitTestNode> Nodes { get; }
     public IReadOnlyList<uint> PrimitiveIndices { get; }
     public IReadOnlyList<GpuPathSegment> PathSegments { get; }
+    public ReadOnlySpan<GpuHitTestPrimitive> PrimitiveSpan => PrimitiveArray;
+    public ReadOnlySpan<GpuHitTestNode> NodeSpan => NodeArray;
+    public ReadOnlySpan<uint> PrimitiveIndexSpan => PrimitiveIndexArray;
+    public ReadOnlySpan<GpuPathSegment> PathSegmentSpan => PathSegmentArray;
     internal GpuHitTestPrimitive[] PrimitiveArray { get; }
     internal GpuHitTestNode[] NodeArray { get; }
     internal uint[] PrimitiveIndexArray { get; }

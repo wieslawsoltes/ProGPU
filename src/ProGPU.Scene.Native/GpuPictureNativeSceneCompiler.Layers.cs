@@ -523,6 +523,7 @@ public static partial class GpuPictureNativeSceneCompiler
                         pictureSceneId,
                         generation,
                         options,
+                        null,
                         transform,
                         clip,
                         pictureResourceIdBase,

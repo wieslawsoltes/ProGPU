@@ -18,6 +18,7 @@ bool semantic_scene_builder_records_color_bitmap_glyphs();
 bool semantic_scene_builder_records_layers_masks_and_effects();
 bool semantic_scene_builder_preserves_stable_resource_identities();
 bool semantic_scene_builder_records_retained_3d_families();
+bool semantic_scene_builder_records_retained_hit_test_index();
 bool semantic_scene_content_hashes_isolate_image_updates();
 
 } // namespace progpu::native::tests

@@ -859,6 +859,7 @@ public static partial class GpuPictureNativeSceneCompiler
             sceneId,
             generation,
             NativePictureCompileOptions.Default,
+            null,
             out compiled,
             out failure);
 
@@ -867,6 +868,23 @@ public static partial class GpuPictureNativeSceneCompiler
         ulong sceneId,
         ulong generation,
         NativePictureCompileOptions options,
+        out NativeCompiledPicture? compiled,
+        out NativePictureCompileFailure failure) =>
+        TryCompile(
+            picture,
+            sceneId,
+            generation,
+            options,
+            null,
+            out compiled,
+            out failure);
+
+    public static bool TryCompile(
+        GpuPicture picture,
+        ulong sceneId,
+        ulong generation,
+        NativePictureCompileOptions options,
+        GpuHitTestIndex? hitTestIndex,
         out NativeCompiledPicture? compiled,
         out NativePictureCompileFailure failure)
     {
@@ -880,6 +898,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 sceneId,
                 generation,
                 options,
+                hitTestIndex,
                 Matrix3x2.Identity,
                 null,
                 0U,
@@ -898,6 +917,7 @@ public static partial class GpuPictureNativeSceneCompiler
         ulong sceneId,
         ulong generation,
         NativePictureCompileOptions options,
+        GpuHitTestIndex? hitTestIndex,
         Matrix3x2 rootTransform,
         NativeImageRect? initialClip,
         ulong resourceIdBase,
@@ -1221,12 +1241,23 @@ public static partial class GpuPictureNativeSceneCompiler
                 batches.Count(static batch => batch.Kind == BatchKind.Line3D) *
                     Unsafe.SizeOf<NativeSceneCamera3D>() +
                 batches.Count * 30 +
+                (hitTestIndex is null ? 0 :
+                    Unsafe.SizeOf<NativeSceneHitTestIndex>() + 15 +
+                    hitTestIndex.PrimitiveSpan.Length *
+                        Unsafe.SizeOf<NativeGpuHitTestPrimitive>() + 15 +
+                    hitTestIndex.NodeSpan.Length *
+                        Unsafe.SizeOf<NativeGpuHitTestNode>() + 15 +
+                    hitTestIndex.PrimitiveIndexSpan.Length * sizeof(uint) +
+                        15 +
+                    hitTestIndex.PathSegmentSpan.Length *
+                        Unsafe.SizeOf<NativePathSegment>()) +
                 (analytics.Count + geometry.Count + paths.Count +
                     pointBatches.Count + vertexMeshes.Count + strokes.Count) *
                     sizeof(uint) + 14);
             int optionalTableResourceCount =
                 (materials.BrushCount > 0 ? 1 : 0) +
-                (textStyles.Count > 0 ? 1 : 0);
+                (textStyles.Count > 0 ? 1 : 0) +
+                (hitTestIndex is null ? 0 : 1);
             int resourceCount = checked(
                 batches.Count + optionalTableResourceCount +
                 stateMasks.Count + states.Count);
@@ -1417,6 +1448,27 @@ public static partial class GpuPictureNativeSceneCompiler
                     generation,
                     textStyleSpan,
                     out textStyleResourceIndex))
+            {
+                failure = new(
+                    NativePictureCompileError.StreamBuildFailed,
+                    -1,
+                    default);
+                return false;
+            }
+            if (hitTestIndex is not null &&
+                !builder.TryAddHitTestIndexResource(
+                    nextResourceId++,
+                    generation,
+                    MemoryMarshal.Cast<
+                        GpuHitTestPrimitive,
+                        NativeGpuHitTestPrimitive>(
+                            hitTestIndex.PrimitiveSpan),
+                    MemoryMarshal.Cast<GpuHitTestNode, NativeGpuHitTestNode>(
+                        hitTestIndex.NodeSpan),
+                    hitTestIndex.PrimitiveIndexSpan,
+                    MemoryMarshal.Cast<GpuPathSegment, NativePathSegment>(
+                        hitTestIndex.PathSegmentSpan),
+                    out _))
             {
                 failure = new(
                     NativePictureCompileError.StreamBuildFailed,
