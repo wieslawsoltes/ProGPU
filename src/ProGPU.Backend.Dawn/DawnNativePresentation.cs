@@ -38,13 +38,16 @@ public sealed unsafe partial class DawnGpuContext
         }
 
         SurfaceHandle compatibilitySurface = SurfaceHandle.Null;
+        IDisposable? compatibilitySurfaceLease = null;
         AdapterHandle adapter = AdapterHandle.Null;
         DeviceHandle device = DeviceHandle.Null;
         QueueHandle queue = QueueHandle.Null;
         WgpuContext? context = null;
         try
         {
-            compatibilitySurface = source.CreateSurface(instance);
+            compatibilitySurface = source.CreateSurface(
+                instance,
+                out compatibilitySurfaceLease);
             if (compatibilitySurface == SurfaceHandle.Null)
             {
                 throw new NotSupportedException(
@@ -56,6 +59,7 @@ public sealed unsafe partial class DawnGpuContext
                 source.BackendType,
                 compatibilitySurface,
                 source.BackendName);
+            W.AdapterInfo? adapterInfo = adapter.GetInfo();
             NativeSurfaceCapabilities capabilities =
                 QuerySurfaceCapabilities(
                     compatibilitySurface,
@@ -197,8 +201,24 @@ public sealed unsafe partial class DawnGpuContext
                 supportsTextureFormatsTier1:
                     supportsTextureFormatsTier1,
                 adapterBackendType:
-                    ToSilkBackendType(source.BackendType),
-                adapterName: source.BackendName);
+                    ToSilkBackendType(
+                        adapterInfo?.BackendType ??
+                        source.BackendType),
+                adapterName:
+                    adapterInfo?.Description ??
+                    adapterInfo?.Device ??
+                    source.BackendName,
+                adapterType:
+                    ToSilkAdapterType(
+                        adapterInfo?.AdapterType ??
+                        W.AdapterType.Unknown),
+                adapterDriverDescription:
+                    DescribeAdapterDriver(adapterInfo),
+                adapterVendorId:
+                    adapterInfo?.VendorID ?? 0,
+                adapterDeviceId:
+                    adapterInfo?.DeviceID ?? 0,
+                requiredCompatibleSurface: true);
 
             InstanceHandle ownedInstance = instance;
             AdapterHandle ownedAdapter = adapter;
@@ -245,7 +265,9 @@ public sealed unsafe partial class DawnGpuContext
             if (compatibilitySurface != SurfaceHandle.Null)
             {
                 compatibilitySurface.Release();
+                compatibilitySurface = SurfaceHandle.Null;
             }
+            compatibilitySurfaceLease?.Dispose();
         }
     }
 
@@ -264,14 +286,16 @@ public sealed unsafe partial class DawnGpuContext
                 "The native surface backend does not match the Dawn adapter.");
         }
 
-        SurfaceHandle surface = source.CreateSurface(Instance);
-        if (surface == SurfaceHandle.Null)
-        {
-            throw new NotSupportedException(
-                "Dawn could not create the native presentation surface.");
-        }
+        SurfaceHandle surface = source.CreateSurface(
+            Instance,
+            out IDisposable surfaceLifetimeLease);
         try
         {
+            if (surface == SurfaceHandle.Null)
+            {
+                throw new NotSupportedException(
+                    "Dawn could not create the native presentation surface.");
+            }
             NativeSurfaceCapabilities capabilities =
                 QuerySurfaceCapabilities(surface, Adapter);
             W.TextureFormat format =
@@ -289,11 +313,16 @@ public sealed unsafe partial class DawnGpuContext
                 this,
                 surface,
                 format,
-                alphaMode);
+                alphaMode,
+                surfaceLifetimeLease);
         }
         catch
         {
-            surface.Release();
+            if (surface != SurfaceHandle.Null)
+            {
+                surface.Release();
+            }
+            surfaceLifetimeLease.Dispose();
             throw;
         }
     }
@@ -518,6 +547,33 @@ public sealed unsafe partial class DawnGpuContext
                 $"Unsupported Dawn presentation backend {backendType}.")
         };
 
+    private static SW.AdapterType ToSilkAdapterType(
+        W.AdapterType adapterType) =>
+        adapterType switch
+        {
+            W.AdapterType.DiscreteGPU => SW.AdapterType.DiscreteGpu,
+            W.AdapterType.IntegratedGPU => SW.AdapterType.IntegratedGpu,
+            W.AdapterType.CPU => SW.AdapterType.Cpu,
+            _ => SW.AdapterType.Unknown
+        };
+
+    private static string DescribeAdapterDriver(
+        W.AdapterInfo? adapterInfo)
+    {
+        if (adapterInfo is null)
+        {
+            return string.Empty;
+        }
+
+        string vendor = adapterInfo.Vendor ?? string.Empty;
+        string architecture = adapterInfo.Architecture ?? string.Empty;
+        return string.IsNullOrWhiteSpace(vendor)
+            ? architecture
+            : string.IsNullOrWhiteSpace(architecture)
+                ? vendor
+                : $"{vendor} / {architecture}";
+    }
+
     internal readonly record struct NativeSurfaceCapabilities(
         W.TextureFormat[] Formats,
         W.CompositeAlphaMode[] AlphaModes);
@@ -533,25 +589,34 @@ public sealed unsafe partial class DawnGpuContext
 /// </remarks>
 public sealed unsafe class DawnNativePresentationSurface : IDisposable
 {
+    private const string PresentationDiagnosticsVariable =
+        "PROGPU_DAWN_PRESENTATION_DIAGNOSTICS";
+    private static readonly bool s_tracePresentation =
+        IsPresentationDiagnosticsEnabled();
     private readonly DawnGpuContext _owner;
     private SurfaceHandle _surface;
     private readonly W.TextureFormat _format;
     private readonly W.CompositeAlphaMode _alphaMode;
+    private IDisposable? _surfaceLifetimeLease;
     private uint _width;
     private uint _height;
     private bool _configured;
     private bool _reconfigureAfterPresent;
+    private int _diagnosticAcquisitionCount;
+    private int _diagnosticConfigurationCount;
 
     internal DawnNativePresentationSurface(
         DawnGpuContext owner,
         SurfaceHandle surface,
         W.TextureFormat format,
-        W.CompositeAlphaMode alphaMode)
+        W.CompositeAlphaMode alphaMode,
+        IDisposable surfaceLifetimeLease)
     {
         _owner = owner;
         _surface = surface;
         _format = format;
         _alphaMode = alphaMode;
+        _surfaceLifetimeLease = surfaceLifetimeLease;
     }
 
     public SW.TextureFormat Format =>
@@ -582,6 +647,7 @@ public sealed unsafe class DawnNativePresentationSurface : IDisposable
             ConfigureIfNeeded(width, height);
             SurfaceTextureFFI acquired = default;
             _surface.GetCurrentTexture(ref acquired);
+            TraceAcquisition("owned", acquired);
             if (acquired.Status is
                 W.SurfaceGetCurrentTextureStatus.Outdated or
                 W.SurfaceGetCurrentTextureStatus.Lost)
@@ -682,6 +748,7 @@ public sealed unsafe class DawnNativePresentationSurface : IDisposable
                 this);
             SurfaceTextureFFI acquired = default;
             _surface.GetCurrentTexture(ref acquired);
+            TraceAcquisition("external", acquired);
             bool acquiredTexture =
                 acquired.Texture != TextureHandle.Null;
             *target = new SW.SurfaceTexture
@@ -760,9 +827,43 @@ public sealed unsafe class DawnNativePresentationSurface : IDisposable
             AlphaMode = _alphaMode
         };
         _surface.Configure(configuration);
+        if (s_tracePresentation &&
+            _diagnosticConfigurationCount++ < 32)
+        {
+            Console.WriteLine(
+                $"[Dawn Presentation] configure " +
+                $"size={width}x{height} " +
+                $"format={_format} mode={configuration.PresentMode} " +
+                $"alpha={_alphaMode}.");
+        }
         _width = width;
         _height = height;
         _configured = true;
+    }
+
+    private void TraceAcquisition(
+        string path,
+        SurfaceTextureFFI acquired)
+    {
+        if (!s_tracePresentation ||
+            _diagnosticAcquisitionCount++ >= 32)
+        {
+            return;
+        }
+
+        Console.WriteLine(
+            $"[Dawn Presentation] acquire path={path} " +
+            $"status={acquired.Status} " +
+            $"texture={(acquired.Texture == TextureHandle.Null ? "null" : "valid")} " +
+            $"configured={_configured} size={_width}x{_height}.");
+    }
+
+    private static bool IsPresentationDiagnosticsEnabled()
+    {
+        string? value = Environment.GetEnvironmentVariable(
+            PresentationDiagnosticsVariable);
+        return string.Equals(value, "1", StringComparison.Ordinal) ||
+            string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
     }
 
     public void Dispose()
@@ -771,6 +872,7 @@ public sealed unsafe class DawnNativePresentationSurface : IDisposable
         {
             return;
         }
+        IDisposable? surfaceLifetimeLease;
         lock (_owner.Context.RenderLock)
         {
             if (_configured)
@@ -780,7 +882,10 @@ public sealed unsafe class DawnNativePresentationSurface : IDisposable
             _surface.Release();
             _surface = SurfaceHandle.Null;
             _configured = false;
+            surfaceLifetimeLease = _surfaceLifetimeLease;
+            _surfaceLifetimeLease = null;
         }
+        surfaceLifetimeLease?.Dispose();
     }
 }
 

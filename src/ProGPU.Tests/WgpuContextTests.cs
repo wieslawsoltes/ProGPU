@@ -51,7 +51,8 @@ public sealed class WgpuContextTests
             adapterType: AdapterType.IntegratedGpu,
             adapterDriverDescription: "Test Metal Driver",
             adapterVendorId: 0x106B,
-            adapterDeviceId: 0x1234);
+            adapterDeviceId: 0x1234,
+            requiredCompatibleSurface: true);
 
         Assert.True(context.IsInitialized);
         Assert.Equal(WgpuBackendKind.DawnNative, context.BackendKind);
@@ -65,7 +66,7 @@ public sealed class WgpuContextTests
                 "Test Metal Driver",
                 0x106B,
                 0x1234,
-                false,
+                true,
                 WgpuAdapterSelectionReason.ExternalNativeHost),
             context.AdapterSelectionDiagnostics);
         Assert.True(context.SupportsTextureFormatsTier1);

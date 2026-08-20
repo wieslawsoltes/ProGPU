@@ -23,14 +23,18 @@ public enum DawnNativeWindowKind
 /// <remarks>
 /// Construction and surface creation are O(1). The Xlib lane owns one display
 /// connection for its lifetime; the Win32 lane borrows the HWND and process
-/// module handle. No pixel storage or presentation texture is allocated here.
+/// module handle. Disposing the source prevents new surfaces and defers owned
+/// native-resource release until existing surfaces release their lifetime
+/// leases. No pixel storage or presentation texture is allocated here.
 /// </remarks>
 public sealed unsafe partial class DawnNativeWindowSource : IDisposable
 {
+    private readonly object _lifetimeGate = new();
     private readonly bool _ownsDisplay;
     private readonly bool _ownsWindow;
     private nint _displayOrInstance;
     private nint _window;
+    private int _surfaceLeaseCount;
     private bool _disposed;
 
     private DawnNativeWindowSource(
@@ -295,9 +299,10 @@ public sealed unsafe partial class DawnNativeWindowSource : IDisposable
         return false;
     }
 
-    internal SurfaceHandle CreateSurface(InstanceHandle instance)
+    internal SurfaceHandle CreateSurface(
+        InstanceHandle instance,
+        out IDisposable lifetimeLease)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
         if (instance == InstanceHandle.Null)
         {
             throw new ArgumentException(
@@ -305,21 +310,36 @@ public sealed unsafe partial class DawnNativeWindowSource : IDisposable
                 nameof(instance));
         }
 
-        return Kind switch
+        lock (_lifetimeGate)
         {
-            DawnNativeWindowKind.Win32 =>
-                CreateWin32Surface(instance),
-            DawnNativeWindowKind.Xlib =>
-                CreateXlibSurface(instance),
-            DawnNativeWindowKind.Wayland =>
-                CreateWaylandSurface(instance),
-            DawnNativeWindowKind.Android =>
-                CreateAndroidSurface(instance),
-            DawnNativeWindowKind.MetalLayer =>
-                CreateMetalLayerSurface(instance),
-            _ => throw new NotSupportedException(
-                $"Unsupported Dawn window kind {Kind}.")
-        };
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _surfaceLeaseCount++;
+            try
+            {
+                SurfaceHandle surface = Kind switch
+                {
+                    DawnNativeWindowKind.Win32 =>
+                        CreateWin32Surface(instance),
+                    DawnNativeWindowKind.Xlib =>
+                        CreateXlibSurface(instance),
+                    DawnNativeWindowKind.Wayland =>
+                        CreateWaylandSurface(instance),
+                    DawnNativeWindowKind.Android =>
+                        CreateAndroidSurface(instance),
+                    DawnNativeWindowKind.MetalLayer =>
+                        CreateMetalLayerSurface(instance),
+                    _ => throw new NotSupportedException(
+                        $"Unsupported Dawn window kind {Kind}.")
+                };
+                lifetimeLease = new SurfaceLifetimeLease(this);
+                return surface;
+            }
+            catch
+            {
+                _surfaceLeaseCount--;
+                throw;
+            }
+        }
     }
 
     private SurfaceHandle CreateWin32Surface(InstanceHandle instance)
@@ -417,11 +437,41 @@ public sealed unsafe partial class DawnNativeWindowSource : IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
+        lock (_lifetimeGate)
         {
-            return;
-        }
+            if (_disposed)
+            {
+                return;
+            }
 
+            _disposed = true;
+            if (_surfaceLeaseCount == 0)
+            {
+                ReleaseNativeResources();
+            }
+        }
+    }
+
+    private void ReleaseSurfaceLease()
+    {
+        lock (_lifetimeGate)
+        {
+            if (_surfaceLeaseCount <= 0)
+            {
+                throw new InvalidOperationException(
+                    "The Dawn native surface lifetime lease is unbalanced.");
+            }
+
+            _surfaceLeaseCount--;
+            if (_disposed && _surfaceLeaseCount == 0)
+            {
+                ReleaseNativeResources();
+            }
+        }
+    }
+
+    private void ReleaseNativeResources()
+    {
         if (_ownsDisplay && _displayOrInstance != 0)
         {
             XCloseDisplay(_displayOrInstance);
@@ -432,7 +482,22 @@ public sealed unsafe partial class DawnNativeWindowSource : IDisposable
         }
         _displayOrInstance = 0;
         _window = 0;
-        _disposed = true;
+    }
+
+    private sealed class SurfaceLifetimeLease : IDisposable
+    {
+        private DawnNativeWindowSource? _owner;
+
+        internal SurfaceLifetimeLease(DawnNativeWindowSource owner)
+        {
+            _owner = owner;
+        }
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref _owner, null)?
+                .ReleaseSurfaceLease();
+        }
     }
 
     [LibraryImport(

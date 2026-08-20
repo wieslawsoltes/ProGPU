@@ -1363,7 +1363,8 @@ public unsafe class WgpuContext : IDisposable
         AdapterType adapterType = AdapterType.Unknown,
         string? adapterDriverDescription = null,
         uint adapterVendorId = 0,
-        uint adapterDeviceId = 0)
+        uint adapterDeviceId = 0,
+        bool requiredCompatibleSurface = false)
     {
         ArgumentNullException.ThrowIfNull(api);
         ArgumentNullException.ThrowIfNull(lifetime);
@@ -1399,7 +1400,7 @@ public unsafe class WgpuContext : IDisposable
             adapterDriverDescription ?? string.Empty,
             adapterVendorId,
             adapterDeviceId,
-            false,
+            requiredCompatibleSurface,
             WgpuAdapterSelectionReason.ExternalNativeHost));
         _externalDeviceLifetime = lifetime;
         _deviceResourceDomain = new WgpuDeviceResourceDomain(Api, Device);

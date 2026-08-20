@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Diagnostics.Tracing;
 using System.Runtime.InteropServices;
+using ProGPU.Backend;
 using Silk.NET.Maths;
 using Silk.NET.Windowing;
 
@@ -317,6 +318,9 @@ internal static class SamplePerformanceBenchmark
         ProcessMemorySnapshot processMemory =
             ProcessMemorySnapshot.CaptureCurrent();
         var finalMetrics = AppState._screenCompositor?.Metrics;
+        WgpuAdapterSelectionDiagnostics adapterDiagnostics =
+            AppState._wgpuContext?.AdapterSelectionDiagnostics ??
+            WgpuAdapterSelectionDiagnostics.Unknown;
         var finalResizeMetrics = s_window?.ResizeMetrics ?? default;
         ulong resizeEvents = finalResizeMetrics.LogicalResizeEvents - s_resizeMetricsAtStart.LogicalResizeEvents;
         ulong framebufferResizeEvents = finalResizeMetrics.FramebufferResizeEvents - s_resizeMetricsAtStart.FramebufferResizeEvents;
@@ -448,6 +452,11 @@ internal static class SamplePerformanceBenchmark
 
         Console.WriteLine(
             $"[SampleBenchmark] RESULT page=\"{RequestedPage}\" frames={measuredFrames}" +
+            $" adapter=\"{adapterDiagnostics.Name}\"" +
+            $" adapterBackend={adapterDiagnostics.BackendType}" +
+            $" adapterType={adapterDiagnostics.AdapterType}" +
+            $" adapterDriver=\"{adapterDiagnostics.DriverDescription}\"" +
+            $" adapterReason={adapterDiagnostics.SelectionReason}" +
             $" deltaFps={deltaFps:F2} wallFps={wallFps:F2}" +
             $" compileMs={s_compileMilliseconds / divisor:F4}" +
             $" maxCompileMs={s_maxCompileMilliseconds:F4}" +
