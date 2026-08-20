@@ -37,23 +37,25 @@ required_entries=(
   build/native/include/progpu_native.h
   build/native/include/progpu_native_dawn.h
   build/native/include/progpu_native_compression.hpp
+  build/native/include/progpu_native_hit_testing.hpp
   build/native/include/progpu_native_image.hpp
   build/native/include/progpu_native_scene_builder.hpp
   build/native/include/progpu_native_text.hpp
   build/native/modules/progpu_native_compression.cppm
+  build/native/modules/progpu_native_hit_testing.cppm
   build/native/modules/progpu_native_image.cppm
   build/native/modules/progpu_native_scene_builder.cppm
   build/native/modules/progpu_native_text.cppm
   build/native/cmake/ProGPUNativeConfig.cmake
 )
 for rid in linux-x64 linux-arm64 osx-x64 osx-arm64; do
-  for library in compression image text scene_builder; do
+  for library in compression hit_testing image text scene_builder; do
     required_entries+=(
       "runtimes/${rid}/native/sdk/libprogpu_native_${library}.a")
   done
 done
 for rid in win-x64 win-arm64; do
-  for library in compression image text scene_builder; do
+  for library in compression hit_testing image text scene_builder; do
     required_entries+=(
       "runtimes/${rid}/native/sdk/progpu_native_${library}.lib")
   done

@@ -438,6 +438,67 @@ public partial struct NativeSceneMesh3D
     public uint Reserved1;
 }
 
+// Native source: progpu_native_hit_test_primitive.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeGpuHitTestPrimitive
+{
+    public Vector2 BoundsMin;
+    public Vector2 BoundsMax;
+    public NativeFloat4 Data0;
+    public NativeFloat4 Data1;
+    public NativeFloat4 Data2;
+    public NativeFloat4 InverseTransform0;
+    public NativeFloat4 InverseTransform1;
+    public uint Kind;
+    public uint Flags;
+    public int Id;
+    public float ZIndex;
+    public uint ClipStartSegment;
+    public uint ClipSegmentCount;
+    public uint ClipFillRule;
+    public uint ClipFlags;
+}
+
+// Native source: progpu_native_hit_test_node.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeGpuHitTestNode
+{
+    public Vector2 BoundsMin;
+    public Vector2 BoundsMax;
+    public uint FirstChild;
+    public uint ChildCount;
+    public uint FirstPrimitive;
+    public uint PrimitiveCount;
+}
+
+// Native source: progpu_native_hit_test_query.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeGpuHitTestQuery
+{
+    public Vector2 Point;
+    public Vector2 RegionMax;
+    public uint RootNodeIndex;
+    public uint PrimitiveCount;
+    public uint NodeCount;
+    public uint PrimitiveIndexCount;
+    public uint Flags;
+    public uint PathSegmentCount;
+}
+
+// Native source: progpu_native_hit_test_result.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeGpuHitTestResult
+{
+    public uint Hit;
+    public int Id;
+    public uint PrimitiveIndex;
+    public float ZIndex;
+    public uint CandidateCount;
+    public uint NodesVisited;
+    public uint PreciseTests;
+    public uint IntersectionDetail;
+}
+
 internal static unsafe partial class NativeMethods
 {
     // Native source: progpu_native_scene_header.

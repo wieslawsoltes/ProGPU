@@ -27,6 +27,7 @@
           PackagePath="build\native\include\%(Filename)%(Extension)"
           Visible="false" />
     <None Include="..\ProGPU.Native\src\Compression\progpu_native_compression.cppm;
+                   ..\ProGPU.Native\src\HitTesting\progpu_native_hit_testing.cppm;
                    ..\ProGPU.Native\src\Image\progpu_native_image.cppm;
                    ..\ProGPU.Native\src\Scene\Builder\progpu_native_scene_builder.cppm;
                    ..\ProGPU.Native\src\Text\progpu_native_text.cppm"

@@ -80,6 +80,7 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_IMAGE_MIPMAP_SAMPLING (UINT64_C(1) << 48U)
 #define PROGPU_NATIVE_CAPABILITY_IMAGE_FRAME_MIPMAP_SAMPLING (UINT64_C(1) << 49U)
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_VECTOR_CLIP_MASK (UINT64_C(1) << 50U)
+#define PROGPU_NATIVE_CAPABILITY_RETAINED_GPU_HIT_TESTING (UINT64_C(1) << 51U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -1780,6 +1781,87 @@ typedef struct progpu_native_path_segment {
     uint32_t pad1;
     uint32_t pad2;
 } progpu_native_path_segment;
+
+/* Values and storage intentionally match ProGPU.Vector.GpuHitTesting and the
+ * canonical GpuHitTesting.wgsl storage-buffer contract. The C declarations
+ * are the wire-layout authority for generated managed interop records. */
+typedef enum progpu_native_hit_test_primitive_kind {
+    PROGPU_NATIVE_HIT_TEST_AXIS_ALIGNED_BOUNDS = 0,
+    PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL = 1,
+    PROGPU_NATIVE_HIT_TEST_RECTANGLE_STROKE = 2,
+    PROGPU_NATIVE_HIT_TEST_ELLIPSE_FILL = 3,
+    PROGPU_NATIVE_HIT_TEST_ELLIPSE_STROKE = 4,
+    PROGPU_NATIVE_HIT_TEST_LINE_STROKE = 5,
+    PROGPU_NATIVE_HIT_TEST_PATH_FILL = 6,
+    PROGPU_NATIVE_HIT_TEST_PATH_STROKE = 7
+} progpu_native_hit_test_primitive_kind;
+
+enum {
+    PROGPU_NATIVE_HIT_TEST_VISIBLE = 1U << 0U,
+    PROGPU_NATIVE_HIT_TEST_VISIBLE_TO_INPUT = 1U << 1U,
+    PROGPU_NATIVE_HIT_TEST_MAX_RESULT_COUNT = 256U
+};
+
+typedef enum progpu_native_hit_test_intersection_detail {
+    PROGPU_NATIVE_HIT_TEST_NOT_CALCULATED = 0,
+    PROGPU_NATIVE_HIT_TEST_EMPTY = 1,
+    PROGPU_NATIVE_HIT_TEST_FULLY_INSIDE = 2,
+    PROGPU_NATIVE_HIT_TEST_FULLY_CONTAINS = 3,
+    PROGPU_NATIVE_HIT_TEST_INTERSECTS = 4
+} progpu_native_hit_test_intersection_detail;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeGpuHitTestPrimitive */
+typedef struct progpu_native_hit_test_primitive {
+    progpu_native_point bounds_min;
+    progpu_native_point bounds_max;
+    progpu_native_float_4 data0;
+    progpu_native_float_4 data1;
+    progpu_native_float_4 data2;
+    progpu_native_float_4 inverse_transform0;
+    progpu_native_float_4 inverse_transform1;
+    uint32_t kind;
+    uint32_t flags;
+    int32_t id;
+    float z_index;
+    uint32_t clip_start_segment;
+    uint32_t clip_segment_count;
+    uint32_t clip_fill_rule;
+    uint32_t clip_flags;
+} progpu_native_hit_test_primitive;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeGpuHitTestNode */
+typedef struct progpu_native_hit_test_node {
+    progpu_native_point bounds_min;
+    progpu_native_point bounds_max;
+    uint32_t first_child;
+    uint32_t child_count;
+    uint32_t first_primitive;
+    uint32_t primitive_count;
+} progpu_native_hit_test_node;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeGpuHitTestQuery */
+typedef struct progpu_native_hit_test_query {
+    progpu_native_point point;
+    progpu_native_point region_max;
+    uint32_t root_node_index;
+    uint32_t primitive_count;
+    uint32_t node_count;
+    uint32_t primitive_index_count;
+    uint32_t flags;
+    uint32_t path_segment_count;
+} progpu_native_hit_test_query;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeGpuHitTestResult */
+typedef struct progpu_native_hit_test_result {
+    uint32_t hit;
+    int32_t id;
+    uint32_t primitive_index;
+    float z_index;
+    uint32_t candidate_count;
+    uint32_t nodes_visited;
+    uint32_t precise_tests;
+    uint32_t intersection_detail;
+} progpu_native_hit_test_result;
 
 /*
  * A filled path borrows a contiguous segment range. Bounds are the exact local

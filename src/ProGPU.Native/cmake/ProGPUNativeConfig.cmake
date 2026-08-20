@@ -62,6 +62,7 @@ function(_progpu_native_import component)
 endfunction()
 
 _progpu_native_import(compression)
+_progpu_native_import(hit_testing)
 _progpu_native_import(image)
 _progpu_native_import(text)
 _progpu_native_import(scene_builder)

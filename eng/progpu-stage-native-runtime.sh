@@ -40,6 +40,7 @@ fi
 
 sdk_libraries=(
   libprogpu_native_compression.a
+  libprogpu_native_hit_testing.a
   libprogpu_native_image.a
   libprogpu_native_text.a
   libprogpu_native_scene_builder.a

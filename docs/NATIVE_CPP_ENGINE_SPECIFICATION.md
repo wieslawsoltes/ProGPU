@@ -1187,6 +1187,42 @@ ordered semantic layers now own bounded backdrop input.
   texture ownership;
 - GPU hit testing and render/hit-test parity.
 
+### Retained GPU hit-test foundation checkpoint
+
+The native hit-test port now begins from the authoritative ProGPU-owned
+implementation at
+`aef1054212af5b52d2242b1e54d3854aee7a543b:src/ProGPU.Vector/GpuHitTesting.cs`
+and its canonical production shader
+`src/ProGPU.Vector/Shaders/GpuHitTesting.wgsl`. The stable C header is the
+wire-layout authority for the 128-byte primitive, 32-byte node, 40-byte query,
+and 32-byte result records; deterministic generation produces the matching C#
+records. The C++20 `progpu.native.hit_testing` module directly ports the
+managed bounded quadtree construction, including root-union bounds,
+top-left/top-right/bottom-left/bottom-right child order, crossing-primitive
+retention, maximum depth, and unsplit-child termination. It builds only when
+the immutable scene changes, takes `O(N * D)` worst-case work for `N`
+primitives and bounded depth `D <= 64`, and owns the resulting contiguous
+arrays for stable replay.
+
+This checkpoint intentionally does not advertise the capability from the
+renderer yet. Completion of the slice still requires embedding the canonical
+shader, retaining its WebGPU buffers, a batched asynchronous query/readback
+contract that works without blocking browser WebGPU, semantic-scene transfer,
+and managed/native/GPU pixel-and-result differential coverage. The capability
+bit becomes observable only when those pieces are connected.
+
+Primary contract references used for this design are
+[Skia `SkPath::contains`](https://api.skia.org/classSkPath.html),
+[Direct2D `ID2D1Geometry::FillContainsPoint`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1geometry-fillcontainspoint),
+[Win2D `CanvasGeometry.FillContainsPoint`](https://microsoft.github.io/Win2D/WinUI3/html/M_Microsoft_Graphics_Canvas_Geometry_FillContainsPoint_1.htm),
+[WebGPU `GPUBuffer.mapAsync`](https://www.w3.org/TR/webgpu/#dom-gpubuffer-mapasync),
+and
+[DirectWrite `IDWriteTextLayout::HitTestPoint`](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritetextlayout-hittestpoint).
+They support the separation used here: immutable broad-phase state is retained
+per scene generation, exact geometry remains a shared render/hit-test contract,
+and GPU result readback is asynchronous instead of synchronously mapping the
+render hot path. No third-party implementation source was ported.
+
 ### Tranche D — native scene and platform integration
 
 - the first standalone C++20 semantic scene-builder slice is implemented as

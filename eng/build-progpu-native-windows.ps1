@@ -209,6 +209,7 @@ if (-not $SkipExtendedIntegration) {
     New-Item -ItemType Directory -Force -Path $SdkPackageStage | Out-Null
     $SdkLibraries = @(
         "progpu_native_compression.lib",
+        "progpu_native_hit_testing.lib",
         "progpu_native_image.lib",
         "progpu_native_text.lib",
         "progpu_native_scene_builder.lib"

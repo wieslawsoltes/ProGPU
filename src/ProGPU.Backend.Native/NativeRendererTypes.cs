@@ -424,7 +424,8 @@ public enum NativeRendererCapabilities : ulong
     SemanticImagePatchBatch = 1UL << 47,
     SemanticImageMipmapSampling = 1UL << 48,
     ImageFrameMipmapSampling = 1UL << 49,
-    SemanticVectorClipMask = 1UL << 50
+    SemanticVectorClipMask = 1UL << 50,
+    RetainedGpuHitTesting = 1UL << 51
 }
 
 public enum NativeSceneResourceKind : uint

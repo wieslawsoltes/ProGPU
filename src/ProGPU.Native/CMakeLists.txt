@@ -538,6 +538,25 @@ set(PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Image"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Compression")
 
+add_library(progpu_native_hit_testing STATIC
+    src/HitTesting/progpu_native_hit_testing.cpp
+    include/progpu_native_hit_testing.hpp)
+target_compile_features(progpu_native_hit_testing PUBLIC cxx_std_20)
+target_include_directories(progpu_native_hit_testing
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+set_target_properties(progpu_native_hit_testing PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES)
+if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
+    target_sources(progpu_native_hit_testing
+        PUBLIC
+        FILE_SET CXX_MODULES
+        FILES src/HitTesting/progpu_native_hit_testing.cppm)
+endif()
+progpu_native_enable_warnings(progpu_native_hit_testing)
+progpu_native_enable_sanitizers(progpu_native_hit_testing)
+
 add_library(progpu_native_compression STATIC
     src/Compression/progpu_native_deflate.cpp
     src/Compression/progpu_native_deflate_huffman.cpp
@@ -1067,6 +1086,22 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         set_tests_properties(
             progpu_native_text_module_tests
             PROPERTIES TIMEOUT 60)
+
+        add_executable(progpu_native_hit_testing_module_tests
+            tests/progpu_native_hit_testing_module_tests.cpp)
+        target_link_libraries(
+            progpu_native_hit_testing_module_tests
+            PRIVATE progpu_native_hit_testing)
+        progpu_native_enable_warnings(
+            progpu_native_hit_testing_module_tests)
+        progpu_native_enable_sanitizers(
+            progpu_native_hit_testing_module_tests)
+        add_test(
+            NAME progpu_native_hit_testing_module_tests
+            COMMAND progpu_native_hit_testing_module_tests)
+        set_tests_properties(
+            progpu_native_hit_testing_module_tests
+            PROPERTIES TIMEOUT 60)
     endif()
 
     add_executable(progpu_native_compression_tests
@@ -1092,6 +1127,18 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         COMMAND progpu_native_image_tests)
     set_tests_properties(
         progpu_native_image_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_hit_testing_tests
+        tests/progpu_native_hit_testing_tests.cpp)
+    target_link_libraries(progpu_native_hit_testing_tests PRIVATE
+        progpu_native_hit_testing)
+    progpu_native_enable_warnings(progpu_native_hit_testing_tests)
+    progpu_native_enable_sanitizers(progpu_native_hit_testing_tests)
+    add_test(
+        NAME progpu_native_hit_testing_tests
+        COMMAND progpu_native_hit_testing_tests)
+    set_tests_properties(
+        progpu_native_hit_testing_tests PROPERTIES TIMEOUT 60)
 
     add_executable(progpu_native_text_tests
         tests/progpu_native_text_tests.cpp)
@@ -1234,6 +1281,7 @@ endif()
 if(NOT EMSCRIPTEN)
     install(TARGETS
         progpu_native_compression
+        progpu_native_hit_testing
         progpu_native_image
         progpu_native_text
         progpu_native_scene_builder
@@ -1241,12 +1289,14 @@ if(NOT EMSCRIPTEN)
     install(FILES
         include/progpu_native.h
         include/progpu_native_compression.hpp
+        include/progpu_native_hit_testing.hpp
         include/progpu_native_image.hpp
         include/progpu_native_scene_builder.hpp
         include/progpu_native_text.hpp
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
     install(FILES
         src/Compression/progpu_native_compression.cppm
+        src/HitTesting/progpu_native_hit_testing.cppm
         src/Image/progpu_native_image.cppm
         src/Scene/Builder/progpu_native_scene_builder.cppm
         src/Text/progpu_native_text.cppm

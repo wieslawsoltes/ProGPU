@@ -90,6 +90,10 @@ public class NativeRendererInteropTests
         Assert.Equal(32, Unsafe.SizeOf<NativeDashStyle>());
         Assert.Equal(112, Unsafe.SizeOf<NativeSpline>());
         Assert.Equal(48, Unsafe.SizeOf<NativePathSegment>());
+        Assert.Equal(128, Unsafe.SizeOf<NativeGpuHitTestPrimitive>());
+        Assert.Equal(32, Unsafe.SizeOf<NativeGpuHitTestNode>());
+        Assert.Equal(40, Unsafe.SizeOf<NativeGpuHitTestQuery>());
+        Assert.Equal(32, Unsafe.SizeOf<NativeGpuHitTestResult>());
         Assert.Equal(IntPtr.Size == 8 ? 96 : 80, Unsafe.SizeOf<NativePathFill>());
         Assert.Equal(
             IntPtr.Size == 8 ? 16 : 8,
