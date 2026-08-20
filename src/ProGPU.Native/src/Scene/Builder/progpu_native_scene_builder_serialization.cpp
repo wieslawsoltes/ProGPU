@@ -280,10 +280,12 @@ bool semantic_scene_builder::build(
     }
     try {
         std::vector<std::byte> built;
+        const auto maximum_stream_size = static_cast<std::uint64_t>(
+            PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES);
         const std::uint64_t reserved_arena_size =
             implementation_->arena_reserve >
-                    PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES - arena_offset
-                ? PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES
+                    maximum_stream_size - arena_offset
+                ? maximum_stream_size
                 : arena_offset + implementation_->arena_reserve;
         built.reserve(static_cast<std::size_t>(std::max<std::uint64_t>(
             total_size,
