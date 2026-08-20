@@ -873,10 +873,13 @@ packs the fixed 32-byte result records into an `rgba32uint` storage texture
 before the already-qualified texture-to-buffer readback. The pack pass changes
 only transport; hit semantics remain in the shared production shader. Hardware
 Chromium runs the exact hit-test fixture before the renderer evidence workload.
-The deterministic SwiftShader lane defers only this shader execution because
-its current Chromium adapter spends minutes compiling the complete canonical
-shader; it still builds the implementation and runs the full native renderer,
-without substituting a reduced hit-test algorithm.
+The deterministic SwiftShader lane and the Windows ARM64 hosted runner's
+Microsoft Basic Render Driver defer only this shader execution because those
+software adapters spend minutes compiling the complete canonical shader. They
+still build the implementation and run the full native renderer, record
+`deferred-software-adapter` in their evidence, and never substitute a reduced
+hit-test algorithm. Hardware WebGPU, Metal, and Vulkan/llvmpipe lanes execute
+the exact query.
 
 Run the interactive desktop gallery directly on the exact wgpu-native backend:
 

@@ -1252,11 +1252,13 @@ resource generation.
 
 The hardware Chromium gate runs the exact retained rectangle fixture and
 checks hit identity plus traversal counters before the full renderer workload.
-Chromium 151 SwiftShader currently spends minutes compiling the complete shared
-hit-test shader. The deterministic software-adapter lane therefore builds the
-same C++/WGSL implementation but explicitly defers only this execution; it
-continues to run the complete native renderer and reports the deferral in its
-JSON contract. No smaller semantic shader or CPU fallback is accepted.
+Chromium 151 SwiftShader and the Windows ARM64 hosted runner's Microsoft Basic
+Render Driver currently spend minutes compiling the complete shared hit-test
+shader. Those deterministic software-adapter lanes therefore build the same
+C++/WGSL implementation but explicitly defer only this execution; they
+continue to run the complete native renderer and report the deferral in their
+JSON/text contracts. Hardware WebGPU, Metal, and Vulkan/llvmpipe gates execute
+the exact query. No smaller semantic shader or CPU fallback is accepted.
 
 Primary contract references used for this design are
 [Skia `SkPath::contains`](https://api.skia.org/classSkPath.html),
