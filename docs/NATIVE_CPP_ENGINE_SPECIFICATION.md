@@ -1,23 +1,34 @@
 # ProGPU native C++ engine specification
 
-Status: active implementation specification, Preview.48 baseline
+Status: native core-renderer/text implementation complete; Preview.53 baseline,
+pending final CI and manual qualification
 
 Initial implementation: `src/ProGPU.Native`
 
-Managed baseline commit: `d63f5cfa10c42adf0dc1e7ba80e10854125b8112`
+Managed baseline commit: `eab6754b` plus the exact ProGPU-owned source
+provenance recorded for each ported tranche
 Native ABI: `PROGPU_NATIVE_ABI_VERSION == 3`
 
 ## 1. Objective and completion boundary
 
-ProGPU will have a full parallel C++20 port of its proven ProGPU-owned core
-renderer implementation. It will use WebGPU and the same canonical reviewed WGSL modules as the managed
-renderer, integrate with WebScene's native V8 engine, and eventually be able to
-replace the managed compositor under .NET without changing public WinUI,
+ProGPU has a parallel C++20 port of its proven ProGPU-owned immutable core
+renderer and text/font/shaping/layout implementation. It uses WebGPU and the
+same canonical reviewed WGSL modules as the managed renderer, integrates with
+WebScene's native V8 engine, and can eventually replace the managed compositor
+under .NET without changing public WinUI,
 Avalonia, LibreWPF, or LibreWinForms scene APIs.
 
-The migration is complete only when all of the following are true:
+The current goal deliberately excludes WinUI controls, XAML, media, input,
+accessibility policy, and mutable live `DrawVisual` ownership. Those remain
+managed framework/platform concerns or later independently scoped projects.
+The managed scene compiler is an accepted typed producer of the shared
+pointer-free stream; replacing it is not required for native renderer/text
+parity. The native C++ scene builder is available to fully native consumers.
 
-1. Every shipping `RenderCommandType`, compositor scope, cache invalidation,
+The native core-renderer/text goal is complete only when all of the following
+are true:
+
+1. Every immutable shipping `RenderCommandType`, compositor scope, cache invalidation,
    target, texture, path, glyph, effect, extension, hit-test, diagnostics, and
    device-loss behavior has a native implementation or an explicitly reviewed
    platform exclusion.
@@ -34,13 +45,16 @@ The migration is complete only when all of the following are true:
    checksum manifests, sample, .NET host, and WebScene provider integration are
    built and tested in CI.
 
-The implementation remains additive and opt-in. It now covers representative
-retained 2D semantic scene domains, including analytic/path/glyph/image pages,
+The implementation remains additive and opt-in. It covers the complete agreed
+immutable semantic scene domain, including analytic/path/glyph/image pages,
 materials, state, clips, nested layers, masks, effect chains, backdrop input,
 blend modes, retained bundles, device recreation, and same-device external
-texture views. Broader shipping-scene substitution, platform lifecycle
-evidence, and final manual qualification remain open, so this is not yet a
-claim of full managed-compositor parity.
+texture views, plus the standalone native text/font/shaping/layout and image
+decode libraries. Automatic command inventory rejects a newly introduced
+managed command without an explicit native route or reviewed exclusion.
+Implementation work for this agreed scope is complete. Exact-head CI, final
+desktop/browser manual qualification, and broader physical-platform lifecycle
+evidence remain release gates rather than missing C++ feature tranches.
 
 ## 2. Clean-room and source policy
 
@@ -1335,15 +1349,14 @@ render hot path. No third-party implementation source was ported.
   browser differentials remain;
 - runtime/NuGet packages, symbols, license manifests, and device-loss recovery.
 
-### Tranche E — full parallel C++ framework core
+### Future scopes outside this native core goal
 
-- native geometry queries/path construction, text/font/shaping parity, layout,
-  retained visuals, animation timing, input/hit testing, accessibility DTOs,
-  media, and XAML-created object graphs where platform policy permits;
-- managed public APIs become thin typed owners/proxies over native IDs or remain
-  managed policy surfaces by explicit measurement-backed choice;
-- eliminate transitional managed compiler paths only after parity and
-  performance gates pass.
+- WinUI controls, XAML, media, animation/input policy, accessibility object
+  models, and mutable live-visual ownership are intentionally separate goals;
+- managed public APIs may remain typed policy/stream-production surfaces or
+  become thin native owners only after a separate measurement-backed decision;
+- the managed scene compiler is not transitional debt: it and the native C++
+  builder are parallel producers of the same versioned semantic stream.
 
 ## 10.8 Root-group blend and compositing contract
 

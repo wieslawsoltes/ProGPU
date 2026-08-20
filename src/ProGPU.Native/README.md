@@ -174,7 +174,8 @@ simple, and composite records are classified explicitly. The library performs
 no heap allocation in either pass. Decoded simple contours then use another
 allocation-free count/write pair to produce the renderer's canonical line and
 quadratic `progpu_native_path_segment` records with exact implied-midpoint and
-closed-contour behavior. Variation deltas remain a subsequent slice. Composite
+closed-contour behavior. The later `gvar`, HVAR, MVAR, CFF2, and
+FeatureVariations slices complete variation deltas and metrics. Composite
 descriptor decoding is allocation-free:
 it validates and writes caller-owned component records with byte/word XY or
 point arguments, F2Dot14 uniform/axis/2x2 transforms, continuation state, and
