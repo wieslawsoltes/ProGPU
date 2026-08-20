@@ -1093,6 +1093,11 @@ struct open_type_gsub_apply_options final {
      * lookups retain the same boundary. */
     bool restrict_to_syllable = false;
     std::uint8_t restricted_syllable = 0U;
+    /* Retains full-run substitution provenance until metric initialization.
+     * This is independent of the complex-script flag metadata because the
+     * latter overlaps Arabic joining actions. Raw lookup callers leave it
+     * disabled; the complete shaper enables it for default-ignorable parity. */
+    bool track_substitution_provenance = false;
 };
 
 /*
@@ -1444,6 +1449,10 @@ struct open_type_shape_run_scratch final {
     /* Scalar-indexed joining flags accompany arabic_actions for Arabic-
      * joining scripts and are copied into mapped glyph records in bulk. */
     std::span<shaping_glyph_flags> arabic_flags{};
+    /* Canonical Form C normalization is performed before glyph mapping for
+     * scripts whose managed contract permits reordering/composition. The
+     * caller owns this maximum-Form-D scalar buffer synchronously. */
+    std::span<unicode_scalar> normalization_scalars{};
 };
 
 struct open_type_shape_run_requirements final {
@@ -1456,6 +1465,7 @@ struct open_type_shape_run_requirements final {
     std::uint32_t complex_script_capacity = 0U;
     std::uint32_t complex_script_index_capacity = 0U;
     std::uint32_t verification_glyph_capacity = 0U;
+    std::uint32_t normalization_scalar_capacity = 0U;
 };
 
 struct open_type_shape_plan_requirements final {

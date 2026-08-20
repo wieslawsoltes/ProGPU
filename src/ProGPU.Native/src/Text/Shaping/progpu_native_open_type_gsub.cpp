@@ -28,6 +28,8 @@ constexpr std::uint32_t complex_syllable_shift = 13U;
 constexpr std::uint32_t complex_multiplied_mask = 0x20000000U;
 constexpr std::uint32_t complex_ligated_mask = 0x40000000U;
 constexpr std::uint32_t complex_substituted_mask = 0x80000000U;
+constexpr std::int32_t substituted_advance_sentinel =
+    std::numeric_limits<std::int32_t>::min();
 
 void set_error(font_error* error, font_error value) noexcept {
     if (error != nullptr) {
@@ -109,20 +111,23 @@ std::uint32_t adjust_context_match_end_after_substitution(
 void mark_substitution(
     shaping_glyph& glyph,
     bool enabled,
+    bool track_provenance,
     bool ligated = false,
     bool multiplied = false) noexcept {
-    if (!enabled) {
-        return;
+    if (track_provenance) {
+        glyph.advance_x = substituted_advance_sentinel;
     }
-    auto flags = static_cast<std::uint32_t>(glyph.flags) |
-        complex_substituted_mask;
-    if (ligated) {
-        flags |= complex_ligated_mask;
+    if (enabled) {
+        auto flags = static_cast<std::uint32_t>(glyph.flags) |
+            complex_substituted_mask;
+        if (ligated) {
+            flags |= complex_ligated_mask;
+        }
+        if (multiplied) {
+            flags |= complex_multiplied_mask;
+        }
+        glyph.flags = static_cast<shaping_glyph_flags>(flags);
     }
-    if (multiplied) {
-        flags |= complex_multiplied_mask;
-    }
-    glyph.flags = static_cast<shaping_glyph_flags>(flags);
 }
 
 std::uint16_t read_u16(
@@ -156,12 +161,18 @@ bool is_eligible(
     }
     // Port of GlyphSubstitutionBuffer.IsGlyphClassIgnored's Latin hot path.
     // RightToLeft alone cannot filter a glyph, and the common zero-filter
-    // lookup must not resolve GDEF classes once per glyph and lookup.
-    if ((flags & 0xFF1EU) == 0U || gdef == nullptr) {
+    // lookup must not resolve GDEF or Unicode classes per glyph and lookup.
+    if ((flags & 0xFF1EU) == 0U) {
         return true;
     }
-    const auto glyph_class =
-        gdef->glyph_class(static_cast<std::uint16_t>(glyph.glyph_id));
+    auto glyph_class = gdef == nullptr
+        ? open_type_glyph_class::unclassified
+        : gdef->glyph_class(static_cast<std::uint16_t>(glyph.glyph_id));
+    if (glyph_class == open_type_glyph_class::unclassified) {
+        glyph_class = is_unicode_mark(glyph.code_point)
+            ? open_type_glyph_class::mark
+            : open_type_glyph_class::base;
+    }
     if (glyph_class == open_type_glyph_class::base &&
         (flags & 0x0002U) != 0U) {
         return false;
@@ -177,7 +188,7 @@ bool is_eligible(
         return false;
     }
     if ((flags & 0x0010U) != 0U) {
-        return mark_filtering_set != 0xFFFFU &&
+        return gdef != nullptr && mark_filtering_set != 0xFFFFU &&
             gdef->is_in_mark_set(
                 mark_filtering_set,
                 static_cast<std::uint16_t>(glyph.glyph_id));
@@ -185,8 +196,8 @@ bool is_eligible(
     const std::uint16_t attachment_type =
         static_cast<std::uint16_t>(flags >> 8U);
     return attachment_type == 0U ||
-        gdef->mark_attachment_class(
-            static_cast<std::uint16_t>(glyph.glyph_id)) == attachment_type;
+        (gdef != nullptr && gdef->mark_attachment_class(
+            static_cast<std::uint16_t>(glyph.glyph_id)) == attachment_type);
 }
 
 bool context_subtable_may_start(
@@ -312,7 +323,8 @@ apply_result replace_multiple(
     std::uint32_t& count,
     std::uint32_t position,
     bool track_arabic_stretch_metadata,
-    bool mark_substituted) noexcept {
+    bool mark_substituted,
+    bool track_substitution_provenance) noexcept {
     if (!can_read(table, sequence, 2U)) {
         return apply_result::malformed;
     }
@@ -340,7 +352,12 @@ apply_result replace_multiple(
     for (std::uint16_t index = 0U; index < replacement_count; ++index) {
         shaping_glyph replacement = original;
         replacement.glyph_id = read_u16(table, sequence + 2U + index * 2U);
-        mark_substitution(replacement, mark_substituted, false, true);
+        mark_substitution(
+            replacement,
+            mark_substituted,
+            track_substitution_provenance,
+            false,
+            true);
         if (track_arabic_stretch_metadata) {
             detail::set_arabic_stretch_component(replacement, index);
         }
@@ -361,7 +378,8 @@ apply_result replace_ligature(
     const open_type_gdef_view* gdef,
     bool track_fallback_mark_metadata,
     std::uint8_t restricted_syllable,
-    bool mark_substituted) noexcept {
+    bool mark_substituted,
+    bool track_substitution_provenance) noexcept {
     if (!can_read(table, ligature, 4U)) {
         return apply_result::malformed;
     }
@@ -418,6 +436,7 @@ apply_result replace_ligature(
     mark_substitution(
         first,
         mark_substituted,
+        track_substitution_provenance,
         component_count > 1U,
         false);
     if (track_fallback_mark_metadata) {
@@ -1330,7 +1349,10 @@ apply_result apply_subtable(
         }
         storage[position].glyph_id = read_u16(
             table, cursor + static_cast<std::size_t>(coverage_index) * 2U);
-        mark_substitution(storage[position], options.mark_substituted);
+        mark_substitution(
+            storage[position],
+            options.mark_substituted,
+            options.track_substitution_provenance);
         if (match_end > match_start) {
             mark_gsub_dependency(storage, match_start, match_end - 1U);
         }
@@ -1360,7 +1382,10 @@ apply_result apply_subtable(
             static_cast<std::int32_t>(storage[position].glyph_id) +
             read_i16(table, subtable + 4U);
         storage[position].glyph_id = static_cast<std::uint16_t>(replacement);
-        mark_substitution(storage[position], options.mark_substituted);
+        mark_substitution(
+            storage[position],
+            options.mark_substituted,
+            options.track_substitution_provenance);
         return apply_result::applied;
     }
     if (type == 1U && format == 2U) {
@@ -1372,7 +1397,10 @@ apply_result apply_subtable(
         }
         storage[position].glyph_id = read_u16(
             table, subtable + 6U + coverage_index * 2U);
-        mark_substitution(storage[position], options.mark_substituted);
+        mark_substitution(
+            storage[position],
+            options.mark_substituted,
+            options.track_substitution_provenance);
         return apply_result::applied;
     }
     if ((type == 2U || type == 3U || type == 4U) && format == 1U) {
@@ -1396,7 +1424,8 @@ apply_result apply_subtable(
                 count,
                 position,
                 options.track_arabic_stretch_metadata,
-                options.mark_substituted);
+                options.mark_substituted,
+                options.track_substitution_provenance);
         }
         if (!can_read(table, set, 2U)) {
             return apply_result::malformed;
@@ -1421,7 +1450,10 @@ apply_result apply_subtable(
                 selected = *options.random_state % member_count;
             }
             storage[position].glyph_id = read_u16(table, set + 2U + selected * 2U);
-            mark_substitution(storage[position], options.mark_substituted);
+            mark_substitution(
+                storage[position],
+                options.mark_substituted,
+                options.track_substitution_provenance);
             return apply_result::applied;
         }
         for (std::uint16_t index = 0U; index < member_count; ++index) {
@@ -1443,7 +1475,8 @@ apply_result apply_subtable(
                 options.gdef,
                 options.track_fallback_mark_metadata,
                 options.restricted_syllable,
-                options.mark_substituted);
+                options.mark_substituted,
+                options.track_substitution_provenance);
             if (result != apply_result::no_match) {
                 return result;
             }

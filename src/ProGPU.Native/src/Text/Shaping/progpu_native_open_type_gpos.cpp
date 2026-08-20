@@ -650,14 +650,20 @@ apply_result attach_mark(
         return apply_result::malformed;
     }
     const std::uint16_t target_anchor_relative = read_u16(table, target_record);
+    // A BaseRecord, LigatureAttach component record, or Mark2Record may omit
+    // the anchor for an individual mark class with a NULL Offset16. This is a
+    // valid non-match, not malformed font data, and a later lookup/subtable is
+    // still allowed to position the mark.
+    if (target_anchor_relative == 0U) {
+        return apply_result::no_match;
+    }
     std::size_t mark_anchor = 0U;
     std::size_t target_anchor = 0U;
     std::int32_t mark_x = 0;
     std::int32_t mark_y = 0;
     std::int32_t target_x = 0;
     std::int32_t target_y = 0;
-    if (target_anchor_relative == 0U ||
-        !try_add(header.mark_array, mark_anchor_relative, mark_anchor) ||
+    if (!try_add(header.mark_array, mark_anchor_relative, mark_anchor) ||
         !try_add(target_anchor_base, target_anchor_relative, target_anchor) ||
         !parse_anchor(table, mark_anchor, options, mark_x, mark_y) ||
         !parse_anchor(
@@ -916,6 +922,17 @@ apply_result apply_mark_to_base_or_mark(
             return apply_result::no_match;
         }
     }
+    if (type == 6U && mark_index < options.attachments.size() &&
+        target < options.attachments.size()) {
+        const std::uint8_t first_component =
+            options.attachments[mark_index].reserved1;
+        const std::uint8_t second_component =
+            options.attachments[target].reserved1;
+        if (first_component != 0xFFU && second_component != 0xFFU &&
+            first_component != second_component) {
+            return apply_result::no_match;
+        }
+    }
     const std::int32_t target_coverage = header.target_coverage.find(
         static_cast<std::uint16_t>(glyphs[target].glyph_id));
     if (target_coverage < 0) {
@@ -995,11 +1012,23 @@ apply_result apply_mark_to_ligature(
     if (component_count == 0U) {
         return apply_result::malformed;
     }
-    // The public bulk glyph record intentionally omits transient ligature
-    // component metadata. The managed fallback selects the last component when
-    // no explicit component survives, which is the deterministic native rule.
+    std::uint16_t component = component_count - 1U;
+    if (mark_index < options.attachments.size()) {
+        const std::uint8_t explicit_component =
+            options.attachments[mark_index].reserved1;
+        if (explicit_component != 0xFFU) {
+            component = std::min<std::uint16_t>(
+                explicit_component,
+                component_count - 1U);
+        } else if (target < options.attachments.size() &&
+            options.attachments[target].reserved0 != 0U) {
+            component = std::min<std::uint16_t>(
+                options.attachments[target].reserved0 - 1U,
+                component_count - 1U);
+        }
+    }
     const std::size_t component_records = ligature_attach + 2U +
-        static_cast<std::size_t>(component_count - 1U) *
+        static_cast<std::size_t>(component) *
             header.class_count * 2U;
     return attach_mark(
         table,

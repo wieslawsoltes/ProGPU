@@ -31,6 +31,13 @@ bool sfnt_font_view::try_get_layout_variation(
     result = 0.0F;
     uses_layout_store = false;
     set_error(error, font_error::none);
+    // Match the managed default-font instance: an omitted coordinate span is
+    // the default variation instance and every layout VariationIndex delta is
+    // zero. Do not require or traverse GDEF's ItemVariationStore until the
+    // caller supplies an explicit normalized instance.
+    if (normalized_coordinates.empty()) {
+        return true;
+    }
     sfnt_table_view gdef{};
     if (!try_get_table(gdef_tag, gdef)) {
         return true;

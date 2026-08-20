@@ -1315,6 +1315,52 @@ void open_type_gsub_basic_lookups_use_caller_owned_storage() {
     require(((static_cast<std::uint32_t>(glyphs[1U].flags) >> 11U) &
             0xFFU) == 1U);
 
+    // Managed glyph-class filtering falls back to the Unicode general
+    // category when GDEF leaves a glyph unclassified. Preserve that behavior
+    // for contextual and ligature matching: U+0301 remains a mark and is
+    // skipped by IgnoreMarks even without a GDEF view.
+    auto unicode_mark_ligature = ligature;
+    write_u16(unicode_mark_ligature, 20U, 0x0008U);
+    require(open_type_layout_table_view::try_create(
+        unicode_mark_ligature, gsub, &error));
+    glyphs = {shaping_glyph{5U, 0x66U, 0},
+        shaping_glyph{11U, 0x0301U, 0},
+        shaping_glyph{6U, 0x69U, 1}};
+    count = 3U;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(applied && count == 2U && glyphs[0U].glyph_id == 12U &&
+        glyphs[1U].glyph_id == 11U);
+
+    // A nonzero mark-attachment selector must likewise classify an
+    // unlisted Unicode mark before testing its absent (class-zero) GDEF
+    // attachment class. The mark is ineligible and the surrounding ligature
+    // components remain contiguous to the lookup.
+    std::array<std::byte, 12U> unclassified_gdef_bytes{};
+    write_u16(unclassified_gdef_bytes, 0U, 1U);
+    open_type_gdef_view unclassified_gdef{};
+    require(open_type_gdef_view::try_create(
+        unclassified_gdef_bytes, unclassified_gdef, &error));
+    write_u16(unicode_mark_ligature, 20U, 0x0200U);
+    require(open_type_layout_table_view::try_create(
+        unicode_mark_ligature, gsub, &error));
+    glyphs = {shaping_glyph{5U, 0x66U, 0},
+        shaping_glyph{11U, 0x0301U, 0},
+        shaping_glyph{6U, 0x69U, 1}};
+    count = 3U;
+    open_type_gsub_apply_options unicode_mark_options{};
+    unicode_mark_options.gdef = &unclassified_gdef;
+    require(try_apply_open_type_gsub_lookup(
+        gsub,
+        0U,
+        glyphs,
+        count,
+        unicode_mark_options,
+        applied,
+        &error));
+    require(applied && count == 2U && glyphs[0U].glyph_id == 12U &&
+        glyphs[1U].glyph_id == 11U);
+
     // Managed ReplaceLigature expands both endpoint clusters before removing
     // components. A mark or matra adjacent to the final component therefore
     // inherits the ligature's minimum cluster even when it is not consumed.
@@ -2465,6 +2511,144 @@ void open_type_gpos_attachments_are_caller_owned_and_resolved() {
     require(attachments[1U].target == 0 &&
         attachments[1U].kind == shaping_attachment_kind::mark &&
         attachments[1U].reserved2 == 1U);
+
+    auto nullable_target_anchor = mark;
+    write_u16(nullable_target_anchor, 92U, 0U);
+    require(open_type_layout_table_view::try_create(
+        nullable_target_anchor, gpos, &error));
+    glyphs = {shaping_glyph{5U, 0U, 0, shaping_glyph_flags::none, 10},
+        shaping_glyph{6U}};
+    attachments = {};
+    require(try_apply_open_type_gpos_lookup(
+        gpos,
+        0U,
+        glyphs,
+        open_type_gpos_apply_options{
+            nullptr,
+            progpu::native::text::shaping_direction::left_to_right,
+            attachments},
+        applied,
+        &error));
+    require(!applied && error == font_error::none &&
+        glyphs[1U].offset_x == 0 && glyphs[1U].offset_y == 0 &&
+        attachments[1U].kind == shaping_attachment_kind::none);
+
+    auto mark_to_mark = mark;
+    write_u16(mark_to_mark, 18U, 6U);
+    require(open_type_layout_table_view::try_create(
+        mark_to_mark, gpos, &error));
+    glyphs = {shaping_glyph{5U}, shaping_glyph{6U}};
+    attachments = {};
+    attachments[0U].reserved1 = 0U;
+    attachments[1U].reserved1 = 1U;
+    require(try_apply_open_type_gpos_lookup(
+        gpos,
+        0U,
+        glyphs,
+        open_type_gpos_apply_options{
+            nullptr,
+            progpu::native::text::shaping_direction::left_to_right,
+            attachments},
+        applied,
+        &error));
+    require(!applied && glyphs[1U].offset_x == 0 &&
+        attachments[1U].kind == shaping_attachment_kind::none);
+    attachments[1U].reserved1 = 0U;
+    require(try_apply_open_type_gpos_lookup(
+        gpos,
+        0U,
+        glyphs,
+        open_type_gpos_apply_options{
+            nullptr,
+            progpu::native::text::shaping_direction::left_to_right,
+            attachments},
+        applied,
+        &error));
+    require(applied && glyphs[1U].offset_x == 6 &&
+        glyphs[1U].offset_y == 7);
+
+    std::array<std::byte, 112U> mark_to_ligature{};
+    std::copy(mark.begin(), mark.begin() + mark_subtable,
+        mark_to_ligature.begin());
+    write_u16(mark_to_ligature, 18U, 5U);
+    write_u16(mark_to_ligature, mark_subtable, 1U);
+    write_u16(mark_to_ligature, mark_subtable + 2U, 40U);
+    write_u16(mark_to_ligature, mark_subtable + 4U, 46U);
+    write_u16(mark_to_ligature, mark_subtable + 6U, 1U);
+    write_u16(mark_to_ligature, mark_subtable + 8U, 52U);
+    write_u16(mark_to_ligature, mark_subtable + 10U, 64U);
+    write_u16(mark_to_ligature, 66U, 1U);
+    write_u16(mark_to_ligature, 68U, 1U);
+    write_u16(mark_to_ligature, 70U, 6U);
+    write_u16(mark_to_ligature, 72U, 1U);
+    write_u16(mark_to_ligature, 74U, 1U);
+    write_u16(mark_to_ligature, 76U, 5U);
+    write_u16(mark_to_ligature, 78U, 1U);
+    write_u16(mark_to_ligature, 80U, 0U);
+    write_u16(mark_to_ligature, 82U, 6U);
+    write_u16(mark_to_ligature, 84U, 1U);
+    write_u16(mark_to_ligature, 86U, 2U);
+    write_u16(mark_to_ligature, 88U, 3U);
+    write_u16(mark_to_ligature, 90U, 1U);
+    write_u16(mark_to_ligature, 92U, 4U);
+    write_u16(mark_to_ligature, 94U, 2U);
+    write_u16(mark_to_ligature, 96U, 6U);
+    write_u16(mark_to_ligature, 98U, 12U);
+    write_u16(mark_to_ligature, 100U, 1U);
+    write_u16(mark_to_ligature, 102U, 8U);
+    write_u16(mark_to_ligature, 104U, 10U);
+    write_u16(mark_to_ligature, 106U, 1U);
+    write_u16(mark_to_ligature, 108U, 18U);
+    write_u16(mark_to_ligature, 110U, 20U);
+    require(open_type_layout_table_view::try_create(
+        mark_to_ligature, gpos, &error));
+    glyphs = {shaping_glyph{5U}, shaping_glyph{6U}};
+    attachments = {};
+    attachments[0U].reserved0 = 2U;
+    attachments[1U].reserved1 = 0U;
+    require(try_apply_open_type_gpos_lookup(
+        gpos,
+        0U,
+        glyphs,
+        open_type_gpos_apply_options{
+            nullptr,
+            progpu::native::text::shaping_direction::left_to_right,
+            attachments},
+        applied,
+        &error));
+    require(applied && glyphs[1U].offset_x == 6 &&
+        glyphs[1U].offset_y == 7);
+    glyphs = {shaping_glyph{5U}, shaping_glyph{6U}};
+    attachments = {};
+    attachments[0U].reserved0 = 2U;
+    require(try_apply_open_type_gpos_lookup(
+        gpos,
+        0U,
+        glyphs,
+        open_type_gpos_apply_options{
+            nullptr,
+            progpu::native::text::shaping_direction::left_to_right,
+            attachments},
+        applied,
+        &error));
+    require(applied && glyphs[1U].offset_x == 16 &&
+        glyphs[1U].offset_y == 17);
+
+    require(open_type_layout_table_view::try_create(mark, gpos, &error));
+    glyphs = {shaping_glyph{5U, 0U, 0, shaping_glyph_flags::none, 10},
+        shaping_glyph{6U}};
+    attachments = {};
+    require(try_apply_open_type_gpos_lookup(
+        gpos,
+        0U,
+        glyphs,
+        open_type_gpos_apply_options{
+            nullptr,
+            progpu::native::text::shaping_direction::left_to_right,
+            attachments},
+        applied,
+        &error));
+    require(applied);
     std::array<std::uint8_t, 2U> states{};
     require(try_resolve_open_type_attachments(
         glyphs,
@@ -4834,6 +5018,127 @@ void open_type_printable_ascii_matches_managed_fast_path() {
     require(error == font_error::none && glyph_count == input.size());
 }
 
+void open_type_default_ignorables_match_managed_substitution_policy() {
+    constexpr auto latin =
+        open_type_tag::from_chars('l', 'a', 't', 'n');
+    constexpr std::array mappings{
+        std::pair{0x20U, 1U},
+        std::pair{0x41U, 2U},
+        std::pair{0x42U, 3U},
+        std::pair{0x200DU, 4U}};
+    const auto cmap = make_cmap_groups(mappings);
+    const auto data = make_font(
+        0U, 22U, 0U, false, false, false, {}, cmap);
+    sfnt_font_view font{};
+    font_error error = font_error::invalid_argument;
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
+    constexpr std::array input{
+        unicode_scalar{0x41U, 0U, 1U},
+        unicode_scalar{0x200DU, 1U, 1U},
+        unicode_scalar{0x42U, 2U, 1U}};
+    auto options = open_type_shape_run_options{};
+    options.script = latin;
+    options.unicode_script = latin;
+    open_type_shape_run_requirements requirements{};
+    require(try_get_open_type_shape_run_requirements(
+        font, input, options, requirements, &error));
+    std::vector<shaping_glyph> glyphs(requirements.glyph_capacity);
+    std::vector<unicode_grapheme_cluster> graphemes(
+        requirements.grapheme_capacity);
+    std::vector<shaping_attachment> attachments(
+        requirements.glyph_capacity);
+    std::vector<std::uint8_t> states(requirements.glyph_capacity);
+    auto scratch = open_type_shape_run_scratch{
+        graphemes, {}, {}, attachments, states};
+    std::uint32_t glyph_count = 0U;
+    require(try_shape_open_type_run(
+        font, input, options, glyphs, scratch, glyph_count, &error));
+    require(error == font_error::none && glyph_count == 3U &&
+        glyphs[0U].glyph_id == 2U && glyphs[1U].glyph_id == 1U &&
+        glyphs[1U].code_point == 0x200DU &&
+        glyphs[1U].advance_x == 0 && glyphs[1U].advance_y == 0 &&
+        glyphs[2U].glyph_id == 3U);
+
+    options.buffer_flags =
+        shaping_buffer_flags::preserve_default_ignorables;
+    glyphs.assign(requirements.glyph_capacity, {});
+    require(try_shape_open_type_run(
+        font, input, options, glyphs, scratch, glyph_count, &error));
+    require(glyph_count == 3U && glyphs[1U].glyph_id == 4U &&
+        glyphs[1U].advance_x == 600);
+
+    options.buffer_flags = shaping_buffer_flags::remove_default_ignorables;
+    glyphs.assign(requirements.glyph_capacity, {});
+    require(try_shape_open_type_run(
+        font, input, options, glyphs, scratch, glyph_count, &error));
+    require(glyph_count == 2U && glyphs[0U].glyph_id == 2U &&
+        glyphs[1U].glyph_id == 3U);
+
+    const auto make_substituting_gsub = [] {
+        std::vector<std::byte> table(70U);
+        write_u16(table, 0U, 1U);
+        write_u16(table, 4U, 10U);
+        write_u16(table, 6U, 30U);
+        write_u16(table, 8U, 44U);
+        write_u16(table, 10U, 1U);
+        write_u32(table, 12U, latin.value);
+        write_u16(table, 16U, 8U);
+        write_u16(table, 18U, 4U);
+        write_u16(table, 22U, 0U);
+        write_u16(table, 24U, 0xFFFFU);
+        write_u16(table, 26U, 1U);
+        write_u16(table, 28U, 0U);
+        write_u16(table, 30U, 1U);
+        write_u32(table, 32U,
+            open_type_tag::from_chars('c', 'c', 'm', 'p').value);
+        write_u16(table, 36U, 8U);
+        write_u16(table, 38U, 0U);
+        write_u16(table, 40U, 1U);
+        write_u16(table, 42U, 0U);
+        write_u16(table, 44U, 1U);
+        write_u16(table, 46U, 4U);
+        write_u16(table, 48U, 1U);
+        write_u16(table, 50U, 0U);
+        write_u16(table, 52U, 1U);
+        write_u16(table, 54U, 8U);
+        write_u16(table, 56U, 2U);
+        write_u16(table, 58U, 8U);
+        write_u16(table, 60U, 1U);
+        write_u16(table, 62U, 5U);
+        write_u16(table, 64U, 1U);
+        write_u16(table, 66U, 1U);
+        write_u16(table, 68U, 4U);
+        return table;
+    };
+    const std::array tables{table_data{
+        open_type_tag::from_chars('G', 'S', 'U', 'B'),
+        make_substituting_gsub()}};
+    const auto substituted_data = make_font(
+        0U, 22U, 0U, false, false, false, tables, cmap);
+    require(sfnt_font_view::try_create(
+        substituted_data, 0U, font, &error));
+    constexpr std::array requested{
+        open_type_tag::from_chars('c', 'c', 'm', 'p')};
+    options.requested_features = requested;
+    options.buffer_flags = shaping_buffer_flags::remove_default_ignorables;
+    require(try_get_open_type_shape_run_requirements(
+        font, input, options, requirements, &error));
+    glyphs.assign(requirements.glyph_capacity, {});
+    graphemes.assign(requirements.grapheme_capacity, {});
+    std::vector<std::uint16_t> gsub_lookups(
+        requirements.gsub_lookup_capacity);
+    attachments.assign(requirements.glyph_capacity, {});
+    states.assign(requirements.glyph_capacity, 0U);
+    scratch = open_type_shape_run_scratch{
+        graphemes, gsub_lookups, {}, attachments, states};
+    require(try_shape_open_type_run(
+        font, input, options, glyphs, scratch, glyph_count, &error));
+    require(error == font_error::none && glyph_count == 3U &&
+        glyphs[0U].glyph_id == 2U && glyphs[1U].glyph_id == 5U &&
+        glyphs[1U].code_point == 0x200DU &&
+        glyphs[1U].advance_x == 600 && glyphs[2U].glyph_id == 3U);
+}
+
 void open_type_random_alternates_match_managed_run_state() {
     std::vector<std::byte> gsub(80U);
     write_u16(gsub, 0U, 1U);
@@ -5927,6 +6232,7 @@ void open_type_use_diacritic_normalization_matches_managed() {
 void open_type_initial_mapping_matches_managed() {
     constexpr std::array mappings{
         std::pair{0x0041U, 2U},
+        std::pair{0x00C0U, 7U},
         std::pair{0x0301U, 3U},
         std::pair{0x030AU, 4U},
         std::pair{0x0C95U, 2U},
@@ -5959,6 +6265,7 @@ void open_type_initial_mapping_matches_managed() {
         requirements.glyph_capacity == 4U);
     std::array<shaping_glyph, 3U> decomposed_glyphs{};
     std::array<unicode_grapheme_cluster, 1U> graphemes{};
+    std::array<unicode_scalar, 6U> normalization_scalars{};
     std::array<shaping_attachment, 3U> attachments{};
     std::array<std::uint8_t, 3U> states{};
     std::uint32_t glyph_count = 0U;
@@ -5970,7 +6277,8 @@ void open_type_initial_mapping_matches_managed() {
         open_type_shape_run_scratch{
             .grapheme_clusters = graphemes,
             .attachments = attachments,
-            .attachment_states = states},
+            .attachment_states = states,
+            .normalization_scalars = normalization_scalars},
         glyph_count,
         &error));
     constexpr std::array decomposed_expected{0x0041U, 0x030AU, 0x0301U};
@@ -5980,6 +6288,41 @@ void open_type_initial_mapping_matches_managed() {
                 decomposed_expected[index] &&
             decomposed_glyphs[index].cluster == 7);
     }
+
+    // Managed OpenTypeTextShaper normalizes each eligible grapheme to NFC
+    // before mapping. Canonical ordering must therefore move U+0300 before
+    // U+0315 and compose it with the starter without allocating.
+    constexpr std::array reordered_input{
+        unicode_scalar{0x0041U, 0U, 1U},
+        unicode_scalar{0x0315U, 1U, 1U},
+        unicode_scalar{0x0300U, 2U, 1U}};
+    require(try_get_open_type_shape_run_requirements(
+        font, reordered_input, latin_options, requirements, &error));
+    require(requirements.normalization_scalar_capacity == 3U);
+    std::array<shaping_glyph, 9U> reordered_glyphs{};
+    std::array<unicode_grapheme_cluster, 3U> reordered_graphemes{};
+    std::array<shaping_attachment, 9U> reordered_attachments{};
+    std::array<std::uint8_t, 9U> reordered_states{};
+    glyph_count = 0U;
+    require(try_shape_open_type_run(
+        font,
+        reordered_input,
+        latin_options,
+        reordered_glyphs,
+        open_type_shape_run_scratch{
+            .grapheme_clusters = reordered_graphemes,
+            .attachments = reordered_attachments,
+            .attachment_states = reordered_states,
+            .normalization_scalars = normalization_scalars},
+        glyph_count,
+        &error));
+    require(glyph_count == 2U &&
+        reordered_glyphs[0U].code_point == 0x00C0U &&
+        reordered_glyphs[0U].glyph_id == 7U &&
+        reordered_glyphs[0U].cluster == 0 &&
+        reordered_glyphs[1U].code_point == 0x0315U &&
+        reordered_glyphs[1U].glyph_id == 0U &&
+        reordered_glyphs[1U].cluster == 0);
 
     std::array<shaping_glyph, 2U> short_glyphs{};
     short_glyphs.fill(shaping_glyph{91U});
@@ -6010,7 +6353,8 @@ void open_type_initial_mapping_matches_managed() {
         open_type_shape_run_scratch{
             .grapheme_clusters = hyphen_graphemes,
             .attachments = hyphen_attachments,
-            .attachment_states = hyphen_states},
+            .attachment_states = hyphen_states,
+            .normalization_scalars = normalization_scalars},
         glyph_count,
         &error));
     require(glyph_count == 1U && hyphen_glyphs[0U].glyph_id == 5U &&
@@ -6048,7 +6392,8 @@ void open_type_initial_mapping_matches_managed() {
             .attachment_states = indic_states,
             .script_categories = indic_categories,
             .script_syllables = indic_syllables,
-            .script_indices = indic_indices},
+            .script_indices = indic_indices,
+            .normalization_scalars = normalization_scalars},
         glyph_count,
         &error));
     require(glyph_count == 4U);
@@ -6524,6 +6869,22 @@ void open_type_gpos_device_and_variation_deltas_are_applied() {
         open_type_tag::from_chars('G', 'P', 'O', 'S'), gpos_table));
     require(open_type_layout_table_view::try_create(
         gpos_table.bytes, gpos, &error));
+    glyphs[0U] = shaping_glyph{
+        3U, 0U, 0, shaping_glyph_flags::none, 500};
+    require(try_apply_open_type_gpos_lookup(
+        gpos,
+        0U,
+        glyphs,
+        open_type_gpos_apply_options{
+            nullptr,
+            progpu::native::text::shaping_direction::left_to_right,
+            {},
+            &variation_font,
+            {}},
+        applied,
+        &error));
+    require(applied && glyphs[0U].advance_x == 500);
+
     glyphs[0U] = shaping_glyph{
         3U, 0U, 0, shaping_glyph_flags::none, 500};
     const std::array<std::int16_t, 2U> normalized{8192, 8192};
@@ -12014,6 +12375,7 @@ int main() {
     open_type_requested_features_match_managed_cpu_shaper_normalization();
     open_type_shape_configuration_connects_managed_planning_stages();
     open_type_printable_ascii_matches_managed_fast_path();
+    open_type_default_ignorables_match_managed_substitution_policy();
     open_type_random_alternates_match_managed_run_state();
     open_type_common_preprocessing_matches_managed_stages();
     directional_code_point_fallback_matches_managed_stages();

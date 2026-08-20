@@ -1416,6 +1416,24 @@ single/multiple/ligature provenance, contextual contraction, metadata
 scrubbing, and the direct C ABI Y-axis projection. The same sources pass the
 LLVM 22 C++20 named-module consumer and ASan/UBSan lane.
 
+The final production-font parity corrections directly port the authoritative
+ProGPU-owned managed contracts for mark positioning and attachment filtering
+(`d43a2f473`, `12513853e`, `369f1be80`, and `b454bad87`), default-ignorable
+substitution provenance and direction-sensitive cluster transfer
+(`0de64fd93`, `6f0e32565`, and `7e9fbddc7`), canonical per-grapheme Form C
+normalization (`ec1198cf1`, `f7e623068`, and `dab84492c`), and the empty-axis
+GDEF variation default (`90f67cccc`). Canonical normalization first performs
+an allocation-free NFC quick check, then uses the existing shared ProGPU
+normalization tables and caller-owned maximum-Form-D scalar scratch only when
+ordering, decomposition, or composition changes output. Indic composites and
+USE/Hangul ordering retain the managed preservation policy. Work is `O(U + D²)`
+in the bounded worst case for `U` input scalars and a canonically reordered
+decomposition run of length `D` (stable insertion ordering), with `O(D)`
+caller-owned scratch and `O(1)` internal storage. A noncanonical
+`A + U+0315 + U+0300` differential now produces the same `U+00C0 + U+0315`
+glyph IDs, clusters, advances, offsets, and flags in managed and native code;
+the 14-script production-font matrix remains exact.
+
 On the final Apple M3 Pro Release binaries, three 200-warm-up/6,000-measurement
 repeats report a 130-scalar median-of-medians of `101.000 us` managed versus
 `66.042 us` native, exact output, one crossing, and `0 B/run` native-path

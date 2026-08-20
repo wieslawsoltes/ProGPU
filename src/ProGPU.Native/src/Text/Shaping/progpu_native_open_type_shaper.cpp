@@ -102,6 +102,8 @@ enum class arabic_substitution_stage : std::uint8_t {
     post_contextual
 };
 
+void set_error(font_error* error, font_error value) noexcept;
+
 bool is_arabic_directional_feature(open_type_tag feature) noexcept {
     return feature == open_type_tag::from_chars('l', 't', 'r', 'a') ||
         feature == open_type_tag::from_chars('l', 't', 'r', 'm') ||
@@ -167,6 +169,95 @@ bool is_default_ignorable(std::uint32_t value) noexcept {
         (value >= 0x1BCA0U && value <= 0x1BCAFU) ||
         (value >= 0x1D173U && value <= 0x1D17AU) ||
         (value >= 0xE0000U && value <= 0xE0FFFU);
+}
+
+constexpr std::int32_t substituted_advance_sentinel =
+    std::numeric_limits<std::int32_t>::min();
+
+bool has_buffer_flag(
+    shaping_buffer_flags flags,
+    shaping_buffer_flags value) noexcept {
+    return (static_cast<std::uint8_t>(flags) &
+        static_cast<std::uint8_t>(value)) != 0U;
+}
+
+bool process_default_ignorables(
+    const sfnt_font_view& font,
+    shaping_direction direction,
+    shaping_buffer_flags buffer_flags,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    font_error* error) noexcept {
+    const bool preserve = has_buffer_flag(
+        buffer_flags, shaping_buffer_flags::preserve_default_ignorables);
+    const bool remove = has_buffer_flag(
+        buffer_flags, shaping_buffer_flags::remove_default_ignorables);
+    std::uint16_t invisible_glyph = 0U;
+    if (!preserve && !remove &&
+        !font.try_get_glyph_index(0x20U, invisible_glyph)) {
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+
+    std::int32_t forward_source_cluster =
+        std::numeric_limits<std::int32_t>::min();
+    std::int32_t forward_merged_cluster =
+        std::numeric_limits<std::int32_t>::max();
+    std::uint32_t output_index = 0U;
+    for (std::uint32_t source_index = 0U;
+         source_index < glyph_count;
+         ++source_index) {
+        auto glyph = glyph_storage[source_index];
+        const bool default_ignorable = is_default_ignorable(glyph.code_point);
+        const bool substituted =
+            glyph.advance_x == substituted_advance_sentinel;
+        if (default_ignorable && !substituted && invisible_glyph == 0U &&
+            !preserve) {
+            const auto cluster = glyph.cluster;
+            if (source_index + 1U < glyph_count &&
+                cluster == glyph_storage[source_index + 1U].cluster) {
+                continue;
+            }
+            if ((direction == shaping_direction::right_to_left ||
+                    direction == shaping_direction::bottom_to_top) &&
+                source_index + 1U < glyph_count) {
+                forward_source_cluster =
+                    glyph_storage[source_index + 1U].cluster;
+                forward_merged_cluster = std::min(
+                    cluster, forward_source_cluster);
+            } else if (output_index != 0U) {
+                if (cluster < glyph_storage[output_index - 1U].cluster) {
+                    const auto old_cluster =
+                        glyph_storage[output_index - 1U].cluster;
+                    for (std::uint32_t index = output_index;
+                         index != 0U &&
+                            glyph_storage[index - 1U].cluster == old_cluster;
+                         --index) {
+                        glyph_storage[index - 1U].cluster = cluster;
+                    }
+                }
+            } else if (source_index + 1U < glyph_count) {
+                forward_source_cluster =
+                    glyph_storage[source_index + 1U].cluster;
+                forward_merged_cluster = std::min(
+                    cluster, forward_source_cluster);
+            }
+            continue;
+        }
+        if (glyph.cluster == forward_source_cluster) {
+            glyph.cluster = forward_merged_cluster;
+        } else if (forward_source_cluster !=
+            std::numeric_limits<std::int32_t>::min()) {
+            forward_source_cluster =
+                std::numeric_limits<std::int32_t>::min();
+        }
+        if (default_ignorable && !substituted && !preserve) {
+            glyph.glyph_id = invisible_glyph;
+        }
+        glyph_storage[output_index++] = glyph;
+    }
+    glyph_count = output_index;
+    return true;
 }
 
 bool is_unicode_mark(std::uint32_t code_point) noexcept {
@@ -266,6 +357,91 @@ bool uses_arabic_joining(open_type_tag script) noexcept {
 
 bool uses_hangul(open_type_tag script) noexcept {
     return script == open_type_tag::from_chars('h', 'a', 'n', 'g');
+}
+
+bool preserves_indic_composite(
+    std::span<const unicode_scalar> input) noexcept {
+    return std::any_of(
+        input.begin(),
+        input.end(),
+        [](const unicode_scalar& scalar) noexcept {
+            return scalar.code_point == 0x0931U ||
+                scalar.code_point == 0x09DCU ||
+                scalar.code_point == 0x09DDU ||
+                scalar.code_point == 0x0B94U;
+        });
+}
+
+std::uint32_t read_normalization_scalar(
+    std::span<const std::byte> bytes,
+    std::size_t offset) noexcept {
+    return static_cast<std::uint32_t>(bytes[offset]) |
+        static_cast<std::uint32_t>(bytes[offset + 1U]) << 8U |
+        static_cast<std::uint32_t>(bytes[offset + 2U]) << 16U |
+        static_cast<std::uint32_t>(bytes[offset + 3U]) << 24U;
+}
+
+bool scalar_is_canonical_composition_normalized(
+    std::uint32_t code_point,
+    const unicode_normalization_data& data) noexcept {
+    std::span<const std::byte> decomposition{};
+    if (!data.try_get_decomposition(code_point, decomposition) ||
+        decomposition.empty()) {
+        return true;
+    }
+    std::uint32_t starter = read_normalization_scalar(decomposition, 0U);
+    std::uint32_t output_count = 1U;
+    std::uint8_t previous_class = 0U;
+    for (std::size_t offset = 4U;
+         offset < decomposition.size();
+         offset += 4U) {
+        const auto current = read_normalization_scalar(decomposition, offset);
+        const auto current_class =
+            get_unicode_canonical_combining_class(current);
+        const bool blocked = previous_class != 0U &&
+            previous_class >= current_class;
+        std::uint32_t composed = 0U;
+        if (!blocked && data.try_compose(starter, current, composed)) {
+            starter = composed;
+            continue;
+        }
+        ++output_count;
+        if (current_class == 0U) starter = current;
+        previous_class = current_class;
+    }
+    return output_count == 1U && starter == code_point;
+}
+
+bool requires_canonical_composition(
+    std::span<const unicode_scalar> input,
+    const unicode_normalization_data& data) noexcept {
+    std::uint32_t starter = 0U;
+    std::uint8_t previous_class = 0U;
+    bool has_starter = false;
+    for (const auto& scalar : input) {
+        if (!scalar_is_canonical_composition_normalized(
+                scalar.code_point, data)) {
+            return true;
+        }
+        const auto current_class =
+            get_unicode_canonical_combining_class(scalar.code_point);
+        if (current_class != 0U && previous_class > current_class) {
+            return true;
+        }
+        const bool blocked = previous_class != 0U &&
+            previous_class >= current_class;
+        std::uint32_t composed = 0U;
+        if (has_starter && !blocked && data.try_compose(
+                starter, scalar.code_point, composed)) {
+            return true;
+        }
+        if (current_class == 0U) {
+            starter = scalar.code_point;
+            has_starter = true;
+        }
+        previous_class = current_class;
+    }
+    return false;
 }
 
 bool may_expand_preprocessing(
@@ -470,20 +646,22 @@ bool apply_arabic_stretch_feature(
             const std::uint32_t count_before = glyph_count;
             std::uint32_t context_match_end = 0U;
             bool applied = false;
+            auto apply_options = open_type_gsub_apply_options{
+                gdef,
+                value,
+                0U,
+                false,
+                &context_match_end,
+                track_fallback_marks,
+                true};
+            apply_options.track_substitution_provenance = true;
             if (!try_apply_open_type_gsub_lookup_at(
                     gsub,
                     lookup_scratch[lookup],
                     glyph_storage,
                     glyph_count,
                     position,
-                    open_type_gsub_apply_options{
-                        gdef,
-                        value,
-                        0U,
-                        false,
-                        &context_match_end,
-                        track_fallback_marks,
-                        true},
+                    apply_options,
                     applied,
                     error)) {
                 return false;
@@ -717,6 +895,7 @@ bool apply_complex_feature(
             ? 0U
             : required_private_mask << complex_detail::feature_shift,
         true};
+    apply_options.track_substitution_provenance = true;
     apply_options.restrict_to_syllable =
         is_complex_per_syllable_feature(
             feature,
@@ -855,13 +1034,16 @@ bool apply_complex_script_features(
     }
     for (std::uint32_t index = 0U; index < required_count; ++index) {
         bool applied = false;
+        auto apply_options = open_type_gsub_apply_options{
+            gdef, options.alternate_value};
+        apply_options.mark_substituted = true;
+        apply_options.track_substitution_provenance = true;
         if (!try_apply_open_type_gsub_lookup(
                 gsub,
                 lookup_scratch[index],
                 glyph_storage,
                 glyph_count,
-                open_type_gsub_apply_options{
-                    gdef, options.alternate_value},
+                apply_options,
                 applied,
                 error)) {
             return false;
@@ -1571,6 +1753,42 @@ bool try_get_open_type_shape_run_requirements(
         set_error(error, font_error::invalid_argument);
         return false;
     }
+    const auto unicode_script = effective_unicode_script(options);
+    const bool canonical_normalization =
+        options.normalization_data != nullptr &&
+        !is_printable_ascii(input) &&
+        !uses_hangul(unicode_script) &&
+        options.complex_script != open_type_complex_script::use &&
+        requires_canonical_composition(
+            input, *options.normalization_data);
+    if (canonical_normalization) {
+        unicode_normalization_requirements normalization{};
+        unicode_error unicode_result = unicode_error::none;
+        if (!try_get_unicode_normalization_requirements(
+                input,
+                *options.normalization_data,
+                normalization,
+                &unicode_result)) {
+            result = {};
+            set_error(error, font_error::invalid_argument);
+            return false;
+        }
+        result.normalization_scalar_capacity = normalization.scalar_capacity;
+        result.script_action_capacity = std::max(
+            result.script_action_capacity, normalization.scalar_capacity);
+        const std::uint64_t normalized_expansion =
+            static_cast<std::uint64_t>(normalization.scalar_capacity) +
+            input.size();
+        if (normalized_expansion >
+            std::numeric_limits<std::uint32_t>::max()) {
+            result = {};
+            set_error(error, font_error::invalid_argument);
+            return false;
+        }
+        result.glyph_capacity = std::max(
+            result.glyph_capacity,
+            static_cast<std::uint32_t>(normalized_expansion));
+    }
     if (options.complex_script == open_type_complex_script::indic ||
         options.complex_script == open_type_complex_script::myanmar) {
         // The authoritative managed shaper uses pre-GB9c StringInfo
@@ -1686,14 +1904,19 @@ bool try_shape_open_type_run(
         set_error(error, font_error::invalid_argument);
         return false;
     }
-    const std::size_t glyph_capacity = may_expand_preprocessing(
-        unicode_script, options.buffer_flags) || complex_script
+    const bool requires_expansion_capacity = may_expand_preprocessing(
+        unicode_script, options.buffer_flags) || complex_script;
+    const std::size_t glyph_capacity = requires_expansion_capacity
         ? requirements.glyph_capacity
-        : requirements.initial_glyph_count;
+        : requirements.normalization_scalar_capacity == 0U
+            ? requirements.initial_glyph_count
+            : 0U;
     if (glyph_storage.size() < glyph_capacity ||
         scratch.grapheme_clusters.size() < requirements.grapheme_capacity ||
         scratch.gsub_lookups.size() < requirements.gsub_lookup_capacity ||
         scratch.gpos_lookups.size() < requirements.gpos_lookup_capacity ||
+        scratch.normalization_scalars.size() <
+            requirements.normalization_scalar_capacity ||
         (arabic_joining && scratch.arabic_actions.size() <
             requirements.script_action_capacity) ||
         (arabic_joining && scratch.arabic_flags.size() <
@@ -1716,7 +1939,76 @@ bool try_shape_open_type_run(
         set_error(error, font_error::insufficient_buffer);
         return false;
     }
-    for (const auto& scalar : input) {
+
+    std::span<const unicode_scalar> shaping_input = input;
+    if (requirements.normalization_scalar_capacity != 0U) {
+        std::uint32_t source_grapheme_count =
+            requirements.grapheme_capacity;
+        unicode_error unicode_result = unicode_error::none;
+        const bool segmented =
+            options.complex_script == open_type_complex_script::indic ||
+            options.complex_script == open_type_complex_script::myanmar
+            ? detail::try_segment_managed_compatible_graphemes(
+                input,
+                scratch.grapheme_clusters.first(
+                    requirements.grapheme_capacity),
+                source_grapheme_count,
+                &unicode_result)
+            : try_segment_unicode_graphemes(
+                input,
+                scratch.grapheme_clusters.first(
+                    requirements.grapheme_capacity),
+                source_grapheme_count,
+                &unicode_result);
+        if (!segmented) {
+            set_error(error, font_error::invalid_argument);
+            return false;
+        }
+
+        std::uint32_t normalized_count = 0U;
+        for (std::uint32_t cluster_index = 0U;
+             cluster_index < source_grapheme_count;
+             ++cluster_index) {
+            const auto cluster = scratch.grapheme_clusters[cluster_index];
+            const auto source = input.subspan(
+                cluster.scalar_index, cluster.scalar_count);
+            if (options.complex_script == open_type_complex_script::indic &&
+                preserves_indic_composite(source)) {
+                if (normalized_count >
+                    requirements.normalization_scalar_capacity -
+                        source.size()) {
+                    set_error(error, font_error::insufficient_buffer);
+                    return false;
+                }
+                std::copy(
+                    source.begin(),
+                    source.end(),
+                    scratch.normalization_scalars.begin() + normalized_count);
+                normalized_count += static_cast<std::uint32_t>(source.size());
+                continue;
+            }
+            std::uint32_t cluster_count = 0U;
+            if (!try_normalize_unicode(
+                    source,
+                    *options.normalization_data,
+                    unicode_normalization_form::canonical_composition,
+                    scratch.normalization_scalars.subspan(normalized_count),
+                    cluster_count,
+                    &unicode_result)) {
+                set_error(
+                    error,
+                    unicode_result == unicode_error::insufficient_buffer
+                        ? font_error::insufficient_buffer
+                        : font_error::invalid_argument);
+                return false;
+            }
+            normalized_count += cluster_count;
+        }
+        shaping_input = scratch.normalization_scalars.first(normalized_count);
+    }
+
+    std::uint64_t normalized_initial_count = 0U;
+    for (const auto& scalar : shaping_input) {
         if (scalar.input_index >
             static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max())) {
             set_error(error, font_error::invalid_argument);
@@ -1733,15 +2025,16 @@ bool try_shape_open_type_run(
             return false;
         }
         for (std::size_t index = 0U; index < mapping.size(); ++index) {
-            const auto code_point = mapping.code_point_at(index);
+            ++normalized_initial_count;
+            const auto mapped_code_point = mapping.code_point_at(index);
             std::uint16_t glyph = 0U;
             float advance_width = 0.0F;
-            if (!font.try_get_glyph_index(code_point, glyph)) {
+            if (!font.try_get_glyph_index(mapped_code_point, glyph)) {
                 set_error(error, font_error::invalid_face);
                 return false;
             }
             if (!detail::try_map_space_fallback(
-                    font, code_point, glyph, error)) {
+                    font, mapped_code_point, glyph, error)) {
                 return false;
             }
             const bool has_advance = scratch.fallback_marks == nullptr
@@ -1759,11 +2052,15 @@ bool try_shape_open_type_run(
             if (!has_advance) return false;
         }
     }
+    if (normalized_initial_count > glyph_storage.size()) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
+    }
 
     std::uint32_t grapheme_count = requirements.grapheme_capacity;
-    if (is_printable_ascii(input)) {
+    if (is_printable_ascii(shaping_input)) {
         write_ascii_graphemes(
-            input,
+            shaping_input,
             scratch.grapheme_clusters.first(requirements.grapheme_capacity));
     } else {
         unicode_error unicode_result = unicode_error::none;
@@ -1771,13 +2068,13 @@ bool try_shape_open_type_run(
             options.complex_script == open_type_complex_script::indic ||
             options.complex_script == open_type_complex_script::myanmar
             ? detail::try_segment_managed_compatible_graphemes(
-                input,
+                shaping_input,
                 scratch.grapheme_clusters.first(
                     requirements.grapheme_capacity),
                 grapheme_count,
                 &unicode_result)
             : try_segment_unicode_graphemes(
-                input,
+                shaping_input,
                 scratch.grapheme_clusters.first(
                     requirements.grapheme_capacity),
                 grapheme_count,
@@ -1791,7 +2088,7 @@ bool try_shape_open_type_run(
         std::uint32_t action_count = 0U;
         unicode_error action_error = unicode_error::none;
         if (!try_assign_open_type_arabic_actions_and_flags(
-                input,
+                shaping_input,
                 scratch.grapheme_clusters.first(grapheme_count),
                 options.pre_context,
                 options.post_context,
@@ -1801,7 +2098,7 @@ bool try_shape_open_type_run(
                 scratch.arabic_flags.first(
                     requirements.script_action_capacity),
                 action_count,
-                &action_error) || action_count != input.size()) {
+                &action_error) || action_count != shaping_input.size()) {
             set_error(error, font_error::invalid_argument);
             return false;
         }
@@ -1815,12 +2112,12 @@ bool try_shape_open_type_run(
         std::uint32_t previous_code_point = 0U;
         for (std::uint32_t offset = 0U; offset < cluster.scalar_count; ++offset) {
             const std::size_t scalar_index = cluster.scalar_index + offset;
-            const auto code_point = input[scalar_index].code_point;
+            const auto code_point = shaping_input[scalar_index].code_point;
             if (options.complex_script == open_type_complex_script::khmer &&
                 (code_point == 0x200CU || code_point == 0x200DU ||
                     (previous_code_point == 0x17D2U &&
                         is_khmer_base_category(code_point)))) {
-                script_cluster = input[scalar_index].input_index;
+                script_cluster = shaping_input[scalar_index].input_index;
             }
             if (offset != 0U && mapped_count != 0U &&
                 is_variation_selector(code_point)) {
@@ -1849,19 +2146,19 @@ bool try_shape_open_type_run(
                     set_error(error, font_error::insufficient_buffer);
                     return false;
                 }
-                const auto code_point = mapping.code_point_at(index);
+                const auto mapped_code_point = mapping.code_point_at(index);
                 std::uint16_t glyph = 0U;
-                if (!font.try_get_glyph_index(code_point, glyph)) {
+                if (!font.try_get_glyph_index(mapped_code_point, glyph)) {
                     set_error(error, font_error::invalid_face);
                     return false;
                 }
                 if (!detail::try_map_space_fallback(
-                        font, code_point, glyph, error)) {
+                        font, mapped_code_point, glyph, error)) {
                     return false;
                 }
                 glyph_storage[mapped_count] = shaping_glyph{
                     glyph,
-                    code_point,
+                    mapped_code_point,
                     static_cast<std::int32_t>(
                         options.complex_script ==
                                 open_type_complex_script::khmer &&
@@ -1869,7 +2166,7 @@ bool try_shape_open_type_run(
                                     shaping_cluster_level::monotone_characters ||
                                 options.cluster_level ==
                                     shaping_cluster_level::characters)
-                            ? input[scalar_index].input_index
+                            ? shaping_input[scalar_index].input_index
                             : script_cluster)};
                 if (arabic_joining) {
                     set_arabic_action(
@@ -2108,7 +2405,7 @@ bool try_shape_open_type_run(
             if (!apply_complex_script_features(
                     font,
                     gsub,
-                    input,
+                    shaping_input,
                     options,
                     scratch.gsub_lookups.first(gsub.lookup_count()),
                     glyph_storage,
@@ -2141,7 +2438,7 @@ bool try_shape_open_type_run(
                     error) ||
                 !apply_fraction_features(
                     gsub,
-                    input,
+                    shaping_input,
                     options,
                     glyph_storage,
                     glyph_count,
@@ -2255,7 +2552,7 @@ bool try_shape_open_type_run(
             }
             if (!apply_fraction_features(
                     gsub,
-                    input,
+                    shaping_input,
                     options,
                     glyph_storage,
                     glyph_count,
@@ -2265,13 +2562,14 @@ bool try_shape_open_type_run(
             }
         }
         if (arabic_joining) {
-            const open_type_gsub_apply_options apply_options{
+            auto apply_options = open_type_gsub_apply_options{
                 gdef_pointer,
                 options.alternate_value,
                 0U,
                 false,
                 nullptr,
                 fallback_mark_positioning};
+            apply_options.track_substitution_provenance = true;
             for (const auto& [feature, action] : arabic_form_features) {
                 if (!apply_arabic_form_feature(
                         gsub,
@@ -2414,13 +2712,14 @@ bool try_shape_open_type_run(
             }
         }
         if (hangul) {
-            const open_type_gsub_apply_options apply_options{
+            auto apply_options = open_type_gsub_apply_options{
                 gdef_pointer,
                 options.alternate_value,
                 0U,
                 false,
                 nullptr,
                 fallback_mark_positioning};
+            apply_options.track_substitution_provenance = true;
             constexpr std::array jamo_features{
                 std::pair{open_type_tag::from_chars('l', 'j', 'm', 'o'),
                     hangul_feature::leading},
@@ -2521,12 +2820,28 @@ bool try_shape_open_type_run(
         clear_hangul_features(glyph_storage.first(glyph_count));
     }
 
+    if (!process_default_ignorables(
+            font,
+            options.direction,
+            options.buffer_flags,
+            glyph_storage,
+            glyph_count,
+            error)) {
+        return false;
+    }
+
     const bool vertical =
         options.direction == shaping_direction::top_to_bottom ||
         options.direction == shaping_direction::bottom_to_top;
     sfnt_table_view gpos_table{};
     const bool has_gpos_table = font.try_get_table(gpos_tag, gpos_table);
     for (std::uint32_t index = 0U; index < glyph_count; ++index) {
+        const bool zero_default_ignorable_advance =
+            is_default_ignorable(glyph_storage[index].code_point) &&
+            glyph_storage[index].advance_x != substituted_advance_sentinel &&
+            !has_buffer_flag(
+                options.buffer_flags,
+                shaping_buffer_flags::preserve_default_ignorables);
         scratch.attachments[index] = {};
         if (fallback_mark_positioning) {
             scratch.attachments[index].reserved0 =
@@ -2602,6 +2917,10 @@ bool try_shape_open_type_run(
                     static_cast<std::int64_t>(glyph_storage[index].offset_y) -
                     glyph_storage[index].advance_y);
             }
+            glyph_storage[index].advance_x = 0;
+            glyph_storage[index].advance_y = 0;
+        }
+        if (zero_default_ignorable_advance) {
             glyph_storage[index].advance_x = 0;
             glyph_storage[index].advance_y = 0;
         }

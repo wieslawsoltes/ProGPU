@@ -177,6 +177,7 @@ struct shape_capacities final {
     std::uint32_t complex_values = 0U;
     std::uint32_t complex_indices = 0U;
     std::uint32_t verification_glyphs = 0U;
+    std::uint32_t normalization_scalars = 0U;
     std::uint32_t base_features = 0U;
     std::uint32_t explicit_features = 0U;
     std::uint32_t requested_features = 0U;
@@ -442,7 +443,8 @@ bool try_compute_shape_scratch_bytes(
         !size.add<std::uint8_t>(result.complex_values) ||
         !size.add<std::uint32_t>(result.complex_indices) ||
         !size.add<arabic_stretch_run>(result.glyphs) ||
-        !size.add<shaping_glyph>(result.verification_glyphs)) {
+        !size.add<shaping_glyph>(result.verification_glyphs) ||
+        !size.add<unicode_scalar>(result.normalization_scalars)) {
         error = font_error::invalid_argument;
         return false;
     }
@@ -507,8 +509,10 @@ bool try_build_capacities(
         return false;
     }
     result.glyphs = static_cast<std::uint32_t>(glyph_capacity);
+    result.normalization_scalars = static_cast<std::uint32_t>(decomposed_count);
     result.graphemes = request.input_count;
-    result.script_actions = request.input_count;
+    result.script_actions = std::max(
+        request.input_count, result.normalization_scalars);
     result.complex_values = route.complex_script == open_type_complex_script::none
         ? 0U
         : result.glyphs;
@@ -1054,6 +1058,7 @@ progpu_native_status shape_core(
     std::span<std::uint32_t> script_indices{};
     std::span<arabic_stretch_run> arabic_stretch_runs{};
     std::span<shaping_glyph> verification_glyphs{};
+    std::span<unicode_scalar> normalization_scalars{};
     if (!arena.take(request.input_count, input) ||
         !arena.take(request.pre_context_count, pre_context) ||
         !arena.take(request.post_context_count, post_context) ||
@@ -1074,7 +1079,8 @@ progpu_native_status shape_core(
         !arena.take(capacities.complex_values, script_syllables) ||
         !arena.take(capacities.complex_indices, script_indices) ||
         !arena.take(capacities.glyphs, arabic_stretch_runs) ||
-        !arena.take(capacities.verification_glyphs, verification_glyphs)) {
+        !arena.take(capacities.verification_glyphs, verification_glyphs) ||
+        !arena.take(capacities.normalization_scalars, normalization_scalars)) {
         result.error_code =
             static_cast<std::uint32_t>(font_error::insufficient_buffer);
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
@@ -1142,7 +1148,8 @@ progpu_native_status shape_core(
         arabic_stretch_runs,
         nullptr,
         verification_glyphs.empty() ? nullptr : &verification,
-        arabic_flags};
+        arabic_flags,
+        normalization_scalars};
     std::uint32_t written = 0U;
     if (!try_shape_open_type_run(
             font,

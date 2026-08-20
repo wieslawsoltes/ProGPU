@@ -350,20 +350,22 @@ bool apply_fraction_lookup(
             : (kind == fraction_feature_kind::numerator
                 ? open_type_tag::from_chars('n', 'u', 'm', 'r')
                 : open_type_tag::from_chars('d', 'n', 'o', 'm'));
+        auto apply_options = open_type_gsub_apply_options{
+            gdef,
+            get_feature_value(
+                options, feature, glyph_storage[position].cluster),
+            0U,
+            false,
+            &context_match_end,
+            tracks_fallback_mark_metadata(options)};
+        apply_options.track_substitution_provenance = true;
         if (!try_apply_open_type_gsub_lookup_at(
                 gsub,
                 lookup,
                 glyph_storage,
                 glyph_count,
                 position,
-                open_type_gsub_apply_options{
-                    gdef,
-                    get_feature_value(
-                        options, feature, glyph_storage[position].cluster),
-                    0U,
-                    false,
-                    &context_match_end,
-                    tracks_fallback_mark_metadata(options)},
+                apply_options,
                 applied,
                 error)) {
             return false;
@@ -407,6 +409,7 @@ bool apply_gsub_lookup_with_feature_values(
         apply_options.lookup_context_subtables = lookup_context_subtables;
         apply_options.lookup_context_coverages = lookup_context_coverages;
         apply_options.restrict_to_syllable = restrict_to_syllable;
+        apply_options.track_substitution_provenance = true;
         return try_apply_open_type_gsub_lookup(
             gsub,
             lookup,
@@ -438,6 +441,7 @@ bool apply_gsub_lookup_with_feature_values(
         apply_options.lookup_context_subtables = lookup_context_subtables;
         apply_options.lookup_context_coverages = lookup_context_coverages;
         apply_options.restrict_to_syllable = restrict_to_syllable;
+        apply_options.track_substitution_provenance = true;
         return try_apply_open_type_gsub_lookup(
             gsub,
             lookup,
@@ -492,6 +496,7 @@ bool apply_gsub_lookup_with_feature_values(
                 open_type_tag::from_chars('r', 'a', 'n', 'd') &&
             feature_value == std::numeric_limits<std::uint16_t>::max();
         apply_options.restrict_to_syllable = restrict_to_syllable;
+        apply_options.track_substitution_provenance = true;
         if (!try_apply_open_type_gsub_lookup_at(
                 gsub,
                 lookup,
