@@ -16,9 +16,13 @@ int main() {
         return 2;
     }
 
-    std::vector<std::byte> stream;
+    const std::size_t required_size = builder.required_stream_size();
+    std::vector<std::byte> stream(required_size);
+    std::size_t bytes_written = 0U;
     progpu::native::scene_build_metrics metrics{};
-    if (!builder.build(stream, &metrics) || stream.empty() ||
+    if (required_size == 0U ||
+        !builder.build_into(stream, bytes_written, &metrics) ||
+        bytes_written != required_size ||
         metrics.brush_count != 1U) {
         return 3;
     }

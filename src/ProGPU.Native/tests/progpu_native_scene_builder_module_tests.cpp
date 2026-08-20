@@ -1,3 +1,6 @@
+#include <array>
+#include <cstddef>
+
 import progpu.native.scene_builder;
 
 int main() {
@@ -31,15 +34,23 @@ int main() {
     patch.source_rect = image.source_rect;
     patch.destination_rect = image.destination_rect;
     patch.transform = builder.identity_transform();
-    return builder.scene_id() == 9001U && builder.generation() == 3U &&
-            builder.add_brush(gradient, stops, brush) && brush == 0U &&
-            builder.add_external_image(2U, 2U, image_index) &&
-            builder.draw_image_patches(
-                image_index,
-                image,
-                {&patch, 1U},
-                {0.0F, 0.0F, 8.0F, 8.0F}) &&
-            builder.advance_generation(4U) && builder.generation() == 4U
+    if (builder.scene_id() != 9001U || builder.generation() != 3U ||
+        !builder.add_brush(gradient, stops, brush) || brush != 0U ||
+        !builder.add_external_image(2U, 2U, image_index) ||
+        !builder.draw_image_patches(
+            image_index,
+            image,
+            {&patch, 1U},
+            {0.0F, 0.0F, 8.0F, 8.0F}) ||
+        !builder.advance_generation(4U) || builder.generation() != 4U) {
+        return 1;
+    }
+    std::array<std::byte, 4096U> stream{};
+    const std::size_t required_size = builder.required_stream_size();
+    std::size_t bytes_written = 0U;
+    return required_size > 0U && required_size <= stream.size() &&
+            builder.build_into(stream, bytes_written) &&
+            bytes_written == required_size
         ? 0
         : 1;
 }

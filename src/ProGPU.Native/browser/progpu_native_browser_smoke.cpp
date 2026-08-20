@@ -535,7 +535,15 @@ bool render_browser_frame(double, void*) {
         }
     }
     std::vector<std::byte> builder_scene;
-    if (!native_builder.build(builder_scene)) {
+    const std::size_t builder_scene_size =
+        native_builder.required_stream_size();
+    builder_scene.resize(builder_scene_size);
+    std::size_t builder_scene_bytes = 0U;
+    if (builder_scene_size == 0U ||
+        !native_builder.build_into(
+            builder_scene,
+            builder_scene_bytes) ||
+        builder_scene_bytes != builder_scene.size()) {
         fail("The browser native C++ scene builder could not compile.");
     }
     progpu_native_scene_metrics builder_update_metrics{};
@@ -627,9 +635,19 @@ bool render_browser_frame(double, void*) {
             2U,
             8U,
             updated_builder_image_pixels,
-            2U) ||
-        !native_builder.build(builder_scene)) {
+            2U)) {
         fail("The browser retained image range update could not compile.");
+    }
+    const std::size_t updated_builder_scene_size =
+        native_builder.required_stream_size();
+    builder_scene.resize(updated_builder_scene_size);
+    builder_scene_bytes = 0U;
+    if (updated_builder_scene_size == 0U ||
+        !native_builder.build_into(
+            builder_scene,
+            builder_scene_bytes) ||
+        builder_scene_bytes != builder_scene.size()) {
+        fail("The browser retained image range update could not serialize.");
     }
     builder_update_metrics = {};
     builder_update_metrics.struct_size = sizeof(builder_update_metrics);
@@ -1325,7 +1343,15 @@ bool render_browser_frame(double, void*) {
         fail("The browser vector-mask scene commands could not be built.");
     }
     std::vector<std::byte> vector_mask_scene;
-    if (!vector_mask_builder.build(vector_mask_scene)) {
+    const std::size_t vector_mask_scene_size =
+        vector_mask_builder.required_stream_size();
+    vector_mask_scene.resize(vector_mask_scene_size);
+    std::size_t vector_mask_scene_bytes = 0U;
+    if (vector_mask_scene_size == 0U ||
+        !vector_mask_builder.build_into(
+            vector_mask_scene,
+            vector_mask_scene_bytes) ||
+        vector_mask_scene_bytes != vector_mask_scene.size()) {
         fail("The browser vector-mask scene stream could not be built.");
     }
     progpu_native_scene_metrics vector_mask_scene_metrics{};

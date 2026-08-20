@@ -744,6 +744,7 @@ progpu_native_enable_sanitizers(progpu_native_text)
 
 add_library(progpu_native_scene_builder STATIC
     src/Scene/Builder/progpu_native_scene_builder.cpp
+    src/Scene/Builder/progpu_native_scene_builder_serialization.cpp
     src/Scene/Builder/progpu_native_scene_builder_3d.cpp
     src/Scene/Builder/progpu_native_scene_builder_brush.cpp
     src/Scene/Builder/progpu_native_scene_builder_geometry.cpp

@@ -641,7 +641,16 @@ int main(int argc, char** argv) {
     }
     std::vector<std::byte> scene_stream;
     progpu::native::scene_build_metrics build_metrics{};
-    if (!scene_builder.build(scene_stream, &build_metrics)) {
+    const std::size_t scene_stream_size =
+        scene_builder.required_stream_size();
+    scene_stream.resize(scene_stream_size);
+    std::size_t scene_stream_bytes = 0U;
+    if (scene_stream_size == 0U ||
+        !scene_builder.build_into(
+            scene_stream,
+            scene_stream_bytes,
+            &build_metrics) ||
+        scene_stream_bytes != scene_stream.size()) {
         std::cerr << "Could not compile the native retained scene.\n";
         return EXIT_FAILURE;
     }

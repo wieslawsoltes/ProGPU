@@ -183,7 +183,33 @@ bool semantic_scene_builder_is_deterministic_and_valid() {
         metrics.maximum_stack_depth != 1U || metrics.arena_bytes == 0U) {
         return false;
     }
-    const auto validated = scene::validate(first.data(), first.size());
+    const std::size_t required_size = builder.required_stream_size();
+    std::vector<std::byte> caller_owned(
+        required_size,
+        std::byte{0xA5U});
+    std::size_t bytes_written = 0U;
+    scene_build_metrics caller_metrics{};
+    if (required_size != first.size() ||
+        !builder.build_into(caller_owned, bytes_written, &caller_metrics) ||
+        bytes_written != required_size || caller_owned != first ||
+        caller_metrics.stream_bytes != metrics.stream_bytes ||
+        caller_metrics.arena_bytes != metrics.arena_bytes) {
+        return false;
+    }
+    std::size_t rejected_bytes = 1U;
+    if (builder.build_into(
+            std::span<std::byte>{
+            caller_owned.data(), caller_owned.size() - 1U},
+            rejected_bytes) ||
+        rejected_bytes != 0U ||
+        caller_owned != first ||
+        builder.last_error() != scene_build_error::capacity_exceeded) {
+        return false;
+    }
+
+    const auto validated = scene::validate(
+        caller_owned.data(),
+        bytes_written);
     if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS ||
         validated.header.scene_id != 701U ||
         validated.header.generation != 4U ||

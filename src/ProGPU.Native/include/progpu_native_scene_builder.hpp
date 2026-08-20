@@ -243,6 +243,11 @@ public:
     bool build(
         std::vector<std::byte>& stream,
         scene_build_metrics* metrics = nullptr) const noexcept;
+    std::size_t required_stream_size() const noexcept;
+    bool build_into(
+        std::span<std::byte> destination,
+        std::size_t& bytes_written,
+        scene_build_metrics* metrics = nullptr) const noexcept;
 
     scene_build_error last_error() const noexcept;
     std::uint64_t scene_id() const noexcept;
@@ -252,6 +257,12 @@ public:
     static progpu_native_scene_state identity_state() noexcept;
 
 private:
+    bool try_measure_stream(
+        std::uint32_t& command_offset,
+        std::uint32_t& resource_offset,
+        std::uint32_t& arena_offset,
+        std::uint32_t& total_size) const noexcept;
+
     bool append_3d_command(
         std::uint32_t resource_kind,
         std::uint32_t command_kind,
