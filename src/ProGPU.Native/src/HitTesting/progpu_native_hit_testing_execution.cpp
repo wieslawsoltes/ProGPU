@@ -13,6 +13,7 @@
 #include "progpu_native_engine.hpp"
 #include "progpu_native_hit_testing_execution.hpp"
 #include "GpuHitTestingWgsl.generated.hpp"
+#include "HitTestReadbackWgsl.generated.hpp"
 
 #include <algorithm>
 #include <array>
@@ -28,6 +29,14 @@ namespace {
 constexpr std::uint64_t result_buffer_size =
     static_cast<std::uint64_t>(PROGPU_NATIVE_HIT_TEST_MAX_RESULT_COUNT + 1U) *
     sizeof(progpu_native_hit_test_result);
+#if defined(PROGPU_NATIVE_BROWSER)
+constexpr std::uint32_t browser_readback_texel_count =
+    (PROGPU_NATIVE_HIT_TEST_MAX_RESULT_COUNT + 1U) * 2U;
+constexpr std::uint32_t browser_readback_row_bytes =
+    (browser_readback_texel_count * 16U + 255U) & ~255U;
+constexpr std::uint64_t browser_readback_buffer_size =
+    browser_readback_row_bytes;
+#endif
 constexpr std::uint32_t allowed_query_flags =
     static_cast<std::uint32_t>(PROGPU_NATIVE_HIT_TEST_RESULT_CAPACITY_MASK) |
     static_cast<std::uint32_t>(PROGPU_NATIVE_HIT_TEST_ELLIPSE_REGION) |
@@ -45,15 +54,25 @@ void hit_test_map_complete(
     void* userdata) noexcept {
 #endif
 #if defined(PROGPU_NATIVE_DAWN_ABI)
-    (void)status;
-    (void)userdata;
+    auto* state = static_cast<webgpu::buffer_map_read_state*>(userdata);
+    if (state != nullptr) {
+        state->completion.store(
+            status == WGPUMapAsyncStatus_Success
+                ? webgpu::buffer_map_succeeded
+                : webgpu::buffer_map_failed,
+            std::memory_order_release);
+        webgpu::release_buffer_map_read_state(state);
+    }
 #else
     auto* state = static_cast<webgpu::buffer_map_read_state*>(userdata);
-    state->completion.store(
-        status == WGPUBufferMapAsyncStatus_Success
-            ? webgpu::buffer_map_succeeded
-            : webgpu::buffer_map_failed,
-        std::memory_order_release);
+    if (state != nullptr) {
+        state->completion.store(
+            status == WGPUBufferMapAsyncStatus_Success
+                ? webgpu::buffer_map_succeeded
+                : webgpu::buffer_map_failed,
+            std::memory_order_release);
+        webgpu::release_buffer_map_read_state(state);
+    }
 #endif
 }
 
@@ -93,12 +112,139 @@ WGPUBuffer create_storage_buffer(
     return buffer;
 }
 
+#if defined(PROGPU_NATIVE_BROWSER)
+bool ensure_browser_hit_test_readback(
+    progpu_native_engine& engine) noexcept {
+    if (engine.semantic_hit_test_readback_shader != nullptr &&
+        engine.semantic_hit_test_readback_pipeline != nullptr &&
+        engine.semantic_hit_test_readback_layout != nullptr &&
+        engine.semantic_hit_test_readback_pipeline_layout != nullptr &&
+        engine.semantic_hit_test_readback_bind_group != nullptr &&
+        engine.semantic_hit_test_readback_texture != nullptr &&
+        engine.semantic_hit_test_readback_texture_view != nullptr) {
+        return true;
+    }
+
+    webgpu::wgsl_source wgsl(
+        generated::hit_test_readback_wgsl,
+        generated::hit_test_readback_wgsl_size);
+    WGPUShaderModuleDescriptor shader_descriptor{};
+    shader_descriptor.nextInChain = wgsl.chain();
+    shader_descriptor.label = webgpu::string_view(
+        "ProGPU browser hit-test texture readback");
+    engine.semantic_hit_test_readback_shader =
+        wgpuDeviceCreateShaderModule(engine.device, &shader_descriptor);
+    if (engine.semantic_hit_test_readback_shader == nullptr) {
+        return false;
+    }
+
+    std::array<WGPUBindGroupLayoutEntry, 2U> layout_entries{};
+    layout_entries[0U].binding = 0U;
+    layout_entries[0U].visibility = WGPUShaderStage_Compute;
+    layout_entries[0U].buffer.type = WGPUBufferBindingType_ReadOnlyStorage;
+    layout_entries[0U].buffer.minBindingSize = result_buffer_size;
+    layout_entries[1U].binding = 1U;
+    layout_entries[1U].visibility = WGPUShaderStage_Compute;
+    layout_entries[1U].storageTexture.access =
+        WGPUStorageTextureAccess_WriteOnly;
+    layout_entries[1U].storageTexture.format = WGPUTextureFormat_RGBA32Uint;
+    layout_entries[1U].storageTexture.viewDimension =
+        WGPUTextureViewDimension_2D;
+    WGPUBindGroupLayoutDescriptor layout_descriptor{};
+    layout_descriptor.label = webgpu::string_view(
+        "ProGPU browser hit-test readback layout");
+    layout_descriptor.entryCount = layout_entries.size();
+    layout_descriptor.entries = layout_entries.data();
+    engine.semantic_hit_test_readback_layout =
+        wgpuDeviceCreateBindGroupLayout(engine.device, &layout_descriptor);
+    if (engine.semantic_hit_test_readback_layout == nullptr) {
+        return false;
+    }
+
+    WGPUPipelineLayoutDescriptor pipeline_layout_descriptor{};
+    pipeline_layout_descriptor.label = webgpu::string_view(
+        "ProGPU browser hit-test readback pipeline layout");
+    pipeline_layout_descriptor.bindGroupLayoutCount = 1U;
+    pipeline_layout_descriptor.bindGroupLayouts =
+        &engine.semantic_hit_test_readback_layout;
+    engine.semantic_hit_test_readback_pipeline_layout =
+        wgpuDeviceCreatePipelineLayout(
+            engine.device,
+            &pipeline_layout_descriptor);
+    if (engine.semantic_hit_test_readback_pipeline_layout == nullptr) {
+        return false;
+    }
+
+    WGPUComputePipelineDescriptor pipeline_descriptor{};
+    pipeline_descriptor.label = webgpu::string_view(
+        "ProGPU browser hit-test readback pipeline");
+    pipeline_descriptor.layout =
+        engine.semantic_hit_test_readback_pipeline_layout;
+    pipeline_descriptor.compute.module =
+        engine.semantic_hit_test_readback_shader;
+    pipeline_descriptor.compute.entryPoint = webgpu::string_view("cs_main");
+    engine.semantic_hit_test_readback_pipeline =
+        wgpuDeviceCreateComputePipeline(engine.device, &pipeline_descriptor);
+    if (engine.semantic_hit_test_readback_pipeline == nullptr) {
+        return false;
+    }
+
+    WGPUTextureDescriptor texture_descriptor = WGPU_TEXTURE_DESCRIPTOR_INIT;
+    texture_descriptor.label = webgpu::string_view(
+        "ProGPU browser hit-test readback texture");
+    texture_descriptor.usage =
+        WGPUTextureUsage_StorageBinding | WGPUTextureUsage_CopySrc;
+    texture_descriptor.dimension = WGPUTextureDimension_2D;
+    texture_descriptor.size = {browser_readback_texel_count, 1U, 1U};
+    texture_descriptor.format = WGPUTextureFormat_RGBA32Uint;
+    texture_descriptor.mipLevelCount = 1U;
+    texture_descriptor.sampleCount = 1U;
+    texture_descriptor.viewFormatCount = 0U;
+    engine.semantic_hit_test_readback_texture =
+        wgpuDeviceCreateTexture(engine.device, &texture_descriptor);
+    if (engine.semantic_hit_test_readback_texture == nullptr) {
+        return false;
+    }
+    engine.semantic_hit_test_readback_texture_view = wgpuTextureCreateView(
+        engine.semantic_hit_test_readback_texture,
+        nullptr);
+    if (engine.semantic_hit_test_readback_texture_view == nullptr) {
+        return false;
+    }
+
+    std::array<WGPUBindGroupEntry, 2U> bind_entries{};
+    bind_entries[0U].binding = 0U;
+    bind_entries[0U].buffer = engine.semantic_hit_test_result_buffer;
+    bind_entries[0U].size = result_buffer_size;
+    bind_entries[1U].binding = 1U;
+    bind_entries[1U].textureView =
+        engine.semantic_hit_test_readback_texture_view;
+    WGPUBindGroupDescriptor bind_descriptor{};
+    bind_descriptor.label = webgpu::string_view(
+        "ProGPU browser hit-test readback bindings");
+    bind_descriptor.layout = engine.semantic_hit_test_readback_layout;
+    bind_descriptor.entryCount = bind_entries.size();
+    bind_descriptor.entries = bind_entries.data();
+    engine.semantic_hit_test_readback_bind_group =
+        wgpuDeviceCreateBindGroup(engine.device, &bind_descriptor);
+    return engine.semantic_hit_test_readback_bind_group != nullptr;
+}
+#endif
+
 bool ensure_hit_test_pipeline(progpu_native_engine& engine) noexcept {
-    if (engine.semantic_hit_test_pipeline != nullptr &&
+    bool ready = engine.semantic_hit_test_pipeline != nullptr &&
         engine.semantic_hit_test_layout != nullptr &&
         engine.semantic_hit_test_query_buffer != nullptr &&
         engine.semantic_hit_test_result_buffer != nullptr &&
-        engine.semantic_hit_test_readback_buffer != nullptr) {
+        engine.semantic_hit_test_readback_buffer != nullptr &&
+        engine.semantic_hit_test_map_state != nullptr;
+#if defined(PROGPU_NATIVE_BROWSER)
+    ready = ready &&
+        engine.semantic_hit_test_readback_pipeline != nullptr &&
+        engine.semantic_hit_test_readback_bind_group != nullptr &&
+        engine.semantic_hit_test_readback_texture != nullptr;
+#endif
+    if (ready) {
         return true;
     }
     if (engine.semantic_hit_test_shader != nullptr ||
@@ -107,8 +253,25 @@ bool ensure_hit_test_pipeline(progpu_native_engine& engine) noexcept {
         engine.semantic_hit_test_pipeline_layout != nullptr ||
         engine.semantic_hit_test_query_buffer != nullptr ||
         engine.semantic_hit_test_result_buffer != nullptr ||
-        engine.semantic_hit_test_readback_buffer != nullptr) {
+        engine.semantic_hit_test_readback_buffer != nullptr ||
+        engine.semantic_hit_test_map_state != nullptr
+#if defined(PROGPU_NATIVE_BROWSER)
+        || engine.semantic_hit_test_readback_shader != nullptr
+        || engine.semantic_hit_test_readback_pipeline != nullptr
+        || engine.semantic_hit_test_readback_layout != nullptr
+        || engine.semantic_hit_test_readback_pipeline_layout != nullptr
+        || engine.semantic_hit_test_readback_bind_group != nullptr
+        || engine.semantic_hit_test_readback_texture != nullptr
+        || engine.semantic_hit_test_readback_texture_view != nullptr
+#endif
+        ) {
         engine.release_semantic_hit_test_resources();
+    }
+
+    engine.semantic_hit_test_map_state =
+        webgpu::create_buffer_map_read_state();
+    if (engine.semantic_hit_test_map_state == nullptr) {
+        return false;
     }
 
     webgpu::wgsl_source wgsl(
@@ -201,6 +364,11 @@ bool ensure_hit_test_pipeline(progpu_native_engine& engine) noexcept {
     descriptor.label = webgpu::string_view(
         "ProGPU retained GPU hit-test asynchronous readback");
     descriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead;
+#if defined(PROGPU_NATIVE_BROWSER)
+    descriptor.size = browser_readback_buffer_size;
+#else
+    descriptor.size = result_buffer_size;
+#endif
     engine.semantic_hit_test_readback_buffer = wgpuDeviceCreateBuffer(
         engine.device,
         &descriptor);
@@ -210,6 +378,12 @@ bool ensure_hit_test_pipeline(progpu_native_engine& engine) noexcept {
         engine.release_semantic_hit_test_resources();
         return false;
     }
+#if defined(PROGPU_NATIVE_BROWSER)
+    if (!ensure_browser_hit_test_readback(engine)) {
+        engine.release_semantic_hit_test_resources();
+        return false;
+    }
+#endif
     return true;
 }
 
@@ -479,6 +653,59 @@ progpu_native_status begin_hit_test(
     wgpuComputePassEncoderDispatchWorkgroups(pass, 1U, 1U, 1U);
     wgpuComputePassEncoderEnd(pass);
     wgpuComputePassEncoderRelease(pass);
+#if defined(PROGPU_NATIVE_BROWSER)
+    WGPUComputePassDescriptor readback_pass_descriptor{};
+    readback_pass_descriptor.label = webgpu::string_view(
+        "ProGPU browser hit-test readback packing pass");
+    WGPUComputePassEncoder readback_pass =
+        wgpuCommandEncoderBeginComputePass(
+            encoder,
+            &readback_pass_descriptor);
+    if (readback_pass == nullptr) {
+        wgpuCommandEncoderRelease(encoder);
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The browser hit-test readback packing pass could not be created.");
+    }
+    wgpuComputePassEncoderSetPipeline(
+        readback_pass,
+        engine->semantic_hit_test_readback_pipeline);
+    wgpuComputePassEncoderSetBindGroup(
+        readback_pass,
+        0U,
+        engine->semantic_hit_test_readback_bind_group,
+        0U,
+        nullptr);
+    constexpr std::uint32_t readback_workgroup_count =
+        (browser_readback_texel_count + 63U) / 64U;
+    wgpuComputePassEncoderDispatchWorkgroups(
+        readback_pass,
+        readback_workgroup_count,
+        1U,
+        1U);
+    wgpuComputePassEncoderEnd(readback_pass);
+    wgpuComputePassEncoderRelease(readback_pass);
+
+    WGPUTexelCopyTextureInfo readback_source =
+        WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
+    readback_source.texture = engine->semantic_hit_test_readback_texture;
+    readback_source.aspect = WGPUTextureAspect_All;
+    WGPUTexelCopyBufferInfo readback_destination =
+        WGPU_TEXEL_COPY_BUFFER_INFO_INIT;
+    readback_destination.buffer =
+        engine->semantic_hit_test_readback_buffer;
+    readback_destination.layout.bytesPerRow = browser_readback_row_bytes;
+    readback_destination.layout.rowsPerImage = 1U;
+    constexpr WGPUExtent3D readback_extent{
+        browser_readback_texel_count,
+        1U,
+        1U};
+    wgpuCommandEncoderCopyTextureToBuffer(
+        encoder,
+        &readback_source,
+        &readback_destination,
+        &readback_extent);
+#else
     wgpuCommandEncoderCopyBufferToBuffer(
         encoder,
         engine->semantic_hit_test_result_buffer,
@@ -486,6 +713,7 @@ progpu_native_status begin_hit_test(
         engine->semantic_hit_test_readback_buffer,
         0U,
         copy_bytes);
+#endif
     WGPUCommandBufferDescriptor command_descriptor{};
     command_descriptor.label = webgpu::string_view(
         "ProGPU retained GPU hit-test submission");
@@ -500,28 +728,36 @@ progpu_native_status begin_hit_test(
     }
     engine->submit(command);
     wgpuCommandBufferRelease(command);
-    engine->semantic_hit_test_map_state.completion.store(
+    const std::uint64_t map_bytes =
+#if defined(PROGPU_NATIVE_BROWSER)
+        browser_readback_buffer_size;
+#else
+        copy_bytes;
+#endif
+    engine->semantic_hit_test_map_state->completion.store(
         webgpu::buffer_map_pending,
         std::memory_order_relaxed);
+    webgpu::retain_buffer_map_read_state(
+        engine->semantic_hit_test_map_state);
 #if defined(PROGPU_NATIVE_DAWN_ABI)
     WGPUBufferMapCallbackInfo callback = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT;
     callback.mode = WGPUCallbackMode_AllowSpontaneous;
     callback.callback = hit_test_map_complete;
-    callback.userdata1 = nullptr;
-    wgpuBufferMapAsync(
+    callback.userdata1 = engine->semantic_hit_test_map_state;
+    webgpu::buffer_map_async(
         engine->semantic_hit_test_readback_buffer,
         WGPUMapMode_Read,
         0U,
-        copy_bytes,
+        map_bytes,
         callback);
 #else
     wgpuBufferMapAsync(
         engine->semantic_hit_test_readback_buffer,
         WGPUMapMode_Read,
         0U,
-        copy_bytes,
+        map_bytes,
         hit_test_map_complete,
-        &engine->semantic_hit_test_map_state);
+        engine->semantic_hit_test_map_state);
 #endif
 
     ++engine->semantic_hit_test_next_token;
@@ -530,7 +766,7 @@ progpu_native_status begin_hit_test(
     }
     engine->semantic_hit_test_pending_token =
         engine->semantic_hit_test_next_token;
-    engine->semantic_hit_test_pending_bytes = copy_bytes;
+    engine->semantic_hit_test_pending_bytes = map_bytes;
     engine->semantic_hit_test_requested_result_count = requested;
     *request_token = engine->semantic_hit_test_pending_token;
     engine->last_error.clear();
@@ -572,7 +808,7 @@ progpu_native_status poll_hit_test(
     const WGPUBufferMapState state = webgpu::poll_buffer_map(
         engine->device,
         engine->semantic_hit_test_readback_buffer,
-        engine->semantic_hit_test_map_state);
+        *engine->semantic_hit_test_map_state);
     if (state == WGPUBufferMapState_Pending) {
         engine->last_error.clear();
         return PROGPU_NATIVE_STATUS_SUCCESS;
@@ -612,7 +848,7 @@ progpu_native_status poll_hit_test(
     *result_count = copied;
     *complete = 1U;
     webgpu::buffer_unmap(engine->semantic_hit_test_readback_buffer);
-    engine->semantic_hit_test_map_state.completion.store(
+    engine->semantic_hit_test_map_state->completion.store(
         webgpu::buffer_map_pending,
         std::memory_order_relaxed);
     engine->semantic_hit_test_pending_token = 0U;

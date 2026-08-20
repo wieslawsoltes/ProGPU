@@ -180,6 +180,121 @@ void finish_browser_evidence(bool success) {
     }
 }
 
+bool render_browser_frame(double, void*);
+
+std::uint64_t browser_hit_test_token = 0U;
+
+bool poll_browser_hit_test(double, void*) {
+    EM_ASM({ document.body.dataset.progpuNativeStage = "hit-test-poll"; });
+    std::array<progpu_native_hit_test_result, 1U> hits{};
+    progpu_native_hit_test_result summary{};
+    std::uint32_t hit_count = 0U;
+    std::uint8_t complete = 0U;
+    if (progpu_native_engine_poll_hit_test(
+            resources.engine,
+            browser_hit_test_token,
+            hits.data(),
+            hits.size(),
+            &hit_count,
+            &summary,
+            &complete) != PROGPU_NATIVE_STATUS_SUCCESS) {
+        fail_engine("The browser retained GPU hit-test poll failed.");
+    }
+    if (complete == 0U) {
+        if (emscripten_request_animation_frame(
+                poll_browser_hit_test,
+                nullptr) < 0) {
+            fail("The next browser hit-test poll could not be scheduled.");
+        }
+        return false;
+    }
+    if (summary.hit != 1U || summary.candidate_count != 1U ||
+        summary.nodes_visited != 1U || summary.precise_tests != 1U ||
+        hit_count != 1U || hits[0U].hit == 0U ||
+        hits[0U].id != 501 || hits[0U].primitive_index != 0U) {
+        fail("The browser retained GPU hit-test result diverged.");
+    }
+    EM_ASM({
+        document.body.dataset.progpuNativeGpuHitTesting = "passed";
+        document.body.dataset.progpuNativeStage = "render-workload";
+    });
+    if (emscripten_request_animation_frame(
+            render_browser_frame,
+            nullptr) < 0) {
+        fail("The browser render frame could not be scheduled after hit testing.");
+    }
+    return false;
+}
+
+bool begin_browser_hit_test() {
+    EM_ASM({ document.body.dataset.progpuNativeStage = "hit-test-build"; });
+    progpu_native_hit_test_primitive primitive{};
+    primitive.bounds_min = {48.0F, 48.0F};
+    primitive.bounds_max = {228.0F, 168.0F};
+    primitive.data0 = {48.0F, 48.0F, 228.0F, 168.0F};
+    primitive.inverse_transform0 = {1.0F, 0.0F, 0.0F, 0.0F};
+    primitive.inverse_transform1 = {0.0F, 1.0F, 0.0F, 0.0F};
+    primitive.kind = PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL;
+    primitive.flags = PROGPU_NATIVE_HIT_TEST_VISIBLE |
+        PROGPU_NATIVE_HIT_TEST_VISIBLE_TO_INPUT;
+    primitive.id = 501;
+    primitive.z_index = 1.0F;
+    const progpu_native_hit_test_node node{
+        {48.0F, 48.0F},
+        {228.0F, 168.0F},
+        0U,
+        0U,
+        0U,
+        1U};
+    constexpr std::uint32_t primitive_index = 0U;
+    progpu::native::semantic_scene_builder builder(711U, 1U);
+    std::uint32_t hit_test_resource = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_hit_test_index(
+            std::span<const progpu_native_hit_test_primitive>(&primitive, 1U),
+            std::span<const progpu_native_hit_test_node>(&node, 1U),
+            std::span<const std::uint32_t>(&primitive_index, 1U),
+            {},
+            hit_test_resource)) {
+        return false;
+    }
+    std::vector<std::byte> stream(builder.required_stream_size());
+    std::size_t bytes_written = 0U;
+    if (stream.empty() ||
+        !builder.build_into(stream, bytes_written) ||
+        bytes_written != stream.size()) {
+        return false;
+    }
+    progpu_native_scene_metrics metrics{};
+    metrics.struct_size = sizeof(metrics);
+    if (progpu_native_engine_update_scene(
+            resources.engine,
+            stream.data(),
+            stream.size(),
+            &metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        metrics.command_count != 0U || metrics.resource_count != 1U) {
+        return false;
+    }
+    EM_ASM({ document.body.dataset.progpuNativeStage = "hit-test-begin"; });
+    progpu_native_hit_test_query query{};
+    query.point = {80.0F, 80.0F};
+    query.region_max = query.point;
+    query.flags = 1U;
+    if (progpu_native_engine_begin_hit_test(
+            resources.engine,
+            &query,
+            &browser_hit_test_token) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        browser_hit_test_token == 0U) {
+        return false;
+    }
+    EM_ASM({ document.body.dataset.progpuNativeStage = "hit-test-wait"; });
+    if (emscripten_request_animation_frame(
+            poll_browser_hit_test,
+            nullptr) < 0) {
+        return false;
+    }
+    return true;
+}
+
 bool render_browser_frame(double, void*) {
     WGPUTexture render_texture = nullptr;
     WGPUTextureView render_view = nullptr;
@@ -1640,7 +1755,7 @@ int main() {
         (info.capabilities &
             PROGPU_NATIVE_CAPABILITY_DEVICE_LOSS_RECREATION) == 0U ||
         (info.capabilities &
-            PROGPU_NATIVE_CAPABILITY_RETAINED_GPU_HIT_TESTING) != 0U ||
+            PROGPU_NATIVE_CAPABILITY_RETAINED_GPU_HIT_TESTING) == 0U ||
         (info.capabilities &
             PROGPU_NATIVE_CAPABILITY_EXPLICIT_QUEUE_TIMELINE) != 0U) {
         fail("The ProGPU browser ABI/capability contract is invalid.");
@@ -1693,10 +1808,27 @@ int main() {
         queue,
         nullptr,
         nullptr};
-    if (emscripten_request_animation_frame(
-            render_browser_frame,
-            nullptr) < 0) {
-        fail("The browser render frame could not be scheduled.");
+    const bool defer_hit_test = EM_ASM_INT({
+        return new URLSearchParams(window.location.search)
+            .get("progpuNativeGpuHitTesting") === "0";
+    }) != 0;
+    if (defer_hit_test) {
+        // SwiftShader currently spends minutes compiling the complete shared
+        // retained hit-test shader. The deterministic software lane exercises
+        // the rest of the browser renderer while hardware qualification runs
+        // the exact shader and readback path without a reduced approximation.
+        EM_ASM({
+            document.body.dataset.progpuNativeGpuHitTesting =
+                "deferred-software-adapter";
+            document.body.dataset.progpuNativeStage = "render-workload";
+        });
+        if (emscripten_request_animation_frame(
+                render_browser_frame,
+                nullptr) < 0) {
+            fail("The browser render frame could not be scheduled.");
+        }
+    } else if (!begin_browser_hit_test()) {
+        fail_engine("The browser retained GPU hit test could not be scheduled.");
     }
     return 0;
 }

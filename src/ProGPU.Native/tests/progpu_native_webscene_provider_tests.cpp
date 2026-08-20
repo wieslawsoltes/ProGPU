@@ -4968,17 +4968,13 @@ int main(int argc, char** argv) {
         layer_metrics.cache_hit == 0U &&
         layer_metrics.allocation_count == 2U,
         "group layer content metrics are invalid");
-    alignas(progpu_native_layer_metrics)
-        std::array<std::byte, 56U> legacy_layer_metrics_bytes{};
-    auto* legacy_layer_metrics =
-        reinterpret_cast<progpu_native_layer_metrics*>(
-            legacy_layer_metrics_bytes.data());
-    legacy_layer_metrics->struct_size = legacy_layer_metrics_bytes.size();
+    progpu_native_layer_metrics legacy_layer_metrics{};
+    legacy_layer_metrics.struct_size = 56U;
     require(progpu_native_engine_get_layer_metrics(
-        engine, legacy_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
-        legacy_layer_metrics->struct_size ==
+        engine, &legacy_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        legacy_layer_metrics.struct_size ==
             sizeof(progpu_native_layer_metrics) &&
-        legacy_layer_metrics->content_pass_count == 1U,
+        legacy_layer_metrics.content_pass_count == 1U,
         "legacy layer-metrics prefix failed");
     draw_state.group_opacity = 0.5F;
     require(progpu_native_engine_render(engine, &frame, &metrics) ==
@@ -5080,17 +5076,9 @@ int main(int argc, char** argv) {
         layer_metrics.uniform_upload_bytes == 0U,
         "unchanged analytic group-mask replay uploaded state");
 
-    alignas(progpu_native_group_mask)
-        std::array<std::byte, 144U> legacy_group_mask_bytes{};
-    std::memcpy(
-        legacy_group_mask_bytes.data(),
-        &group_mask,
-        legacy_group_mask_bytes.size());
-    auto* legacy_group_mask =
-        reinterpret_cast<progpu_native_group_mask*>(
-            legacy_group_mask_bytes.data());
-    legacy_group_mask->struct_size = legacy_group_mask_bytes.size();
-    draw_state.group_mask = legacy_group_mask;
+    progpu_native_group_mask legacy_group_mask = group_mask;
+    legacy_group_mask.struct_size = 144U;
+    draw_state.group_mask = &legacy_group_mask;
     require(progpu_native_engine_render(engine, &frame, &metrics) ==
         PROGPU_NATIVE_STATUS_SUCCESS,
         "legacy common-mask descriptor prefix failed");

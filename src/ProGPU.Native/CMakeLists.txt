@@ -93,6 +93,9 @@ set(PROGPU_NATIVE_3D_SHADER
 set(PROGPU_NATIVE_HIT_TEST_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Vector/Shaders/GpuHitTesting.wgsl"
     CACHE FILEPATH "Shared ProGPU retained GPU hit-test shader source")
+set(PROGPU_NATIVE_HIT_TEST_READBACK_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/HitTestReadback.wgsl"
+    CACHE FILEPATH "Browser-native retained GPU hit-test readback shader source")
 set(PROGPU_NATIVE_UNICODE_NORMALIZATION_DATA
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Text/UnicodeNormalizationData.bin"
     CACHE FILEPATH "Shared ProGPU Unicode normalization data")
@@ -187,6 +190,9 @@ if(NOT EXISTS "${PROGPU_NATIVE_3D_SHADER}")
 endif()
 if(NOT EXISTS "${PROGPU_NATIVE_HIT_TEST_SHADER}")
     message(FATAL_ERROR "The shared ProGPU GpuHitTesting.wgsl source is missing")
+endif()
+if(NOT EXISTS "${PROGPU_NATIVE_HIT_TEST_READBACK_SHADER}")
+    message(FATAL_ERROR "The native HitTestReadback.wgsl source is missing")
 endif()
 if(NOT EXISTS "${PROGPU_NATIVE_UNICODE_NORMALIZATION_DATA}")
     message(FATAL_ERROR "The shared ProGPU Unicode normalization data is missing")
@@ -431,6 +437,20 @@ add_custom_command(
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU GpuHitTesting.wgsl shader"
     VERBATIM)
+set(generated_hit_test_readback_shader
+    "${generated_directory}/HitTestReadbackWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_hit_test_readback_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_HIT_TEST_READBACK_SHADER}"
+        "-DOUTPUT=${generated_hit_test_readback_shader}"
+        "-DSYMBOL=hit_test_readback_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_HIT_TEST_READBACK_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the native browser hit-test readback shader"
+    VERBATIM)
 
 # All renderer variants include the same generated headers. Model generation
 # as one target so multi-config generators cannot race two custom commands
@@ -452,7 +472,8 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_group_blend_shader}"
         "${generated_advanced_blend_shader}"
         "${generated_native_3d_shader}"
-        "${generated_hit_test_shader}")
+        "${generated_hit_test_shader}"
+        "${generated_hit_test_readback_shader}")
 
 set(PROGPU_NATIVE_BACKEND_SOURCES
     src/Backend/progpu_native_advanced_blend_execution.cpp

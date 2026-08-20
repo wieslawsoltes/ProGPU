@@ -6,16 +6,37 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <new>
 
 namespace progpu::native::webgpu {
 
 struct buffer_map_read_state final {
+    std::atomic<std::uint32_t> references{1U};
     std::atomic<std::uint8_t> completion{0U};
 };
 
 inline constexpr std::uint8_t buffer_map_pending = 0U;
 inline constexpr std::uint8_t buffer_map_succeeded = 1U;
 inline constexpr std::uint8_t buffer_map_failed = 2U;
+
+inline buffer_map_read_state* create_buffer_map_read_state() noexcept {
+    return new (std::nothrow) buffer_map_read_state{};
+}
+
+inline void retain_buffer_map_read_state(
+    buffer_map_read_state* state) noexcept {
+    if (state != nullptr) {
+        state->references.fetch_add(1U, std::memory_order_relaxed);
+    }
+}
+
+inline void release_buffer_map_read_state(
+    buffer_map_read_state* state) noexcept {
+    if (state != nullptr &&
+        state->references.fetch_sub(1U, std::memory_order_acq_rel) == 1U) {
+        delete state;
+    }
+}
 
 inline void initialize_color_attachment(
     WGPURenderPassColorAttachment& attachment) noexcept {
@@ -43,6 +64,7 @@ using proc_resolver = void* (*)(void* context, const char* name);
     X(CommandEncoderBeginRenderPass) \
     X(CommandEncoderCopyBufferToBuffer) \
     X(CommandEncoderCopyBufferToTexture) \
+    X(CommandEncoderCopyTextureToBuffer) \
     X(CommandEncoderCopyTextureToTexture) \
     X(CommandEncoderFinish) \
     X(CommandEncoderRelease) \
@@ -273,8 +295,38 @@ inline bool poll_submission(
 inline WGPUBufferMapState poll_buffer_map(
     WGPUDevice,
     WGPUBuffer buffer,
-    const buffer_map_read_state&) noexcept {
+    const buffer_map_read_state& state) noexcept {
+#if defined(PROGPU_NATIVE_BROWSER)
+    (void)buffer;
+    const auto completion = state.completion.load(std::memory_order_acquire);
+    if (completion == buffer_map_pending) {
+        return WGPUBufferMapState_Pending;
+    }
+    return completion == buffer_map_succeeded
+        ? WGPUBufferMapState_Mapped
+        : WGPUBufferMapState_Unmapped;
+#else
+    (void)state;
     return active_dispatch().wgpuBufferGetMapState(buffer);
+#endif
+}
+
+inline void buffer_map_async(
+    WGPUBuffer buffer,
+    WGPUMapMode mode,
+    std::uint64_t offset,
+    std::uint64_t size,
+    WGPUBufferMapCallbackInfo callback) noexcept {
+#if defined(PROGPU_NATIVE_BROWSER)
+    ::wgpuBufferMapAsync(buffer, mode, offset, size, callback);
+#else
+    active_dispatch().wgpuBufferMapAsync(
+        buffer,
+        mode,
+        offset,
+        size,
+        callback);
+#endif
 }
 
 inline const void* buffer_get_const_mapped_range(
@@ -443,6 +495,8 @@ inline WGPUVertexAttribute vertex_attribute(
     (::progpu::native::webgpu::active_dispatch().wgpuCommandEncoderCopyBufferToBuffer)
 #define wgpuCommandEncoderCopyBufferToTexture \
     (::progpu::native::webgpu::active_dispatch().wgpuCommandEncoderCopyBufferToTexture)
+#define wgpuCommandEncoderCopyTextureToBuffer \
+    (::progpu::native::webgpu::active_dispatch().wgpuCommandEncoderCopyTextureToBuffer)
 #define wgpuCommandEncoderCopyTextureToTexture \
     (::progpu::native::webgpu::active_dispatch().wgpuCommandEncoderCopyTextureToTexture)
 #define wgpuCommandEncoderFinish \

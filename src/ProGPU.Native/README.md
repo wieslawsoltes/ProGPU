@@ -862,14 +862,20 @@ hosts use JavaScript `GPUQueue.onSubmittedWorkDone()` at their scheduling
 boundary. Page-owned device/surface handles remain alive for the page resource
 domain and are reclaimed with the WebAssembly instance.
 
-Desktop wgpu-native and Dawn-provider builds additionally advertise retained
-GPU hit testing. The immutable scene carries the same pointer-free hit-test
+Desktop wgpu-native, Dawn-provider, and browser builds advertise retained GPU
+hit testing. The immutable scene carries the same pointer-free hit-test
 page used by managed compilation; one asynchronous begin call dispatches the
 canonical `GpuHitTesting.wgsl`, and later poll calls copy into caller-owned
 bounded result spans. Stable queries reuse the retained native buffers and add
-no per-primitive boundary crossing. The Emscripten target compiles this same
-implementation, but its capability bit remains clear until browser-native
-`mapAsync` completion is qualified across the supported event-loop hosts.
+no per-primitive boundary crossing. Emscripten executes that same shader and
+packs the fixed 32-byte result records into an `rgba32uint` storage texture
+before the already-qualified texture-to-buffer readback. The pack pass changes
+only transport; hit semantics remain in the shared production shader. Hardware
+Chromium runs the exact hit-test fixture before the renderer evidence workload.
+The deterministic SwiftShader lane defers only this shader execution because
+its current Chromium adapter spends minutes compiling the complete canonical
+shader; it still builds the implementation and runs the full native renderer,
+without substituting a reduced hit-test algorithm.
 
 Run the interactive desktop gallery directly on the exact wgpu-native backend:
 

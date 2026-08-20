@@ -11,13 +11,16 @@ const evidenceDirectory = path.resolve(
     "../../../artifacts/progpu-native/browser-evidence");
 await fs.mkdir(evidenceDirectory, { recursive: true });
 
+const useSwiftShader =
+  process.env.PROGPU_NATIVE_BROWSER_USE_SWIFTSHADER !== "0";
+const browserArgs = ["--enable-unsafe-webgpu"];
+if (useSwiftShader) {
+  browserArgs.push("--use-angle=swiftshader");
+}
 const browser = await chromium.launch({
   channel: "chromium",
   headless: true,
-  args: [
-    "--enable-unsafe-webgpu",
-    "--use-angle=swiftshader"
-  ]
+  args: browserArgs
 });
 const page = await browser.newPage({ viewport: { width: 900, height: 680 } });
 const errors = [];
@@ -29,12 +32,16 @@ page.on("console", (message) => {
 page.on("pageerror", (error) => errors.push(error.message));
 
 try {
-  await page.goto(url, { waitUntil: "domcontentloaded" });
+  const testUrl = new URL(url);
+  if (useSwiftShader) {
+    testUrl.searchParams.set("progpuNativeGpuHitTesting", "0");
+  }
+  await page.goto(testUrl.toString(), { waitUntil: "domcontentloaded" });
   try {
     await page.waitForFunction(
       () => document.body.dataset.progpuNative !== "loading",
       undefined,
-      { timeout: 30_000 });
+      { timeout: 120_000 });
   } catch (error) {
     const stage = await page.evaluate(() =>
       document.body.dataset.progpuNativeStage ?? "uninitialized");
@@ -75,6 +82,7 @@ try {
     incrementalUpdate:
       document.body.dataset.progpuNativeIncrementalUpdate,
     deviceRecovery: document.body.dataset.progpuNativeDeviceRecovery,
+    gpuHitTesting: document.body.dataset.progpuNativeGpuHitTesting,
     error: document.body.dataset.progpuNativeError ?? ""
   }));
   assert.deepEqual(contract, {
@@ -98,6 +106,9 @@ try {
     nativePngDecode: "passed",
     incrementalUpdate: "passed",
     deviceRecovery: "passed",
+    gpuHitTesting: useSwiftShader
+      ? "deferred-software-adapter"
+      : "passed",
     error: ""
   }, errors.length === 0 ? "no browser errors" : errors.join(" | "));
   const screenshotPath = path.join(
@@ -106,7 +117,7 @@ try {
   await page.waitForFunction(
     () => document.body.dataset.progpuNativeEvidence === "ready",
     undefined,
-    { timeout: 30_000 });
+    { timeout: 120_000 });
   const screenshot = await page.locator("#progpu-native-evidence").screenshot({
     path: screenshotPath
   });

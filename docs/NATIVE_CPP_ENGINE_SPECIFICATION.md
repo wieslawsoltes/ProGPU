@@ -1185,8 +1185,8 @@ ordered semantic layers now own bounded backdrop input.
 - charts, CAD/DXF/hatch/ACIS, voxel, ShaderToy, meshes, and extension ABI;
 - media textures, NV12 processing, post-processing, and synchronized external
   texture ownership;
-- browser GPU hit-test readback and the final render/hit-test differential
-  corpus.
+- the final render/hit-test differential corpus; browser GPU hit-test readback
+  is implemented and hardware-qualified.
 
 ### Retained GPU hit-test foundation checkpoint
 
@@ -1222,16 +1222,27 @@ allocation. Work remains `O(N + R)` worst-case for `N` visited candidates and
 bounded result capacity `R <= 256`; retained storage is `O(P + T)` for the
 scene's primitive/path data plus a fixed 257-record result/readback pair.
 
-Direct wgpu-native/Metal and provider-resolved Dawn/Metal execute the same
-shader and exact result fixture, including stable resource reuse and safe
-engine destruction with an outstanding asynchronous map. Desktop libraries now
-advertise `PROGPU_NATIVE_CAPABILITY_RETAINED_GPU_HIT_TESTING`. Emscripten
-continues to compile the exact implementation and its ordinary full-renderer
-Chromium WebGPU gate passes, but Emdawnwebgpu did not complete this additional
-native `mapAsync` readback reliably during qualification. The browser build
-therefore deliberately does not advertise the capability until that event-loop
-completion seam has deterministic runtime evidence; no synchronous wait or
-JavaScript-only semantic fork is substituted.
+Direct wgpu-native/Metal, provider-resolved Dawn/Metal, and Emscripten hardware
+WebGPU execute the same shader and exact result fixture, including stable
+resource reuse and safe engine destruction with an outstanding asynchronous
+map. All three libraries advertise
+`PROGPU_NATIVE_CAPABILITY_RETAINED_GPU_HIT_TESTING`. Browser execution adds one
+transport-only canonical result-pack pass: 65 fixed 32-byte records become 130
+`rgba32uint` texels, followed by one texture-to-buffer copy with the required
+256-byte row alignment and asynchronous `mapAsync` completion. This avoids the
+Emdawn buffer-to-buffer mapping stall observed during qualification without
+changing hit semantics or adding a JavaScript implementation. The map callback
+holds an intrusive state reference independently of engine/resource teardown,
+so an outstanding completion cannot access a destroyed engine or a later
+resource generation.
+
+The hardware Chromium gate runs the exact retained rectangle fixture and
+checks hit identity plus traversal counters before the full renderer workload.
+Chromium 151 SwiftShader currently spends minutes compiling the complete shared
+hit-test shader. The deterministic software-adapter lane therefore builds the
+same C++/WGSL implementation but explicitly defers only this execution; it
+continues to run the complete native renderer and reports the deferral in its
+JSON contract. No smaller semantic shader or CPU fallback is accepted.
 
 Primary contract references used for this design are
 [Skia `SkPath::contains`](https://api.skia.org/classSkPath.html),
