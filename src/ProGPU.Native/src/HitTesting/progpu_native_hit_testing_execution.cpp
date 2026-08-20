@@ -29,9 +29,9 @@ constexpr std::uint64_t result_buffer_size =
     static_cast<std::uint64_t>(PROGPU_NATIVE_HIT_TEST_MAX_RESULT_COUNT + 1U) *
     sizeof(progpu_native_hit_test_result);
 constexpr std::uint32_t allowed_query_flags =
-    PROGPU_NATIVE_HIT_TEST_RESULT_CAPACITY_MASK |
-    PROGPU_NATIVE_HIT_TEST_ELLIPSE_REGION |
-    PROGPU_NATIVE_HIT_TEST_BOUNDS_REGION;
+    static_cast<std::uint32_t>(PROGPU_NATIVE_HIT_TEST_RESULT_CAPACITY_MASK) |
+    static_cast<std::uint32_t>(PROGPU_NATIVE_HIT_TEST_ELLIPSE_REGION) |
+    static_cast<std::uint32_t>(PROGPU_NATIVE_HIT_TEST_BOUNDS_REGION);
 
 #if defined(PROGPU_NATIVE_DAWN_ABI)
 void hit_test_map_complete(
