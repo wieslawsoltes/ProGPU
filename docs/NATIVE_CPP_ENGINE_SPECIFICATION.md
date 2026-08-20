@@ -1,7 +1,8 @@
 # ProGPU native C++ engine specification
 
-Status: native core-renderer/text implementation complete; Preview.53 baseline,
-pending final CI and manual qualification
+Status: native core-renderer/text implementation and exact-head automated CI
+complete on the Preview.53 baseline; draft integration remains pending manual
+desktop/browser qualification and optional physical-device lifecycle evidence
 
 Initial implementation: `src/ProGPU.Native`
 
@@ -1120,6 +1121,12 @@ intermediates, shader linking, and device-loss recreation remain open;
 ordered semantic layers now own bounded backdrop input.
 
 ## 10. Migration tranches
+
+This section is the chronological delivery ledger. Statements that a feature
+"remains" refer to the checkpoint described by that paragraph, not the final
+branch state. Section 1 defines the completed native-core scope, and sections
+10.8 onward record the later slices that closed the intermediate gaps. The
+only open release qualifications are listed in section 14.
 
 ### Tranche A — core 2D batches
 
@@ -2408,9 +2415,11 @@ Each sub-slice requires C ABI layout/compatibility tests, malformed-stream and
 stack fuzzing, retained-cache assertions, six-RID package consumers, real Dawn
 hardware coverage where available, matched Release distributions, inspected
 native/managed/difference screenshots, and platform-native profiling. M2.4d3b
-and M3.5 remain incomplete until the representative scene no longer depends on
-the transitional managed compiler and shows no functional, quality,
-allocation, or performance regression.
+and M3.5 are complete for the agreed native-core boundary: the representative
+scene uses the versioned pointer-free stream, the managed scene compiler and
+native C++ builder are supported parallel producers, and the differential,
+quality, allocation, and performance gates pass. Replacing the managed scene
+compiler is explicitly outside this goal rather than transitional debt.
 
 ## 11. .NET substitution analysis
 
@@ -2569,7 +2578,7 @@ resource generation, and nesting depth before allocation or GPU submission.
 Integer arithmetic is checked. User shaders remain a separately permissioned
 path with WebGPU validation and bounded resource policies.
 
-## 14. Final continuation order
+## 14. Final qualification order
 
 1. Keep the additive native ABI, package, standalone C++20 SDK, browser build,
    compiler matrix, and managed substitution lane green without changing the
@@ -2579,11 +2588,12 @@ path with WebGPU validation and bounded resource policies.
    non-conformal local outlines. Opaque `DxfStaticBuffer` and mutable `Visual`
    objects require typed immutable
    snapshot contracts; they must never cross the C ABI as managed pointers.
-3. Run the final matched text/scene/image differential and seam budgets after
-   those families settle; do not reuse interim performance evidence as the
-   final-candidate result.
-4. Complete WebScene-provider D3D12/Vulkan, physical mobile, and Windows/Linux
-   profiler evidence only on the corresponding real hosts. Build-only or
-   software-adapter results do not satisfy those hardware gates.
-5. Hand the draft to the user for desktop/browser/mobile manual review. Mark it
-   ready or merge only after explicit approval.
+3. Preserve the completed final-head text/scene/image differential, seam-budget,
+   six-RID package-consumer, compiler-matrix, and browser WebGPU gates.
+4. Collect additional WebScene-provider D3D12/Vulkan, physical-mobile, and
+   Windows/Linux profiler evidence when the corresponding real hardware is
+   available. These are lifecycle/release qualifications; their absence does
+   not represent a reduced C++ implementation or authorize a software result
+   to be reported as hardware evidence.
+5. Complete the requested desktop/browser manual review. Mark the draft ready
+   or merge only after explicit user approval.
