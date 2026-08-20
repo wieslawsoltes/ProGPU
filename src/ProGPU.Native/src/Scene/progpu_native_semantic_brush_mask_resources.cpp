@@ -56,7 +56,7 @@ semantic::scissor geometry_mask_scissor(
     const progpu_native_scene_layer_geometry_mask& mask,
     const semantic::scissor& target_extent,
     float dpi_scale) noexcept {
-    constexpr double antialias_padding_pixels = 2.0;
+    constexpr double mask_scissor_padding_pixels = 2.0;
     const auto transform_point = [&](double x, double y) noexcept {
         return std::array<double, 2U>{
             (x * mask.transform.m11 + y * mask.transform.m21 +
@@ -82,19 +82,19 @@ semantic::scissor geometry_mask_scissor(
         maximum_y = std::max(maximum_y, corners[index][1]);
     }
     minimum_x = std::clamp(
-        std::floor(minimum_x - antialias_padding_pixels),
+        std::floor(minimum_x - mask_scissor_padding_pixels),
         0.0,
         static_cast<double>(target_extent.width));
     minimum_y = std::clamp(
-        std::floor(minimum_y - antialias_padding_pixels),
+        std::floor(minimum_y - mask_scissor_padding_pixels),
         0.0,
         static_cast<double>(target_extent.height));
     maximum_x = std::clamp(
-        std::ceil(maximum_x + antialias_padding_pixels),
+        std::ceil(maximum_x + mask_scissor_padding_pixels),
         0.0,
         static_cast<double>(target_extent.width));
     maximum_y = std::clamp(
-        std::ceil(maximum_y + antialias_padding_pixels),
+        std::ceil(maximum_y + mask_scissor_padding_pixels),
         0.0,
         static_cast<double>(target_extent.height));
     if (maximum_x <= minimum_x || maximum_y <= minimum_y) {
