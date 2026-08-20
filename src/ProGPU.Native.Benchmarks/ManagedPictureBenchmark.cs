@@ -21,6 +21,7 @@ internal static class ManagedPictureBenchmark
         bool useVectorClipMask = HasFlag(args, "--vector-clip-mask");
         bool useCompositeBrushMask = HasFlag(args, "--composite-brush-mask");
         bool useStrokedPathMask = HasFlag(args, "--stroked-path-mask");
+        bool usePictureMask = HasFlag(args, "--picture-mask");
         int primitiveCount = ReadPositive(args, "--rectangles", 384);
         int warmupCount = ReadNonNegative(
             args,
@@ -34,7 +35,8 @@ internal static class ManagedPictureBenchmark
             primitiveCount,
             useVectorClipMask,
             useCompositeBrushMask,
-            useStrokedPathMask);
+            useStrokedPathMask,
+            usePictureMask);
         const ulong sceneId = 0x5049435455524542UL;
         const ulong generation = 1UL;
         long compileAllocationStart = GC.GetAllocatedBytesForCurrentThread();
@@ -192,6 +194,8 @@ internal static class ManagedPictureBenchmark
                     ? "artifacts/progpu-native/differential/managed-picture-vector-clip"
                     : useCompositeBrushMask
                         ? "artifacts/progpu-native/differential/managed-picture-composite-mask"
+                    : usePictureMask
+                        ? "artifacts/progpu-native/differential/managed-picture-picture-mask"
                     : "artifacts/progpu-native/differential/managed-picture");
             Directory.CreateDirectory(directory);
             nativeImagePath = Path.Combine(directory, "managed-picture-native.ppm");
@@ -217,6 +221,7 @@ internal static class ManagedPictureBenchmark
             VectorClipMask: useVectorClipMask,
             CompositeBrushMask: useCompositeBrushMask,
             StrokedPathMask: useStrokedPathMask,
+            PictureMask: usePictureMask,
             SourceCommandCount: compiled.SourceCommandCount,
             NativeCommandCount: compiled.NativeCommandCount,
             AnalyticPrimitiveCount: compiled.AnalyticPrimitiveCount,
@@ -309,7 +314,8 @@ internal static class ManagedPictureBenchmark
         int primitiveCount,
         bool useVectorClipMask,
         bool useCompositeBrushMask,
-        bool useStrokedPathMask)
+        bool useStrokedPathMask,
+        bool usePictureMask)
     {
         GradientStop[] coolStops =
         [
@@ -527,6 +533,31 @@ internal static class ManagedPictureBenchmark
                 strokePen,
                 new Rect(0f, 0f, Width, Height),
                 Matrix4x4.Identity);
+            opacityMaskCount++;
+        }
+        if (usePictureMask)
+        {
+            var maskRecorder = new GpuPictureRecorder();
+            DrawingContext maskDrawing = maskRecorder.BeginRecording(
+                new Rect(0f, 0f, Width, Height));
+            var white = new SolidColorBrush(Vector4.One);
+            float maskWidth = Width * 0.32f;
+            maskDrawing.DrawRectangle(
+                white,
+                null,
+                new Rect(24f, 20f, maskWidth, Height - 40f));
+            maskDrawing.DrawRectangle(
+                white,
+                null,
+                new Rect(
+                    Width - 24f - maskWidth,
+                    20f,
+                    maskWidth,
+                    Height - 40f));
+            GpuPicture maskPicture = maskRecorder.EndRecording();
+            drawing.PushOpacityMask(
+                maskPicture,
+                new Rect(0f, 0f, Width, Height));
             opacityMaskCount++;
         }
         int pointBatchCount = Math.Min(
@@ -960,6 +991,7 @@ internal static class ManagedPictureBenchmark
         bool VectorClipMask,
         bool CompositeBrushMask,
         bool StrokedPathMask,
+        bool PictureMask,
         int SourceCommandCount,
         int NativeCommandCount,
         int AnalyticPrimitiveCount,

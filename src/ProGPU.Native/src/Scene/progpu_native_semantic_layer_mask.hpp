@@ -16,6 +16,7 @@ struct semantic_layer_mask final {
     progpu_native_scene_layer_vector_mask vector{};
     progpu_native_scene_layer_brush_mask brush{};
     progpu_native_scene_layer_geometry_mask geometry{};
+    progpu_native_scene_layer_picture_mask picture{};
     progpu_native_scene_layer_composite_mask composite{};
     const progpu_native_scene_clip_path* vector_paths = nullptr;
     const progpu_native_path_segment* vector_segments = nullptr;
@@ -24,6 +25,8 @@ struct semantic_layer_mask final {
     const progpu_native_scene_layer_brush_mask* composite_brushes = nullptr;
     const progpu_native_scene_layer_geometry_mask* composite_geometry_masks = nullptr;
     const progpu_native_geometry_primitive* composite_geometry_primitives = nullptr;
+    const progpu_native_scene_layer_picture_mask* composite_picture_masks = nullptr;
+    const std::byte* composite_picture_streams = nullptr;
     const progpu_native_scene_clip_path* composite_paths = nullptr;
     const progpu_native_path_segment* composite_segments = nullptr;
     const progpu_native_scene_path_boolean_node* composite_boolean_nodes = nullptr;
@@ -55,11 +58,17 @@ bool is_valid_semantic_layer_geometry_mask(
     std::span<const progpu_native_geometry_primitive> primitives,
     std::span<const progpu_native_scene_gradient_stop> stops) noexcept;
 
+bool is_valid_semantic_layer_picture_mask(
+    const progpu_native_scene_layer_picture_mask& mask,
+    std::span<const std::byte> nested_scene) noexcept;
+
 bool is_valid_semantic_layer_composite_mask(
     const progpu_native_scene_layer_composite_mask& mask,
     std::span<const progpu_native_scene_layer_brush_mask> brushes,
     std::span<const progpu_native_scene_layer_geometry_mask> geometry_masks,
     std::span<const progpu_native_geometry_primitive> geometry_primitives,
+    std::span<const progpu_native_scene_layer_picture_mask> picture_masks,
+    std::span<const std::byte> picture_streams,
     std::span<const progpu_native_scene_clip_path> paths,
     std::span<const progpu_native_path_segment> segments,
     std::span<const progpu_native_scene_path_boolean_node> boolean_nodes,

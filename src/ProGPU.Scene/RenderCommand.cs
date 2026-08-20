@@ -4032,6 +4032,7 @@ public class DrawingContext :
     public void PushOpacityMask(GpuPicture maskPicture, Rect bounds)
     {
         ArgumentNullException.ThrowIfNull(maskPicture);
+        RetainPictureResources(maskPicture);
         Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.PushOpacityMask,

@@ -2438,6 +2438,33 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void PictureOpacityMaskRetainsNestedPictureResources()
+    {
+        var resource = new CountingDisposable();
+        var maskRecorder = new GpuPictureRecorder();
+        DrawingContext maskContext = maskRecorder.BeginRecording(
+            new Rect(0f, 0f, 16f, 16f));
+        maskContext.RetainResource(resource);
+        GpuPicture maskPicture = maskRecorder.EndRecording();
+
+        var parentRecorder = new GpuPictureRecorder();
+        DrawingContext parentContext = parentRecorder.BeginRecording(
+            new Rect(0f, 0f, 16f, 16f));
+        parentContext.PushOpacityMask(
+            maskPicture,
+            new Rect(0f, 0f, 16f, 16f));
+        parentContext.PopOpacityMask();
+        GpuPicture parentPicture = parentRecorder.EndRecording();
+
+        Assert.Equal(1, maskPicture.RetainedResourceCount);
+        Assert.Equal(1, parentPicture.RetainedResourceCount);
+        maskPicture.Dispose();
+        Assert.Equal(0, resource.DisposeCount);
+        parentPicture.Dispose();
+        Assert.Equal(1, resource.DisposeCount);
+    }
+
+    [Fact]
     public void PooledDrawingContextMovesRetainedResourcesThroughFrameSubmission()
     {
         var context = new DrawingContext();

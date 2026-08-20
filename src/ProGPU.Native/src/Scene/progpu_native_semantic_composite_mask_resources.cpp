@@ -201,6 +201,23 @@ bool create_semantic_composite_mask_binding(
         children.push_back(child_operation);
     }
     for (std::uint32_t index = 0U;
+         index < source.picture_mask_count;
+         ++index) {
+        const auto& picture = parsed.composite_picture_masks[index];
+        semantic_render_bundle_span child_operation{};
+        if (!create_semantic_picture_mask_binding(
+                engine,
+                picture,
+                parsed.composite_picture_streams + picture.stream_offset,
+                target_extent,
+                dpi_scale,
+                child_operation)) {
+            cleanup();
+            return false;
+        }
+        children.push_back(child_operation);
+    }
+    for (std::uint32_t index = 0U;
          index < source.geometry_mask_count;
          ++index) {
         semantic::semantic_layer_mask child{};

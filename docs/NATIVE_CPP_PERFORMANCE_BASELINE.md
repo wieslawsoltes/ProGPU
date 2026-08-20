@@ -2752,11 +2752,14 @@ cost contract; a matched managed/native timing distribution remains part of
 the wider mask-heavy picture benchmark rather than a claim based on this small
 correctness fixture.
 
-The nested continuation keeps that single-mask fast path and adds a fixed
-48-byte composite prefix for two to 64 arbitrary brush, stroked-geometry, or
-vector components. Its pointer-free auxiliary arena stores canonical 320-byte
-brush-mask and 336-byte geometry-mask records, retained stroke primitives, at
-most one cumulative vector chain, and one shared stop table. Changed-scene
+The nested continuation keeps that single-mask fast path and originally used a
+fixed 48-byte composite prefix for two to 64 arbitrary brush,
+stroked-geometry, or vector components. The retained-picture continuation
+extends that prefix to 64 bytes while preserving legacy read compatibility.
+Its pointer-free auxiliary arena stores canonical 320-byte brush-mask,
+336-byte geometry-mask, and 72-byte picture-mask records, retained stroke
+primitives, nested scene streams, at most one cumulative vector chain, and one
+shared stop table. Changed-scene
 validation is linear in those retained records. Each component is generated in
 R8 and shared `ClipCompose.wgsl` multiplies the coverage entirely on the GPU;
 no coverage bytes cross the ABI. The conservative preflight budget includes all
@@ -2832,3 +2835,46 @@ evidence is stored under
 This remains a stable-replay Metal checkpoint rather than the final
 cross-platform or Instruments qualification; immutable materialization is
 covered separately by Dawn/Metal and Chromium integration assertions.
+
+## Retained-picture opacity-mask checkpoint
+
+The managed native-scene compiler now directly ports ProGPU's immutable
+`GpuPicture` opacity-mask ownership and command semantics into a bounded nested
+semantic stream. C++ recursively validates that stream, shares the parent
+WebGPU instance/device/queue/dispatch table with a child engine, renders the
+picture into same-format RGBA, and uses the canonical `ClipCompose.wgsl`
+`fs_extract_alpha` entry point to produce bounded R8 entirely on the GPU.
+Standalone and composite picture masks share the same implementation. Stable
+replay retains the mask binding, performs one scene submission, uploads zero
+retained bytes, and allocates zero managed bytes per frame.
+
+The matched Release comparison ran on Apple M3 Pro/Metal with 384 deterministic
+public-picture primitives, a two-region retained picture mask, 60 warm-ups, 300
+alternating synchronized frames, and five independent processes. The
+median-of-run results were:
+
+| Metric | Native C++ | Managed compositor | Native delta |
+|---|---:|---:|---:|
+| p50 CPU submission | 0.0660 ms | 0.4450 ms | 6.74x lower |
+| p50 GPU-complete total | 3.0853 ms | 1.9679 ms | 56.8% higher |
+| p95 GPU-complete total | 3.2201 ms | 2.8177 ms | 14.3% higher |
+| Managed allocation / stable frame | 0 bytes | 0 bytes | equal |
+
+The native CPU boundary is already substantially cheaper, but GPU-complete
+time is not yet on par. The current exact implementation pays for a child-scene
+RGBA pass followed by a separate alpha-extraction pass; fusing compatible
+picture content directly into bounded mask coverage, or at minimum encoding
+child rendering and extraction into one retained command graph, is the next
+measured optimization target. No performance win is claimed for this slice.
+
+Across 518,400 pixels the maximum channel difference was 35/255, 55 pixels
+exceeded 3/255, and mean absolute channel difference was
+0.0013720100/255. Visual inspection confines the amplified residual to sparse
+antialiased boundaries. The real Dawn/Metal fixture verifies two opaque picture
+regions separated by transparency and stable replay; the Emscripten/Chromium
+Release fixture executes the same C++ sources and shared shaders. Ignored JSON
+and native, managed, and 32-times difference images are retained under
+`artifacts/progpu-native/benchmarks/` and
+`artifacts/progpu-native/differential/managed-picture-picture-mask/` for manual
+review. This is a local Metal/browser checkpoint, not final cross-platform or
+Instruments qualification.

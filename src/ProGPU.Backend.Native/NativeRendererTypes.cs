@@ -491,7 +491,8 @@ public enum NativeSceneLayerMaskKind : uint
     VectorClipChain = 4,
     Brush = 5,
     Composite = 6,
-    Geometry = 7
+    Geometry = 7,
+    Picture = 8
 }
 
 public enum NativeSceneCommandKind : uint
@@ -1752,6 +1753,48 @@ public readonly struct NativeSceneLayerGeometryMask
 }
 
 /// <summary>
+/// Pointer-free retained picture opacity mask. The stream range addresses one
+/// independently validated nested semantic scene in the resource auxiliary
+/// arena.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneLayerPictureMask
+{
+    public NativeSceneLayerPictureMask(
+        uint streamOffset,
+        uint streamSize,
+        NativeImageRect bounds,
+        Matrix3x2 transform,
+        float opacity = 1f)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneLayerPictureMask>();
+        Kind = NativeSceneLayerMaskKind.Picture;
+        Flags = 0U;
+        StreamOffset = streamOffset;
+        StreamSize = streamSize;
+        Reserved0 = 0U;
+        Bounds = bounds;
+        Transform = transform;
+        Opacity = opacity;
+        Reserved1 = 0U;
+    }
+
+    public readonly uint StructSize;
+    public readonly NativeSceneLayerMaskKind Kind;
+    public readonly uint Flags;
+    public readonly uint StreamOffset;
+    public readonly uint StreamSize;
+    private readonly uint Reserved0;
+    public readonly NativeImageRect Bounds;
+    public readonly Matrix3x2 Transform;
+    public readonly float Opacity;
+    private readonly uint Reserved1;
+
+    internal bool HasCanonicalReservedFields =>
+        Reserved0 == 0U && Reserved1 == 0U;
+}
+
+/// <summary>
 /// Pointer-free retained intersection of arbitrary GPU-generated vector,
 /// brush, and stroked-geometry masks. Its auxiliary span owns the mask
 /// descriptors, geometry primitives, vector records, and one shared
@@ -1771,6 +1814,8 @@ public readonly struct NativeSceneLayerCompositeMask
         uint gradientStopCount,
         uint geometryMaskCount = 0U,
         uint geometryPrimitiveCount = 0U,
+        uint pictureMaskCount = 0U,
+        uint pictureStreamBytes = 0U,
         float opacity = 1f)
     {
         StructSize = (uint)Unsafe.SizeOf<NativeSceneLayerCompositeMask>();
@@ -1785,6 +1830,10 @@ public readonly struct NativeSceneLayerCompositeMask
         Opacity = opacity;
         GeometryMaskCount = geometryMaskCount;
         GeometryPrimitiveCount = geometryPrimitiveCount;
+        PictureMaskCount = pictureMaskCount;
+        PictureStreamBytes = pictureStreamBytes;
+        Reserved0 = 0U;
+        Reserved1 = 0U;
     }
 
     public readonly uint StructSize;
@@ -1799,6 +1848,13 @@ public readonly struct NativeSceneLayerCompositeMask
     public readonly float Opacity;
     public readonly uint GeometryMaskCount;
     public readonly uint GeometryPrimitiveCount;
+    public readonly uint PictureMaskCount;
+    public readonly uint PictureStreamBytes;
+    private readonly uint Reserved0;
+    private readonly uint Reserved1;
+
+    internal bool HasCanonicalReservedFields =>
+        Reserved0 == 0U && Reserved1 == 0U;
 }
 
 /// <summary>

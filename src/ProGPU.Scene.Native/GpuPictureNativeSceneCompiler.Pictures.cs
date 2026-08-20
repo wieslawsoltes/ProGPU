@@ -30,6 +30,7 @@ public static partial class GpuPictureNativeSceneCompiler
 
     private static bool TryFlattenPicture(
         GpuPicture picture,
+        Matrix3x2 rootTransform,
         List<FlattenedCommand> commands,
         out int sourceCommandCount,
         out NativePictureCompileFailure failure)
@@ -39,7 +40,7 @@ public static partial class GpuPictureNativeSceneCompiler
         sourceCommandCount = 0;
         return TryFlattenPicture(
             picture,
-            Matrix3x2.Identity,
+            rootTransform,
             Matrix4x4.Identity,
             commands,
             active,

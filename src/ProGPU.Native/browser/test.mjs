@@ -148,7 +148,7 @@ try {
     `ProGPU native browser contract ${contract.status}: ` +
     `${contract.semanticCommands} semantic commands, ` +
     `${contract.semanticDraws} GPU draws, exact per-draw vector/glyph/image ` +
-    `masks, retained rounded/vector and composite brush/stroked-geometry ` +
+    `masks, retained rounded/vector, picture, and composite brush/stroked-geometry ` +
     `masks, coverage masks, and direct image sampling verified.\n`);
 } finally {
   await browser.close();

@@ -46,6 +46,14 @@ bool create_semantic_geometry_mask_binding(
     float dpi_scale,
     semantic_render_bundle_span& operation);
 
+bool create_semantic_picture_mask_binding(
+    progpu_native_engine& engine,
+    const progpu_native_scene_layer_picture_mask& picture,
+    const std::byte* nested_scene,
+    const semantic::scissor& target_extent,
+    float dpi_scale,
+    semantic_render_bundle_span& operation);
+
 bool create_semantic_composite_mask_binding(
     progpu_native_engine& engine,
     const semantic::semantic_layer_mask& parsed,

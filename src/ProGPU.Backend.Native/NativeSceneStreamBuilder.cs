@@ -1095,8 +1095,44 @@ public ref struct NativeSceneStreamBuilder
     }
 
     /// <summary>
+    /// Adds one retained picture opacity mask backed by a complete nested
+    /// pointer-free semantic scene stream.
+    /// </summary>
+    public bool TryAddLayerPictureMaskResource(
+        ulong resourceId,
+        ulong generation,
+        in NativeSceneLayerPictureMask mask,
+        scoped ReadOnlySpan<byte> nestedScene,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        if (mask.StructSize != Unsafe.SizeOf<NativeSceneLayerPictureMask>() ||
+            mask.Kind != NativeSceneLayerMaskKind.Picture ||
+            mask.Flags != 0U || !mask.HasCanonicalReservedFields ||
+            mask.StreamOffset != 0U || mask.StreamSize != nestedScene.Length ||
+            !IsFinitePositive(mask.Bounds) || !IsFinite(mask.Transform) ||
+            !float.IsFinite(mask.Opacity) || mask.Opacity is < 0f or > 1f ||
+            !IsValidNestedSceneStream(nestedScene))
+        {
+            return false;
+        }
+        return TryAddResource(
+            NativeSceneResourceKind.LayerMask,
+            resourceId,
+            generation,
+            MemoryMarshal.AsBytes(
+                MemoryMarshal.CreateReadOnlySpan(
+                    ref Unsafe.AsRef(in mask),
+                    1)),
+            out resourceIndex,
+            nestedScene,
+            flags);
+    }
+
+    /// <summary>
     /// Adds one bounded GPU-composed intersection of brush, stroked-geometry,
-    /// and vector masks.
+    /// picture, and vector masks.
     /// The auxiliary layout is fixed by <see cref="NativeSceneLayerCompositeMask"/>.
     /// </summary>
     public bool TryAddLayerCompositeMaskResource(
@@ -1111,6 +1147,8 @@ public ref struct NativeSceneStreamBuilder
         int brushBytes;
         int geometryMaskBytes;
         int geometryPrimitiveBytes;
+        int pictureMaskBytes;
+        int pictureStreamBytes;
         int pathBytes;
         int segmentBytes;
         int booleanNodeBytes;
@@ -1126,6 +1164,10 @@ public ref struct NativeSceneStreamBuilder
             geometryPrimitiveBytes = checked(
                 (int)mask.GeometryPrimitiveCount *
                     Unsafe.SizeOf<NativeGeometryPrimitive>());
+            pictureMaskBytes = checked(
+                (int)mask.PictureMaskCount *
+                    Unsafe.SizeOf<NativeSceneLayerPictureMask>());
+            pictureStreamBytes = checked((int)mask.PictureStreamBytes);
             pathBytes = checked(
                 (int)mask.PathCount * Unsafe.SizeOf<NativeSceneClipPath>());
             segmentBytes = checked(
@@ -1144,16 +1186,20 @@ public ref struct NativeSceneStreamBuilder
         uint vectorComponent = mask.PathCount == 0U ? 0U : 1U;
         if (mask.StructSize != Unsafe.SizeOf<NativeSceneLayerCompositeMask>() ||
             mask.Kind != NativeSceneLayerMaskKind.Composite ||
-            mask.Flags != 0U ||
+            mask.Flags != 0U || !mask.HasCanonicalReservedFields ||
             mask.ComponentCount != mask.BrushMaskCount +
-                mask.GeometryMaskCount + vectorComponent ||
+                mask.GeometryMaskCount + mask.PictureMaskCount +
+                vectorComponent ||
             mask.ComponentCount is < 2U or >
                 NativeSceneLayerCompositeMask.MaximumComponentCount ||
-            mask.BrushMaskCount == 0U && mask.GeometryMaskCount == 0U ||
+            mask.BrushMaskCount == 0U && mask.GeometryMaskCount == 0U &&
+                mask.PictureMaskCount == 0U ||
             mask.GeometryMaskCount >
                 NativeSceneLayerCompositeMask.MaximumComponentCount ||
             (mask.GeometryMaskCount == 0U) !=
                 (mask.GeometryPrimitiveCount == 0U) ||
+            (mask.PictureMaskCount == 0U) !=
+                (mask.PictureStreamBytes == 0U) ||
             mask.GradientStopCount > NativeMethods.SceneMaximumGradientStops ||
             !float.IsFinite(mask.Opacity) ||
             mask.Opacity is < 0f or > 1f ||
@@ -1163,8 +1209,8 @@ public ref struct NativeSceneStreamBuilder
                 (mask.PathCount > 64U || mask.SegmentCount == 0U ||
                     mask.BooleanNodeCount > 64U * 63U)) ||
             (long)brushBytes + geometryMaskBytes + geometryPrimitiveBytes +
-                pathBytes + segmentBytes + booleanNodeBytes + stopBytes !=
-                auxiliary.Length)
+                pictureMaskBytes + pictureStreamBytes + pathBytes +
+                segmentBytes + booleanNodeBytes + stopBytes != auxiliary.Length)
         {
             return false;
         }
@@ -1180,8 +1226,16 @@ public ref struct NativeSceneStreamBuilder
                 auxiliary.Slice(
                     brushBytes + geometryMaskBytes,
                     geometryPrimitiveBytes));
-        int pathOffset = brushBytes + geometryMaskBytes +
+        int pictureMaskOffset = brushBytes + geometryMaskBytes +
             geometryPrimitiveBytes;
+        ReadOnlySpan<NativeSceneLayerPictureMask> pictureMasks =
+            MemoryMarshal.Cast<byte, NativeSceneLayerPictureMask>(
+                auxiliary.Slice(pictureMaskOffset, pictureMaskBytes));
+        ReadOnlySpan<byte> pictureStreams = auxiliary.Slice(
+            pictureMaskOffset + pictureMaskBytes,
+            pictureStreamBytes);
+        int pathOffset = brushBytes + geometryMaskBytes +
+            geometryPrimitiveBytes + pictureMaskBytes + pictureStreamBytes;
         ReadOnlySpan<NativeSceneClipPath> paths = MemoryMarshal.Cast<
             byte,
             NativeSceneClipPath>(auxiliary.Slice(pathOffset, pathBytes));
@@ -1294,6 +1348,38 @@ public ref struct NativeSceneStreamBuilder
             return false;
         }
 
+        uint expectedStreamOffset = 0U;
+        foreach (ref readonly NativeSceneLayerPictureMask pictureMask in
+            pictureMasks)
+        {
+            if (pictureMask.StructSize !=
+                    Unsafe.SizeOf<NativeSceneLayerPictureMask>() ||
+                pictureMask.Kind != NativeSceneLayerMaskKind.Picture ||
+                pictureMask.Flags != 0U ||
+                !pictureMask.HasCanonicalReservedFields ||
+                pictureMask.StreamOffset != expectedStreamOffset ||
+                pictureMask.StreamSize == 0U ||
+                pictureMask.StreamOffset > (uint)pictureStreams.Length ||
+                pictureMask.StreamSize >
+                    (uint)pictureStreams.Length - pictureMask.StreamOffset ||
+                !IsFinitePositive(pictureMask.Bounds) ||
+                !IsFinite(pictureMask.Transform) ||
+                !float.IsFinite(pictureMask.Opacity) ||
+                pictureMask.Opacity is < 0f or > 1f ||
+                !IsValidNestedSceneStream(pictureStreams.Slice(
+                    checked((int)pictureMask.StreamOffset),
+                    checked((int)pictureMask.StreamSize))))
+            {
+                return false;
+            }
+            expectedStreamOffset = checked(
+                expectedStreamOffset + pictureMask.StreamSize);
+        }
+        if (expectedStreamOffset != mask.PictureStreamBytes)
+        {
+            return false;
+        }
+
         ulong expectedBooleanNodeOffset = 0U;
         for (int index = 0; index < paths.Length; index++)
         {
@@ -1332,6 +1418,24 @@ public ref struct NativeSceneStreamBuilder
             out resourceIndex,
             auxiliary,
             flags);
+    }
+
+    private static bool IsValidNestedSceneStream(ReadOnlySpan<byte> stream)
+    {
+        if (stream.Length < Unsafe.SizeOf<NativeMethods.SceneHeader>() ||
+            (uint)stream.Length > NativeMethods.SceneMaximumStreamBytes)
+        {
+            return false;
+        }
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        return header.StructSize >= Unsafe.SizeOf<NativeMethods.SceneHeader>() &&
+            header.Magic == NativeMethods.SceneStreamMagic &&
+            header.StreamVersion == NativeMethods.SceneStreamVersion &&
+            header.EndianMarker == NativeMethods.SceneStreamEndianMarker &&
+            header.Flags == 0U && header.TotalSize == stream.Length &&
+            header.SceneId != 0U && header.Generation != 0U &&
+            header.Reserved0 == 0U && header.Reserved1 == 0U;
     }
 
     public bool TryAddEffectChainResource(

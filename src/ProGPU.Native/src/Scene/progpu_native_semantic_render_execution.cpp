@@ -273,6 +273,7 @@ progpu_native_status render_scene(
                             PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN ||
                         mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH ||
                         mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY ||
+                        mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE ||
                         mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE
                     ? PROGPU_NATIVE_GROUP_MASK_TEXTURE
                     : PROGPU_NATIVE_GROUP_MASK_ROUNDED_RECTANGLE;
@@ -282,6 +283,7 @@ progpu_native_status render_scene(
                         PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN ||
                     mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH ||
                     mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY ||
+                    mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE ||
                     mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {
                     std::uint64_t texture_multiplier = 1U;
                     if (mask_kind ==
@@ -290,10 +292,17 @@ progpu_native_status render_scene(
                         std::memcpy(
                             &composite,
                             bytes + mask_resource.payload_offset,
-                            sizeof(composite));
+                            std::min<std::size_t>(
+                                sizeof(composite),
+                                mask_resource.payload_size));
                         texture_multiplier =
                             static_cast<std::uint64_t>(
-                                composite.component_count) + 2U;
+                                composite.component_count) + 2U +
+                            static_cast<std::uint64_t>(
+                                composite.picture_mask_count) * 4U;
+                    } else if (mask_kind ==
+                        PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE) {
+                        texture_multiplier = 5U;
                     }
                     const std::uint64_t mask_texture_bytes = mask_kind ==
                             PROGPU_NATIVE_SCENE_LAYER_MASK_COVERAGE_BITMAP
@@ -497,6 +506,7 @@ progpu_native_status render_scene(
                     PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN &&
                 mask_kind != PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH &&
                 mask_kind != PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY &&
+                mask_kind != PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE &&
                 mask_kind != PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_UNSUPPORTED,
@@ -506,6 +516,7 @@ progpu_native_status render_scene(
                     PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN ||
                     mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH ||
                     mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY ||
+                    mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE ||
                     mask_kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) &&
                 semantic_generated_masks_budgeted[
                     state.mask_resource_index] == 0U) {
@@ -515,10 +526,17 @@ progpu_native_status render_scene(
                     std::memcpy(
                         &composite,
                         bytes + mask_resource.payload_offset,
-                        sizeof(composite));
+                        std::min<std::size_t>(
+                            sizeof(composite),
+                            mask_resource.payload_size));
                     texture_multiplier =
                         static_cast<std::uint64_t>(
-                            composite.component_count) + 2U;
+                            composite.component_count) + 2U +
+                        static_cast<std::uint64_t>(
+                            composite.picture_mask_count) * 4U;
+                } else if (mask_kind ==
+                    PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE) {
+                    texture_multiplier = 5U;
                 }
                 const std::uint64_t mask_texture_bytes =
                     static_cast<std::uint64_t>(target_extent.width) *

@@ -241,12 +241,63 @@ public static partial class GpuPictureNativeSceneCompiler
         public int GradientStopCount { get; }
     }
 
+    private sealed class PictureMaskNode
+    {
+        public PictureMaskNode(
+            PictureMaskNode? parent,
+            in NativeSceneLayerPictureMask mask,
+            NativeCompiledPicture picture)
+        {
+            Parent = parent;
+            Mask = mask;
+            Picture = picture;
+            Count = checked((parent?.Count ?? 0) + 1);
+            StreamBytes = checked((parent?.StreamBytes ?? 0) + picture.Length);
+        }
+
+        public PictureMaskNode? Parent { get; }
+        public NativeSceneLayerPictureMask Mask { get; }
+        public NativeCompiledPicture Picture { get; }
+        public int Count { get; }
+        public int StreamBytes { get; }
+    }
+
+    private sealed class PictureMaskCompileContext
+    {
+        public readonly HashSet<GpuPicture> Active = new(
+            ReferenceEqualityComparer.Instance);
+        public uint NextOrdinal;
+
+        public bool TryAllocate(
+            ulong parentSceneId,
+            out ulong sceneId,
+            out ulong resourceIdBase)
+        {
+            sceneId = 0U;
+            resourceIdBase = 0U;
+            if (NextOrdinal == uint.MaxValue)
+            {
+                return false;
+            }
+            uint ordinal = ++NextOrdinal;
+            sceneId = parentSceneId ^
+                (0x9E3779B97F4A7C15UL * ordinal);
+            if (sceneId == 0U)
+            {
+                sceneId = ordinal;
+            }
+            resourceIdBase = (ulong)ordinal << 32;
+            return true;
+        }
+    }
+
     private enum StateMaskProgramKind
     {
         Analytic,
         Vector,
         Brush,
         Geometry,
+        Picture,
         Composite
     }
 
@@ -259,7 +310,8 @@ public static partial class GpuPictureNativeSceneCompiler
         NativeSceneLayerMask Mask3,
         VectorMaskNode? VectorMask,
         BrushMaskNode? BrushMasks,
-        GeometryMaskNode? GeometryMasks)
+        GeometryMaskNode? GeometryMasks,
+        PictureMaskNode? PictureMasks)
     {
         public StateMaskProgram(
             NativeSceneLayerMask mask,
@@ -272,6 +324,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 default,
                 default,
                 vectorMask,
+                null,
                 null,
                 null)
         {
@@ -286,6 +339,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 default,
                 default,
                 vectorMask,
+                null,
                 null,
                 null)
         {
@@ -303,6 +357,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 default,
                 null,
                 new BrushMaskNode(null, in brushMask, brushStops),
+                null,
                 null)
         {
         }
@@ -324,21 +379,43 @@ public static partial class GpuPictureNativeSceneCompiler
                     null,
                     in geometryMask,
                     primitives,
-                    stops))
+                    stops),
+                null)
+        {
+        }
+
+        public StateMaskProgram(
+            in NativeSceneLayerPictureMask pictureMask,
+            NativeCompiledPicture picture)
+            : this(
+                StateMaskProgramKind.Picture,
+                0,
+                default,
+                default,
+                default,
+                default,
+                null,
+                null,
+                null,
+                new PictureMaskNode(null, in pictureMask, picture))
         {
         }
 
         public StateMaskProgram(
             VectorMaskNode? vectorMask,
             BrushMaskNode? brushMasks,
-            GeometryMaskNode? geometryMasks = null)
+            GeometryMaskNode? geometryMasks = null,
+            PictureMaskNode? pictureMasks = null)
             : this(
                 brushMasks?.Count == 1 && vectorMask is null &&
-                    geometryMasks is null
+                    geometryMasks is null && pictureMasks is null
                     ? StateMaskProgramKind.Brush
                     : geometryMasks?.Count == 1 && vectorMask is null &&
-                        brushMasks is null
+                        brushMasks is null && pictureMasks is null
                         ? StateMaskProgramKind.Geometry
+                    : pictureMasks?.Count == 1 && vectorMask is null &&
+                        brushMasks is null && geometryMasks is null
+                        ? StateMaskProgramKind.Picture
                     : StateMaskProgramKind.Composite,
                 0,
                 default,
@@ -347,7 +424,8 @@ public static partial class GpuPictureNativeSceneCompiler
                 default,
                 vectorMask,
                 brushMasks,
-                geometryMasks)
+                geometryMasks,
+                pictureMasks)
         {
         }
 
@@ -419,6 +497,9 @@ public static partial class GpuPictureNativeSceneCompiler
                     Unsafe.SizeOf<NativeGeometryPrimitive>() +
                 (GeometryMasks?.Stops.Length ?? 0) *
                     Unsafe.SizeOf<NativeSceneGradientStop>()),
+            StateMaskProgramKind.Picture => checked(
+                Unsafe.SizeOf<NativeSceneLayerPictureMask>() +
+                (PictureMasks?.Picture.Length ?? 0)),
             StateMaskProgramKind.Composite => checked(
                 Unsafe.SizeOf<NativeSceneLayerCompositeMask>() +
                 (BrushMasks?.Count ?? 0) *
@@ -427,6 +508,9 @@ public static partial class GpuPictureNativeSceneCompiler
                     Unsafe.SizeOf<NativeSceneLayerGeometryMask>() +
                 (GeometryMasks?.PrimitiveCount ?? 0) *
                     Unsafe.SizeOf<NativeGeometryPrimitive>() +
+                (PictureMasks?.Count ?? 0) *
+                    Unsafe.SizeOf<NativeSceneLayerPictureMask>() +
+                (PictureMasks?.StreamBytes ?? 0) +
                 (VectorMask?.Count ?? 0) *
                     Unsafe.SizeOf<NativeSceneClipPath>() +
                 (VectorMask?.SegmentCount ?? 0) *
@@ -517,11 +601,31 @@ public static partial class GpuPictureNativeSceneCompiler
             return auxiliary;
         }
 
+        public ReadOnlySpan<byte> GetPictureStream(
+            out NativeSceneLayerPictureMask mask)
+        {
+            if (Kind != StateMaskProgramKind.Picture || PictureMasks is null)
+            {
+                throw new InvalidOperationException(
+                    "Only picture mask programs have a nested scene stream.");
+            }
+            PictureMaskNode node = PictureMasks;
+            NativeSceneLayerPictureMask source = node.Mask;
+            mask = new NativeSceneLayerPictureMask(
+                0U,
+                checked((uint)node.Picture.Length),
+                source.Bounds,
+                source.Transform,
+                source.Opacity);
+            return node.Picture.Stream;
+        }
+
         public byte[] CreateCompositeAuxiliary(
             out NativeSceneLayerCompositeMask mask)
         {
             if (Kind != StateMaskProgramKind.Composite ||
-                (BrushMasks is null && GeometryMasks is null))
+                (BrushMasks is null && GeometryMasks is null &&
+                    PictureMasks is null))
             {
                 throw new InvalidOperationException(
                     "Only composite mask programs have a composite auxiliary span.");
@@ -535,6 +639,10 @@ public static partial class GpuPictureNativeSceneCompiler
             int geometryPrimitiveBytes = checked(
                 (GeometryMasks?.PrimitiveCount ?? 0) *
                     Unsafe.SizeOf<NativeGeometryPrimitive>());
+            int pictureMaskBytes = checked(
+                (PictureMasks?.Count ?? 0) *
+                    Unsafe.SizeOf<NativeSceneLayerPictureMask>());
+            int pictureStreamBytes = PictureMasks?.StreamBytes ?? 0;
             int pathBytes = checked(
                 (VectorMask?.Count ?? 0) *
                     Unsafe.SizeOf<NativeSceneClipPath>());
@@ -550,7 +658,8 @@ public static partial class GpuPictureNativeSceneCompiler
                     Unsafe.SizeOf<NativeSceneGradientStop>());
             byte[] auxiliary = GC.AllocateUninitializedArray<byte>(checked(
                 brushBytes + geometryMaskBytes + geometryPrimitiveBytes +
-                pathBytes + segmentBytes + booleanNodeBytes + stopBytes));
+                pictureMaskBytes + pictureStreamBytes + pathBytes +
+                segmentBytes + booleanNodeBytes + stopBytes));
             Span<NativeSceneLayerBrushMask> brushes = MemoryMarshal.Cast<
                 byte,
                 NativeSceneLayerBrushMask>(auxiliary.AsSpan(0, brushBytes));
@@ -562,8 +671,17 @@ public static partial class GpuPictureNativeSceneCompiler
                     auxiliary.AsSpan(
                         brushBytes + geometryMaskBytes,
                         geometryPrimitiveBytes));
-            int pathOffset = brushBytes + geometryMaskBytes +
+            int pictureMaskOffset = brushBytes + geometryMaskBytes +
                 geometryPrimitiveBytes;
+            Span<NativeSceneLayerPictureMask> pictureMasks =
+                MemoryMarshal.Cast<byte, NativeSceneLayerPictureMask>(
+                    auxiliary.AsSpan(pictureMaskOffset, pictureMaskBytes));
+            Span<byte> pictureStreams = auxiliary.AsSpan(
+                pictureMaskOffset + pictureMaskBytes,
+                pictureStreamBytes);
+            int pathOffset = brushBytes + geometryMaskBytes +
+                geometryPrimitiveBytes + pictureMaskBytes +
+                pictureStreamBytes;
             Span<NativeSceneClipPath> paths = MemoryMarshal.Cast<
                 byte,
                 NativeSceneClipPath>(auxiliary.AsSpan(pathOffset, pathBytes));
@@ -627,6 +745,24 @@ public static partial class GpuPictureNativeSceneCompiler
                         source.Opacity);
                 geometryNode = geometryNode.Parent;
             }
+            PictureMaskNode? pictureNode = PictureMasks;
+            int pictureIndex = pictureMasks.Length;
+            int pictureStreamIndex = pictureStreams.Length;
+            while (pictureNode is not null)
+            {
+                pictureIndex--;
+                pictureStreamIndex -= pictureNode.Picture.Length;
+                pictureNode.Picture.Stream.CopyTo(
+                    pictureStreams[pictureStreamIndex..]);
+                NativeSceneLayerPictureMask source = pictureNode.Mask;
+                pictureMasks[pictureIndex] = new NativeSceneLayerPictureMask(
+                    checked((uint)pictureStreamIndex),
+                    checked((uint)pictureNode.Picture.Length),
+                    source.Bounds,
+                    source.Transform,
+                    source.Opacity);
+                pictureNode = pictureNode.Parent;
+            }
             if (VectorMask is not null)
             {
                 WriteVectorRecords(
@@ -639,14 +775,17 @@ public static partial class GpuPictureNativeSceneCompiler
             uint vectorComponent = VectorMask is null ? 0U : 1U;
             mask = new NativeSceneLayerCompositeMask(
                 checked((uint)(BrushMasks?.Count ?? 0) +
-                    (uint)(GeometryMasks?.Count ?? 0) + vectorComponent),
+                    (uint)(GeometryMasks?.Count ?? 0) +
+                    (uint)(PictureMasks?.Count ?? 0) + vectorComponent),
                 checked((uint)(BrushMasks?.Count ?? 0)),
                 checked((uint)(VectorMask?.Count ?? 0)),
                 checked((uint)(VectorMask?.SegmentCount ?? 0)),
                 checked((uint)(VectorMask?.BooleanNodeCount ?? 0)),
                 checked((uint)stops.Length),
                 checked((uint)(GeometryMasks?.Count ?? 0)),
-                checked((uint)(GeometryMasks?.PrimitiveCount ?? 0)));
+                checked((uint)(GeometryMasks?.PrimitiveCount ?? 0)),
+                checked((uint)(PictureMasks?.Count ?? 0)),
+                checked((uint)(PictureMasks?.StreamBytes ?? 0)));
             return auxiliary;
         }
 
@@ -732,6 +871,41 @@ public static partial class GpuPictureNativeSceneCompiler
         out NativePictureCompileFailure failure)
     {
         ArgumentNullException.ThrowIfNull(picture);
+        var context = new PictureMaskCompileContext();
+        context.Active.Add(picture);
+        try
+        {
+            return TryCompileCore(
+                picture,
+                sceneId,
+                generation,
+                options,
+                Matrix3x2.Identity,
+                null,
+                0U,
+                context,
+                out compiled,
+                out failure);
+        }
+        finally
+        {
+            context.Active.Remove(picture);
+        }
+    }
+
+    private static bool TryCompileCore(
+        GpuPicture picture,
+        ulong sceneId,
+        ulong generation,
+        NativePictureCompileOptions options,
+        Matrix3x2 rootTransform,
+        NativeImageRect? initialClip,
+        ulong resourceIdBase,
+        PictureMaskCompileContext pictureMaskContext,
+        out NativeCompiledPicture? compiled,
+        out NativePictureCompileFailure failure)
+    {
+        ArgumentNullException.ThrowIfNull(picture);
         compiled = null;
         failure = NativePictureCompileFailure.None;
         if (sceneId == 0U || generation == 0U || !options.IsValid)
@@ -775,7 +949,9 @@ public static partial class GpuPictureNativeSceneCompiler
         var states = new List<StateSnapshot>();
         var stateMasks = new List<StateMaskProgram>();
         var stateScopes = new Stack<StateScope>();
-        StateSnapshot currentState = StateSnapshot.Identity;
+        StateSnapshot currentState = initialClip is { } clip
+            ? StateSnapshot.Identity with { HasClip = true, ClipRect = clip }
+            : StateSnapshot.Identity;
         var materials = new NativeBrushTableBuilder();
         List<FlattenedCommand>? flattenedCommands = null;
         int sourceCommandCount = picture.CommandCount;
@@ -784,6 +960,7 @@ public static partial class GpuPictureNativeSceneCompiler
             flattenedCommands = new List<FlattenedCommand>(picture.CommandCount);
             if (!TryFlattenPicture(
                     picture,
+                    rootTransform,
                     flattenedCommands,
                     out sourceCommandCount,
                     out failure))
@@ -820,9 +997,10 @@ public static partial class GpuPictureNativeSceneCompiler
                         NativePictureCompileError.UnsupportedTransform,
                         sourceCommandIndex,
                         sourceCommandType);
-                    return false;
+                        return false;
                     }
                 }
+                transform *= rootTransform;
             }
             else
             {
@@ -870,6 +1048,10 @@ public static partial class GpuPictureNativeSceneCompiler
                     states,
                     stateMasks,
                     operations,
+                    options,
+                    sceneId,
+                    generation,
+                    pictureMaskContext,
                     out bool handled,
                     out NativePictureCompileError stateError))
             {
@@ -1096,19 +1278,19 @@ public static partial class GpuPictureNativeSceneCompiler
                 Batch batch = batches[index];
                 bool added = batch.Kind == BatchKind.Analytic
                     ? builder.TryAddAnalyticResource(
-                        checked((ulong)index + 1U),
+                        checked(resourceIdBase + (ulong)index + 1U),
                         generation,
                         analyticSpan.Slice(batch.Start, batch.Count),
                         out batch.ResourceIndex)
                     : batch.Kind == BatchKind.Geometry
                     ? builder.TryAddGeometryResource(
-                        checked((ulong)index + 1U),
+                        checked(resourceIdBase + (ulong)index + 1U),
                         generation,
                         geometrySpan.Slice(batch.Start, batch.Count),
                         out batch.ResourceIndex)
                     : batch.Kind == BatchKind.Path
                     ? builder.TryAddPathResource(
-                        checked((ulong)index + 1U),
+                        checked(resourceIdBase + (ulong)index + 1U),
                         generation,
                         pathSpan.Slice(batch.Start, batch.Count),
                         pathSegmentSpan.Slice(
@@ -1120,7 +1302,7 @@ public static partial class GpuPictureNativeSceneCompiler
                         out batch.ResourceIndex)
                     : batch.Kind == BatchKind.PointBatch
                     ? builder.TryAddPointBatchResource(
-                        checked((ulong)index + 1U),
+                        checked(resourceIdBase + (ulong)index + 1U),
                         generation,
                         pointBatchSpan.Slice(batch.Start, batch.Count),
                         pointSpan.Slice(
@@ -1129,7 +1311,7 @@ public static partial class GpuPictureNativeSceneCompiler
                         out batch.ResourceIndex)
                     : batch.Kind == BatchKind.VertexMesh
                     ? builder.TryAddVertexMeshResource(
-                        checked((ulong)index + 1U),
+                        checked(resourceIdBase + (ulong)index + 1U),
                         generation,
                         vertexMeshSpan.Slice(batch.Start, batch.Count),
                         meshVertexSpan.Slice(
@@ -1141,7 +1323,7 @@ public static partial class GpuPictureNativeSceneCompiler
                         out batch.ResourceIndex)
                     : batch.Kind == BatchKind.Stroke
                     ? builder.TryAddStrokeResource(
-                        checked((ulong)index + 1U),
+                        checked(resourceIdBase + (ulong)index + 1U),
                         generation,
                         strokeSpan.Slice(batch.Start, batch.Count),
                         strokePointSpan.Slice(
@@ -1153,7 +1335,7 @@ public static partial class GpuPictureNativeSceneCompiler
                         out batch.ResourceIndex)
                     : batch.Kind == BatchKind.ColorGlyph
                     ? builder.TryAddColorGlyphResource(
-                        checked((ulong)index + 1U),
+                        checked(resourceIdBase + (ulong)index + 1U),
                         generation,
                         colorGlyphBitmapSpan.Slice(
                             batch.Start,
@@ -1164,17 +1346,17 @@ public static partial class GpuPictureNativeSceneCompiler
                         out batch.ResourceIndex)
                     : batch.Kind == BatchKind.Line3D
                     ? builder.TryAddLine3DResource(
-                        checked((ulong)index + 1U),
+                        checked(resourceIdBase + (ulong)index + 1U),
                         generation,
                         line3DSpan.Slice(batch.Start, batch.Count),
                         out batch.ResourceIndex)
                     : batch.Kind == BatchKind.Image
                     ? builder.TryAddExternalImageResource(
-                        checked((ulong)index + 1U),
+                        checked(resourceIdBase + (ulong)index + 1U),
                         generation,
                         out batch.ResourceIndex)
                     : builder.TryAddGlyphResource(
-                        checked((ulong)index + 1U),
+                        checked(resourceIdBase + (ulong)index + 1U),
                         generation,
                         glyphOutlineSpan.Slice(batch.Start, batch.Count),
                         glyphSegmentSpan.Slice(
@@ -1191,7 +1373,8 @@ public static partial class GpuPictureNativeSceneCompiler
                 }
                 batches[index] = batch;
             }
-            ulong nextResourceId = checked((ulong)batches.Count + 1U);
+            ulong nextResourceId = checked(
+                resourceIdBase + (ulong)batches.Count + 1U);
             uint brushResourceIndex = uint.MaxValue;
             if (materials.BrushCount > 0 &&
                 !builder.TryAddBrushTableResource(
@@ -1281,6 +1464,17 @@ public static partial class GpuPictureNativeSceneCompiler
                         generation,
                         in geometryMask,
                         auxiliary,
+                        out maskResourceIndices[index]);
+                }
+                else if (program.Kind == StateMaskProgramKind.Picture)
+                {
+                    ReadOnlySpan<byte> nestedStream = program.GetPictureStream(
+                        out NativeSceneLayerPictureMask pictureMask);
+                    added = builder.TryAddLayerPictureMaskResource(
+                        resourceId,
+                        generation,
+                        in pictureMask,
+                        nestedStream,
                         out maskResourceIndices[index]);
                 }
                 else
@@ -1484,10 +1678,12 @@ public static partial class GpuPictureNativeSceneCompiler
                 lines3D.Count,
                 materials.BrushCount,
                 materials.GradientStopCount,
-                CreateExternalImageBindings(
+                CreateAllExternalImageBindings(
                     batches,
                     externalImageSpan,
-                    generation));
+                    generation,
+                    resourceIdBase,
+                    stateMasks));
             return true;
         }
         catch (Exception exception) when (
@@ -1510,6 +1706,10 @@ public static partial class GpuPictureNativeSceneCompiler
         List<StateSnapshot> states,
         List<StateMaskProgram> stateMasks,
         List<Operation> operations,
+        NativePictureCompileOptions options,
+        ulong sceneId,
+        ulong generation,
+        PictureMaskCompileContext pictureMaskContext,
         out bool handled,
         out NativePictureCompileError error)
     {
@@ -1564,6 +1764,10 @@ public static partial class GpuPictureNativeSceneCompiler
                         command,
                         current,
                         stateMasks,
+                        options,
+                        sceneId,
+                        generation,
+                        pictureMaskContext,
                         out StateSnapshot maskState,
                         out error))
                 {
@@ -4324,7 +4528,8 @@ public static partial class GpuPictureNativeSceneCompiler
     CreateExternalImageBindings(
         List<Batch> batches,
         ReadOnlySpan<ExternalImageDraw> images,
-        ulong generation)
+        ulong generation,
+        ulong resourceIdBase)
     {
         if (images.IsEmpty)
         {
@@ -4352,13 +4557,13 @@ public static partial class GpuPictureNativeSceneCompiler
                 continue;
             }
             bindings[bindingIndex++] = new(
-                checked((ulong)batchIndex + 1U),
+                checked(resourceIdBase + (ulong)batchIndex + 1U),
                 generation,
                 images[batch.Start].Texture);
             if (images[batch.Start].ChromaTexture is { } chroma)
             {
                 bindings[bindingIndex++] = new(
-                    checked((ulong)batchIndex + 1U),
+                    checked(resourceIdBase + (ulong)batchIndex + 1U),
                     generation,
                     chroma,
                     NativeSceneExternalImageRole.Chroma);
@@ -4366,13 +4571,60 @@ public static partial class GpuPictureNativeSceneCompiler
             if (images[batch.Start].MaskTexture is { } mask)
             {
                 bindings[bindingIndex++] = new(
-                    checked((ulong)batchIndex + 1U),
+                    checked(resourceIdBase + (ulong)batchIndex + 1U),
                     generation,
                     mask,
                     NativeSceneExternalImageRole.Mask);
             }
         }
         return bindings;
+    }
+
+    private static NativeSceneExternalImageBinding[]
+    CreateAllExternalImageBindings(
+        List<Batch> batches,
+        ReadOnlySpan<ExternalImageDraw> images,
+        ulong generation,
+        ulong resourceIdBase,
+        List<StateMaskProgram> stateMasks)
+    {
+        NativeSceneExternalImageBinding[] direct =
+            CreateExternalImageBindings(
+                batches,
+                images,
+                generation,
+                resourceIdBase);
+        var result = new List<NativeSceneExternalImageBinding>(direct.Length);
+        var seen = new HashSet<(
+            ulong ResourceId,
+            NativeSceneExternalImageRole Role)>();
+        foreach (NativeSceneExternalImageBinding binding in direct)
+        {
+            seen.Add((binding.ResourceId, binding.Role));
+            result.Add(binding);
+        }
+        foreach (StateMaskProgram program in stateMasks)
+        {
+            PictureMaskNode? node = program.PictureMasks;
+            while (node is not null)
+            {
+                foreach (NativeSceneExternalImageBinding binding in
+                    node.Picture.ExternalImages)
+                {
+                    if (seen.Add((binding.ResourceId, binding.Role)))
+                    {
+                        result.Add(binding);
+                    }
+                }
+                node = node.Parent;
+            }
+        }
+        result.Sort(static (left, right) =>
+        {
+            int id = left.ResourceId.CompareTo(right.ResourceId);
+            return id != 0 ? id : left.Role.CompareTo(right.Role);
+        });
+        return result.ToArray();
     }
 
     private static bool TryCreateAffineImageColorMatrix(

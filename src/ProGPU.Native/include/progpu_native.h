@@ -94,6 +94,7 @@ enum {
     PROGPU_NATIVE_SCENE_MAX_COMMANDS = 1024U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_RESOURCES = 256U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS = 16U,
+    PROGPU_NATIVE_SCENE_MAX_PICTURE_MASK_DEPTH = 16U,
     PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES = 256U * 1024U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_BRUSHES = 1024U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS = 64U * 1024U,
@@ -168,7 +169,8 @@ typedef enum progpu_native_scene_layer_mask_kind {
     PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN = 4,
     PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH = 5,
     PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE = 6,
-    PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY = 7
+    PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY = 7,
+    PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE = 8
 } progpu_native_scene_layer_mask_kind;
 
 enum {
@@ -1288,14 +1290,37 @@ typedef struct progpu_native_scene_layer_geometry_mask {
 } progpu_native_scene_layer_geometry_mask;
 
 /*
+ * Pointer-free retained picture opacity mask. The stream range addresses one
+ * complete nested semantic scene in the owning resource's picture-stream
+ * auxiliary arena. The nested stream is independently versioned, bounded,
+ * and validated before any child GPU engine or texture is created. Bounds and
+ * transform preserve the managed PushOpacityMask picture provenance; the
+ * nested scene already carries the composed root transform and bounded clip.
+ */
+typedef struct progpu_native_scene_layer_picture_mask {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint32_t flags;
+    uint32_t stream_offset;
+    uint32_t stream_size;
+    uint32_t reserved0;
+    progpu_native_image_rect bounds;
+    progpu_native_affine_2d transform;
+    float opacity;
+    uint32_t reserved1;
+} progpu_native_scene_layer_picture_mask;
+
+/*
  * Pointer-free retained intersection of arbitrary GPU-generated masks. The
  * auxiliary span contains brush_mask_count brush-mask records, followed by
  * geometry_mask_count geometry-mask records, geometry_primitive_count
- * geometry primitives, path_count clip paths, segment_count path segments,
- * boolean_node_count postfix nodes, and gradient_stop_count shared gradient
- * records. A non-empty vector range contributes one component; each brush or
- * geometry record contributes one component. Primitive and stop offsets
- * address their shared resource-local spans.
+ * geometry primitives, picture_mask_count picture-mask records,
+ * picture_stream_bytes bytes of nested semantic streams, path_count clip
+ * paths, segment_count path segments, boolean_node_count postfix nodes, and
+ * gradient_stop_count shared gradient records. A non-empty vector range
+ * contributes one component; each brush, geometry, or picture record
+ * contributes one component. Primitive, stream, and stop offsets address
+ * their shared resource-local spans.
  * The executor evaluates every component on the GPU and multiplies their R8
  * coverage through the canonical ClipCompose.wgsl program. All fields remain
  * fixed-width on wasm32 and native hosts.
@@ -1313,6 +1338,10 @@ typedef struct progpu_native_scene_layer_composite_mask {
     float opacity;
     uint32_t geometry_mask_count;
     uint32_t geometry_primitive_count;
+    uint32_t picture_mask_count;
+    uint32_t picture_stream_bytes;
+    uint32_t reserved0;
+    uint32_t reserved1;
 } progpu_native_scene_layer_composite_mask;
 
 /*

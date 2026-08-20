@@ -1506,10 +1506,17 @@ isolated-layer approximation: opacity remains per draw, preserving overlap
 behavior and avoiding an offscreen allocation. Rotated/sheared solid masks,
 linear/radial/two-point-conical/sweep gradients, hatch/cross-hatch, and Perlin
 masks now use the pointer-free GPU-generated brush-mask route below.
-Retained-picture masks fail closed until the scene ABI can express their
-immutable drawing ownership. Stroked-path masks reuse the exact retained
-geometry expansion and canonical pen material described below. Multiple active
-brush, stroked-geometry, and clip masks use the exact bounded GPU composite
+Retained-picture masks use a 72-byte pointer-free record referencing one nested
+semantic scene stream. The compiler snapshots the immutable picture with its
+composed initial transform and clip, assigns deterministic child scene/resource
+namespaces, merges external image bindings, rejects cycles, and limits mask
+nesting to 16. Native validation recursively checks the complete child stream
+before resource creation. Execution uses a child engine sharing the exact
+parent device, queue, adapter limits, and dispatch table, renders RGBA on the
+GPU, and crops alpha into bounded R8 through canonical `ClipCompose.wgsl` with
+no CPU readback. Stroked-path masks reuse the exact retained geometry expansion
+and canonical pen material described below. Multiple active brush,
+stroked-geometry, picture, and clip masks use the exact bounded GPU composite
 route described below.
 Compilation adds one fixed 64-byte state resource and paired save/restore
 commands; stable replay adds no upload or managed allocation.
@@ -1543,18 +1550,19 @@ translation is `O(G)` for `G` retained geometry primitives, immutable GPU
 generation is bounded by covered pixels, and stable replay retains one R8
 binding with zero scene upload.
 
-Nested arbitrary opacity masks use a fixed 48-byte composite prefix and one
-pointer-free auxiliary arena. The arena contains up to 64 canonical brush or
-stroked-geometry mask records, the geometry primitives they address, plus at
-most one cumulative vector chain; every brush addresses one shared
-resource-local gradient-stop range. The managed compiler preserves the
+Nested arbitrary opacity masks use a fixed 64-byte composite prefix while the
+reader preserves compatibility with the legacy 48-byte prefix. One pointer-free
+auxiliary arena contains up to 64 canonical brush, stroked-geometry, vector, or
+picture mask records, the geometry primitives they address, nested semantic
+scene bytes, plus at most one cumulative vector chain; every brush addresses
+one shared resource-local gradient-stop range. The managed compiler preserves the
 analytic one-to-four-mask fast path until a brush requires GPU composition,
 then carries the already retained geometry chain without flattening it. Native
 code generates each component in R8 and applies ordered intersection with the
 same `ClipCompose.wgsl` multiplication used by retained vector clips. Changed
 materialization is bounded `O(C * W * H + G + P + S + N)` GPU work and `O(C *
 W * H)` transient coverage at the conservative budget boundary for `C`
-components and `G` stroke primitives;
+components and `G` stroke primitives, plus the validated nested-scene budget;
 stable replay is one texture sample per covered output fragment, with zero scene
 translation or retained upload. The Dawn/Metal fixture uses a linear gradient
 intersected with a half-alpha solid brush and a thick bounded stroke and checks
@@ -1663,11 +1671,11 @@ for vector, glyph, plain-image, and color-matrix-image draws. Text and image
 pipelines use canonical explicit layouts; a color matrix occupies an
 independent fourth bind group so it can be fused with the state mask in one
 draw. The managed picture compiler emits canonical analytic masks, retained
-vector masks, GPU-generated brush and stroked-geometry masks, and bounded
-composite mask programs. Combined-path clips use the same GPU postfix program as managed
-`PathAtlas`; retained-picture opacity-mask
-content remains typed fail-closed and is not approximated with an isolated
-group.
+vector masks, GPU-generated brush, stroked-geometry, and retained-picture
+masks, plus bounded composite mask programs. Combined-path clips use the same
+GPU postfix program as managed `PathAtlas`; retained-picture opacity-mask
+content remains an exact nested scene rather than an isolated-group
+approximation.
 
 The Apple M3 Pro matched `960x540` state-mask checkpoint used one Release
 process, 100 alternating warm-up pairs, and 1,000 alternating synchronized
@@ -1736,9 +1744,9 @@ the managed state stack. Geometry-mask affine transforms may rotate or shear;
 ordinary rectangular scissors and the direct solid-opacity fold retain their
 axis-aligned subset, while other supported brush masks preserve full affine
 coverage through a retained GPU-generated R8 texture. Non-finite or
-non-invertible transforms, malformed or over-budget vector/composite programs,
-unsupported retained-picture opacity masks, and
-mismatched or unterminated scopes fail with typed source-command diagnostics.
+non-invertible transforms, malformed or over-budget vector/composite/picture
+programs, cyclic or over-depth picture masks, and mismatched or unterminated
+scopes fail with typed source-command diagnostics.
 Perlin materials,
 color/vector/bitmap glyphs, text decorations, text masks, typed 2D/3D geometry,
 advanced blend isolation, and ordinary straight-alpha image draws are now

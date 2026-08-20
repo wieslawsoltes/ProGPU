@@ -1215,9 +1215,12 @@ Current native parity:
   or rounded-rectangle `PushGeometryClip` scopes to the exact per-draw mask
   state, including rotated/sheared finite invertible transforms. General and
   fifth-through-sixty-fourth geometry masks use retained GPU vector coverage;
-  mixed brush/vector stacks use one bounded 48-byte composite prefix and shared
-  GPU coverage multiplication. Retained-picture mask content and isolated-layer
-  analytic chains remain typed fail-closed rather than approximated;
+  mixed brush/vector/picture stacks use one bounded 64-byte composite prefix
+  (with legacy 48-byte read compatibility) and shared GPU coverage
+  multiplication. Retained-picture masks carry recursively validated nested
+  semantic streams, render on the same WebGPU device/queue, and extract bounded
+  alpha GPU-to-GPU; isolated-layer analytic chains remain typed fail-closed
+  rather than approximated;
 - pointer-free retained semantic solid/linear/radial/two-point-conical/sweep
   brushes with exact production `GpuBrush`/gradient-stop layout, compact
   analytic/path maps, scene-wide referenced-range deduplication, GPU-only

@@ -437,6 +437,7 @@ set(PROGPU_NATIVE_BACKEND_SOURCES
     src/Backend/progpu_native_advanced_blend_execution.cpp
     src/Backend/progpu_native_backdrop_execution.cpp
     src/Backend/progpu_native.cpp
+    src/Backend/progpu_native_child_engine.hpp
     src/Backend/progpu_native_draw_state.cpp
     src/Backend/progpu_native_draw_state.hpp
     src/Backend/progpu_native_device_recovery.cpp
@@ -502,6 +503,7 @@ set(PROGPU_NATIVE_SCENE_SOURCES
     src/Scene/progpu_native_semantic_layer_mask_resources.hpp
     src/Scene/progpu_native_semantic_brush_mask_resources.cpp
     src/Scene/progpu_native_semantic_composite_mask_resources.cpp
+    src/Scene/progpu_native_semantic_picture_mask_resources.cpp
     src/Scene/progpu_native_path_boolean_validation.hpp
     src/Scene/progpu_native_semantic_text_style.cpp
     src/Scene/progpu_native_semantic_text_style.hpp

@@ -90,6 +90,8 @@ public static partial class GpuPictureNativeSceneCompiler
             (current.MaskIndex >= 0 &&
                 stateMasks[current.MaskIndex].GeometryMasks is not null) ||
             (current.MaskIndex >= 0 &&
+                stateMasks[current.MaskIndex].PictureMasks is not null) ||
+            (current.MaskIndex >= 0 &&
                 stateMasks[current.MaskIndex].Count >=
                     NativeSceneLayerMaskChain.MaximumMaskCount);
         if (requiresVector && !TryCompileVectorMaskChain(
@@ -106,10 +108,15 @@ public static partial class GpuPictureNativeSceneCompiler
         GeometryMaskNode? activeGeometry = current.MaskIndex >= 0
             ? stateMasks[current.MaskIndex].GeometryMasks
             : null;
-        if (activeBrushes is not null || activeGeometry is not null)
+        PictureMaskNode? activePictures = current.MaskIndex >= 0
+            ? stateMasks[current.MaskIndex].PictureMasks
+            : null;
+        if (activeBrushes is not null || activeGeometry is not null ||
+            activePictures is not null)
         {
             if (checked((activeBrushes?.Count ?? 0) +
-                    (activeGeometry?.Count ?? 0) + 1) >
+                    (activeGeometry?.Count ?? 0) +
+                    (activePictures?.Count ?? 0) + 1) >
                 NativeSceneLayerCompositeMask.MaximumComponentCount)
             {
                 error = NativePictureCompileError.CapacityExceeded;
@@ -118,7 +125,8 @@ public static partial class GpuPictureNativeSceneCompiler
             program = new StateMaskProgram(
                 retainedVectorMask,
                 activeBrushes,
-                activeGeometry);
+                activeGeometry,
+                activePictures);
         }
         else if (canonical)
         {
@@ -477,21 +485,113 @@ public static partial class GpuPictureNativeSceneCompiler
         in RenderCommand command,
         StateSnapshot current,
         List<StateMaskProgram> stateMasks,
+        NativePictureCompileOptions options,
+        ulong sceneId,
+        ulong generation,
+        PictureMaskCompileContext pictureMaskContext,
         out StateSnapshot next,
         out NativePictureCompileError error)
     {
         next = current;
         error = NativePictureCompileError.None;
-        if (command.Picture is not null)
-        {
-            error = NativePictureCompileError.UnsupportedCommand;
-            return false;
-        }
         if (!IsFiniteRect(command.Rect) || command.Rect.IsEmpty ||
             !TryGetAffine(command.Transform, out Matrix3x2 transform))
         {
             error = NativePictureCompileError.InvalidState;
             return false;
+        }
+
+        if (command.Picture is { } picture)
+        {
+            if (command.Path is not null || command.Brush is not null ||
+                !pictureMaskContext.TryAllocate(
+                    sceneId,
+                    out ulong pictureSceneId,
+                    out ulong pictureResourceIdBase) ||
+                !pictureMaskContext.Active.Add(picture))
+            {
+                error = NativePictureCompileError.InvalidState;
+                return false;
+            }
+            NativeCompiledPicture? compiledPicture;
+            NativePictureCompileFailure pictureFailure;
+            try
+            {
+                NativeImageRect clip = TransformBounds(command.Rect, transform);
+                if (!TryCompileCore(
+                        picture,
+                        pictureSceneId,
+                        generation,
+                        options,
+                        transform,
+                        clip,
+                        pictureResourceIdBase,
+                        pictureMaskContext,
+                        out compiledPicture,
+                        out pictureFailure))
+                {
+                    error = pictureFailure.Error;
+                    return false;
+                }
+            }
+            finally
+            {
+                pictureMaskContext.Active.Remove(picture);
+            }
+            if (compiledPicture is null)
+            {
+                error = NativePictureCompileError.StreamBuildFailed;
+                return false;
+            }
+            var pictureMask = new NativeSceneLayerPictureMask(
+                0U,
+                checked((uint)compiledPicture.Length),
+                new NativeImageRect(
+                    command.Rect.X,
+                    command.Rect.Y,
+                    command.Rect.Width,
+                    command.Rect.Height),
+                transform);
+            StateMaskProgram pictureProgram;
+            if (current.MaskIndex < 0)
+            {
+                pictureProgram = new StateMaskProgram(
+                    in pictureMask,
+                    compiledPicture);
+            }
+            else
+            {
+                StateMaskProgram active = stateMasks[current.MaskIndex];
+                var pictureNode = new PictureMaskNode(
+                    active.PictureMasks,
+                    in pictureMask,
+                    compiledPicture);
+                uint vectorComponent = active.VectorMask is null ? 0U : 1U;
+                uint componentCount = checked(
+                    (uint)(active.BrushMasks?.Count ?? 0) +
+                    (uint)(active.GeometryMasks?.Count ?? 0) +
+                    (uint)pictureNode.Count + vectorComponent);
+                if (componentCount >
+                    NativeSceneLayerCompositeMask.MaximumComponentCount)
+                {
+                    error = NativePictureCompileError.CapacityExceeded;
+                    return false;
+                }
+                if (active.Kind == StateMaskProgramKind.Analytic &&
+                    !TryCompileVectorMaskChain(active.VectorMask!, out error))
+                {
+                    return false;
+                }
+                pictureProgram = new StateMaskProgram(
+                    active.VectorMask,
+                    active.BrushMasks,
+                    active.GeometryMasks,
+                    pictureNode);
+            }
+            int pictureMaskIndex = stateMasks.Count;
+            stateMasks.Add(pictureProgram);
+            next = current with { MaskIndex = pictureMaskIndex };
+            return true;
         }
 
         if (command.Path is { } path)
@@ -530,7 +630,9 @@ public static partial class GpuPictureNativeSceneCompiler
                 uint vectorComponent = active.VectorMask is null ? 0U : 1U;
                 uint componentCount = checked(
                     (uint)(active.BrushMasks?.Count ?? 0) +
-                    (uint)geometryNode.Count + vectorComponent);
+                    (uint)geometryNode.Count +
+                    (uint)(active.PictureMasks?.Count ?? 0) +
+                    vectorComponent);
                 if (componentCount >
                     NativeSceneLayerCompositeMask.MaximumComponentCount)
                 {
@@ -545,7 +647,8 @@ public static partial class GpuPictureNativeSceneCompiler
                 geometryProgram = new StateMaskProgram(
                     active.VectorMask,
                     active.BrushMasks,
-                    geometryNode);
+                    geometryNode,
+                    active.PictureMasks);
             }
             int geometryMaskIndex = stateMasks.Count;
             stateMasks.Add(geometryProgram);
@@ -627,6 +730,7 @@ public static partial class GpuPictureNativeSceneCompiler
             uint vectorComponent = active.VectorMask is null ? 0U : 1U;
             if (checked((uint)brushNode.Count +
                     (uint)(active.GeometryMasks?.Count ?? 0) +
+                    (uint)(active.PictureMasks?.Count ?? 0) +
                     vectorComponent) >
                 NativeSceneLayerCompositeMask.MaximumComponentCount)
             {
@@ -641,7 +745,8 @@ public static partial class GpuPictureNativeSceneCompiler
             program = new StateMaskProgram(
                 active.VectorMask,
                 brushNode,
-                active.GeometryMasks);
+                active.GeometryMasks,
+                active.PictureMasks);
         }
         int maskIndex = stateMasks.Count;
         stateMasks.Add(program);

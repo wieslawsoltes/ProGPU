@@ -1411,6 +1411,52 @@ bool render_browser_frame(double, void*) {
         fail_engine("The stable browser GPU brush mask was rebuilt.");
     }
 
+    auto picture_mask_scene =
+        progpu::native::tests::create_semantic_picture_mask_scene_stream(
+            width,
+            height);
+    progpu_native_scene_metrics picture_mask_scene_metrics{};
+    picture_mask_scene_metrics.struct_size =
+        sizeof(picture_mask_scene_metrics);
+    if (progpu_native_engine_update_scene(
+            resources.engine,
+            picture_mask_scene.data(),
+            picture_mask_scene.size(),
+            &picture_mask_scene_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        picture_mask_scene_metrics.command_count != 3U ||
+        picture_mask_scene_metrics.resource_count != 2U ||
+        picture_mask_scene_metrics.draw_count != 1U) {
+        fail_engine("The browser picture-mask scene update failed.");
+    }
+    semantic_frame.scene_id = 108U;
+    semantic_frame.generation = 1U;
+    progpu_native_scene_frame_metrics picture_mask_metrics{};
+    picture_mask_metrics.struct_size = sizeof(picture_mask_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &picture_mask_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        picture_mask_metrics.command_count != 3U ||
+        picture_mask_metrics.draw_call_count != 2U ||
+        picture_mask_metrics.submission_count != 3U ||
+        picture_mask_metrics.texture_upload_bytes != 0U ||
+        picture_mask_metrics.uniform_upload_bytes <
+            28U * sizeof(float)) {
+        fail_engine("The browser retained picture-mask render failed.");
+    }
+    picture_mask_metrics = {};
+    picture_mask_metrics.struct_size = sizeof(picture_mask_metrics);
+    if (progpu_native_engine_render_scene(
+            resources.engine,
+            &semantic_frame,
+            &picture_mask_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        picture_mask_metrics.submission_count != 1U ||
+        picture_mask_metrics.texture_upload_bytes != 0U ||
+        picture_mask_metrics.vertex_upload_bytes != 0U ||
+        picture_mask_metrics.uniform_upload_bytes != 0U) {
+        fail_engine("The stable browser retained picture mask was rebuilt.");
+    }
+
     auto coverage_scene =
         progpu::native::tests::create_semantic_coverage_mask_scene_stream(
             width,

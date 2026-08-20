@@ -230,12 +230,27 @@ validation_result fail(
     return result;
 }
 
+thread_local std::uint32_t validation_depth = 0U;
+
+struct validation_depth_scope final {
+    validation_depth_scope() noexcept { ++validation_depth; }
+    ~validation_depth_scope() { --validation_depth; }
+};
+
 } // namespace
 
 validation_result validate(
     const void* stream,
     std::size_t stream_size) noexcept {
     progpu_native_scene_header header{};
+    if (validation_depth >= PROGPU_NATIVE_SCENE_MAX_PICTURE_MASK_DEPTH) {
+        return fail(
+            header,
+            PROGPU_NATIVE_SCENE_VALIDATION_RANGE,
+            0U,
+            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY);
+    }
+    const validation_depth_scope depth_scope{};
     if (stream == nullptr ||
         stream_size < sizeof(progpu_native_scene_header) ||
         stream_size > PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES ||
@@ -400,12 +415,44 @@ validation_result validate(
         }
         if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
             std::uint32_t mask_error_offset = resource.payload_offset;
+            semantic::semantic_layer_mask parsed_mask{};
             if (!semantic::validate_layer_mask_resource(
-                    bytes, resource, mask_error_offset)) {
+                    bytes, resource, mask_error_offset, &parsed_mask)) {
                 return fail(
                     header,
                     PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
                     mask_error_offset);
+            }
+            const auto validate_nested = [&](const std::byte* nested,
+                                             std::uint32_t size) noexcept {
+                const validation_result nested_result = validate(nested, size);
+                return nested_result.status == PROGPU_NATIVE_STATUS_SUCCESS;
+            };
+            if (parsed_mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE &&
+                !validate_nested(
+                    parsed_mask.composite_picture_streams,
+                    parsed_mask.picture.stream_size)) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                    resource.auxiliary_offset);
+            }
+            if (parsed_mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {
+                for (std::uint32_t picture_index = 0U;
+                     picture_index < parsed_mask.composite.picture_mask_count;
+                     ++picture_index) {
+                    const auto& picture =
+                        parsed_mask.composite_picture_masks[picture_index];
+                    if (!validate_nested(
+                            parsed_mask.composite_picture_streams +
+                                picture.stream_offset,
+                            picture.stream_size)) {
+                        return fail(
+                            header,
+                            PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                            resource.auxiliary_offset);
+                    }
+                }
             }
         }
         if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) {

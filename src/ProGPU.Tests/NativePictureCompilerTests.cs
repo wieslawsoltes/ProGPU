@@ -2991,6 +2991,200 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerLowersPictureOpacityMaskToNestedNativeScene()
+    {
+        using var maskPicture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Rect = new Rect(1f, 2f, 6f, 8f),
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Rect = new Rect(12f, 2f, 6f, 8f),
+                    Transform = Matrix4x4.Identity
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+        Matrix4x4 transform = Matrix4x4.CreateScale(2f, 3f, 1f) *
+            Matrix4x4.CreateTranslation(5f, 7f, 0f);
+        var bounds = new Rect(0f, 0f, 20f, 12f);
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushOpacityMask,
+                    Picture = maskPicture,
+                    Rect = bounds,
+                    Transform = transform
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Rect = bounds,
+                    Transform = transform
+                },
+                new RenderCommand { Type = RenderCommandType.PopOpacityMask }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            101U,
+            7U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure), failure.ToString());
+        Assert.NotNull(compiled);
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(
+            compiled.Stream);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)header.ResourceCount) *
+                        Unsafe.SizeOf<NativeMethods.SceneResource>()));
+        NativeMethods.SceneResource resource = resources.ToArray().Single(
+            static item =>
+                item.Kind == NativeSceneResourceKind.LayerMask &&
+                item.PayloadSize ==
+                    Unsafe.SizeOf<NativeSceneLayerPictureMask>());
+        var stored = MemoryMarshal.Read<NativeSceneLayerPictureMask>(
+            compiled.Stream.Slice(checked((int)resource.PayloadOffset)));
+        Assert.Equal(NativeSceneLayerMaskKind.Picture, stored.Kind);
+        Assert.Equal(0U, stored.StreamOffset);
+        Assert.Equal(resource.AuxiliarySize, stored.StreamSize);
+        Assert.Equal(
+            new NativeImageRect(
+                bounds.X,
+                bounds.Y,
+                bounds.Width,
+                bounds.Height),
+            stored.Bounds);
+        Assert.Equal(
+            new Matrix3x2(
+                transform.M11,
+                transform.M12,
+                transform.M21,
+                transform.M22,
+                transform.M41,
+                transform.M42),
+            stored.Transform);
+        var nestedHeader = MemoryMarshal.Read<NativeMethods.SceneHeader>(
+            compiled.Stream.Slice(checked((int)resource.AuxiliaryOffset)));
+        Assert.Equal(resource.AuxiliarySize, nestedHeader.TotalSize);
+        Assert.NotEqual(header.SceneId, nestedHeader.SceneId);
+        Assert.Equal(header.Generation, nestedHeader.Generation);
+        Assert.Equal(1U, nestedHeader.CommandCount);
+    }
+
+    [Fact]
+    public void CompilerComposesBrushAndPictureOpacityMasks()
+    {
+        using var maskPicture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Rect = new Rect(2f, 2f, 8f, 8f),
+                    Transform = Matrix4x4.Identity
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+        var gradient = new LinearGradientBrush(
+            Vector2.Zero,
+            new Vector2(20f, 0f),
+            [
+                new GradientStop(Vector4.One, 0f),
+                new GradientStop(new Vector4(1f, 1f, 1f, 0.25f), 1f)
+            ]);
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushOpacityMask,
+                    Brush = gradient,
+                    Rect = new Rect(0f, 0f, 20f, 12f),
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.PushOpacityMask,
+                    Picture = maskPicture,
+                    Rect = new Rect(0f, 0f, 20f, 12f),
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Rect = new Rect(0f, 0f, 20f, 12f),
+                    Transform = Matrix4x4.Identity
+                },
+                new RenderCommand { Type = RenderCommandType.PopOpacityMask },
+                new RenderCommand { Type = RenderCommandType.PopOpacityMask }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            102U,
+            8U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure), failure.ToString());
+        Assert.NotNull(compiled);
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(
+            compiled.Stream);
+        ReadOnlySpan<NativeMethods.SceneResource> resources =
+            MemoryMarshal.Cast<byte, NativeMethods.SceneResource>(
+                compiled.Stream.Slice(
+                    checked((int)header.ResourceOffset),
+                    checked((int)header.ResourceCount) *
+                        Unsafe.SizeOf<NativeMethods.SceneResource>()));
+        NativeMethods.SceneResource resource = resources.ToArray().Last(
+            static item =>
+                item.Kind == NativeSceneResourceKind.LayerMask &&
+                item.PayloadSize ==
+                    Unsafe.SizeOf<NativeSceneLayerCompositeMask>());
+        var stored = MemoryMarshal.Read<NativeSceneLayerCompositeMask>(
+            compiled.Stream.Slice(checked((int)resource.PayloadOffset)));
+        Assert.Equal(2U, stored.ComponentCount);
+        Assert.Equal(1U, stored.BrushMaskCount);
+        Assert.Equal(1U, stored.PictureMaskCount);
+        Assert.True(stored.PictureStreamBytes >=
+            Unsafe.SizeOf<NativeMethods.SceneHeader>());
+        int pictureOffset = checked((int)resource.AuxiliaryOffset) +
+            Unsafe.SizeOf<NativeSceneLayerBrushMask>();
+        var pictureMask = MemoryMarshal.Read<NativeSceneLayerPictureMask>(
+            compiled.Stream.Slice(pictureOffset));
+        Assert.Equal(0U, pictureMask.StreamOffset);
+        Assert.Equal(stored.PictureStreamBytes, pictureMask.StreamSize);
+        int streamOffset = pictureOffset +
+            Unsafe.SizeOf<NativeSceneLayerPictureMask>();
+        var nestedHeader = MemoryMarshal.Read<NativeMethods.SceneHeader>(
+            compiled.Stream.Slice(streamOffset));
+        Assert.Equal(stored.PictureStreamBytes, nestedHeader.TotalSize);
+    }
+
+    [Fact]
     public void CompilerLowersStrokedPathOpacityMaskToGpuGeometryMask()
     {
         var gradient = new LinearGradientBrush(

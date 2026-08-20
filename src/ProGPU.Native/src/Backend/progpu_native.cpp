@@ -19,6 +19,7 @@
 #include "progpu_webgpu_compat.hpp"
 #include "progpu_native_engine.hpp"
 #include "progpu_native_pipeline.hpp"
+#include "progpu_native_child_engine.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -117,6 +118,23 @@ progpu_native_status validate_recreation_source(
 }
 
 } // namespace
+
+namespace progpu::native::execution {
+
+progpu_native_status create_child_engine(
+    const progpu_native_engine& parent,
+    WGPUTextureFormat target_format,
+    progpu_native_engine** child) {
+    return create_engine(
+        parent.instance,
+        parent.device,
+        parent.queue,
+        target_format,
+        parent.webgpu_dispatch,
+        child);
+}
+
+} // namespace progpu::native::execution
 
 extern "C" {
 

@@ -20,6 +20,91 @@ std::uint32_t append(
     return offset;
 }
 
+std::vector<std::byte> create_picture_mask_content_stream(
+    std::uint32_t target_width,
+    std::uint32_t target_height) {
+    constexpr std::uint32_t command_count = 1U;
+    constexpr std::uint32_t resource_count = 1U;
+    constexpr std::uint32_t command_offset =
+        sizeof(progpu_native_scene_header);
+    constexpr std::uint32_t resource_offset = command_offset +
+        command_count * sizeof(progpu_native_scene_command);
+    constexpr std::uint32_t arena_offset = resource_offset +
+        resource_count * sizeof(progpu_native_scene_resource);
+    std::vector<std::byte> stream(arena_offset);
+    const float scale_x = static_cast<float>(target_width) / 64.0F;
+    const float scale_y = static_cast<float>(target_height) / 48.0F;
+    const progpu_native_affine_2d identity{
+        1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    const std::array<progpu_native_analytic_primitive, 2U> mask_shapes{{
+        {PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
+            8.0F * scale_x, 4.0F * scale_y,
+            16.0F * scale_x, 40.0F * scale_y,
+            0.0F, 0.0F, {1.0F, 1.0F, 1.0F, 1.0F}, identity},
+        {PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U,
+            40.0F * scale_x, 4.0F * scale_y,
+            16.0F * scale_x, 40.0F * scale_y,
+            0.0F, 0.0F, {1.0F, 1.0F, 1.0F, 1.0F}, identity}
+    }};
+    const std::uint32_t shape_offset = append(
+        stream,
+        mask_shapes.data(),
+        mask_shapes.size());
+    progpu_native_scene_header header{};
+    header.struct_size = sizeof(header);
+    header.magic = PROGPU_NATIVE_SCENE_STREAM_MAGIC;
+    header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
+    header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
+    header.total_size = static_cast<std::uint32_t>(stream.size());
+    header.scene_id = 109U;
+    header.generation = 1U;
+    header.command_offset = command_offset;
+    header.command_count = command_count;
+    header.command_stride = sizeof(progpu_native_scene_command);
+    header.resource_offset = resource_offset;
+    header.resource_count = resource_count;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+    header.arena_offset = arena_offset;
+    header.arena_size = header.total_size - arena_offset;
+    std::memcpy(stream.data(), &header, sizeof(header));
+    const progpu_native_scene_resource resource{
+        sizeof(progpu_native_scene_resource),
+        PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH,
+        PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+        0U,
+        3001U,
+        1U,
+        shape_offset,
+        sizeof(mask_shapes),
+        0U,
+        0U};
+    std::memcpy(
+        stream.data() + resource_offset,
+        &resource,
+        sizeof(resource));
+    const progpu_native_scene_command command{
+        sizeof(progpu_native_scene_command),
+        PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
+        PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+        0U,
+        3011U,
+        PROGPU_NATIVE_SCENE_NO_INDEX,
+        0U,
+        0U,
+        0U,
+        8.0F * scale_x,
+        4.0F * scale_y,
+        48.0F * scale_x,
+        40.0F * scale_y,
+        0U,
+        0U};
+    std::memcpy(
+        stream.data() + command_offset,
+        &command,
+        sizeof(command));
+    return stream;
+}
+
 } // namespace
 
 std::vector<std::byte> create_semantic_brush_mask_scene_stream_impl(
@@ -234,6 +319,125 @@ std::vector<std::byte> create_semantic_composite_geometry_mask_scene_stream(
         target_width,
         target_height,
         true);
+}
+
+std::vector<std::byte> create_semantic_picture_mask_scene_stream(
+    std::uint32_t target_width,
+    std::uint32_t target_height) {
+    constexpr std::uint32_t command_count = 3U;
+    constexpr std::uint32_t resource_count = 2U;
+    constexpr std::uint32_t command_offset =
+        sizeof(progpu_native_scene_header);
+    constexpr std::uint32_t resource_offset = command_offset +
+        command_count * sizeof(progpu_native_scene_command);
+    constexpr std::uint32_t arena_offset = resource_offset +
+        resource_count * sizeof(progpu_native_scene_resource);
+    std::vector<std::byte> stream(arena_offset);
+    const float scale_x = static_cast<float>(target_width) / 64.0F;
+    const float scale_y = static_cast<float>(target_height) / 48.0F;
+    const progpu_native_affine_2d identity{
+        1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    const progpu_native_image_rect bounds{
+        8.0F * scale_x,
+        4.0F * scale_y,
+        48.0F * scale_x,
+        40.0F * scale_y};
+    const progpu_native_analytic_primitive content{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        bounds.x,
+        bounds.y,
+        bounds.width,
+        bounds.height,
+        0.0F,
+        0.0F,
+        {0.0F, 0.85F, 1.0F, 1.0F},
+        identity};
+    const std::uint32_t content_offset = append(stream, &content, 1U);
+    std::vector<std::byte> nested = create_picture_mask_content_stream(
+        target_width,
+        target_height);
+    progpu_native_scene_layer_picture_mask mask{};
+    mask.struct_size = sizeof(mask);
+    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE;
+    mask.stream_size = static_cast<std::uint32_t>(nested.size());
+    mask.bounds = bounds;
+    mask.transform = identity;
+    mask.opacity = 1.0F;
+    const std::uint32_t mask_offset = append(stream, &mask, 1U);
+    const std::uint32_t nested_offset = append(
+        stream,
+        nested.data(),
+        nested.size());
+    const progpu_native_scene_layer layer{
+        sizeof(progpu_native_scene_layer),
+        PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION,
+        bounds,
+        1.0F,
+        PROGPU_NATIVE_BLEND_SRC_OVER,
+        1U,
+        PROGPU_NATIVE_SCENE_NO_INDEX,
+        401U,
+        402U,
+        0U,
+        0U};
+    const std::uint32_t layer_offset = append(stream, &layer, 1U);
+    progpu_native_scene_header header{};
+    header.struct_size = sizeof(header);
+    header.magic = PROGPU_NATIVE_SCENE_STREAM_MAGIC;
+    header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
+    header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
+    header.total_size = static_cast<std::uint32_t>(stream.size());
+    header.scene_id = 108U;
+    header.generation = 1U;
+    header.command_offset = command_offset;
+    header.command_count = command_count;
+    header.command_stride = sizeof(progpu_native_scene_command);
+    header.resource_offset = resource_offset;
+    header.resource_count = resource_count;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+    header.arena_offset = arena_offset;
+    header.arena_size = header.total_size - arena_offset;
+    std::memcpy(stream.data(), &header, sizeof(header));
+    const std::array<progpu_native_scene_resource, resource_count> resources{{
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 4001U, 1U,
+            content_offset, sizeof(content), 0U, 0U},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 4002U, 1U,
+            mask_offset, sizeof(mask), nested_offset,
+            static_cast<std::uint32_t>(nested.size())}
+    }};
+    std::memcpy(
+        stream.data() + resource_offset,
+        resources.data(),
+        sizeof(resources));
+    const std::array<progpu_native_scene_command, command_count> commands{{
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 4011U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, PROGPU_NATIVE_SCENE_NO_INDEX,
+            layer_offset, sizeof(layer),
+            0.0F, 0.0F, 0.0F, 0.0F, 0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 4012U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, 0U, 0U, 0U,
+            bounds.x, bounds.y, bounds.width, bounds.height, 0U, 0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED, 0U, 4013U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, PROGPU_NATIVE_SCENE_NO_INDEX,
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F, 0U, 0U}
+    }};
+    std::memcpy(
+        stream.data() + command_offset,
+        commands.data(),
+        sizeof(commands));
+    return stream;
 }
 
 } // namespace progpu::native::tests

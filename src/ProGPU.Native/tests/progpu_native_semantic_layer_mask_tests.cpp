@@ -1,6 +1,7 @@
 #include "progpu_native_semantic_layer_mask_tests.hpp"
 
 #include "progpu_native.h"
+#include "progpu_native_scene.hpp"
 #include "progpu_native_semantic_layer_mask.hpp"
 
 #include <array>
@@ -16,7 +17,8 @@ bool semantic_layer_coverage_mask_is_exact_and_bounded() {
     static_assert(sizeof(progpu_native_scene_layer_vector_mask) == 32U);
     static_assert(sizeof(progpu_native_scene_layer_brush_mask) == 320U);
     static_assert(sizeof(progpu_native_scene_layer_geometry_mask) == 336U);
-    static_assert(sizeof(progpu_native_scene_layer_composite_mask) == 48U);
+    static_assert(sizeof(progpu_native_scene_layer_picture_mask) == 72U);
+    static_assert(sizeof(progpu_native_scene_layer_composite_mask) == 64U);
     static_assert(sizeof(progpu_native_scene_clip_path) == 88U);
     static_assert(sizeof(progpu_native_scene_path_boolean_node) == 48U);
     constexpr std::size_t coverage_size = 16U;
@@ -327,6 +329,110 @@ bool semantic_layer_coverage_mask_is_exact_and_bounded() {
         return false;
     }
 
+    progpu_native_scene_header nested_header{};
+    nested_header.struct_size = sizeof(nested_header);
+    nested_header.magic = PROGPU_NATIVE_SCENE_STREAM_MAGIC;
+    nested_header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
+    nested_header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
+    nested_header.total_size = sizeof(nested_header);
+    nested_header.scene_id = 41U;
+    nested_header.generation = 7U;
+    nested_header.command_offset = sizeof(nested_header);
+    nested_header.command_stride = sizeof(progpu_native_scene_command);
+    nested_header.resource_offset = sizeof(nested_header);
+    nested_header.resource_stride = sizeof(progpu_native_scene_resource);
+    nested_header.arena_offset = sizeof(nested_header);
+    std::array<std::byte, sizeof(nested_header)> nested_bytes{};
+    std::memcpy(
+        nested_bytes.data(), &nested_header, sizeof(nested_header));
+    progpu_native_scene_layer_picture_mask picture_mask{};
+    picture_mask.struct_size = sizeof(picture_mask);
+    picture_mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE;
+    picture_mask.stream_size = sizeof(nested_header);
+    picture_mask.bounds = {0.0F, 0.0F, 20.0F, 12.0F};
+    picture_mask.transform = {1.0F, 0.0F, 0.0F, 1.0F, 3.0F, 4.0F};
+    picture_mask.opacity = 0.75F;
+    std::array<std::byte,
+        sizeof(picture_mask) + sizeof(nested_header)> picture_bytes{};
+    std::memcpy(
+        picture_bytes.data(), &picture_mask, sizeof(picture_mask));
+    std::memcpy(
+        picture_bytes.data() + sizeof(picture_mask),
+        nested_bytes.data(),
+        nested_bytes.size());
+    resource.payload_size = sizeof(picture_mask);
+    resource.auxiliary_offset = sizeof(picture_mask);
+    resource.auxiliary_size = sizeof(nested_header);
+    if (!semantic::validate_layer_mask_resource(
+            picture_bytes.data(), resource, error_offset, &parsed) ||
+        parsed.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE ||
+        parsed.picture.stream_size != sizeof(nested_header)) {
+        return false;
+    }
+
+    constexpr std::size_t outer_resource_offset =
+        sizeof(progpu_native_scene_header);
+    constexpr std::size_t outer_payload_offset = outer_resource_offset +
+        sizeof(progpu_native_scene_resource);
+    constexpr std::size_t outer_auxiliary_offset = outer_payload_offset +
+        sizeof(progpu_native_scene_layer_picture_mask);
+    constexpr std::size_t outer_size = outer_auxiliary_offset +
+        sizeof(progpu_native_scene_header);
+    std::array<std::byte, outer_size> outer_bytes{};
+    progpu_native_scene_header outer_header{};
+    outer_header.struct_size = sizeof(outer_header);
+    outer_header.magic = PROGPU_NATIVE_SCENE_STREAM_MAGIC;
+    outer_header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
+    outer_header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
+    outer_header.total_size = outer_size;
+    outer_header.scene_id = 40U;
+    outer_header.generation = 7U;
+    outer_header.command_offset = sizeof(outer_header);
+    outer_header.command_stride = sizeof(progpu_native_scene_command);
+    outer_header.resource_offset = outer_resource_offset;
+    outer_header.resource_count = 1U;
+    outer_header.resource_stride = sizeof(progpu_native_scene_resource);
+    outer_header.arena_offset = outer_payload_offset;
+    outer_header.arena_size = outer_size - outer_payload_offset;
+    progpu_native_scene_resource outer_resource{};
+    outer_resource.struct_size = sizeof(outer_resource);
+    outer_resource.kind = PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK;
+    outer_resource.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+    outer_resource.resource_id = 1U;
+    outer_resource.generation = 7U;
+    outer_resource.payload_offset = outer_payload_offset;
+    outer_resource.payload_size = sizeof(picture_mask);
+    outer_resource.auxiliary_offset = outer_auxiliary_offset;
+    outer_resource.auxiliary_size = sizeof(nested_header);
+    std::memcpy(outer_bytes.data(), &outer_header, sizeof(outer_header));
+    std::memcpy(
+        outer_bytes.data() + outer_resource_offset,
+        &outer_resource,
+        sizeof(outer_resource));
+    std::memcpy(
+        outer_bytes.data() + outer_payload_offset,
+        &picture_mask,
+        sizeof(picture_mask));
+    std::memcpy(
+        outer_bytes.data() + outer_auxiliary_offset,
+        &nested_header,
+        sizeof(nested_header));
+    if (scene::validate(outer_bytes.data(), outer_bytes.size()).status !=
+        PROGPU_NATIVE_STATUS_SUCCESS) {
+        return false;
+    }
+    nested_header.command_stride = 0U;
+    std::memcpy(
+        outer_bytes.data() + outer_auxiliary_offset,
+        &nested_header,
+        sizeof(nested_header));
+    if (!semantic::validate_layer_mask_resource(
+            outer_bytes.data(), outer_resource, error_offset) ||
+        scene::validate(outer_bytes.data(), outer_bytes.size()).status ==
+            PROGPU_NATIVE_STATUS_SUCCESS) {
+        return false;
+    }
+
     constexpr std::size_t composite_brush_count = 2U;
     constexpr std::size_t composite_auxiliary_size =
         composite_brush_count * sizeof(progpu_native_scene_layer_brush_mask);
@@ -357,6 +463,22 @@ bool semantic_layer_coverage_mask_is_exact_and_bounded() {
             PROGPU_NATIVE_SCENE_BRUSH_SOLID) {
         return false;
     }
+    constexpr std::uint32_t legacy_composite_size = offsetof(
+        progpu_native_scene_layer_composite_mask,
+        picture_mask_count);
+    auto legacy_composite = composite;
+    legacy_composite.struct_size = legacy_composite_size;
+    std::memcpy(
+        composite_bytes.data(),
+        &legacy_composite,
+        legacy_composite_size);
+    resource.payload_size = legacy_composite_size;
+    if (!semantic::validate_layer_mask_resource(
+            composite_bytes.data(), resource, error_offset, &parsed) ||
+        parsed.composite.picture_mask_count != 0U) {
+        return false;
+    }
+    resource.payload_size = sizeof(composite);
     composite.component_count = 1U;
     std::memcpy(composite_bytes.data(), &composite, sizeof(composite));
     return !semantic::validate_layer_mask_resource(

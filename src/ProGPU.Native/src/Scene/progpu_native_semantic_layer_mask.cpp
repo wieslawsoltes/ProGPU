@@ -49,6 +49,43 @@ bool valid_bounds(const progpu_native_image_rect& bounds) noexcept {
         bounds.width > 0.0F && bounds.height > 0.0F;
 }
 
+bool valid_nested_scene_header(
+    const std::byte* stream,
+    std::uint32_t stream_size) noexcept {
+    if (stream == nullptr ||
+        stream_size < sizeof(progpu_native_scene_header) ||
+        stream_size > PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES) {
+        return false;
+    }
+    progpu_native_scene_header header{};
+    std::memcpy(&header, stream, sizeof(header));
+    return header.struct_size >= sizeof(header) &&
+        header.magic == PROGPU_NATIVE_SCENE_STREAM_MAGIC &&
+        header.stream_version == PROGPU_NATIVE_SCENE_STREAM_VERSION &&
+        header.endian_marker == PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER &&
+        header.flags == 0U && header.total_size == stream_size &&
+        header.scene_id != 0U && header.generation != 0U &&
+        header.reserved0 == 0U && header.reserved1 == 0U;
+}
+
+bool valid_picture_mask(
+    const progpu_native_scene_layer_picture_mask& mask,
+    const std::byte* streams,
+    std::uint32_t stream_bytes) noexcept {
+    return mask.struct_size == sizeof(mask) &&
+        mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE &&
+        mask.flags == 0U && mask.reserved0 == 0U &&
+        mask.reserved1 == 0U && mask.stream_size != 0U &&
+        mask.stream_offset <= stream_bytes &&
+        mask.stream_size <= stream_bytes - mask.stream_offset &&
+        valid_bounds(mask.bounds) && valid_transform(mask.transform) &&
+        std::isfinite(mask.opacity) && mask.opacity >= 0.0F &&
+        mask.opacity <= 1.0F &&
+        valid_nested_scene_header(
+            streams + mask.stream_offset,
+            mask.stream_size);
+}
+
 bool valid_analytic(const progpu_native_scene_layer_mask& mask) noexcept {
     const auto radius = [](float value) noexcept {
         return std::isfinite(value) && value >= 0.0F;
@@ -294,6 +331,8 @@ bool valid_composite(
     const progpu_native_scene_layer_brush_mask* brushes,
     const progpu_native_scene_layer_geometry_mask* geometry_masks,
     const progpu_native_geometry_primitive* geometry_primitives,
+    const progpu_native_scene_layer_picture_mask* picture_masks,
+    const std::byte* picture_streams,
     const progpu_native_scene_clip_path* paths,
     const progpu_native_path_segment* segments,
     const progpu_native_scene_path_boolean_node* boolean_nodes,
@@ -308,6 +347,10 @@ bool valid_composite(
     const std::uint64_t geometry_primitive_bytes =
         static_cast<std::uint64_t>(mask.geometry_primitive_count) *
             sizeof(*geometry_primitives);
+    const std::uint64_t picture_mask_bytes =
+        static_cast<std::uint64_t>(mask.picture_mask_count) *
+            sizeof(*picture_masks);
+    const std::uint64_t picture_stream_bytes = mask.picture_stream_bytes;
     const std::uint64_t path_bytes =
         static_cast<std::uint64_t>(mask.path_count) * sizeof(*paths);
     const std::uint64_t segment_bytes =
@@ -317,19 +360,31 @@ bool valid_composite(
             sizeof(*boolean_nodes);
     const std::uint64_t stop_bytes =
         static_cast<std::uint64_t>(mask.gradient_stop_count) * sizeof(*stops);
-    if (mask.struct_size != sizeof(mask) ||
+    constexpr std::uint32_t legacy_composite_size = offsetof(
+        progpu_native_scene_layer_composite_mask,
+        picture_mask_count);
+    const bool legacy = mask.struct_size == legacy_composite_size &&
+        mask.picture_mask_count == 0U && mask.picture_stream_bytes == 0U &&
+        mask.reserved0 == 0U && mask.reserved1 == 0U;
+    if ((!legacy && mask.struct_size != sizeof(mask)) ||
         mask.kind != PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE ||
-        mask.flags != 0U ||
+        mask.flags != 0U || mask.reserved0 != 0U || mask.reserved1 != 0U ||
         mask.component_count != mask.brush_mask_count +
-            mask.geometry_mask_count + vector_component ||
+            mask.geometry_mask_count + mask.picture_mask_count +
+            vector_component ||
         mask.component_count < 2U || mask.component_count > 64U ||
-        (mask.brush_mask_count == 0U && mask.geometry_mask_count == 0U) ||
+        (mask.brush_mask_count == 0U && mask.geometry_mask_count == 0U &&
+            mask.picture_mask_count == 0U) ||
         (mask.brush_mask_count != 0U && brushes == nullptr) ||
         (mask.geometry_mask_count != 0U && geometry_masks == nullptr) ||
         (mask.geometry_mask_count == 0U) !=
             (mask.geometry_primitive_count == 0U) ||
         (mask.geometry_primitive_count != 0U &&
             geometry_primitives == nullptr) ||
+        (mask.picture_mask_count == 0U) !=
+            (mask.picture_stream_bytes == 0U) ||
+        (mask.picture_mask_count != 0U &&
+            (picture_masks == nullptr || picture_streams == nullptr)) ||
         mask.gradient_stop_count > PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS ||
         !std::isfinite(mask.opacity) || mask.opacity < 0.0F ||
         mask.opacity > 1.0F ||
@@ -340,8 +395,8 @@ bool valid_composite(
                 paths == nullptr || segments == nullptr ||
                 (mask.boolean_node_count != 0U && boolean_nodes == nullptr))) ||
         brush_bytes + geometry_mask_bytes + geometry_primitive_bytes +
-                path_bytes + segment_bytes + boolean_bytes + stop_bytes !=
-            auxiliary_size ||
+                picture_mask_bytes + picture_stream_bytes + path_bytes +
+                segment_bytes + boolean_bytes + stop_bytes != auxiliary_size ||
         (mask.gradient_stop_count != 0U && stops == nullptr)) {
         return false;
     }
@@ -366,6 +421,20 @@ bool valid_composite(
         expected_primitive_offset += geometry_masks[index].primitive_count;
     }
     if (expected_primitive_offset != mask.geometry_primitive_count) {
+        return false;
+    }
+    std::uint32_t expected_stream_offset = 0U;
+    for (std::uint32_t index = 0U; index < mask.picture_mask_count; ++index) {
+        if (picture_masks[index].stream_offset != expected_stream_offset ||
+            !valid_picture_mask(
+                picture_masks[index],
+                picture_streams,
+                mask.picture_stream_bytes)) {
+            return false;
+        }
+        expected_stream_offset += picture_masks[index].stream_size;
+    }
+    if (expected_stream_offset != mask.picture_stream_bytes) {
         return false;
     }
     if (mask.path_count != 0U) {
@@ -461,17 +530,33 @@ bool is_valid_semantic_layer_geometry_mask(
             static_cast<std::uint32_t>(stops.size()));
 }
 
+bool is_valid_semantic_layer_picture_mask(
+    const progpu_native_scene_layer_picture_mask& mask,
+    std::span<const std::byte> nested_scene) noexcept {
+    return nested_scene.size() <=
+            std::numeric_limits<std::uint32_t>::max() &&
+        mask.stream_offset == 0U &&
+        mask.stream_size == nested_scene.size() &&
+        valid_picture_mask(
+            mask,
+            nested_scene.data(),
+            static_cast<std::uint32_t>(nested_scene.size()));
+}
+
 bool is_valid_semantic_layer_composite_mask(
     const progpu_native_scene_layer_composite_mask& mask,
     std::span<const progpu_native_scene_layer_brush_mask> brushes,
     std::span<const progpu_native_scene_layer_geometry_mask> geometry_masks,
     std::span<const progpu_native_geometry_primitive> geometry_primitives,
+    std::span<const progpu_native_scene_layer_picture_mask> picture_masks,
+    std::span<const std::byte> picture_streams,
     std::span<const progpu_native_scene_clip_path> paths,
     std::span<const progpu_native_path_segment> segments,
     std::span<const progpu_native_scene_path_boolean_node> boolean_nodes,
     std::span<const progpu_native_scene_gradient_stop> stops) noexcept {
     const std::uint64_t size = brushes.size_bytes() +
         geometry_masks.size_bytes() + geometry_primitives.size_bytes() +
+        picture_masks.size_bytes() + picture_streams.size_bytes() +
         paths.size_bytes() + segments.size_bytes() +
         boolean_nodes.size_bytes() + stops.size_bytes();
     return size <= std::numeric_limits<std::uint32_t>::max() &&
@@ -480,6 +565,8 @@ bool is_valid_semantic_layer_composite_mask(
             brushes.data(),
             geometry_masks.data(),
             geometry_primitives.data(),
+            picture_masks.data(),
+            picture_streams.data(),
             paths.data(),
             segments.data(),
             boolean_nodes.data(),
@@ -618,12 +705,35 @@ bool validate_layer_mask_resource(
                 result.geometry.gradient_stop_count)) {
             return false;
         }
+    } else if (kind == PROGPU_NATIVE_SCENE_LAYER_MASK_PICTURE) {
+        if (resource.payload_size != sizeof(result.picture) ||
+            resource.auxiliary_size == 0U) {
+            return false;
+        }
+        std::memcpy(
+            &result.picture,
+            bytes + resource.payload_offset,
+            sizeof(result.picture));
+        if (result.picture.stream_offset != 0U ||
+            result.picture.stream_size != resource.auxiliary_size ||
+            !valid_picture_mask(
+                result.picture,
+                bytes + resource.auxiliary_offset,
+                resource.auxiliary_size)) {
+            return false;
+        }
+        result.composite_picture_streams =
+            bytes + resource.auxiliary_offset;
     } else if (kind == PROGPU_NATIVE_SCENE_LAYER_MASK_COMPOSITE) {
-        if (resource.payload_size != sizeof(result.composite)) {
+        constexpr std::uint32_t legacy_composite_size = offsetof(
+            progpu_native_scene_layer_composite_mask,
+            picture_mask_count);
+        if (resource.payload_size != sizeof(result.composite) &&
+            resource.payload_size != legacy_composite_size) {
             return false;
         }
         std::memcpy(&result.composite, bytes + resource.payload_offset,
-            sizeof(result.composite));
+            resource.payload_size);
         const std::uint64_t brush_bytes =
             static_cast<std::uint64_t>(result.composite.brush_mask_count) *
                 sizeof(progpu_native_scene_layer_brush_mask);
@@ -634,6 +744,12 @@ bool validate_layer_mask_resource(
             static_cast<std::uint64_t>(
                 result.composite.geometry_primitive_count) *
                 sizeof(progpu_native_geometry_primitive);
+        const std::uint64_t picture_mask_bytes =
+            static_cast<std::uint64_t>(
+                result.composite.picture_mask_count) *
+                sizeof(progpu_native_scene_layer_picture_mask);
+        const std::uint64_t picture_stream_bytes =
+            result.composite.picture_stream_bytes;
         const std::uint64_t path_bytes =
             static_cast<std::uint64_t>(result.composite.path_count) *
                 sizeof(progpu_native_scene_clip_path);
@@ -647,7 +763,8 @@ bool validate_layer_mask_resource(
             static_cast<std::uint64_t>(result.composite.gradient_stop_count) *
                 sizeof(progpu_native_scene_gradient_stop);
         if (brush_bytes + geometry_mask_bytes + geometry_primitive_bytes +
-                path_bytes + segment_bytes + boolean_bytes + stop_bytes !=
+                picture_mask_bytes + picture_stream_bytes + path_bytes +
+                segment_bytes + boolean_bytes + stop_bytes !=
             resource.auxiliary_size) {
             return false;
         }
@@ -660,8 +777,16 @@ bool validate_layer_mask_resource(
         result.composite_geometry_primitives = reinterpret_cast<
             const progpu_native_geometry_primitive*>(
                 auxiliary + brush_bytes + geometry_mask_bytes);
+        const std::uint64_t picture_mask_offset = brush_bytes +
+            geometry_mask_bytes + geometry_primitive_bytes;
+        result.composite_picture_masks = reinterpret_cast<
+            const progpu_native_scene_layer_picture_mask*>(
+                auxiliary + picture_mask_offset);
+        result.composite_picture_streams =
+            auxiliary + picture_mask_offset + picture_mask_bytes;
         const std::uint64_t path_offset = brush_bytes + geometry_mask_bytes +
-            geometry_primitive_bytes;
+            geometry_primitive_bytes + picture_mask_bytes +
+            picture_stream_bytes;
         result.composite_paths = reinterpret_cast<
             const progpu_native_scene_clip_path*>(auxiliary + path_offset);
         result.composite_segments = reinterpret_cast<
@@ -679,6 +804,8 @@ bool validate_layer_mask_resource(
                 result.composite_brushes,
                 result.composite_geometry_masks,
                 result.composite_geometry_primitives,
+                result.composite_picture_masks,
+                result.composite_picture_streams,
                 result.composite_paths,
                 result.composite_segments,
                 result.composite_boolean_nodes,
