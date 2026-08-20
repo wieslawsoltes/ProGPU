@@ -8,6 +8,7 @@ output_root="${PROGPU_NATIVE_MOBILE_OUTPUT:-${repo_root}/artifacts/progpu-native
 expected_headers_commit="01addc4ba8a2915a061b7095a6768b512071ab96"
 header_repository="https://github.com/webgpu-native/webgpu-headers.git"
 requested_platform="${1:-all}"
+mobile_parallelism="${PROGPU_NATIVE_MOBILE_PARALLELISM:-4}"
 
 case "${requested_platform}" in
   android|ios|all) ;;
@@ -16,6 +17,11 @@ case "${requested_platform}" in
     exit 2
     ;;
 esac
+
+if [[ ! "${mobile_parallelism}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "PROGPU_NATIVE_MOBILE_PARALLELISM must be a positive integer." >&2
+  exit 2
+fi
 
 for path in "${header_source}" "${build_root}" "${output_root}"; do
   case "${path}" in
@@ -149,7 +155,12 @@ build_android() {
       -DANDROID_PLATFORM=android-30 \
       -DANDROID_STL=c++_static \
       -DPROGPU_NATIVE_DAWN_LIBRARY_TYPE=SHARED
-    cmake --build "${build_dir}" --target progpu_native_dawn --parallel
+    # CMake's bare --parallel maps to an unbounded `make -j` for the Android
+    # Unix Makefiles generator. The complete native text stack has enough
+    # translation units to exhaust hosted mobile runners before any compiler
+    # process completes. Keep useful parallelism while bounding peak memory.
+    cmake --build "${build_dir}" --target progpu_native_dawn \
+      --parallel "${mobile_parallelism}"
     local library="${build_dir}/libprogpu_native_dawn.so"
     [[ -f "${library}" ]] || {
       echo "Android C++ renderer was not produced: ${library}" >&2
@@ -196,7 +207,7 @@ build_ios_slice() {
     -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
     -DPROGPU_NATIVE_DAWN_LIBRARY_TYPE=STATIC >&2
   cmake --build "${build_dir}" --target progpu_native_dawn \
-    --config Release --parallel >&2
+    --config Release --parallel "${mobile_parallelism}" >&2
   local library="${build_dir}/Release-${sdk}/libprogpu_native_dawn.a"
   if [[ ! -f "${library}" ]]; then
     library="$(find "${build_dir}" -type f -name libprogpu_native_dawn.a -print -quit)"
