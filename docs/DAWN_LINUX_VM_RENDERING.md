@@ -127,6 +127,22 @@ rendering after swapchain acquisition failed. The post-fix value is the first
 valid Dawn result on this VM. FIFO present dominates the steady frame time, and
 all rendering is performed by a CPU Vulkan implementation.
 
+## Downstream WPF presenter audit
+
+The consuming WPF presenter had two independent backend-integration defects:
+
+- it called the concrete `Wgpu` object for acquire, view creation, present, and
+  release instead of the context's backend-neutral `Api` abstraction;
+- it released the acquired texture view but never released the acquired surface
+  texture handle.
+
+The downstream Dawn branch routes those calls through `IWebGpuApi` and balances
+both the texture-view and texture references, including the non-success
+acquisition path. This removes a per-frame native reference leak for the current
+backend and makes the hot presentation path compatible with `DawnWebGpuApi`.
+It intentionally does not add Dawn as a shipping WPF dependency while the Linux
+native runtime closure and hardware-adapter gate remain unresolved.
+
 ## Can Dawn improve GPU rendering in this VM?
 
 Not with the VM's currently exposed graphics capabilities.
