@@ -554,6 +554,26 @@ public sealed class LayerRenderTests
     }
 
     [Fact]
+    public void EmptyDrawingVisualAllowsCompiledSceneReuse()
+    {
+        using var window = new HeadlessWindow(64, 64);
+        window.Content = new EmptyDrawingVisualHost();
+
+        try
+        {
+            window.Render();
+            window.Render();
+
+            Assert.True(window.Compositor.Metrics.SceneCacheHit);
+            Assert.Null(window.Compositor.Metrics.SceneCacheMissReason);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
     public void CachedLayerCompositeIncludesVisualLocalTransform()
     {
         var window = HeadlessWindow.Shared;
@@ -878,6 +898,16 @@ public sealed class LayerRenderTests
                 null,
                 new Rect(0f, 0f, 64f, 64f));
             AddChild(drawing);
+        }
+    }
+
+    private sealed class EmptyDrawingVisualHost : FrameworkElement
+    {
+        public EmptyDrawingVisualHost()
+        {
+            Width = 64f;
+            Height = 64f;
+            AddChild(new DrawingVisual { Size = new Vector2(64f, 64f) });
         }
     }
 

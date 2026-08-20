@@ -5080,7 +5080,12 @@ SceneStateUploadComplete:
         bool includeLocalTransform,
         bool includeLocalVisualState)
     {
-        if (node is DrawingVisual)
+        // DrawingContext command storage can change without invalidating its owning
+        // visual, so populated drawing visuals cannot participate in compiled-scene
+        // reuse. An empty drawing visual contributes no command data and is safe to
+        // cache; this is common for hosts that keep an optional overlay visual.
+        if (node is DrawingVisual drawingVisual
+            && drawingVisual.Context.Commands.Count != 0)
         {
             _compiledSceneContainsDrawingVisual = true;
         }
