@@ -2008,7 +2008,7 @@ public static partial class GpuPictureNativeSceneCompiler
         switch (command.Type)
         {
             case RenderCommandType.DrawRect:
-                return TryAppendAnalytic(
+                return TryAppendAnalyticPrimitive(
                     command,
                     NativeAnalyticPrimitiveKind.Rectangle,
                     command.Rect,
@@ -2016,6 +2016,8 @@ public static partial class GpuPictureNativeSceneCompiler
                     transform,
                     analytics,
                     analyticBrushIndices,
+                    geometry,
+                    geometryBrushIndices,
                     batches,
                     operations,
                     materials,
@@ -2031,7 +2033,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     operations,
                     out error);
             case RenderCommandType.DrawEllipse:
-                return TryAppendAnalytic(
+                return TryAppendAnalyticPrimitive(
                     command,
                     NativeAnalyticPrimitiveKind.Ellipse,
                     new Rect(
@@ -2043,12 +2045,14 @@ public static partial class GpuPictureNativeSceneCompiler
                     transform,
                     analytics,
                     analyticBrushIndices,
+                    geometry,
+                    geometryBrushIndices,
                     batches,
                     operations,
                     materials,
                     out error);
             case RenderCommandType.DrawCircle:
-                return TryAppendAnalytic(
+                return TryAppendAnalyticPrimitive(
                     command,
                     NativeAnalyticPrimitiveKind.Ellipse,
                     new Rect(
@@ -2060,6 +2064,8 @@ public static partial class GpuPictureNativeSceneCompiler
                     transform,
                     analytics,
                     analyticBrushIndices,
+                    geometry,
+                    geometryBrushIndices,
                     batches,
                     operations,
                     materials,
@@ -2067,11 +2073,6 @@ public static partial class GpuPictureNativeSceneCompiler
             case RenderCommandType.DrawRoundedRect:
                 if (MathF.Abs(command.RadiusX - command.RadiusY) > 0.0001f)
                 {
-                    if (command.Pen is not null)
-                    {
-                        error = NativePictureCompileError.UnsupportedStroke;
-                        return false;
-                    }
                     RenderCommand roundedPath = command;
                     roundedPath.Type = RenderCommandType.DrawPath;
                     roundedPath.Path =
@@ -2082,9 +2083,11 @@ public static partial class GpuPictureNativeSceneCompiler
                             command.Rect.Height,
                             command.RadiusX,
                             command.RadiusY);
-                    return TryAppendPathFill(
+                    return TryAppendPath(
                         in roundedPath,
                         transform,
+                        geometry,
+                        geometryBrushIndices,
                         paths,
                         pathSegments,
                         pathBooleanNodes,
@@ -2094,7 +2097,7 @@ public static partial class GpuPictureNativeSceneCompiler
                         materials,
                         out error);
                 }
-                return TryAppendAnalytic(
+                return TryAppendAnalyticPrimitive(
                     command,
                     NativeAnalyticPrimitiveKind.RoundedRectangle,
                     command.Rect,
@@ -2104,6 +2107,8 @@ public static partial class GpuPictureNativeSceneCompiler
                     transform,
                     analytics,
                     analyticBrushIndices,
+                    geometry,
+                    geometryBrushIndices,
                     batches,
                     operations,
                     materials,
@@ -2755,6 +2760,82 @@ public static partial class GpuPictureNativeSceneCompiler
             count,
             TransformBounds(rect, transform));
         return true;
+    }
+
+    private static bool TryAppendAnalyticPrimitive(
+        in RenderCommand command,
+        NativeAnalyticPrimitiveKind kind,
+        Rect rect,
+        float cornerRadius,
+        Matrix3x2 transform,
+        List<NativeAnalyticPrimitive> primitives,
+        List<uint> analyticBrushIndices,
+        List<NativeGeometryPrimitive> geometry,
+        List<uint> geometryBrushIndices,
+        List<Batch> batches,
+        List<Operation> operations,
+        NativeBrushTableBuilder materials,
+        out NativePictureCompileError error)
+    {
+        if (command.Pen is null ||
+            TryGetAnalyticPen(command, out _, out _))
+        {
+            return TryAppendAnalytic(
+                command,
+                kind,
+                rect,
+                cornerRadius,
+                transform,
+                primitives,
+                analyticBrushIndices,
+                batches,
+                operations,
+                materials,
+                out error);
+        }
+
+        if (command.Brush is not null)
+        {
+            RenderCommand fill = command;
+            fill.Pen = null;
+            if (!TryAppendAnalytic(
+                    fill,
+                    kind,
+                    rect,
+                    cornerRadius,
+                    transform,
+                    primitives,
+                    analyticBrushIndices,
+                    batches,
+                    operations,
+                    materials,
+                    out error))
+            {
+                return false;
+            }
+        }
+
+        PathGeometry? strokePath = command.GeometryCache?.StrokePath ??
+            RenderCommandGeometryCache.CreatePrimitiveStrokePath(command);
+        if (strokePath is null)
+        {
+            error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+        RenderCommand stroke = command;
+        stroke.Type = RenderCommandType.DrawPath;
+        stroke.Brush = null;
+        stroke.Path = strokePath;
+        return TryAppendGeneralPathStroke(
+            stroke,
+            strokePath,
+            transform,
+            geometry,
+            geometryBrushIndices,
+            batches,
+            operations,
+            materials,
+            out error);
     }
 
     private static bool TryAppendStrokeGeometry(
@@ -3501,19 +3582,33 @@ public static partial class GpuPictureNativeSceneCompiler
         if (pen.HasDashPattern)
         {
             float localThickness = pen.IsHairline ? 1f : pen.Thickness;
-            if (!Compositor.TryCreateDashedStrokePath(
+            PathGeometry dashedPath = null!;
+            Pen undashedPen = null!;
+            bool hasCachedDash =
+                command.GeometryCache?.TryGetDashedStrokePath(
+                    pen,
+                    localThickness,
+                    out dashedPath,
+                    out undashedPen) == true;
+            if (!hasCachedDash &&
+                !Compositor.TryCreateDashedStrokePath(
                     path,
                     pen,
                     localThickness,
-                    out PathGeometry dashedPath))
+                    out dashedPath))
             {
                 error = NativePictureCompileError.UnsupportedStroke;
                 return false;
             }
+            if (!hasCachedDash)
+            {
+                undashedPen =
+                    Compositor.CreateUndashedPen(pen, localThickness);
+            }
             RenderCommand dashedCommand = command;
             dashedCommand.Brush = null;
             dashedCommand.Path = dashedPath;
-            dashedCommand.Pen = Compositor.CreateUndashedPen(pen, localThickness);
+            dashedCommand.Pen = undashedPen;
             dashedCommand.IsPenThicknessLocal = true;
             return TryAppendGeneralPathStroke(
                 dashedCommand,

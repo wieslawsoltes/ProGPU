@@ -1118,6 +1118,71 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerLowersAdvancedAnalyticPrimitiveStrokesThroughNativePaths()
+    {
+        var fill = new SolidColorBrush(
+            new Vector4(0.8f, 0.2f, 0.1f, 1f));
+        var dashed = new Pen(
+            new SolidColorBrush(new Vector4(0.1f, 0.7f, 1f, 1f)),
+            3f,
+            PenLineJoin.Round,
+            5f,
+            PenLineCap.Round,
+            PenLineCap.Square,
+            PenLineCap.Triangle,
+            [2.0, 1.0],
+            0.5);
+        var hairline = new Pen(
+            new LinearGradientBrush(
+                new Vector2(0f, 0f),
+                new Vector2(80f, 0f),
+                [
+                    new GradientStop(Vector4.One, 0f),
+                    new GradientStop(new Vector4(1f, 0f, 0f, 1f), 1f)
+                ]),
+            Pen.HairlineThickness,
+            PenLineJoin.Bevel);
+        var fixedPen = new Pen(
+            new SolidColorBrush(new Vector4(0.2f, 0.9f, 0.4f, 1f)),
+            4f,
+            PenLineJoin.Round,
+            strokeTransformMode: PenStrokeTransformMode.Fixed);
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(
+            new Rect(0f, 0f, 160f, 100f));
+        drawing.DrawRectangle(fill, dashed, new Rect(4f, 4f, 28f, 18f));
+        drawing.DrawEllipse(null, hairline, new Vector2(52f, 14f), 14f, 9f);
+        drawing.DrawCircle(null, fixedPen, new Vector2(84f, 14f), 11f);
+        drawing.DrawRoundedRectangle(
+            fill,
+            dashed,
+            new Rect(4f, 40f, 56f, 28f),
+            7f);
+        drawing.DrawRoundedRectangle(
+            fill,
+            fixedPen,
+            new Rect(76f, 40f, 64f, 34f),
+            radiusX: 12f,
+            radiusY: 6f);
+        using GpuPicture picture = recorder.EndRecording();
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            82U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(5, compiled.SourceCommandCount);
+        Assert.Equal(2, compiled.AnalyticPrimitiveCount);
+        Assert.Equal(1, compiled.PathCount);
+        Assert.True(compiled.PathSegmentCount >= 8);
+        Assert.True(compiled.GeometryPrimitiveCount > 8);
+        Assert.True(compiled.NativeDrawCount >= 5);
+    }
+
+    [Fact]
     public void CompilerSnapshotsAllRetainedGradientFamiliesAndTransforms()
     {
         GradientStop[] stops =

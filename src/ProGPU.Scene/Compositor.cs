@@ -11693,9 +11693,17 @@ SceneStateUploadComplete:
             pathCommand.Path = cmd.GeometryCache?.StrokePath ??
                 GetOrCreateRoundedRectanglePath(r, radiusX, radiusY);
             pathCommand.Transform = default;
-            if (stroke.IsValid)
+            // Current recorders retain local pen thickness, so the lowered path can
+            // preserve the immutable pen identity. Reconstruct only legacy commands
+            // whose width was pre-scaled; otherwise unequal-radius rounded rectangles
+            // would allocate one replacement pen on every stable replay.
+            if (stroke.IsValid &&
+                !cmd.IsPenThicknessLocal &&
+                !cmd.Pen!.IsHairline)
             {
-                pathCommand.Pen = CreatePenWithThickness(cmd.Pen!, stroke.RetainedThickness);
+                pathCommand.Pen = CreatePenWithThickness(
+                    cmd.Pen,
+                    stroke.RetainedThickness);
                 pathCommand.IsPenThicknessLocal = true;
             }
             CompilePathCommand(pathCommand, transform);

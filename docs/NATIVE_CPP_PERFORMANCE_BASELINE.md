@@ -2895,3 +2895,55 @@ and native, managed, and 32-times difference images are retained under
 `artifacts/progpu-native/differential/managed-picture-picture-mask/` for manual
 review. This is a local Metal/browser checkpoint, not final cross-platform or
 Instruments qualification.
+
+## Advanced analytic primitive stroke checkpoint
+
+The managed-picture differential now has an
+`--advanced-primitive-strokes` mode. It applies dashed round/square/triangle
+caps to rectangles, gradient hairlines to ellipses, and fixed or joined strokes
+to equal- and unequal-radius rounded rectangles while retaining the rest of the
+391-command public picture workload. Native lowering keeps eligible fills in
+the analytic family and routes only the advanced stroke through the exact
+general-path resource.
+
+An initial matched 384-primitive Release run exposed `4,608` managed bytes per
+stable frame. The allocation was not at the C# / C++ boundary: the managed
+unequal-radius rounded-rectangle fallback reconstructed 64 local pens per
+frame. Preserving the retained pen identity for current local-thickness
+commands reduces the same workload to exactly `0` managed bytes per frame;
+legacy pre-scaled commands still reconstruct the corrected width.
+
+Three fresh Apple M3 Pro/Metal processes each used 60 alternating warm-up pairs
+and 300 alternating synchronized measurements. A first batch produced native /
+managed synchronized p50 `1.8211/2.6495 ms` and p95 `4.0444/4.9843 ms`.
+A schema-identical repeat after the full native and browser rebuild produced:
+
+| Metric | Native C++ | Managed compositor |
+|---|---:|---:|
+| p50 CPU submission | 0.2685 ms | 0.8777 ms |
+| p50 GPU-complete total | 4.0428 ms | 3.3859 ms |
+| p95 GPU-complete total | 5.2992 ms | 4.6980 ms |
+| p99 GPU-complete total | 5.8391 ms | 5.1607 ms |
+| Managed allocation / stable frame | 0 bytes | 0 bytes |
+
+Native CPU submission remains 3.27 times lower in the final batch, but the two
+GPU-complete bands reverse ordering. Two unrelated headless native dashboard
+processes were consuming approximately two CPU cores throughout the final
+batch and the host also had an active VM and browser GPU workload. Therefore
+these GPU-complete timings are diagnostic only and no native/managed completion
+advantage is claimed for this slice; the final qualification must be repeated
+on an isolated, thermally stable host. Every run records one native stable
+submission and zero retained vertex, index, brush, gradient-stop, texture,
+coverage, or uniform upload. The deterministic
+960-by-540 comparison is identical in all three processes: maximum channel
+delta `114/255`, `1,489/518,400` pixels over `3/255`, and mean absolute channel
+delta `0.015554109/255`. Visual inspection confines the amplified difference
+to antialiased primitive boundaries. Run JSON plus native, managed, and
+32-times difference images remain under ignored
+`artifacts/progpu-native/benchmarks/` and
+`artifacts/progpu-native/differential/managed-picture-primitive-strokes/`;
+the final run and PNG SHA-256 values are respectively
+`9128bc552c6c3d25997f97f364a6841f9b6956069f102698dbb5b5ce7bccd706`,
+`11ad381e90b25261cc2a4b6b663914e80d926a52c8598dfadd6b37d378ab1dfe`,
+`6ac74aec5d0a6560b6f29d1de2f4aaa1fe637c361cfcb370c6bf8504a27537c7`,
+and `a44d89b517aca672857b29a985adf7ec9313f49230cfb487622b1f0e1d5a0e05`.

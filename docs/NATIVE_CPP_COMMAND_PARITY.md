@@ -55,6 +55,33 @@ for retained payload `P`. Stable replay adds no managed/native crossing,
 command inspection, allocation, copy, or upload. The native C ABI is unchanged
 because the already pointer-free scene stream remains the only update payload.
 
+## Advanced analytic primitive strokes
+
+Rectangle, ellipse, circle, and rounded-rectangle commands now preserve the
+native analytic fill fast path while routing only an advanced stroke through
+the existing exact general-path compiler. This covers dash arrays and offsets,
+all retained cap kinds, hairlines, fixed-device strokes, and unequal rounded-
+rectangle radii without approximating their outline or rejecting an otherwise
+valid immutable picture. Ordinary positive-width flat-cap strokes remain one
+analytic primitive and do not materialize a path.
+
+The lowering directly reuses the ProGPU-owned managed primitive geometry,
+dash, cap, join, fixed-device, and hairline contracts. Work performed when an
+immutable picture changes is `O(S + D)` for `S` retained path segments and `D`
+emitted dash/cap/join primitives. Stable C++ replay retains the compiled
+geometry resource, adds no managed/native crossing, and performs zero retained
+upload. The managed unequal-radius path fallback now also preserves the
+recorded local pen instead of allocating a replacement pen on every stable
+frame; legacy commands whose width was recorded in device space keep the
+one-time compatibility reconstruction.
+
+The focused fixture combines filled dashed rectangles, a gradient hairline
+ellipse, a fixed-device circle, equal-radius dashed rounded rectangles, and
+unequal-radius fixed strokes. Native compiler assertions verify that fills stay
+analytic where eligible and that advanced strokes become exact retained path
+geometry. A matched managed replay regression verifies zero allocation after
+warm-up.
+
 ## GPU-generated brush and stroked-geometry opacity masks
 
 This route directly ports the ProGPU-owned managed brush snapshot and opacity-

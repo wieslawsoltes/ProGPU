@@ -22,6 +22,8 @@ internal static class ManagedPictureBenchmark
         bool useCompositeBrushMask = HasFlag(args, "--composite-brush-mask");
         bool useStrokedPathMask = HasFlag(args, "--stroked-path-mask");
         bool usePictureMask = HasFlag(args, "--picture-mask");
+        bool useAdvancedPrimitiveStrokes =
+            HasFlag(args, "--advanced-primitive-strokes");
         int primitiveCount = ReadPositive(args, "--rectangles", 384);
         int warmupCount = ReadNonNegative(
             args,
@@ -43,7 +45,8 @@ internal static class ManagedPictureBenchmark
             useVectorClipMask,
             useCompositeBrushMask,
             useStrokedPathMask,
-            usePictureMask);
+            usePictureMask,
+            useAdvancedPrimitiveStrokes);
         const ulong sceneId = 0x5049435455524542UL;
         const ulong generation = 1UL;
         long compileAllocationStart = GC.GetAllocatedBytesForCurrentThread();
@@ -241,6 +244,8 @@ internal static class ManagedPictureBenchmark
                         ? "artifacts/progpu-native/differential/managed-picture-composite-mask"
                     : usePictureMask
                         ? "artifacts/progpu-native/differential/managed-picture-picture-mask"
+                    : useAdvancedPrimitiveStrokes
+                        ? "artifacts/progpu-native/differential/managed-picture-primitive-strokes"
                     : "artifacts/progpu-native/differential/managed-picture");
             Directory.CreateDirectory(directory);
             nativeImagePath = Path.Combine(directory, "managed-picture-native.ppm");
@@ -267,6 +272,7 @@ internal static class ManagedPictureBenchmark
             CompositeBrushMask: useCompositeBrushMask,
             StrokedPathMask: useStrokedPathMask,
             PictureMask: usePictureMask,
+            AdvancedPrimitiveStrokes: useAdvancedPrimitiveStrokes,
             SourceCommandCount: compiled.SourceCommandCount,
             NativeCommandCount: compiled.NativeCommandCount,
             AnalyticPrimitiveCount: compiled.AnalyticPrimitiveCount,
@@ -360,7 +366,8 @@ internal static class ManagedPictureBenchmark
         bool useVectorClipMask,
         bool useCompositeBrushMask,
         bool useStrokedPathMask,
-        bool usePictureMask)
+        bool usePictureMask,
+        bool useAdvancedPrimitiveStrokes)
     {
         GradientStop[] coolStops =
         [
@@ -653,12 +660,15 @@ internal static class ManagedPictureBenchmark
             switch (index % 3)
             {
                 case 0:
-                    drawing.DrawRectangle(brush, null, rect);
+                    drawing.DrawRectangle(
+                        brush,
+                        useAdvancedPrimitiveStrokes ? fixedDashPen : null,
+                        rect);
                     break;
                 case 1:
                     drawing.DrawEllipse(
                         brush,
-                        null,
+                        useAdvancedPrimitiveStrokes ? splinePen : null,
                         new Vector2(
                             rect.X + rect.Width * 0.5f,
                             rect.Y + rect.Height * 0.5f),
@@ -668,9 +678,12 @@ internal static class ManagedPictureBenchmark
                 default:
                     drawing.DrawRoundedRectangle(
                         brush,
-                        null,
+                        useAdvancedPrimitiveStrokes ? connectedPen : null,
                         rect,
-                        MathF.Min(rect.Width, rect.Height) * 0.22f);
+                        MathF.Min(rect.Width, rect.Height) * 0.22f,
+                        useAdvancedPrimitiveStrokes
+                            ? MathF.Min(rect.Width, rect.Height) * 0.14f
+                            : MathF.Min(rect.Width, rect.Height) * 0.22f);
                     break;
             }
         }
@@ -1037,6 +1050,7 @@ internal static class ManagedPictureBenchmark
         bool CompositeBrushMask,
         bool StrokedPathMask,
         bool PictureMask,
+        bool AdvancedPrimitiveStrokes,
         int SourceCommandCount,
         int NativeCommandCount,
         int AnalyticPrimitiveCount,
