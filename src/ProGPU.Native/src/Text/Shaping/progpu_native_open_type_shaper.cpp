@@ -1769,7 +1769,9 @@ bool try_shape_open_type_run(
         } else {
             std::uint32_t lookup_count = 0U;
             std::span<const std::uint16_t> selected_lookups{};
-            if (plan != nullptr && excluded_gsub.empty()) {
+            const bool plan_matches_exclusions = plan != nullptr &&
+                excluded_gsub.size() == excluded_fraction.size();
+            if (plan_matches_exclusions) {
                 selected_lookups = plan->gsub_lookups;
                 lookup_count = static_cast<std::uint32_t>(
                     selected_lookups.size());
@@ -1797,8 +1799,7 @@ bool try_shape_open_type_run(
                 }
                 selected_lookups = scratch.gsub_lookups.first(lookup_count);
             }
-            const bool has_accelerators = plan != nullptr &&
-                excluded_gsub.empty() &&
+            const bool has_accelerators = plan_matches_exclusions &&
                 plan->gsub_accelerators.size() == selected_lookups.size();
             auto buffer_digest = has_accelerators
                 ? create_glyph_digest(glyph_storage.first(glyph_count))
@@ -1821,6 +1822,21 @@ bool try_shape_open_type_run(
                     plan->gsub_accelerators[index].has_digest
                     ? &plan->gsub_accelerators[index].digest
                     : nullptr;
+                const auto* lookup_coverage = has_accelerators &&
+                    plan->gsub_accelerators[index].has_coverage
+                    ? &plan->gsub_accelerators[index].coverage
+                    : nullptr;
+                std::span<const open_type_context_subtable_requirement>
+                    lookup_context_subtables{};
+                if (has_accelerators &&
+                    plan->gsub_accelerators[index].has_context) {
+                    lookup_context_subtables =
+                        plan->gsub_context_subtables.subspan(
+                            plan->gsub_accelerators[index]
+                                .context_subtable_offset,
+                            plan->gsub_accelerators[index]
+                                .context_subtable_count);
+                }
                 lookup_feature_resolution cached_resolution{};
                 if (has_accelerators) {
                     cached_resolution = lookup_feature_resolution{
@@ -1838,6 +1854,12 @@ bool try_shape_open_type_run(
                         error,
                         &random_alternate_state,
                         lookup_digest,
+                        lookup_coverage,
+                        lookup_context_subtables,
+                        plan != nullptr
+                            ? plan->gsub_context_coverages
+                            : std::span<const
+                                open_type_context_coverage_requirement>{},
                         has_accelerators ? &cached_resolution : nullptr)) {
                     return false;
                 }
@@ -2077,7 +2099,7 @@ bool try_shape_open_type_run(
     if (gpos.lookup_count() != 0U) {
         std::uint32_t lookup_count = 0U;
         std::span<const std::uint16_t> selected_lookups{};
-        if (plan != nullptr && excluded_fraction.empty()) {
+        if (plan != nullptr) {
             selected_lookups = plan->gpos_lookups;
             lookup_count = static_cast<std::uint32_t>(
                 selected_lookups.size());
@@ -2114,7 +2136,6 @@ bool try_shape_open_type_run(
             &font,
             options.normalized_coordinates};
         const bool has_accelerators = plan != nullptr &&
-            excluded_fraction.empty() &&
             plan->gpos_accelerators.size() == selected_lookups.size();
         if (has_accelerators) {
             has_gpos_kerning = plan->has_gpos_kerning;
@@ -2161,6 +2182,21 @@ bool try_shape_open_type_run(
                 plan->gpos_accelerators[index].has_digest
                 ? &plan->gpos_accelerators[index].digest
                 : nullptr;
+            lookup_apply_options.lookup_coverage = has_accelerators &&
+                plan->gpos_accelerators[index].has_coverage
+                ? &plan->gpos_accelerators[index].coverage
+                : nullptr;
+            if (has_accelerators &&
+                plan->gpos_accelerators[index].has_context) {
+                lookup_apply_options.lookup_context_subtables =
+                    plan->gpos_context_subtables.subspan(
+                        plan->gpos_accelerators[index]
+                            .context_subtable_offset,
+                        plan->gpos_accelerators[index]
+                            .context_subtable_count);
+                lookup_apply_options.lookup_context_coverages =
+                    plan->gpos_context_coverages;
+            }
             if (!apply_gpos_lookup_with_feature_values(
                     gpos,
                     options,

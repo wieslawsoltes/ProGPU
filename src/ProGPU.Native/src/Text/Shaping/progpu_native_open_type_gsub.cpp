@@ -144,6 +144,31 @@ bool is_eligible(
             static_cast<std::uint16_t>(glyph.glyph_id)) == attachment_type;
 }
 
+bool context_subtable_may_start(
+    const open_type_gsub_apply_options& options,
+    std::uint16_t subtable_index,
+    std::uint16_t subtable_count,
+    std::uint32_t glyph_id) noexcept {
+    if (glyph_id > 0xFFFFU ||
+        options.lookup_context_subtables.size() != subtable_count) {
+        return true;
+    }
+    const auto& subtable =
+        options.lookup_context_subtables[subtable_index];
+    const std::uint64_t first_input =
+        static_cast<std::uint64_t>(subtable.coverage_offset) +
+        subtable.backtrack_count;
+    if (subtable.input_count == 0U ||
+        first_input >= options.lookup_context_coverages.size()) {
+        return true;
+    }
+    const auto& coverage = options.lookup_context_coverages[
+        static_cast<std::size_t>(first_input)];
+    const auto glyph = static_cast<std::uint16_t>(glyph_id);
+    return coverage.digest.may_have(glyph) &&
+        coverage.coverage.find(glyph) >= 0;
+}
+
 std::uint32_t next_eligible(
     std::span<const shaping_glyph> glyphs,
     std::uint32_t start,
@@ -1338,6 +1363,13 @@ apply_result apply_lookup_at(
         return apply_result::no_match;
     }
     for (std::uint16_t index = 0U; index < lookup.subtable_count; ++index) {
+        if (depth == 0U && !context_subtable_may_start(
+                options,
+                index,
+                lookup.subtable_count,
+                storage[position].glyph_id)) {
+            continue;
+        }
         std::size_t subtable = 0U;
         if (!lookup.try_get_subtable(index, subtable)) {
             return apply_result::malformed;
@@ -1399,6 +1431,12 @@ bool try_apply_open_type_gsub_lookup(
                 glyph_storage[position].glyph_id))) {
             continue;
         }
+        if (options.lookup_coverage != nullptr &&
+            glyph_storage[position].glyph_id <= 0xFFFFU &&
+            options.lookup_coverage->find(static_cast<std::uint16_t>(
+                glyph_storage[position].glyph_id)) < 0) {
+            continue;
+        }
         if (options.required_glyph_flags != 0U &&
             (static_cast<std::uint32_t>(glyph_storage[position].flags) &
                 options.required_glyph_flags) !=
@@ -1419,6 +1457,13 @@ bool try_apply_open_type_gsub_lookup(
         for (std::uint16_t subtable_index = 0U;
              subtable_index < lookup.subtable_count;
              ++subtable_index) {
+            if (!context_subtable_may_start(
+                    effective_options,
+                    subtable_index,
+                    lookup.subtable_count,
+                    glyph_storage[position].glyph_id)) {
+                continue;
+            }
             std::size_t subtable = 0U;
             if (!lookup.try_get_subtable(subtable_index, subtable, error)) {
                 return false;
@@ -1487,6 +1532,13 @@ bool try_apply_open_type_gsub_lookup_at(
     if (options.required_glyph_flags != 0U &&
         (static_cast<std::uint32_t>(glyph_storage[position].flags) &
             options.required_glyph_flags) != options.required_glyph_flags) {
+        set_error(error, font_error::none);
+        return true;
+    }
+    if (options.lookup_coverage != nullptr &&
+        glyph_storage[position].glyph_id <= 0xFFFFU &&
+        options.lookup_coverage->find(static_cast<std::uint16_t>(
+            glyph_storage[position].glyph_id)) < 0) {
         set_error(error, font_error::none);
         return true;
     }

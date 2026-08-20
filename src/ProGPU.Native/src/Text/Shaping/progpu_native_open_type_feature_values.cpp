@@ -375,6 +375,11 @@ bool apply_gsub_lookup_with_feature_values(
     font_error* error,
     std::uint32_t* random_state,
     const open_type_glyph_set_digest* lookup_digest,
+    const open_type_coverage_view* lookup_coverage,
+    std::span<const open_type_context_subtable_requirement>
+        lookup_context_subtables,
+    std::span<const open_type_context_coverage_requirement>
+        lookup_context_coverages,
     const lookup_feature_resolution* cached_resolution) noexcept {
     if (options.feature_settings.empty()) {
         bool applied = false;
@@ -386,6 +391,9 @@ bool apply_gsub_lookup_with_feature_values(
             nullptr,
             tracks_fallback_mark_metadata(options)};
         apply_options.lookup_digest = lookup_digest;
+        apply_options.lookup_coverage = lookup_coverage;
+        apply_options.lookup_context_subtables = lookup_context_subtables;
+        apply_options.lookup_context_coverages = lookup_context_coverages;
         return try_apply_open_type_gsub_lookup(
             gsub,
             lookup,
@@ -413,6 +421,9 @@ bool apply_gsub_lookup_with_feature_values(
             nullptr,
             tracks_fallback_mark_metadata(options)};
         apply_options.lookup_digest = lookup_digest;
+        apply_options.lookup_coverage = lookup_coverage;
+        apply_options.lookup_context_subtables = lookup_context_subtables;
+        apply_options.lookup_context_coverages = lookup_context_coverages;
         return try_apply_open_type_gsub_lookup(
             gsub,
             lookup,
@@ -458,6 +469,9 @@ bool apply_gsub_lookup_with_feature_values(
             false,
             &context_match_end,
             tracks_fallback_mark_metadata(options)};
+        apply_options.lookup_coverage = lookup_coverage;
+        apply_options.lookup_context_subtables = lookup_context_subtables;
+        apply_options.lookup_context_coverages = lookup_context_coverages;
         apply_options.random_state = random_state;
         apply_options.random_alternate =
             resolution.feature ==

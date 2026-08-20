@@ -71,6 +71,11 @@ bool apply_gsub_lookup_with_feature_values(
     font_error* error,
     std::uint32_t* random_state = nullptr,
     const open_type_glyph_set_digest* lookup_digest = nullptr,
+    const open_type_coverage_view* lookup_coverage = nullptr,
+    std::span<const open_type_context_subtable_requirement>
+        lookup_context_subtables = {},
+    std::span<const open_type_context_coverage_requirement>
+        lookup_context_coverages = {},
     const lookup_feature_resolution* cached_resolution = nullptr) noexcept;
 
 bool apply_gpos_lookup_with_feature_values(

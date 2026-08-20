@@ -2183,15 +2183,22 @@ substitution.
 
 The parallel text implementation retains immutable borrowed views of the
 frequently queried SFNT metric tables and augments the authoritative managed
-three-mask GSUB negative filter with two additional native-only masks. This is
-a backend layout optimization, not a semantic fork: negative results prove
-disjointness, while all positive results still use the exact ProGPU OpenType
-coverage executor. A matched Release checkpoint reduced the 130-scalar native
-median from `366.333 us` to a three-repeat median of `344.000 us` with exact
-output and zero managed allocation, but it remains about `4.3x` slower than
-the `79.542 us` managed comparator. Native text substitution therefore remains
-gated on further exact GSUB acceleration, complex-script differential coverage,
-final package/host qualification, and manual desktop/browser inspection.
+three-mask GSUB negative filter with two additional native-only masks. It also
+directly ports ProGPU's retained shaping-plan reuse: inactive fraction-feature
+exclusions are part of the plan key, ordinary lookup selection is retained,
+and exact leading/context coverage views are borrowed from the immutable font.
+These are backend layout optimizations, not semantic forks: negative results
+prove disjointness, while every positive still uses the complete ProGPU
+OpenType executor and conditional fractions remain in their staged pass.
+
+A matched Apple M3 Pro Release checkpoint with three 200-warm-up/6,000-sample
+repeats reduced the historical 130-scalar native median from `344.000 us` to
+`66.042 us`, versus `101.000 us` managed, with exact output, one crossing, and
+zero native-path managed allocation. At 520 scalars native measured
+`263.583 us` versus `332.833 us` managed. The representative retained shaping
+CPU gap is closed. Native text substitution remains gated on complex-script
+differential coverage, final paragraph and package/host qualification, and
+manual desktop/browser inspection.
 
 ### Delivery and evidence gates
 

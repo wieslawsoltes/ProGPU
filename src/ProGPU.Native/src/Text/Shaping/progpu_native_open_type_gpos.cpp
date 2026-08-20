@@ -1283,6 +1283,12 @@ bool try_apply_open_type_gpos_lookup(
                 glyphs[position].glyph_id))) {
             continue;
         }
+        if (options.lookup_coverage != nullptr &&
+            glyphs[position].glyph_id <= 0xFFFFU &&
+            options.lookup_coverage->find(static_cast<std::uint16_t>(
+                glyphs[position].glyph_id)) < 0) {
+            continue;
+        }
         if (!is_eligible(
                 glyphs[position],
                 lookup.flags,
@@ -1291,6 +1297,26 @@ bool try_apply_open_type_gpos_lookup(
             continue;
         }
         for (std::uint16_t index = 0U; index < lookup.subtable_count; ++index) {
+            if (options.lookup_context_subtables.size() ==
+                    lookup.subtable_count) {
+                const auto& context =
+                    options.lookup_context_subtables[index];
+                const std::uint64_t first_input =
+                    static_cast<std::uint64_t>(context.coverage_offset) +
+                    context.backtrack_count;
+                if (glyphs[position].glyph_id <= 0xFFFFU &&
+                    context.input_count != 0U &&
+                    first_input < options.lookup_context_coverages.size()) {
+                    const auto& coverage = options.lookup_context_coverages[
+                        static_cast<std::size_t>(first_input)];
+                    const auto glyph = static_cast<std::uint16_t>(
+                        glyphs[position].glyph_id);
+                    if (!coverage.digest.may_have(glyph) ||
+                        coverage.coverage.find(glyph) < 0) {
+                        continue;
+                    }
+                }
+            }
             std::size_t subtable = 0U;
             if (!lookup.try_get_subtable(index, subtable, error)) {
                 return false;
@@ -1336,6 +1362,13 @@ bool try_apply_open_type_gpos_lookup_at(
     if (position >= glyphs.size()) {
         set_error(error, font_error::invalid_argument);
         return false;
+    }
+    if (options.lookup_coverage != nullptr &&
+        glyphs[position].glyph_id <= 0xFFFFU &&
+        options.lookup_coverage->find(static_cast<std::uint16_t>(
+            glyphs[position].glyph_id)) < 0) {
+        set_error(error, font_error::none);
+        return true;
     }
     const detail::gpos_apply_result result = detail::apply_gpos_lookup_at(
         gpos, lookup_index, glyphs, position, options, 0U);

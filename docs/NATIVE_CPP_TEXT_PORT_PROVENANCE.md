@@ -1360,12 +1360,27 @@ the C++20 named-module consumer, and ASan/UBSan execution. Common `head`,
 `hhea`, `hmtx`, and `maxp` table spans are also retained as immutable borrowed
 views when the font view is created, eliminating repeated directory scans
 without changing ownership or malformed-table behavior. A symbolized Release
-profile attributed about `63.6%` of process samples to GSUB feature-value and
-exact lookup matching; the retained views plus five-mask filter reduced the
-130-scalar native median from `366.333 us` to a three-repeat median of
-`344.000 us`. Exact output and zero managed allocation were preserved, but the
-remaining `4.3x` gap to the `79.542 us` managed comparator keeps native
-shaping performance open.
+profile first attributed about `63.6%` of process samples to GSUB feature-value
+and exact lookup matching; the retained views plus five-mask filter reduced
+the 130-scalar native median from `366.333 us` to `344.000 us`.
+
+The follow-up directly ports the authoritative ProGPU-owned managed shaping-
+plan reuse contract into the native pipeline. The three inactive fraction
+features are an explicit plan-key mask, ordinary GSUB/GPOS selection is
+retained with those features excluded, and conditional fraction execution
+remains in the existing staged pass. Exact leading coverage and format-3
+context coverage are immutable borrowed views, not parser objects or copied
+tables. Negative results skip impossible candidates; positive and malformed
+cases retain the full native OpenType executor. Production Inter planned versus
+unplanned differentials cover contextual substitution and automatic fractions.
+
+On the final Apple M3 Pro Release binaries, three 200-warm-up/6,000-measurement
+repeats report a 130-scalar median-of-medians of `101.000 us` managed versus
+`66.042 us` native, exact output, one crossing, and `0 B/run` native-path
+managed allocation. A 520-scalar scaling run reports `332.833 us` versus
+`263.583 us`. The representative retained shaping CPU gap is therefore closed;
+complex-script coverage, the remaining 2–3% paragraph orchestration difference,
+package/host qualification, and manual testing remain release gates.
 
 1. Freeze bounded native byte ownership and provenance for SFNT/container,
    table-directory, metrics, cmap, and outline access.

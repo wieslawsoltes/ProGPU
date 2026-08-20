@@ -352,6 +352,61 @@ bool open_type_layout_table_view::try_get_lookup_digest(
     return true;
 }
 
+bool open_type_layout_table_view::try_get_single_subtable_coverage(
+    std::uint16_t index,
+    std::uint16_t extension_lookup_type,
+    open_type_lookup_view& lookup,
+    open_type_coverage_view& result,
+    bool& has_coverage,
+    font_error* error) const noexcept {
+    lookup = {};
+    result = {};
+    has_coverage = false;
+    if (!try_get_lookup(index, lookup, error)) {
+        return false;
+    }
+    if (lookup.subtable_count != 1U) {
+        set_error(error, font_error::none);
+        return true;
+    }
+
+    std::size_t subtable = 0U;
+    std::uint16_t effective_type = 0U;
+    if (!try_resolve_subtable(
+            lookup, 0U, extension_lookup_type, subtable, effective_type) ||
+        (extension_lookup_type != 7U && extension_lookup_type != 9U) ||
+        effective_type == 0U || effective_type > 8U ||
+        effective_type == extension_lookup_type ||
+        !can_read(lookup.table, subtable, 4U)) {
+        set_error(error, font_error::none);
+        return true;
+    }
+
+    const std::uint16_t format = read_u16(lookup.table, subtable);
+    const bool is_context =
+        (extension_lookup_type == 7U &&
+            (effective_type == 5U || effective_type == 6U)) ||
+        (extension_lookup_type == 9U &&
+            (effective_type == 7U || effective_type == 8U));
+    if (is_context && format == 3U) {
+        set_error(error, font_error::none);
+        return true;
+    }
+
+    const std::uint16_t relative = read_u16(lookup.table, subtable + 2U);
+    std::size_t coverage = 0U;
+    if (relative == 0U || !try_add(subtable, relative, coverage) ||
+        !open_type_coverage_view::try_create(
+            lookup.table, coverage, result)) {
+        result = {};
+        set_error(error, font_error::none);
+        return true;
+    }
+    has_coverage = true;
+    set_error(error, font_error::none);
+    return true;
+}
+
 bool open_type_layout_table_view::
     try_get_lookup_context_accelerator_requirements(
         std::uint16_t index,

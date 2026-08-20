@@ -832,6 +832,18 @@ public:
         bool& has_digest,
         font_error* error = nullptr) const noexcept;
 
+    /* Retains the exact leading coverage for the common one-subtable lookup.
+     * Multi-subtable and malformed/unsupported lookup shapes return
+     * `has_coverage == false` and continue through the negative-only digest
+     * path. The returned views borrow the immutable layout table. */
+    bool try_get_single_subtable_coverage(
+        std::uint16_t index,
+        std::uint16_t extension_lookup_type,
+        open_type_lookup_view& lookup,
+        open_type_coverage_view& result,
+        bool& has_coverage,
+        font_error* error = nullptr) const noexcept;
+
     bool try_get_lookup_context_accelerator_requirements(
         std::uint16_t index,
         std::uint16_t extension_lookup_type,
@@ -1057,6 +1069,16 @@ struct open_type_gsub_apply_options final {
     /* Optional negative-only top-level lookup accelerator. Nested lookup-at
      * execution remains exact and does not inherit this filter. */
     const open_type_glyph_set_digest* lookup_digest = nullptr;
+    /* Optional exact leading coverage retained by a compatible shape plan.
+     * A negative result rejects the candidate before reparsing the subtable;
+     * positives still execute the complete OpenType lookup. */
+    const open_type_coverage_view* lookup_coverage = nullptr;
+    /* Optional exact format-3 contextual coverage plan. Subtable records are
+     * ordered like the lookup and reference the full retained coverage span. */
+    std::span<const open_type_context_subtable_requirement>
+        lookup_context_subtables{};
+    std::span<const open_type_context_coverage_requirement>
+        lookup_context_coverages{};
 };
 
 /*
@@ -1146,6 +1168,12 @@ struct open_type_gpos_apply_options final {
     std::uint16_t pixels_per_em_y = 0U;
     /* Optional negative-only top-level lookup accelerator. */
     const open_type_glyph_set_digest* lookup_digest = nullptr;
+    /* Optional exact leading coverage retained by a compatible shape plan. */
+    const open_type_coverage_view* lookup_coverage = nullptr;
+    std::span<const open_type_context_subtable_requirement>
+        lookup_context_subtables{};
+    std::span<const open_type_context_coverage_requirement>
+        lookup_context_coverages{};
 };
 
 /*
@@ -1429,11 +1457,13 @@ struct open_type_shape_plan_requirements final {
 
 struct open_type_lookup_accelerator final {
     open_type_glyph_set_digest digest{};
+    open_type_coverage_view coverage{};
     open_type_tag feature{};
     std::uint32_t context_subtable_offset = 0U;
     std::uint32_t context_subtable_count = 0U;
     std::uint16_t lookup_flags = 0U;
     bool has_digest = false;
+    bool has_coverage = false;
     bool has_context = false;
     bool feature_found = false;
     bool feature_required = false;
@@ -1466,6 +1496,9 @@ struct open_type_shape_plan final {
     open_type_tag language{};
     bool has_gpos_kerning = false;
     bool has_gdef = false;
+    /* Exact cache-key component for the three conditional fraction features
+     * that are staged outside the ordinary retained lookup plan. */
+    std::uint8_t fraction_exclusion_mask = 0U;
 
     bool matches(
         const sfnt_font_view& font,

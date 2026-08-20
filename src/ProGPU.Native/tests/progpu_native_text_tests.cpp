@@ -1870,6 +1870,21 @@ void open_type_lookup_digest_extends_managed_negative_filter() {
         0U, 7U, digest, has_digest, &error));
     require(error == font_error::none && has_digest && digest.may_have(5U) &&
         digest.may_have(70U) && !digest.may_have(7U));
+    open_type_lookup_view retained_lookup{};
+    open_type_coverage_view retained_coverage{};
+    bool has_coverage = false;
+    require(table.try_get_single_subtable_coverage(
+        0U,
+        7U,
+        retained_lookup,
+        retained_coverage,
+        has_coverage,
+        &error));
+    require(error == font_error::none && has_coverage &&
+        retained_lookup.subtable_count == 1U &&
+        retained_coverage.find(5U) == 0 &&
+        retained_coverage.find(70U) == 1 &&
+        retained_coverage.find(7U) < 0);
 
     open_type_glyph_set_digest overlapping{};
     overlapping.add(70U);
@@ -1882,6 +1897,37 @@ void open_type_lookup_digest_extends_managed_negative_filter() {
     require(range.may_have(100U) && range.may_have(140U));
     range.add_range(140U, 100U);
 
+    /* Context format 3 stores a glyph count rather than a leading coverage
+     * offset at byte 2. It uses the retained contextual plan instead. */
+    write_u16(layout, 18U, 5U);
+    write_u16(layout, 22U, 3U);
+    has_coverage = true;
+    require(table.try_get_single_subtable_coverage(
+        0U,
+        7U,
+        retained_lookup,
+        retained_coverage,
+        has_coverage,
+        &error));
+    require(error == font_error::none && !has_coverage);
+
+    /* GSUB ReverseChainSingle type 8 has the same leading coverage position
+     * and must retain the optional exact accelerator even though type 7 is
+     * the extension lookup wrapper. */
+    write_u16(layout, 18U, 8U);
+    write_u16(layout, 22U, 1U);
+    has_coverage = false;
+    require(table.try_get_single_subtable_coverage(
+        0U,
+        7U,
+        retained_lookup,
+        retained_coverage,
+        has_coverage,
+        &error));
+    require(error == font_error::none && has_coverage &&
+        retained_coverage.find(5U) == 0 &&
+        retained_coverage.find(70U) == 1);
+
     digest = {};
     has_digest = true;
     require(!table.try_get_lookup_digest(
@@ -1890,6 +1936,15 @@ void open_type_lookup_digest_extends_managed_negative_filter() {
         digest.shift0 == 0U && digest.shift2 == 0U &&
         digest.shift4 == 0U && digest.shift6 == 0U &&
         digest.shift10 == 0U);
+    has_coverage = true;
+    require(!table.try_get_single_subtable_coverage(
+        1U,
+        7U,
+        retained_lookup,
+        retained_coverage,
+        has_coverage,
+        &error));
+    require(error == font_error::invalid_argument && !has_coverage);
 }
 
 void open_type_feature_variations_match_managed_lookup_selection() {
@@ -11059,6 +11114,19 @@ void production_inter_shaping_is_stable_and_reusable() {
             plan_requirements.gpos_context_subtable_capacity &&
         plan.gpos_context_coverages.size() <=
             plan_requirements.gpos_context_coverage_capacity);
+    require(std::any_of(
+        plan.gsub_accelerators.begin(),
+        plan.gsub_accelerators.end(),
+        [](const auto& accelerator) { return accelerator.has_coverage; }));
+    require(std::any_of(
+        plan.gsub_accelerators.begin(),
+        plan.gsub_accelerators.end(),
+        [](const auto& accelerator) { return accelerator.has_context; }));
+    constexpr std::array explicit_fraction{
+        open_type_tag::from_chars('f', 'r', 'a', 'c')};
+    auto explicit_fraction_options = options;
+    explicit_fraction_options.explicit_features = explicit_fraction;
+    require(!plan.matches(font, explicit_fraction_options));
     const auto require_cached_features = [&](
         const open_type_layout_table_view& layout,
         std::span<const std::uint16_t> lookups,
@@ -11198,6 +11266,29 @@ void production_inter_shaping_is_stable_and_reusable() {
         contextual_count,
         &error,
         &plan));
+    const auto contextual_planned = glyphs;
+    const std::uint32_t contextual_planned_count = contextual_count;
+    require(try_shape_open_type_run(
+        font,
+        contextual_input,
+        options,
+        glyphs,
+        contextual_scratch,
+        contextual_count,
+        &error,
+        nullptr));
+    require(contextual_count == contextual_planned_count);
+    for (std::uint32_t index = 0U; index < contextual_count; ++index) {
+        const auto& left = contextual_planned[index];
+        const auto& right = glyphs[index];
+        require(left.glyph_id == right.glyph_id &&
+            left.code_point == right.code_point &&
+            left.cluster == right.cluster && left.flags == right.flags &&
+            left.advance_x == right.advance_x &&
+            left.advance_y == right.advance_y &&
+            left.offset_x == right.offset_x &&
+            left.offset_y == right.offset_y);
+    }
     std::uint64_t contextual_hash = 1469598103934665603ULL;
     const auto contextual_mix = [&contextual_hash](std::uint32_t value) {
         for (std::uint32_t shift = 0U; shift < 32U; shift += 8U) {
@@ -11273,6 +11364,29 @@ void production_inter_shaping_is_stable_and_reusable() {
         fraction_count,
         &error,
         &plan));
+    const auto fraction_planned = glyphs;
+    const std::uint32_t fraction_planned_count = fraction_count;
+    require(try_shape_open_type_run(
+        font,
+        fraction_input,
+        options,
+        glyphs,
+        contextual_scratch,
+        fraction_count,
+        &error,
+        nullptr));
+    require(fraction_count == fraction_planned_count);
+    for (std::uint32_t index = 0U; index < fraction_count; ++index) {
+        const auto& left = fraction_planned[index];
+        const auto& right = glyphs[index];
+        require(left.glyph_id == right.glyph_id &&
+            left.code_point == right.code_point &&
+            left.cluster == right.cluster && left.flags == right.flags &&
+            left.advance_x == right.advance_x &&
+            left.advance_y == right.advance_y &&
+            left.offset_x == right.offset_x &&
+            left.offset_y == right.offset_y);
+    }
     std::uint64_t fraction_hash = 1469598103934665603ULL;
     const auto fraction_mix = [&fraction_hash](std::uint32_t value) {
         for (std::uint32_t shift = 0U; shift < 32U; shift += 8U) {

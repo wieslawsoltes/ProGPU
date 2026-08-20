@@ -1,6 +1,8 @@
 #include "progpu_native_text.hpp"
 #include "progpu_native_open_type_feature_values_internal.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -61,6 +63,26 @@ std::uint64_t hash_coordinates(
     hash ^= coordinates.size();
     hash *= fnv_prime;
     return hash;
+}
+
+std::uint8_t fraction_exclusion_mask(
+    const open_type_shape_run_options& options) noexcept {
+    std::array<open_type_tag, 3U> storage{};
+    const auto excluded = feature_detail::inactive_fraction_features(
+        options, storage);
+    std::uint8_t result = 0U;
+    constexpr std::array features{
+        open_type_tag::from_chars('f', 'r', 'a', 'c'),
+        open_type_tag::from_chars('n', 'u', 'm', 'r'),
+        open_type_tag::from_chars('d', 'n', 'o', 'm')};
+    for (const auto tag : excluded) {
+        const auto found = std::find(features.begin(), features.end(), tag);
+        if (found != features.end()) {
+            result |= static_cast<std::uint8_t>(
+                1U << static_cast<std::size_t>(found - features.begin()));
+        }
+    }
+    return result;
 }
 
 bool try_get_layout(
@@ -165,6 +187,16 @@ bool try_build_accelerators(
                 extension_lookup_type,
                 storage[index].digest,
                 storage[index].has_digest,
+                error)) {
+            return false;
+        }
+        open_type_lookup_view retained_lookup{};
+        if (!layout.try_get_single_subtable_coverage(
+                lookups[index],
+                extension_lookup_type,
+                retained_lookup,
+                storage[index].coverage,
+                storage[index].has_coverage,
                 error)) {
             return false;
         }
@@ -336,7 +368,9 @@ bool open_type_shape_plan::matches(
         face_index == font.face_index() && script == options.script &&
         language == options.language &&
         feature_hash == hash_features(options.requested_features) &&
-        coordinate_hash == hash_coordinates(options.normalized_coordinates);
+        coordinate_hash == hash_coordinates(options.normalized_coordinates) &&
+        fraction_exclusion_mask ==
+            progpu::native::text::fraction_exclusion_mask(options);
 }
 
 bool open_type_shape_plan::gsub_lookup_may_match_context(
@@ -459,24 +493,48 @@ bool try_build_shape_plan(
     }
     std::uint32_t gsub_count = 0U;
     std::uint32_t gpos_count = 0U;
+    std::array<open_type_tag, 3U> excluded_fraction_storage{};
+    const auto excluded_fraction =
+        feature_detail::inactive_fraction_features(
+            options, excluded_fraction_storage);
     if ((gsub.lookup_count() != 0U &&
-            !gsub.try_select_lookups(
-                options.script,
-                options.language,
-                options.requested_features,
-                options.normalized_coordinates,
-                gsub_lookup_storage,
-                gsub_count,
-                error)) ||
+            !(excluded_fraction.empty()
+                ? gsub.try_select_lookups(
+                    options.script,
+                    options.language,
+                    options.requested_features,
+                    options.normalized_coordinates,
+                    gsub_lookup_storage,
+                    gsub_count,
+                    error)
+                : gsub.try_select_lookups_excluding(
+                    options.script,
+                    options.language,
+                    options.requested_features,
+                    excluded_fraction,
+                    options.normalized_coordinates,
+                    gsub_lookup_storage,
+                    gsub_count,
+                    error))) ||
         (gpos.lookup_count() != 0U &&
-            !gpos.try_select_lookups(
-                options.script,
-                options.language,
-                options.requested_features,
-                options.normalized_coordinates,
-                gpos_lookup_storage,
-                gpos_count,
-                error))) {
+            !(excluded_fraction.empty()
+                ? gpos.try_select_lookups(
+                    options.script,
+                    options.language,
+                    options.requested_features,
+                    options.normalized_coordinates,
+                    gpos_lookup_storage,
+                    gpos_count,
+                    error)
+                : gpos.try_select_lookups_excluding(
+                    options.script,
+                    options.language,
+                    options.requested_features,
+                    excluded_fraction,
+                    options.normalized_coordinates,
+                    gpos_lookup_storage,
+                    gpos_count,
+                    error)))) {
         return false;
     }
     const auto gsub_lookups = gsub_lookup_storage.first(gsub_count);
@@ -567,6 +625,8 @@ bool try_build_shape_plan(
         options.language,
         has_gpos_kerning,
         has_gdef};
+    result.fraction_exclusion_mask =
+        fraction_exclusion_mask(options);
     set_error(error, font_error::none);
     return true;
 }

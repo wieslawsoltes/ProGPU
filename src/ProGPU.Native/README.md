@@ -417,6 +417,11 @@ accelerator directly ports the managed three-mask glyph-set digest: a negative
 intersection skips a GSUB/GPOS lookup, while every positive result still uses
 the exact coverage parser. Positive lookup intersections also use the matching
 `MayHave` mask at each candidate start glyph before entering subtable parsing.
+The plan key includes the exact inactive `frac`/`numr`/`dnom` mask, so ordinary
+lookup selection remains reusable while conditional fractions stay isolated in
+their staged executor. Common single-subtable lookups retain an exact borrowed
+leading coverage view and reject impossible candidate glyphs before rebuilding
+the subtable parser.
 Managed-equivalent format-3 Context and ChainContext requirements are cached in
 caller-owned plan spans as borrowed coverage views plus per-coverage digests.
 Disjoint required coverages reject the lookup first; flag-zero lookups then use

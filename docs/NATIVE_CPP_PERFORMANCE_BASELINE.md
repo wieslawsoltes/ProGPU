@@ -2683,33 +2683,48 @@ are respectively `00818eafe791a9fd5e09312bc373ab7ccbbafb36bee400b8b285008ae1ca18
 `bb355d0551464352ce8fdcdca887495101cd5343734fc74589f3cf4fbead813d`,
 and `104a10fe1ce6a99fa283af9166a0c084d8237dd89777e09c961490324d9bd61c`.
 
-## Native shaping GSUB profile and optimization checkpoint
+## Native retained-plan shaping optimization checkpoint
 
-The Apple M3 Pro Release text benchmark shapes 130 decoded scalars through
-the same production Inter face and retained native shaping context. A matched
-pre-change run measured native shaping at `366.333 us` median. Retaining the
-commonly queried `head`, `hhea`, `hmtx`, and `maxp` table views and extending
-the native negative-only GSUB digest from three to five independent masks
-reduced the median of three final 6,000-iteration repeats to `344.000 us`, or
-about `6.1%`. The matching three-repeat managed median was `79.542 us`; the
-remaining native CPU gap is about `4.3x` and is explicitly still open. Native
-shaping retained exact glyph, cluster, advance, offset, and flag parity and
-allocated `0 B/run` on the managed heap; the managed comparator allocated
-`4,344 B/run`.
+The Apple M3 Pro Release text benchmark shapes decoded scalars through the
+same production Inter face and retained native shaping context. The earlier
+profile first reduced the 130-scalar native median from `366.333 us` to
+`344.000 us` by retaining frequently queried SFNT table views and extending
+the negative-only glyph digest. A second symbolized profile found that the
+ordinary Latin path still rebuilt lookup selection and reparsed exact coverage
+on every run: staged inactive fraction features made the shaper bypass its
+otherwise compatible retained plan.
 
-A symbolized native-only sample attributed about `63.6%` of process samples to
-GSUB feature-value application and its exact lookup/subtable/coverage matching.
-Interop, cmap lookup, glyph metrics, and allocation were not material parts of
-the gap. The two added digest masks remain a negative-only accelerator:
-construction is `O(G + L)` for `G` glyphs and `L` planned lookup coverages,
-each rejection remains fixed `O(1)`, and every positive still executes exact
-OpenType coverage evaluation. The extension adds 16 bytes to each native
-digest; the four retained table spans are immutable borrowed views created
-with the font view and add no per-run allocation. The benchmark's
-`--profile-native-only` mode isolates repeated bulk shaping for Instruments or
-sampling without running the managed comparator.
+The corrected plan keys the three fraction-feature exclusions, selects the
+ordinary GSUB/GPOS lookup lists once, and preserves conditional fraction
+lookups exclusively in their existing staged pass. Single-subtable lookups
+borrow their exact leading coverage from the immutable font table, while
+format-3 contextual lookups reuse the already retained ordered coverage plan.
+Both accelerators are negative-only: a rejected glyph cannot match; every
+positive still executes the complete OpenType lookup. Arabic-specific staged
+exclusions continue to bypass the general plan until they have an exact
+script-specific cache key.
 
-This is an optimization checkpoint, not closure of the text-performance
-milestone. The next native text slice must reduce exact GSUB positive-path and
-false-positive traversal while preserving bounded caller-owned storage,
-complex-script output parity, and one bulk managed/native crossing per run.
+Three final repeats each used 200 warm-ups and 6,000 measurements. For the
+historical 130-scalar workload, the median-of-medians was `101.000 us` managed
+versus `66.042 us` C++ bulk shaping; the median p95 was `128.000 us` versus
+`75.875 us`. Native shaping is `34.6%` lower at the median, retains exact glyph,
+cluster, advance, offset, and flag output, crosses the ABI once, and allocates
+`0 B/run` on the managed heap versus `4,344 B/run` managed. The corresponding
+one-call paragraph medians were `84.917 us` managed and `86.458 us` native, a
+remaining `1.8%` native orchestration gap.
+
+The 520-scalar scaling run used the same repeat protocol and measured
+`332.833 us` managed versus `263.583 us` native shaping, with `16,824 B/run`
+versus `0 B/run`; native is `20.8%` lower at the median. Its one-call paragraph
+medians were `336.416 us` managed and `346.917 us` native, a `3.1%` gap.
+
+Plan construction remains `O(L + C)` for `L` selected lookups and `C` retained
+context coverages. Stable shaping keeps caller-owned storage and one bulk
+managed/native crossing. Leading exact rejection is `O(log R)` for a coverage
+with `R` ranges (or the coverage's defined format-1 search), and contextual
+starting-glyph rejection has the same bound before the full positive executor.
+The borrowed views add no font-table copy or per-run allocation. The benchmark
+`--profile-native-only` mode continues to isolate native shaping for Instruments
+or sampling. The retained shaping CPU gap is closed for this representative
+Latin workload; complex-script differentials and final paragraph qualification
+remain separate release gates.
