@@ -1,6 +1,7 @@
 #include "progpu_native_text.hpp"
 
 #include "progpu_native_unicode_data.generated.hpp"
+#include "Unicode/progpu_native_unicode_grapheme_internal.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -101,7 +102,8 @@ bool has_boundary(
     std::uint32_t right_code_point,
     unicode_grapheme_break_class left,
     unicode_grapheme_break_class right,
-    const boundary_state& state) noexcept {
+    const boundary_state& state,
+    bool join_indic_conjuncts) noexcept {
     using value = unicode_grapheme_break_class;
     if (left == value::carriage_return && right == value::line_feed) {
         return false;
@@ -126,7 +128,8 @@ bool has_boundary(
         right == value::spacing_mark || left == value::prepend) {
         return false;
     }
-    if (get_unicode_indic_conjunct_class(right_code_point) ==
+    if (join_indic_conjuncts &&
+        get_unicode_indic_conjunct_class(right_code_point) ==
             unicode_indic_conjunct_class::consonant &&
         state.indic_consonant && state.indic_linker) {
         return false;
@@ -154,6 +157,7 @@ bool segment(
     std::span<const unicode_scalar> input,
     std::span<unicode_grapheme_cluster> output,
     bool write,
+    bool join_indic_conjuncts,
     std::uint32_t& count) noexcept {
     count = 0U;
     if (input.empty()) {
@@ -168,7 +172,8 @@ bool segment(
     for (std::size_t index = 1U; index < input.size(); ++index) {
         const auto right =
             get_unicode_grapheme_break_class(input[index].code_point);
-        if (has_boundary(input[index].code_point, left, right, state)) {
+        if (has_boundary(input[index].code_point, left, right, state,
+                join_indic_conjuncts)) {
             if (write) {
                 output[count] = unicode_grapheme_cluster{
                     source_start,
@@ -233,7 +238,7 @@ bool try_get_unicode_grapheme_cluster_count(
         set_error(error, unicode_error::invalid_argument);
         return false;
     }
-    segment(input, {}, false, result);
+    segment(input, {}, false, true, result);
     set_error(error, unicode_error::none);
     return true;
 }
@@ -252,9 +257,34 @@ bool try_segment_unicode_graphemes(
         set_error(error, unicode_error::insufficient_buffer);
         return false;
     }
-    segment(input, output, true, written);
+    segment(input, output, true, true, written);
     set_error(error, unicode_error::none);
     return true;
 }
+
+namespace detail {
+
+bool try_segment_managed_compatible_graphemes(
+    std::span<const unicode_scalar> input,
+    std::span<unicode_grapheme_cluster> output,
+    std::uint32_t& written,
+    unicode_error* error) noexcept {
+    written = 0U;
+    if (input.size() > std::numeric_limits<std::uint32_t>::max()) {
+        set_error(error, unicode_error::invalid_argument);
+        return false;
+    }
+    std::uint32_t required = 0U;
+    segment(input, {}, false, false, required);
+    if (output.size() < required) {
+        set_error(error, unicode_error::insufficient_buffer);
+        return false;
+    }
+    segment(input, output, true, false, written);
+    set_error(error, unicode_error::none);
+    return true;
+}
+
+} // namespace detail
 
 } // namespace progpu::native::text

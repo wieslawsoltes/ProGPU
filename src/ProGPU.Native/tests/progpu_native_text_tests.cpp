@@ -74,6 +74,7 @@ using progpu::native::text::try_itemize_unicode_scripts;
 using progpu::native::text::unicode_normalization_form;
 using progpu::native::text::unicode_normalization_requirements;
 using progpu::native::text::unicode_normalization_data;
+using progpu::native::text::get_default_unicode_normalization_data;
 using progpu::native::text::try_get_unicode_normalization_requirements;
 using progpu::native::text::try_normalize_unicode;
 using progpu::native::text::open_type_coverage_view;
@@ -857,6 +858,20 @@ void canonical_unicode_normalization_uses_shared_borrowed_data() {
     require(error == unicode_error::invalid_argument);
 }
 
+void canonical_unicode_normalization_embeds_the_default_resource() {
+    const unicode_normalization_data* data =
+        get_default_unicode_normalization_data();
+    require(data != nullptr);
+
+    std::span<const std::byte> decomposition{};
+    require(data->try_get_decomposition(0x00E9U, decomposition));
+    require(decomposition.size() == 8U);
+
+    std::uint32_t composed = 0U;
+    require(data->try_compose(0x0065U, 0x0301U, composed));
+    require(composed == 0x00E9U);
+}
+
 void unicode_script_itemization_preserves_source_ranges() {
     constexpr auto dflt = open_type_tag::from_chars('D', 'F', 'L', 'T');
     constexpr auto latn = open_type_tag::from_chars('l', 'a', 't', 'n');
@@ -914,6 +929,15 @@ void open_type_common_layout_views_are_borrowed_and_bounded() {
     require(error == font_error::none && coverage.find(3U) == 0 &&
         coverage.find(5U) == 1 && coverage.find(9U) == 2 &&
         coverage.find(4U) == -1);
+
+    std::array<std::byte, 8U> duplicate_coverage{};
+    write_u16(duplicate_coverage, 0U, 1U);
+    write_u16(duplicate_coverage, 2U, 2U);
+    write_u16(duplicate_coverage, 4U, 5U);
+    write_u16(duplicate_coverage, 6U, 5U);
+    require(open_type_coverage_view::try_create(
+        duplicate_coverage, 0U, coverage, &error));
+    require(error == font_error::none && coverage.find(5U) == 0);
 
     std::array<std::byte, 16U> coverage2{};
     write_u16(coverage2, 0U, 2U);
@@ -1267,6 +1291,30 @@ void open_type_gsub_basic_lookups_use_caller_owned_storage() {
     require(((static_cast<std::uint32_t>(glyphs[1U].flags) >> 11U) &
             0xFFU) == 1U);
 
+    // Managed ReplaceLigature expands both endpoint clusters before removing
+    // components. A mark or matra adjacent to the final component therefore
+    // inherits the ligature's minimum cluster even when it is not consumed.
+    glyphs = {shaping_glyph{5U, 0x66U, 2},
+        shaping_glyph{11U, 0x0301U, 2},
+        shaping_glyph{6U, 0x69U, 4},
+        shaping_glyph{7U, 0x0302U, 4}};
+    count = 4U;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, ligature_options, applied, &error));
+    require(applied && count == 3U && glyphs[0U].glyph_id == 12U &&
+        glyphs[0U].cluster == 2 && glyphs[1U].cluster == 2 &&
+        glyphs[2U].cluster == 2);
+
+    glyphs = {shaping_glyph{5U}, shaping_glyph{6U}};
+    glyphs[0U].flags = static_cast<shaping_glyph_flags>(1U << 13U);
+    glyphs[1U].flags = static_cast<shaping_glyph_flags>(2U << 13U);
+    count = 2U;
+    ligature_options.restrict_to_syllable = true;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, ligature_options, applied, &error));
+    require(!applied && count == 2U && glyphs[0U].glyph_id == 5U &&
+        glyphs[1U].glyph_id == 6U);
+
     auto malformed = single;
     write_u16(malformed, 28U, 0xFFFFU);
     require(open_type_layout_table_view::try_create(malformed, gsub, &error));
@@ -1516,12 +1564,17 @@ void open_type_gsub_context_format3_applies_bounded_nested_lookups() {
     missing_lookahead_digest.add(9U);
     require(!context_plan.gsub_lookup_may_match_context(
         0U, missing_lookahead, missing_lookahead_digest));
-    glyphs = {shaping_glyph{1U}, shaping_glyph{5U}, shaping_glyph{7U}};
+    glyphs = {shaping_glyph{1U, 0U, 0},
+        shaping_glyph{5U, 0U, 1},
+        shaping_glyph{7U, 0U, 2}};
     count = 3U;
     require(try_apply_open_type_gsub_lookup(
         gsub, 0U, glyphs, count, {}, applied, &error));
     require(applied && count == 3U && glyphs[0U].glyph_id == 1U &&
-        glyphs[1U].glyph_id == 12U && glyphs[2U].glyph_id == 7U);
+        glyphs[1U].glyph_id == 12U && glyphs[2U].glyph_id == 7U &&
+        (static_cast<std::uint32_t>(glyphs[0U].flags) & 3U) == 0U &&
+        (static_cast<std::uint32_t>(glyphs[1U].flags) & 3U) == 3U &&
+        (static_cast<std::uint32_t>(glyphs[2U].flags) & 3U) == 3U);
 
     glyphs = {shaping_glyph{2U}, shaping_glyph{5U}, shaping_glyph{7U}};
     count = 3U;
@@ -5319,6 +5372,111 @@ void arabic_fallback_forms_and_ligatures_match_managed() {
     require(glyph_count == 2U &&
         glyphs[0U].code_point == 0x0628U && glyphs[0U].glyph_id == 1U &&
         glyphs[1U].code_point == 0x0628U && glyphs[1U].glyph_id == 7U);
+
+    // The authoritative managed Arabic pipeline applies joining forms before
+    // required ligatures. Lookup 0 changes the initial BEH from glyph 1 to 7;
+    // lookup 1 can form glyph 9 only from the resulting [7, 1] sequence.
+    const auto make_form_then_ligature_gsub = [] {
+        std::vector<std::byte> table(120U);
+        write_u16(table, 0U, 1U);
+        write_u16(table, 4U, 10U);
+        write_u16(table, 6U, 34U);
+        write_u16(table, 8U, 60U);
+        write_u16(table, 10U, 1U);
+        write_u32(table, 12U,
+            open_type_tag::from_chars('a', 'r', 'a', 'b').value);
+        write_u16(table, 16U, 8U);
+        write_u16(table, 18U, 4U);
+        write_u16(table, 22U, 0U);
+        write_u16(table, 24U, 1U);
+        write_u16(table, 26U, 2U);
+        write_u16(table, 28U, 0U);
+        write_u16(table, 30U, 1U);
+
+        write_u16(table, 34U, 2U);
+        write_u32(table, 36U,
+            open_type_tag::from_chars('i', 'n', 'i', 't').value);
+        write_u16(table, 40U, 14U);
+        write_u32(table, 42U,
+            open_type_tag::from_chars('r', 'l', 'i', 'g').value);
+        write_u16(table, 46U, 20U);
+        write_u16(table, 48U, 0U);
+        write_u16(table, 50U, 1U);
+        write_u16(table, 52U, 0U);
+        write_u16(table, 54U, 0U);
+        write_u16(table, 56U, 1U);
+        write_u16(table, 58U, 1U);
+
+        write_u16(table, 60U, 2U);
+        write_u16(table, 62U, 6U);
+        write_u16(table, 64U, 28U);
+        write_u16(table, 66U, 1U);
+        write_u16(table, 68U, 0U);
+        write_u16(table, 70U, 1U);
+        write_u16(table, 72U, 8U);
+        write_u16(table, 74U, 2U);
+        write_u16(table, 76U, 8U);
+        write_u16(table, 78U, 1U);
+        write_u16(table, 80U, 7U);
+        write_u16(table, 82U, 1U);
+        write_u16(table, 84U, 1U);
+        write_u16(table, 86U, 1U);
+
+        write_u16(table, 88U, 4U);
+        write_u16(table, 90U, 0U);
+        write_u16(table, 92U, 1U);
+        write_u16(table, 94U, 8U);
+        write_u16(table, 96U, 1U);
+        write_u16(table, 98U, 18U);
+        write_u16(table, 100U, 1U);
+        write_u16(table, 102U, 8U);
+        write_u16(table, 104U, 1U);
+        write_u16(table, 106U, 4U);
+        write_u16(table, 108U, 9U);
+        write_u16(table, 110U, 2U);
+        write_u16(table, 112U, 1U);
+        write_u16(table, 114U, 1U);
+        write_u16(table, 116U, 1U);
+        write_u16(table, 118U, 7U);
+        return table;
+    };
+    const std::array staged_tables{
+        table_data{open_type_tag::from_chars('G', 'S', 'U', 'B'),
+            make_form_then_ligature_gsub()}};
+    const auto staged_data = make_font(
+        0U, 22U, 0U, false, false, false, staged_tables, cmap);
+    require(sfnt_font_view::try_create(staged_data, 0U, font, &error));
+    progpu::native::text::sfnt_table_view staged_gsub_table{};
+    open_type_layout_table_view staged_gsub{};
+    require(font.try_get_table(
+        open_type_tag::from_chars('G', 'S', 'U', 'B'), staged_gsub_table));
+    require(open_type_layout_table_view::try_create(
+        staged_gsub_table.bytes, staged_gsub, &error));
+    std::array<shaping_glyph, 2U> direct_ligature{
+        shaping_glyph{7U}, shaping_glyph{1U}};
+    std::uint32_t direct_count = 2U;
+    bool direct_applied = false;
+    require(try_apply_open_type_gsub_lookup(
+        staged_gsub,
+        1U,
+        direct_ligature,
+        direct_count,
+        {},
+        direct_applied,
+        &error));
+    require(direct_applied && direct_count == 1U &&
+        direct_ligature[0U].glyph_id == 9U);
+    constexpr std::array staged_features{
+        open_type_tag::from_chars('i', 'n', 'i', 't'),
+        open_type_tag::from_chars('r', 'l', 'i', 'g')};
+    std::array<std::uint16_t, 2U> staged_lookups{};
+    scratch.gsub_lookups = staged_lookups;
+    options.requested_features = staged_features;
+    glyphs.fill({});
+    require(try_shape_open_type_run(
+        font, two_beh, options, glyphs, scratch, glyph_count, &error));
+    require(glyph_count == 1U && glyphs[0U].glyph_id == 9U &&
+        glyphs[0U].cluster == 0);
 }
 
 void open_type_khmer_preparation_reorders_prebase_vowels() {
@@ -5679,6 +5837,7 @@ void open_type_initial_mapping_matches_managed() {
     std::array<std::uint8_t, 6U> indic_states{};
     std::array<std::uint8_t, 6U> indic_categories{};
     std::array<std::uint8_t, 6U> indic_syllables{};
+    std::array<std::uint32_t, 7U> indic_indices{};
     glyph_count = 0U;
     require(try_shape_open_type_run(
         font,
@@ -5690,7 +5849,8 @@ void open_type_initial_mapping_matches_managed() {
             .attachments = indic_attachments,
             .attachment_states = indic_states,
             .script_categories = indic_categories,
-            .script_syllables = indic_syllables},
+            .script_syllables = indic_syllables,
+            .script_indices = indic_indices},
         glyph_count,
         &error));
     require(glyph_count == 4U);
@@ -5769,6 +5929,7 @@ void open_type_indic_preparation_reorders_prebase_matras() {
     std::array<std::uint8_t, 6U> states{};
     std::array<std::uint8_t, 6U> categories{};
     std::array<std::uint8_t, 6U> syllables{};
+    std::array<std::uint32_t, 7U> indices{};
     auto options = open_type_shape_run_options{
         open_type_tag::from_chars('d', 'e', 'v', '2')};
     options.complex_script = open_type_complex_script::indic;
@@ -5785,12 +5946,122 @@ void open_type_indic_preparation_reorders_prebase_matras() {
             .attachments = attachments,
             .attachment_states = states,
             .script_categories = categories,
-            .script_syllables = syllables},
+            .script_syllables = syllables,
+            .script_indices = indices},
         glyph_count,
         &error));
     require(glyph_count == 2U && glyphs[0U].code_point == 0x093FU &&
         glyphs[1U].code_point == 0x0915U && glyphs[0U].cluster == 0 &&
         glyphs[1U].cluster == 0);
+
+    // Direct port regression for OpenTypeTextShaper.MergeIndicSortClusters:
+    // modern Indic runs merge only reordered permutation cycles, not the
+    // complete consonant syllable. The second Tamil KA therefore retains its
+    // source cluster instead of being collapsed into the first KA cluster.
+    constexpr std::array tamil_mappings{
+        std::pair{0x0B95U, 2U},
+        std::pair{0x0BA3U, 3U},
+        std::pair{0x0BAEU, 4U},
+        std::pair{0x0BB5U, 5U},
+        std::pair{0x0BCDU, 6U},
+        std::pair{0x25CCU, 1U}};
+    const auto tamil_cmap = make_cmap_groups(tamil_mappings);
+    const auto tamil_data = make_font(
+        0U, 22U, 0U, false, false, false, {}, tamil_cmap);
+    require(sfnt_font_view::try_create(tamil_data, 0U, font, &error));
+    constexpr std::array tamil_input{
+        unicode_scalar{0x0BB5U, 0U, 1U},
+        unicode_scalar{0x0BA3U, 1U, 1U},
+        unicode_scalar{0x0B95U, 2U, 1U},
+        unicode_scalar{0x0BCDU, 3U, 1U},
+        unicode_scalar{0x0B95U, 4U, 1U},
+        unicode_scalar{0x0BAEU, 5U, 1U},
+        unicode_scalar{0x0BCDU, 6U, 1U}};
+    std::array<shaping_glyph, 21U> tamil_glyphs{};
+    std::array<unicode_grapheme_cluster, 7U> tamil_graphemes{};
+    std::array<shaping_attachment, 21U> tamil_attachments{};
+    std::array<std::uint8_t, 21U> tamil_states{};
+    std::array<std::uint8_t, 21U> tamil_categories{};
+    std::array<std::uint8_t, 21U> tamil_syllables{};
+    std::array<std::uint32_t, 22U> tamil_indices{};
+    options.script = open_type_tag::from_chars('t', 'm', 'l', '2');
+    glyph_count = 0U;
+    require(try_shape_open_type_run(
+        font,
+        tamil_input,
+        options,
+        tamil_glyphs,
+        open_type_shape_run_scratch{
+            .grapheme_clusters = tamil_graphemes,
+            .attachments = tamil_attachments,
+            .attachment_states = tamil_states,
+            .script_categories = tamil_categories,
+            .script_syllables = tamil_syllables,
+            .script_indices = tamil_indices},
+        glyph_count,
+        &error));
+    const auto second_ka = std::find_if(
+        tamil_glyphs.begin(),
+        tamil_glyphs.begin() + glyph_count,
+        [](const shaping_glyph& glyph) {
+            return glyph.code_point == 0x0B95U && glyph.cluster == 4;
+        });
+    require(second_ka != tamil_glyphs.begin() + glyph_count);
+
+    // The managed shaper's StringInfo boundary contract predates UAX #29
+    // GB9c: consonant+virama and the following consonant begin separate
+    // source clusters. Indic syllable safety flags must preserve that split
+    // even though the public Unicode 17 grapheme API joins the conjunct.
+    constexpr std::array devanagari_mappings{
+        std::pair{0x0915U, 2U},
+        std::pair{0x0937U, 3U},
+        std::pair{0x093EU, 4U},
+        std::pair{0x094DU, 5U},
+        std::pair{0x25CCU, 1U}};
+    const auto devanagari_cmap = make_cmap_groups(devanagari_mappings);
+    const auto devanagari_data = make_font(
+        0U, 22U, 0U, false, false, false, {}, devanagari_cmap);
+    require(sfnt_font_view::try_create(devanagari_data, 0U, font, &error));
+    constexpr std::array devanagari_input{
+        unicode_scalar{0x0915U, 0U, 1U},
+        unicode_scalar{0x094DU, 1U, 1U},
+        unicode_scalar{0x0937U, 2U, 1U},
+        unicode_scalar{0x093EU, 3U, 1U}};
+    std::array<shaping_glyph, 12U> devanagari_glyphs{};
+    std::array<unicode_grapheme_cluster, 4U> devanagari_graphemes{};
+    std::array<shaping_attachment, 12U> devanagari_attachments{};
+    std::array<std::uint8_t, 12U> devanagari_states{};
+    std::array<std::uint8_t, 12U> devanagari_categories{};
+    std::array<std::uint8_t, 12U> devanagari_syllables{};
+    std::array<std::uint32_t, 13U> devanagari_indices{};
+    options.script = open_type_tag::from_chars('d', 'e', 'v', '2');
+    glyph_count = 0U;
+    require(try_shape_open_type_run(
+        font,
+        devanagari_input,
+        options,
+        devanagari_glyphs,
+        open_type_shape_run_scratch{
+            .grapheme_clusters = devanagari_graphemes,
+            .attachments = devanagari_attachments,
+            .attachment_states = devanagari_states,
+            .script_categories = devanagari_categories,
+            .script_syllables = devanagari_syllables,
+            .script_indices = devanagari_indices},
+        glyph_count,
+        &error));
+    const auto unsafe = static_cast<std::uint32_t>(
+        shaping_glyph_flags::unsafe_to_break) |
+        static_cast<std::uint32_t>(
+            shaping_glyph_flags::unsafe_to_concat);
+    const auto final_matra = std::find_if(
+        devanagari_glyphs.begin(),
+        devanagari_glyphs.begin() + glyph_count,
+        [](const shaping_glyph& glyph) {
+            return glyph.code_point == 0x093EU;
+        });
+    require(final_matra != devanagari_glyphs.begin() + glyph_count &&
+        (static_cast<std::uint32_t>(final_matra->flags) & unsafe) == unsafe);
 }
 
 void open_type_hangul_preparation_composes_and_decomposes() {
@@ -11415,6 +11686,7 @@ int main() {
     unicode_bidi_resolution_is_bounded_and_source_preserving();
     unicode_grapheme_segmentation_covers_extended_rules();
     canonical_unicode_normalization_uses_shared_borrowed_data();
+    canonical_unicode_normalization_embeds_the_default_resource();
     unicode_script_itemization_preserves_source_ranges();
     open_type_common_layout_views_are_borrowed_and_bounded();
     open_type_gdef_classes_and_mark_sets_are_borrowed_and_bounded();

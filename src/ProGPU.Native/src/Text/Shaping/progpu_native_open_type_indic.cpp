@@ -41,8 +41,10 @@ constexpr std::uint8_t position_pre_consonant = 3U;
 constexpr std::uint8_t position_base = 4U;
 constexpr std::uint8_t position_after_main = 5U;
 constexpr std::uint8_t position_before_sub = 7U;
+constexpr std::uint8_t position_below_consonant = 8U;
 constexpr std::uint8_t position_after_sub = 9U;
 constexpr std::uint8_t position_before_post = 10U;
+constexpr std::uint8_t position_post_consonant = 11U;
 constexpr std::uint8_t position_after_post = 12U;
 constexpr std::uint8_t position_syllable_modifier = 13U;
 constexpr std::uint8_t position_end = 14U;
@@ -54,6 +56,12 @@ constexpr std::uint8_t abvf_mask = 8U;
 constexpr std::uint8_t half_mask = 16U;
 constexpr std::uint8_t pstf_mask = 32U;
 constexpr std::uint8_t init_mask = 64U;
+
+constexpr auto rphf_tag = open_type_tag::from_chars('r', 'p', 'h', 'f');
+constexpr auto pref_tag = open_type_tag::from_chars('p', 'r', 'e', 'f');
+constexpr auto blwf_tag = open_type_tag::from_chars('b', 'l', 'w', 'f');
+constexpr auto pstf_tag = open_type_tag::from_chars('p', 's', 't', 'f');
+constexpr auto vatu_tag = open_type_tag::from_chars('v', 'a', 't', 'u');
 
 void set_error(font_error* error, font_error value) noexcept {
     if (error != nullptr) {
@@ -76,6 +84,14 @@ bool is_consonant(const shaping_glyph& glyph) noexcept {
     return value == consonant || value == consonant_with_stacker ||
         value == ra || value == consonant_medial || value == vowel ||
         value == placeholder || value == dotted_circle;
+}
+
+bool would_substitute(
+    indic_substitution_probe probe,
+    open_type_tag feature,
+    std::span<const std::uint16_t> glyphs) noexcept {
+    return probe.would_substitute != nullptr &&
+        probe.would_substitute(probe.context, feature, glyphs);
 }
 
 void merge_cluster(
@@ -141,6 +157,16 @@ void attach_mark_positions(
             value == register_shifter || value == consonant_medial ||
             value == halant) {
             set_position(glyphs[index], last_position);
+            if (value == halant &&
+                position(glyphs[index]) == position_pre_matra) {
+                for (std::size_t prior = index; prior > start; --prior) {
+                    if (position(glyphs[prior - 1U]) != position_pre_matra) {
+                        set_position(glyphs[index],
+                            position(glyphs[prior - 1U]));
+                        break;
+                    }
+                }
+            }
         } else if (position(glyphs[index]) != position_syllable_modifier) {
             if (value == matra_post && index > start &&
                 category(glyphs[index - 1U]) == syllable_modifier) {
@@ -167,22 +193,27 @@ void attach_mark_positions(
 
 void stable_sort_positions(
     std::span<shaping_glyph> glyphs,
+    std::span<std::uint32_t> original_order,
     std::size_t start,
     std::size_t end) noexcept {
     for (std::size_t index = start + 1U; index < end; ++index) {
         auto value = glyphs[index];
+        const auto value_order = original_order[index];
         std::size_t insertion = index;
         while (insertion > start &&
             position(glyphs[insertion - 1U]) > position(value)) {
             glyphs[insertion] = glyphs[insertion - 1U];
+            original_order[insertion] = original_order[insertion - 1U];
             --insertion;
         }
         glyphs[insertion] = value;
+        original_order[insertion] = value_order;
     }
 }
 
 void reverse_left_matras(
     std::span<shaping_glyph> glyphs,
+    std::span<std::uint32_t> original_order,
     std::size_t start,
     std::size_t end) noexcept {
     std::size_t first = end;
@@ -203,6 +234,8 @@ void reverse_left_matras(
     }
     std::reverse(glyphs.begin() + static_cast<std::ptrdiff_t>(first),
         glyphs.begin() + static_cast<std::ptrdiff_t>(last + 1U));
+    std::reverse(original_order.begin() + static_cast<std::ptrdiff_t>(first),
+        original_order.begin() + static_cast<std::ptrdiff_t>(last + 1U));
     std::size_t group_start = first;
     for (std::size_t index = first; index <= last; ++index) {
         const auto value = category(glyphs[index]);
@@ -212,7 +245,44 @@ void reverse_left_matras(
         std::reverse(
             glyphs.begin() + static_cast<std::ptrdiff_t>(group_start),
             glyphs.begin() + static_cast<std::ptrdiff_t>(index + 1U));
+        std::reverse(
+            original_order.begin() + static_cast<std::ptrdiff_t>(group_start),
+            original_order.begin() + static_cast<std::ptrdiff_t>(index + 1U));
         group_start = index + 1U;
+    }
+}
+
+void merge_sort_clusters(
+    std::span<shaping_glyph> glyphs,
+    std::span<std::uint32_t> original_order,
+    std::size_t start,
+    std::size_t end,
+    std::size_t base,
+    bool old_spec) noexcept {
+    if (base >= end) {
+        return;
+    }
+    if (old_spec || end - start > 127U) {
+        merge_cluster(glyphs, base, end);
+        return;
+    }
+
+    constexpr auto visited = std::numeric_limits<std::uint32_t>::max();
+    for (std::size_t index = base; index < end; ++index) {
+        if (original_order[index] == visited) {
+            continue;
+        }
+        auto minimum = index;
+        auto maximum = index;
+        auto cursor = start + original_order[index];
+        while (cursor != index && cursor >= start && cursor < end) {
+            minimum = std::min(minimum, cursor);
+            maximum = std::max(maximum, cursor);
+            const auto next = start + original_order[cursor];
+            original_order[cursor] = visited;
+            cursor = next;
+        }
+        merge_cluster(glyphs, std::max(base, minimum), maximum + 1U);
     }
 }
 
@@ -246,38 +316,145 @@ std::uint8_t reph_position(open_type_tag script) noexcept {
     return position_before_post;
 }
 
+std::uint32_t virama_code_point(open_type_tag script) noexcept {
+    script = legacy_script(script);
+    if (script == open_type_tag::from_chars('d','e','v','a')) return 0x094DU;
+    if (script == open_type_tag::from_chars('b','e','n','g')) return 0x09CDU;
+    if (script == open_type_tag::from_chars('g','u','r','u')) return 0x0A4DU;
+    if (script == open_type_tag::from_chars('g','u','j','r')) return 0x0ACDU;
+    if (script == open_type_tag::from_chars('o','r','y','a')) return 0x0B4DU;
+    if (script == open_type_tag::from_chars('t','a','m','l')) return 0x0BCDU;
+    if (script == open_type_tag::from_chars('t','e','l','u')) return 0x0C4DU;
+    if (script == open_type_tag::from_chars('k','n','d','a')) return 0x0CCDU;
+    if (script == open_type_tag::from_chars('m','l','y','m')) return 0x0D4DU;
+    return 0U;
+}
+
+enum class reph_mode : std::uint8_t { implicit, explicit_mode, logical };
+
+reph_mode get_reph_mode(open_type_tag script) noexcept {
+    script = legacy_script(script);
+    if (script == open_type_tag::from_chars('t','e','l','u')) {
+        return reph_mode::explicit_mode;
+    }
+    if (script == open_type_tag::from_chars('m','l','y','m')) {
+        return reph_mode::logical;
+    }
+    return reph_mode::implicit;
+}
+
+bool below_mode_is_pre_and_post(open_type_tag script) noexcept {
+    script = legacy_script(script);
+    return script != open_type_tag::from_chars('t','e','l','u') &&
+        script != open_type_tag::from_chars('k','n','d','a');
+}
+
+void update_consonant_positions(
+    const sfnt_font_view& font,
+    open_type_tag unicode_script,
+    std::span<shaping_glyph> glyphs,
+    indic_substitution_probe probe) noexcept {
+    const auto virama = virama_code_point(unicode_script);
+    std::uint16_t virama_glyph = 0U;
+    if (virama == 0U ||
+        !font.try_get_glyph_index(virama, virama_glyph) ||
+        virama_glyph == 0U) {
+        return;
+    }
+    for (auto& glyph : glyphs) {
+        if (position(glyph) != position_base || glyph.glyph_id > 0xFFFFU) {
+            continue;
+        }
+        const auto glyph_id = static_cast<std::uint16_t>(glyph.glyph_id);
+        const std::array first{virama_glyph, glyph_id};
+        const std::array second{glyph_id, virama_glyph};
+        const bool below = would_substitute(probe, blwf_tag, first) ||
+            would_substitute(probe, blwf_tag, second) ||
+            would_substitute(probe, vatu_tag, first) ||
+            would_substitute(probe, vatu_tag, second);
+        if (below) {
+            set_position(glyph, position_below_consonant);
+        } else if (would_substitute(probe, pstf_tag, first) ||
+            would_substitute(probe, pstf_tag, second) ||
+            would_substitute(probe, pref_tag, first) ||
+            would_substitute(probe, pref_tag, second)) {
+            set_position(glyph, position_post_consonant);
+        }
+    }
+}
+
 void initial_reorder_syllable(
     std::span<shaping_glyph> glyphs,
+    std::span<std::uint32_t> original_order,
     std::size_t start,
     std::size_t end,
-    open_type_tag script) noexcept {
+    open_type_tag unicode_script,
+    bool old_spec,
+    indic_substitution_probe probe) noexcept {
+    const auto normalized = legacy_script(unicode_script);
+    if (normalized == open_type_tag::from_chars('k','n','d','a') &&
+        end - start >= 3U && category(glyphs[start]) == ra &&
+        category(glyphs[start + 1U]) == halant &&
+        category(glyphs[start + 2U]) == zwj) {
+        merge_cluster(glyphs, start + 1U, start + 3U);
+        std::swap(glyphs[start + 1U], glyphs[start + 2U]);
+    }
+
     std::size_t limit = start;
     std::size_t base = end;
-    const auto normalized = legacy_script(script);
     bool has_reph = false;
-    if (normalized == open_type_tag::from_chars('m','l','y','m') &&
+    const auto mode = get_reph_mode(normalized);
+    if (end - start >= 3U && category(glyphs[start]) == ra &&
+        category(glyphs[start + 1U]) == halant &&
+        ((mode == reph_mode::implicit &&
+            !is_joiner(glyphs[start + 2U])) ||
+         (mode == reph_mode::explicit_mode &&
+            category(glyphs[start + 2U]) == zwj))) {
+        const std::size_t length = mode == reph_mode::explicit_mode ? 3U : 2U;
+        const std::array ids{
+            static_cast<std::uint16_t>(glyphs[start].glyph_id),
+            static_cast<std::uint16_t>(glyphs[start + 1U].glyph_id),
+            static_cast<std::uint16_t>(glyphs[start + 2U].glyph_id)};
+        if (would_substitute(probe, rphf_tag,
+                std::span<const std::uint16_t>{ids}.first(2U)) ||
+            (length == 3U && would_substitute(probe, rphf_tag, ids))) {
+            limit += 2U;
+            while (limit < end && is_joiner(glyphs[limit])) {
+                ++limit;
+            }
+            base = start;
+            has_reph = true;
+        }
+    } else if (mode == reph_mode::logical &&
         category(glyphs[start]) == repha) {
         ++limit;
-        has_reph = true;
-    } else if (end - start >= 2U && category(glyphs[start]) == ra &&
-        category(glyphs[start + 1U]) == halant &&
-        (end - start == 2U || !is_joiner(glyphs[start + 2U]))) {
-        limit += 2U;
         while (limit < end && is_joiner(glyphs[limit])) {
             ++limit;
         }
+        base = start;
         has_reph = true;
     }
+
+    bool seen_below = false;
     for (std::size_t cursor = end; cursor > limit; --cursor) {
-        if (is_consonant(glyphs[cursor - 1U])) {
-            base = cursor - 1U;
+        const auto index = cursor - 1U;
+        if (is_consonant(glyphs[index])) {
+            if (position(glyphs[index]) != position_below_consonant &&
+                (position(glyphs[index]) != position_post_consonant ||
+                    seen_below)) {
+                base = index;
+                break;
+            }
+            if (position(glyphs[index]) == position_below_consonant) {
+                seen_below = true;
+            }
+            base = index;
+        } else if (index > start && category(glyphs[index]) == zwj &&
+            category(glyphs[index - 1U]) == halant) {
             break;
         }
     }
-    if (base == end) {
-        base = limit < end ? limit : start;
-    }
-    if (has_reph && base == start && limit - start <= 2U) {
+    if (has_reph && base == start && limit - base <= 2U) {
         has_reph = false;
     }
     for (std::size_t index = start; index < base; ++index) {
@@ -290,14 +467,39 @@ void initial_reorder_syllable(
     }
     if (has_reph) {
         set_position(glyphs[start], position_ra_reph);
-        add_feature(glyphs[start], rphf_mask);
-        if (start + 1U < end) {
-            add_feature(glyphs[start + 1U], rphf_mask);
+
+    }
+
+    if (old_spec && base < end) {
+        const bool disallow_double_halants =
+            normalized == open_type_tag::from_chars('k','n','d','a');
+        for (std::size_t index = base + 1U; index < end; ++index) {
+            if (category(glyphs[index]) != halant) {
+                continue;
+            }
+            auto destination = end - 1U;
+            while (destination > index &&
+                !is_consonant(glyphs[destination]) &&
+                !(disallow_double_halants &&
+                    category(glyphs[destination]) == halant)) {
+                --destination;
+            }
+            if (category(glyphs[destination]) != halant &&
+                destination > index) {
+                std::rotate(
+                    glyphs.begin() + static_cast<std::ptrdiff_t>(index),
+                    glyphs.begin() + static_cast<std::ptrdiff_t>(index + 1U),
+                    glyphs.begin() + static_cast<std::ptrdiff_t>(destination + 1U));
+            }
+            break;
         }
     }
     attach_mark_positions(glyphs, start, end, base);
-    stable_sort_positions(glyphs, start, end);
-    reverse_left_matras(glyphs, start, end);
+    for (std::size_t index = start; index < end; ++index) {
+        original_order[index] = static_cast<std::uint32_t>(index - start);
+    }
+    stable_sort_positions(glyphs, original_order, start, end);
+    reverse_left_matras(glyphs, original_order, start, end);
     base = end;
     for (std::size_t index = start; index < end; ++index) {
         if (position(glyphs[index]) == position_base) {
@@ -305,18 +507,42 @@ void initial_reorder_syllable(
             break;
         }
     }
-    const bool modern = (script.value & 0xFFU) ==
-        static_cast<std::uint32_t>('2');
+    const bool modern = !old_spec;
+    merge_sort_clusters(
+        glyphs, original_order, start, end, base, old_spec);
+    for (std::size_t index = start;
+         index < end && position(glyphs[index]) == position_ra_reph;
+         ++index) {
+        add_feature(glyphs[index], rphf_mask);
+    }
     const std::uint8_t pre_mask = static_cast<std::uint8_t>(
-        half_mask | (modern ? blwf_mask : 0U));
+        half_mask | (modern && below_mode_is_pre_and_post(normalized)
+            ? blwf_mask
+            : 0U));
     for (std::size_t index = start; index < base; ++index) {
         add_feature(glyphs[index], pre_mask);
     }
     if (base < end) {
         for (std::size_t index = base + 1U; index < end; ++index) {
             add_feature(glyphs[index],
-                static_cast<std::uint8_t>(pref_mask | blwf_mask |
-                    abvf_mask | pstf_mask));
+                static_cast<std::uint8_t>(blwf_mask | abvf_mask | pstf_mask));
+        }
+    }
+    if (base + 2U < end) {
+        for (std::size_t index = base + 1U; index + 1U < end; ++index) {
+            if (glyphs[index].glyph_id > 0xFFFFU ||
+                glyphs[index + 1U].glyph_id > 0xFFFFU) {
+                continue;
+            }
+            const std::array ids{
+                static_cast<std::uint16_t>(glyphs[index].glyph_id),
+                static_cast<std::uint16_t>(glyphs[index + 1U].glyph_id)};
+            if (!would_substitute(probe, pref_tag, ids)) {
+                continue;
+            }
+            add_feature(glyphs[index], pref_mask);
+            add_feature(glyphs[index + 1U], pref_mask);
+            break;
         }
     }
     for (std::size_t index = start + 1U; index < end; ++index) {
@@ -332,7 +558,6 @@ void initial_reorder_syllable(
             }
         }
     }
-    merge_cluster(glyphs, start, end);
 }
 
 } // namespace
@@ -374,15 +599,24 @@ bool try_prepare_indic(
 
 bool try_initial_reorder_indic(
     const sfnt_font_view& font,
-    open_type_tag script,
+    open_type_tag unicode_script,
+    open_type_tag layout_script,
     shaping_buffer_flags buffer_flags,
     std::span<shaping_glyph> glyph_storage,
     std::uint32_t& glyph_count,
+    std::span<std::uint32_t> original_order_scratch,
+    indic_substitution_probe substitution_probe,
     font_error* error) noexcept {
     if (glyph_count > glyph_storage.size()) {
         set_error(error, font_error::invalid_argument);
         return false;
     }
+    update_consonant_positions(
+        font,
+        unicode_script,
+        glyph_storage.first(glyph_count),
+        substitution_probe);
+
     std::uint16_t dotted_glyph = 0U;
     const bool insert_dotted = !has_flag(
         buffer_flags, shaping_buffer_flags::do_not_insert_dotted_circle) &&
@@ -402,6 +636,10 @@ bool try_initial_reorder_indic(
             set_error(error, font_error::insufficient_buffer);
             return false;
         }
+    }
+    if (original_order_scratch.size() < glyph_count + insertions) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
     }
     if (insertions != 0U) {
         std::uint8_t previous = 0U;
@@ -440,7 +678,15 @@ bool try_initial_reorder_indic(
         const auto type = static_cast<std::uint8_t>(current & 0x0FU);
         if (type == consonant_syllable || type == vowel_syllable ||
             type == standalone_cluster || type == broken_cluster) {
-            initial_reorder_syllable(glyphs, start, end, script);
+            initial_reorder_syllable(
+                glyphs,
+                original_order_scratch,
+                start,
+                end,
+                unicode_script,
+                (layout_script.value & 0xFFU) !=
+                    static_cast<std::uint32_t>('2'),
+                substitution_probe);
         }
         start = end;
     }
@@ -457,6 +703,7 @@ void final_reorder_indic(
         while (end < glyphs.size() && syllable(glyphs[end]) == current) {
             ++end;
         }
+        bool reordered = false;
         std::size_t base = start;
         while (base < end && position(glyphs[base]) < position_base) {
             ++base;
@@ -474,6 +721,10 @@ void final_reorder_indic(
             std::rotate(glyphs.begin() + static_cast<std::ptrdiff_t>(start),
                 glyphs.begin() + static_cast<std::ptrdiff_t>(start + 1U),
                 glyphs.begin() + static_cast<std::ptrdiff_t>(destination + 1U));
+            reordered = true;
+        }
+        if (reordered || position(glyphs[start]) == position_pre_matra) {
+            merge_cluster(glyphs, start, end);
         }
         if (position(glyphs[start]) == position_pre_matra) {
             add_feature(glyphs[start], init_mask);

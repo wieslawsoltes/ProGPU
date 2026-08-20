@@ -13,6 +13,7 @@
 #include "progpu_native_space_fallback_internal.hpp"
 #include "progpu_native_vowel_constraints_internal.hpp"
 #include "progpu_native_shaping_options_internal.hpp"
+#include "../Unicode/progpu_native_unicode_grapheme_internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -60,6 +61,22 @@ constexpr auto stretch_feature =
     open_type_tag::from_chars('s', 't', 'c', 'h');
 constexpr auto arabic_script =
     open_type_tag::from_chars('a', 'r', 'a', 'b');
+constexpr auto fraction_feature =
+    open_type_tag::from_chars('f', 'r', 'a', 'c');
+constexpr auto numerator_feature =
+    open_type_tag::from_chars('n', 'u', 'm', 'r');
+constexpr auto denominator_feature =
+    open_type_tag::from_chars('d', 'n', 'o', 'm');
+constexpr auto required_ligature_feature =
+    open_type_tag::from_chars('r', 'l', 'i', 'g');
+constexpr auto contextual_alternate_feature =
+    open_type_tag::from_chars('c', 'a', 'l', 't');
+constexpr auto required_contextual_alternate_feature =
+    open_type_tag::from_chars('r', 'c', 'l', 't');
+constexpr std::array arabic_fraction_features{
+    fraction_feature,
+    numerator_feature,
+    denominator_feature};
 constexpr std::array arabic_form_features{
     std::pair{open_type_tag::from_chars('i', 's', 'o', 'l'),
         open_type_arabic_action::isolated},
@@ -75,6 +92,67 @@ constexpr std::array arabic_form_features{
         open_type_arabic_action::medial2},
     std::pair{open_type_tag::from_chars('i', 'n', 'i', 't'),
         open_type_arabic_action::initial}};
+
+enum class arabic_substitution_stage : std::uint8_t {
+    directional,
+    preprocessing,
+    required_ligatures,
+    contextual,
+    post_required,
+    post_contextual
+};
+
+bool is_arabic_directional_feature(open_type_tag feature) noexcept {
+    return feature == open_type_tag::from_chars('l', 't', 'r', 'a') ||
+        feature == open_type_tag::from_chars('l', 't', 'r', 'm') ||
+        feature == open_type_tag::from_chars('r', 't', 'l', 'a') ||
+        feature == open_type_tag::from_chars('r', 't', 'l', 'm');
+}
+
+bool is_arabic_preprocessing_feature(open_type_tag feature) noexcept {
+    return feature == open_type_tag::from_chars('r', 'v', 'r', 'n') ||
+        feature == fraction_feature || feature == numerator_feature ||
+        feature == denominator_feature ||
+        feature == open_type_tag::from_chars('c', 'c', 'm', 'p') ||
+        feature == open_type_tag::from_chars('l', 'o', 'c', 'l');
+}
+
+bool is_arabic_form_feature(open_type_tag feature) noexcept {
+    return std::any_of(
+        arabic_form_features.begin(),
+        arabic_form_features.end(),
+        [feature](const auto& entry) { return entry.first == feature; });
+}
+
+bool is_arabic_stage_feature(
+    open_type_tag feature,
+    arabic_substitution_stage stage) noexcept {
+    const bool directional = is_arabic_directional_feature(feature);
+    const bool preprocessing = is_arabic_preprocessing_feature(feature);
+    const bool form = is_arabic_form_feature(feature);
+    const bool required = feature == required_ligature_feature;
+    const bool contextual = feature == contextual_alternate_feature ||
+        feature == required_contextual_alternate_feature;
+    switch (stage) {
+        case arabic_substitution_stage::directional:
+            return directional;
+        case arabic_substitution_stage::preprocessing:
+            return preprocessing && feature != fraction_feature &&
+                feature != numerator_feature &&
+                feature != denominator_feature;
+        case arabic_substitution_stage::required_ligatures:
+            return required;
+        case arabic_substitution_stage::contextual:
+            return contextual;
+        case arabic_substitution_stage::post_required:
+            return !directional && feature != stretch_feature &&
+                !preprocessing && !form && !required;
+        case arabic_substitution_stage::post_contextual:
+            return !directional && feature != stretch_feature &&
+                !preprocessing && !form && !required && !contextual;
+    }
+    return false;
+}
 
 bool is_default_ignorable(std::uint32_t value) noexcept {
     return value == 0x00ADU || value == 0x034FU || value == 0x061CU ||
@@ -252,6 +330,46 @@ struct complex_metadata_guard final {
         }
     }
 };
+
+bool apply_arabic_substitution_stage(
+    const open_type_layout_table_view& gsub,
+    const open_type_shape_run_options& options,
+    std::span<const std::uint16_t> selected_lookups,
+    arabic_substitution_stage stage,
+    std::span<shaping_glyph> glyph_storage,
+    std::uint32_t& glyph_count,
+    const open_type_gdef_view* gdef,
+    std::uint32_t& random_state,
+    font_error* error) noexcept {
+    for (const std::uint16_t lookup : selected_lookups) {
+        lookup_feature_resolution resolution{};
+        if (!try_resolve_lookup_feature(
+                gsub, options, lookup, resolution, error)) {
+            return false;
+        }
+        if ((!resolution.required && !resolution.found) ||
+            !is_arabic_stage_feature(resolution.feature, stage)) {
+            continue;
+        }
+        if (!apply_gsub_lookup_with_feature_values(
+                gsub,
+                options,
+                lookup,
+                glyph_storage,
+                glyph_count,
+                gdef,
+                error,
+                &random_state,
+                nullptr,
+                nullptr,
+                {},
+                {},
+                &resolution)) {
+            return false;
+        }
+    }
+    return true;
+}
 
 bool apply_arabic_form_feature(
     const open_type_layout_table_view& gsub,
@@ -448,6 +566,94 @@ bool contains_feature(
         features.end();
 }
 
+bool is_complex_per_syllable_feature(open_type_tag feature) noexcept {
+    constexpr std::array features{
+        open_type_tag::from_chars('l', 'o', 'c', 'l'),
+        open_type_tag::from_chars('c', 'c', 'm', 'p'),
+        open_type_tag::from_chars('n', 'u', 'k', 't'),
+        open_type_tag::from_chars('a', 'k', 'h', 'n'),
+        open_type_tag::from_chars('r', 'p', 'h', 'f'),
+        open_type_tag::from_chars('p', 'r', 'e', 'f'),
+        open_type_tag::from_chars('r', 'k', 'r', 'f'),
+        open_type_tag::from_chars('a', 'b', 'v', 'f'),
+        open_type_tag::from_chars('b', 'l', 'w', 'f'),
+        open_type_tag::from_chars('h', 'a', 'l', 'f'),
+        open_type_tag::from_chars('p', 's', 't', 'f'),
+        open_type_tag::from_chars('v', 'a', 't', 'u'),
+        open_type_tag::from_chars('c', 'j', 'c', 't')};
+    return contains_feature(features, feature);
+}
+
+struct indic_probe_context final {
+    const open_type_layout_table_view* gsub = nullptr;
+    const open_type_shape_run_options* options = nullptr;
+    std::span<std::uint16_t> lookup_scratch{};
+    const open_type_gdef_view* gdef = nullptr;
+    font_error* error = nullptr;
+    bool valid = true;
+};
+
+bool probe_indic_substitution(
+    void* opaque,
+    open_type_tag feature,
+    std::span<const std::uint16_t> glyph_ids) noexcept {
+    auto& context = *static_cast<indic_probe_context*>(opaque);
+    if (!context.valid || context.gsub == nullptr ||
+        context.options == nullptr || glyph_ids.empty() ||
+        glyph_ids.size() > 3U ||
+        !contains_feature(context.options->requested_features, feature)) {
+        return false;
+    }
+
+    std::uint32_t lookup_count = 0U;
+    if (!context.gsub->try_select_feature_lookups(
+            context.options->script,
+            context.options->language,
+            feature,
+            context.options->normalized_coordinates,
+            context.lookup_scratch,
+            lookup_count,
+            context.error)) {
+        context.valid = false;
+        return false;
+    }
+
+    // Managed WouldSubstitute starts with two or three glyphs and permits a
+    // lookup to expand the probe. Sixty-four records keep the native probe
+    // bounded while covering the maximum practical OpenType expansion used
+    // by the Indic basic-form features. No probe storage crosses the C ABI.
+    std::array<shaping_glyph, 64U> probe{};
+    std::uint32_t probe_count = static_cast<std::uint32_t>(glyph_ids.size());
+    for (std::uint32_t index = 0U; index < probe_count; ++index) {
+        probe[index] = shaping_glyph{
+            glyph_ids[index], 0U, static_cast<std::int32_t>(index)};
+    }
+    for (std::uint32_t index = 0U; index < lookup_count; ++index) {
+        const auto before_count = probe_count;
+        const auto before_glyph = probe[0].glyph_id;
+        bool applied = false;
+        if (!try_apply_open_type_gsub_lookup_at(
+                *context.gsub,
+                context.lookup_scratch[index],
+                probe,
+                probe_count,
+                0U,
+                open_type_gsub_apply_options{
+                    context.gdef,
+                    context.options->alternate_value},
+                applied,
+                context.error)) {
+            context.valid = false;
+            return false;
+        }
+        if (applied &&
+            (probe_count != before_count || probe[0].glyph_id != before_glyph)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 
 bool apply_complex_feature(
     const open_type_layout_table_view& gsub,
@@ -473,13 +679,16 @@ bool apply_complex_feature(
             error)) {
         return false;
     }
-    const open_type_gsub_apply_options apply_options{
+    auto apply_options = open_type_gsub_apply_options{
         gdef,
         run_options.alternate_value,
         required_private_mask == 0U
             ? 0U
             : required_private_mask << complex_detail::feature_shift,
         true};
+    apply_options.restrict_to_syllable =
+        run_options.complex_script != open_type_complex_script::none &&
+        is_complex_per_syllable_feature(feature);
     for (std::uint32_t index = 0U; index < lookup_count; ++index) {
         if (!has_feature_settings(run_options, feature)) {
             bool applied = false;
@@ -597,6 +806,7 @@ bool apply_complex_script_features(
     std::span<std::uint16_t> lookup_scratch,
     std::span<shaping_glyph> glyph_storage,
     std::uint32_t& glyph_count,
+    std::span<std::uint32_t> script_indices,
     const open_type_gdef_view* gdef,
     font_error* error) noexcept {
     std::uint32_t required_count = 0U;
@@ -747,13 +957,20 @@ bool apply_complex_script_features(
                 glyph_count, gdef, error);
         }
     } else if (options.complex_script == open_type_complex_script::indic) {
+        indic_probe_context probe_context{
+            &gsub, &options, lookup_scratch, gdef, error};
         known_applied = complex_detail::try_initial_reorder_indic(
             font,
             effective_unicode_script(options),
+            options.script,
             options.buffer_flags,
             glyph_storage,
             glyph_count,
+            script_indices,
+            complex_detail::indic_substitution_probe{
+                &probe_context, &probe_indic_substitution},
             error);
+        known_applied = known_applied && probe_context.valid;
         if (known_applied) {
             known_applied = apply_complex_feature_group(
                 gsub, options, indic_basic, lookup_scratch, glyph_storage,
@@ -1283,6 +1500,13 @@ bool try_get_open_type_shape_run_requirements(
         set_error(error, font_error::invalid_argument);
         return false;
     }
+    if (options.complex_script == open_type_complex_script::indic ||
+        options.complex_script == open_type_complex_script::myanmar) {
+        // The authoritative managed shaper uses pre-GB9c StringInfo
+        // boundaries for initial Indic clusters and syllable safety flags.
+        // Reserve the scalar upper bound for that shaping-only segmentation.
+        result.grapheme_capacity = static_cast<std::uint32_t>(input.size());
+    }
     std::uint32_t mapped_count = 0U;
     if (!detail::try_get_initial_mapping_count(
             font,
@@ -1408,7 +1632,8 @@ bool try_shape_open_type_run(
                     requirements.complex_script_capacity ||
                 scratch.script_syllables.size() <
                     requirements.complex_script_capacity ||
-                (options.complex_script == open_type_complex_script::use &&
+                ((options.complex_script == open_type_complex_script::use ||
+                     options.complex_script == open_type_complex_script::indic) &&
                     scratch.script_indices.size() <
                         requirements.complex_script_index_capacity))) ||
         (verify &&
@@ -1471,12 +1696,22 @@ bool try_shape_open_type_run(
             scratch.grapheme_clusters.first(requirements.grapheme_capacity));
     } else {
         unicode_error unicode_result = unicode_error::none;
-        if (!try_segment_unicode_graphemes(
+        const bool segmented =
+            options.complex_script == open_type_complex_script::indic ||
+            options.complex_script == open_type_complex_script::myanmar
+            ? detail::try_segment_managed_compatible_graphemes(
                 input,
                 scratch.grapheme_clusters.first(
                     requirements.grapheme_capacity),
                 grapheme_count,
-                &unicode_result)) {
+                &unicode_result)
+            : try_segment_unicode_graphemes(
+                input,
+                scratch.grapheme_clusters.first(
+                    requirements.grapheme_capacity),
+                grapheme_count,
+                &unicode_result);
+        if (!segmented) {
             set_error(error, font_error::invalid_argument);
             return false;
         }
@@ -1737,7 +1972,33 @@ bool try_shape_open_type_run(
     const auto excluded_gsub = std::span<const open_type_tag>{
         excluded_gsub_storage}.first(excluded_gsub_count);
 
+    bool arabic_fallback_completed = false;
     if (gsub.lookup_count() != 0U) {
+        if (arabic_joining) {
+            std::uint32_t directional_lookup_count = 0U;
+            if (!gsub.try_select_lookups_excluding(
+                    options.script,
+                    options.language,
+                    options.requested_features,
+                    arabic_fraction_features,
+                    options.normalized_coordinates,
+                    scratch.gsub_lookups.first(gsub.lookup_count()),
+                    directional_lookup_count,
+                    error) ||
+                !apply_arabic_substitution_stage(
+                    gsub,
+                    options,
+                    scratch.gsub_lookups.first(directional_lookup_count),
+                    arabic_substitution_stage::directional,
+                    glyph_storage,
+                    glyph_count,
+                    gdef_pointer,
+                    random_alternate_state,
+                    error)) {
+                clear_arabic_actions(glyph_storage.first(glyph_count));
+                return false;
+            }
+        }
         if (arabic_joining &&
             !apply_arabic_stretch_feature(
                 gsub,
@@ -1762,8 +2023,41 @@ bool try_shape_open_type_run(
                     scratch.gsub_lookups.first(gsub.lookup_count()),
                     glyph_storage,
                     glyph_count,
+                    scratch.script_indices,
                     gdef_pointer,
                     error)) {
+                return false;
+            }
+        } else if (arabic_joining) {
+            std::uint32_t preprocessing_lookup_count = 0U;
+            if (!gsub.try_select_lookups_excluding(
+                    options.script,
+                    options.language,
+                    options.requested_features,
+                    arabic_fraction_features,
+                    options.normalized_coordinates,
+                    scratch.gsub_lookups.first(gsub.lookup_count()),
+                    preprocessing_lookup_count,
+                    error) ||
+                !apply_arabic_substitution_stage(
+                    gsub,
+                    options,
+                    scratch.gsub_lookups.first(preprocessing_lookup_count),
+                    arabic_substitution_stage::preprocessing,
+                    glyph_storage,
+                    glyph_count,
+                    gdef_pointer,
+                    random_alternate_state,
+                    error) ||
+                !apply_fraction_features(
+                    gsub,
+                    input,
+                    options,
+                    glyph_storage,
+                    glyph_count,
+                    gdef_pointer,
+                    error)) {
+                clear_arabic_actions(glyph_storage.first(glyph_count));
                 return false;
             }
         } else {
@@ -1905,6 +2199,129 @@ bool try_shape_open_type_run(
                     return false;
                 }
             }
+
+            std::uint32_t required_contextual_count = 0U;
+            if (!gsub.try_select_feature_lookups(
+                    options.script,
+                    options.language,
+                    required_contextual_alternate_feature,
+                    options.normalized_coordinates,
+                    scratch.gsub_lookups.first(gsub.lookup_count()),
+                    required_contextual_count,
+                    error)) {
+                clear_arabic_actions(glyph_storage.first(glyph_count));
+                return false;
+            }
+            const bool has_required_contextual =
+                required_contextual_count != 0U;
+
+            std::uint32_t staged_lookup_count = 0U;
+            if (!gsub.try_select_lookups_excluding(
+                    options.script,
+                    options.language,
+                    options.requested_features,
+                    arabic_fraction_features,
+                    options.normalized_coordinates,
+                    scratch.gsub_lookups.first(gsub.lookup_count()),
+                    staged_lookup_count,
+                    error) ||
+                !apply_arabic_substitution_stage(
+                    gsub,
+                    options,
+                    scratch.gsub_lookups.first(staged_lookup_count),
+                    arabic_substitution_stage::required_ligatures,
+                    glyph_storage,
+                    glyph_count,
+                    gdef_pointer,
+                    random_alternate_state,
+                    error)) {
+                clear_arabic_actions(glyph_storage.first(glyph_count));
+                return false;
+            }
+
+            if (unicode_script == arabic_script) {
+                if (!has_arabic_form_substitution &&
+                    !detail::try_apply_arabic_fallback(
+                        font,
+                        glyph_storage,
+                        glyph_count,
+                        gdef_pointer,
+                        detail::arabic_fallback_options{
+                            is_run_feature_enabled(
+                                options,
+                                open_type_tag::from_chars(
+                                    'i', 'n', 'i', 't')),
+                            is_run_feature_enabled(
+                                options,
+                                open_type_tag::from_chars(
+                                    'm', 'e', 'd', 'i')),
+                            is_run_feature_enabled(
+                                options,
+                                open_type_tag::from_chars(
+                                    'f', 'i', 'n', 'a')),
+                            is_run_feature_enabled(
+                                options,
+                                open_type_tag::from_chars(
+                                    'i', 's', 'o', 'l')),
+                            is_run_feature_enabled(
+                                options,
+                                required_ligature_feature),
+                            fallback_mark_positioning},
+                        error)) {
+                    clear_arabic_actions(glyph_storage.first(glyph_count));
+                    return false;
+                }
+                arabic_fallback_completed = true;
+            }
+
+            const bool reverse_context =
+                options.direction == shaping_direction::left_to_right &&
+                has_arabic_form_substitution;
+            if (reverse_context) {
+                std::reverse(
+                    glyph_storage.begin(),
+                    glyph_storage.begin() + glyph_count);
+            }
+            const bool context_applied = has_required_contextual
+                ? apply_arabic_substitution_stage(
+                    gsub,
+                    options,
+                    scratch.gsub_lookups.first(staged_lookup_count),
+                    arabic_substitution_stage::post_required,
+                    glyph_storage,
+                    glyph_count,
+                    gdef_pointer,
+                    random_alternate_state,
+                    error)
+                : (apply_arabic_substitution_stage(
+                        gsub,
+                        options,
+                        scratch.gsub_lookups.first(staged_lookup_count),
+                        arabic_substitution_stage::contextual,
+                        glyph_storage,
+                        glyph_count,
+                        gdef_pointer,
+                        random_alternate_state,
+                        error) &&
+                    apply_arabic_substitution_stage(
+                        gsub,
+                        options,
+                        scratch.gsub_lookups.first(staged_lookup_count),
+                        arabic_substitution_stage::post_contextual,
+                        glyph_storage,
+                        glyph_count,
+                        gdef_pointer,
+                        random_alternate_state,
+                        error));
+            if (reverse_context) {
+                std::reverse(
+                    glyph_storage.begin(),
+                    glyph_storage.begin() + glyph_count);
+            }
+            if (!context_applied) {
+                clear_arabic_actions(glyph_storage.first(glyph_count));
+                return false;
+            }
         }
         if (hangul) {
             const open_type_gsub_apply_options apply_options{
@@ -1941,6 +2358,7 @@ bool try_shape_open_type_run(
         }
     }
     if (unicode_script == arabic_script &&
+        !arabic_fallback_completed &&
         !has_arabic_form_substitution &&
         !detail::try_apply_arabic_fallback(
             font,
@@ -1991,9 +2409,12 @@ bool try_shape_open_type_run(
             reordered = complex_detail::try_initial_reorder_indic(
                 font,
                 unicode_script,
+                options.script,
                 options.buffer_flags,
                 glyph_storage,
                 glyph_count,
+                scratch.script_indices,
+                {},
                 error);
             if (reordered) {
                 complex_detail::final_reorder_indic(

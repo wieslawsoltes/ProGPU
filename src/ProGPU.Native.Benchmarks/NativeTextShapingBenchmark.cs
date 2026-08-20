@@ -15,38 +15,93 @@ internal static class NativeTextShapingBenchmark
         int warmups = ReadPositive(args, "--warmup", 100);
         int iterations = ReadPositive(args, "--iterations", 2_000);
         int repeats = ReadPositive(args, "--text-repeats", 8);
-        bool profileNativeOnly = Array.Exists(
-            args,
-            static value => string.Equals(
-                value,
-                "--profile-native-only",
-                StringComparison.OrdinalIgnoreCase));
-        string text = string.Concat(Enumerable.Repeat(Sample, repeats));
-        TtfFont font = InterFontFamily.Regular;
+        bool profileNativeOnly = HasFlag(args, "--profile-native-only");
+        bool shapeOnly = HasFlag(args, "--shape-only");
+        bool directShape = HasFlag(args, "--direct-shape");
+        bool dumpGlyphs = HasFlag(args, "--dump-glyphs");
+        string? requestedText = ReadOptional(args, "--text");
+        string? fontPath = ReadOptional(args, "--font-path");
+        string? disabledFeature = ReadOptional(args, "--disable-feature");
+        if (disabledFeature is not null && !shapeOnly)
+        {
+            throw new ArgumentException(
+                "--disable-feature requires --shape-only.");
+        }
+        string text = requestedText ??
+            string.Concat(Enumerable.Repeat(Sample, repeats));
+        TtfFont font = fontPath is null
+            ? InterFontFamily.Regular
+            : new TtfFont(Path.GetFullPath(fontPath));
+        NativeTextFeature[] nativeFeatures = disabledFeature is null
+            ? []
+            : [new NativeTextFeature(ParseTag(disabledFeature), 0U)];
+        TextShapingOptions shapingOptions = disabledFeature is null
+            ? TextShapingOptions.Default
+            : TextShapingOptions.WithFeatures(
+                new OpenTypeFeatureSetting(disabledFeature, 0));
         NativeTextScalar[] scalars = Decode(text);
         var input = new NativeTextShapeInput(
             font.FontData.Span,
             scalars,
-            direction: NativeTextDirection.Unspecified);
+            direction: NativeTextDirection.Unspecified,
+            features: nativeFeatures);
         using var nativeContext = new NativeTextShapingContext(font.FontData.Span);
 
-        NativeRendererStatus requirementsStatus =
-            nativeContext.GetRequirements(input, out var requirements);
+        NativeRendererStatus requirementsStatus = directShape
+            ? NativeTextShapingInterop.GetRequirements(input, out var requirements)
+            : nativeContext.GetRequirements(input, out requirements);
         EnsureSuccess(requirementsStatus, (NativeTextFontError)requirements.ErrorCode);
         var nativeGlyphs = new NativeTextShapingGlyph[requirements.GlyphCapacity];
         var scratch = new byte[checked((int)requirements.ScratchBytes)];
-        NativeRendererStatus shapeStatus = nativeContext.Shape(
-            input,
-            nativeGlyphs,
-            scratch,
-            out var nativeResult);
+        NativeRendererStatus shapeStatus = directShape
+            ? NativeTextShapingInterop.Shape(
+                input,
+                nativeGlyphs,
+                scratch,
+                out var nativeResult)
+            : nativeContext.Shape(
+                input,
+                nativeGlyphs,
+                scratch,
+                out nativeResult);
         EnsureSuccess(shapeStatus, (NativeTextFontError)nativeResult.ErrorCode);
 
         IReadOnlyList<ShapedGlyph> managed = OpenTypeTextShaper.Shape(
             text,
             font,
-            font.UnitsPerEm);
+            font.UnitsPerEm,
+            shapingOptions);
+        if (dumpGlyphs)
+        {
+            DumpGlyphs(
+                managed,
+                nativeGlyphs.AsSpan(
+                    0,
+                    checked((int)nativeResult.GlyphCount)));
+        }
         ValidateParity(managed, nativeGlyphs.AsSpan(0, checked((int)nativeResult.GlyphCount)));
+
+        if (directShape)
+        {
+            Console.WriteLine("ProGPU managed/direct-C++ text shaping parity: PASS");
+            return;
+        }
+
+        if (shapeOnly)
+        {
+            RunShapeOnlyBenchmark(
+                text,
+                font,
+                shapingOptions,
+                nativeContext,
+                in input,
+                nativeGlyphs,
+                scratch,
+                warmups,
+                iterations,
+                profileNativeOnly);
+            return;
+        }
 
         float fontSize = 16f;
         float scale = fontSize / font.UnitsPerEm;
@@ -336,6 +391,101 @@ internal static class NativeTextShapingBenchmark
             nativeParagraphAllocations);
     }
 
+    private static void RunShapeOnlyBenchmark(
+        string text,
+        TtfFont font,
+        TextShapingOptions shapingOptions,
+        NativeTextShapingContext nativeContext,
+        in NativeTextShapeInput input,
+        NativeTextShapingGlyph[] nativeGlyphs,
+        byte[] scratch,
+        int warmups,
+        int iterations,
+        bool profileNativeOnly)
+    {
+        NativeTextShapeResult nativeResult = default;
+        for (int index = 0; index < warmups; index++)
+        {
+            _ = OpenTypeTextShaper.Shape(
+                text, font, font.UnitsPerEm, shapingOptions);
+            EnsureSuccess(
+                nativeContext.Shape(
+                    input,
+                    nativeGlyphs,
+                    scratch,
+                    out nativeResult),
+                (NativeTextFontError)nativeResult.ErrorCode);
+        }
+
+        if (profileNativeOnly)
+        {
+            long start = Stopwatch.GetTimestamp();
+            for (int index = 0; index < iterations; index++)
+            {
+                EnsureSuccess(
+                    nativeContext.Shape(
+                        input,
+                        nativeGlyphs,
+                        scratch,
+                        out nativeResult),
+                    (NativeTextFontError)nativeResult.ErrorCode);
+            }
+            double elapsedSeconds = Stopwatch.GetElapsedTime(start).TotalSeconds;
+            Console.WriteLine(string.Format(
+                CultureInfo.InvariantCulture,
+                "C++ native-only profile: iterations={0:N0}, elapsed={1:F3} s, mean={2:F3} us",
+                iterations,
+                elapsedSeconds,
+                elapsedSeconds * 1_000_000d / iterations));
+            return;
+        }
+
+        var managedSamples = new long[iterations];
+        var nativeSamples = new long[iterations];
+        long managedAllocationStart = GC.GetAllocatedBytesForCurrentThread();
+        IReadOnlyList<ShapedGlyph> managed = [];
+        for (int index = 0; index < iterations; index++)
+        {
+            long start = Stopwatch.GetTimestamp();
+            managed = OpenTypeTextShaper.Shape(
+                text, font, font.UnitsPerEm, shapingOptions);
+            managedSamples[index] = Stopwatch.GetTimestamp() - start;
+        }
+        long managedAllocations =
+            GC.GetAllocatedBytesForCurrentThread() - managedAllocationStart;
+
+        long nativeAllocationStart = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < iterations; index++)
+        {
+            long start = Stopwatch.GetTimestamp();
+            EnsureSuccess(
+                nativeContext.Shape(
+                    input,
+                    nativeGlyphs,
+                    scratch,
+                    out nativeResult),
+                (NativeTextFontError)nativeResult.ErrorCode);
+            nativeSamples[index] = Stopwatch.GetTimestamp() - start;
+        }
+        long nativeAllocations =
+            GC.GetAllocatedBytesForCurrentThread() - nativeAllocationStart;
+        ValidateParity(
+            managed,
+            nativeGlyphs.AsSpan(0, checked((int)nativeResult.GlyphCount)));
+
+        Array.Sort(managedSamples);
+        Array.Sort(nativeSamples);
+        Console.WriteLine("ProGPU managed/C++ text shaping parity: PASS");
+        Console.WriteLine(string.Format(
+            CultureInfo.InvariantCulture,
+            "Input: UTF-16={0}, scalars={1}, glyphs={2}, crossings=1/run",
+            text.Length,
+            input.Input.Length,
+            nativeResult.GlyphCount));
+        Print("Managed", managedSamples, iterations, managedAllocations);
+        Print("C++ bulk", nativeSamples, iterations, nativeAllocations);
+    }
+
     private static void ValidateLayoutParity(
         TextLayout managed,
         ReadOnlySpan<NativePositionedTextGlyph> native,
@@ -462,6 +612,35 @@ internal static class NativeTextShapingBenchmark
         }
     }
 
+    private static void DumpGlyphs(
+        IReadOnlyList<ShapedGlyph> managed,
+        ReadOnlySpan<NativeTextShapingGlyph> native)
+    {
+        Console.WriteLine("index | managed | native");
+        int count = Math.Max(managed.Count, native.Length);
+        for (int index = 0; index < count; index++)
+        {
+            string managedValue = index < managed.Count
+                ? managed[index].ToString() ?? string.Empty
+                : "<missing>";
+            string nativeValue;
+            if (index < native.Length)
+            {
+                NativeTextShapingGlyph glyph = native[index];
+                nativeValue =
+                    $"Glyph={glyph.GlyphId}, Cluster={glyph.Cluster}, " +
+                    $"CodePoint={glyph.CodePoint}, Advance=({glyph.AdvanceX}," +
+                    $"{glyph.AdvanceY}), Offset=({glyph.OffsetX},{glyph.OffsetY}), " +
+                    $"Flags={glyph.Flags}";
+            }
+            else
+            {
+                nativeValue = "<missing>";
+            }
+            Console.WriteLine($"{index,5} | {managedValue} | {nativeValue}");
+        }
+    }
+
     private static void EnsureSuccess(
         NativeRendererStatus status,
         NativeTextFontError error)
@@ -514,5 +693,46 @@ internal static class NativeTextShapingBenchmark
             throw new ArgumentException($"{name} requires a positive integer.");
         }
         return value;
+    }
+
+    private static bool HasFlag(string[] args, string name) =>
+        Array.Exists(
+            args,
+            value => string.Equals(value, name, StringComparison.OrdinalIgnoreCase));
+
+    private static string? ReadOptional(string[] args, string name)
+    {
+        int index = Array.FindIndex(
+            args,
+            value => string.Equals(value, name, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+        {
+            return null;
+        }
+        if (index + 1 >= args.Length || string.IsNullOrEmpty(args[index + 1]))
+        {
+            throw new ArgumentException($"{name} requires a non-empty value.");
+        }
+        return args[index + 1];
+    }
+
+    private static uint ParseTag(string value)
+    {
+        if (value.Length != 4)
+        {
+            throw new ArgumentException(
+                "OpenType feature tags must contain four characters.");
+        }
+        uint result = 0U;
+        foreach (char character in value)
+        {
+            if (character is < (char)0x20 or > (char)0x7e)
+            {
+                throw new ArgumentException(
+                    "OpenType feature tags must contain printable ASCII.");
+            }
+            result = result << 8 | character;
+        }
+        return result;
     }
 }

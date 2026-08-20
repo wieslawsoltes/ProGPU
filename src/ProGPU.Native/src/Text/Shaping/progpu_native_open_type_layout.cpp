@@ -104,7 +104,7 @@ bool open_type_coverage_view::try_create(
         for (std::uint16_t index = 0U; index < count; ++index) {
             const std::uint16_t glyph =
                 read_u16(table, payload_offset + index * 2U);
-            if (index != 0U && glyph <= previous) {
+            if (index != 0U && glyph < previous) {
                 set_error(error, font_error::invalid_face);
                 return false;
             }
@@ -149,34 +149,38 @@ bool open_type_coverage_view::try_create(
 
 std::int32_t open_type_coverage_view::find(
     std::uint16_t glyph_id) const noexcept {
-    std::uint32_t low = 0U;
-    std::uint32_t high = count_;
     const std::size_t payload = offset_ + 4U;
     if (format_ == 1U) {
-        while (low < high) {
-            const std::uint32_t middle = low + (high - low) / 2U;
+        std::int32_t low = 0;
+        std::int32_t high = static_cast<std::int32_t>(count_) - 1;
+        while (low <= high) {
+            const std::int32_t middle = (low + high) >> 1;
             const std::uint16_t current =
-                read_u16(table_, payload + middle * 2U);
+                read_u16(table_, payload +
+                    static_cast<std::size_t>(middle) * 2U);
             if (glyph_id < current) {
-                high = middle;
+                high = middle - 1;
             } else if (glyph_id > current) {
-                low = middle + 1U;
+                low = middle + 1;
             } else {
-                return static_cast<std::int32_t>(middle);
+                return middle;
             }
         }
         return -1;
     }
     if (format_ == 2U) {
-        while (low < high) {
-            const std::uint32_t middle = low + (high - low) / 2U;
-            const std::size_t range = payload + middle * 6U;
+        std::int32_t low = 0;
+        std::int32_t high = static_cast<std::int32_t>(count_) - 1;
+        while (low <= high) {
+            const std::int32_t middle = (low + high) >> 1;
+            const std::size_t range = payload +
+                static_cast<std::size_t>(middle) * 6U;
             const std::uint16_t start = read_u16(table_, range);
             const std::uint16_t end = read_u16(table_, range + 2U);
             if (glyph_id < start) {
-                high = middle;
+                high = middle - 1;
             } else if (glyph_id > end) {
-                low = middle + 1U;
+                low = middle + 1;
             } else {
                 return static_cast<std::int32_t>(
                     read_u16(table_, range + 4U) + glyph_id - start);

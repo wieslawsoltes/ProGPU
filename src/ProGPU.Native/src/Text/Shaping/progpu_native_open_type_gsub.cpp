@@ -23,6 +23,8 @@ enum class apply_result : std::uint8_t {
 };
 
 constexpr std::uint32_t maximum_lookup_nesting_depth = 64U;
+constexpr std::uint32_t complex_syllable_mask = 0x001FE000U;
+constexpr std::uint32_t complex_syllable_shift = 13U;
 
 void set_error(font_error* error, font_error value) noexcept {
     if (error != nullptr) {
@@ -174,8 +176,15 @@ std::uint32_t next_eligible(
     std::uint32_t start,
     std::uint16_t flags,
     std::uint16_t mark_filtering_set,
-    const open_type_gdef_view* gdef) noexcept {
+    const open_type_gdef_view* gdef,
+    std::uint8_t restricted_syllable = 0U) noexcept {
     for (std::uint32_t index = start; index < glyphs.size(); ++index) {
+        if (restricted_syllable != 0U &&
+            ((static_cast<std::uint32_t>(glyphs[index].flags) &
+                complex_syllable_mask) >> complex_syllable_shift) !=
+                restricted_syllable) {
+            return static_cast<std::uint32_t>(glyphs.size());
+        }
         if (is_eligible(glyphs[index], flags, mark_filtering_set, gdef)) {
             return index;
         }
@@ -188,9 +197,16 @@ std::uint32_t previous_eligible(
     std::uint32_t before,
     std::uint16_t flags,
     std::uint16_t mark_filtering_set,
-    const open_type_gdef_view* gdef) noexcept {
+    const open_type_gdef_view* gdef,
+    std::uint8_t restricted_syllable = 0U) noexcept {
     while (before != 0U) {
         --before;
+        if (restricted_syllable != 0U &&
+            ((static_cast<std::uint32_t>(glyphs[before].flags) &
+                complex_syllable_mask) >> complex_syllable_shift) !=
+                restricted_syllable) {
+            return static_cast<std::uint32_t>(glyphs.size());
+        }
         if (is_eligible(glyphs[before], flags, mark_filtering_set, gdef)) {
             return before;
         }
@@ -298,7 +314,8 @@ apply_result replace_ligature(
     std::uint16_t lookup_flags,
     std::uint16_t mark_filtering_set,
     const open_type_gdef_view* gdef,
-    bool track_fallback_mark_metadata) noexcept {
+    bool track_fallback_mark_metadata,
+    std::uint8_t restricted_syllable) noexcept {
     if (!can_read(table, ligature, 4U)) {
         return apply_result::malformed;
     }
@@ -318,11 +335,36 @@ apply_result replace_ligature(
             candidate + 1U,
             lookup_flags,
             mark_filtering_set,
-            gdef);
+            gdef,
+            restricted_syllable);
         if (candidate >= count || storage[candidate].glyph_id !=
                 read_u16(table, ligature + 4U + (component - 1U) * 2U)) {
             return apply_result::no_match;
         }
+    }
+
+    // Directly preserve GlyphSubstitutionBuffer.ReplaceLigature's cluster
+    // contract: include skipped components and the complete adjacent source
+    // clusters at both ends before removing matched glyphs. This is required
+    // for Indic marks that retain the last component's original cluster.
+    std::uint32_t merge_start = position;
+    std::uint32_t merge_end = candidate + 1U;
+    const auto first_cluster = storage[merge_start].cluster;
+    const auto last_cluster = storage[merge_end - 1U].cluster;
+    while (merge_start > 0U &&
+        storage[merge_start - 1U].cluster == first_cluster) {
+        --merge_start;
+    }
+    while (merge_end < count &&
+        storage[merge_end].cluster == last_cluster) {
+        ++merge_end;
+    }
+    auto merged_cluster = std::numeric_limits<std::int32_t>::max();
+    for (std::uint32_t index = merge_start; index < merge_end; ++index) {
+        merged_cluster = std::min(merged_cluster, storage[index].cluster);
+    }
+    for (std::uint32_t index = merge_start; index < merge_end; ++index) {
+        storage[index].cluster = merged_cluster;
     }
 
     shaping_glyph& first = storage[position];
@@ -368,11 +410,17 @@ std::uint32_t eligible_sequence_position(
     std::uint16_t sequence_index,
     std::uint16_t flags,
     std::uint16_t mark_filtering_set,
-    const open_type_gdef_view* gdef) noexcept {
+    const open_type_gdef_view* gdef,
+    std::uint8_t restricted_syllable) noexcept {
     std::uint32_t result = first;
     for (std::uint16_t index = 0U; index < sequence_index; ++index) {
         result = next_eligible(
-            glyphs, result + 1U, flags, mark_filtering_set, gdef);
+            glyphs,
+            result + 1U,
+            flags,
+            mark_filtering_set,
+            gdef,
+            restricted_syllable);
         if (result >= glyphs.size()) {
             return static_cast<std::uint32_t>(glyphs.size());
         }
@@ -411,7 +459,8 @@ apply_result apply_context_records(
             sequence_index,
             lookup_flags,
             mark_filtering_set,
-            options.gdef);
+            options.gdef,
+            options.restricted_syllable);
         if (target >= count) {
             return apply_result::no_match;
         }
@@ -461,7 +510,8 @@ apply_result apply_context_format3(
                 match + 1U,
                 lookup_flags,
                 mark_filtering_set,
-                options.gdef);
+                options.gdef,
+                options.restricted_syllable);
             if (match >= count) {
                 return apply_result::no_match;
             }
@@ -594,7 +644,8 @@ apply_result apply_context_format1_or2(
                 match + 1U,
                 lookup_flags,
                 mark_filtering_set,
-                options.gdef);
+                options.gdef,
+                options.restricted_syllable);
             if (match >= count) {
                 matches = false;
                 break;
@@ -682,16 +733,20 @@ apply_result apply_chain_context_format3(
     cursor += 2U;
 
     std::uint32_t match = position;
+    std::uint32_t match_start = position;
+    std::uint32_t match_end = position + 1U;
     for (std::uint16_t index = 0U; index < backtrack_count; ++index) {
         match = previous_eligible(
             std::span<const shaping_glyph>{storage.data(), count},
             match,
             lookup_flags,
             mark_filtering_set,
-            options.gdef);
+            options.gdef,
+            options.restricted_syllable);
         if (match >= count) {
             return apply_result::no_match;
         }
+        match_start = std::min(match_start, match);
         bool matches = false;
         const apply_result coverage_result = match_coverage_at(
             table,
@@ -714,7 +769,8 @@ apply_result apply_chain_context_format3(
                 match + 1U,
                 lookup_flags,
                 mark_filtering_set,
-                options.gdef);
+                options.gdef,
+                options.restricted_syllable);
             if (match >= count) {
                 return apply_result::no_match;
             }
@@ -734,16 +790,19 @@ apply_result apply_chain_context_format3(
         }
     }
     const std::uint32_t input_end = match;
+    match_end = std::max(match_end, input_end + 1U);
     for (std::uint16_t index = 0U; index < lookahead_count; ++index) {
         match = next_eligible(
             std::span<const shaping_glyph>{storage.data(), count},
             match + 1U,
             lookup_flags,
             mark_filtering_set,
-            options.gdef);
+            options.gdef,
+            options.restricted_syllable);
         if (match >= count) {
             return apply_result::no_match;
         }
+        match_end = std::max(match_end, match + 1U);
         bool matches = false;
         const apply_result coverage_result = match_coverage_at(
             table,
@@ -758,7 +817,7 @@ apply_result apply_chain_context_format3(
             return apply_result::no_match;
         }
     }
-    mark_gsub_dependency(storage, position, input_end);
+    mark_gsub_dependency(storage, match_start, match_end - 1U);
     record_context_match(options, input_end + 1U);
     return apply_context_records(
         gsub,
@@ -910,17 +969,21 @@ apply_result apply_chain_context_format1_or2(
 
         bool matches = true;
         std::uint32_t match = position;
+        std::uint32_t match_start = position;
+        std::uint32_t match_end = position + 1U;
         for (std::uint16_t index = 0U; index < backtrack_count; ++index) {
             match = previous_eligible(
                 std::span<const shaping_glyph>{storage.data(), count},
                 match,
                 lookup_flags,
                 mark_filtering_set,
-                options.gdef);
+                options.gdef,
+                options.restricted_syllable);
             if (match >= count) {
                 matches = false;
                 break;
             }
+            match_start = std::min(match_start, match);
             const std::uint16_t expected =
                 read_u16(table, backtrack_values + index * 2U);
             const std::uint16_t actual = format == 1U
@@ -942,7 +1005,8 @@ apply_result apply_chain_context_format1_or2(
                 match + 1U,
                 lookup_flags,
                 mark_filtering_set,
-                options.gdef);
+                options.gdef,
+                options.restricted_syllable);
             if (match >= count) {
                 matches = false;
                 break;
@@ -962,17 +1026,20 @@ apply_result apply_chain_context_format1_or2(
             continue;
         }
         const std::uint32_t input_end = match;
+        match_end = std::max(match_end, input_end + 1U);
         for (std::uint16_t index = 0U; index < lookahead_count; ++index) {
             match = next_eligible(
                 std::span<const shaping_glyph>{storage.data(), count},
                 match + 1U,
                 lookup_flags,
                 mark_filtering_set,
-                options.gdef);
+                options.gdef,
+                options.restricted_syllable);
             if (match >= count) {
                 matches = false;
                 break;
             }
+            match_end = std::max(match_end, match + 1U);
             const std::uint16_t expected =
                 read_u16(table, lookahead_values + index * 2U);
             const std::uint16_t actual = format == 1U
@@ -987,7 +1054,7 @@ apply_result apply_chain_context_format1_or2(
         if (!matches) {
             continue;
         }
-        mark_gsub_dependency(storage, position, input_end);
+        mark_gsub_dependency(storage, match_start, match_end - 1U);
         record_context_match(options, input_end + 1U);
         return apply_context_records(
             gsub,
@@ -1163,7 +1230,8 @@ apply_result apply_subtable(
                 match,
                 lookup_flags,
                 mark_filtering_set,
-                options.gdef);
+                options.gdef,
+                options.restricted_syllable);
             if (match >= count) {
                 return apply_result::no_match;
             }
@@ -1189,7 +1257,8 @@ apply_result apply_subtable(
                 match + 1U,
                 lookup_flags,
                 mark_filtering_set,
-                options.gdef);
+                options.gdef,
+                options.restricted_syllable);
             if (match >= count) {
                 return apply_result::no_match;
             }
@@ -1316,7 +1385,8 @@ apply_result apply_subtable(
                 lookup_flags,
                 mark_filtering_set,
                 options.gdef,
-                options.track_fallback_mark_metadata);
+                options.track_fallback_mark_metadata,
+                options.restricted_syllable);
             if (result != apply_result::no_match) {
                 return result;
             }
@@ -1453,6 +1523,14 @@ bool try_apply_open_type_gsub_lookup(
         std::uint32_t context_match_end = 0U;
         open_type_gsub_apply_options effective_options = options;
         effective_options.context_match_end = &context_match_end;
+        if (effective_options.restrict_to_syllable) {
+            effective_options.restricted_syllable =
+                static_cast<std::uint8_t>(
+                    (static_cast<std::uint32_t>(
+                        glyph_storage[position].flags) &
+                        complex_syllable_mask) >>
+                    complex_syllable_shift);
+        }
         const std::uint32_t count_before = glyph_count;
         for (std::uint16_t subtable_index = 0U;
              subtable_index < lookup.subtable_count;
@@ -1542,13 +1620,22 @@ bool try_apply_open_type_gsub_lookup_at(
         set_error(error, font_error::none);
         return true;
     }
+    auto effective_options = options;
+    if (effective_options.restrict_to_syllable) {
+        effective_options.restricted_syllable =
+            static_cast<std::uint8_t>(
+                (static_cast<std::uint32_t>(
+                    glyph_storage[position].flags) &
+                    complex_syllable_mask) >>
+                complex_syllable_shift);
+    }
     const apply_result result = apply_lookup_at(
         gsub,
         lookup_index,
         glyph_storage,
         glyph_count,
         position,
-        options,
+        effective_options,
         0U);
     if (result == apply_result::malformed) {
         set_error(error, font_error::invalid_face);

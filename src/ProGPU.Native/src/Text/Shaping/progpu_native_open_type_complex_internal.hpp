@@ -107,12 +107,24 @@ bool try_prepare_indic(
     std::span<std::uint8_t> category_scratch,
     std::span<std::uint8_t> syllable_scratch,
     font_error* error) noexcept;
+
+struct indic_substitution_probe final {
+    void* context = nullptr;
+    bool (*would_substitute)(
+        void* context,
+        open_type_tag feature,
+        std::span<const std::uint16_t> glyphs) noexcept = nullptr;
+};
+
 bool try_initial_reorder_indic(
     const sfnt_font_view& font,
-    open_type_tag script,
+    open_type_tag unicode_script,
+    open_type_tag layout_script,
     shaping_buffer_flags buffer_flags,
     std::span<shaping_glyph> glyph_storage,
     std::uint32_t& glyph_count,
+    std::span<std::uint32_t> original_order_scratch,
+    indic_substitution_probe substitution_probe,
     font_error* error) noexcept;
 void final_reorder_indic(
     open_type_tag script,

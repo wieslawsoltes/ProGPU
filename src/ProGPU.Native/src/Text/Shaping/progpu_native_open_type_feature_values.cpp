@@ -286,7 +286,18 @@ bool apply_fraction_features(
     std::uint32_t& glyph_count,
     const open_type_gdef_view* gdef,
     font_error* error) noexcept {
-    if (!has_fraction_actions(input)) {
+    constexpr std::array conditional{
+        open_type_tag::from_chars('f', 'r', 'a', 'c'),
+        open_type_tag::from_chars('n', 'u', 'm', 'r'),
+        open_type_tag::from_chars('d', 'n', 'o', 'm')};
+    const bool has_explicit_fraction = std::any_of(
+        conditional.begin(),
+        conditional.end(),
+        [&options](open_type_tag feature) {
+            return contains_feature(options.explicit_features, feature) ||
+                has_feature_settings(options, feature);
+        });
+    if (!has_fraction_actions(input) && !has_explicit_fraction) {
         return true;
     }
     for (std::uint16_t lookup = 0U; lookup < gsub.lookup_count(); ++lookup) {

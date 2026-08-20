@@ -180,6 +180,8 @@ int main() {
         &progpu::native::text::try_get_unicode_syllable_from_state_action;
     const auto default_feature_settings =
         progpu::native::text::get_default_open_type_feature_settings();
+    const auto* default_normalization =
+        progpu::native::text::get_default_unicode_normalization_data();
     static_assert(progpu::native::text::sfnt_name_ids::family_name == 1U);
     const auto latin_script =
         progpu::native::text::get_unicode_script(0x41U);
@@ -308,6 +310,7 @@ int main() {
         from_state_action_resolver == nullptr ||
         progpu::native::text::get_unicode_vowel_constraint_count() != 103U ||
         vowel_constraint.script.value != 0U ||
+        default_normalization == nullptr ||
         default_feature_settings.size() != 26U ||
         shaping_route_resolver == nullptr ||
         !shape_options.pre_context.empty() ||

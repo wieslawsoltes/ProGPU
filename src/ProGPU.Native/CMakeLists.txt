@@ -90,6 +90,9 @@ set(PROGPU_NATIVE_ADVANCED_BLEND_SHADER
 set(PROGPU_NATIVE_3D_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Scene/Shaders/Native3D.wgsl"
     CACHE FILEPATH "Shared ProGPU native retained 3D shader source")
+set(PROGPU_NATIVE_UNICODE_NORMALIZATION_DATA
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Text/UnicodeNormalizationData.bin"
+    CACHE FILEPATH "Shared ProGPU Unicode normalization data")
 option(PROGPU_NATIVE_BUILD_SAMPLE "Build the live headless WebGPU sample" ON)
 option(PROGPU_NATIVE_BUILD_WGPU_TARGET
     "Build the directly linked pinned wgpu-native renderer" ON)
@@ -179,8 +182,25 @@ endif()
 if(NOT EXISTS "${PROGPU_NATIVE_3D_SHADER}")
     message(FATAL_ERROR "The shared ProGPU Native3D.wgsl source is missing")
 endif()
+if(NOT EXISTS "${PROGPU_NATIVE_UNICODE_NORMALIZATION_DATA}")
+    message(FATAL_ERROR "The shared ProGPU Unicode normalization data is missing")
+endif()
 
 set(generated_directory "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(generated_unicode_normalization_source
+    "${generated_directory}/UnicodeNormalizationData.generated.cpp")
+add_custom_command(
+    OUTPUT "${generated_unicode_normalization_source}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_UNICODE_NORMALIZATION_DATA}"
+        "-DOUTPUT=${generated_unicode_normalization_source}"
+        "-DSYMBOL=unicode_normalization_data"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBinary.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_UNICODE_NORMALIZATION_DATA}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedBinary.cmake"
+    COMMENT "Embedding the shared ProGPU Unicode normalization data"
+    VERBATIM)
 set(generated_vector_shader
     "${generated_directory}/VectorWgsl.generated.hpp")
 add_custom_command(
@@ -561,6 +581,7 @@ progpu_native_enable_warnings(progpu_native_image)
 progpu_native_enable_sanitizers(progpu_native_image)
 
 add_library(progpu_native_text STATIC
+    "${generated_unicode_normalization_source}"
     src/Text/progpu_native_unicode.cpp
     src/Text/Unicode/progpu_native_unicode_category.cpp
     src/Text/Unicode/progpu_native_unicode_directional.cpp
@@ -574,6 +595,8 @@ add_library(progpu_native_text STATIC
     src/Text/Shaping/progpu_native_arabic_fallback.cpp
     src/Text/Shaping/progpu_native_arabic_stretch_internal.hpp
     src/Text/progpu_native_unicode_normalization.cpp
+    src/Text/Unicode/progpu_native_unicode_normalization_default.cpp
+    src/Text/Unicode/progpu_native_embedded_data.hpp
     src/Text/Shaping/progpu_native_open_type_layout.cpp
     src/Text/Shaping/progpu_native_open_type_digest.cpp
     src/Text/Shaping/progpu_native_open_type_features.cpp
@@ -696,6 +719,7 @@ target_include_directories(progpu_native_text
     PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src/Text"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Bidi"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Unicode"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Shaping"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/Compression")
 target_link_libraries(progpu_native_text PUBLIC progpu_native_compression)

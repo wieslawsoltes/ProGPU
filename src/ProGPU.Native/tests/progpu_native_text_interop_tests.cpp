@@ -147,6 +147,19 @@ void bulk_shape_is_deterministic_and_caller_owned() {
         requirements.scratch_alignment == 1U &&
         requirements.scratch_bytes != 0U);
 
+    const std::uint8_t malformed_normalization[]{0U};
+    auto malformed_request = request;
+    malformed_request.normalization_data = malformed_normalization;
+    malformed_request.normalization_data_size =
+        sizeof(malformed_normalization);
+    progpu_native_text_shape_requirements malformed_requirements{};
+    malformed_requirements.struct_size = sizeof(malformed_requirements);
+    require(progpu_native_text_get_shape_requirements(
+                &malformed_request,
+                &malformed_requirements) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    require(malformed_requirements.error_code == 1U);
+
     std::vector<progpu_native_text_shaping_glyph> first(
         requirements.glyph_capacity);
     std::vector<progpu_native_text_shaping_glyph> second(

@@ -101,6 +101,7 @@ using ::progpu::native::text::try_itemize_unicode_scripts;
 using ::progpu::native::text::unicode_normalization_form;
 using ::progpu::native::text::unicode_normalization_requirements;
 using ::progpu::native::text::unicode_normalization_data;
+using ::progpu::native::text::get_default_unicode_normalization_data;
 using ::progpu::native::text::try_get_unicode_normalization_requirements;
 using ::progpu::native::text::try_normalize_unicode;
 using ::progpu::native::text::open_type_coverage_view;

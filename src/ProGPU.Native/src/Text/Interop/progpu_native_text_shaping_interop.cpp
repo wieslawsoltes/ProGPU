@@ -359,6 +359,29 @@ progpu_native_status status_from_error(font_error error) noexcept {
     return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
 }
 
+bool try_resolve_normalization_data(
+    const progpu_native_text_shape_request& request,
+    unicode_normalization_data& storage,
+    const unicode_normalization_data*& result) noexcept {
+    result = get_default_unicode_normalization_data();
+    if (request.normalization_data_size == 0U) {
+        return result != nullptr;
+    }
+    unicode_error error = unicode_error::none;
+    if (!unicode_normalization_data::try_create(
+            std::span<const std::byte>{
+                reinterpret_cast<const std::byte*>(
+                    request.normalization_data),
+                request.normalization_data_size},
+            storage,
+            &error)) {
+        result = nullptr;
+        return false;
+    }
+    result = &storage;
+    return true;
+}
+
 bool try_get_lookup_count(
     const sfnt_font_view& font,
     open_type_tag tag,
@@ -481,7 +504,9 @@ bool try_build_capacities(
     result.complex_values = route.complex_script == open_type_complex_script::none
         ? 0U
         : result.glyphs;
-    result.complex_indices = route.complex_script == open_type_complex_script::use
+    result.complex_indices =
+        (route.complex_script == open_type_complex_script::indic ||
+            route.complex_script == open_type_complex_script::use)
         ? result.glyphs + 1U
         : 0U;
     const bool verify =
@@ -1172,20 +1197,11 @@ progpu_native_status progpu_native_text_get_shape_requirements(
     }
     unicode_normalization_data normalization{};
     const unicode_normalization_data* normalization_pointer = nullptr;
-    if (request->normalization_data_size != 0U) {
-        unicode_error unicode_result = unicode_error::none;
-        if (!unicode_normalization_data::try_create(
-                std::span<const std::byte>{
-                    reinterpret_cast<const std::byte*>(
-                        request->normalization_data),
-                    request->normalization_data_size},
-                normalization,
-                &unicode_result)) {
-            requirements->error_code =
-                static_cast<std::uint32_t>(font_error::invalid_argument);
-            return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
-        }
-        normalization_pointer = &normalization;
+    if (!try_resolve_normalization_data(
+            *request, normalization, normalization_pointer)) {
+        requirements->error_code =
+            static_cast<std::uint32_t>(font_error::invalid_argument);
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     }
     shape_capacities capacities{};
     if (!try_build_capacities(
@@ -1241,6 +1257,15 @@ progpu_native_status progpu_native_text_context_create(
                 delete result;
                 return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
             }
+            result->has_normalization = true;
+        } else {
+            const auto* normalization =
+                get_default_unicode_normalization_data();
+            if (normalization == nullptr) {
+                delete result;
+                return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+            }
+            result->normalization = *normalization;
             result->has_normalization = true;
         }
         *context = result;
@@ -1406,20 +1431,11 @@ progpu_native_status progpu_native_text_shape(
     }
     unicode_normalization_data normalization{};
     const unicode_normalization_data* normalization_pointer = nullptr;
-    if (request->normalization_data_size != 0U) {
-        unicode_error unicode_result = unicode_error::none;
-        if (!unicode_normalization_data::try_create(
-                std::span<const std::byte>{
-                    reinterpret_cast<const std::byte*>(
-                        request->normalization_data),
-                    request->normalization_data_size},
-                normalization,
-                &unicode_result)) {
-            result->error_code =
-                static_cast<std::uint32_t>(font_error::invalid_argument);
-            return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
-        }
-        normalization_pointer = &normalization;
+    if (!try_resolve_normalization_data(
+            *request, normalization, normalization_pointer)) {
+        result->error_code =
+            static_cast<std::uint32_t>(font_error::invalid_argument);
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     }
     shape_capacities capacities{};
     if (!try_build_capacities(

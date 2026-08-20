@@ -701,6 +701,14 @@ private:
 };
 
 /*
+ * Process-wide validated view of the canonical ProGPU-owned normalization
+ * resource embedded into the native text library. The pointer and borrowed
+ * data remain valid for the process lifetime and require no host file access.
+ */
+const unicode_normalization_data*
+get_default_unicode_normalization_data() noexcept;
+
+/*
  * Canonical normalization uses the shared fully decomposed plan. Requirements
  * reports the maximum FormD output. The write pass performs stable canonical
  * ordering in place and optionally compacts canonical compositions. It is
@@ -1079,6 +1087,12 @@ struct open_type_gsub_apply_options final {
         lookup_context_subtables{};
     std::span<const open_type_context_coverage_requirement>
         lookup_context_coverages{};
+    /* Complex-script basic stages may not match across the transient
+     * syllable boundary packed into shaping_glyph::flags. The top-level
+     * executor derives restricted_syllable for each candidate; nested
+     * lookups retain the same boundary. */
+    bool restrict_to_syllable = false;
+    std::uint8_t restricted_syllable = 0U;
 };
 
 /*
