@@ -725,7 +725,10 @@ jobs:
   pack-mobile:
     name: Pack mobile packages
     runs-on: macos-26
-    timeout-minutes: 45
+    # The provider-resolved Android+iOS cross-build alone can exceed 45
+    # minutes on a cold hosted runner. Leave enough budget for workload
+    # restore, package verification, and artifact upload after compilation.
+    timeout-minutes: 75
 
     steps:
       - name: Checkout
