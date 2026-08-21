@@ -251,6 +251,36 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
+    public void ManagedAndNativeBrowserHostsShareTheWebGpuPlatformContract()
+    {
+        var managedHost = Read(
+            "src", "ProGPU.Browser", "BrowserAssets", "progpu-browser.js");
+        var sharedHost = Read(
+            "src", "ProGPU.Browser", "BrowserAssets", "progpu-browser-host.js");
+        var nativeHost = Read(
+            "src", "ProGPU.Native", "browser", "gallery_pre.js");
+        var nativeBuild = Read("src", "ProGPU.Native", "CMakeLists.txt");
+
+        Assert.Contains("from './progpu-browser-host.js'", managedHost, StringComparison.Ordinal);
+        Assert.Contains("requestProGpuWebGpuDevice({", managedHost, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "state.adapter = await navigator.gpu.requestAdapter({",
+            managedHost,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export async function requestProGpuWebGpuDevice(options = {})",
+            sharedHost,
+            StringComparison.Ordinal);
+        Assert.Contains("import('./progpu-browser-host.js')", nativeHost, StringComparison.Ordinal);
+        Assert.Contains("host.installResponsiveCanvas(", nativeHost, StringComparison.Ordinal);
+        Assert.Contains("host.requestProGpuWebGpuDevice({", nativeHost, StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGPU.Browser/BrowserAssets/progpu-browser-host.js",
+            nativeBuild,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BrowserDiagnosticsAreHiddenByDefaultAndExposedInSampleSettings()
     {
         var html = Read("src", "ProGPU.Samples.Browser", "wwwroot", "index.html");
