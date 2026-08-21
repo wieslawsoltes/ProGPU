@@ -3519,6 +3519,8 @@ struct font_catalog_face_info final {
     font_provider_slant slant = font_provider_slant::normal;
 };
 
+class font_file_storage;
+
 /*
  * One selected face with shared immutable file ownership. Copies are O(1),
  * and every borrowed sfnt_font_view span remains valid until the last copy is
@@ -3529,15 +3531,21 @@ public:
     loaded_font_face() noexcept = default;
 
     bool valid() const noexcept;
+    bool is_memory_mapped() const noexcept;
     std::span<const std::byte> data() const noexcept;
     const sfnt_font_view& font() const noexcept;
     std::uint32_t catalog_index() const noexcept;
     std::uint64_t identity() const noexcept;
+    bool try_create_glyph_resident_face(
+        std::uint16_t glyph_index,
+        loaded_font_face& result,
+        sfnt_glyph_resident_requirements* requirements = nullptr,
+        font_catalog_error* error = nullptr) const noexcept;
 
 private:
     friend class system_font_catalog;
 
-    std::shared_ptr<const std::vector<std::byte>> storage_{};
+    std::shared_ptr<const font_file_storage> storage_{};
     sfnt_font_view font_{};
     std::uint32_t catalog_index_ = 0U;
     std::uint64_t identity_ = 0U;

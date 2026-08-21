@@ -10104,6 +10104,7 @@ void system_font_catalog_streams_metadata_and_owns_selected_faces() {
     const auto inter = directory / "Inter-Medium.ttf";
     const auto noto = directory / "NotoSansCJKjp-Regular.otf";
     const auto collection_path = directory / "CatalogFace.ttc";
+    const auto color_path = directory / "ColorFixture.ttf";
     std::filesystem::copy_file(
         PROGPU_NATIVE_TEST_INTER_FONT, inter,
         std::filesystem::copy_options::overwrite_existing);
@@ -10121,6 +10122,15 @@ void system_font_catalog_streams_metadata_and_owns_selected_faces() {
             static_cast<std::streamsize>(collection.size()));
         require(output.good());
     }
+    const std::array<table_data, 1U> color_tables{
+        table_data{open_type_tag::from_chars('s', 'b', 'i', 'x'), make_sbix()}};
+    const auto color_font = make_font(0U, 22U, 0U, false, false, false, color_tables);
+    {
+        std::ofstream output(color_path, std::ios::binary);
+        output.write(reinterpret_cast<const char*>(color_font.data()),
+            static_cast<std::streamsize>(color_font.size()));
+        require(output.good());
+    }
 
     system_font_catalog catalog;
     const auto directory_string = directory.string();
@@ -10130,13 +10140,14 @@ void system_font_catalog_streams_metadata_and_owns_selected_faces() {
     require(catalog.try_discover_fonts(directories, &metrics, &error));
     require(error == font_catalog_error::none);
     require(metrics.directory_count == 1U);
-    require(metrics.file_count == 3U);
-    require(metrics.face_count == 3U);
+    require(metrics.file_count == 4U);
+    require(metrics.face_count == 4U);
     require(metrics.skipped_file_count == 0U);
-    require(catalog.face_count() == 3U);
+    require(catalog.face_count() == 4U);
     const auto complete_bytes = std::filesystem::file_size(inter) +
         std::filesystem::file_size(noto) +
-        std::filesystem::file_size(collection_path);
+        std::filesystem::file_size(collection_path) +
+        std::filesystem::file_size(color_path);
     require(metrics.bytes_read < complete_bytes / 2U);
 
     std::uint32_t inter_index = 0U;
@@ -10157,6 +10168,9 @@ void system_font_catalog_streams_metadata_and_owns_selected_faces() {
     require(catalog.try_load_face(inter_index, second, &error));
     require(first.valid() && second.valid());
     require(first.data().data() == second.data().data());
+#if !defined(__EMSCRIPTEN__)
+    require(first.is_memory_mapped() && second.is_memory_mapped());
+#endif
     require(first.identity() == inter_info.identity);
     std::uint16_t glyph = 0U;
     require(first.font().try_get_glyph_index('A', glyph) && glyph != 0U);
@@ -10183,7 +10197,38 @@ void system_font_catalog_streams_metadata_and_owns_selected_faces() {
     require(catalog.try_load_face(collection_index, collection_face, &error));
     require(collection_face.font().face_offset() == 16U);
 
+    std::uint32_t color_index = catalog.face_count();
+    for (std::uint32_t index = 0U; index < catalog.face_count(); ++index) {
+        font_catalog_face_info info{};
+        require(catalog.try_get_face_info(index, info));
+        if (std::filesystem::path(info.file_path) == color_path) {
+            color_index = index;
+            break;
+        }
+    }
+    require(color_index < catalog.face_count());
+    loaded_font_face color_face{};
+    require(catalog.try_load_face(color_index, color_face, &error));
+    loaded_font_face resident_face{};
+    sfnt_glyph_resident_requirements resident_requirements{};
+    font_catalog_error resident_result = font_catalog_error::invalid_font;
+    require(color_face.try_create_glyph_resident_face(
+        2U, resident_face, &resident_requirements, &resident_result));
+    require(resident_result == font_catalog_error::none && resident_face.valid());
+    require(!resident_face.is_memory_mapped());
+    require(resident_face.identity() == color_face.identity());
+    require(resident_face.catalog_index() == color_face.catalog_index());
+    require(resident_face.data().size() == resident_requirements.font_bytes);
+    require(resident_face.data().size() < color_face.data().size());
+    sfnt_bitmap_glyph_data_view bitmap{};
+    font_error font_result = font_error::invalid_face;
+    require(resident_face.font().try_get_sbix_glyph(2U, 19.0F, bitmap, &font_result));
+    require(bitmap.bytes.size() == 3U && bitmap.bytes[0U] == std::byte{20U});
+
     std::filesystem::remove_all(directory);
+    glyph = 0U;
+    require(first.font().try_get_glyph_index('A', glyph) && glyph != 0U);
+    require(resident_face.font().try_get_sbix_glyph(2U, 19.0F, bitmap, &font_result));
 }
 
 void benchmark_system_font_catalog_if_requested() {
@@ -10222,6 +10267,26 @@ void benchmark_system_font_catalog_if_requested() {
                 static_cast<int>(info.full_name.size()), info.full_name.data(),
                 info.face_index);
         }
+    }
+    std::uint32_t emoji_index = 0U;
+    loaded_font_face emoji_face{};
+    std::uint16_t emoji_glyph = 0U;
+    loaded_font_face resident_face{};
+    sfnt_glyph_resident_requirements resident_requirements{};
+    if (catalog.try_match_character(
+            "Apple Color Emoji", font_style_request{}, {}, 0x1F469U, 0U,
+            emoji_index, emoji_glyph) &&
+        catalog.try_load_face(emoji_index, emoji_face) &&
+        emoji_face.try_create_glyph_resident_face(
+            emoji_glyph, resident_face, &resident_requirements)) {
+        std::fprintf(stderr,
+            "progpu-native-system-font-residency "
+            "{\"mapped\":%s,\"source_bytes\":%llu,"
+            "\"resident_bytes\":%llu,\"glyph\":%u}\n",
+            emoji_face.is_memory_mapped() ? "true" : "false",
+            static_cast<unsigned long long>(emoji_face.data().size()),
+            static_cast<unsigned long long>(resident_face.data().size()),
+            emoji_glyph);
     }
 }
 
