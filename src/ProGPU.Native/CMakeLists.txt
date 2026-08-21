@@ -1390,6 +1390,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         "${CMAKE_CURRENT_SOURCE_DIR}/samples/Pages")
     target_compile_definitions(
         progpu_native_text_shaping_showcase_tests PRIVATE
+        PROGPU_NATIVE_BUILD=1
         "PROGPU_NATIVE_TEST_INTER_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Fonts.Inter/Fonts/Inter-Regular.ttf\"")
     target_link_libraries(
         progpu_native_text_shaping_showcase_tests PRIVATE
