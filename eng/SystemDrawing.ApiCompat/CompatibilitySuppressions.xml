@@ -51,15 +51,7 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Drawing2D.PathData</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
     <Target>T:System.Drawing.Drawing2D.PathGradientBrush</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Drawing2D.PathPointType</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0001</DiagnosticId>
@@ -767,142 +759,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.#ctor(System.Drawing.Point[],System.Byte[],System.Drawing.Drawing2D.FillMode)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.#ctor(System.Drawing.Point[],System.Byte[])</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.#ctor(System.Drawing.PointF[],System.Byte[],System.Drawing.Drawing2D.FillMode)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.#ctor(System.Drawing.PointF[],System.Byte[])</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.#ctor(System.ReadOnlySpan{System.Drawing.Point},System.ReadOnlySpan{System.Byte},System.Drawing.Drawing2D.FillMode)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.#ctor(System.ReadOnlySpan{System.Drawing.PointF},System.ReadOnlySpan{System.Byte},System.Drawing.Drawing2D.FillMode)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddBeziers(System.ReadOnlySpan{System.Drawing.Point})</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddBeziers(System.ReadOnlySpan{System.Drawing.PointF})</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddClosedCurve(System.Drawing.Point[],System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddClosedCurve(System.Drawing.Point[])</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddClosedCurve(System.Drawing.PointF[],System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddClosedCurve(System.Drawing.PointF[])</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddClosedCurve(System.ReadOnlySpan{System.Drawing.Point},System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddClosedCurve(System.ReadOnlySpan{System.Drawing.Point})</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddClosedCurve(System.ReadOnlySpan{System.Drawing.PointF},System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddClosedCurve(System.ReadOnlySpan{System.Drawing.PointF})</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddCurve(System.Drawing.Point[],System.Int32,System.Int32,System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddCurve(System.Drawing.Point[],System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddCurve(System.Drawing.Point[])</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddCurve(System.Drawing.PointF[],System.Int32,System.Int32,System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddCurve(System.Drawing.PointF[],System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddCurve(System.Drawing.PointF[])</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddCurve(System.ReadOnlySpan{System.Drawing.Point},System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddCurve(System.ReadOnlySpan{System.Drawing.Point})</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddCurve(System.ReadOnlySpan{System.Drawing.PointF},System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddCurve(System.ReadOnlySpan{System.Drawing.PointF})</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddLines(System.ReadOnlySpan{System.Drawing.Point})</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddLines(System.ReadOnlySpan{System.Drawing.PointF})</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddPath(System.Drawing.Drawing2D.GraphicsPath,System.Boolean)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddPie(System.Int32,System.Int32,System.Int32,System.Int32,System.Single,System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddPolygon(System.ReadOnlySpan{System.Drawing.Point})</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddPolygon(System.ReadOnlySpan{System.Drawing.PointF})</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddRectangles(System.ReadOnlySpan{System.Drawing.Rectangle})</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddRectangles(System.ReadOnlySpan{System.Drawing.RectangleF})</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddString(System.String,System.Drawing.FontFamily,System.Int32,System.Single,System.Drawing.Point,System.Drawing.StringFormat)</Target>
   </Suppression>
   <Suppression>
@@ -916,70 +772,6 @@
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddString(System.String,System.Drawing.FontFamily,System.Int32,System.Single,System.Drawing.RectangleF,System.Drawing.StringFormat)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.ClearMarkers</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.Clone</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.CloseAllFigures</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.Flatten</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.Flatten(System.Drawing.Drawing2D.Matrix,System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.Flatten(System.Drawing.Drawing2D.Matrix)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.get_PathData</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.get_PathPoints</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.get_PathTypes</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.get_PointCount</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.GetBounds</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.GetBounds(System.Drawing.Drawing2D.Matrix,System.Drawing.Pen)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.GetBounds(System.Drawing.Drawing2D.Matrix)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.GetLastPoint</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.GetPathPoints(System.Span{System.Drawing.PointF})</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.GetPathTypes(System.Span{System.Byte})</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
@@ -1012,50 +804,6 @@
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Drawing2D.GraphicsPath.IsOutlineVisible(System.Single,System.Single,System.Drawing.Pen)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.IsVisible(System.Drawing.Point,System.Drawing.Graphics)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.IsVisible(System.Drawing.Point)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.IsVisible(System.Drawing.PointF,System.Drawing.Graphics)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.IsVisible(System.Drawing.PointF)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.IsVisible(System.Int32,System.Int32,System.Drawing.Graphics)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.IsVisible(System.Int32,System.Int32)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.IsVisible(System.Single,System.Single,System.Drawing.Graphics)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.IsVisible(System.Single,System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.Reverse</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.SetMarkers</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.Transform(System.Drawing.Drawing2D.Matrix)</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
@@ -2471,10 +2219,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0007</DiagnosticId>
-    <Target>T:System.Drawing.Drawing2D.GraphicsPath</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0007</DiagnosticId>
     <Target>T:System.Drawing.Font</Target>
   </Suppression>
   <Suppression>
@@ -2524,10 +2268,6 @@
   <Suppression>
     <DiagnosticId>CP0008</DiagnosticId>
     <Target>T:System.Drawing.Brush</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0008</DiagnosticId>
-    <Target>T:System.Drawing.Drawing2D.GraphicsPath</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0008</DiagnosticId>

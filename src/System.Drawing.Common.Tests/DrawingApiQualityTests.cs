@@ -561,4 +561,120 @@ public sealed class DrawingApiQualityTests
         Assert.Equal(512, stopCount);
         Assert.InRange(bytesPerLowering, 288, 352);
     }
+
+    [Fact]
+    public void GraphicsPathEllipseExportsCanonicalCubicPathData()
+    {
+        using var path = new GraphicsPath();
+        path.AddEllipse(10f, 20f, 80f, 40f);
+
+        Assert.Equal(13, path.PointCount);
+        Assert.Equal(new PointF(10f, 40f), path.PathPoints[0]);
+        Assert.Equal((byte)PathPointType.Start, path.PathTypes[0]);
+        Assert.All(path.PathTypes[1..^1], type => Assert.Equal((byte)PathPointType.Bezier3, type));
+        Assert.Equal(
+            (byte)((byte)PathPointType.Bezier3 | (byte)PathPointType.CloseSubpath),
+            path.PathTypes[^1]);
+        Assert.Equal(new RectangleF(10f, 20f, 80f, 40f), path.GetBounds());
+        Assert.True(path.IsVisible(50f, 40f));
+        Assert.False(path.IsVisible(0f, 0f));
+    }
+
+    [Fact]
+    public void GraphicsPathDataRoundTripsMarkersAndCloneStateIndependently()
+    {
+        PointF[] points =
+        [
+            new(0f, 0f),
+            new(10f, 0f),
+            new(10f, 10f),
+            new(0f, 10f)
+        ];
+        byte[] types =
+        [
+            (byte)PathPointType.Start,
+            (byte)PathPointType.Line,
+            (byte)((byte)PathPointType.Line | (byte)PathPointType.PathMarker),
+            (byte)((byte)PathPointType.Line | (byte)PathPointType.CloseSubpath)
+        ];
+
+        using var path = new GraphicsPath(points, types, FillMode.Winding);
+        using var clone = Assert.IsType<GraphicsPath>(path.Clone());
+        path.Reset();
+
+        Assert.Equal(FillMode.Winding, clone.FillMode);
+        Assert.Equal(points, clone.PathPoints);
+        Assert.Equal(types, clone.PathTypes);
+        Assert.Equal(FillMode.Alternate, path.FillMode);
+        Assert.Equal(0, path.PointCount);
+
+        path.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => _ = path.PointCount);
+    }
+
+    [Fact]
+    public void GraphicsPathTransformAndBoundsDoNotMutateTheBoundsQuery()
+    {
+        using var path = new GraphicsPath();
+        path.AddRectangle(new RectangleF(0f, 0f, 20f, 10f));
+        using var matrix = new Matrix();
+        matrix.Translate(5f, 7f);
+        using var pen = new Pen(Color.Black, 4f);
+
+        Assert.Equal(new RectangleF(3f, 5f, 24f, 14f), path.GetBounds(matrix, pen));
+        Assert.Equal(new RectangleF(0f, 0f, 20f, 10f), path.GetBounds());
+
+        path.Transform(matrix);
+        Assert.Equal(new RectangleF(5f, 7f, 20f, 10f), path.GetBounds());
+        Assert.Equal(new PointF(5f, 17f), path.GetLastPoint());
+    }
+
+    [Fact]
+    public void GraphicsPathSpanExportAllocatesNothingAfterWarmup()
+    {
+        using var path = new GraphicsPath();
+        path.AddClosedCurve(
+            [new PointF(0f, 0f), new PointF(20f, 0f), new PointF(20f, 20f), new PointF(0f, 20f)],
+            0.5f);
+        var points = new PointF[path.PointCount];
+        var types = new byte[path.PointCount];
+        path.GetPathPoints(points);
+        path.GetPathTypes(types);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 64; iteration++)
+        {
+            path.GetPathPoints(points);
+            path.GetPathTypes(types);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(13, path.PointCount);
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void GraphicsPathReverseAndFlattenPreserveGeometryWithoutCurveTypes()
+    {
+        using var path = new GraphicsPath();
+        path.AddBezier(
+            new PointF(0f, 0f),
+            new PointF(0f, 20f),
+            new PointF(20f, 20f),
+            new PointF(20f, 0f));
+        RectangleF originalBounds = path.GetBounds();
+
+        path.Reverse();
+        Assert.Equal(new PointF(20f, 0f), path.PathPoints[0]);
+        Assert.Equal(new PointF(0f, 0f), path.GetLastPoint());
+        Assert.Equal(originalBounds, path.GetBounds());
+
+        path.Flatten(null, 0.1f);
+        Assert.True(path.PointCount > 4);
+        Assert.All(path.PathTypes[1..], type =>
+            Assert.Equal((byte)PathPointType.Line, (byte)(type & (byte)PathPointType.PathTypeMask)));
+        RectangleF flattenedBounds = path.GetBounds();
+        Assert.InRange(flattenedBounds.Left, originalBounds.Left - 0.001f, originalBounds.Left + 0.001f);
+        Assert.InRange(flattenedBounds.Right, originalBounds.Right - 0.001f, originalBounds.Right + 0.001f);
+    }
 }
