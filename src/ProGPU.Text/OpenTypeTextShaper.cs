@@ -3344,7 +3344,7 @@ public static class OpenTypeTextShaper
                 }
                 ApplyRawPositionLookup(
                     plan.RawTable.Span, glyphs, enabled, options);
-                ApplyPositionVariations(font, glyphs, enabled.LookupIndex);
+                ApplyPositionVariations(font, glyphs, enabled, options);
             }
             return plan.HasKerning;
         }
@@ -4105,7 +4105,8 @@ public static class OpenTypeTextShaper
     private static void ApplyPositionVariations(
         TtfFont font,
         GlyphPositionBuffer glyphs,
-        ushort lookupIndex)
+        EnabledLookup enabled,
+        TextShapingOptions options)
     {
         if (!font.HasActiveFontVariations ||
             !font.TryGetTable("GPOS", out ReadOnlyMemory<byte> tableMemory))
@@ -4114,12 +4115,41 @@ public static class OpenTypeTextShaper
         }
 
         ReadOnlySpan<byte> data = tableMemory.Span;
-        if (!TryGetLookup(data, lookupIndex, out int lookupOffset, out ushort lookupType, out int subtableCountOffset))
+        if (!TryGetLookup(data, enabled.LookupIndex, out int lookupOffset, out ushort lookupType, out int subtableCountOffset))
         {
             return;
         }
 
         ushort subtableCount = ReadU16(data, subtableCountOffset);
+        bool hasPairPositioning = lookupType == 2;
+        if (lookupType == 9)
+        {
+            for (var subtableIndex = 0; subtableIndex < subtableCount; subtableIndex++)
+            {
+                int offsetPosition = subtableCountOffset + 2 + subtableIndex * 2;
+                if (!CanRead(data, offsetPosition, 2)) break;
+                int extension = lookupOffset + ReadU16(data, offsetPosition);
+                if (CanRead(data, extension, 8) && ReadU16(data, extension) == 1 &&
+                    ReadU16(data, extension + 2) == 2)
+                {
+                    hasPairPositioning = true;
+                    break;
+                }
+            }
+        }
+        if (hasPairPositioning)
+        {
+            ApplyPairPositionVariations(
+                data,
+                font,
+                glyphs,
+                lookupOffset,
+                lookupType,
+                subtableCountOffset,
+                enabled,
+                options);
+            return;
+        }
         for (var subtableIndex = 0; subtableIndex < subtableCount; subtableIndex++)
         {
             int offsetPosition = subtableCountOffset + 2 + subtableIndex * 2;
@@ -4139,9 +4169,6 @@ public static class OpenTypeTextShaper
             {
                 case 1:
                     ApplySinglePositionVariations(data, font, glyphs, subtableOffset);
-                    break;
-                case 2:
-                    ApplyPairPositionVariations(data, font, glyphs, subtableOffset);
                     break;
                 case 4:
                     ApplyMarkToBaseVariations(data, font, glyphs, subtableOffset);
@@ -4189,60 +4216,111 @@ public static class OpenTypeTextShaper
         ReadOnlySpan<byte> data,
         TtfFont font,
         GlyphPositionBuffer glyphs,
-        int offset)
+        int lookupOffset,
+        ushort lookupType,
+        int subtableCountOffset,
+        EnabledLookup enabled,
+        TextShapingOptions options)
     {
-        if (!CanRead(data, offset, 10)) return;
+        ushort lookupFlags = ReadU16(data, lookupOffset + 2);
+        ushort subtableCount = ReadU16(data, subtableCountOffset);
+        ushort markFilteringSet = ushort.MaxValue;
+        int markFilteringSetOffset = subtableCountOffset + 2 + subtableCount * 2;
+        if ((lookupFlags & 0x0010) != 0 && CanRead(data, markFilteringSetOffset, 2))
+            markFilteringSet = ReadU16(data, markFilteringSetOffset);
+        int previousMarkFilteringCoverage = glyphs.SetMarkFilteringSet(markFilteringSet);
+        try
+        {
+            for (var position = 0; position < glyphs.Count; position++)
+            {
+                if (enabled.HasDigest && !enabled.Digest.MayHave(glyphs.GetGlyph(position))) continue;
+                if (!enabled.Required && options.GetFeatureValue(enabled.Tag, glyphs[position].Cluster) == 0) continue;
+                if (!glyphs.IsEligibleIndex(position, lookupFlags)) continue;
+                int second = glyphs.NextEligibleIndex(position + 1, lookupFlags);
+                if (second < 0) continue;
+                for (var subtableIndex = 0; subtableIndex < subtableCount; subtableIndex++)
+                {
+                    int offsetPosition = subtableCountOffset + 2 + subtableIndex * 2;
+                    if (!CanRead(data, offsetPosition, 2)) break;
+                    int subtableOffset = lookupOffset + ReadU16(data, offsetPosition);
+                    ushort effectiveType = lookupType;
+                    if (effectiveType == 9)
+                    {
+                        if (!CanRead(data, subtableOffset, 8) || ReadU16(data, subtableOffset) != 1) continue;
+                        effectiveType = ReadU16(data, subtableOffset + 2);
+                        uint extensionOffset = ReadU32(data, subtableOffset + 4);
+                        if (extensionOffset > int.MaxValue) continue;
+                        subtableOffset += (int)extensionOffset;
+                    }
+                    if (effectiveType == 2 && TryApplyPairPositionVariationAt(
+                            data, font, glyphs, subtableOffset, position, second))
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+        finally
+        {
+            glyphs.RestoreMarkFilteringCoverage(previousMarkFilteringCoverage);
+        }
+    }
+
+    private static bool TryApplyPairPositionVariationAt(
+        ReadOnlySpan<byte> data,
+        TtfFont font,
+        GlyphPositionBuffer glyphs,
+        int offset,
+        int position,
+        int second)
+    {
+        if (!CanRead(data, offset, 10)) return false;
         ushort format = ReadU16(data, offset);
         int coverageOffset = offset + ReadU16(data, offset + 2);
         ushort valueFormat1 = ReadU16(data, offset + 4);
         ushort valueFormat2 = ReadU16(data, offset + 6);
         int valueSize1 = GetValueRecordSize(valueFormat1);
         int valueSize2 = GetValueRecordSize(valueFormat2);
-        for (var index = 0; index + 1 < glyphs.Count; index++)
+        int coverageIndex = FindCoverage(data, coverageOffset, glyphs.GetGlyph(position));
+        if (coverageIndex < 0) return false;
+        int value1Offset;
+        int value2Offset;
+        if (format == 1)
         {
-            int coverageIndex = FindCoverage(data, coverageOffset, glyphs.GetGlyph(index));
-            if (coverageIndex < 0) continue;
-            int value1Offset;
-            int value2Offset;
-            if (format == 1)
+            ushort setCount = ReadU16(data, offset + 8);
+            if ((uint)coverageIndex >= setCount || !CanRead(data, offset + 10 + coverageIndex * 2, 2)) return false;
+            int setOffset = offset + ReadU16(data, offset + 10 + coverageIndex * 2);
+            if (!CanRead(data, setOffset, 2)) return false;
+            int pairCount = ReadU16(data, setOffset);
+            int recordSize = 2 + valueSize1 + valueSize2;
+            int recordOffset = setOffset + 2;
+            for (var pair = 0; pair < pairCount; pair++, recordOffset += recordSize)
             {
-                ushort setCount = ReadU16(data, offset + 8);
-                if ((uint)coverageIndex >= setCount || !CanRead(data, offset + 10 + coverageIndex * 2, 2)) continue;
-                int setOffset = offset + ReadU16(data, offset + 10 + coverageIndex * 2);
-                if (!CanRead(data, setOffset, 2)) continue;
-                int pairCount = ReadU16(data, setOffset);
-                int recordSize = 2 + valueSize1 + valueSize2;
-                int recordOffset = setOffset + 2;
-                bool found = false;
-                for (var pair = 0; pair < pairCount; pair++, recordOffset += recordSize)
-                {
-                    if (!CanRead(data, recordOffset, recordSize)) break;
-                    if (ReadU16(data, recordOffset) != glyphs.GetGlyph(index + 1)) continue;
-                    value1Offset = recordOffset + 2;
-                    value2Offset = value1Offset + valueSize1;
-                    ApplyValueVariation(data, font, glyphs, index, value1Offset, valueFormat1, offset);
-                    ApplyValueVariation(data, font, glyphs, index + 1, value2Offset, valueFormat2, offset);
-                    found = true;
-                    break;
-                }
-                if (!found) continue;
-            }
-            else if (format == 2 && CanRead(data, offset, 16))
-            {
-                int class1Def = offset + ReadU16(data, offset + 8);
-                int class2Def = offset + ReadU16(data, offset + 10);
-                int class1Count = ReadU16(data, offset + 12);
-                int class2Count = ReadU16(data, offset + 14);
-                int class1 = GetGlyphClass(data, class1Def, glyphs.GetGlyph(index));
-                int class2 = GetGlyphClass(data, class2Def, glyphs.GetGlyph(index + 1));
-                if ((uint)class1 >= class1Count || (uint)class2 >= class2Count) continue;
-                int recordSize = valueSize1 + valueSize2;
-                value1Offset = offset + 16 + (class1 * class2Count + class2) * recordSize;
+                if (!CanRead(data, recordOffset, recordSize)) return false;
+                if (ReadU16(data, recordOffset) != glyphs.GetGlyph(second)) continue;
+                value1Offset = recordOffset + 2;
                 value2Offset = value1Offset + valueSize1;
-                ApplyValueVariation(data, font, glyphs, index, value1Offset, valueFormat1, offset);
-                ApplyValueVariation(data, font, glyphs, index + 1, value2Offset, valueFormat2, offset);
+                ApplyValueVariation(data, font, glyphs, position, value1Offset, valueFormat1, setOffset);
+                ApplyValueVariation(data, font, glyphs, second, value2Offset, valueFormat2, setOffset);
+                return true;
             }
+            return false;
         }
+        if (format != 2 || !CanRead(data, offset, 16)) return false;
+        int class1Def = offset + ReadU16(data, offset + 8);
+        int class2Def = offset + ReadU16(data, offset + 10);
+        int class1Count = ReadU16(data, offset + 12);
+        int class2Count = ReadU16(data, offset + 14);
+        int class1 = GetGlyphClass(data, class1Def, glyphs.GetGlyph(position));
+        int class2 = GetGlyphClass(data, class2Def, glyphs.GetGlyph(second));
+        if ((uint)class1 >= class1Count || (uint)class2 >= class2Count) return false;
+        int classRecordSize = valueSize1 + valueSize2;
+        value1Offset = offset + 16 + (class1 * class2Count + class2) * classRecordSize;
+        value2Offset = value1Offset + valueSize1;
+        if (!CanRead(data, value1Offset, classRecordSize)) return false;
+        ApplyValueVariation(data, font, glyphs, position, value1Offset, valueFormat1, offset);
+        ApplyValueVariation(data, font, glyphs, second, value2Offset, valueFormat2, offset);
+        return true;
     }
 
     private static void ApplyMarkToBaseVariations(

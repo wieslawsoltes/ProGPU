@@ -6924,6 +6924,65 @@ void open_type_gpos_device_and_variation_deltas_are_applied() {
         applied,
         &error));
     require(applied && glyphs[0U].advance_x == 520);
+
+    // PairPos format 1 Device offsets are relative to the containing PairSet,
+    // while format 2 offsets are relative to the PairPos subtable.
+    std::vector<std::byte> pair_gpos(60U);
+    write_u16(pair_gpos, 0U, 1U);
+    write_u16(pair_gpos, 4U, 10U);
+    write_u16(pair_gpos, 6U, 12U);
+    write_u16(pair_gpos, 8U, 14U);
+    write_u16(pair_gpos, 14U, 1U);
+    write_u16(pair_gpos, 16U, 4U);
+    write_u16(pair_gpos, 18U, 2U);
+    write_u16(pair_gpos, 22U, 1U);
+    write_u16(pair_gpos, 24U, 8U);
+    write_u16(pair_gpos, 26U, 1U);
+    write_u16(pair_gpos, 28U, 12U);
+    write_u16(pair_gpos, 30U, 0x0044U);
+    write_u16(pair_gpos, 34U, 1U);
+    write_u16(pair_gpos, 36U, 18U);
+    write_u16(pair_gpos, 38U, 1U);
+    write_u16(pair_gpos, 40U, 1U);
+    write_u16(pair_gpos, 42U, 3U);
+    write_u16(pair_gpos, 44U, 1U);
+    write_u16(pair_gpos, 46U, 4U);
+    write_i16(pair_gpos, 48U, -25);
+    write_u16(pair_gpos, 50U, 8U);
+    write_u16(pair_gpos, 52U, 20U);
+    write_u16(pair_gpos, 54U, 20U);
+    write_u16(pair_gpos, 56U, 3U);
+    write_u16(pair_gpos, 58U, 0xFF00U);
+    const std::array pair_tables{table_data{
+        open_type_tag::from_chars('G', 'P', 'O', 'S'), pair_gpos}};
+    const auto pair_font_bytes = make_font(
+        0U, 22U, 0U, false, false, false, pair_tables);
+    sfnt_font_view pair_font{};
+    require(sfnt_font_view::try_create(
+        pair_font_bytes, 0U, pair_font, &error));
+    require(pair_font.try_get_table(
+        open_type_tag::from_chars('G', 'P', 'O', 'S'), gpos_table));
+    require(open_type_layout_table_view::try_create(
+        gpos_table.bytes, gpos, &error));
+    std::array<shaping_glyph, 2U> pair_glyphs{
+        shaping_glyph{3U, 0U, 0, shaping_glyph_flags::none, 500},
+        shaping_glyph{4U, 0U, 1, shaping_glyph_flags::none, 500}};
+    require(try_apply_open_type_gpos_lookup(
+        gpos,
+        0U,
+        pair_glyphs,
+        open_type_gpos_apply_options{
+            nullptr,
+            progpu::native::text::shaping_direction::left_to_right,
+            {},
+            &pair_font,
+            {},
+            20U,
+            20U},
+        applied,
+        &error));
+    require(applied && pair_glyphs[0U].advance_x == 425 &&
+        pair_glyphs[1U].advance_x == 500);
 }
 
 void native_font_fallback_preserves_graphemes_and_missing_state() {
