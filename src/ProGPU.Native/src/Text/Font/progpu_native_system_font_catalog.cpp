@@ -362,6 +362,7 @@ void add_if_missing(std::vector<std::string>& values, std::string value) {
     }
 }
 
+#if defined(__APPLE__) || defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
 void add_environment_path(std::vector<std::string>& values, const char* variable,
                           std::string_view suffix) {
     const auto* root = std::getenv(variable);
@@ -370,6 +371,7 @@ void add_environment_path(std::vector<std::string>& values, const char* variable
     if (!suffix.empty()) path /= suffix;
     add_if_missing(values, path.string());
 }
+#endif
 
 } // namespace
 
