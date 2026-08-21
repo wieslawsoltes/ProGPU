@@ -1456,6 +1456,10 @@ struct open_type_shape_run_scratch final {
      * scripts whose managed contract permits reordering/composition. The
      * caller owns this maximum-Form-D scalar buffer synchronously. */
     std::span<unicode_scalar> normalization_scalars{};
+    /* Optional one-per-region HVAR scalar storage. Context-backed shaping
+     * supplies this span so repeated glyph metrics reuse one variation-
+     * instance projection; direct callers may leave it empty. */
+    std::span<float> variation_region_scalars{};
 };
 
 struct open_type_shape_run_requirements final {
@@ -2721,6 +2725,17 @@ struct sfnt_delta_set_index_map_view final {
     std::uint8_t inner_index_bits = 0U;
 };
 
+/* Borrowed HVAR state for one normalized variation instance. The variation
+ * store and optional advance map are parsed once, while the caller-owned
+ * scalar span contains one value per global ItemVariationStore region. */
+struct sfnt_horizontal_advance_variation_instance final {
+    sfnt_item_variation_store_view store{};
+    sfnt_delta_set_index_map_view advance_map{};
+    std::span<const float> region_scalars{};
+    bool uses_hvar = false;
+    bool has_advance_map = false;
+};
+
 struct sfnt_cff_index_view final {
     std::span<const std::byte> bytes{};
     std::size_t offsets_offset = 0U;
@@ -3009,6 +3024,19 @@ public:
         std::uint16_t inner_index,
         float& result,
         font_error* error = nullptr) noexcept;
+    static bool try_get_delta(
+        sfnt_item_variation_store_view store,
+        std::span<const float> region_scalars,
+        std::uint16_t outer_index,
+        std::uint16_t inner_index,
+        float& result,
+        font_error* error = nullptr) noexcept;
+    static bool try_get_region_scalar(
+        sfnt_item_variation_store_view store,
+        std::span<const std::int16_t> normalized_coordinates,
+        std::uint16_t region_index,
+        float& result,
+        font_error* error = nullptr) noexcept;
     static bool try_get_region_scalar_count(
         sfnt_item_variation_store_view store,
         std::uint16_t outer_index,
@@ -3187,6 +3215,12 @@ public:
         std::span<const std::int16_t> normalized_coordinates,
         float& result,
         font_error* error = nullptr) const noexcept;
+    bool try_get_design_advance_width(
+        std::uint16_t glyph_index,
+        std::span<const std::int16_t> normalized_coordinates,
+        const sfnt_horizontal_advance_variation_instance* variation,
+        float& result,
+        font_error* error = nullptr) const noexcept;
     bool try_get_design_advance_width_requirements(
         std::uint16_t glyph_index,
         std::span<const std::int16_t> normalized_coordinates,
@@ -3195,6 +3229,13 @@ public:
     bool try_get_design_advance_width(
         std::uint16_t glyph_index,
         std::span<const std::int16_t> normalized_coordinates,
+        float& result,
+        sfnt_glyph_phantom_variation_scratch scratch,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_design_advance_width(
+        std::uint16_t glyph_index,
+        std::span<const std::int16_t> normalized_coordinates,
+        const sfnt_horizontal_advance_variation_instance* variation,
         float& result,
         sfnt_glyph_phantom_variation_scratch scratch,
         font_error* error = nullptr) const noexcept;
@@ -3415,6 +3456,16 @@ public:
         std::span<const std::int16_t> normalized_coordinates,
         float& result,
         bool& uses_hvar,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_horizontal_advance_variation_region_count(
+        std::span<const std::int16_t> normalized_coordinates,
+        std::uint16_t& result,
+        bool& uses_hvar,
+        font_error* error = nullptr) const noexcept;
+    bool try_prepare_horizontal_advance_variation(
+        std::span<const std::int16_t> normalized_coordinates,
+        std::span<float> region_scalars,
+        sfnt_horizontal_advance_variation_instance& result,
         font_error* error = nullptr) const noexcept;
     bool try_get_metric_variation(
         open_type_tag metric_tag,

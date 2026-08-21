@@ -1037,6 +1037,33 @@ deltas `D`. Synthetic simple-glyph coverage resolves base advance `600` plus
 phantom delta `3`, rejects short scratch without publishing a partial result,
 and production Inter confirms that HVAR still wins without phantom scratch.
 
+The retained native shaping context now also ports the ProGPU-owned managed
+variation-instance projection from `src/ProGPU.Text/OpenTypeVariationData.cs`:
+HVAR's borrowed `ItemVariationStore` and optional `DeltaSetIndexMap` are
+validated once per shaping operation, and the normalized-coordinate scalar for
+each global variation region is computed once into caller-owned shaping
+scratch. Every glyph advance then only selects its mapped delta row and sums
+the referenced precomputed scalars. This follows the
+[OpenType 1.9.1 ItemVariationStore and HVAR contract](https://learn.microsoft.com/en-us/typography/opentype/spec/otvarcommonformats)
+without changing interpolation, rounding, HVAR precedence, or `gvar` phantom
+fallback. Work changes from repeated `O(G * A * R)` region projection to
+`O(A * R + G * D)` for glyphs `G`, axes `A`, global regions `R`, and referenced
+deltas `D`, with `O(R)` caller scratch and no retained pointer or allocation.
+The direct C++ shaping API may omit the optional scalar span and keeps its
+original allocation-free behavior.
+
+The architecture review retained the same reusable CPU shaping boundary used
+by [HarfBuzz shaping plans](https://harfbuzz.github.io/shaping-plans-and-caching.html),
+[Skia shaped text](https://skia.org/docs/dev/design/text_shaper/),
+[DirectWrite text layouts](https://learn.microsoft.com/en-us/windows/win32/directwrite/getting-started-with-directwrite),
+and [Parley shared font/layout contexts](https://docs.rs/parley/latest/parley/).
+WebRender and Vello remain renderer references only; moving HVAR interpolation
+to GPU work was rejected because it would duplicate reusable CPU metrics and
+add synchronization to a small instance-local calculation. The managed parity
+audit requires no managed source change: managed already parses `_itemStore`
+and `_advanceMap` once and stores `OpenTypeVariationInstance.RegionScalars` for
+the identical delta accumulation path.
+
 Fallback mark placement now has a direct allocation-free native port of the
 ProGPU-owned `GlyphPositionBuffer.ApplyFallbackMarkPositioning` algorithm from
 checkpoint `2b871936`. The caller-owned transient metadata span preserves

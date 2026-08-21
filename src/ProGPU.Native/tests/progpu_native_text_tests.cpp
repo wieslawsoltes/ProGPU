@@ -295,6 +295,7 @@ using progpu::native::text::sfnt_glyph_bounds;
 using progpu::native::text::sfnt_item_variation_data;
 using progpu::native::text::sfnt_item_variation_store_view;
 using progpu::native::text::sfnt_delta_set_index_map_view;
+using progpu::native::text::sfnt_horizontal_advance_variation_instance;
 using progpu::native::text::sfnt_outline_point;
 using progpu::native::text::sfnt_packed_delta_requirements;
 using progpu::native::text::sfnt_packed_point_requirements;
@@ -8819,6 +8820,30 @@ void item_variation_store_and_index_map_are_bounded() {
     require(sfnt_item_variation_data::try_get_delta(
         store, normalized, 0U, 1U, delta, &error));
     require(delta == -10.0F);
+    std::array<float, 1U> region_scalars{};
+    require(sfnt_item_variation_data::try_get_region_scalar(
+        store,
+        normalized,
+        0U,
+        region_scalars[0],
+        &error));
+    require(region_scalars[0] == 1.0F);
+    require(sfnt_item_variation_data::try_get_delta(
+        store,
+        std::span<const float>{region_scalars},
+        0U,
+        0U,
+        delta,
+        &error));
+    require(delta == 20.0F);
+    require(!sfnt_item_variation_data::try_get_delta(
+        store,
+        std::span<const float>{},
+        0U,
+        0U,
+        delta,
+        &error));
+    require(error == font_error::insufficient_buffer && delta == 0.0F);
 
     sfnt_delta_set_index_map_view map{};
     require(sfnt_item_variation_data::try_get_delta_set_index_map(
@@ -12048,6 +12073,21 @@ void production_inter_variable_font_matches_fvar_axes() {
         horizontal_advance_delta,
         uses_hvar));
     require(uses_hvar && horizontal_advance_delta == -28.0F);
+    std::uint16_t hvar_region_count = 0U;
+    bool precomputed_uses_hvar = false;
+    require(font.try_get_horizontal_advance_variation_region_count(
+        optical_coordinates,
+        hvar_region_count,
+        precomputed_uses_hvar));
+    require(precomputed_uses_hvar && hvar_region_count != 0U);
+    std::vector<float> hvar_region_scalars(hvar_region_count);
+    sfnt_horizontal_advance_variation_instance hvar_instance{};
+    require(font.try_prepare_horizontal_advance_variation(
+        optical_coordinates,
+        hvar_region_scalars,
+        hvar_instance));
+    require(hvar_instance.uses_hvar &&
+        hvar_instance.region_scalars.size() == hvar_region_count);
     sfnt_horizontal_glyph_metrics horizontal_metrics{};
     require(font.try_get_horizontal_glyph_metrics(
         397U, horizontal_metrics));
@@ -12056,6 +12096,22 @@ void production_inter_variable_font_matches_fvar_axes() {
         397U, optical_coordinates, varied_advance));
     require(varied_advance ==
         static_cast<float>(horizontal_metrics.advance_width) - 28.0F);
+    float retained_varied_advance = 0.0F;
+    require(font.try_get_design_advance_width(
+        397U,
+        optical_coordinates,
+        &hvar_instance,
+        retained_varied_advance));
+    require(retained_varied_advance == varied_advance);
+    sfnt_horizontal_advance_variation_instance short_hvar_instance{};
+    font_error hvar_error = font_error::none;
+    require(!font.try_prepare_horizontal_advance_variation(
+        optical_coordinates,
+        {},
+        short_hvar_instance,
+        &hvar_error));
+    require(hvar_error == font_error::insufficient_buffer &&
+        !short_hvar_instance.uses_hvar);
     sfnt_design_advance_width_requirements advance_requirements{};
     require(font.try_get_design_advance_width_requirements(
         397U, optical_coordinates, advance_requirements));

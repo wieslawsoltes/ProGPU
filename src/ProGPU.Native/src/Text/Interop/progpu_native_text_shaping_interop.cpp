@@ -182,6 +182,7 @@ struct shape_capacities final {
     std::uint32_t explicit_features = 0U;
     std::uint32_t requested_features = 0U;
     std::uint32_t feature_settings = 0U;
+    std::uint32_t variation_region_scalars = 0U;
     std::size_t scratch_bytes = 0U;
 };
 
@@ -444,7 +445,8 @@ bool try_compute_shape_scratch_bytes(
         !size.add<std::uint32_t>(result.complex_indices) ||
         !size.add<arabic_stretch_run>(result.glyphs) ||
         !size.add<shaping_glyph>(result.verification_glyphs) ||
-        !size.add<unicode_scalar>(result.normalization_scalars)) {
+        !size.add<unicode_scalar>(result.normalization_scalars) ||
+        !size.add<float>(result.variation_region_scalars)) {
         error = font_error::invalid_argument;
         return false;
     }
@@ -544,6 +546,21 @@ bool try_build_capacities(
         return false;
     }
     result.explicit_features = request.feature_count;
+
+    if (request.normalized_coordinate_count != 0U) {
+        std::uint16_t region_count = 0U;
+        bool uses_hvar = false;
+        if (!font.try_get_horizontal_advance_variation_region_count(
+                std::span<const std::int16_t>{
+                    request.normalized_coordinates,
+                    request.normalized_coordinate_count},
+                region_count,
+                uses_hvar,
+                &error)) {
+            return false;
+        }
+        result.variation_region_scalars = uses_hvar ? region_count : 0U;
+    }
 
     if (!try_compute_shape_scratch_bytes(request, result, error)) return false;
     error = font_error::none;
@@ -813,6 +830,9 @@ bool try_build_paragraph_capacities(
             std::max(target.requested_features, source.requested_features);
         target.feature_settings =
             std::max(target.feature_settings, source.feature_settings);
+        target.variation_region_scalars = std::max(
+            target.variation_region_scalars,
+            source.variation_region_scalars);
     };
     for (std::size_t index = 0U; index < context.font_count(); ++index) {
         const auto* font = context.font_at(index);
@@ -1059,6 +1079,7 @@ progpu_native_status shape_core(
     std::span<arabic_stretch_run> arabic_stretch_runs{};
     std::span<shaping_glyph> verification_glyphs{};
     std::span<unicode_scalar> normalization_scalars{};
+    std::span<float> variation_region_scalars{};
     if (!arena.take(request.input_count, input) ||
         !arena.take(request.pre_context_count, pre_context) ||
         !arena.take(request.post_context_count, post_context) ||
@@ -1080,7 +1101,10 @@ progpu_native_status shape_core(
         !arena.take(capacities.complex_indices, script_indices) ||
         !arena.take(capacities.glyphs, arabic_stretch_runs) ||
         !arena.take(capacities.verification_glyphs, verification_glyphs) ||
-        !arena.take(capacities.normalization_scalars, normalization_scalars)) {
+        !arena.take(capacities.normalization_scalars, normalization_scalars) ||
+        !arena.take(
+            capacities.variation_region_scalars,
+            variation_region_scalars)) {
         result.error_code =
             static_cast<std::uint32_t>(font_error::insufficient_buffer);
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
@@ -1149,7 +1173,8 @@ progpu_native_status shape_core(
         nullptr,
         verification_glyphs.empty() ? nullptr : &verification,
         arabic_flags,
-        normalization_scalars};
+        normalization_scalars,
+        variation_region_scalars};
     std::uint32_t written = 0U;
     if (!try_shape_open_type_run(
             font,
