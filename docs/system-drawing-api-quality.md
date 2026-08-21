@@ -32,6 +32,7 @@ Only regenerate the baseline after reviewing the complete diff:
 ```
 
 The suppression file is debt, not acceptance of permanent incompatibility. Pull requests should normally remove suppressions and must never add suppressions merely to make CI green.
+Baseline regeneration removes machine-specific left/right assembly paths, so suppressions are keyed by diagnostic and API target and behave identically in local clones and hosted CI. The verifier rejects a committed baseline that still contains absolute assembly paths.
 
 ## Current measured debt
 

@@ -14,6 +14,12 @@ report="${artifact_root}/current.txt"
 update_baseline=0
 skip_build=0
 
+normalize_suppression_paths() {
+  local portable_file="${suppression_file}.portable"
+  sed -E '/<\/?(Left|Right)>/d' "${suppression_file}" >"${portable_file}"
+  mv "${portable_file}" "${suppression_file}"
+}
+
 for argument in "$@"; do
   case "${argument}" in
     --update-baseline)
@@ -62,12 +68,18 @@ if [[ "${update_baseline}" -eq 1 ]]; then
   "${api_compat[@]}" \
     --generate-suppression-file \
     --suppression-output-file "${suppression_file}" || true
+  normalize_suppression_paths
   echo "Updated ${suppression_file}. Review every added suppression before committing."
   exit 0
 fi
 
 if [[ ! -f "${suppression_file}" ]]; then
   echo "Missing ${suppression_file}; run $0 --update-baseline and review the generated debt." >&2
+  exit 1
+fi
+
+if grep -Eq '<\/?(Left|Right)>' "${suppression_file}"; then
+  echo "${suppression_file} contains machine-specific assembly paths; regenerate it with $0 --update-baseline." >&2
   exit 1
 fi
 
