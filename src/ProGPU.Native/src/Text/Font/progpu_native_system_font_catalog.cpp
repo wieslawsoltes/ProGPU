@@ -355,12 +355,14 @@ std::uint32_t style_distance(const font_catalog_face_info& actual,
     return slant + width + weight;
 }
 
+#if defined(__APPLE__) || defined(_WIN32) || defined(__ANDROID__) || defined(__linux__)
 void add_if_missing(std::vector<std::string>& values, std::string value) {
     if (value.empty()) return;
     if (std::find(values.begin(), values.end(), value) == values.end()) {
         values.push_back(std::move(value));
     }
 }
+#endif
 
 #if defined(__APPLE__) || defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
 void add_environment_path(std::vector<std::string>& values, const char* variable,
