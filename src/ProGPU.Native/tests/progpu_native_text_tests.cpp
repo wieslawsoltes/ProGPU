@@ -3,23 +3,33 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <limits>
 #include <span>
 #include <source_location>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 namespace {
 
+using progpu::native::text::font_catalog_error;
+using progpu::native::text::font_catalog_face_info;
+using progpu::native::text::font_catalog_scan_metrics;
 using progpu::native::text::font_error;
+using progpu::native::text::font_provider_slant;
+using progpu::native::text::font_style_request;
+using progpu::native::text::loaded_font_face;
+using progpu::native::text::system_font_catalog;
 using progpu::native::text::open_type_tag;
 using progpu::native::text::unicode_error;
 using progpu::native::text::unicode_decode_requirements;
@@ -320,6 +330,19 @@ void require(
             location.line());
         std::abort();
     }
+}
+
+bool environment_variable_is_set(const char* name) noexcept {
+#if defined(_WIN32)
+    char* value = nullptr;
+    std::size_t length = 0U;
+    if (_dupenv_s(&value, &length, name) != 0) return false;
+    const bool result = value != nullptr;
+    std::free(value);
+    return result;
+#else
+    return std::getenv(name) != nullptr;
+#endif
 }
 
 struct normalization_fixture final {
@@ -6901,6 +6924,65 @@ void open_type_gpos_device_and_variation_deltas_are_applied() {
         applied,
         &error));
     require(applied && glyphs[0U].advance_x == 520);
+
+    // PairPos format 1 Device offsets are relative to the containing PairSet,
+    // while format 2 offsets are relative to the PairPos subtable.
+    std::vector<std::byte> pair_gpos(60U);
+    write_u16(pair_gpos, 0U, 1U);
+    write_u16(pair_gpos, 4U, 10U);
+    write_u16(pair_gpos, 6U, 12U);
+    write_u16(pair_gpos, 8U, 14U);
+    write_u16(pair_gpos, 14U, 1U);
+    write_u16(pair_gpos, 16U, 4U);
+    write_u16(pair_gpos, 18U, 2U);
+    write_u16(pair_gpos, 22U, 1U);
+    write_u16(pair_gpos, 24U, 8U);
+    write_u16(pair_gpos, 26U, 1U);
+    write_u16(pair_gpos, 28U, 12U);
+    write_u16(pair_gpos, 30U, 0x0044U);
+    write_u16(pair_gpos, 34U, 1U);
+    write_u16(pair_gpos, 36U, 18U);
+    write_u16(pair_gpos, 38U, 1U);
+    write_u16(pair_gpos, 40U, 1U);
+    write_u16(pair_gpos, 42U, 3U);
+    write_u16(pair_gpos, 44U, 1U);
+    write_u16(pair_gpos, 46U, 4U);
+    write_i16(pair_gpos, 48U, -25);
+    write_u16(pair_gpos, 50U, 8U);
+    write_u16(pair_gpos, 52U, 20U);
+    write_u16(pair_gpos, 54U, 20U);
+    write_u16(pair_gpos, 56U, 3U);
+    write_u16(pair_gpos, 58U, 0xFF00U);
+    const std::array pair_tables{table_data{
+        open_type_tag::from_chars('G', 'P', 'O', 'S'), pair_gpos}};
+    const auto pair_font_bytes = make_font(
+        0U, 22U, 0U, false, false, false, pair_tables);
+    sfnt_font_view pair_font{};
+    require(sfnt_font_view::try_create(
+        pair_font_bytes, 0U, pair_font, &error));
+    require(pair_font.try_get_table(
+        open_type_tag::from_chars('G', 'P', 'O', 'S'), gpos_table));
+    require(open_type_layout_table_view::try_create(
+        gpos_table.bytes, gpos, &error));
+    std::array<shaping_glyph, 2U> pair_glyphs{
+        shaping_glyph{3U, 0U, 0, shaping_glyph_flags::none, 500},
+        shaping_glyph{4U, 0U, 1, shaping_glyph_flags::none, 500}};
+    require(try_apply_open_type_gpos_lookup(
+        gpos,
+        0U,
+        pair_glyphs,
+        open_type_gpos_apply_options{
+            nullptr,
+            progpu::native::text::shaping_direction::left_to_right,
+            {},
+            &pair_font,
+            {},
+            20U,
+            20U},
+        applied,
+        &error));
+    require(applied && pair_glyphs[0U].advance_x == 425 &&
+        pair_glyphs[1U].advance_x == 500);
 }
 
 void native_font_fallback_preserves_graphemes_and_missing_state() {
@@ -10013,6 +10095,201 @@ void collection_and_failure_paths_are_bounded() {
     require(error == font_error::unsupported_container);
 }
 
+void system_font_catalog_streams_metadata_and_owns_selected_faces() {
+    const auto unique = std::chrono::steady_clock::now()
+        .time_since_epoch().count();
+    const auto directory = std::filesystem::temp_directory_path() /
+        ("progpu-native-font-catalog-" + std::to_string(unique));
+    std::filesystem::create_directories(directory);
+    const auto inter = directory / "Inter-Medium.ttf";
+    const auto noto = directory / "NotoSansCJKjp-Regular.otf";
+    const auto collection_path = directory / "CatalogFace.ttc";
+    const auto color_path = directory / "ColorFixture.ttf";
+    std::filesystem::copy_file(
+        PROGPU_NATIVE_TEST_INTER_FONT, inter,
+        std::filesystem::copy_options::overwrite_existing);
+    std::filesystem::copy_file(
+        PROGPU_NATIVE_TEST_NOTO_CFF_FONT, noto,
+        std::filesystem::copy_options::overwrite_existing);
+    auto collection = make_font(16U);
+    write_u32(collection, 0U, 0x74746366U);
+    write_u32(collection, 4U, 0x00010000U);
+    write_u32(collection, 8U, 1U);
+    write_u32(collection, 12U, 16U);
+    {
+        std::ofstream output(collection_path, std::ios::binary);
+        output.write(reinterpret_cast<const char*>(collection.data()),
+            static_cast<std::streamsize>(collection.size()));
+        require(output.good());
+    }
+    const std::array<table_data, 1U> color_tables{
+        table_data{open_type_tag::from_chars('s', 'b', 'i', 'x'), make_sbix()}};
+    const auto color_font = make_font(0U, 22U, 0U, false, false, false, color_tables);
+    {
+        std::ofstream output(color_path, std::ios::binary);
+        output.write(reinterpret_cast<const char*>(color_font.data()),
+            static_cast<std::streamsize>(color_font.size()));
+        require(output.good());
+    }
+
+    system_font_catalog catalog;
+    const auto directory_string = directory.string();
+    const std::array<std::string_view, 1U> directories{directory_string};
+    font_catalog_scan_metrics metrics{};
+    font_catalog_error error = font_catalog_error::invalid_font;
+    require(catalog.try_discover_fonts(directories, &metrics, &error));
+    require(error == font_catalog_error::none);
+    require(metrics.directory_count == 1U);
+    require(metrics.file_count == 4U);
+    require(metrics.face_count == 4U);
+    require(metrics.skipped_file_count == 0U);
+    require(catalog.face_count() == 4U);
+    const auto complete_bytes = std::filesystem::file_size(inter) +
+        std::filesystem::file_size(noto) +
+        std::filesystem::file_size(collection_path) +
+        std::filesystem::file_size(color_path);
+    require(metrics.bytes_read < complete_bytes / 2U);
+
+    std::uint32_t inter_index = 0U;
+    require(catalog.try_match_family(
+        "inter", font_style_request{500, 5, font_provider_slant::normal},
+        inter_index, &error));
+    font_catalog_face_info inter_info{};
+    require(catalog.try_get_face_info(inter_index, inter_info));
+    require(inter_info.family_name == "Inter");
+    require(inter_info.weight == 500U);
+    require(inter_info.face_index == 0U);
+    require(std::filesystem::path(inter_info.file_path).is_absolute());
+    require(inter_info.identity != 0U && inter_info.family_identity != 0U);
+
+    loaded_font_face first{};
+    loaded_font_face second{};
+    require(catalog.try_load_face(inter_index, first, &error));
+    require(catalog.try_load_face(inter_index, second, &error));
+    require(first.valid() && second.valid());
+    require(first.data().data() == second.data().data());
+#if !defined(__EMSCRIPTEN__)
+    require(first.is_memory_mapped() && second.is_memory_mapped());
+#endif
+    require(first.identity() == inter_info.identity);
+    std::uint16_t glyph = 0U;
+    require(first.font().try_get_glyph_index('A', glyph) && glyph != 0U);
+
+    std::uint32_t fallback_index = 0U;
+    const std::array<std::string_view, 1U> japanese{"ja"};
+    require(catalog.try_match_character(
+        "Inter", font_style_request{500, 5, font_provider_slant::normal},
+        japanese, 0x65E5U, inter_info.identity,
+        fallback_index, glyph, &error));
+    require(glyph != 0U && fallback_index != inter_index);
+    font_catalog_face_info fallback_info{};
+    require(catalog.try_get_face_info(fallback_index, fallback_info));
+    require(fallback_info.family_name.find("Noto Sans CJK JP") !=
+        std::string_view::npos);
+
+    std::uint32_t collection_index = 0U;
+    require(catalog.try_match_family(
+        "catalogface", font_style_request{}, collection_index, &error));
+    font_catalog_face_info collection_info{};
+    require(catalog.try_get_face_info(collection_index, collection_info));
+    require(collection_info.face_index == 0U);
+    loaded_font_face collection_face{};
+    require(catalog.try_load_face(collection_index, collection_face, &error));
+    require(collection_face.font().face_offset() == 16U);
+
+    std::uint32_t color_index = catalog.face_count();
+    for (std::uint32_t index = 0U; index < catalog.face_count(); ++index) {
+        font_catalog_face_info info{};
+        require(catalog.try_get_face_info(index, info));
+        if (std::filesystem::path(info.file_path) == color_path) {
+            color_index = index;
+            break;
+        }
+    }
+    require(color_index < catalog.face_count());
+    loaded_font_face color_face{};
+    require(catalog.try_load_face(color_index, color_face, &error));
+    loaded_font_face resident_face{};
+    sfnt_glyph_resident_requirements resident_requirements{};
+    font_catalog_error resident_result = font_catalog_error::invalid_font;
+    require(color_face.try_create_glyph_resident_face(
+        2U, resident_face, &resident_requirements, &resident_result));
+    require(resident_result == font_catalog_error::none && resident_face.valid());
+    require(!resident_face.is_memory_mapped());
+    require(resident_face.identity() == color_face.identity());
+    require(resident_face.catalog_index() == color_face.catalog_index());
+    require(resident_face.data().size() == resident_requirements.font_bytes);
+    require(resident_face.data().size() < color_face.data().size());
+    sfnt_bitmap_glyph_data_view bitmap{};
+    font_error font_result = font_error::invalid_face;
+    require(resident_face.font().try_get_sbix_glyph(2U, 19.0F, bitmap, &font_result));
+    require(bitmap.bytes.size() == 3U && bitmap.bytes[0U] == std::byte{20U});
+
+    std::filesystem::remove_all(directory);
+    glyph = 0U;
+    require(first.font().try_get_glyph_index('A', glyph) && glyph != 0U);
+    require(resident_face.font().try_get_sbix_glyph(2U, 19.0F, bitmap, &font_result));
+}
+
+void benchmark_system_font_catalog_if_requested() {
+    if (!environment_variable_is_set(
+            "PROGPU_NATIVE_BENCHMARK_SYSTEM_FONT_CATALOG")) {
+        return;
+    }
+    system_font_catalog catalog;
+    font_catalog_scan_metrics metrics{};
+    font_catalog_error error{};
+    const auto started = std::chrono::steady_clock::now();
+    require(catalog.try_discover_system_fonts(&metrics, &error));
+    const auto elapsed = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - started).count();
+    std::fprintf(stderr,
+        "progpu-native-system-font-catalog "
+        "{\"milliseconds\":%.3f,\"directories\":%u,\"files\":%u,"
+        "\"faces\":%u,\"skipped\":%u,\"bytes_read\":%llu}\n",
+        elapsed, metrics.directory_count, metrics.file_count,
+        metrics.face_count, metrics.skipped_file_count,
+        static_cast<unsigned long long>(metrics.bytes_read));
+    for (const auto family : {std::string_view{".SFNS-Regular"},
+             std::string_view{"SF Pro"},
+             std::string_view{"Helvetica Neue"},
+             std::string_view{"Apple Color Emoji"}}) {
+        std::uint32_t index = 0U;
+        font_catalog_face_info info{};
+        if (catalog.try_match_family(family, font_style_request{}, index) &&
+            catalog.try_get_face_info(index, info)) {
+            std::fprintf(stderr,
+                "progpu-native-system-font-match "
+                "{\"request\":\"%.*s\",\"family\":\"%.*s\","
+                "\"name\":\"%.*s\",\"face\":%u}\n",
+                static_cast<int>(family.size()), family.data(),
+                static_cast<int>(info.family_name.size()), info.family_name.data(),
+                static_cast<int>(info.full_name.size()), info.full_name.data(),
+                info.face_index);
+        }
+    }
+    std::uint32_t emoji_index = 0U;
+    loaded_font_face emoji_face{};
+    std::uint16_t emoji_glyph = 0U;
+    loaded_font_face resident_face{};
+    sfnt_glyph_resident_requirements resident_requirements{};
+    if (catalog.try_match_character(
+            "Apple Color Emoji", font_style_request{}, {}, 0x1F469U, 0U,
+            emoji_index, emoji_glyph) &&
+        catalog.try_load_face(emoji_index, emoji_face) &&
+        emoji_face.try_create_glyph_resident_face(
+            emoji_glyph, resident_face, &resident_requirements)) {
+        std::fprintf(stderr,
+            "progpu-native-system-font-residency "
+            "{\"mapped\":%s,\"source_bytes\":%llu,"
+            "\"resident_bytes\":%llu,\"glyph\":%u}\n",
+            emoji_face.is_memory_mapped() ? "true" : "false",
+            static_cast<unsigned long long>(emoji_face.data().size()),
+            static_cast<unsigned long long>(resident_face.data().size()),
+            emoji_glyph);
+    }
+}
+
 void table_directory_preserves_managed_duplicate_and_bounds_rules() {
     auto duplicate = make_font();
     const auto last_record = 12U + 6U * 16U;
@@ -12423,6 +12700,8 @@ int main() {
     phantom_glyph_variations_apply_advance_delta();
     item_variation_store_and_index_map_are_bounded();
     collection_and_failure_paths_are_bounded();
+    system_font_catalog_streams_metadata_and_owns_selected_faces();
+    benchmark_system_font_catalog_if_requested();
     table_directory_preserves_managed_duplicate_and_bounds_rules();
     simple_glyph_repeat_composite_and_malformed_paths_are_explicit();
     simple_glyph_path_preserves_implicit_midpoints_and_is_transactional();

@@ -712,6 +712,7 @@ add_library(progpu_native_text STATIC
     src/Text/Font/progpu_native_font_horizontal_metrics.cpp
     src/Text/Font/progpu_native_font_bounds.cpp
     src/Text/Font/progpu_native_font_style.cpp
+    src/Text/Font/progpu_native_system_font_catalog.cpp
     src/Text/Font/progpu_native_font_vertical_metrics.cpp
     src/Text/progpu_native_unicode_line_break.cpp
     src/Text/progpu_native_text_layout.cpp
@@ -1344,6 +1345,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/Scene/progpu_native_semantic_text_style.hpp
         src/Scene/progpu_native_semantic_effect_cache.cpp
         src/Scene/progpu_native_semantic_effect_cache.hpp
+        src/Scene/progpu_native_semantic_draw_merge.hpp
         src/Scene/progpu_native_semantic_replay.hpp
         src/Scene/progpu_native_semantic_state.cpp
         src/Scene/progpu_native_semantic_state.hpp
