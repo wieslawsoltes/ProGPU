@@ -1,4 +1,4 @@
-// Algorithm: Rasterize ordinary, binary-boolean, or bounded postfix path-expression coverage by supersampling each atlas texel, applying analytic winding tests with exact direction-aware half-open curve endpoints, and combining per-sample membership before coverage averaging.
+// Algorithm: Rasterize ordinary, binary-boolean, or bounded postfix path-expression coverage by supersampling each atlas texel, applying analytic winding tests, and combining per-sample membership before coverage averaging.
 // Time complexity: O(A*(S+N)) per expression texel for A anti-aliasing samples, total leaf segment visits S, and N postfix instructions; ordinary paths are O(A*S).
 // Space complexity: O(D) private mask storage for expression stack depth D<=16 plus O(S+N) read-only record/segment bandwidth and one packed u32 output write per four R8 texels.
 const BOOLEAN_PROGRAM_FLAG: u32 = 0x80000000u;
@@ -67,13 +67,6 @@ struct WindingRow {
     low: vec4<i32>,
     high: vec4<i32>,
 };
-
-fn is_directional_half_open_root(t: f32, deriv_y: f32) -> bool {
-    // A connected contour must contribute exactly one crossing at a shared
-    // endpoint. Upward curves own their start; downward curves own their end.
-    return (deriv_y > 0.0 && t >= 0.0 && t < 1.0) ||
-        (deriv_y < 0.0 && t > 0.0 && t <= 1.0);
-}
 
 fn solve_quadratic(a: f32, b: f32, c: f32) -> QuadraticRoots {
     var result = QuadraticRoots(vec2<f32>(0.0), 0u);
@@ -310,12 +303,29 @@ fn row_coverage_mask(
 
             for (var r: u32 = 0u; r < roots.count; r = r + 1u) {
                 let t = quadratic_root_at(roots, r);
-                if (t >= 0.0 && t <= 1.0) {
+                if (t >= -0.01 && t <= 1.01) {
                     let t_eval = clamp(t, 0.00001, 0.99999);
                     let omt_eval = 1.0 - t_eval;
                     let deriv_y = 2.0 * omt_eval * (B.y - A.y) + 2.0 * t_eval * (C.y - B.y);
 
-                    if (is_directional_half_open_root(t, deriv_y)) {
+                    var is_valid = false;
+                    if (t < 0.005) {
+                        if (deriv_y > 0.0) {
+                            is_valid = (sampleY >= A.y);
+                        } else if (deriv_y < 0.0) {
+                            is_valid = (sampleY < A.y);
+                        }
+                    } else if (t > 0.995) {
+                        if (deriv_y > 0.0) {
+                            is_valid = (sampleY < C.y);
+                        } else if (deriv_y < 0.0) {
+                            is_valid = (sampleY >= C.y);
+                        }
+                    } else {
+                        is_valid = true;
+                    }
+
+                    if (is_valid) {
                         let tc = clamp(t, 0.0, 1.0);
                         let omt = 1.0 - tc;
                         let x_t = omt * omt * A.x + 2.0 * omt * tc * B.x + tc * tc * C.x;
@@ -342,11 +352,28 @@ fn row_coverage_mask(
 
             for (var r: u32 = 0u; r < roots.count; r = r + 1u) {
                 let t = cubic_root_at(roots, r);
-                if (t >= 0.0 && t <= 1.0) {
+                if (t >= -0.01 && t <= 1.01) {
                     let t_eval = clamp(t, 0.00001, 0.99999);
                     let deriv_y = 3.0 * a * t_eval * t_eval + 2.0 * b * t_eval + c;
 
-                    if (is_directional_half_open_root(t, deriv_y)) {
+                    var is_valid = false;
+                    if (t < 0.005) {
+                        if (deriv_y > 0.0) {
+                            is_valid = (sampleY >= A.y);
+                        } else if (deriv_y < 0.0) {
+                            is_valid = (sampleY < A.y);
+                        }
+                    } else if (t > 0.995) {
+                        if (deriv_y > 0.0) {
+                            is_valid = (sampleY < D_pt.y);
+                        } else if (deriv_y < 0.0) {
+                            is_valid = (sampleY >= D_pt.y);
+                        }
+                    } else {
+                        is_valid = true;
+                    }
+
+                    if (is_valid) {
                         let tc = clamp(t, 0.0, 1.0);
                         let omt = 1.0 - tc;
                         let x_t = omt * omt * omt * A.x

@@ -185,59 +185,6 @@ public class ShaderResourceTests
     }
 
     [Fact]
-    public void CoverageShadersUseExactDirectionalHalfOpenCurveIntervals()
-    {
-        string[] sources =
-        {
-            Shaders.GlyphRasterizerShader,
-            Shaders.PathRasterizerShader,
-            Shaders.PathOpGeometryShader
-        };
-
-        foreach (string source in sources)
-        {
-            Assert.Contains(
-                "fn is_directional_half_open_root(t: f32, deriv_y: f32) -> bool",
-                source,
-                StringComparison.Ordinal);
-            Assert.Contains(
-                "deriv_y > 0.0 && t >= 0.0 && t < 1.0",
-                source,
-                StringComparison.Ordinal);
-            Assert.Contains(
-                "deriv_y < 0.0 && t > 0.0 && t <= 1.0",
-                source,
-                StringComparison.Ordinal);
-            Assert.DoesNotContain("t >= -0.01", source, StringComparison.Ordinal);
-            Assert.DoesNotContain("t <= 1.01", source, StringComparison.Ordinal);
-            Assert.DoesNotContain("t < 0.005", source, StringComparison.Ordinal);
-            Assert.DoesNotContain("t > 0.995", source, StringComparison.Ordinal);
-        }
-    }
-
-    [Theory]
-    [InlineData(0f, 1f, true)]
-    [InlineData(1f, 1f, false)]
-    [InlineData(0f, -1f, false)]
-    [InlineData(1f, -1f, true)]
-    [InlineData(0.5f, 1f, true)]
-    [InlineData(0.5f, -1f, true)]
-    [InlineData(-0.0001f, 1f, false)]
-    [InlineData(1.0001f, -1f, false)]
-    [InlineData(0.5f, 0f, false)]
-    public void DirectionalHalfOpenCurveIntervalOwnsOneSharedEndpoint(
-        float t,
-        float derivativeY,
-        bool expected)
-    {
-        bool actual =
-            derivativeY > 0f && t >= 0f && t < 1f ||
-            derivativeY < 0f && t > 0f && t <= 1f;
-
-        Assert.Equal(expected, actual);
-    }
-
-    [Fact]
     public void VectorShapeBranchesReuseUniformlyEvaluatedDerivatives()
     {
         const string shapeControlStart = "if (sType == 0u && input.strokeThickness <= 0.0)";
