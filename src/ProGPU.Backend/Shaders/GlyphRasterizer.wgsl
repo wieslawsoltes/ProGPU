@@ -1,4 +1,4 @@
-// Algorithm: Rasterize glyph coverage with 8x8 supersampling, sharing analytic line, quadratic, and cubic winding intersections across each eight-sample row.
+// Algorithm: Rasterize glyph coverage with 8x8 supersampling, sharing analytic line, quadratic, and cubic winding intersections across each eight-sample row and assigning shared curve endpoints with exact direction-aware half-open intervals.
 // Time complexity: O(R*S + A) per texel for R=8 sample rows, A=64 anti-aliasing samples, and S outline segments.
 // Space complexity: O(R) fixed vector-lane winding storage plus O(S) read-only segment bandwidth and one packed u32 output write per four R8 texels; no dynamically indexed private arrays are used.
 struct GlyphUniforms {
@@ -62,6 +62,13 @@ struct WindingRow {
     low: vec4<i32>,
     high: vec4<i32>,
 };
+
+fn is_directional_half_open_root(t: f32, deriv_y: f32) -> bool {
+    // A connected contour must contribute exactly one crossing at a shared
+    // endpoint. Upward curves own their start; downward curves own their end.
+    return (deriv_y > 0.0 && t >= 0.0 && t < 1.0) ||
+        (deriv_y < 0.0 && t > 0.0 && t <= 1.0);
+}
 
 fn solve_quadratic(a: f32, b: f32, c: f32) -> QuadraticRoots {
     var result = QuadraticRoots(vec2<f32>(0.0), 0u);
@@ -225,29 +232,12 @@ fn accumulate_winding_row(
 
             for (var r: u32 = 0u; r < roots.count; r = r + 1u) {
                 let t = quadratic_root_at(roots, r);
-                if (t >= -0.01 && t <= 1.01) {
+                if (t >= 0.0 && t <= 1.0) {
                     let t_eval = clamp(t, 0.00001, 0.99999);
                     let omt_eval = 1.0 - t_eval;
                     let deriv_y = 2.0 * omt_eval * (B.y - A.y) + 2.0 * t_eval * (C.y - B.y);
 
-                    var is_valid = false;
-                    if (t < 0.005) {
-                        if (deriv_y > 0.0) {
-                            is_valid = (sample_y >= A.y);
-                        } else if (deriv_y < 0.0) {
-                            is_valid = (sample_y < A.y);
-                        }
-                    } else if (t > 0.995) {
-                        if (deriv_y > 0.0) {
-                            is_valid = (sample_y < C.y);
-                        } else if (deriv_y < 0.0) {
-                            is_valid = (sample_y >= C.y);
-                        }
-                    } else {
-                        is_valid = true;
-                    }
-
-                    if (is_valid) {
+                    if (is_directional_half_open_root(t, deriv_y)) {
                         let tc = clamp(t, 0.0, 1.0);
                         let omt = 1.0 - tc;
                         let x_t = omt * omt * A.x + 2.0 * omt * tc * B.x + tc * tc * C.x;
@@ -274,28 +264,11 @@ fn accumulate_winding_row(
 
             for (var r: u32 = 0u; r < roots.count; r = r + 1u) {
                 let t = cubic_root_at(roots, r);
-                if (t >= -0.01 && t <= 1.01) {
+                if (t >= 0.0 && t <= 1.0) {
                     let t_eval = clamp(t, 0.00001, 0.99999);
                     let deriv_y = 3.0 * a * t_eval * t_eval + 2.0 * b * t_eval + c;
 
-                    var is_valid = false;
-                    if (t < 0.005) {
-                        if (deriv_y > 0.0) {
-                            is_valid = (sample_y >= A.y);
-                        } else if (deriv_y < 0.0) {
-                            is_valid = (sample_y < A.y);
-                        }
-                    } else if (t > 0.995) {
-                        if (deriv_y > 0.0) {
-                            is_valid = (sample_y < D_pt.y);
-                        } else if (deriv_y < 0.0) {
-                            is_valid = (sample_y >= D_pt.y);
-                        }
-                    } else {
-                        is_valid = true;
-                    }
-
-                    if (is_valid) {
+                    if (is_directional_half_open_root(t, deriv_y)) {
                         let tc = clamp(t, 0.0, 1.0);
                         let omt = 1.0 - tc;
                         let x_t = omt * omt * omt * A.x

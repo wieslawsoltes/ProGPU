@@ -1,4 +1,4 @@
-// Algorithm: Classify pairwise path-segment intersections and emit split records used to construct boolean path-operation contours.
+// Algorithm: Classify pairwise path-segment intersections with exact direction-aware half-open curve endpoints and emit split records used to construct boolean path-operation contours.
 // Time complexity: O(A*B) total for A subject and B clip segments, with bounded analytic work per pair.
 // Space complexity: O(I) output storage for I emitted intersection/split records and O(1) local storage per invocation.
 struct PathOpUniforms {
@@ -76,6 +76,13 @@ fn cbrt(x: f32) -> f32 {
         return -pow(-x, 1.0 / 3.0);
     }
     return pow(x, 1.0 / 3.0);
+}
+
+fn is_directional_half_open_root(t: f32, deriv_y: f32) -> bool {
+    // A connected contour must contribute exactly one crossing at a shared
+    // endpoint. Upward curves own their start; downward curves own their end.
+    return (deriv_y > 0.0 && t >= 0.0 && t < 1.0) ||
+        (deriv_y < 0.0 && t > 0.0 && t <= 1.0);
 }
 
 fn solve_cubic(a_in: f32, b_in: f32, c_in: f32, d_in: f32, roots: ptr<function, array<f32, 3>>, root_count: ptr<function, u32>) {
@@ -163,21 +170,11 @@ fn is_point_inside_A(p: vec2<f32>) -> bool {
             solve_quadratic(a, b, c, &roots, &root_count);
             for (var r: u32 = 0u; r < root_count; r = r + 1u) {
                 let t = roots[r];
-                if (t >= -0.01 && t <= 1.01) {
+                if (t >= 0.0 && t <= 1.0) {
                     let t_eval = clamp(t, 0.00001, 0.99999);
                     let omt_eval = 1.0 - t_eval;
                     let deriv_y = 2.0 * omt_eval * (B.y - A.y) + 2.0 * t_eval * (C.y - B.y);
-                    var is_valid = false;
-                    if (t < 0.005) {
-                        if (deriv_y > 0.0) { is_valid = (p.y >= A.y); }
-                        else if (deriv_y < 0.0) { is_valid = (p.y < A.y); }
-                    } else if (t > 0.995) {
-                        if (deriv_y > 0.0) { is_valid = (p.y < C.y); }
-                        else if (deriv_y < 0.0) { is_valid = (p.y >= C.y); }
-                    } else {
-                        is_valid = true;
-                    }
-                    if (is_valid) {
+                    if (is_directional_half_open_root(t, deriv_y)) {
                         let tc = clamp(t, 0.0, 1.0);
                         let omt = 1.0 - tc;
                         let x_t = omt * omt * A.x + 2.0 * omt * tc * B.x + tc * tc * C.x;
@@ -202,20 +199,10 @@ fn is_point_inside_A(p: vec2<f32>) -> bool {
             solve_cubic(a, b, c, d, &roots, &root_count);
             for (var r: u32 = 0u; r < root_count; r = r + 1u) {
                 let t = roots[r];
-                if (t >= -0.01 && t <= 1.01) {
+                if (t >= 0.0 && t <= 1.0) {
                     let t_eval = clamp(t, 0.00001, 0.99999);
                     let deriv_y = 3.0 * a * t_eval * t_eval + 2.0 * b * t_eval + c;
-                    var is_valid = false;
-                    if (t < 0.005) {
-                        if (deriv_y > 0.0) { is_valid = (p.y >= A.y); }
-                        else if (deriv_y < 0.0) { is_valid = (p.y < A.y); }
-                    } else if (t > 0.995) {
-                        if (deriv_y > 0.0) { is_valid = (p.y < D_pt.y); }
-                        else if (deriv_y < 0.0) { is_valid = (p.y >= D_pt.y); }
-                    } else {
-                        is_valid = true;
-                    }
-                    if (is_valid) {
+                    if (is_directional_half_open_root(t, deriv_y)) {
                         let tc = clamp(t, 0.0, 1.0);
                         let omt = 1.0 - tc;
                         let x_t = omt * omt * omt * A.x + 3.0 * omt * omt * tc * B.x + 3.0 * omt * tc * tc * C.x + tc * tc * tc * D_pt.x;
@@ -319,21 +306,11 @@ fn is_point_inside_B(p: vec2<f32>) -> bool {
             solve_quadratic(a, b, c, &roots, &root_count);
             for (var r: u32 = 0u; r < root_count; r = r + 1u) {
                 let t = roots[r];
-                if (t >= -0.01 && t <= 1.01) {
+                if (t >= 0.0 && t <= 1.0) {
                     let t_eval = clamp(t, 0.00001, 0.99999);
                     let omt_eval = 1.0 - t_eval;
                     let deriv_y = 2.0 * omt_eval * (B.y - A.y) + 2.0 * t_eval * (C.y - B.y);
-                    var is_valid = false;
-                    if (t < 0.005) {
-                        if (deriv_y > 0.0) { is_valid = (p.y >= A.y); }
-                        else if (deriv_y < 0.0) { is_valid = (p.y < A.y); }
-                    } else if (t > 0.995) {
-                        if (deriv_y > 0.0) { is_valid = (p.y < C.y); }
-                        else if (deriv_y < 0.0) { is_valid = (p.y >= C.y); }
-                    } else {
-                        is_valid = true;
-                    }
-                    if (is_valid) {
+                    if (is_directional_half_open_root(t, deriv_y)) {
                         let tc = clamp(t, 0.0, 1.0);
                         let omt = 1.0 - tc;
                         let x_t = omt * omt * A.x + 2.0 * omt * tc * B.x + tc * tc * C.x;
@@ -358,20 +335,10 @@ fn is_point_inside_B(p: vec2<f32>) -> bool {
             solve_cubic(a, b, c, d, &roots, &root_count);
             for (var r: u32 = 0u; r < root_count; r = r + 1u) {
                 let t = roots[r];
-                if (t >= -0.01 && t <= 1.01) {
+                if (t >= 0.0 && t <= 1.0) {
                     let t_eval = clamp(t, 0.00001, 0.99999);
                     let deriv_y = 3.0 * a * t_eval * t_eval + 2.0 * b * t_eval + c;
-                    var is_valid = false;
-                    if (t < 0.005) {
-                        if (deriv_y > 0.0) { is_valid = (p.y >= A.y); }
-                        else if (deriv_y < 0.0) { is_valid = (p.y < A.y); }
-                    } else if (t > 0.995) {
-                        if (deriv_y > 0.0) { is_valid = (p.y < D_pt.y); }
-                        else if (deriv_y < 0.0) { is_valid = (p.y >= D_pt.y); }
-                    } else {
-                        is_valid = true;
-                    }
-                    if (is_valid) {
+                    if (is_directional_half_open_root(t, deriv_y)) {
                         let tc = clamp(t, 0.0, 1.0);
                         let omt = 1.0 - tc;
                         let x_t = omt * omt * omt * A.x + 3.0 * omt * omt * tc * B.x + 3.0 * omt * tc * tc * C.x + tc * tc * tc * D_pt.x;
