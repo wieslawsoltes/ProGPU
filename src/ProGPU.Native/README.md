@@ -809,8 +809,13 @@ PROGPU_NATIVE_BROWSER_INSTALL_CHROMIUM=1 \
 ```
 
 The same browser lane also builds and exercises the production-style pure C++
-gallery with MotionMark as its first sample. Publish its optimized C++20/LTO
-WebAssembly files without a .NET runtime using:
+gallery. Its MotionMark page covers retained vector animation; its text-shaping
+laboratory ports the managed eight-case feature wall through the native
+Unicode/OpenType shaper, TrueType outline decoder, retained physical-size glyph
+coverage, and shared production WebGPU text shaders. Neither page uses a DOM,
+Canvas2D, platform-text, or pre-rendered-pixel fallback inside the render
+surface. Publish the optimized C++20/LTO WebAssembly files without a .NET
+runtime using:
 
 ```sh
 ./eng/publish-progpu-native-browser-gallery.sh

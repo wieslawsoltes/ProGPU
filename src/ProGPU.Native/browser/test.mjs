@@ -325,7 +325,7 @@ try {
   assert.equal(textContract.dpiScale, galleryContract.dpiScale);
   assert.equal(textContract.error, "");
 
-  await page.locator("#text-preset").selectOption("1");
+  await page.locator('[data-preset="1"]').click();
   await page.waitForFunction(
     () => document.body.dataset.progpuNativeTextPreset === "1",
     undefined,

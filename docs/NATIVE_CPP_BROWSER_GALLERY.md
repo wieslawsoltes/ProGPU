@@ -1,6 +1,7 @@
 # Pure C++ browser gallery
 
-Status: MotionMark first slice implemented and locally qualified on 2026-08-21.
+Status: MotionMark and native OpenType text-shaping slices implemented and
+locally qualified on 2026-08-21.
 
 ## Purpose
 
@@ -16,6 +17,14 @@ Its native implementation records the exact source provenance in
 [`progpu_native_motion_mark.hpp`](../src/ProGPU.Native/samples/Views/progpu_native_motion_mark.hpp)
 and has a matched native contract test. No third-party MotionMark source was
 used.
+
+The second page ports the eight ProGPU-owned feature-wall cases from
+[`TextShapingShowcasePage.cs`](../src/ProGPU.Samples/Pages/TextShapingShowcasePage.cs)
+to [`progpu_native_text_shaping_showcase.cpp`](../src/ProGPU.Native/samples/Pages/progpu_native_text_shaping_showcase.cpp).
+It executes the native Unicode decoder, GSUB/GPOS shaper, TrueType outline
+decoder, semantic scene builder, compute glyph rasterizer, and shared
+production `Text.wgsl` shader. The page contains no pre-rendered text and uses
+no browser or platform text API.
 
 ## Shared managed/native browser architecture
 
@@ -67,6 +76,33 @@ quadratic and cubic GPU vertices use their inline color lanes for control-point
 metadata, while the shared brush table supplies their material. Lines, curves,
 caps, and joins therefore retain one group-end style without per-segment draws.
 
+## Text-shaping parity and quality contract
+
+| Managed feature wall | Native C++ implementation |
+| --- | --- |
+| Standard ligatures, kerning, fractions, slashed zero, stylistic set, contextual alternates, Romanian localization, and mark-to-mark positioning | The same eight feature tags, strings, language selection, and before/after comparison |
+| Unicode/OpenType shaping on the CPU | Native C++ Unicode decode plus GSUB lookups 1-8 and GPOS lookups 1-9 |
+| Retained glyph runs and cached outlines | One immutable semantic scene; unique source outlines are decoded once and reused across physical raster sizes |
+| Physical-pixel glyph coverage | Raster records are keyed by glyph and physical font size while sharing immutable source segments |
+| Canonical WebGPU text rendering | Native and managed backends consume the same `GlyphRasterizer.wgsl` and `Text.wgsl` resources |
+
+The page transfers the fetched font into native ownership once rather than
+copying it again inside the sample. A changed preset compiles once and publishes
+its scene generation; stable frames only render and submit. The Romanian case
+contains 267 positioned glyphs, 107 retained outline records, 11 draw commands,
+and a 73,992-byte semantic stream. Sharing source segments across raster sizes
+reduced that stream from 131,496 bytes by 43.7% while retaining full-resolution
+coverage.
+
+Linear filtering previously allowed a glyph quad near a packed-atlas tile edge
+to sample a neighboring tile. The canonical text shader now carries flat
+half-texel tile bounds and clamps every grayscale, ClearType, color, masked, and
+premultiplied atlas sample to its glyph tile. This preserves filtering inside
+the glyph while removing faint horizontal or vertical outlines around glyph
+quads. The corresponding source-contract and native retained-resource tests
+cover both backends; the algorithm and research record are in
+[`GPU_TEXT_COVERAGE_CACHE_ARCHITECTURE.md`](GPU_TEXT_COVERAGE_CACHE_ARCHITECTURE.md).
+
 ## WebGPU presentation and pixel quality
 
 The shared host measures the CSS canvas and assigns a backing width and height
@@ -107,28 +143,35 @@ for its compile and link phases. This matches Emscripten's [optimized build
 guidance](https://emscripten.org/docs/compiling/Building-Projects.html#building-projects-with-optimizations).
 It emits a native `.wasm` ahead of time rather than performing .NET AOT.
 
-Local optimized artifact sizes on 2026-08-21:
+Local optimized artifact sizes after the text-shaping slice on 2026-08-21:
 
-| Asset | Bytes |
-| --- | ---: |
-| `progpu_native_browser_gallery.wasm` | 628,799 |
-| `progpu_native_browser_gallery.js` | 61,784 |
-| `progpu_native_browser_gallery.html` | 5,638 |
-| shared `progpu-browser-host.js` | 4,153 |
-| Total | 700,374 |
+| Asset | Raw bytes | gzip -9 | Brotli -11 |
+| --- | ---: | ---: | ---: |
+| `progpu_native_browser_gallery.wasm` | 1,537,121 | 508,537 | 357,394 |
+| `progpu_native_browser_gallery.js` | 62,791 | 14,951 | 13,219 |
+| `progpu_native_browser_gallery.html` | 17,896 | 5,737 | 4,933 |
+| shared `progpu-browser-host.js` | 4,153 | 1,432 | 1,176 |
+| external `Inter-Regular.ttf` | 411,640 | 196,987 | 157,517 |
+| Total | 2,033,601 | 727,644 | 534,239 |
 
-Sizes are uncompressed filesystem bytes. HTTP Brotli/gzip transfer sizes are
-expected to be lower and are server-dependent.
+Compressed columns are deterministic local compression measurements; actual
+HTTP transfer sizes depend on the server. The executable Wasm is 1.47 MiB raw
+and contains the native renderer, semantic scene compiler, Unicode/OpenType
+text stack, outline decoder, and both gallery samples. Inter remains a separately
+cacheable font asset.
 
 ## Automated gates
 
 - `progpu_native_motion_mark_tests` verifies the managed sample's retained
   topology/group/update contracts with deterministic native data.
+- `progpu_native_text_shaping_showcase_tests` verifies the eight ported presets,
+  shaped glyph/outline metrics, retained scene reuse, and physical-size outline
+  records through the native C++20 text stack.
 - `eng/progpu-test-native-browser.sh` builds the Release Emscripten target and
   drives a real Chromium WebGPU context.
 - The browser gate asserts the pure-C++ renderer identity, actual canvas
-  swapchain presentation, one GPU draw, UI control round-trip, and exact
-  physical-pixel backing dimensions, then uploads a screenshot and JSON
-  contract.
+  swapchain presentation, MotionMark and text-page control round-trips, exact
+  physical-pixel backing dimensions, preset generation publication, and the
+  expected glyph/outline counts, then uploads screenshots and JSON contracts.
 - The existing Clang, GCC, and MSVC C++20 lanes compile the shared native sample
   model through the normal CMake graph.

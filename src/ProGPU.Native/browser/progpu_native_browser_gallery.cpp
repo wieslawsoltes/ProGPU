@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <new>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -133,6 +134,7 @@ void publish_metrics(
         document.body.dataset.progpuNativeOutlines = String($13);
         document.body.dataset.progpuNativeUpdateMilliseconds = String($6);
         document.body.dataset.progpuNativeTextPreset = String($14);
+        document.body.dataset.progpuNativeTextGeneration = String($15);
     },
         static_cast<double>(app.fps),
         app.active_sample == gallery_sample::motion_mark
@@ -154,7 +156,8 @@ void publish_metrics(
         static_cast<std::uint32_t>(app.active_sample),
         app.text_metrics.shaped_glyph_count,
         app.text_metrics.unique_outline_count,
-        app.text_metrics.preset_index);
+        app.text_metrics.preset_index,
+        static_cast<double>(app.text_metrics.generation));
 }
 #pragma clang diagnostic pop
 
@@ -292,10 +295,10 @@ EMSCRIPTEN_KEEPALIVE std::int32_t
 progpu_native_gallery_commit_font(std::uint32_t size) noexcept {
     if (application == nullptr ||
         size == 0U || size != application->font_staging.size() ||
-        !application->text_sample.load_font(application->font_staging)) {
+        !application->text_sample.load_font(
+            std::move(application->font_staging))) {
         return 0;
     }
-    application->font_staging.clear();
     return 1;
 }
 
@@ -322,11 +325,14 @@ progpu_native_gallery_set_sample(std::uint32_t sample) noexcept {
     return static_cast<std::uint32_t>(application->active_sample);
 }
 
-EMSCRIPTEN_KEEPALIVE void progpu_native_gallery_set_text_preset(
+EMSCRIPTEN_KEEPALIVE std::uint32_t progpu_native_gallery_set_text_preset(
     std::uint32_t preset) noexcept {
     if (application != nullptr) {
         application->text_sample.set_preset(preset);
+        return static_cast<std::uint32_t>(
+            application->text_sample.generation());
     }
+    return 0U;
 }
 
 } // extern "C"

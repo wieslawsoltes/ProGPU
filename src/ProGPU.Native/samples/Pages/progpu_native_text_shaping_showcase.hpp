@@ -47,6 +47,7 @@ public:
     text_shaping_showcase_scene();
 
     bool load_font(std::span<const std::byte> font_bytes) noexcept;
+    bool load_font(std::vector<std::byte>&& font_bytes) noexcept;
     bool resize(float width, float height, float dpi_scale) noexcept;
     bool set_preset(std::uint32_t preset_index) noexcept;
     void invalidate() noexcept;

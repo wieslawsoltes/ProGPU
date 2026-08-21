@@ -7,47 +7,191 @@
   <link rel="icon" href="data:,">
   <title>ProGPU Native C++ Gallery</title>
   <style>
-    :root { font: 15px Inter, ui-sans-serif, system-ui, sans-serif; color: #f4f6ff; background: #070911; }
+    :root {
+      font: 15px Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+      color: #f5f7ff;
+      background: #080910;
+      --surface: #0d0f18;
+      --surface-raised: #131620;
+      --line: #ffffff14;
+      --muted: #8d96ab;
+      --quiet: #626b7e;
+      --accent: #5aa9ff;
+      --accent-strong: #168fff;
+    }
     * { box-sizing: border-box; }
     html, body { width: 100%; min-height: 100%; margin: 0; }
-    body { min-height: 100dvh; background: radial-gradient(circle at 70% 0%, #182244 0, #090b15 36%, #05060b 100%); }
+    body { min-height: 100dvh; background: #080910; }
     button, select { font: inherit; }
-    .app { min-height: 100dvh; display: grid; grid-template-rows: auto 1fr; }
-    header { min-height: 68px; display: flex; align-items: center; gap: 18px; padding: 14px clamp(18px, 3vw, 44px); border-bottom: 1px solid #ffffff14; background: #090a11d9; backdrop-filter: blur(18px); }
-    .mark { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; background: linear-gradient(145deg, #168fff, #6559ff); font-weight: 900; }
-    .title { min-width: 0; }
-    h1 { margin: 0; font-size: clamp(18px, 2vw, 24px); letter-spacing: -.03em; }
-    .subtitle { margin-top: 3px; color: #9098ae; font-size: 12px; }
-    .badge { margin-left: auto; padding: 7px 10px; border: 1px solid #65a9ff4a; border-radius: 999px; color: #9bc8ff; background: #1164bd20; font: 700 11px ui-monospace, monospace; white-space: nowrap; }
-    .workspace { min-height: 0; display: grid; grid-template-columns: 224px minmax(0, 1fr); }
-    nav { padding: 24px 14px; border-right: 1px solid #ffffff12; background: #0d0f18d9; }
-    .nav-label { padding: 0 12px 10px; color: #666f87; font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
-    .nav-item { width: 100%; display: flex; gap: 10px; align-items: center; padding: 11px 12px; border: 1px solid transparent; border-radius: 10px; color: #929bb2; background: transparent; text-align: left; cursor: pointer; }
-    .nav-item + .nav-item { margin-top: 6px; }
-    .nav-item.active { border-color: #4c7fd33d; color: #eef4ff; background: #24487948; }
-    .nav-item span { color: #7bbcff; }
-    main { min-width: 0; padding: clamp(18px, 3vw, 38px); overflow: auto; }
+    button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .app { min-height: 100dvh; display: grid; grid-template-rows: 64px minmax(0, 1fr); }
+    header {
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 0 clamp(18px, 3vw, 42px);
+      border-bottom: 1px solid var(--line);
+      background: #090a11eb;
+      backdrop-filter: blur(18px);
+    }
+    .mark {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border-radius: 9px;
+      background: var(--accent-strong);
+      color: white;
+      font-weight: 900;
+      letter-spacing: -.06em;
+      box-shadow: 0 0 32px #168fff40;
+    }
+    .brand { min-width: 0; display: flex; align-items: baseline; gap: 9px; }
+    h1 { margin: 0; font-size: 18px; letter-spacing: -.035em; white-space: nowrap; }
+    .brand-subtitle { color: var(--quiet); font-size: 12px; white-space: nowrap; }
+    .badge {
+      margin-left: auto;
+      color: #a9cff8;
+      font: 700 10px ui-monospace, SFMono-Regular, monospace;
+      letter-spacing: .08em;
+      white-space: nowrap;
+    }
+    .workspace { min-height: 0; display: grid; grid-template-columns: 196px minmax(0, 1fr); }
+    nav { padding: 28px 16px; border-right: 1px solid var(--line); background: #0a0c13; }
+    .nav-label { padding: 0 10px 12px; color: var(--quiet); font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    .nav-item {
+      width: 100%;
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 8px;
+      color: var(--muted);
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+      transition: color 140ms ease, background 140ms ease, transform 140ms ease;
+    }
+    .nav-item + .nav-item { margin-top: 4px; }
+    .nav-item:hover { color: #e8edfb; background: #ffffff08; transform: translateX(2px); }
+    .nav-item.active { color: white; background: #1d3556; }
+    .nav-icon { width: 24px; color: var(--accent); font: 700 12px ui-monospace, monospace; }
+    main { min-width: 0; padding: clamp(22px, 3vw, 40px); overflow: auto; animation: reveal 360ms ease-out both; }
     .intro { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 18px; }
-    h2 { margin: 0; font-size: clamp(25px, 4vw, 40px); letter-spacing: -.045em; }
-    .intro p { max-width: 720px; margin: 7px 0 0; color: #8f98b0; line-height: 1.5; }
-    .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+    .eyebrow { margin-bottom: 7px; color: var(--accent); font: 700 10px ui-monospace, monospace; letter-spacing: .14em; text-transform: uppercase; }
+    h2 { margin: 0; font-size: clamp(26px, 3.4vw, 42px); letter-spacing: -.05em; line-height: .98; }
+    .intro p { max-width: 760px; margin: 10px 0 0; color: var(--muted); line-height: 1.45; }
+    #status-message { flex: 0 0 auto; color: #788297; font: 11px ui-monospace, monospace; white-space: nowrap; }
+    .controls { display: flex; flex-wrap: wrap; gap: 9px; margin-bottom: 15px; }
     .controls[hidden] { display: none; }
-    .control { min-height: 40px; padding: 0 14px; border: 1px solid #ffffff19; border-radius: 9px; color: #edf1ff; background: #202431; }
-    button.control { cursor: pointer; }
-    button.control:hover { border-color: #4d98ff; background: #293044; }
-    .stage { position: relative; overflow: hidden; min-height: 340px; height: min(68vh, 720px); border: 1px solid #ffffff1b; border-radius: 16px; background: #202026; box-shadow: 0 28px 90px #0008; }
+    .control {
+      min-height: 39px;
+      padding: 0 13px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: #eef2ff;
+      background: #171a24;
+    }
+    button.control { cursor: pointer; transition: border-color 140ms ease, background 140ms ease, transform 140ms ease; }
+    button.control:hover { border-color: #5aa9ff80; background: #1d2432; transform: translateY(-1px); }
+    button.control:disabled { cursor: wait; opacity: .62; transform: none; }
+    .text-workbench {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, .6fr);
+      gap: clamp(20px, 3vw, 40px);
+      padding: 16px 0 18px;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .text-workbench > * { min-width: 0; }
+    .workbench-label { margin-bottom: 10px; color: var(--quiet); font: 700 10px ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; }
+    .preset-grid { min-width: 0; max-width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+    .preset-option {
+      min-width: 0;
+      height: 45px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 10px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      color: #929bb0;
+      background: #11131c;
+      cursor: pointer;
+      text-align: left;
+      transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
+    }
+    .preset-option code { color: #6bb4ff; font: 700 11px ui-monospace, monospace; }
+    .preset-option span { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .preset-option:hover { color: #e8edfa; background: #171b26; }
+    .preset-option.active { border-color: #5aa9ff52; color: white; background: #18314f; }
+    .feature-context { min-width: 0; display: flex; flex-direction: column; justify-content: space-between; }
+    .feature-heading { display: flex; align-items: baseline; gap: 10px; }
+    #feature-tag { color: var(--accent); font: 800 18px ui-monospace, monospace; }
+    #feature-name { color: #e9edf9; font-weight: 700; }
+    #feature-detail { min-height: 38px; margin: 7px 0 13px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .lab-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+    .asset-note { color: #7f899e; font: 10px ui-monospace, monospace; }
+    #benchmark-output { color: #8dbff4; font: 10px ui-monospace, monospace; }
+    #benchmark-text.running { animation: pulse 900ms ease-in-out infinite alternate; }
+    #text-preset { display: none; }
+    .stage {
+      position: relative;
+      overflow: hidden;
+      min-height: 420px;
+      height: min(64vh, 720px);
+      margin-top: 15px;
+      border: 1px solid #ffffff1a;
+      border-radius: 14px;
+      background: #11131b;
+      box-shadow: 0 24px 70px #0007;
+    }
     #progpu-canvas { display: block; width: 100%; height: 100%; touch-action: none; }
-    .metrics { position: absolute; left: 14px; right: 14px; bottom: 14px; display: flex; flex-wrap: wrap; gap: 8px; pointer-events: none; }
-    .metric { padding: 7px 10px; border: 1px solid #ffffff1c; border-radius: 8px; background: #080b14d9; color: #9fa8be; font: 11px ui-monospace, monospace; backdrop-filter: blur(10px); }
-    .metric strong { color: #62adff; }
-    #status-message { color: #7f899f; font: 12px ui-monospace, monospace; }
+    .telemetry {
+      display: grid;
+      grid-template-columns: repeat(9, minmax(74px, 1fr));
+      margin-top: 10px;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .metric { min-width: 0; padding: 10px 9px; color: #717a8d; font: 9px ui-monospace, monospace; text-transform: uppercase; }
+    .metric + .metric { border-left: 1px solid var(--line); }
+    .metric strong { display: block; margin-top: 4px; overflow: hidden; color: #dce7f8; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; text-transform: none; }
+    .metric:first-child strong, .metric:nth-child(6) strong, .metric:nth-child(7) strong { color: var(--accent); }
+    @keyframes reveal { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+    @keyframes pulse { from { border-color: #5aa9ff45; } to { border-color: #5aa9ff; } }
+    @media (max-width: 1040px) {
+      .brand-subtitle { display: none; }
+      .text-workbench { grid-template-columns: minmax(0, 1fr); }
+      .preset-grid { grid-template-columns: repeat(4, minmax(100px, 1fr)); }
+      .telemetry { grid-template-columns: repeat(5, 1fr); }
+      .metric:nth-child(6) { border-left: 0; }
+    }
     @media (max-width: 760px) {
+      .app { grid-template-rows: 58px auto auto; }
+      header { padding: 0 16px; }
       .badge { display: none; }
-      .workspace { grid-template-columns: 1fr; }
-      nav { display: none; }
-      main { padding: 16px; }
-      .intro { align-items: start; flex-direction: column; }
-      .stage { height: 58vh; min-height: 360px; }
+      .workspace { display: contents; }
+      nav { z-index: 2; display: flex; gap: 4px; padding: 8px 12px; overflow-x: auto; border: 0; border-bottom: 1px solid var(--line); }
+      .nav-label { display: none; }
+      .nav-item { width: auto; flex: 0 0 auto; padding: 0 13px; }
+      .nav-item + .nav-item { margin: 0; }
+      main { padding: 18px 14px 26px; overflow: visible; }
+      .intro { align-items: start; flex-direction: column; gap: 10px; }
+      #status-message { white-space: normal; }
+      .text-workbench { gap: 14px; padding-top: 12px; }
+      .preset-grid { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; }
+      .preset-option { flex: 0 0 132px; scroll-snap-align: start; }
+      .stage { height: 58vh; min-height: 420px; margin-top: 12px; }
+      .telemetry { grid-template-columns: repeat(3, 1fr); }
+      .metric:nth-child(4), .metric:nth-child(7) { border-left: 0; }
+      .metric:nth-child(6) { border-left: 1px solid var(--line); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
     }
   </style>
 </head>
@@ -55,20 +199,25 @@
   <div class="app">
     <header>
       <div class="mark">P</div>
-      <div class="title"><h1>ProGPU Native C++ Gallery</h1><div class="subtitle">The shared ProGPU architecture compiled directly to WebAssembly</div></div>
-      <div class="badge">C++20 · WASM AOT · WEBGPU</div>
+      <div class="brand"><h1>ProGPU Native</h1><div class="brand-subtitle">C++ rendering laboratory</div></div>
+      <div class="badge">C++20 / WASM AOT / WEBGPU</div>
     </header>
     <div class="workspace">
-      <nav>
+      <nav aria-label="Native samples">
         <div class="nav-label">Native samples</div>
-        <button id="sample-motion" class="nav-item active"><span>◉</span> MotionMark</button>
-        <button id="sample-text" class="nav-item"><span>Aa</span> Text shaping</button>
+        <button id="sample-motion" class="nav-item active"><span class="nav-icon">◉</span> MotionMark</button>
+        <button id="sample-text" class="nav-item"><span class="nav-icon">Aa</span> Text shaping</button>
       </nav>
-      <main>
+      <main data-sample="motion">
         <section class="intro">
-          <div><h2 id="sample-title">MotionMark</h2><p id="sample-description">Mixed line, quadratic, and cubic paths animated through one immutable native semantic stream and the production ProGPU GPU pipeline.</p></div>
-          <div id="status-message">Initializing native WebGPU…</div>
+          <div>
+            <div class="eyebrow" id="sample-eyebrow">Native vector workload</div>
+            <h2 id="sample-title">MotionMark</h2>
+            <p id="sample-description">Mixed analytic paths animated through one immutable semantic stream and the production ProGPU WebGPU pipeline.</p>
+          </div>
+          <div id="status-message" role="status">Initializing native WebGPU…</div>
         </section>
+
         <div id="motion-controls" class="controls">
           <select id="complexity" class="control" aria-label="Shape count">
             <option value="250">250 segments</option><option value="1000" selected>1,000 segments</option><option value="2500">2,500 segments</option><option value="5000">5,000 segments</option>
@@ -79,33 +228,51 @@
           <button id="pause" class="control">Pause</button>
           <button id="regenerate" class="control">Regenerate</button>
         </div>
-        <div id="text-controls" class="controls" hidden>
-          <select id="text-preset" class="control" aria-label="OpenType feature specimen">
-            <option value="0">liga · Standard ligatures</option>
-            <option value="1">kern · Pair positioning</option>
-            <option value="2">frac · Automatic fractions</option>
-            <option value="3">zero · Slashed zero</option>
-            <option value="4">ss01 · Stylistic set 01</option>
-            <option value="5">calt · Contextual alternates</option>
-            <option value="6">locl · Localized Romanian</option>
-            <option value="7">mkmk · Mark-to-mark</option>
-          </select>
-          <button id="benchmark-text" class="control">Benchmark all presets</button>
-          <span class="control" aria-label="Font asset">Inter Regular · separate 404 KiB asset</span>
-        </div>
+
+        <section id="text-controls" class="text-workbench" hidden aria-label="OpenType feature laboratory">
+          <div>
+            <div class="workbench-label">Feature wall · choose a comparison</div>
+            <select id="text-preset" aria-label="OpenType feature specimen">
+              <option value="0">liga · Standard ligatures</option><option value="1">kern · Pair positioning</option><option value="2">frac · Automatic fractions</option><option value="3">zero · Slashed zero</option><option value="4">ss01 · Stylistic set 01</option><option value="5">calt · Contextual alternates</option><option value="6">locl · Localized Romanian</option><option value="7">mkmk · Mark-to-mark</option>
+            </select>
+            <div class="preset-grid" role="group" aria-label="OpenType feature specimens">
+              <button class="preset-option active" data-preset="0" aria-pressed="true"><code>liga</code><span>Ligatures</span></button>
+              <button class="preset-option" data-preset="1" aria-pressed="false"><code>kern</code><span>Kerning</span></button>
+              <button class="preset-option" data-preset="2" aria-pressed="false"><code>frac</code><span>Fractions</span></button>
+              <button class="preset-option" data-preset="3" aria-pressed="false"><code>zero</code><span>Slashed zero</span></button>
+              <button class="preset-option" data-preset="4" aria-pressed="false"><code>ss01</code><span>Stylistic set</span></button>
+              <button class="preset-option" data-preset="5" aria-pressed="false"><code>calt</code><span>Contextual</span></button>
+              <button class="preset-option" data-preset="6" aria-pressed="false"><code>locl</code><span>Romanian</span></button>
+              <button class="preset-option" data-preset="7" aria-pressed="false"><code>mkmk</code><span>Mark stacking</span></button>
+            </div>
+          </div>
+          <div class="feature-context">
+            <div>
+              <div class="workbench-label">Selected capability</div>
+              <div class="feature-heading"><span id="feature-tag">liga</span><span id="feature-name">Standard ligatures</span></div>
+              <p id="feature-detail">Compare independent glyphs with the GSUB ligature substitution produced by the native shaper.</p>
+            </div>
+            <div class="lab-actions">
+              <button id="benchmark-text" class="control">Benchmark 8 presets</button>
+              <span class="asset-note">Inter Regular · 404 KiB external asset</span>
+              <span id="benchmark-output" aria-live="polite"></span>
+            </div>
+          </div>
+        </section>
+
         <div class="stage">
           <canvas id="progpu-canvas" aria-label="Pure C++ ProGPU rendering surface"></canvas>
-          <div class="metrics">
-            <div class="metric">FPS <strong id="metric-fps">0</strong></div>
-            <div class="metric"><span id="metric-elements-label">segments</span> <strong id="metric-elements">0</strong></div>
-            <div class="metric"><span id="metric-groups-label">groups</span> <strong id="metric-groups">0</strong></div>
-            <div class="metric">GPU draws <strong id="metric-draws">0</strong></div>
-            <div class="metric">scene <strong id="metric-bytes">0 B</strong></div>
-            <div class="metric">update <strong id="metric-update">0 ms</strong></div>
-            <div class="metric">preset p95 <strong id="metric-benchmark">—</strong></div>
-            <div class="metric">Wasm <strong id="metric-wasm">—</strong></div>
-            <div class="metric">DPR <strong id="metric-dpr">1</strong></div>
-          </div>
+        </div>
+        <div class="telemetry" aria-label="Native renderer metrics">
+          <div class="metric">FPS<strong id="metric-fps">0</strong></div>
+          <div class="metric"><span id="metric-elements-label">segments</span><strong id="metric-elements">0</strong></div>
+          <div class="metric"><span id="metric-groups-label">groups</span><strong id="metric-groups">0</strong></div>
+          <div class="metric">GPU draws<strong id="metric-draws">0</strong></div>
+          <div class="metric">scene stream<strong id="metric-bytes">0 B</strong></div>
+          <div class="metric">native update<strong id="metric-update">0 ms</strong></div>
+          <div class="metric">preset p95<strong id="metric-benchmark">—</strong></div>
+          <div class="metric">Wasm HEAD<strong id="metric-wasm">—</strong></div>
+          <div class="metric">device scale<strong id="metric-dpr">1</strong></div>
         </div>
       </main>
     </div>
@@ -121,28 +288,58 @@
       const motionControls = document.querySelector('#motion-controls');
       const textControls = document.querySelector('#text-controls');
       const textPreset = document.querySelector('#text-preset');
+      const presetButtons = [...document.querySelectorAll('.preset-option')];
       const benchmarkText = document.querySelector('#benchmark-text');
+      const benchmarkOutput = document.querySelector('#benchmark-output');
       const title = document.querySelector('#sample-title');
+      const eyebrow = document.querySelector('#sample-eyebrow');
       const description = document.querySelector('#sample-description');
       const status = document.querySelector('#status-message');
+      const main = document.querySelector('main');
       let fontPromise;
+
+      const features = [
+        ['liga', 'Standard ligatures', 'Compare independent glyphs with the GSUB ligature substitution produced by the native shaper.'],
+        ['kern', 'Pair positioning', 'Inspect GPOS pair adjustments and the exact retained advances used by the GPU glyph run.'],
+        ['frac', 'Automatic fractions', 'Follow numerator, denominator, and fraction substitutions through one feature-selected shaping plan.'],
+        ['zero', 'Slashed zero', 'Toggle a stylistic alternate without changing the source Unicode scalar or cluster ownership.'],
+        ['ss01', 'Stylistic set 01', 'Exercise an author-selected OpenType stylistic set while preserving glyph positions and cache identity.'],
+        ['calt', 'Contextual alternates', 'Compare context-sensitive substitutions resolved by the native GSUB lookup pipeline.'],
+        ['locl', 'Localized Romanian', 'Verify language-specific substitutions and composite diacritic coverage at the physical display size.'],
+        ['mkmk', 'Mark-to-mark positioning', 'Inspect chained combining-mark attachment and GPOS offsets without platform text APIs.']
+      ];
+
+      const syncPresetUi = value => {
+        const preset = Math.max(0, Math.min(features.length - 1, Number(value)));
+        textPreset.value = String(preset);
+        presetButtons.forEach((button, index) => {
+          const selected = index === preset;
+          button.classList.toggle('active', selected);
+          button.setAttribute('aria-pressed', String(selected));
+        });
+        document.querySelector('#feature-tag').textContent = features[preset][0];
+        document.querySelector('#feature-name').textContent = features[preset][1];
+        document.querySelector('#feature-detail').textContent = features[preset][2];
+      };
 
       const showSampleUi = sample => {
         const text = sample === 1;
+        main.dataset.sample = text ? 'text' : 'motion';
         motionButton.classList.toggle('active', !text);
         textButton.classList.toggle('active', text);
         motionControls.hidden = text;
         textControls.hidden = !text;
-        title.textContent = text ? 'Text shaping' : 'MotionMark';
+        eyebrow.textContent = text ? 'Native OpenType feature wall' : 'Native vector workload';
+        title.textContent = text ? 'Text shaping laboratory' : 'MotionMark';
         description.textContent = text
-          ? 'The managed Text Shaping Showcase feature wall ported to pure C++: one native OpenType result feeds retained glyph outlines and the production WebGPU text pipeline.'
-          : 'Mixed line, quadratic, and cubic paths animated through one immutable native semantic stream and the production ProGPU GPU pipeline.';
+          ? 'Eight managed showcase cases ported to pure C++ shaping, retained physical-size glyph coverage, and the shared production WebGPU text shader.'
+          : 'Mixed analytic paths animated through one immutable semantic stream and the production ProGPU WebGPU pipeline.';
         document.querySelector('#metric-elements-label').textContent = text ? 'glyphs' : 'segments';
         document.querySelector('#metric-groups-label').textContent = text ? 'outlines' : 'groups';
       };
 
       const ensureFont = () => fontPromise ??= (async () => {
-        status.textContent = 'Loading the separate Inter font asset…';
+        status.textContent = 'Loading Inter into native font memory…';
         const response = await fetch('Inter-Regular.ttf');
         if (!response.ok) throw new Error(`Font request failed: ${response.status}`);
         const bytes = new Uint8Array(await response.arrayBuffer());
@@ -183,6 +380,7 @@
             throw new Error('The native text sample did not activate.');
           }
           showSampleUi(1);
+          syncPresetUi(Number(textPreset.value));
         } catch (error) {
           document.body.dataset.progpuNativeError = String(error);
           status.textContent = String(error);
@@ -191,21 +389,34 @@
           textButton.disabled = false;
         }
       });
-      textPreset.addEventListener('change', event =>
-        Module._progpu_native_gallery_set_text_preset(Number(event.target.value)));
+
+      const selectPreset = value => {
+        const preset = Number(value);
+        syncPresetUi(preset);
+        Module._progpu_native_gallery_set_text_preset(preset);
+      };
+      textPreset.addEventListener('change', event => selectPreset(event.target.value));
+      presetButtons.forEach(button => button.addEventListener('click', () =>
+        selectPreset(button.dataset.preset)));
+
       benchmarkText.addEventListener('click', async () => {
         benchmarkText.disabled = true;
+        benchmarkText.classList.add('running');
+        benchmarkOutput.textContent = 'warming…';
         const samples = [];
         try {
           for (let round = 0; round < 4; round++) {
             for (let step = 0; step < textPreset.options.length; step++) {
               const preset = (step + 1) % textPreset.options.length;
-              textPreset.value = String(preset);
-              Module._progpu_native_gallery_set_text_preset(preset);
+              syncPresetUi(preset);
+              const generation =
+                Module._progpu_native_gallery_set_text_preset(preset);
+              benchmarkOutput.textContent = `${samples.length + 1} / 32`;
               await new Promise((resolve, reject) => {
                 const started = performance.now();
                 const poll = () => {
-                  if (document.body.dataset.progpuNativeTextPreset === String(preset)) {
+                  if (document.body.dataset.progpuNativeTextGeneration ===
+                      String(generation)) {
                     resolve();
                   } else if (performance.now() - started > 5000) {
                     reject(new Error('Preset benchmark timed out.'));
@@ -215,27 +426,26 @@
                 };
                 requestAnimationFrame(poll);
               });
-              samples.push(Number(
-                document.body.dataset.progpuNativeUpdateMilliseconds));
+              samples.push(Number(document.body.dataset.progpuNativeUpdateMilliseconds));
             }
           }
           samples.sort((left, right) => left - right);
-          const percentile = value => samples[
-            Math.min(samples.length - 1, Math.ceil(samples.length * value) - 1)];
+          const percentile = value => samples[Math.min(samples.length - 1, Math.ceil(samples.length * value) - 1)];
           const p50 = percentile(0.50);
           const p95 = percentile(0.95);
           const maximum = samples[samples.length - 1];
-          document.querySelector('#metric-benchmark').textContent =
-            p95.toFixed(2) + ' ms';
+          document.querySelector('#metric-benchmark').textContent = p95.toFixed(2) + ' ms';
+          benchmarkOutput.textContent = `p50 ${p50.toFixed(2)} · p95 ${p95.toFixed(2)} ms`;
           document.body.dataset.progpuNativeBenchmarkSamples = String(samples.length);
           document.body.dataset.progpuNativeBenchmarkP50 = String(p50);
           document.body.dataset.progpuNativeBenchmarkP95 = String(p95);
           document.body.dataset.progpuNativeBenchmarkMax = String(maximum);
         } catch (error) {
-          status.textContent = String(error);
+          benchmarkOutput.textContent = String(error);
           console.error(error);
         } finally {
           benchmarkText.disabled = false;
+          benchmarkText.classList.remove('running');
         }
       });
     });

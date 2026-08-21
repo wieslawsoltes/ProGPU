@@ -194,6 +194,25 @@ bool text_shaping_showcase_scene::load_font(
     return true;
 }
 
+bool text_shaping_showcase_scene::load_font(
+    std::vector<std::byte>&& font_bytes) noexcept {
+    if (font_bytes.empty()) {
+        return false;
+    }
+    font_bytes_ = std::move(font_bytes);
+    text::font_error error = text::font_error::none;
+    text::sfnt_font_view parsed;
+    if (!text::sfnt_font_view::try_create(
+            font_bytes_, 0U, parsed, &error)) {
+        font_bytes_.clear();
+        return false;
+    }
+    font_ = parsed;
+    ready_ = true;
+    mark_dirty();
+    return true;
+}
+
 bool text_shaping_showcase_scene::resize(
     float width,
     float height,
@@ -253,11 +272,13 @@ bool text_shaping_showcase_scene::compile(
 
         const float compact = std::clamp(width_ / 900.0F, 0.72F, 1.0F);
         const float margin = std::clamp(width_ * 0.045F, 16.0F, 42.0F);
-        const float preview_size = std::clamp(width_ / 20.0F, 25.0F, 46.0F);
-        const float title_size = 34.0F * compact;
+        const float preview_size = std::clamp(width_ / 16.0F, 30.0F, 62.0F);
+        const float title_size = std::min(
+            34.0F * compact,
+            std::max(18.0F, width_ / 18.5F));
         const float body_size = 14.0F * compact;
         const float card_top = 126.0F * compact;
-        const float row_gap = std::clamp(height_ * 0.14F, 62.0F, 92.0F);
+        const float row_gap = std::clamp(height_ * 0.18F, 75.0F, 112.0F);
 
         std::vector<shaped_run> runs(10U);
         runs[0U] = {{}, {}, margin, 48.0F * compact, title_size,
@@ -375,49 +396,65 @@ bool text_shaping_showcase_scene::compile(
         }
 
         std::vector<progpu_native_scene_glyph_outline> outlines;
-        std::vector<progpu_native_path_segment> raster_segments;
         std::unordered_map<std::uint64_t, std::uint32_t> outline_indices;
+        std::unordered_map<std::uint32_t, float> first_raster_sizes;
         outlines.reserve(glyph_ids.size() * 3U);
-        raster_segments.reserve(segments.size() * 3U);
         outline_indices.reserve(glyph_ids.size() * 3U);
+        first_raster_sizes.reserve(glyph_ids.size());
         for (const auto& run : runs) {
             const float raster_font_size = std::clamp(
                 run.font_size, 4.0F, 128.0F);
-            const float raster_scale = raster_font_size * dpi_scale_ /
-                static_cast<float>(header.units_per_em);
             for (const auto& glyph : run.glyphs) {
-                const auto geometry = geometries.find(glyph.glyph_id);
-                if (geometry == geometries.end()) {
-                    continue;
+                if (geometries.contains(glyph.glyph_id)) {
+                    first_raster_sizes.try_emplace(
+                        glyph.glyph_id, raster_font_size);
                 }
-                const std::uint64_t key = outline_key(
-                    glyph.glyph_id, raster_font_size);
-                if (outline_indices.contains(key)) {
-                    continue;
-                }
-                const std::uint32_t outline_index =
-                    static_cast<std::uint32_t>(outlines.size());
-                outline_indices.emplace(key, outline_index);
-                const auto& retained = geometry->second;
-                const std::uint64_t segment_offset = raster_segments.size();
-                raster_segments.insert(
-                    raster_segments.end(),
-                    segments.begin() + static_cast<std::ptrdiff_t>(
-                        retained.segment_offset),
-                    segments.begin() + static_cast<std::ptrdiff_t>(
-                        retained.segment_offset + retained.segment_count));
-                outlines.push_back({
-                    segment_offset,
-                    retained.segment_count,
-                    retained.min_x,
-                    retained.min_y,
-                    retained.max_x,
-                    retained.max_y,
-                    raster_scale,
-                    0.0F});
             }
         }
-        if (outlines.empty() || raster_segments.empty()) {
+
+        const auto append_outline = [&](std::uint32_t glyph_id,
+                                        float raster_font_size) {
+            const std::uint64_t key = outline_key(
+                glyph_id, raster_font_size);
+            if (outline_indices.contains(key)) {
+                return;
+            }
+            const auto geometry = geometries.find(glyph_id);
+            if (geometry == geometries.end()) {
+                return;
+            }
+            const std::uint32_t outline_index =
+                static_cast<std::uint32_t>(outlines.size());
+            outline_indices.emplace(key, outline_index);
+            const auto& retained = geometry->second;
+            outlines.push_back({
+                retained.segment_offset,
+                retained.segment_count,
+                retained.min_x,
+                retained.min_y,
+                retained.max_x,
+                retained.max_y,
+                raster_font_size * dpi_scale_ /
+                    static_cast<float>(header.units_per_em),
+                0.0F});
+        };
+        // The first record for each glyph follows the packed source-segment
+        // order, keeping the shared auxiliary stream gap-free. Additional
+        // physical sizes then reference those same immutable ranges.
+        for (const std::uint32_t glyph_id : glyph_ids) {
+            const auto size = first_raster_sizes.find(glyph_id);
+            if (size != first_raster_sizes.end()) {
+                append_outline(glyph_id, size->second);
+            }
+        }
+        for (const auto& run : runs) {
+            const float raster_font_size = std::clamp(
+                run.font_size, 4.0F, 128.0F);
+            for (const auto& glyph : run.glyphs) {
+                append_outline(glyph.glyph_id, raster_font_size);
+            }
+        }
+        if (outlines.empty()) {
             return false;
         }
 
@@ -460,7 +497,7 @@ bool text_shaping_showcase_scene::compile(
             !builder_.reserve(
                 static_cast<std::uint32_t>(runs.size() + 1U),
                 6U,
-                static_cast<std::uint64_t>(raster_segments.size()) *
+                static_cast<std::uint64_t>(segments.size()) *
                     sizeof(progpu_native_path_segment) +
                     visible_glyphs * sizeof(progpu_native_positioned_glyph))) {
             return false;
@@ -469,8 +506,10 @@ bool text_shaping_showcase_scene::compile(
         constexpr progpu_native_color card{0.105F, 0.112F, 0.148F, 1.0F};
         constexpr progpu_native_color off_row{0.125F, 0.132F, 0.17F, 1.0F};
         constexpr progpu_native_color on_row{0.075F, 0.20F, 0.35F, 1.0F};
-        const float card_height = std::max(
-            230.0F, std::min(height_ - card_top - 48.0F, row_gap * 2.55F));
+        const float available_card_height = std::max(
+            180.0F, height_ - card_top - 42.0F);
+        const float card_height = std::min(
+            available_card_height, 94.0F + row_gap * 2.0F);
         const std::array backgrounds{
             rectangle(0.0F, 0.0F, width_, height_, 0.0F, page),
             rectangle(margin, card_top, width_ - margin * 2.0F,
@@ -498,7 +537,7 @@ bool text_shaping_showcase_scene::compile(
         }
         std::uint32_t glyph_resource = PROGPU_NATIVE_SCENE_NO_INDEX;
         if (!builder_.add_glyph_outlines(
-                outlines, raster_segments, glyph_resource)) {
+                outlines, segments, glyph_resource)) {
             return false;
         }
         for (const auto& run : runs) {
