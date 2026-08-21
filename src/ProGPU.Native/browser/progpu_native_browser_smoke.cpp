@@ -717,7 +717,7 @@ bool render_browser_frame(double, void*) {
             &semantic_frame,
             &builder_frame_metrics) != PROGPU_NATIVE_STATUS_SUCCESS ||
         builder_frame_metrics.command_count != 11U ||
-        builder_frame_metrics.draw_call_count != 8U ||
+        builder_frame_metrics.draw_call_count != 5U ||
         builder_frame_metrics.submission_count != 1U ||
         builder_frame_metrics.brush_upload_bytes == 0U ||
         builder_frame_metrics.vertex_upload_bytes == 0U ||
@@ -884,7 +884,7 @@ bool render_browser_frame(double, void*) {
             &geometry_metrics);
     if (geometry_status != PROGPU_NATIVE_STATUS_SUCCESS ||
         geometry_metrics.command_count != 4U ||
-        geometry_metrics.draw_call_count != 4U ||
+        geometry_metrics.draw_call_count != 1U ||
         geometry_metrics.submission_count != 1U ||
         geometry_metrics.brush_upload_bytes !=
             3U * sizeof(progpu_native_scene_brush) ||

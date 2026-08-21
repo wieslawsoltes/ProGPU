@@ -901,7 +901,7 @@ bool semantic_scene_builder_records_styled_glyph_runs() {
     const auto command = read<progpu_native_scene_command>(
         stream,
         validated.header.command_offset);
-    return glyph_record.kind == PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN &&
+    if (!(glyph_record.kind == PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN &&
         glyph_record.payload_size == sizeof(outline) &&
         glyph_record.auxiliary_size == sizeof(segments) &&
         style_record.kind ==
@@ -909,7 +909,24 @@ bool semantic_scene_builder_records_styled_glyph_runs() {
         style_record.payload_size == sizeof(style) &&
         (command.flags & PROGPU_NATIVE_SCENE_GLYPH_STYLED) != 0U &&
         command.payload_size == sizeof(progpu_native_scene_glyph_draw) +
-            sizeof(glyphs);
+            sizeof(glyphs))) {
+        return false;
+    }
+
+    const auto original_hashes = semantic::compute_content_hashes(
+        stream.data(), validated.header);
+    auto style_changed = stream;
+    auto changed_style = style_record;
+    ++changed_style.generation;
+    std::memcpy(
+        style_changed.data() + validated.header.resource_offset +
+            validated.header.resource_stride,
+        &changed_style,
+        sizeof(changed_style));
+    const auto changed_hashes = semantic::compute_content_hashes(
+        style_changed.data(), validated.header);
+    return changed_hashes.text_style != original_hashes.text_style &&
+        changed_hashes.glyph != original_hashes.glyph;
 }
 
 bool semantic_scene_builder_records_native_shaped_runs() {
@@ -1503,12 +1520,40 @@ bool semantic_scene_content_hashes_isolate_image_updates() {
         first.data(), first_header);
     const auto second_hashes = semantic::compute_content_hashes(
         second.data(), second_header);
-    return first_hashes.brush == second_hashes.brush &&
+    if (!(first_hashes.brush == second_hashes.brush &&
         first_hashes.text_style == second_hashes.text_style &&
         first_hashes.analytic == second_hashes.analytic &&
         first_hashes.path == second_hashes.path &&
         first_hashes.glyph == second_hashes.glyph &&
-        first_hashes.image != second_hashes.image;
+        first_hashes.image != second_hashes.image)) {
+        return false;
+    }
+
+    auto brush_changed = first;
+    const auto brush_header = read<progpu_native_scene_header>(
+        brush_changed, 0U);
+    for (std::uint32_t index = 0U;
+         index < brush_header.resource_count;
+         ++index) {
+        const auto offset = static_cast<std::uint32_t>(
+            brush_header.resource_offset +
+            index * brush_header.resource_stride);
+        auto resource = read<progpu_native_scene_resource>(
+            brush_changed, offset);
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE) {
+            continue;
+        }
+        ++resource.generation;
+        std::memcpy(
+            brush_changed.data() + offset,
+            &resource,
+            sizeof(resource));
+    }
+    const auto brush_hashes = semantic::compute_content_hashes(
+        brush_changed.data(), brush_header);
+    return brush_hashes.brush != first_hashes.brush &&
+        brush_hashes.analytic != first_hashes.analytic &&
+        brush_hashes.glyph == first_hashes.glyph;
 }
 
 bool semantic_scene_builder_records_retained_hit_test_index() {

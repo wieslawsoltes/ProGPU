@@ -1326,6 +1326,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/Scene/progpu_native_semantic_text_style.hpp
         src/Scene/progpu_native_semantic_effect_cache.cpp
         src/Scene/progpu_native_semantic_effect_cache.hpp
+        src/Scene/progpu_native_semantic_draw_merge.hpp
         src/Scene/progpu_native_semantic_replay.hpp
         src/Scene/progpu_native_semantic_state.cpp
         src/Scene/progpu_native_semantic_state.hpp

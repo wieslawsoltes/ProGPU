@@ -3388,6 +3388,16 @@ progpu_native_status render_scene(
         std::uint32_t active_mask_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX;
         semantic_render_bundle_span active_mask{};
+        enum class pending_draw_kind : std::uint8_t {
+            none,
+            analytic,
+            path,
+            glyph,
+        };
+        pending_draw_kind pending_kind = pending_draw_kind::none;
+        semantic_analytic_draw pending_analytic_draw{};
+        semantic_path_draw pending_path_draw{};
+        semantic_glyph_draw pending_glyph_draw{};
         const auto release_mask_resources = [](
             semantic_render_bundle_span& span) noexcept {
             if (span.mask_bind_group != nullptr) {
@@ -3442,9 +3452,53 @@ progpu_native_status render_scene(
             discard_encoder();
             return status;
         };
+        const auto flush_pending_draw = [&]() {
+            progpu_native_status status = PROGPU_NATIVE_STATUS_SUCCESS;
+            switch (pending_kind) {
+                case pending_draw_kind::analytic:
+                    status = encode_semantic_analytic_bundle_draw(
+                        *engine,
+                        bundle_encoder,
+                        pending_analytic_draw,
+                        active_target_layer,
+                        active_mask.mask_bind_group,
+                        active_mask.mask_chain_bind_group);
+                    break;
+                case pending_draw_kind::path:
+                    status = encode_semantic_path_bundle_draw(
+                        *engine,
+                        bundle_encoder,
+                        pending_path_draw,
+                        active_target_layer,
+                        active_mask.mask_bind_group,
+                        active_mask.mask_chain_bind_group);
+                    break;
+                case pending_draw_kind::glyph:
+                    status = encode_semantic_glyph_bundle_draw(
+                        *engine,
+                        bundle_encoder,
+                        pending_glyph_draw,
+                        active_target_layer,
+                        active_mask.mask_bind_group,
+                        active_mask.mask_chain_bind_group);
+                    break;
+                case pending_draw_kind::none:
+                    return PROGPU_NATIVE_STATUS_SUCCESS;
+            }
+            if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
+                ++draw_calls;
+                ++active_bundle_draw_count;
+                pending_kind = pending_draw_kind::none;
+            }
+            return status;
+        };
         const auto finish_active_bundle = [&]() {
             if (bundle_encoder == nullptr) {
                 return PROGPU_NATIVE_STATUS_SUCCESS;
+            }
+            const auto flush_status = flush_pending_draw();
+            if (flush_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+                return flush_status;
             }
             WGPURenderBundleDescriptor finish_descriptor{};
             finish_descriptor.label = progpu::native::webgpu::string_view(
@@ -3955,13 +4009,18 @@ progpu_native_status render_scene(
                     const auto draw_index = semantic_analytic_draw_index;
                     ++semantic_analytic_draw_index;
                     if (scissor.drawable) {
-                        status = encode_semantic_analytic_bundle_draw(
-                                *engine,
-                                bundle_encoder,
-                                semantic_analytic_page.draws[draw_index],
-                                current_target_layer,
-                                active_mask.mask_bind_group,
-                                active_mask.mask_chain_bind_group);
+                        const auto& draw =
+                            semantic_analytic_page.draws[draw_index];
+                        if (pending_kind != pending_draw_kind::analytic ||
+                            !try_merge_semantic_analytic_draw(
+                                pending_analytic_draw,
+                                draw)) {
+                            status = flush_pending_draw();
+                            if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
+                                pending_analytic_draw = draw;
+                                pending_kind = pending_draw_kind::analytic;
+                            }
+                        }
                     }
                     break;
                 }
@@ -3975,13 +4034,18 @@ progpu_native_status render_scene(
                     const auto draw_index = semantic_analytic_draw_index;
                     ++semantic_analytic_draw_index;
                     if (scissor.drawable) {
-                        status = encode_semantic_analytic_bundle_draw(
-                                *engine,
-                                bundle_encoder,
-                                semantic_analytic_page.draws[draw_index],
-                                current_target_layer,
-                                active_mask.mask_bind_group,
-                                active_mask.mask_chain_bind_group);
+                        const auto& draw =
+                            semantic_analytic_page.draws[draw_index];
+                        if (pending_kind != pending_draw_kind::analytic ||
+                            !try_merge_semantic_analytic_draw(
+                                pending_analytic_draw,
+                                draw)) {
+                            status = flush_pending_draw();
+                            if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
+                                pending_analytic_draw = draw;
+                                pending_kind = pending_draw_kind::analytic;
+                            }
+                        }
                     }
                     break;
                 }
@@ -3995,13 +4059,18 @@ progpu_native_status render_scene(
                     const auto draw_index = semantic_analytic_draw_index;
                     ++semantic_analytic_draw_index;
                     if (scissor.drawable) {
-                        status = encode_semantic_analytic_bundle_draw(
-                                *engine,
-                                bundle_encoder,
-                                semantic_analytic_page.draws[draw_index],
-                                current_target_layer,
-                                active_mask.mask_bind_group,
-                                active_mask.mask_chain_bind_group);
+                        const auto& draw =
+                            semantic_analytic_page.draws[draw_index];
+                        if (pending_kind != pending_draw_kind::analytic ||
+                            !try_merge_semantic_analytic_draw(
+                                pending_analytic_draw,
+                                draw)) {
+                            status = flush_pending_draw();
+                            if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
+                                pending_analytic_draw = draw;
+                                pending_kind = pending_draw_kind::analytic;
+                            }
+                        }
                     }
                     break;
                 }
@@ -4015,13 +4084,18 @@ progpu_native_status render_scene(
                     const auto draw_index = semantic_analytic_draw_index;
                     ++semantic_analytic_draw_index;
                     if (scissor.drawable) {
-                        status = encode_semantic_analytic_bundle_draw(
-                                *engine,
-                                bundle_encoder,
-                                semantic_analytic_page.draws[draw_index],
-                                current_target_layer,
-                                active_mask.mask_bind_group,
-                                active_mask.mask_chain_bind_group);
+                        const auto& draw =
+                            semantic_analytic_page.draws[draw_index];
+                        if (pending_kind != pending_draw_kind::analytic ||
+                            !try_merge_semantic_analytic_draw(
+                                pending_analytic_draw,
+                                draw)) {
+                            status = flush_pending_draw();
+                            if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
+                                pending_analytic_draw = draw;
+                                pending_kind = pending_draw_kind::analytic;
+                            }
+                        }
                     }
                     break;
                 }
@@ -4035,13 +4109,18 @@ progpu_native_status render_scene(
                     const auto draw_index = semantic_analytic_draw_index;
                     ++semantic_analytic_draw_index;
                     if (scissor.drawable) {
-                        status = encode_semantic_analytic_bundle_draw(
-                                *engine,
-                                bundle_encoder,
-                                semantic_analytic_page.draws[draw_index],
-                                current_target_layer,
-                                active_mask.mask_bind_group,
-                                active_mask.mask_chain_bind_group);
+                        const auto& draw =
+                            semantic_analytic_page.draws[draw_index];
+                        if (pending_kind != pending_draw_kind::analytic ||
+                            !try_merge_semantic_analytic_draw(
+                                pending_analytic_draw,
+                                draw)) {
+                            status = flush_pending_draw();
+                            if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
+                                pending_analytic_draw = draw;
+                                pending_kind = pending_draw_kind::analytic;
+                            }
+                        }
                     }
                     break;
                 }
@@ -4055,13 +4134,17 @@ progpu_native_status render_scene(
                     const auto draw_index = semantic_path_draw_index;
                     ++semantic_path_draw_index;
                     if (scissor.drawable) {
-                        status = encode_semantic_path_bundle_draw(
-                                *engine,
-                                bundle_encoder,
-                                semantic_path_page.draws[draw_index],
-                                current_target_layer,
-                                active_mask.mask_bind_group,
-                                active_mask.mask_chain_bind_group);
+                        const auto& draw = semantic_path_page.draws[draw_index];
+                        if (pending_kind != pending_draw_kind::path ||
+                            !try_merge_semantic_path_draw(
+                                pending_path_draw,
+                                draw)) {
+                            status = flush_pending_draw();
+                            if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
+                                pending_path_draw = draw;
+                                pending_kind = pending_draw_kind::path;
+                            }
+                        }
                     }
                     break;
                 }
@@ -4075,13 +4158,18 @@ progpu_native_status render_scene(
                     const auto draw_index = semantic_glyph_draw_index;
                     ++semantic_glyph_draw_index;
                     if (scissor.drawable) {
-                        status = encode_semantic_glyph_bundle_draw(
-                                *engine,
-                                bundle_encoder,
-                                semantic_glyph_page.draws[draw_index],
-                                current_target_layer,
-                                active_mask.mask_bind_group,
-                                active_mask.mask_chain_bind_group);
+                        const auto& draw =
+                            semantic_glyph_page.draws[draw_index];
+                        if (pending_kind != pending_draw_kind::glyph ||
+                            !try_merge_semantic_glyph_draw(
+                                pending_glyph_draw,
+                                draw)) {
+                            status = flush_pending_draw();
+                            if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
+                                pending_glyph_draw = draw;
+                                pending_kind = pending_draw_kind::glyph;
+                            }
+                        }
                     }
                     break;
                 }
@@ -4095,13 +4183,20 @@ progpu_native_status render_scene(
                     const auto draw_index = semantic_image_draw_index;
                     ++semantic_image_draw_index;
                     if (scissor.drawable) {
-                        status = encode_semantic_image_bundle_draw(
-                                *engine,
-                                bundle_encoder,
-                                semantic_image_page.draws[draw_index],
-                                current_target_layer,
-                                active_mask.mask_bind_group,
-                                active_mask.mask_chain_bind_group);
+                        status = flush_pending_draw();
+                        if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
+                            status = encode_semantic_image_bundle_draw(
+                                    *engine,
+                                    bundle_encoder,
+                                    semantic_image_page.draws[draw_index],
+                                    current_target_layer,
+                                    active_mask.mask_bind_group,
+                                    active_mask.mask_chain_bind_group);
+                            if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
+                                ++draw_calls;
+                                ++active_bundle_draw_count;
+                            }
+                        }
                     }
                     break;
                 }
@@ -4115,10 +4210,17 @@ progpu_native_status render_scene(
                     }
                     const auto draw_index = semantic_3d_draw_index++;
                     if (scissor.drawable) {
-                        status = encode_semantic_3d_bundle_draw(
-                            *engine,
-                            bundle_encoder,
-                            engine->semantic_3d_cache.draws[draw_index]);
+                        status = flush_pending_draw();
+                        if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
+                            status = encode_semantic_3d_bundle_draw(
+                                *engine,
+                                bundle_encoder,
+                                engine->semantic_3d_cache.draws[draw_index]);
+                            if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
+                                ++draw_calls;
+                                ++active_bundle_draw_count;
+                            }
+                        }
                     }
                     break;
                 }
@@ -4128,8 +4230,6 @@ progpu_native_status render_scene(
             if (status != PROGPU_NATIVE_STATUS_SUCCESS) {
                 return fail_bundle(status);
             }
-            draw_calls += scissor.drawable ? 1U : 0U;
-            active_bundle_draw_count += scissor.drawable ? 1U : 0U;
         }
 
         if (semantic_destination_sampling_active) {
