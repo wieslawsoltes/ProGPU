@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <system_error>
@@ -367,8 +368,19 @@ void add_if_missing(std::vector<std::string>& values, std::string value) {
 #if defined(__APPLE__) || defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
 void add_environment_path(std::vector<std::string>& values, const char* variable,
                           std::string_view suffix) {
-    const auto* root = std::getenv(variable);
-    if (root == nullptr || *root == '\0') return;
+    std::string root;
+#if defined(_WIN32)
+    char* environment_value = nullptr;
+    std::size_t environment_length = 0U;
+    if (_dupenv_s(&environment_value, &environment_length, variable) != 0) return;
+    const std::unique_ptr<char, decltype(&std::free)> owner(environment_value, &std::free);
+    if (environment_value == nullptr || *environment_value == '\0') return;
+    root = environment_value;
+#else
+    const auto* environment_value = std::getenv(variable);
+    if (environment_value == nullptr || *environment_value == '\0') return;
+    root = environment_value;
+#endif
     auto path = std::filesystem::path(root);
     if (!suffix.empty()) path /= suffix;
     add_if_missing(values, path.string());
