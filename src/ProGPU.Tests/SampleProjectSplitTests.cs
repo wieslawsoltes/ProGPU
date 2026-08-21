@@ -1265,7 +1265,7 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
-    public void GitHubPagesPublishesAotBrowserArtifactBelowRepositoryPath()
+    public void GitHubPagesPublishesManagedAndNativeAotBrowserArtifacts()
     {
         var workflow = Read(".github", "workflows", "browser-pages.yml");
         var html = Read("src", "ProGPU.Samples.Browser", "wwwroot", "index.html");
@@ -1273,6 +1273,9 @@ public sealed class SampleProjectSplitTests
 
         Assert.Contains("dotnet publish src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj", workflow, StringComparison.Ordinal);
         Assert.Contains("--configuration Release", workflow, StringComparison.Ordinal);
+        Assert.Contains("mymindstorm/setup-emsdk@v16", workflow, StringComparison.Ordinal);
+        Assert.Contains("./eng/publish-progpu-native-browser-gallery.sh", workflow, StringComparison.Ordinal);
+        Assert.Contains("artifacts/browser-aot/wwwroot/native", workflow, StringComparison.Ordinal);
         Assert.Contains("path: artifacts/browser-aot/wwwroot", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/configure-pages@v5", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/upload-pages-artifact@v4", workflow, StringComparison.Ordinal);

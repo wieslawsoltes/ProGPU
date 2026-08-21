@@ -86,6 +86,11 @@ python3 -m http.server 8091 \
 Then open
 `http://127.0.0.1:8091/progpu_native_browser_gallery.html`.
 
+On `main`, the Browser Pages workflow publishes the same four-file payload
+beside the managed AOT gallery under `/native/`. Both gallery variants therefore
+share one deployment origin and the same canonical browser host module while
+remaining independently compiled runtimes.
+
 The browser executable uses C++20, `Release`, `-O3`, and link-time optimization
 for its compile and link phases. This matches Emscripten's [optimized build
 guidance](https://emscripten.org/docs/compiling/Building-Projects.html#building-projects-with-optimizations).

@@ -30,6 +30,12 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v16
+        with:
+          version: 4.0.18
+          actions-cache-folder: artifacts/emsdk-cache
+
       - name: Restore WebAssembly workload
         run: dotnet workload restore src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj
 
@@ -47,6 +53,11 @@ jobs:
           --no-restore
           --output artifacts/browser-aot
           -p:ContinuousIntegrationBuild=true
+
+      - name: Publish pure C++ WebAssembly AOT gallery
+        env:
+          PROGPU_NATIVE_BROWSER_GALLERY_PUBLISH_DIR: ${{ github.workspace }}/artifacts/browser-aot/wwwroot/native
+        run: ./eng/publish-progpu-native-browser-gallery.sh
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v4
