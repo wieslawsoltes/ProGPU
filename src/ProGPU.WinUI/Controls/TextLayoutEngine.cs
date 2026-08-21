@@ -322,7 +322,7 @@ namespace Microsoft.UI.Xaml.Controls
                 richChar.FontStyle is Windows.UI.Text.FontStyle.Italic or Windows.UI.Text.FontStyle.Oblique ||
                 richChar.IsItalic || requestedFont.IsItalic ? FontSlant.Italic : FontSlant.Upright)
             {
-                OpticalSize = richChar.FontSize
+                OpticalSize = ConvertFontSizeToOpticalPoints(richChar.FontSize)
             };
             charFont = FontApi.Manager.MatchTypeface(requestedFont, requestedStyle) ?? requestedFont;
             richChar.Font = charFont;
@@ -342,6 +342,9 @@ namespace Microsoft.UI.Xaml.Controls
 
             return glyphIndex;
         }
+
+        internal static float ConvertFontSizeToOpticalPoints(float fontSize) =>
+            fontSize * (72f / 96f);
 
         private static void ResolveCharacterFonts(List<RichChar> characters, TtfFont activeFont)
         {

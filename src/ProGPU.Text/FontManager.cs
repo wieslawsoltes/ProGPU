@@ -29,10 +29,20 @@ public readonly record struct FontStyleRequest(int Weight, int Width, FontSlant 
     public static FontStyleRequest FromFont(TtfFont font)
     {
         ArgumentNullException.ThrowIfNull(font);
-        return new FontStyleRequest(
+        var result = new FontStyleRequest(
             font.WeightClass == 0 ? 400 : font.WeightClass,
             font.WidthClass == 0 ? 5 : font.WidthClass,
             font.IsItalic ? FontSlant.Italic : FontSlant.Upright);
+        for (var index = 0; index < font.VariationSettings.Count; index++)
+        {
+            FontVariationSetting setting = font.VariationSettings[index];
+            if (setting.Tag == "opsz" && float.IsFinite(setting.Value) &&
+                setting.Value > 0)
+            {
+                return result with { OpticalSize = setting.Value };
+            }
+        }
+        return result;
     }
 }
 
@@ -620,19 +630,23 @@ public sealed class FontManager
         return result;
     }
 
-    private static FontStyleRequest NormalizeStyle(FontStyleRequest style) =>
-        style == default
-            ? FontStyleRequest.Normal
-            : new FontStyleRequest(
+    private static FontStyleRequest NormalizeStyle(FontStyleRequest style)
+    {
+        bool unspecifiedBase = style.Weight == 0 && style.Width == 0 &&
+            style.Slant == FontSlant.Upright;
+        return new FontStyleRequest(
+            unspecifiedBase ? FontStyleRequest.Normal.Weight :
                 Math.Clamp(style.Weight, 1, 1000),
+            unspecifiedBase ? FontStyleRequest.Normal.Width :
                 Math.Clamp(style.Width, 1, 9),
-                style.Slant)
-            {
-                OpticalSize = float.IsFinite(style.OpticalSize) &&
-                    style.OpticalSize > 0
-                        ? style.OpticalSize
-                        : 0
-            };
+            style.Slant)
+        {
+            OpticalSize = float.IsFinite(style.OpticalSize) &&
+                style.OpticalSize > 0
+                    ? style.OpticalSize
+                    : 0
+        };
+    }
 
     private static string GetStyleName(string familyName, FontStyleRequest style)
     {
