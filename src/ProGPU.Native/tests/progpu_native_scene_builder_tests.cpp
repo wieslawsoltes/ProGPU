@@ -1631,6 +1631,30 @@ bool semantic_scene_content_hashes_isolate_image_updates() {
         return false;
     }
 
+    auto image_before_analytic = first;
+    auto first_analytic_command = read<progpu_native_scene_command>(
+        image_before_analytic, first_header.command_offset);
+    auto first_image_command = read<progpu_native_scene_command>(
+        image_before_analytic,
+        first_header.command_offset + first_header.command_stride);
+    std::memcpy(
+        image_before_analytic.data() + first_header.command_offset,
+        &first_image_command,
+        sizeof(first_image_command));
+    std::memcpy(
+        image_before_analytic.data() + first_header.command_offset +
+            first_header.command_stride,
+        &first_analytic_command,
+        sizeof(first_analytic_command));
+    const auto image_before_analytic_hashes =
+        semantic::compute_content_hashes(
+            image_before_analytic.data(), first_header);
+    if (!(image_before_analytic_hashes.brush == first_hashes.brush &&
+        image_before_analytic_hashes.analytic == first_hashes.analytic &&
+        image_before_analytic_hashes.image == first_hashes.image)) {
+        return false;
+    }
+
     auto brush_changed = first;
     const auto brush_header = read<progpu_native_scene_header>(
         brush_changed, 0U);
