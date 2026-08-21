@@ -19,12 +19,140 @@
 #include <utility>
 #include <vector>
 
+#if defined(_WIN32)
+#define NOMINMAX
+#include <windows.h>
+#elif (defined(__unix__) || defined(__APPLE__)) && !defined(__EMSCRIPTEN__)
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
 // Direct native port provenance: ProGPU-owned FontApi.ScanSystemFonts,
 // SfntFontMetadataReader, and FontManager matching policy at checkpoint
 // 497afbb3. The native catalog keeps the same metadata-only discovery and
 // lazy-cmap/full-face ownership boundaries without using a platform text API.
+// Native residency port provenance: ProGPU-owned MappedFontData,
+// TtfFont.CreateFileStorage, and TtfFont.LoadGlyphResidentFile at checkpoint
+// 0779b911. Selected SFNT files use the same read-only mapped-file policy, and
+// large bitmap fallbacks can derive a bounded owned face for one glyph.
 
 namespace progpu::native::text {
+
+class font_file_storage final {
+  public:
+    static std::shared_ptr<const font_file_storage> try_map(
+        const std::filesystem::path& path) noexcept {
+#if defined(_WIN32)
+        const auto file = CreateFileW(
+            path.c_str(), GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS,
+            nullptr);
+        if (file == INVALID_HANDLE_VALUE) return {};
+        LARGE_INTEGER length{};
+        if (!GetFileSizeEx(file, &length) || length.QuadPart <= 0 ||
+            static_cast<std::uint64_t>(length.QuadPart) >
+                std::numeric_limits<std::size_t>::max()) {
+            CloseHandle(file);
+            return {};
+        }
+        const auto mapping = CreateFileMappingW(
+            file, nullptr, PAGE_READONLY, 0U, 0U, nullptr);
+        CloseHandle(file);
+        if (mapping == nullptr) return {};
+        const auto view = MapViewOfFile(mapping, FILE_MAP_READ, 0U, 0U, 0U);
+        if (view == nullptr) {
+            CloseHandle(mapping);
+            return {};
+        }
+        try {
+            return std::shared_ptr<const font_file_storage>(
+                new font_file_storage(view,
+                    static_cast<std::size_t>(length.QuadPart), mapping));
+        } catch (...) {
+            UnmapViewOfFile(view);
+            CloseHandle(mapping);
+            return {};
+        }
+#elif (defined(__unix__) || defined(__APPLE__)) && !defined(__EMSCRIPTEN__)
+        auto flags = O_RDONLY;
+#if defined(O_CLOEXEC)
+        flags |= O_CLOEXEC;
+#endif
+        const auto file = ::open(path.c_str(), flags);
+        if (file < 0) return {};
+        struct stat status {};
+        if (::fstat(file, &status) != 0 || status.st_size <= 0 ||
+            static_cast<std::uint64_t>(status.st_size) >
+                std::numeric_limits<std::size_t>::max()) {
+            ::close(file);
+            return {};
+        }
+        const auto length = static_cast<std::size_t>(status.st_size);
+        const auto view = ::mmap(
+            nullptr, length, PROT_READ, MAP_PRIVATE, file, 0);
+        ::close(file);
+        if (view == MAP_FAILED) return {};
+#if defined(MADV_RANDOM)
+        (void)::madvise(view, length, MADV_RANDOM);
+#endif
+        try {
+            return std::shared_ptr<const font_file_storage>(
+                new font_file_storage(view, length));
+        } catch (...) {
+            ::munmap(view, length);
+            return {};
+        }
+#else
+        (void)path;
+        return {};
+#endif
+    }
+
+    static std::shared_ptr<const font_file_storage> from_owned(
+        std::vector<std::byte> bytes) {
+        return std::shared_ptr<const font_file_storage>(
+            new font_file_storage(std::move(bytes)));
+    }
+
+    ~font_file_storage() {
+#if defined(_WIN32)
+        if (mapped_data_ != nullptr) UnmapViewOfFile(mapped_data_);
+        if (mapping_ != nullptr) CloseHandle(mapping_);
+#elif (defined(__unix__) || defined(__APPLE__)) && !defined(__EMSCRIPTEN__)
+        if (mapped_data_ != nullptr) ::munmap(mapped_data_, size_);
+#endif
+    }
+
+    std::span<const std::byte> data() const noexcept {
+        return {static_cast<const std::byte*>(data_), size_};
+    }
+
+    bool is_memory_mapped() const noexcept { return mapped_data_ != nullptr; }
+
+  private:
+    explicit font_file_storage(std::vector<std::byte> bytes)
+        : owned_(std::move(bytes)), data_(owned_.data()), size_(owned_.size()) {}
+
+#if defined(_WIN32)
+    font_file_storage(void* data, std::size_t size, HANDLE mapping) noexcept
+        : data_(data), size_(size), mapped_data_(data), mapping_(mapping) {}
+#elif (defined(__unix__) || defined(__APPLE__)) && !defined(__EMSCRIPTEN__)
+    font_file_storage(void* data, std::size_t size) noexcept
+        : data_(data), size_(size), mapped_data_(data) {}
+#endif
+
+    std::vector<std::byte> owned_{};
+    const void* data_{};
+    std::size_t size_{};
+    void* mapped_data_{};
+#if defined(_WIN32)
+    HANDLE mapping_{};
+#endif
+};
+
 namespace {
 
 using detail::read_u16;
@@ -444,7 +572,7 @@ class system_font_catalog::implementation final {
 
     std::vector<entry> entries{};
     mutable std::mutex cache_mutex{};
-    mutable std::unordered_map<std::string, std::weak_ptr<const std::vector<std::byte>>>
+    mutable std::unordered_map<std::string, std::weak_ptr<const font_file_storage>>
         loaded_files{};
     mutable std::unordered_map<character_key, character_result, character_key_hash>
         character_cache{};
@@ -570,11 +698,15 @@ bool system_font_catalog::implementation::read_font_entries(const std::filesyste
 }
 
 bool loaded_font_face::valid() const noexcept {
-    return storage_ != nullptr && !storage_->empty() && !font_.data().empty();
+    return storage_ != nullptr && !storage_->data().empty() && !font_.data().empty();
+}
+
+bool loaded_font_face::is_memory_mapped() const noexcept {
+    return storage_ != nullptr && storage_->is_memory_mapped();
 }
 
 std::span<const std::byte> loaded_font_face::data() const noexcept {
-    return storage_ == nullptr ? std::span<const std::byte>{} : *storage_;
+    return storage_ == nullptr ? std::span<const std::byte>{} : storage_->data();
 }
 
 const sfnt_font_view& loaded_font_face::font() const noexcept { return font_; }
@@ -582,6 +714,55 @@ const sfnt_font_view& loaded_font_face::font() const noexcept { return font_; }
 std::uint32_t loaded_font_face::catalog_index() const noexcept { return catalog_index_; }
 
 std::uint64_t loaded_font_face::identity() const noexcept { return identity_; }
+
+bool loaded_font_face::try_create_glyph_resident_face(
+    std::uint16_t glyph_index, loaded_font_face& result,
+    sfnt_glyph_resident_requirements* requirements,
+    font_catalog_error* error) const noexcept {
+    result = {};
+    set_error(error, font_catalog_error::none);
+    if (requirements != nullptr) *requirements = {};
+    if (!valid()) {
+        set_error(error, font_catalog_error::invalid_argument);
+        return false;
+    }
+    sfnt_glyph_resident_requirements resolved{};
+    font_error font_result = font_error::none;
+    if (!font_.try_get_glyph_resident_requirements(
+            glyph_index, resolved, &font_result)) {
+        set_error(error, font_catalog_error::invalid_font);
+        return false;
+    }
+    if (requirements != nullptr) *requirements = resolved;
+    try {
+        std::vector<std::byte> bytes(resolved.font_bytes);
+        std::size_t written = 0U;
+        if (!font_.try_create_glyph_resident_font(
+                glyph_index, bytes, written, &resolved, &font_result)) {
+            set_error(error, font_catalog_error::invalid_font);
+            return false;
+        }
+        bytes.resize(written);
+        auto storage = font_file_storage::from_owned(std::move(bytes));
+        sfnt_font_view resident{};
+        if (!sfnt_font_view::try_create(
+                storage->data(), 0U, resident, &font_result)) {
+            set_error(error, font_catalog_error::invalid_font);
+            return false;
+        }
+        result.storage_ = std::move(storage);
+        result.font_ = resident;
+        result.catalog_index_ = catalog_index_;
+        result.identity_ = identity_;
+        return true;
+    } catch (const std::bad_alloc&) {
+        set_error(error, font_catalog_error::out_of_memory);
+        return false;
+    } catch (...) {
+        set_error(error, font_catalog_error::invalid_font);
+        return false;
+    }
+}
 
 system_font_catalog::system_font_catalog() : implementation_(std::make_unique<implementation>()) {}
 
@@ -918,7 +1099,7 @@ bool system_font_catalog::try_load_face(std::uint32_t catalog_index, loaded_font
         return false;
     }
     const auto& entry = implementation_->entries[catalog_index];
-    std::shared_ptr<const std::vector<std::byte>> storage;
+    std::shared_ptr<const font_file_storage> storage;
     {
         std::lock_guard lock(implementation_->cache_mutex);
         const auto cached = implementation_->loaded_files.find(entry.file_path);
@@ -928,18 +1109,21 @@ bool system_font_catalog::try_load_face(std::uint32_t catalog_index, loaded_font
     }
     if (!storage) {
         try {
-            file_reader reader(entry.file_path);
-            if (!reader.valid() || reader.size() > std::numeric_limits<std::size_t>::max()) {
-                set_error(error, font_catalog_error::filesystem_error);
-                return false;
+            storage = font_file_storage::try_map(entry.file_path);
+            if (!storage) {
+                file_reader reader(entry.file_path);
+                if (!reader.valid() ||
+                    reader.size() > std::numeric_limits<std::size_t>::max()) {
+                    set_error(error, font_catalog_error::filesystem_error);
+                    return false;
+                }
+                std::vector<std::byte> loaded(static_cast<std::size_t>(reader.size()));
+                if (!reader.read(0U, loaded)) {
+                    set_error(error, font_catalog_error::filesystem_error);
+                    return false;
+                }
+                storage = font_file_storage::from_owned(std::move(loaded));
             }
-            auto loaded =
-                std::make_shared<std::vector<std::byte>>(static_cast<std::size_t>(reader.size()));
-            if (!reader.read(0U, *loaded)) {
-                set_error(error, font_catalog_error::filesystem_error);
-                return false;
-            }
-            storage = std::move(loaded);
             std::lock_guard lock(implementation_->cache_mutex);
             auto& slot = implementation_->loaded_files[entry.file_path];
             if (auto concurrent = slot.lock())
@@ -955,7 +1139,7 @@ bool system_font_catalog::try_load_face(std::uint32_t catalog_index, loaded_font
         }
     }
     sfnt_font_view font{};
-    if (!sfnt_font_view::try_create(*storage, entry.face_index, font)) {
+    if (!sfnt_font_view::try_create(storage->data(), entry.face_index, font)) {
         set_error(error, font_catalog_error::invalid_font);
         return false;
     }
