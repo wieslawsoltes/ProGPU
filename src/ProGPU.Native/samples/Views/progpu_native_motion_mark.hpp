@@ -48,6 +48,7 @@ public:
     bool set_color_mode(std::uint32_t mode) noexcept;
     bool regenerate(std::uint32_t seed) noexcept;
     bool advance(float delta_seconds) noexcept;
+    void invalidate() noexcept;
 
     bool compile(
         std::vector<std::byte>& stream,

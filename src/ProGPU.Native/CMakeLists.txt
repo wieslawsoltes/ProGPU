@@ -1003,6 +1003,19 @@ target_link_libraries(progpu_native_motion_mark_sample PUBLIC
     progpu_native_scene_builder)
 progpu_native_enable_warnings(progpu_native_motion_mark_sample)
 
+add_library(progpu_native_text_shaping_showcase_sample STATIC
+    samples/Pages/progpu_native_text_shaping_showcase.cpp
+    samples/Pages/progpu_native_text_shaping_showcase.hpp)
+target_compile_features(
+    progpu_native_text_shaping_showcase_sample PUBLIC cxx_std_20)
+target_include_directories(progpu_native_text_shaping_showcase_sample PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/samples/Pages")
+target_link_libraries(progpu_native_text_shaping_showcase_sample PUBLIC
+    progpu_native_scene_builder
+    progpu_native_text)
+progpu_native_enable_warnings(progpu_native_text_shaping_showcase_sample)
+
 if(EMSCRIPTEN)
     add_library(progpu_native_browser_renderer_objects OBJECT
         ${PROGPU_NATIVE_RENDERER_SOURCES})
@@ -1109,10 +1122,12 @@ if(EMSCRIPTEN)
         "${CMAKE_CURRENT_SOURCE_DIR}/browser"
         "${CMAKE_CURRENT_SOURCE_DIR}/browser/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/samples/Views"
+        "${CMAKE_CURRENT_SOURCE_DIR}/samples/Pages"
         "${generated_directory}")
     target_link_libraries(progpu_native_browser_gallery PRIVATE
         progpu_native_image
         progpu_native_motion_mark_sample
+        progpu_native_text_shaping_showcase_sample
         progpu_native_scene_builder
         progpu_native_text)
     target_compile_options(progpu_native_browser_gallery PRIVATE
@@ -1127,6 +1142,7 @@ if(EMSCRIPTEN)
         -sEXIT_RUNTIME=0
         -sENVIRONMENT=web
         -sFILESYSTEM=0
+        "-sEXPORTED_RUNTIME_METHODS=['HEAPU8']"
         $<$<CONFIG:Release>:-O3>
         $<$<CONFIG:Release>:-flto>
         $<$<CONFIG:Release>:-sASSERTIONS=0>)
@@ -1139,6 +1155,9 @@ if(EMSCRIPTEN)
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Browser/BrowserAssets/progpu-browser-host.js"
             "$<TARGET_FILE_DIR:progpu_native_browser_gallery>/progpu-browser-host.js"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Fonts.Inter/Fonts/Inter-Regular.ttf"
+            "$<TARGET_FILE_DIR:progpu_native_browser_gallery>/Inter-Regular.ttf"
         VERBATIM)
 endif()
 
@@ -1361,6 +1380,32 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         COMMAND progpu_native_motion_mark_tests)
     set_tests_properties(
         progpu_native_motion_mark_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_text_shaping_showcase_tests
+        tests/progpu_native_text_shaping_showcase_tests.cpp
+        src/Text/Interop/progpu_native_text_shaping_interop.cpp)
+    target_compile_features(
+        progpu_native_text_shaping_showcase_tests PRIVATE cxx_std_20)
+    target_include_directories(
+        progpu_native_text_shaping_showcase_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/samples/Pages")
+    target_compile_definitions(
+        progpu_native_text_shaping_showcase_tests PRIVATE
+        PROGPU_NATIVE_BUILD=1
+        "PROGPU_NATIVE_TEST_INTER_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Fonts.Inter/Fonts/Inter-Regular.ttf\"")
+    target_link_libraries(
+        progpu_native_text_shaping_showcase_tests PRIVATE
+        progpu_native_text_shaping_showcase_sample)
+    progpu_native_enable_warnings(
+        progpu_native_text_shaping_showcase_tests)
+    progpu_native_enable_sanitizers(
+        progpu_native_text_shaping_showcase_tests)
+    add_test(
+        NAME progpu_native_text_shaping_showcase_tests
+        COMMAND progpu_native_text_shaping_showcase_tests)
+    set_tests_properties(
+        progpu_native_text_shaping_showcase_tests PROPERTIES TIMEOUT 60)
 
     if(PROGPU_NATIVE_BUILD_WGPU_TARGET)
     add_executable(progpu_native_text_interop_tests

@@ -1,6 +1,7 @@
 #include "Host/progpu_native_browser_window_host.hpp"
 #include "progpu_native_browser.h"
 #include "progpu_native_motion_mark.hpp"
+#include "progpu_native_text_shaping_showcase.hpp"
 
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -11,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <new>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -19,11 +21,21 @@ using progpu::native::browser::browser_frame;
 using progpu::native::browser::browser_window_host;
 using progpu::native::samples::motion_mark_scene;
 using progpu::native::samples::motion_mark_scene_metrics;
+using progpu::native::samples::text_shaping_showcase_metrics;
+using progpu::native::samples::text_shaping_showcase_scene;
+
+enum class gallery_sample : std::uint32_t {
+    motion_mark = 0U,
+    text_shaping = 1U
+};
 
 struct gallery_application final {
     browser_window_host host{};
-    motion_mark_scene sample{};
-    motion_mark_scene_metrics sample_metrics{};
+    motion_mark_scene motion_sample{};
+    motion_mark_scene_metrics motion_metrics{};
+    text_shaping_showcase_scene text_sample{};
+    text_shaping_showcase_metrics text_metrics{};
+    std::vector<std::byte> font_staging{};
     std::vector<std::byte> scene_stream{};
     progpu_native_engine* engine = nullptr;
     WGPUDevice device = nullptr;
@@ -36,6 +48,7 @@ struct gallery_application final {
     double scene_update_milliseconds = 0.0;
     std::uint64_t fps_frame = 0U;
     float fps = 0.0F;
+    gallery_sample active_sample = gallery_sample::motion_mark;
     bool paused = false;
 };
 
@@ -55,11 +68,17 @@ void fail(const char* message) noexcept {
 #pragma clang diagnostic pop
 
 bool update_scene(gallery_application& app) noexcept {
-    if (!app.sample.dirty()) {
+    const bool dirty = app.active_sample == gallery_sample::motion_mark
+        ? app.motion_sample.dirty()
+        : app.text_sample.dirty();
+    if (!dirty) {
         return true;
     }
     const double start = emscripten_get_now();
-    if (!app.sample.compile(app.scene_stream, app.sample_metrics)) {
+    const bool compiled = app.active_sample == gallery_sample::motion_mark
+        ? app.motion_sample.compile(app.scene_stream, app.motion_metrics)
+        : app.text_sample.compile(app.scene_stream, app.text_metrics);
+    if (!compiled) {
         return false;
     }
     progpu_native_scene_metrics metrics{};
@@ -91,6 +110,7 @@ void publish_metrics(
         set('#metric-draws', Number($3).toLocaleString());
         set('#metric-bytes', Number($4).toLocaleString() + ' B');
         set('#metric-dpr', Number($5).toFixed(2));
+        set('#metric-update', Number($6).toFixed(3) + ' ms');
         const status = document.querySelector('#status-message');
         if (status) status.textContent =
           'native update ' + Number($6).toFixed(3) + ' ms / ' +
@@ -107,18 +127,37 @@ void publish_metrics(
         document.body.dataset.progpuNativeBackingHeight = String($9);
         document.body.dataset.progpuNativeDpiScale = String($5);
         document.body.dataset.progpuNativeFrames = String($10);
+        document.body.dataset.progpuNativeSample = Number($11) === 0
+          ? 'motion-mark'
+          : 'text-shaping';
+        document.body.dataset.progpuNativeGlyphs = String($12);
+        document.body.dataset.progpuNativeOutlines = String($13);
+        document.body.dataset.progpuNativeUpdateMilliseconds = String($6);
+        document.body.dataset.progpuNativeTextPreset = String($14);
+        document.body.dataset.progpuNativeTextGeneration = String($15);
     },
         static_cast<double>(app.fps),
-        app.sample_metrics.element_count,
-        app.sample_metrics.group_count,
+        app.active_sample == gallery_sample::motion_mark
+            ? app.motion_metrics.element_count
+            : app.text_metrics.shaped_glyph_count,
+        app.active_sample == gallery_sample::motion_mark
+            ? app.motion_metrics.group_count
+            : app.text_metrics.unique_outline_count,
         render.draw_call_count,
-        static_cast<double>(app.sample_metrics.stream_bytes),
+        static_cast<double>(app.active_sample == gallery_sample::motion_mark
+            ? app.motion_metrics.stream_bytes
+            : app.text_metrics.stream_bytes),
         static_cast<double>(frame.dpi_scale),
         app.scene_update_milliseconds,
         static_cast<double>(render.submission_count),
         frame.width,
         frame.height,
-        static_cast<double>(app.frame_count));
+        static_cast<double>(app.frame_count),
+        static_cast<std::uint32_t>(app.active_sample),
+        app.text_metrics.shaped_glyph_count,
+        app.text_metrics.unique_outline_count,
+        app.text_metrics.preset_index,
+        static_cast<double>(app.text_metrics.generation));
 }
 #pragma clang diagnostic pop
 
@@ -136,13 +175,20 @@ EM_BOOL render_frame(double timestamp, void*) noexcept {
     if (!app.host.begin_frame(frame)) {
         return EM_TRUE;
     }
-    app.sample.resize(frame.logical_width, frame.logical_height);
-    if (!app.paused) {
-        app.sample.advance(delta);
+    if (app.active_sample == gallery_sample::motion_mark) {
+        app.motion_sample.resize(frame.logical_width, frame.logical_height);
+        if (!app.paused) {
+            app.motion_sample.advance(delta);
+        }
+    } else {
+        app.text_sample.resize(
+            frame.logical_width,
+            frame.logical_height,
+            frame.dpi_scale);
     }
     if (!update_scene(app)) {
         app.host.end_frame(frame);
-        fail("The pure C++ MotionMark scene update failed.");
+        fail("The pure C++ gallery scene update failed.");
         return EM_FALSE;
     }
 
@@ -158,8 +204,12 @@ EM_BOOL render_frame(double timestamp, void*) noexcept {
     // against the shell chrome's almost-black background and make connected
     // curves look like isolated blocks.
     native_frame.clear_color = {0.125F, 0.125F, 0.15F, 1.0F};
-    native_frame.scene_id = 0x4D4F54494F4E4D4BULL;
-    native_frame.generation = app.sample.generation();
+    native_frame.scene_id = app.active_sample == gallery_sample::motion_mark
+        ? 0x4D4F54494F4E4D4BULL
+        : 0x5445585453484150ULL;
+    native_frame.generation = app.active_sample == gallery_sample::motion_mark
+        ? app.motion_sample.generation()
+        : app.text_sample.generation();
 
     progpu_native_scene_frame_metrics render_metrics{};
     render_metrics.struct_size = sizeof(render_metrics);
@@ -199,14 +249,14 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE void progpu_native_gallery_set_element_count(
     std::uint32_t count) noexcept {
     if (application != nullptr) {
-        application->sample.set_element_count(count);
+        application->motion_sample.set_element_count(count);
     }
 }
 
 EMSCRIPTEN_KEEPALIVE void progpu_native_gallery_set_color_mode(
     std::uint32_t mode) noexcept {
     if (application != nullptr) {
-        application->sample.set_color_mode(mode);
+        application->motion_sample.set_color_mode(mode);
     }
 }
 
@@ -221,9 +271,68 @@ progpu_native_gallery_toggle_paused() noexcept {
 
 EMSCRIPTEN_KEEPALIVE void progpu_native_gallery_regenerate() noexcept {
     if (application != nullptr) {
-        application->sample.regenerate(
+        application->motion_sample.regenerate(
             0x50A7C0DEU + application->regeneration++ * 0x9E3779B9U);
     }
+}
+
+EMSCRIPTEN_KEEPALIVE std::uintptr_t
+progpu_native_gallery_prepare_font(std::uint32_t size) noexcept {
+    if (application == nullptr || size == 0U || size > 8U * 1024U * 1024U) {
+        return 0U;
+    }
+    try {
+        application->font_staging.resize(size);
+        return reinterpret_cast<std::uintptr_t>(
+            application->font_staging.data());
+    } catch (...) {
+        application->font_staging.clear();
+        return 0U;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE std::int32_t
+progpu_native_gallery_commit_font(std::uint32_t size) noexcept {
+    if (application == nullptr ||
+        size == 0U || size != application->font_staging.size() ||
+        !application->text_sample.load_font(
+            std::move(application->font_staging))) {
+        return 0;
+    }
+    return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE std::uint32_t
+progpu_native_gallery_set_sample(std::uint32_t sample) noexcept {
+    if (application == nullptr) {
+        return 0U;
+    }
+    const auto requested = sample == 1U
+        ? gallery_sample::text_shaping
+        : gallery_sample::motion_mark;
+    if (requested == gallery_sample::text_shaping &&
+        !application->text_sample.ready()) {
+        return static_cast<std::uint32_t>(application->active_sample);
+    }
+    if (application->active_sample != requested) {
+        application->active_sample = requested;
+        if (requested == gallery_sample::motion_mark) {
+            application->motion_sample.invalidate();
+        } else {
+            application->text_sample.invalidate();
+        }
+    }
+    return static_cast<std::uint32_t>(application->active_sample);
+}
+
+EMSCRIPTEN_KEEPALIVE std::uint32_t progpu_native_gallery_set_text_preset(
+    std::uint32_t preset) noexcept {
+    if (application != nullptr) {
+        application->text_sample.set_preset(preset);
+        return static_cast<std::uint32_t>(
+            application->text_sample.generation());
+    }
+    return 0U;
 }
 
 } // extern "C"

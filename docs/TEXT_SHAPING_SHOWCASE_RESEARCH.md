@@ -16,6 +16,12 @@ The page deliberately combines two views of the same result:
   and segment properties, following
   the role of HarfBuzz `hb-shape`.
 
+The pure C++ browser gallery now carries a deliberately smaller, performance-
+focused port of the managed feature wall. It preserves all eight before/after
+cases while using only the owned native Unicode/OpenType stack, retained
+semantic scene builder, and shared WebGPU shaders. DOM text is limited to the
+accessible gallery shell; every specimen pixel is produced by ProGPU C++.
+
 ## Primary sources
 
 - [HarfBuzz utilities](https://harfbuzz.github.io/utilities.html) documents
@@ -101,6 +107,41 @@ Rejected:
 - claiming unavailable platform font coverage as a shaper success;
 - changing raster quality, DPI snapping, cache invalidation, or GPU policy for a
   diagnostic page.
+
+## Native browser implementation
+
+The native page follows the same architecture rather than maintaining a second
+feature model:
+
+- the feature names, tags, strings, and Romanian language selection come from
+  the ProGPU-owned managed feature wall and record that in-repository
+  provenance beside the C++ table;
+- Unicode decoding and GSUB/GPOS shaping produce caller-owned glyph arrays;
+- TrueType outlines are decoded once per glyph into a shared immutable segment
+  range;
+- coverage records key physical raster size independently, allowing the title,
+  labels, and large comparison glyphs to reuse source geometry without blurring;
+- one semantic stream update publishes a generation, followed by one render
+  call and one GPU submission per displayed frame;
+- the font fetch is transferred into native ownership once, with no second
+  sample-level copy and no platform text API.
+
+The GPU atlas sampler is constrained to each glyph's half-texel inset tile
+bounds. This adapts WebGPU's whole-texture clamp semantics to a packed glyph
+atlas: a filtered lookup may combine adjacent texels, so clamping only at the
+texture edge cannot prevent neighboring glyph coverage from leaking into a
+quad. The native and managed implementations share the canonical `Text.wgsl`,
+therefore the quality correction is one implementation with matched source and
+retained-resource regressions rather than backend-specific shader forks. See
+[`GPU_TEXT_COVERAGE_CACHE_ARCHITECTURE.md`](GPU_TEXT_COVERAGE_CACHE_ARCHITECTURE.md)
+for the cross-engine comparison, exact complexity, and primary sources.
+
+Local Release qualification at DPR 2 produced exact physical backing sizes and
+no browser errors at both desktop and 390-pixel mobile viewports. The Romanian
+case contains 267 positioned glyphs, 107 outline records, 11 draws, and a
+73,992-byte stream. A 32-sample eight-preset browser benchmark on the same final
+local SwiftShader binary measured native update p50 1.90 ms, p95 2.30 ms, and
+maximum 2.60 ms. These are CPU update measurements, not discrete-GPU claims.
 
 ## Validation targets
 

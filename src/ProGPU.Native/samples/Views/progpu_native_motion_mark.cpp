@@ -200,6 +200,10 @@ bool motion_mark_scene::advance(float delta_seconds) noexcept {
     return true;
 }
 
+void motion_mark_scene::invalidate() noexcept {
+    mark_dirty();
+}
+
 bool motion_mark_scene::compile(
     std::vector<std::byte>& stream,
     motion_mark_scene_metrics& metrics) noexcept {
