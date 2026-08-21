@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Drawing.Printing;
+using System.ComponentModel;
 using System.Numerics;
 using Xunit;
 
@@ -372,5 +373,192 @@ public sealed class DrawingApiQualityTests
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
         Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void BlendContainersUseTheDocumentedMutableArrayOwnership()
+    {
+        var blend = new Blend(3);
+        var factors = new[] { 0f, 0.75f, 1f };
+        var positions = new[] { 0f, 0.25f, 1f };
+        blend.Factors = factors;
+        blend.Positions = positions;
+        Assert.Same(factors, blend.Factors);
+        Assert.Same(positions, blend.Positions);
+
+        var colorBlend = new ColorBlend(3);
+        Color[] colors = [Color.Red, Color.Green, Color.Blue];
+        colorBlend.Colors = colors;
+        colorBlend.Positions = positions;
+        Assert.Same(colors, colorBlend.Colors);
+        Assert.Same(positions, colorBlend.Positions);
+        Assert.Throws<OverflowException>(() => new Blend(-1));
+        Assert.Throws<OverflowException>(() => new ColorBlend(-1));
+    }
+
+    [Fact]
+    public void LinearGradientStateClonesAndLowersToTypedNativeStops()
+    {
+        using var brush = new LinearGradientBrush(
+            new RectangleF(10f, 20f, 100f, 50f),
+            Color.Red,
+            Color.Blue,
+            angle: 0f,
+            isAngleScaleable: true)
+        {
+            GammaCorrection = true,
+            WrapMode = WrapMode.TileFlipX
+        };
+
+        Assert.Equal(new RectangleF(10f, 20f, 100f, 50f), brush.Rectangle);
+        Assert.Equal(new Vector2(10f, 45f), brush.StartPoint);
+        Assert.Equal(new Vector2(110f, 45f), brush.EndPoint);
+
+        var interpolation = new ColorBlend(3)
+        {
+            Colors = [Color.Red, Color.Green, Color.Blue],
+            Positions = [0f, 0.25f, 1f]
+        };
+        brush.InterpolationColors = interpolation;
+        interpolation.Colors[0] = Color.Black;
+        interpolation.Positions[1] = 0.75f;
+
+        using var transform = new Matrix();
+        transform.Translate(5f, 7f);
+        brush.Transform = transform;
+        transform.Reset();
+
+        ColorBlend firstRead = brush.InterpolationColors;
+        firstRead.Colors[0] = Color.Magenta;
+        firstRead.Positions[1] = 0.5f;
+        ColorBlend secondRead = brush.InterpolationColors;
+        Assert.Equal(Color.Red.ToArgb(), secondRead.Colors[0].ToArgb());
+        Assert.Equal(0.25f, secondRead.Positions[1]);
+        using (Matrix returnedTransform = brush.Transform)
+        {
+            Assert.Equal(Matrix3x2.CreateTranslation(5f, 7f), returnedTransform.MatrixElements);
+        }
+
+        var native = Assert.IsType<ProGPU.Vector.LinearGradientBrush>(brush.ToProGpuBrush());
+        Assert.Equal(ProGPU.Vector.GradientSpreadMethod.Reflect, native.SpreadMethod);
+        Assert.Equal(ProGPU.Vector.GradientColorInterpolationMode.ScRgbLinearInterpolation, native.ColorInterpolationMode);
+        Assert.Equal(new[] { 0f, 0.25f, 1f }, native.Stops.Select(stop => stop.Offset));
+        Assert.Equal(1f, native.Stops[0].Color.X);
+        Assert.Equal(0f, native.Stops[0].Color.Z);
+        Assert.Equal(-5f, native.CoordinateTransform.M41);
+        Assert.Equal(-7f, native.CoordinateTransform.M42);
+
+        using var clone = Assert.IsType<LinearGradientBrush>(brush.Clone());
+        brush.InterpolationColors = new ColorBlend(2)
+        {
+            Colors = [Color.Black, Color.White],
+            Positions = [0f, 1f]
+        };
+        Assert.Equal(Color.Red.ToArgb(), clone.InterpolationColors.Colors[0].ToArgb());
+        Assert.Equal(0.25f, clone.InterpolationColors.Positions[1]);
+    }
+
+    [Fact]
+    public void ScalableLinearGradientAngleAccountsForRectangleAspectRatio()
+    {
+        var rectangle = new RectangleF(0f, 0f, 200f, 100f);
+        using var fixedAngle = new LinearGradientBrush(
+            rectangle,
+            Color.Black,
+            Color.White,
+            angle: 45f,
+            isAngleScaleable: false);
+        using var scalableAngle = new LinearGradientBrush(
+            rectangle,
+            Color.Black,
+            Color.White,
+            angle: 45f,
+            isAngleScaleable: true);
+
+        Vector2 fixedDirection = Vector2.Normalize(fixedAngle.EndPoint - fixedAngle.StartPoint);
+        Vector2 scalableDirection = Vector2.Normalize(scalableAngle.EndPoint - scalableAngle.StartPoint);
+
+        Assert.InRange(fixedDirection.Y / fixedDirection.X, 0.9999f, 1.0001f);
+        Assert.InRange(scalableDirection.Y / scalableDirection.X, 1.9999f, 2.0001f);
+    }
+
+    [Fact]
+    public void LinearGradientFalloffFunctionsAreRenderedAndValidated()
+    {
+        using var brush = new LinearGradientBrush(
+            new PointF(0f, 0f),
+            new PointF(100f, 0f),
+            Color.Black,
+            Color.White);
+
+        brush.SetBlendTriangularShape(0.25f, 0.8f);
+        Blend triangular = Assert.IsType<Blend>(brush.Blend);
+        Assert.Equal(new[] { 0f, 0.25f, 1f }, triangular.Positions);
+        Assert.Equal(new[] { 0f, 0.8f, 0f }, triangular.Factors);
+        var triangularNative = Assert.IsType<ProGPU.Vector.LinearGradientBrush>(brush.ToProGpuBrush());
+        Assert.Equal(3, triangularNative.Stops.Length);
+        Assert.InRange(triangularNative.Stops[1].Color.X, 0.7999f, 0.8001f);
+
+        brush.SetSigmaBellShape(0.25f, 0.6f);
+        Blend bell = Assert.IsType<Blend>(brush.Blend);
+        int focusIndex = Array.IndexOf(bell.Positions, 0.25f);
+        Assert.True(focusIndex >= 0);
+        Assert.Equal(0f, bell.Factors[0]);
+        Assert.InRange(bell.Factors[focusIndex], 0.5999f, 0.6001f);
+        Assert.Equal(0f, bell.Factors[^1]);
+        Assert.Equal(bell.Positions.Length, Assert.IsType<ProGPU.Vector.LinearGradientBrush>(brush.ToProGpuBrush()).Stops.Length);
+
+        Assert.Throws<ArgumentException>(() => brush.SetBlendTriangularShape(-0.1f));
+        Assert.Throws<ArgumentException>(() => brush.SetSigmaBellShape(0.5f, 1.1f));
+        Assert.Throws<ArgumentException>(() => brush.LinearColors = [Color.Red]);
+        Assert.Throws<ArgumentException>(() => brush.Blend = new Blend(2)
+        {
+            Factors = [0f, 1f],
+            Positions = [0.2f, 1f]
+        });
+        Assert.Throws<InvalidEnumArgumentException>(() => brush.WrapMode = (WrapMode)99);
+
+        brush.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => brush.ToProGpuBrush());
+    }
+
+    [Fact]
+    public void EightStopLinearGradientLoweringHasBoundedAllocation()
+    {
+        using var brush = new LinearGradientBrush(
+            new RectangleF(0f, 0f, 128f, 64f),
+            Color.Black,
+            Color.White,
+            LinearGradientMode.Horizontal)
+        {
+            InterpolationColors = new ColorBlend(8)
+            {
+                Colors =
+                [
+                    Color.Black,
+                    Color.Navy,
+                    Color.Blue,
+                    Color.Cyan,
+                    Color.Lime,
+                    Color.Yellow,
+                    Color.Red,
+                    Color.White
+                ],
+                Positions = [0f, 0.12f, 0.28f, 0.42f, 0.58f, 0.72f, 0.88f, 1f]
+            }
+        };
+
+        _ = brush.ToProGpuBrush();
+        const int iterations = 64;
+        int stopCount = 0;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < iterations; index++)
+        {
+            stopCount += Assert.IsType<ProGPU.Vector.LinearGradientBrush>(brush.ToProGpuBrush()).Stops.Length;
+        }
+        long bytesPerLowering = (GC.GetAllocatedBytesForCurrentThread() - before) / iterations;
+
+        Assert.Equal(512, stopCount);
+        Assert.InRange(bytesPerLowering, 288, 352);
     }
 }
