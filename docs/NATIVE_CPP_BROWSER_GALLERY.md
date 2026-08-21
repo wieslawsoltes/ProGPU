@@ -47,7 +47,7 @@ produced by native C++; the DOM is not used as a rendering fallback.
 | Vello, Fluent, spectrum, and monochrome palettes | Identical color values and HSV conversion |
 | `pow(random, 5) * 20 + 1` stroke distribution | Identical width distribution |
 | Fixed 60 Hz update budget and 0.5% toggles per step | Identical bounded update cadence |
-| Retained grouped path recording | One retained geometry resource and one semantic draw command |
+| Retained grouped path recording | One retained geometry resource, one deduplicated brush table, and one semantic draw command |
 
 Changed-scene preparation is `O(N + G)` time and retained storage for `N`
 segments and `G` groups. Stable frames do not rebuild or recopy the semantic
@@ -55,6 +55,12 @@ stream. One changed generation crosses the internal native engine boundary
 once; each displayed frame performs one native render call and one GPU
 submission. The 1,000-segment local qualification produced one GPU draw and a
 roughly 132 KB retained scene stream.
+
+The geometry command carries an explicit deduplicated brush-index map, matching
+the managed native-scene compiler. This is required for exact curve rendering:
+quadratic and cubic GPU vertices use their inline color lanes for control-point
+metadata, while the shared brush table supplies their material. Lines, curves,
+caps, and joins therefore retain one group-end style without per-segment draws.
 
 ## WebGPU presentation and pixel quality
 
@@ -100,11 +106,11 @@ Local optimized artifact sizes on 2026-08-21:
 
 | Asset | Bytes |
 | --- | ---: |
-| `progpu_native_browser_gallery.wasm` | 626,456 |
+| `progpu_native_browser_gallery.wasm` | 628,799 |
 | `progpu_native_browser_gallery.js` | 61,784 |
 | `progpu_native_browser_gallery.html` | 5,638 |
 | shared `progpu-browser-host.js` | 4,042 |
-| Total | 697,920 |
+| Total | 700,263 |
 
 Sizes are uncompressed filesystem bytes. HTTP Brotli/gzip transfer sizes are
 expected to be lower and are server-dependent.

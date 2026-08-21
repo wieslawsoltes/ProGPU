@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <limits>
+#include <unordered_map>
 
 namespace progpu::native::samples {
 namespace {
@@ -35,6 +37,31 @@ constexpr std::array<progpu_native_color, 4U> monochrome_colors{{
 
 constexpr progpu_native_affine_2d identity{
     1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+
+struct color_key final {
+    std::array<std::uint32_t, 4U> bits{};
+
+    bool operator==(const color_key&) const noexcept = default;
+};
+
+struct color_key_hash final {
+    std::size_t operator()(const color_key& value) const noexcept {
+        std::size_t hash = 0U;
+        for (const std::uint32_t bits : value.bits) {
+            hash ^= static_cast<std::size_t>(bits) + 0x9E3779B9U +
+                (hash << 6U) + (hash >> 2U);
+        }
+        return hash;
+    }
+};
+
+color_key key_for(progpu_native_color color) noexcept {
+    return {{
+        std::bit_cast<std::uint32_t>(color.r),
+        std::bit_cast<std::uint32_t>(color.g),
+        std::bit_cast<std::uint32_t>(color.b),
+        std::bit_cast<std::uint32_t>(color.a)}};
+}
 
 progpu_native_color hsv_to_rgb(float h, float s, float v) noexcept {
     const float c = v * s;
@@ -74,8 +101,10 @@ motion_mark_scene::motion_mark_scene(
     : random_state_(seed == 0U ? 0x50A7C0DEU : seed) {
     elements_.reserve(5000U);
     primitives_.reserve(10000U);
-    builder_.reserve(1U, 1U, 10000U *
-        sizeof(progpu_native_geometry_primitive));
+    brush_indices_.reserve(10000U);
+    builder_.reserve(1U, 2U, 10000U *
+        (sizeof(progpu_native_geometry_primitive) +
+            sizeof(std::uint32_t)));
     resize(width_, height_);
     rebuild_elements(std::clamp(element_count, 1U, 5000U));
 }
@@ -178,11 +207,40 @@ bool motion_mark_scene::compile(
         !builder_.reset(scene_id_, generation_) ||
         !builder_.reserve(
             1U,
-            1U,
+            2U,
             primitives_.size() *
-                sizeof(progpu_native_geometry_primitive)) ||
-        !builder_.draw_geometry(
-            primitives_, {}, {0.0F, 0.0F, width_, height_})) {
+                (sizeof(progpu_native_geometry_primitive) +
+                    sizeof(std::uint32_t)))) {
+        return false;
+    }
+    brush_indices_.clear();
+    std::unordered_map<color_key, std::uint32_t, color_key_hash> brushes{};
+    try {
+        brushes.reserve(std::min<std::size_t>(
+            primitives_.size(),
+            static_cast<std::size_t>(group_count_)));
+        for (const auto& primitive : primitives_) {
+            const color_key key = key_for(primitive.color);
+            auto found = brushes.find(key);
+            if (found == brushes.end()) {
+                std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (!builder_.add_solid_brush(
+                        primitive.color,
+                        1.0F,
+                        brush_index)) {
+                    return false;
+                }
+                found = brushes.emplace(key, brush_index).first;
+            }
+            brush_indices_.push_back(found->second);
+        }
+    } catch (...) {
+        return false;
+    }
+    if (!builder_.draw_geometry(
+            primitives_,
+            brush_indices_,
+            {0.0F, 0.0F, width_, height_})) {
         return false;
     }
     const std::size_t required = builder_.required_stream_size();
@@ -206,6 +264,7 @@ bool motion_mark_scene::compile(
     metrics.element_count = static_cast<std::uint32_t>(elements_.size());
     metrics.group_count = group_count_;
     metrics.primitive_count = static_cast<std::uint32_t>(primitives_.size());
+    metrics.brush_count = build_metrics.brush_count;
     metrics.command_count = build_metrics.command_count;
     metrics.resource_count = build_metrics.resource_count;
     metrics.stream_bytes = build_metrics.stream_bytes;

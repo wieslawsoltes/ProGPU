@@ -153,7 +153,11 @@ EM_BOOL render_frame(double timestamp, void*) noexcept {
     native_frame.dpi_scale = frame.dpi_scale;
     native_frame.target_view =
         reinterpret_cast<std::uintptr_t>(frame.view);
-    native_frame.clear_color = {0.018F, 0.022F, 0.035F, 1.0F};
+    // Match the managed gallery's dark ControlBackground contrast. The default
+    // Vello palette deliberately contains near-black strokes, which disappear
+    // against the shell chrome's almost-black background and make connected
+    // curves look like isolated blocks.
+    native_frame.clear_color = {0.125F, 0.125F, 0.15F, 1.0F};
     native_frame.scene_id = 0x4D4F54494F4E4D4BULL;
     native_frame.generation = app.sample.generation();
 

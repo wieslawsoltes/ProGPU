@@ -20,6 +20,7 @@ struct motion_mark_scene_metrics final {
     std::uint32_t element_count = 0U;
     std::uint32_t group_count = 0U;
     std::uint32_t primitive_count = 0U;
+    std::uint32_t brush_count = 0U;
     std::uint32_t command_count = 0U;
     std::uint32_t resource_count = 0U;
     std::uint64_t stream_bytes = 0U;
@@ -92,6 +93,7 @@ private:
     semantic_scene_builder builder_{scene_id_, 1U};
     std::vector<element> elements_{};
     std::vector<progpu_native_geometry_primitive> primitives_{};
+    std::vector<std::uint32_t> brush_indices_{};
     std::uint32_t random_state_ = 0x50A7C0DEU;
     std::uint32_t color_mode_ = 0U;
     std::uint32_t group_count_ = 0U;

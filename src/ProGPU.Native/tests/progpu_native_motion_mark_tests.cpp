@@ -32,8 +32,10 @@ void managed_motion_mark_contract_is_preserved() {
     require(metrics.element_count == 1000U);
     require(metrics.group_count == scene.group_count());
     require(metrics.primitive_count == scene.primitives().size());
+    require(metrics.brush_count > 0U);
+    require(metrics.brush_count <= metrics.group_count);
     require(metrics.command_count == 1U);
-    require(metrics.resource_count == 1U);
+    require(metrics.resource_count == 2U);
     require(metrics.stream_bytes == stream.size());
     const auto first_generation = metrics.generation;
 
@@ -58,6 +60,7 @@ void managed_motion_mark_contract_is_preserved() {
     require(scene.regenerate(0xCAFEBABEU));
     require(scene.compile(stream, metrics));
     require(metrics.element_count == 2500U);
+    require(metrics.brush_count > 0U);
     require(metrics.command_count == 1U);
 }
 
