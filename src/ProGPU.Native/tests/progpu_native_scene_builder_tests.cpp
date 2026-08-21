@@ -1535,8 +1535,9 @@ bool semantic_scene_content_hashes_isolate_image_updates() {
     for (std::uint32_t index = 0U;
          index < brush_header.resource_count;
          ++index) {
-        const auto offset = brush_header.resource_offset +
-            static_cast<std::size_t>(index) * brush_header.resource_stride;
+        const auto offset = static_cast<std::uint32_t>(
+            brush_header.resource_offset +
+            index * brush_header.resource_stride);
         auto resource = read<progpu_native_scene_resource>(
             brush_changed, offset);
         if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE) {
