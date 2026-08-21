@@ -55,6 +55,75 @@ bool is_3d_resource(std::uint32_t kind) noexcept {
         kind == PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH;
 }
 
+std::uint64_t append_command(
+    std::uint64_t hash,
+    const std::byte* bytes,
+    const progpu_native_scene_command& command) noexcept {
+    hash = append_fnv1a64(hash, &command, sizeof(command));
+    if (command.payload_size != 0U) {
+        hash = append_fnv1a64(
+            hash,
+            bytes + command.payload_offset,
+            command.payload_size);
+    }
+    return hash;
+}
+
+std::uint64_t append_indexed_command(
+    std::uint64_t hash,
+    const std::byte* bytes,
+    std::uint32_t command_index,
+    const progpu_native_scene_command& command) noexcept {
+    hash = append_fnv1a64(hash, &command_index, sizeof(command_index));
+    return append_command(hash, bytes, command);
+}
+
+std::uint64_t append_brush_mapping(
+    std::uint64_t hash,
+    const std::byte* bytes,
+    std::uint32_t command_index,
+    const progpu_native_scene_command& command) noexcept {
+    hash = append_fnv1a64(hash, &command_index, sizeof(command_index));
+    hash = append_fnv1a64(hash, &command.kind, sizeof(command.kind));
+    hash = append_fnv1a64(hash, &command.flags, sizeof(command.flags));
+    if (command.payload_size < sizeof(progpu_native_scene_draw_brushes)) {
+        return hash;
+    }
+    const auto draw = read_record<progpu_native_scene_draw_brushes>(
+        bytes, command.payload_offset);
+    hash = append_fnv1a64(hash, &draw, sizeof(draw));
+    const auto remaining = command.payload_size - sizeof(draw);
+    if (draw.brush_count <= remaining / sizeof(std::uint32_t)) {
+        const auto index_bytes = static_cast<std::size_t>(draw.brush_count) *
+            sizeof(std::uint32_t);
+        hash = append_fnv1a64(
+            hash,
+            bytes + command.payload_offset + sizeof(draw),
+            index_bytes);
+    }
+    return hash;
+}
+
+bool is_scope_command(std::uint32_t kind) noexcept {
+    return kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE ||
+        kind == PROGPU_NATIVE_SCENE_COMMAND_RESTORE ||
+        kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
+        kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER;
+}
+
+bool is_analytic_command(std::uint32_t kind) noexcept {
+    return kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
+        kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY ||
+        kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH ||
+        kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH ||
+        kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH;
+}
+
+bool is_3d_command(std::uint32_t kind) noexcept {
+    return kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH ||
+        kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH;
+}
+
 } // namespace
 
 semantic_content_hashes compute_content_hashes(
@@ -65,22 +134,61 @@ semantic_content_hashes compute_content_hashes(
         return result;
     }
 
-    // Command placement, state selection, brush/style maps, and layer scopes
-    // are shared inputs to compiled pages. Hash them once without the header's
-    // scene generation, then combine them with typed resource identities.
-    std::uint64_t commands = fnv_offset;
+    // One draw family cannot affect another family's compiled GPU page, but
+    // every family consumes the shared save/restore and layer cursors. Preserve
+    // complete draw identity within each family and shared scope identity
+    // across them; the full scene hash independently owns bundle ordering.
+    std::uint64_t brush_commands = fnv_offset;
+    std::uint64_t style_commands = fnv_offset;
+    std::uint64_t analytic_commands = fnv_offset;
+    std::uint64_t path_commands = fnv_offset;
+    std::uint64_t glyph_commands = fnv_offset;
+    std::uint64_t image_commands = fnv_offset;
+    std::uint64_t three_d_commands = fnv_offset;
     bool glyph_uses_text_styles = false;
     for (std::uint32_t index = 0U; index < header.command_count; ++index) {
         const std::size_t offset = header.command_offset +
             static_cast<std::size_t>(index) * header.command_stride;
         const auto command =
             read_record<progpu_native_scene_command>(bytes, offset);
-        commands = append_fnv1a64(commands, &command, sizeof(command));
-        if (command.payload_size != 0U) {
-            commands = append_fnv1a64(
-                commands,
-                bytes + command.payload_offset,
-                command.payload_size);
+        if (is_scope_command(command.kind)) {
+            brush_commands = append_indexed_command(
+                brush_commands, bytes, index, command);
+            style_commands = append_indexed_command(
+                style_commands, bytes, index, command);
+            analytic_commands = append_indexed_command(
+                analytic_commands, bytes, index, command);
+            path_commands = append_indexed_command(
+                path_commands, bytes, index, command);
+            glyph_commands = append_indexed_command(
+                glyph_commands, bytes, index, command);
+            image_commands = append_indexed_command(
+                image_commands, bytes, index, command);
+            three_d_commands = append_indexed_command(
+                three_d_commands, bytes, index, command);
+            continue;
+        }
+        if (is_analytic_command(command.kind)) {
+            analytic_commands = append_command(
+                analytic_commands, bytes, command);
+            brush_commands = append_brush_mapping(
+                brush_commands, bytes, index, command);
+        } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
+            path_commands = append_command(path_commands, bytes, command);
+            brush_commands = append_brush_mapping(
+                brush_commands, bytes, index, command);
+        } else if (command.kind ==
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
+            glyph_commands = append_command(glyph_commands, bytes, command);
+            if ((command.flags & PROGPU_NATIVE_SCENE_GLYPH_STYLED) != 0U) {
+                style_commands = append_indexed_command(
+                    style_commands, bytes, index, command);
+            }
+        } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+            image_commands = append_command(image_commands, bytes, command);
+        } else if (is_3d_command(command.kind)) {
+            three_d_commands = append_command(
+                three_d_commands, bytes, command);
         }
         glyph_uses_text_styles = glyph_uses_text_styles ||
             (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN &&
@@ -125,8 +233,9 @@ semantic_content_hashes compute_content_hashes(
         }
     }
 
-    const auto combine = [commands, common](
+    const auto combine = [common](
         std::uint64_t seed,
+        std::uint64_t commands,
         std::uint64_t primary,
         std::uint64_t secondary = 0U) noexcept {
         auto hash = append_fnv1a64(seed, &commands, sizeof(commands));
@@ -137,22 +246,37 @@ semantic_content_hashes compute_content_hashes(
         }
         return finish(hash);
     };
-    result.brush = combine(fnv_offset ^ 0x01U, brushes);
-    result.text_style = combine(fnv_offset ^ 0x02U, styles);
-    result.analytic = combine(fnv_offset ^ 0x03U, analytics, brushes);
-    result.path = combine(fnv_offset ^ 0x04U, paths, brushes);
+    const auto resource_only = [](std::uint64_t seed,
+                                  std::uint64_t commands,
+                                  std::uint64_t resources) noexcept {
+        auto hash = append_fnv1a64(seed, &commands, sizeof(commands));
+        return finish(append_fnv1a64(
+            hash, &resources, sizeof(resources)));
+    };
+    result.brush = resource_only(
+        fnv_offset ^ 0x01U, brush_commands, brushes);
+    result.text_style = resource_only(
+        fnv_offset ^ 0x02U, style_commands, styles);
+    result.analytic = combine(
+        fnv_offset ^ 0x03U, analytic_commands, analytics, brushes);
+    result.path = combine(
+        fnv_offset ^ 0x04U, path_commands, paths, brushes);
     // Positioned glyphs carry their color directly. Only the optional styled
     // command form reads the text-style page; neither glyph form reads the
     // analytic brush table. Keep unrelated material updates out of the glyph
     // page identity so its retained coverage survives analytic-only changes.
-    result.glyph = combine(fnv_offset ^ 0x05U, glyphs);
+    result.glyph = combine(
+        fnv_offset ^ 0x05U, glyph_commands, glyphs);
     if (glyph_uses_text_styles) {
         result.glyph = finish(append_fnv1a64(
             result.glyph, &styles, sizeof(styles)));
     }
-    result.image = combine(fnv_offset ^ 0x06U, images);
-    result.three_d = combine(fnv_offset ^ 0x07U, three_d);
-    result.hit_test = combine(fnv_offset ^ 0x08U, hit_tests);
+    result.image = combine(
+        fnv_offset ^ 0x06U, image_commands, images);
+    result.three_d = combine(
+        fnv_offset ^ 0x07U, three_d_commands, three_d);
+    result.hit_test = resource_only(
+        fnv_offset ^ 0x08U, fnv_offset, hit_tests);
     return result;
 }
 

@@ -842,11 +842,20 @@ bool semantic_scene_builder_records_styled_glyph_runs() {
         0U,
         0U,
         0U};
+    const progpu_native_scene_text_style alternate_style{
+        {0.2F, 0.6F, 0.9F, 1.0F},
+        PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE,
+        0U,
+        0U,
+        0U};
     std::uint32_t style_index = PROGPU_NATIVE_SCENE_NO_INDEX;
     std::uint32_t duplicate_style = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t alternate_style_index = PROGPU_NATIVE_SCENE_NO_INDEX;
     if (!builder.add_text_style(style, style_index) ||
         !builder.add_text_style(style, duplicate_style) ||
-        style_index != duplicate_style) {
+        !builder.add_text_style(alternate_style, alternate_style_index) ||
+        style_index != duplicate_style ||
+        style_index == alternate_style_index) {
         return false;
     }
     const std::array glyphs{
@@ -883,7 +892,7 @@ bool semantic_scene_builder_records_styled_glyph_runs() {
     std::vector<std::byte> stream;
     scene_build_metrics metrics{};
     if (!builder.build(stream, &metrics) || metrics.command_count != 1U ||
-        metrics.resource_count != 2U || metrics.text_style_count != 1U) {
+        metrics.resource_count != 2U || metrics.text_style_count != 2U) {
         return false;
     }
     const auto validated = scene::validate(stream.data(), stream.size());
@@ -906,7 +915,7 @@ bool semantic_scene_builder_records_styled_glyph_runs() {
         glyph_record.auxiliary_size == sizeof(segments) &&
         style_record.kind ==
             PROGPU_NATIVE_SCENE_RESOURCE_TEXT_STYLE_TABLE &&
-        style_record.payload_size == sizeof(style) &&
+        style_record.payload_size == sizeof(style) * 2U &&
         (command.flags & PROGPU_NATIVE_SCENE_GLYPH_STYLED) != 0U &&
         command.payload_size == sizeof(progpu_native_scene_glyph_draw) +
             sizeof(glyphs))) {
@@ -925,8 +934,23 @@ bool semantic_scene_builder_records_styled_glyph_runs() {
         sizeof(changed_style));
     const auto changed_hashes = semantic::compute_content_hashes(
         style_changed.data(), validated.header);
-    return changed_hashes.text_style != original_hashes.text_style &&
-        changed_hashes.glyph != original_hashes.glyph;
+    if (!(changed_hashes.text_style != original_hashes.text_style &&
+        changed_hashes.glyph != original_hashes.glyph)) {
+        return false;
+    }
+
+    auto style_mapping_changed = stream;
+    auto glyph_draw = read<progpu_native_scene_glyph_draw>(
+        style_mapping_changed, command.payload_offset);
+    glyph_draw.style_index = alternate_style_index;
+    std::memcpy(
+        style_mapping_changed.data() + command.payload_offset,
+        &glyph_draw,
+        sizeof(glyph_draw));
+    const auto mapping_hashes = semantic::compute_content_hashes(
+        style_mapping_changed.data(), validated.header);
+    return mapping_hashes.text_style != original_hashes.text_style &&
+        mapping_hashes.glyph != original_hashes.glyph;
 }
 
 bool semantic_scene_builder_shares_glyph_segments_across_raster_sizes() {
@@ -1501,8 +1525,12 @@ bool semantic_scene_builder_records_retained_3d_families() {
 bool semantic_scene_content_hashes_isolate_image_updates() {
     semantic_scene_builder builder(710U, 1U);
     std::uint32_t brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t alternate_brush = PROGPU_NATIVE_SCENE_NO_INDEX;
     if (!builder.add_solid_brush(
-            {0.2F, 0.5F, 0.9F, 1.0F}, 1.0F, brush)) {
+            {0.2F, 0.5F, 0.9F, 1.0F}, 1.0F, brush) ||
+        !builder.add_solid_brush(
+            {0.9F, 0.4F, 0.1F, 1.0F}, 1.0F, alternate_brush) ||
+        brush == alternate_brush) {
         return false;
     }
     const progpu_native_analytic_primitive primitive{
@@ -1593,9 +1621,119 @@ bool semantic_scene_content_hashes_isolate_image_updates() {
     }
     const auto brush_hashes = semantic::compute_content_hashes(
         brush_changed.data(), brush_header);
-    return brush_hashes.brush != first_hashes.brush &&
+    if (!(brush_hashes.brush != first_hashes.brush &&
         brush_hashes.analytic != first_hashes.analytic &&
-        brush_hashes.glyph == first_hashes.glyph;
+        brush_hashes.glyph == first_hashes.glyph)) {
+        return false;
+    }
+
+    auto image_placement_changed = first;
+    const auto image_command_offset = first_header.command_offset +
+        first_header.command_stride;
+    auto image_command = read<progpu_native_scene_command>(
+        image_placement_changed, image_command_offset);
+    if (image_command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+        return false;
+    }
+    image_command.bounds_x += 1.0F;
+    std::memcpy(
+        image_placement_changed.data() + image_command_offset,
+        &image_command,
+        sizeof(image_command));
+    const auto image_placement_hashes = semantic::compute_content_hashes(
+        image_placement_changed.data(), first_header);
+    if (!(image_placement_hashes.image != first_hashes.image &&
+        image_placement_hashes.analytic == first_hashes.analytic &&
+        image_placement_hashes.brush == first_hashes.brush)) {
+        return false;
+    }
+
+    auto analytic_placement_changed = first;
+    auto analytic_command = read<progpu_native_scene_command>(
+        analytic_placement_changed, first_header.command_offset);
+    if (analytic_command.kind !=
+        PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC) {
+        return false;
+    }
+    analytic_command.bounds_y += 1.0F;
+    std::memcpy(
+        analytic_placement_changed.data() + first_header.command_offset,
+        &analytic_command,
+        sizeof(analytic_command));
+    const auto analytic_placement_hashes = semantic::compute_content_hashes(
+        analytic_placement_changed.data(), first_header);
+    if (!(analytic_placement_hashes.analytic != first_hashes.analytic &&
+        analytic_placement_hashes.image == first_hashes.image &&
+        analytic_placement_hashes.brush == first_hashes.brush)) {
+        return false;
+    }
+
+    auto brush_mapping_changed = first;
+    const auto analytic_draw = read<progpu_native_scene_draw_brushes>(
+        brush_mapping_changed, analytic_command.payload_offset);
+    if (analytic_draw.brush_count != 1U) {
+        return false;
+    }
+    std::memcpy(
+        brush_mapping_changed.data() + analytic_command.payload_offset +
+            sizeof(analytic_draw),
+        &alternate_brush,
+        sizeof(alternate_brush));
+    const auto brush_mapping_hashes = semantic::compute_content_hashes(
+        brush_mapping_changed.data(), first_header);
+    if (!(brush_mapping_hashes.brush != first_hashes.brush &&
+        brush_mapping_hashes.analytic != first_hashes.analytic &&
+        brush_mapping_hashes.image == first_hashes.image)) {
+        return false;
+    }
+
+    semantic_scene_builder scoped_builder(711U, 1U);
+    std::uint32_t scoped_brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    auto first_state = semantic_scene_builder::identity_state();
+    auto second_state = first_state;
+    second_state.opacity = 0.5F;
+    std::uint32_t first_state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t second_state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!scoped_builder.add_solid_brush(
+            {0.2F, 0.5F, 0.9F, 1.0F}, 1.0F, scoped_brush) ||
+        !scoped_builder.add_state(first_state, first_state_index) ||
+        !scoped_builder.add_state(second_state, second_state_index) ||
+        !scoped_builder.save(first_state_index) ||
+        !scoped_builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &primitive, 1U),
+            std::span<const std::uint32_t>(&scoped_brush, 1U),
+            {0.0F, 0.0F, 20.0F, 20.0F}) ||
+        !scoped_builder.restore()) {
+        return false;
+    }
+    std::vector<std::byte> scoped;
+    if (!scoped_builder.build(scoped)) {
+        return false;
+    }
+    const auto scoped_header = read<progpu_native_scene_header>(scoped, 0U);
+    const auto scoped_hashes = semantic::compute_content_hashes(
+        scoped.data(), scoped_header);
+    auto scope_changed = scoped;
+    auto save_command = read<progpu_native_scene_command>(
+        scope_changed, scoped_header.command_offset);
+    if (save_command.kind != PROGPU_NATIVE_SCENE_COMMAND_SAVE) {
+        return false;
+    }
+    save_command.state_index = second_state_index;
+    std::memcpy(
+        scope_changed.data() + scoped_header.command_offset,
+        &save_command,
+        sizeof(save_command));
+    const auto scope_hashes = semantic::compute_content_hashes(
+        scope_changed.data(), scoped_header);
+    return scope_hashes.brush != scoped_hashes.brush &&
+        scope_hashes.text_style != scoped_hashes.text_style &&
+        scope_hashes.analytic != scoped_hashes.analytic &&
+        scope_hashes.path != scoped_hashes.path &&
+        scope_hashes.glyph != scoped_hashes.glyph &&
+        scope_hashes.image != scoped_hashes.image &&
+        scope_hashes.three_d != scoped_hashes.three_d;
 }
 
 bool semantic_scene_builder_records_retained_hit_test_index() {

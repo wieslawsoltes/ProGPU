@@ -9,7 +9,10 @@ namespace progpu::native::semantic {
 
 // Content identities deliberately exclude scene generation and resource
 // payload offsets. Stable resource id/generation pairs are the retained
-// ownership boundary; command records and their payloads describe placement.
+// ownership boundary. Each compiled draw-family identity includes only that
+// family's draw records/payloads plus the shared scope commands that affect
+// its compiled state. Full-scene replay ordering remains owned by the
+// independent immutable stream hash.
 struct semantic_content_hashes final {
     std::uint64_t brush = 0U;
     std::uint64_t text_style = 0U;
