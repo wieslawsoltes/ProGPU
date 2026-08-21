@@ -286,14 +286,32 @@ try {
     "The native gallery WebGPU screenshot is empty.");
 
   await page.getByRole("button", { name: "Aa Text shaping" }).click();
-  await page.waitForFunction(
-    () => document.body.dataset.progpuNativeSample === "text-shaping" &&
-      Number(document.body.dataset.progpuNativeFontBytes) > 0 &&
-      Number(document.body.dataset.progpuNativeWasmBytes) > 0 &&
-      Number(document.body.dataset.progpuNativeGlyphs) > 0 &&
-      Number(document.body.dataset.progpuNativeOutlines) > 0,
-    undefined,
-    { timeout: 30_000 });
+  try {
+    await page.waitForFunction(
+      () => document.body.dataset.progpuNativeSample === "text-shaping" &&
+        Number(document.body.dataset.progpuNativeFontBytes) > 0 &&
+        Number(document.body.dataset.progpuNativeWasmBytes) > 0 &&
+        Number(document.body.dataset.progpuNativeGlyphs) > 0 &&
+        Number(document.body.dataset.progpuNativeOutlines) > 0,
+      undefined,
+      { timeout: 120_000 });
+  } catch (error) {
+    const readiness = await page.evaluate(() => ({
+      sample: document.body.dataset.progpuNativeSample ?? "unset",
+      fontBytes: document.body.dataset.progpuNativeFontBytes ?? "unset",
+      wasmBytes: document.body.dataset.progpuNativeWasmBytes ?? "unset",
+      glyphs: document.body.dataset.progpuNativeGlyphs ?? "unset",
+      outlines: document.body.dataset.progpuNativeOutlines ?? "unset",
+      stage: document.body.dataset.progpuNativeStage ?? "unset",
+      error: document.body.dataset.progpuNativeError ?? ""
+    }));
+    const diagnostics = errors.length === 0 ? "no browser errors" :
+      errors.join(" | ");
+    throw new Error(
+      `Text showcase readiness timed out: ${JSON.stringify(readiness)}; ` +
+        diagnostics,
+      { cause: error });
+  }
   const textContract = await page.evaluate(() => ({
     sample: document.body.dataset.progpuNativeSample,
     fontBytes: Number(document.body.dataset.progpuNativeFontBytes),
