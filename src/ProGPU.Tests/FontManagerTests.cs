@@ -46,6 +46,36 @@ public sealed class FontManagerTests
     }
 
     [Fact]
+    public void StaticTypefaceStyleCacheStaysBoundedAcrossOpticalSizes()
+    {
+        var manager = new FontManager();
+        TtfFont regular = InterFontFamily.Regular;
+        manager.RegisterFont(regular);
+
+        for (var index = 0; index < 1_000; index++)
+        {
+            Assert.Same(
+                regular,
+                manager.MatchTypeface(
+                    regular,
+                    new FontStyleRequest(700, 5, FontSlant.Upright)
+                    {
+                        OpticalSize = 8f + index * 0.125f
+                    }));
+        }
+
+        FieldInfo? cacheField = typeof(FontManager).GetField(
+            "_styleMatches",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(cacheField);
+        var cache = Assert.IsType<
+            System.Collections.Concurrent.ConcurrentDictionary<
+                (TtfFont Font, FontStyleRequest Style), TtfFont>>(
+                    cacheField.GetValue(manager));
+        Assert.InRange(cache.Count, 1, 256);
+    }
+
+    [Fact]
     public void RegisteringACloserFaceInvalidatesPriorStyleMatch()
     {
         var manager = new FontManager();

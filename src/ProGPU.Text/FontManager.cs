@@ -72,6 +72,7 @@ public sealed class FontFace
 public sealed class FontManager
 {
     private const int MaximumCharacterMatchCacheEntries = 4096;
+    private const int MaximumStyleMatchCacheEntries = 256;
     private const int MaximumVariationMatchCacheEntries = 256;
 
     private readonly record struct CharacterMatchKey(
@@ -122,6 +123,7 @@ public sealed class FontManager
     private readonly object _registeredLock = new();
     private RegisteredFace[] _registeredFaces = [];
     private readonly ConcurrentDictionary<(TtfFont Font, FontStyleRequest Style), TtfFont> _styleMatches = new();
+    private readonly ConcurrentQueue<(TtfFont Font, FontStyleRequest Style)> _styleMatchOrder = new();
     private readonly ConcurrentDictionary<(TtfFont Font, FontStyleRequest Style), TtfFont> _variationMatches = new();
     private readonly ConcurrentQueue<(TtfFont Font, FontStyleRequest Style)> _variationMatchOrder = new();
     // Fallback lookup is on the per-character layout path. Positive and negative
@@ -283,6 +285,7 @@ public sealed class FontManager
             };
             Volatile.Write(ref _registeredFaces, updated);
             _styleMatches.Clear();
+            _styleMatchOrder.Clear();
             _variationMatches.Clear();
             _variationMatchOrder.Clear();
             Interlocked.Increment(ref _catalogVersion);
@@ -319,7 +322,7 @@ public sealed class FontManager
             bool requestedItalic = style.Slant != FontSlant.Upright;
             if (currentItalic != requestedItalic && !SupportsSlantVariation(typeface))
             {
-                return _styleMatches.GetOrAdd(
+                return GetOrAddStyleMatch(
                     (typeface, style),
                     key => MatchFamily(key.Font.FamilyName, key.Style) is { } familyMatch &&
                            !ReferenceEquals(familyMatch, key.Font)
@@ -332,9 +335,31 @@ public sealed class FontManager
         {
             return typeface;
         }
-        return _styleMatches.GetOrAdd(
+        return GetOrAddStyleMatch(
             (typeface, style),
             key => MatchFamily(key.Font.FamilyName, key.Style) ?? key.Font);
+    }
+
+    private TtfFont GetOrAddStyleMatch(
+        (TtfFont Font, FontStyleRequest Style) key,
+        Func<(TtfFont Font, FontStyleRequest Style), TtfFont> create)
+    {
+        if (_styleMatches.TryGetValue(key, out TtfFont? cached))
+        {
+            return cached;
+        }
+        TtfFont created = create(key);
+        if (!_styleMatches.TryAdd(key, created))
+        {
+            return _styleMatches.TryGetValue(key, out cached) ? cached : created;
+        }
+        _styleMatchOrder.Enqueue(key);
+        while (_styleMatches.Count > MaximumStyleMatchCacheEntries &&
+               _styleMatchOrder.TryDequeue(out var oldest))
+        {
+            _styleMatches.TryRemove(oldest, out _);
+        }
+        return created;
     }
 
     public bool TryMatchCharacter(
