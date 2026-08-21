@@ -22,13 +22,16 @@
     .workspace { min-height: 0; display: grid; grid-template-columns: 224px minmax(0, 1fr); }
     nav { padding: 24px 14px; border-right: 1px solid #ffffff12; background: #0d0f18d9; }
     .nav-label { padding: 0 12px 10px; color: #666f87; font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
-    .nav-item { width: 100%; display: flex; gap: 10px; align-items: center; padding: 11px 12px; border: 1px solid #4c7fd33d; border-radius: 10px; color: #eef4ff; background: #24487948; text-align: left; }
+    .nav-item { width: 100%; display: flex; gap: 10px; align-items: center; padding: 11px 12px; border: 1px solid transparent; border-radius: 10px; color: #929bb2; background: transparent; text-align: left; cursor: pointer; }
+    .nav-item + .nav-item { margin-top: 6px; }
+    .nav-item.active { border-color: #4c7fd33d; color: #eef4ff; background: #24487948; }
     .nav-item span { color: #7bbcff; }
     main { min-width: 0; padding: clamp(18px, 3vw, 38px); overflow: auto; }
     .intro { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 18px; }
     h2 { margin: 0; font-size: clamp(25px, 4vw, 40px); letter-spacing: -.045em; }
     .intro p { max-width: 720px; margin: 7px 0 0; color: #8f98b0; line-height: 1.5; }
     .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+    .controls[hidden] { display: none; }
     .control { min-height: 40px; padding: 0 14px; border: 1px solid #ffffff19; border-radius: 9px; color: #edf1ff; background: #202431; }
     button.control { cursor: pointer; }
     button.control:hover { border-color: #4d98ff; background: #293044; }
@@ -56,13 +59,17 @@
       <div class="badge">C++20 · WASM AOT · WEBGPU</div>
     </header>
     <div class="workspace">
-      <nav><div class="nav-label">Native samples</div><button class="nav-item"><span>◉</span> MotionMark</button></nav>
+      <nav>
+        <div class="nav-label">Native samples</div>
+        <button id="sample-motion" class="nav-item active"><span>◉</span> MotionMark</button>
+        <button id="sample-text" class="nav-item"><span>Aa</span> Text shaping</button>
+      </nav>
       <main>
         <section class="intro">
-          <div><h2>MotionMark</h2><p>Mixed line, quadratic, and cubic paths animated through one immutable native semantic stream and the production ProGPU GPU pipeline.</p></div>
+          <div><h2 id="sample-title">MotionMark</h2><p id="sample-description">Mixed line, quadratic, and cubic paths animated through one immutable native semantic stream and the production ProGPU GPU pipeline.</p></div>
           <div id="status-message">Initializing native WebGPU…</div>
         </section>
-        <div class="controls">
+        <div id="motion-controls" class="controls">
           <select id="complexity" class="control" aria-label="Shape count">
             <option value="250">250 segments</option><option value="1000" selected>1,000 segments</option><option value="2500">2,500 segments</option><option value="5000">5,000 segments</option>
           </select>
@@ -72,12 +79,25 @@
           <button id="pause" class="control">Pause</button>
           <button id="regenerate" class="control">Regenerate</button>
         </div>
+        <div id="text-controls" class="controls" hidden>
+          <select id="text-preset" class="control" aria-label="OpenType feature specimen">
+            <option value="0">liga · Standard ligatures</option>
+            <option value="1">kern · Pair positioning</option>
+            <option value="2">frac · Automatic fractions</option>
+            <option value="3">zero · Slashed zero</option>
+            <option value="4">ss01 · Stylistic set 01</option>
+            <option value="5">calt · Contextual alternates</option>
+            <option value="6">locl · Localized Romanian</option>
+            <option value="7">mkmk · Mark-to-mark</option>
+          </select>
+          <span class="control" aria-label="Font asset">Inter Regular · separate 404 KiB asset</span>
+        </div>
         <div class="stage">
-          <canvas id="progpu-canvas" aria-label="Pure C++ ProGPU MotionMark rendering surface"></canvas>
+          <canvas id="progpu-canvas" aria-label="Pure C++ ProGPU rendering surface"></canvas>
           <div class="metrics">
             <div class="metric">FPS <strong id="metric-fps">0</strong></div>
-            <div class="metric">segments <strong id="metric-elements">0</strong></div>
-            <div class="metric">groups <strong id="metric-groups">0</strong></div>
+            <div class="metric"><span id="metric-elements-label">segments</span> <strong id="metric-elements">0</strong></div>
+            <div class="metric"><span id="metric-groups-label">groups</span> <strong id="metric-groups">0</strong></div>
             <div class="metric">GPU draws <strong id="metric-draws">0</strong></div>
             <div class="metric">scene <strong id="metric-bytes">0 B</strong></div>
             <div class="metric">DPR <strong id="metric-dpr">1</strong></div>
@@ -92,6 +112,43 @@
       const palette = document.querySelector('#palette');
       const pause = document.querySelector('#pause');
       const regenerate = document.querySelector('#regenerate');
+      const motionButton = document.querySelector('#sample-motion');
+      const textButton = document.querySelector('#sample-text');
+      const motionControls = document.querySelector('#motion-controls');
+      const textControls = document.querySelector('#text-controls');
+      const textPreset = document.querySelector('#text-preset');
+      const title = document.querySelector('#sample-title');
+      const description = document.querySelector('#sample-description');
+      const status = document.querySelector('#status-message');
+      let fontPromise;
+
+      const showSampleUi = sample => {
+        const text = sample === 1;
+        motionButton.classList.toggle('active', !text);
+        textButton.classList.toggle('active', text);
+        motionControls.hidden = text;
+        textControls.hidden = !text;
+        title.textContent = text ? 'Text shaping' : 'MotionMark';
+        description.textContent = text
+          ? 'The managed Text Shaping Showcase feature wall ported to pure C++: one native OpenType result feeds retained glyph outlines and the production WebGPU text pipeline.'
+          : 'Mixed line, quadratic, and cubic paths animated through one immutable native semantic stream and the production ProGPU GPU pipeline.';
+        document.querySelector('#metric-elements-label').textContent = text ? 'glyphs' : 'segments';
+        document.querySelector('#metric-groups-label').textContent = text ? 'outlines' : 'groups';
+      };
+
+      const ensureFont = () => fontPromise ??= (async () => {
+        status.textContent = 'Loading the separate Inter font asset…';
+        const response = await fetch('Inter-Regular.ttf');
+        if (!response.ok) throw new Error(`Font request failed: ${response.status}`);
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        const pointer = Module._progpu_native_gallery_prepare_font(bytes.byteLength);
+        if (!pointer) throw new Error('Native font staging allocation failed.');
+        Module.HEAPU8.set(bytes, pointer);
+        if (Module._progpu_native_gallery_commit_font(bytes.byteLength) === 0) {
+          throw new Error('The native OpenType stack rejected the font asset.');
+        }
+        document.body.dataset.progpuNativeFontBytes = String(bytes.byteLength);
+      })();
 
       complexity.addEventListener('change', event => Module._progpu_native_gallery_set_element_count(Number(event.target.value)));
       palette.addEventListener('change', event => Module._progpu_native_gallery_set_color_mode(Number(event.target.value)));
@@ -100,6 +157,28 @@
         pause.textContent = paused ? 'Resume' : 'Pause';
       });
       regenerate.addEventListener('click', () => Module._progpu_native_gallery_regenerate());
+      motionButton.addEventListener('click', () => {
+        Module._progpu_native_gallery_set_sample(0);
+        showSampleUi(0);
+      });
+      textButton.addEventListener('click', async () => {
+        textButton.disabled = true;
+        try {
+          await ensureFont();
+          if (Module._progpu_native_gallery_set_sample(1) !== 1) {
+            throw new Error('The native text sample did not activate.');
+          }
+          showSampleUi(1);
+        } catch (error) {
+          document.body.dataset.progpuNativeError = String(error);
+          status.textContent = String(error);
+          console.error(error);
+        } finally {
+          textButton.disabled = false;
+        }
+      });
+      textPreset.addEventListener('change', event =>
+        Module._progpu_native_gallery_set_text_preset(Number(event.target.value)));
     });
   </script>
   {{{ SCRIPT }}}

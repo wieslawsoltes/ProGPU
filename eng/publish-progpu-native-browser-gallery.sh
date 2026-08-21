@@ -26,7 +26,8 @@ for asset in \
   progpu_native_browser_gallery.html \
   progpu_native_browser_gallery.js \
   progpu_native_browser_gallery.wasm \
-  progpu-browser-host.js; do
+  progpu-browser-host.js \
+  Inter-Regular.ttf; do
   cmake -E copy_if_different \
     "${build_dir}/${asset}" \
     "${publish_dir}/${asset}"

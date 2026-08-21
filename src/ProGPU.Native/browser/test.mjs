@@ -284,13 +284,70 @@ try {
   });
   assert.ok(galleryScreenshot.length > 1000,
     "The native gallery WebGPU screenshot is empty.");
+
+  await page.getByRole("button", { name: "Aa Text shaping" }).click();
+  await page.waitForFunction(
+    () => document.body.dataset.progpuNativeSample === "text-shaping" &&
+      Number(document.body.dataset.progpuNativeFontBytes) > 0 &&
+      Number(document.body.dataset.progpuNativeGlyphs) > 0 &&
+      Number(document.body.dataset.progpuNativeOutlines) > 0,
+    undefined,
+    { timeout: 30_000 });
+  const textContract = await page.evaluate(() => ({
+    sample: document.body.dataset.progpuNativeSample,
+    fontBytes: Number(document.body.dataset.progpuNativeFontBytes),
+    glyphs: Number(document.body.dataset.progpuNativeGlyphs),
+    outlines: Number(document.body.dataset.progpuNativeOutlines),
+    draws: Number(document.body.dataset.progpuNativeDraws),
+    streamBytes: Number(document.body.dataset.progpuNativeStreamBytes),
+    preset: Number(document.body.dataset.progpuNativeTextPreset),
+    updateMilliseconds:
+      Number(document.body.dataset.progpuNativeUpdateMilliseconds),
+    width: Number(document.body.dataset.progpuNativeBackingWidth),
+    height: Number(document.body.dataset.progpuNativeBackingHeight),
+    dpiScale: Number(document.body.dataset.progpuNativeDpiScale),
+    error: document.body.dataset.progpuNativeError ?? ""
+  }));
+  assert.equal(textContract.sample, "text-shaping");
+  assert.ok(textContract.fontBytes > 300_000);
+  assert.ok(textContract.glyphs > 100);
+  assert.ok(textContract.outlines > 16);
+  assert.ok(textContract.draws > 1);
+  assert.ok(textContract.streamBytes > 0);
+  assert.equal(textContract.preset, 0);
+  assert.ok(Number.isFinite(textContract.updateMilliseconds) &&
+    textContract.updateMilliseconds >= 0);
+  assert.equal(textContract.width, galleryContract.width);
+  assert.equal(textContract.height, galleryContract.height);
+  assert.equal(textContract.dpiScale, galleryContract.dpiScale);
+  assert.equal(textContract.error, "");
+
+  await page.locator("#text-preset").selectOption("1");
+  await page.waitForFunction(
+    () => document.body.dataset.progpuNativeTextPreset === "1",
+    undefined,
+    { timeout: 30_000 });
+  textContract.changedPreset = Number(
+    await page.locator("body").getAttribute(
+      "data-progpu-native-text-preset"));
+  assert.equal(textContract.changedPreset, 1);
+  const textScreenshot = await page.locator(".stage").screenshot({
+    path: path.join(
+      evidenceDirectory,
+      "progpu-native-browser-text-shaping.png")
+  });
+  assert.ok(textScreenshot.length > 1000,
+    "The native text-shaping WebGPU screenshot is empty.");
+  galleryContract.textShaping = textContract;
   await fs.writeFile(
     path.join(evidenceDirectory, "progpu-native-browser-gallery.json"),
     `${JSON.stringify(galleryContract, null, 2)}\n`);
   assert.deepEqual(errors, []);
   process.stdout.write(
     `ProGPU pure C++ browser gallery presented MotionMark as one GPU draw ` +
-    `at ${galleryContract.width}x${galleryContract.height} physical pixels.\n`);
+    `and ${textContract.glyphs} shaped glyph records with ` +
+    `${textContract.outlines} retained outlines at ` +
+    `${galleryContract.width}x${galleryContract.height} physical pixels.\n`);
 } finally {
   await browser.close();
 }
