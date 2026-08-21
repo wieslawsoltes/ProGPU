@@ -782,6 +782,7 @@ apply_result apply_pair(
     const std::size_t value_size1 = value_record_size(value_format1);
     const std::size_t value_size2 = value_record_size(value_format2);
     std::size_t value1_offset = 0U;
+    std::size_t value_parent = subtable;
     if (format == 1U) {
         const std::uint16_t pair_set_count = read_u16(table, subtable + 8U);
         if (static_cast<std::uint32_t>(coverage_index) >= pair_set_count ||
@@ -820,6 +821,7 @@ apply_result apply_pair(
         if (value1_offset == 0U) {
             return apply_result::no_match;
         }
+        value_parent = pair_set;
     } else if (format == 2U) {
         if (!can_read(table, subtable, 16U)) {
             return apply_result::malformed;
@@ -863,14 +865,14 @@ apply_result apply_pair(
     value_adjustment value2{};
     if (!parse_value_record(
             table,
-            subtable,
+            value_parent,
             value1_offset,
             value_format1,
             options,
             value1) ||
         !parse_value_record(
             table,
-            subtable,
+            value_parent,
             value1_offset + value_size1,
             value_format2,
             options,

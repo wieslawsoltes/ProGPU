@@ -301,6 +301,11 @@ using ::progpu::native::text::sfnt_simple_glyph_variation_requirements;
 using ::progpu::native::text::sfnt_simple_glyph_variation_scratch;
 using ::progpu::native::text::sfnt_varied_glyph_requirements;
 using ::progpu::native::text::sfnt_varied_glyph_scratch;
+using ::progpu::native::text::font_catalog_error;
+using ::progpu::native::text::font_catalog_scan_metrics;
+using ::progpu::native::text::font_catalog_face_info;
+using ::progpu::native::text::loaded_font_face;
+using ::progpu::native::text::system_font_catalog;
 
 } // namespace progpu::native::text
 

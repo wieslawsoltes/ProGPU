@@ -157,6 +157,27 @@ public sealed class OpenTypeTextShaperTests
         Assert.Equal(new[] { 1250f, 1246f, 1241f, 1119f, 1430f, 1321f }, glyphs.Select(static glyph => glyph.AdvanceX));
     }
 
+    [Theory]
+    [InlineData("A<", 2, 1529, 1430, 1341)]
+    [InlineData("DЖ", 84, 1072, 1347, 2014)]
+    [InlineData("Ǝ_", 122, 1543, 1234, 951)]
+    [InlineData("Fȉ", 137, 706, 1335, 491)]
+    [InlineData("H_", 161, 1543, 1501, 951)]
+    [InlineData("IƗ", 197, 201, 601, 691)]
+    public void VariablePairSetDeviceOffsetsMatchHarfBuzzReference(
+        string text,
+        ushort firstGlyph,
+        ushort secondGlyph,
+        int firstAdvance,
+        int secondAdvance)
+    {
+        TtfFont font = InterFontFamily.GetVariableFont(537, 23);
+        IReadOnlyList<ShapedGlyph> glyphs = OpenTypeTextShaper.Shape(text, font, font.UnitsPerEm);
+
+        Assert.Equal(new[] { firstGlyph, secondGlyph }, glyphs.Select(static glyph => glyph.GlyphIndex));
+        Assert.Equal(new[] { (float)firstAdvance, secondAdvance }, glyphs.Select(static glyph => glyph.AdvanceX));
+    }
+
     [Fact]
     public void PrintableAsciiDataGridLabelMatchesHarfBuzzReference()
     {

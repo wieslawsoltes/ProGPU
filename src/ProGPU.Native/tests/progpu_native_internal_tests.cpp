@@ -12,6 +12,7 @@
 #include "progpu_native_semantic_effect_cache.hpp"
 #include "progpu_native_semantic_image_tests.hpp"
 #include "progpu_native_semantic_layer_mask_tests.hpp"
+#include "progpu_native_semantic_draw_merge.hpp"
 #include "progpu_native_scene_builder_tests.hpp"
 #include "progpu_native_semantic_state.hpp"
 #include "progpu_native_semantic_text_style.hpp"
@@ -22,6 +23,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
+#include <limits>
 
 namespace {
 
@@ -29,6 +31,50 @@ void require(bool condition) {
     if (!condition) {
         std::abort();
     }
+}
+
+void semantic_contiguous_draws_merge_without_reordering() {
+    const auto vertex_stride =
+        sizeof(progpu::native::vector_vertex);
+    const auto index_stride = sizeof(std::uint32_t);
+    semantic_analytic_draw analytic{
+        0U,
+        0U,
+        4U,
+        6U};
+    require(try_merge_semantic_analytic_draw(
+        analytic,
+        semantic_analytic_draw{
+            4U * vertex_stride,
+            6U * index_stride,
+            8U,
+            12U}));
+    require(analytic.vertex_count == 12U && analytic.index_count == 18U);
+    const auto retained_analytic = analytic;
+    require(!try_merge_semantic_analytic_draw(
+        analytic,
+        semantic_analytic_draw{
+            13U * vertex_stride,
+            18U * index_stride,
+            4U,
+            6U}));
+    require(analytic.vertex_count == retained_analytic.vertex_count &&
+        analytic.index_count == retained_analytic.index_count);
+
+    semantic_path_draw path{4U, 6U};
+    require(try_merge_semantic_path_draw(path, {10U, 9U}));
+    require(path.first_index == 4U && path.index_count == 15U);
+    require(!try_merge_semantic_path_draw(path, {20U, 3U}));
+
+    semantic_glyph_draw glyph{7U, 3U};
+    require(try_merge_semantic_glyph_draw(glyph, {10U, 5U}));
+    require(glyph.first_instance == 7U && glyph.instance_count == 8U);
+    require(!try_merge_semantic_glyph_draw(glyph, {16U, 1U}));
+
+    semantic_glyph_draw overflow{
+        0U,
+        std::numeric_limits<std::uint32_t>::max()};
+    require(!try_merge_semantic_glyph_draw(overflow, {0U, 1U}));
 }
 
 progpu_native_group_effect effect(std::uint32_t kind) noexcept {
@@ -763,6 +809,7 @@ void draw_state_resolution_is_cpu_only_and_bounded() {
 } // namespace
 
 int main() {
+    semantic_contiguous_draws_merge_without_reordering();
     effect_plan_uses_three_bounded_intermediates();
     semantic_budget_counts_effected_depth_once();
     semantic_compilation_budget_is_checked();

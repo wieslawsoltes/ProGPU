@@ -5,18 +5,12 @@
 #include "progpu_native.h"
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_semantic_brush.hpp"
+#include "progpu_native_semantic_draw_merge.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
 
 #include <array>
 #include <cstdint>
 #include <vector>
-
-struct semantic_analytic_draw {
-    std::uint64_t vertex_offset_bytes = 0U;
-    std::uint64_t index_offset_bytes = 0U;
-    std::uint32_t vertex_count = 0U;
-    std::uint32_t index_count = 0U;
-};
 
 struct semantic_analytic_page {
     WGPUBuffer vertex_buffer = nullptr;
@@ -33,11 +27,6 @@ struct semantic_analytic_page {
     std::vector<semantic_analytic_draw> draws;
 };
 
-struct semantic_path_draw {
-    std::uint32_t first_index = 0U;
-    std::uint32_t index_count = 0U;
-};
-
 struct semantic_path_page {
     std::uint64_t scene_hash = 0U;
     float dpi_scale = 0.0F;
@@ -49,11 +38,6 @@ struct semantic_path_page {
     std::vector<progpu_native_scene_path_boolean_node> boolean_nodes;
     std::vector<std::uint32_t> brush_indices;
     std::vector<semantic_path_draw> draws;
-};
-
-struct semantic_glyph_draw {
-    std::uint32_t first_instance = 0U;
-    std::uint32_t instance_count = 0U;
 };
 
 struct semantic_color_glyph_raster {
