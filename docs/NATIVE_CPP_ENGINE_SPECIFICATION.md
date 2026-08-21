@@ -386,7 +386,7 @@ and acceptance rules are recorded in
 | Area | Managed C# state | Native C++20 state | Status / boundary |
 | --- | --- | --- | --- |
 | Desktop WebGPU providers | Silk/wgpu-native and typed Dawn | Direct wgpu-native plus provider-resolved Dawn libraries | Exact supported ABIs |
-| Browser | Managed .NET/Wasm renderer | Full C++/Wasm renderer linked through Emscripten/Emdawnwebgpu | Exact core renderer; manual visual approval pending |
+| Browser | Managed .NET/Wasm renderer | Full C++/Wasm renderer linked through Emscripten/Emdawnwebgpu | Exact core renderer; user-qualified on macOS/browser on 2026-08-21 |
 | Android/iOS | Managed platform host and typed Dawn adapter | Provider-resolved C++ renderer packages for Android and iOS | Automated build/package parity; physical lifecycle qualification pending |
 | Compiler portability | C# compiler/NativeAOT | Clang C++20 reference plus GCC, MSVC, Apple Clang, NDK Clang, and Emscripten gates | Qualified in CI |
 | C++ modules | Not applicable | Named-module and matching header consumer over the same sources | Qualified in CI |
@@ -400,7 +400,7 @@ and acceptance rules are recorded in
 | Animation policy and mutable live visuals | Managed framework/visual tree | Immutable snapshots only; live `DrawVisual` rejected | Excluded from native-core goal |
 | Media decode/playback/editing/audio | Managed platform/media projects | Not part of this C++ renderer/text port | Excluded from native-core goal |
 | Managed scene compiler removal | Managed compiler remains supported | Parallel native scene builder is available | No parity gap; dual-producer architecture is intentional |
-| User desktop/browser review | Managed baseline and native sample are runnable | Exact-head automated gates pass | Qualification pending before the draft can be marked ready or merged |
+| User desktop/browser review | Managed baseline and native sample are runnable | Exact-head automated gates pass | Qualified by the user on macOS desktop and browser on 2026-08-21 |
 
 ## 5. WebScene PR #10 analysis
 
