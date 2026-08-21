@@ -121,8 +121,19 @@ public sealed class NotoFontFamilyTests
             '♠',
             out TtfFont? symbols,
             out ushort symbolGlyph));
-        Assert.Same(NotoFontFamily.Symbols, symbols);
+        Assert.NotNull(symbols);
+        Assert.Equal(symbols!.GetGlyphIndex('♠'), symbolGlyph);
         Assert.NotEqual((ushort)0, symbolGlyph);
+
+        Assert.True(manager.TryMatchCharacter(
+            NotoFontFamily.Symbols.FamilyName,
+            FontStyleRequest.Normal,
+            null,
+            '♠',
+            out TtfFont? registeredSymbols,
+            out ushort registeredSymbolGlyph));
+        Assert.Same(NotoFontFamily.Symbols, registeredSymbols);
+        Assert.NotEqual((ushort)0, registeredSymbolGlyph);
     }
 
     private static void AssertGeometryEqual(PathGeometry expected, PathGeometry actual)
