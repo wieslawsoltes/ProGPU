@@ -5,8 +5,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace progpu::native::text {
 
@@ -3484,6 +3487,118 @@ private:
     std::size_t directory_offset_ = 0U;
     std::uint16_t table_count_ = 0U;
     bool uses_symbol_character_map_ = false;
+};
+
+enum class font_catalog_error : std::uint32_t {
+    none = 0U,
+    invalid_argument,
+    filesystem_error,
+    invalid_font,
+    out_of_memory
+};
+
+struct font_catalog_scan_metrics final {
+    std::uint64_t bytes_read = 0U;
+    std::uint32_t directory_count = 0U;
+    std::uint32_t file_count = 0U;
+    std::uint32_t face_count = 0U;
+    std::uint32_t skipped_file_count = 0U;
+};
+
+struct font_catalog_face_info final {
+    /* String views are owned by the catalog and remain valid until its next
+     * successful discovery or destruction. */
+    std::string_view full_name{};
+    std::string_view family_name{};
+    std::string_view file_path{};
+    std::uint64_t identity = 0U;
+    std::uint64_t family_identity = 0U;
+    std::uint32_t face_index = 0U;
+    std::uint16_t weight = 400U;
+    std::uint8_t width = 5U;
+    font_provider_slant slant = font_provider_slant::normal;
+};
+
+/*
+ * One selected face with shared immutable file ownership. Copies are O(1),
+ * and every borrowed sfnt_font_view span remains valid until the last copy is
+ * destroyed. No platform text API, graphics API, or WebGPU object is involved.
+ */
+class loaded_font_face final {
+public:
+    loaded_font_face() noexcept = default;
+
+    bool valid() const noexcept;
+    std::span<const std::byte> data() const noexcept;
+    const sfnt_font_view& font() const noexcept;
+    std::uint32_t catalog_index() const noexcept;
+    std::uint64_t identity() const noexcept;
+
+private:
+    friend class system_font_catalog;
+
+    std::shared_ptr<const std::vector<std::byte>> storage_{};
+    sfnt_font_view font_{};
+    std::uint32_t catalog_index_ = 0U;
+    std::uint64_t identity_ = 0U;
+};
+
+/*
+ * Platform-text-API-free system catalog equivalent to managed FontApi and
+ * FontManager. Discovery streams only metadata tables. Character matching
+ * lazily retains one cmap per queried face, while complete font bytes are
+ * loaded only for selected faces and shared by file. Discovery is O(D + F*T)
+ * time and O(F + metadata) storage for directories D, faces F, and tables T;
+ * family matching is O(F), cached character matching is amortized O(1), and
+ * an uncached fallback is O(F*T). The catalog owns all strings and caches.
+ * Complete discovery before using one catalog concurrently. Read, match, and
+ * load operations may run concurrently after discovery has finished.
+ */
+class system_font_catalog final {
+public:
+    system_font_catalog();
+    ~system_font_catalog();
+    system_font_catalog(system_font_catalog&&) noexcept;
+    system_font_catalog& operator=(system_font_catalog&&) noexcept;
+    system_font_catalog(const system_font_catalog&) = delete;
+    system_font_catalog& operator=(const system_font_catalog&) = delete;
+
+    static std::vector<std::string> system_font_directories();
+
+    bool try_discover_system_fonts(
+        font_catalog_scan_metrics* metrics = nullptr,
+        font_catalog_error* error = nullptr) noexcept;
+    bool try_discover_fonts(
+        std::span<const std::string_view> directories,
+        font_catalog_scan_metrics* metrics = nullptr,
+        font_catalog_error* error = nullptr) noexcept;
+
+    std::uint32_t face_count() const noexcept;
+    bool try_get_face_info(
+        std::uint32_t catalog_index,
+        font_catalog_face_info& result) const noexcept;
+    bool try_match_family(
+        std::string_view family_name,
+        font_style_request style,
+        std::uint32_t& catalog_index,
+        font_catalog_error* error = nullptr) const noexcept;
+    bool try_match_character(
+        std::string_view family_name,
+        font_style_request style,
+        std::span<const std::string_view> language_tags,
+        std::uint32_t code_point,
+        std::uint64_t excluded_identity,
+        std::uint32_t& catalog_index,
+        std::uint16_t& glyph_index,
+        font_catalog_error* error = nullptr) const noexcept;
+    bool try_load_face(
+        std::uint32_t catalog_index,
+        loaded_font_face& result,
+        font_catalog_error* error = nullptr) const noexcept;
+
+private:
+    class implementation;
+    std::unique_ptr<implementation> implementation_;
 };
 
 } // namespace progpu::native::text

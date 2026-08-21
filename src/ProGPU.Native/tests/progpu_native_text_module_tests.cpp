@@ -41,6 +41,10 @@ int main() {
     const progpu::native::text::sfnt_standalone_requirements standalone{};
     const progpu::native::text::sfnt_directory_record directory_record{};
     const progpu::native::text::font_style_request style_request{};
+    const progpu::native::text::font_catalog_scan_metrics catalog_metrics{};
+    const progpu::native::text::font_catalog_face_info catalog_face{};
+    const progpu::native::text::loaded_font_face loaded_catalog_face{};
+    progpu::native::text::system_font_catalog font_catalog{};
     const progpu::native::text::font_style_variation_requirements
         style_requirements{};
     const progpu::native::text::font_style_variation style_variation{};
@@ -318,6 +322,10 @@ int main() {
         vertical_open_type_metrics.advance_y != 0.0F ||
         projected_open_type_glyph.advance_y != 0.0F ||
         fallback_mark.positioned) {
+        return 1;
+    }
+    if (catalog_metrics.face_count != 0U || !catalog_face.full_name.empty() ||
+        loaded_catalog_face.valid() || font_catalog.face_count() != 0U) {
         return 1;
     }
     (void)sizeof(gvar_deltas);

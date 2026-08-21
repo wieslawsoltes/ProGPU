@@ -3,23 +3,33 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <limits>
 #include <span>
 #include <source_location>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 namespace {
 
+using progpu::native::text::font_catalog_error;
+using progpu::native::text::font_catalog_face_info;
+using progpu::native::text::font_catalog_scan_metrics;
 using progpu::native::text::font_error;
+using progpu::native::text::font_provider_slant;
+using progpu::native::text::font_style_request;
+using progpu::native::text::loaded_font_face;
+using progpu::native::text::system_font_catalog;
 using progpu::native::text::open_type_tag;
 using progpu::native::text::unicode_error;
 using progpu::native::text::unicode_decode_requirements;
@@ -10013,6 +10023,135 @@ void collection_and_failure_paths_are_bounded() {
     require(error == font_error::unsupported_container);
 }
 
+void system_font_catalog_streams_metadata_and_owns_selected_faces() {
+    const auto unique = std::chrono::steady_clock::now()
+        .time_since_epoch().count();
+    const auto directory = std::filesystem::temp_directory_path() /
+        ("progpu-native-font-catalog-" + std::to_string(unique));
+    std::filesystem::create_directories(directory);
+    const auto inter = directory / "Inter-Medium.ttf";
+    const auto noto = directory / "NotoSansCJKjp-Regular.otf";
+    const auto collection_path = directory / "CatalogFace.ttc";
+    std::filesystem::copy_file(
+        PROGPU_NATIVE_TEST_INTER_FONT, inter,
+        std::filesystem::copy_options::overwrite_existing);
+    std::filesystem::copy_file(
+        PROGPU_NATIVE_TEST_NOTO_CFF_FONT, noto,
+        std::filesystem::copy_options::overwrite_existing);
+    auto collection = make_font(16U);
+    write_u32(collection, 0U, 0x74746366U);
+    write_u32(collection, 4U, 0x00010000U);
+    write_u32(collection, 8U, 1U);
+    write_u32(collection, 12U, 16U);
+    {
+        std::ofstream output(collection_path, std::ios::binary);
+        output.write(reinterpret_cast<const char*>(collection.data()),
+            static_cast<std::streamsize>(collection.size()));
+        require(output.good());
+    }
+
+    system_font_catalog catalog;
+    const auto directory_string = directory.string();
+    const std::array<std::string_view, 1U> directories{directory_string};
+    font_catalog_scan_metrics metrics{};
+    font_catalog_error error = font_catalog_error::invalid_font;
+    require(catalog.try_discover_fonts(directories, &metrics, &error));
+    require(error == font_catalog_error::none);
+    require(metrics.directory_count == 1U);
+    require(metrics.file_count == 3U);
+    require(metrics.face_count == 3U);
+    require(metrics.skipped_file_count == 0U);
+    require(catalog.face_count() == 3U);
+    const auto complete_bytes = std::filesystem::file_size(inter) +
+        std::filesystem::file_size(noto) +
+        std::filesystem::file_size(collection_path);
+    require(metrics.bytes_read < complete_bytes / 2U);
+
+    std::uint32_t inter_index = 0U;
+    require(catalog.try_match_family(
+        "inter", font_style_request{500, 5, font_provider_slant::normal},
+        inter_index, &error));
+    font_catalog_face_info inter_info{};
+    require(catalog.try_get_face_info(inter_index, inter_info));
+    require(inter_info.family_name == "Inter");
+    require(inter_info.weight == 500U);
+    require(inter_info.face_index == 0U);
+    require(std::filesystem::path(inter_info.file_path).is_absolute());
+    require(inter_info.identity != 0U && inter_info.family_identity != 0U);
+
+    loaded_font_face first{};
+    loaded_font_face second{};
+    require(catalog.try_load_face(inter_index, first, &error));
+    require(catalog.try_load_face(inter_index, second, &error));
+    require(first.valid() && second.valid());
+    require(first.data().data() == second.data().data());
+    require(first.identity() == inter_info.identity);
+    std::uint16_t glyph = 0U;
+    require(first.font().try_get_glyph_index('A', glyph) && glyph != 0U);
+
+    std::uint32_t fallback_index = 0U;
+    const std::array<std::string_view, 1U> japanese{"ja"};
+    require(catalog.try_match_character(
+        "Inter", font_style_request{500, 5, font_provider_slant::normal},
+        japanese, 0x65E5U, inter_info.identity,
+        fallback_index, glyph, &error));
+    require(glyph != 0U && fallback_index != inter_index);
+    font_catalog_face_info fallback_info{};
+    require(catalog.try_get_face_info(fallback_index, fallback_info));
+    require(fallback_info.family_name.find("Noto Sans CJK JP") !=
+        std::string_view::npos);
+
+    std::uint32_t collection_index = 0U;
+    require(catalog.try_match_family(
+        "catalogface", font_style_request{}, collection_index, &error));
+    font_catalog_face_info collection_info{};
+    require(catalog.try_get_face_info(collection_index, collection_info));
+    require(collection_info.face_index == 0U);
+    loaded_font_face collection_face{};
+    require(catalog.try_load_face(collection_index, collection_face, &error));
+    require(collection_face.font().face_offset() == 16U);
+
+    std::filesystem::remove_all(directory);
+}
+
+void benchmark_system_font_catalog_if_requested() {
+    if (std::getenv("PROGPU_NATIVE_BENCHMARK_SYSTEM_FONT_CATALOG") == nullptr) {
+        return;
+    }
+    system_font_catalog catalog;
+    font_catalog_scan_metrics metrics{};
+    font_catalog_error error{};
+    const auto started = std::chrono::steady_clock::now();
+    require(catalog.try_discover_system_fonts(&metrics, &error));
+    const auto elapsed = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - started).count();
+    std::fprintf(stderr,
+        "progpu-native-system-font-catalog "
+        "{\"milliseconds\":%.3f,\"directories\":%u,\"files\":%u,"
+        "\"faces\":%u,\"skipped\":%u,\"bytes_read\":%llu}\n",
+        elapsed, metrics.directory_count, metrics.file_count,
+        metrics.face_count, metrics.skipped_file_count,
+        static_cast<unsigned long long>(metrics.bytes_read));
+    for (const auto family : {std::string_view{".SFNS-Regular"},
+             std::string_view{"SF Pro"},
+             std::string_view{"Helvetica Neue"},
+             std::string_view{"Apple Color Emoji"}}) {
+        std::uint32_t index = 0U;
+        font_catalog_face_info info{};
+        if (catalog.try_match_family(family, font_style_request{}, index) &&
+            catalog.try_get_face_info(index, info)) {
+            std::fprintf(stderr,
+                "progpu-native-system-font-match "
+                "{\"request\":\"%.*s\",\"family\":\"%.*s\","
+                "\"name\":\"%.*s\",\"face\":%u}\n",
+                static_cast<int>(family.size()), family.data(),
+                static_cast<int>(info.family_name.size()), info.family_name.data(),
+                static_cast<int>(info.full_name.size()), info.full_name.data(),
+                info.face_index);
+        }
+    }
+}
+
 void table_directory_preserves_managed_duplicate_and_bounds_rules() {
     auto duplicate = make_font();
     const auto last_record = 12U + 6U * 16U;
@@ -12423,6 +12562,8 @@ int main() {
     phantom_glyph_variations_apply_advance_delta();
     item_variation_store_and_index_map_are_bounded();
     collection_and_failure_paths_are_bounded();
+    system_font_catalog_streams_metadata_and_owns_selected_faces();
+    benchmark_system_font_catalog_if_requested();
     table_directory_preserves_managed_duplicate_and_bounds_rules();
     simple_glyph_repeat_composite_and_malformed_paths_are_explicit();
     simple_glyph_path_preserves_implicit_midpoints_and_is_transactional();

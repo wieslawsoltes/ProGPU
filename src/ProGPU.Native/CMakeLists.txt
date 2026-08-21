@@ -712,6 +712,7 @@ add_library(progpu_native_text STATIC
     src/Text/Font/progpu_native_font_horizontal_metrics.cpp
     src/Text/Font/progpu_native_font_bounds.cpp
     src/Text/Font/progpu_native_font_style.cpp
+    src/Text/Font/progpu_native_system_font_catalog.cpp
     src/Text/Font/progpu_native_font_vertical_metrics.cpp
     src/Text/progpu_native_unicode_line_break.cpp
     src/Text/progpu_native_text_layout.cpp
