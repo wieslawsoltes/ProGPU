@@ -163,16 +163,13 @@ semantic_content_hashes compute_content_hashes(
                 brush_commands, bytes, index, command);
             style_commands = append_family_command(
                 style_commands, bytes, index, command);
-            analytic_commands = append_family_command(
-                analytic_commands, bytes, index, command);
-            path_commands = append_family_command(
-                path_commands, bytes, index, command);
-            glyph_commands = append_family_command(
-                glyph_commands, bytes, index, command);
-            image_commands = append_family_command(
-                image_commands, bytes, index, command);
-            three_d_commands = append_family_command(
-                three_d_commands, bytes, index, command);
+            analytic_commands = append_command(
+                analytic_commands, bytes, command);
+            path_commands = append_command(path_commands, bytes, command);
+            glyph_commands = append_command(glyph_commands, bytes, command);
+            image_commands = append_command(image_commands, bytes, command);
+            three_d_commands = append_command(
+                three_d_commands, bytes, command);
             continue;
         }
         if (is_analytic_command(command.kind)) {
