@@ -103,6 +103,7 @@ internal static class NativeRendererSamplePage
     {
         private const uint TargetWidth = 960;
         private const uint TargetHeight = 540;
+        private const uint MaximumTargetDimension = 8192;
         private const int MaximumRectangles = 4096;
 
         private readonly NativeCompositor _compositor;
@@ -158,6 +159,7 @@ internal static class NativeRendererSamplePage
         private double _managedPictureCompileMilliseconds;
         private bool _imageNeedsUpload;
         private bool _sceneDirty = true;
+        private float _renderDpiScale = 1f;
         private int _disposeState;
 
         public NativeRendererSampleSession(
@@ -323,7 +325,9 @@ internal static class NativeRendererSamplePage
             root.AddChild(controls);
             Grid.SetRow(controls, 1);
 
-            _preview = new NativeTexturePreview(_target);
+            _preview = new NativeTexturePreview(
+                _target,
+                UpdatePreviewSurface);
             var previewBorder = new Border
             {
                 Background = new ThemeResourceBrush("ControlBackground"),
@@ -444,7 +448,7 @@ internal static class NativeRendererSamplePage
                     : NativeRepresentativeSceneSample.SceneId + 1U;
                 NativeSceneFrameMetrics metrics = _compositor.RenderScene(
                     _target,
-                    dpiScale: 1f,
+                    dpiScale: _renderDpiScale,
                     sceneId,
                     _semanticGeneration,
                     new Vector4(0.015f, 0.02f, 0.035f, 1f));
@@ -464,7 +468,7 @@ internal static class NativeRendererSamplePage
             {
                 NativeAnalyticFrameMetrics metrics = _compositor.RenderAnalytic(
                     _target,
-                    dpiScale: 1f,
+                    dpiScale: _renderDpiScale,
                     _analyticPrimitives.AsSpan(0, _rectangleCount),
                     new Vector4(0.015f, 0.02f, 0.035f, 1f));
                 drawCallCount = metrics.DrawCallCount;
@@ -475,7 +479,7 @@ internal static class NativeRendererSamplePage
             {
                 NativeGeometryFrameMetrics metrics = _compositor.RenderGeometry(
                     _target,
-                    dpiScale: 1f,
+                    dpiScale: _renderDpiScale,
                     _geometryPrimitives.AsSpan(0, _rectangleCount),
                     new Vector4(0.015f, 0.02f, 0.035f, 1f),
                     contentRevision: _contentRevision);
@@ -489,7 +493,7 @@ internal static class NativeRendererSamplePage
                 NativeGeometryFrameMetrics metrics = _mode == NativeBatchMode.Dashes
                     ? _compositor.RenderGeometry(
                         _target,
-                        dpiScale: 1f,
+                        dpiScale: _renderDpiScale,
                         ReadOnlySpan<NativeGeometryPrimitive>.Empty,
                         _polylinePoints.AsSpan(0, _rectangleCount * 4),
                         _polylines.AsSpan(0, _rectangleCount),
@@ -500,7 +504,7 @@ internal static class NativeRendererSamplePage
                         contentRevision: _contentRevision)
                     : _compositor.RenderGeometry(
                         _target,
-                        dpiScale: 1f,
+                        dpiScale: _renderDpiScale,
                         ReadOnlySpan<NativeGeometryPrimitive>.Empty,
                         _polylinePoints.AsSpan(0, _rectangleCount * 4),
                         _polylines.AsSpan(0, _rectangleCount),
@@ -515,7 +519,7 @@ internal static class NativeRendererSamplePage
             {
                 NativeGeometryFrameMetrics metrics = _compositor.RenderGeometry(
                     _target,
-                    dpiScale: 1f,
+                    dpiScale: _renderDpiScale,
                     ReadOnlySpan<NativeGeometryPrimitive>.Empty,
                     _splineControlPoints.AsSpan(0, _rectangleCount * 6),
                     ReadOnlySpan<NativePolyline>.Empty,
@@ -532,7 +536,7 @@ internal static class NativeRendererSamplePage
             {
                 NativePathFrameMetrics metrics = _compositor.RenderPaths(
                     _target,
-                    dpiScale: 1f,
+                    dpiScale: _renderDpiScale,
                     _pathFills.AsSpan(0, _rectangleCount),
                     _pathSegments,
                     new Vector4(0.015f, 0.02f, 0.035f, 1f),
@@ -547,7 +551,7 @@ internal static class NativeRendererSamplePage
             {
                 NativeGlyphFrameMetrics metrics = _compositor.RenderGlyphs(
                     _target,
-                    dpiScale: 1f,
+                    dpiScale: _renderDpiScale,
                     _glyphOutlines,
                     _glyphSegments,
                     _positionedGlyphs.AsSpan(0, _rectangleCount),
@@ -562,7 +566,7 @@ internal static class NativeRendererSamplePage
             {
                 NativeImageFrameMetrics metrics = _compositor.RenderImage(
                     _target,
-                    dpiScale: 1f,
+                    dpiScale: _renderDpiScale,
                     _imageNeedsUpload
                         ? _imagePixels
                         : ReadOnlySpan<byte>.Empty,
@@ -590,7 +594,7 @@ internal static class NativeRendererSamplePage
                 NativeImageFrameMetrics metrics = _compositor.RenderExternalImage(
                     _target,
                     _externalImageSource,
-                    dpiScale: 1f,
+                    dpiScale: _renderDpiScale,
                     new NativeImageRect(0f, 0f, 192f, 128f),
                     new NativeImageRect(80f, 60f, 800f, 420f),
                     Matrix3x2.Identity,
@@ -613,7 +617,7 @@ internal static class NativeRendererSamplePage
                         _target,
                         _externalImageSource,
                         _externalImageMask,
-                        dpiScale: 1f,
+                        dpiScale: _renderDpiScale,
                         new NativeImageRect(0f, 0f, 192f, 128f),
                         new NativeImageRect(80f, 60f, 800f, 420f),
                         new NativeImageRect(80f, 60f, 800f, 420f),
@@ -637,7 +641,7 @@ internal static class NativeRendererSamplePage
             {
                 NativeFrameMetrics metrics = _compositor.Render(
                     _target,
-                    dpiScale: 1f,
+                    dpiScale: _renderDpiScale,
                     _rectangles.AsSpan(0, _rectangleCount),
                     new Vector4(0.015f, 0.02f, 0.035f, 1f));
                 drawCallCount = metrics.DrawCallCount;
@@ -656,7 +660,9 @@ internal static class NativeRendererSamplePage
                     $"managed alloc {managedBytes} B · " +
                     $"draws {drawCallCount} · " +
                     $"vertices {vertexCount:N0} · " +
-                    $"upload {uploadBytes:N0} B" +
+                    $"upload {uploadBytes:N0} B · " +
+                    $"target {_target.Width}×{_target.Height} " +
+                    $"@ {_renderDpiScale:F2}x" +
                     (_mode is NativeBatchMode.RepresentativeScene or
                         NativeBatchMode.ManagedPicture
                         ? $" · scene {_semanticUpdateMetrics.CommandCount}/" +
@@ -668,6 +674,100 @@ internal static class NativeRendererSamplePage
             }
             _preview?.Invalidate();
         }
+
+        private void UpdatePreviewSurface(Vector2 availableSize)
+        {
+            if (Volatile.Read(ref _disposeState) != 0)
+            {
+                return;
+            }
+
+            float displayScale = ResolveDisplayScale();
+            NativePreviewSurfaceLayout layout = CalculatePreviewSurfaceLayout(
+                availableSize,
+                displayScale);
+            bool targetChanged =
+                _target.Width != layout.PixelWidth ||
+                _target.Height != layout.PixelHeight;
+            bool scaleChanged = _renderDpiScale != layout.RenderDpiScale;
+
+            _preview?.SetDestination(layout.Destination);
+            if (!targetChanged && !scaleChanged)
+            {
+                return;
+            }
+
+            _target.Resize(layout.PixelWidth, layout.PixelHeight);
+            _renderDpiScale = layout.RenderDpiScale;
+            RenderFrame();
+        }
+
+        private static NativePreviewSurfaceLayout CalculatePreviewSurfaceLayout(
+            Vector2 availableSize,
+            float displayScale)
+        {
+            float safeDisplayScale = float.IsFinite(displayScale) && displayScale > 0f
+                ? displayScale
+                : 1f;
+            float availableWidth = float.IsFinite(availableSize.X)
+                ? Math.Max(1f, availableSize.X)
+                : TargetWidth;
+            float availableHeight = float.IsFinite(availableSize.Y)
+                ? Math.Max(1f, availableSize.Y)
+                : TargetHeight;
+            float logicalFitScale = Math.Min(
+                availableWidth / TargetWidth,
+                availableHeight / TargetHeight);
+            float requestedRenderScale = Math.Max(
+                1f / Math.Max(TargetWidth, TargetHeight),
+                logicalFitScale * safeDisplayScale);
+            requestedRenderScale = Math.Min(
+                requestedRenderScale,
+                MaximumTargetDimension /
+                    (float)Math.Max(TargetWidth, TargetHeight));
+            uint pixelWidth = Math.Clamp(
+                (uint)Math.Max(1d, Math.Round(
+                    TargetWidth * requestedRenderScale,
+                    MidpointRounding.ToEven)),
+                1U,
+                MaximumTargetDimension);
+            uint pixelHeight = Math.Clamp(
+                (uint)Math.Max(1d, Math.Round(
+                    TargetHeight * requestedRenderScale,
+                    MidpointRounding.ToEven)),
+                1U,
+                MaximumTargetDimension);
+            float renderDpiScale = Math.Min(
+                pixelWidth / (float)TargetWidth,
+                pixelHeight / (float)TargetHeight);
+            float destinationWidth = pixelWidth / safeDisplayScale;
+            float destinationHeight = pixelHeight / safeDisplayScale;
+            var destination = new Rect(
+                Math.Max(0f, (availableWidth - destinationWidth) * 0.5f),
+                Math.Max(0f, (availableHeight - destinationHeight) * 0.5f),
+                destinationWidth,
+                destinationHeight);
+            return new NativePreviewSurfaceLayout(
+                pixelWidth,
+                pixelHeight,
+                renderDpiScale,
+                destination);
+        }
+
+        private static float ResolveDisplayScale()
+        {
+            double scale = DisplayScaleResolver.ResolveWindowDisplayScale(
+                AppState._window);
+            return double.IsFinite(scale) && scale > 0d
+                ? (float)scale
+                : 1f;
+        }
+
+        private readonly record struct NativePreviewSurfaceLayout(
+            uint PixelWidth,
+            uint PixelHeight,
+            float RenderDpiScale,
+            Rect Destination);
 
         private void BuildAndCompileManagedPicture()
         {
@@ -1479,19 +1579,43 @@ internal static class NativeRendererSamplePage
     private sealed class NativeTexturePreview : FrameworkElement
     {
         private readonly GpuTexture _texture;
+        private readonly Action<Vector2> _arranged;
+        private Rect _destination;
 
-        public NativeTexturePreview(GpuTexture texture)
+        public NativeTexturePreview(
+            GpuTexture texture,
+            Action<Vector2> arranged)
         {
             _texture = texture;
+            _arranged = arranged;
             HorizontalAlignment = HorizontalAlignment.Stretch;
             VerticalAlignment = VerticalAlignment.Stretch;
+        }
+
+        public void SetDestination(Rect destination)
+        {
+            if (_destination == destination)
+            {
+                return;
+            }
+
+            _destination = destination;
+            Invalidate();
+        }
+
+        protected override void ArrangeOverride(Rect arrangeRect)
+        {
+            base.ArrangeOverride(arrangeRect);
+            _arranged(new Vector2(arrangeRect.Width, arrangeRect.Height));
         }
 
         public override void OnRender(DrawingContext context)
         {
             context.DrawTexture(
                 _texture,
-                new Rect(Vector2.Zero, Size));
+                _destination.Width > 0f && _destination.Height > 0f
+                    ? _destination
+                    : new Rect(Vector2.Zero, Size));
         }
     }
 }

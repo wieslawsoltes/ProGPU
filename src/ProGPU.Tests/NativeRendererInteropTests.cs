@@ -4382,6 +4382,26 @@ public class NativeRendererInteropTests
             page,
             StringComparison.Ordinal);
         Assert.Contains(
+            "CalculatePreviewSurfaceLayout(",
+            page,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DisplayScaleResolver.ResolveWindowDisplayScale(",
+            page,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_target.Resize(layout.PixelWidth, layout.PixelHeight)",
+            page,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "dpiScale: _renderDpiScale",
+            page,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "dpiScale: 1f",
+            page,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "NativeSceneImageSamplingOptions.Mitchell",
             representativeScene,
             StringComparison.Ordinal);
