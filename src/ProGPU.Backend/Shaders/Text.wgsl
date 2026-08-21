@@ -1,6 +1,6 @@
-// Algorithm: Transform glyph quads, resolve shared solid-run presentation state from a compact text-style stream, modulate text color by glyph-atlas coverage, and intersect an optional fixed chain of at most four analytic rounded masks.
+// Algorithm: Transform glyph quads, resolve shared solid-run presentation state from a compact text-style stream, clamp filtered coverage to each retained atlas tile, modulate text color, and intersect an optional fixed chain of at most four analytic rounded masks.
 // Time complexity: O(1) per vertex and fragment; nested semantic masking performs at most four bounded analytic mask evaluations.
-// Space complexity: O(1) local storage with one 32-byte text-style record read per vertex and one coverage-or-color atlas sample per fragment; texture masks add one sample, analytic rounded and uniform-opacity masks add no texture bandwidth, ClearType adds two coverage samples, and a nested analytic chain reads one primary 96-byte record plus one fixed 288-byte continuation record.
+// Space complexity: O(1) local storage with one 32-byte text-style record read and one flat four-float tile bound per vertex, plus one coverage-or-color atlas sample per fragment; texture masks add one sample, analytic rounded and uniform-opacity masks add no texture bandwidth, ClearType adds two coverage samples, and a nested analytic chain reads one primary 96-byte record plus one fixed 288-byte continuation record.
 struct TextStyle {
     color: vec4<f32>,
     textRenderingMode: u32,
@@ -28,6 +28,7 @@ struct VertexOutput {
     @location(2) cornerRadius: f32,
     @location(3) strokeThickness: f32,
     @location(4) textMode: f32,
+    @location(5) @interpolate(flat) texelBounds: vec4<f32>,
 };
 
 struct Uniforms {
@@ -130,6 +131,13 @@ fn vs_main(input: VertexInput) -> VertexOutput {
         textStyle.color,
         hasSharedTextStyle);
     output.texCoord = mix(texCoordMin, texCoordMax, local_uv);
+    // Linear filtering must remain inside this glyph's atlas allocation. The
+    // sampler clamps to the whole atlas, not to an individual retained tile,
+    // so an explicit half-texel inset prevents adjacent glyph coverage from
+    // leaking into the quad at minified or fractional device transforms.
+    output.texelBounds = vec4<f32>(
+        texCoordMin + vec2<f32>(0.5),
+        texCoordMax - vec2<f32>(0.5));
     output.cornerRadius = select(1.43, -1.43, aliasedText); // DefaultTextGamma, sign encodes aliased text
     output.strokeThickness = 1.15; // DefaultTextContrast
     output.textMode = select(
@@ -242,7 +250,10 @@ fn text_fs_main_with_mask_alpha(input: VertexOutput, maskAlpha: f32) -> vec4<f32
     let colorDims = textureDimensions(colorAtlasTexture);
     let selectedDims = select(coverageDims, colorDims, input.textMode > 2.5);
     let selectedSize = vec2<f32>(f32(selectedDims.x), f32(selectedDims.y));
-    let atlasCoord = input.texCoord / selectedSize;
+    let atlasCoord = clamp(
+        input.texCoord,
+        input.texelBounds.xy,
+        input.texelBounds.zw) / selectedSize;
     let atlasCoordDx = dpdx(atlasCoord);
     let atlasCoordDy = dpdy(atlasCoord);
     if (input.textMode > 2.5) {
@@ -258,9 +269,11 @@ fn text_fs_main_with_mask_alpha(input: VertexOutput, maskAlpha: f32) -> vec4<f32
         let atlasDims = textureDimensions(atlasTexture);
         let atlasSize = vec2<f32>(f32(atlasDims.x), f32(atlasDims.y));
         let subpixelOffset = vec2<f32>(1.0 / max(atlasSize.x * 3.0, 1.0), 0.0);
-        let redCoverage = textureSampleGrad(atlasTexture, atlasSampler, atlasCoord - subpixelOffset, atlasCoordDx, atlasCoordDy).r;
+        let atlasMin = input.texelBounds.xy / atlasSize;
+        let atlasMax = input.texelBounds.zw / atlasSize;
+        let redCoverage = textureSampleGrad(atlasTexture, atlasSampler, clamp(atlasCoord - subpixelOffset, atlasMin, atlasMax), atlasCoordDx, atlasCoordDy).r;
         let greenCoverage = alpha;
-        let blueCoverage = textureSampleGrad(atlasTexture, atlasSampler, atlasCoord + subpixelOffset, atlasCoordDx, atlasCoordDy).r;
+        let blueCoverage = textureSampleGrad(atlasTexture, atlasSampler, clamp(atlasCoord + subpixelOffset, atlasMin, atlasMax), atlasCoordDx, atlasCoordDy).r;
         let rgbCoverage = vec3<f32>(
             text_coverage_to_alpha(redCoverage, input.strokeThickness, gamma, false),
             text_coverage_to_alpha(greenCoverage, input.strokeThickness, gamma, false),
@@ -282,7 +295,10 @@ fn text_fs_main(input: VertexOutput) -> vec4<f32> {
     let colorDims = textureDimensions(colorAtlasTexture);
     let selectedDims = select(coverageDims, colorDims, input.textMode > 2.5);
     let selectedSize = vec2<f32>(f32(selectedDims.x), f32(selectedDims.y));
-    let atlasCoord = input.texCoord / selectedSize;
+    let atlasCoord = clamp(
+        input.texCoord,
+        input.texelBounds.xy,
+        input.texelBounds.zw) / selectedSize;
     let atlasCoordDx = dpdx(atlasCoord);
     let atlasCoordDy = dpdy(atlasCoord);
     let maskAlpha = sample_mask_alpha(input.position.xy);
@@ -302,9 +318,11 @@ fn text_fs_main(input: VertexOutput) -> vec4<f32> {
         let atlasDims = textureDimensions(atlasTexture);
         let atlasSize = vec2<f32>(f32(atlasDims.x), f32(atlasDims.y));
         let subpixelOffset = vec2<f32>(1.0 / max(atlasSize.x * 3.0, 1.0), 0.0);
-        let redCoverage = textureSampleGrad(atlasTexture, atlasSampler, atlasCoord - subpixelOffset, atlasCoordDx, atlasCoordDy).r;
+        let atlasMin = input.texelBounds.xy / atlasSize;
+        let atlasMax = input.texelBounds.zw / atlasSize;
+        let redCoverage = textureSampleGrad(atlasTexture, atlasSampler, clamp(atlasCoord - subpixelOffset, atlasMin, atlasMax), atlasCoordDx, atlasCoordDy).r;
         let greenCoverage = alpha;
-        let blueCoverage = textureSampleGrad(atlasTexture, atlasSampler, atlasCoord + subpixelOffset, atlasCoordDx, atlasCoordDy).r;
+        let blueCoverage = textureSampleGrad(atlasTexture, atlasSampler, clamp(atlasCoord + subpixelOffset, atlasMin, atlasMax), atlasCoordDx, atlasCoordDy).r;
         let rgbCoverage = vec3<f32>(
             text_coverage_to_alpha(redCoverage, input.strokeThickness, gamma, false),
             text_coverage_to_alpha(greenCoverage, input.strokeThickness, gamma, false),

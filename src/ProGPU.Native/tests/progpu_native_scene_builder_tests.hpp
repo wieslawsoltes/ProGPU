@@ -13,6 +13,7 @@ bool semantic_scene_builder_records_image_patch_batches();
 bool semantic_scene_builder_serializes_external_images_pointer_free();
 bool semantic_scene_builder_updates_retained_images_transactionally();
 bool semantic_scene_builder_records_styled_glyph_runs();
+bool semantic_scene_builder_shares_glyph_segments_across_raster_sizes();
 bool semantic_scene_builder_records_native_shaped_runs();
 bool semantic_scene_builder_records_color_bitmap_glyphs();
 bool semantic_scene_builder_records_layers_masks_and_effects();

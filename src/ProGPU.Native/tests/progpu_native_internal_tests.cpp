@@ -795,6 +795,8 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_builder_records_styled_glyph_runs());
     require(progpu::native::tests::
+        semantic_scene_builder_shares_glyph_segments_across_raster_sizes());
+    require(progpu::native::tests::
         semantic_scene_builder_records_native_shaped_runs());
     require(progpu::native::tests::
         semantic_scene_builder_records_color_bitmap_glyphs());

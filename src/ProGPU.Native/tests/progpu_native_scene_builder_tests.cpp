@@ -912,6 +912,48 @@ bool semantic_scene_builder_records_styled_glyph_runs() {
             sizeof(glyphs);
 }
 
+bool semantic_scene_builder_shares_glyph_segments_across_raster_sizes() {
+    semantic_scene_builder builder(709U, 1U);
+    const std::array segments{
+        progpu_native_path_segment{
+            {0.0F, 0.0F}, {12.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {12.0F, 0.0F}, {12.0F, 18.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {12.0F, 18.0F}, {0.0F, 18.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {0.0F, 18.0F}, {0.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const std::array outlines{
+        progpu_native_scene_glyph_outline{
+            0U, segments.size(), 0.0F, 0.0F, 12.0F, 18.0F,
+            0.75F, 0.0F},
+        progpu_native_scene_glyph_outline{
+            0U, segments.size(), 0.0F, 0.0F, 12.0F, 18.0F,
+            1.5F, 0.0F}};
+    std::uint32_t resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_glyph_outlines(outlines, segments, resource_index) ||
+        resource_index != 0U) {
+        return false;
+    }
+    std::vector<std::byte> stream;
+    if (!builder.build(stream)) {
+        return false;
+    }
+    const auto validated = scene::validate(stream.data(), stream.size());
+    if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return false;
+    }
+    const auto resource = read<progpu_native_scene_resource>(
+        stream, validated.header.resource_offset);
+    return resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN &&
+        resource.payload_size == sizeof(outlines) &&
+        resource.auxiliary_size == sizeof(segments);
+}
+
 bool semantic_scene_builder_records_native_shaped_runs() {
     semantic_scene_builder builder(711U, 2U);
     const std::array segments{
