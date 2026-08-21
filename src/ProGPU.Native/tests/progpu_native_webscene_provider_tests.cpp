@@ -786,7 +786,7 @@ std::vector<std::byte> create_renderable_semantic_scene_stream(
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN,
             PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
                 PROGPU_NATIVE_SCENE_GLYPH_STYLED, 0U, 207U,
-            PROGPU_NATIVE_SCENE_NO_INDEX, 6U,
+            PROGPU_NATIVE_SCENE_NO_INDEX, 2U,
             second_glyph_offset, sizeof(glyph_draw) + sizeof(second_glyph),
             36.0F, 24.0F, 12.0F, 12.0F, 0U, 0U},
         {sizeof(progpu_native_scene_command),
@@ -2583,19 +2583,22 @@ int main(int argc, char** argv) {
         semantic_metrics.draw_call_count != 9U ||
         semantic_metrics.family_switch_count != 8U ||
         semantic_metrics.submission_count != 1U ||
+        semantic_metrics.coverage_staging_bytes != 15360U ||
         semantic_metrics.payload_hash == 0U) {
         std::array<char, 512U> semantic_error{};
         progpu_native_engine_get_last_error(
             engine, semantic_error.data(), semantic_error.size());
         std::fprintf(stderr,
             "semantic status=%u commands=%u draws=%u families=%u "
-            "submissions=%llu hash=%llu error=%s\n",
+            "submissions=%llu coverage=%llu hash=%llu error=%s\n",
             static_cast<unsigned>(semantic_status),
             semantic_metrics.command_count,
             semantic_metrics.draw_call_count,
             semantic_metrics.family_switch_count,
             static_cast<unsigned long long>(
                 semantic_metrics.submission_count),
+            static_cast<unsigned long long>(
+                semantic_metrics.coverage_staging_bytes),
             static_cast<unsigned long long>(semantic_metrics.payload_hash),
             semantic_error.data());
     }
@@ -2604,6 +2607,7 @@ int main(int argc, char** argv) {
         semantic_metrics.draw_call_count == 9U &&
         semantic_metrics.family_switch_count == 8U &&
         semantic_metrics.submission_count == 1U &&
+        semantic_metrics.coverage_staging_bytes == 15360U &&
         semantic_metrics.text_style_upload_bytes ==
             3U * sizeof(progpu_native_scene_text_style) &&
         semantic_metrics.payload_hash != 0U,

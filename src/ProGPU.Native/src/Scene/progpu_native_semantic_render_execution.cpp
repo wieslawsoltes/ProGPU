@@ -452,8 +452,10 @@ progpu_native_status render_scene(
         frame->height,
         frame->dpi_scale);
     std::vector<std::uint8_t> semantic_generated_masks_budgeted;
+    std::vector<std::uint8_t> semantic_glyph_resources_budgeted;
     try {
         semantic_generated_masks_budgeted.resize(header.resource_count, 0U);
+        semantic_glyph_resources_budgeted.resize(header.resource_count, 0U);
     } catch (const std::bad_alloc&) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
@@ -585,6 +587,7 @@ progpu_native_status render_scene(
         std::uint64_t compiled_index_bytes = 0U;
         std::uint64_t compiled_texture_bytes = 0U;
         std::uint64_t compiled_coverage_bytes = 0U;
+        bool first_semantic_glyph_resource = true;
         switch (command.kind) {
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC: {
                 valid = span_is_multiple(
@@ -1022,12 +1025,16 @@ progpu_native_status render_scene(
                             resource.auxiliary_size,
                             sizeof(progpu_native_path_segment)));
                 const std::uint64_t glyph_count = glyph_count32;
+                first_semantic_glyph_resource =
+                    semantic_glyph_resources_budgeted[
+                        command.resource_index] == 0U;
                 valid = valid && outline_count <= (1U << 20U) &&
                     segment_count <= (1U << 24U) &&
                     glyph_count <= (1U << 24U);
                 compiled_vertex_bytes = glyph_count *
                     sizeof(gpu_glyph_instance);
-                compiled_texture_bytes = color_glyphs
+                compiled_texture_bytes = color_glyphs &&
+                        first_semantic_glyph_resource
                     ? resource.auxiliary_size
                     : 0U;
                 for (std::uint64_t segment_index = 0U;
@@ -1059,10 +1066,11 @@ progpu_native_status render_scene(
                         segment_count,
                         &outline_coverage_bytes);
                     budget_valid = valid &&
-                        outline_coverage_bytes <=
-                            semantic_max_coverage_bytes -
-                                compiled_coverage_bytes;
-                    if (budget_valid) {
+                        (!first_semantic_glyph_resource ||
+                            outline_coverage_bytes <=
+                                semantic_max_coverage_bytes -
+                                    compiled_coverage_bytes);
+                    if (budget_valid && first_semantic_glyph_resource) {
                         compiled_coverage_bytes += outline_coverage_bytes;
                     }
                 }
@@ -1231,6 +1239,11 @@ progpu_native_status render_scene(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                 "The semantic scene exceeds the bounded aggregate compilation budget.");
         }
+        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN &&
+            first_semantic_glyph_resource) {
+            semantic_glyph_resources_budgeted[
+                command.resource_index] = 1U;
+        }
         if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY ||
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH ||
@@ -1270,11 +1283,12 @@ progpu_native_status render_scene(
                     "A semantic glyph payload prefix is invalid.");
             }
             ++semantic_glyph_draw_count;
-            if (is_color_glyph_resource(resource)) {
+            if (first_semantic_glyph_resource &&
+                is_color_glyph_resource(resource)) {
                 semantic_color_glyph_bitmap_count += resource.payload_size /
                     sizeof(progpu_native_scene_color_glyph_bitmap);
                 semantic_color_glyph_pixel_bytes += resource.auxiliary_size;
-            } else {
+            } else if (first_semantic_glyph_resource) {
                 semantic_glyph_outline_count += resource.payload_size /
                     sizeof(progpu_native_scene_glyph_outline);
                 semantic_glyph_segment_count += resource.auxiliary_size /
@@ -2096,6 +2110,15 @@ progpu_native_status render_scene(
         std::vector<std::byte> compiled_color_pixels;
         std::vector<std::uint32_t> compiled_color_bitmap_indices;
         std::vector<semantic_glyph_draw> compiled_draws;
+        struct compiled_glyph_resource_layout {
+            std::size_t outline_start = 0U;
+            std::size_t segment_start = 0U;
+            std::size_t color_bitmap_start = 0U;
+            std::size_t color_pixel_start = 0U;
+            bool compiled = false;
+            bool color = false;
+        };
+        std::vector<compiled_glyph_resource_layout> compiled_resources;
         try {
             compiled_outlines.reserve(
                 static_cast<std::size_t>(semantic_glyph_outline_count));
@@ -2112,6 +2135,7 @@ progpu_native_status render_scene(
             compiled_color_bitmap_indices.reserve(
                 static_cast<std::size_t>(semantic_glyph_count));
             compiled_draws.reserve(semantic_glyph_draw_count);
+            compiled_resources.resize(header.resource_count);
             semantic_state_cursor state_cursor(bytes, header);
             semantic_layer_target_cursor target_cursor(
                 bytes,
@@ -2133,12 +2157,29 @@ progpu_native_status render_scene(
                 }
                 const auto resource = read_resource(command.resource_index);
                 const bool color_glyphs = is_color_glyph_resource(resource);
-                const std::size_t outline_start = compiled_outlines.size();
-                const std::size_t segment_start = compiled_segments.size();
+                auto& resource_layout =
+                    compiled_resources[command.resource_index];
+                if (!resource_layout.compiled) {
+                    resource_layout.outline_start = compiled_outlines.size();
+                    resource_layout.segment_start = compiled_segments.size();
+                    resource_layout.color_bitmap_start =
+                        compiled_color_bitmaps.size();
+                    resource_layout.color_pixel_start =
+                        compiled_color_pixels.size();
+                    resource_layout.color = color_glyphs;
+                } else if (resource_layout.color != color_glyphs) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                        "A retained semantic glyph resource changed kind during compilation.");
+                }
+                const std::size_t outline_start =
+                    resource_layout.outline_start;
+                const std::size_t segment_start =
+                    resource_layout.segment_start;
                 const std::size_t color_bitmap_start =
-                    compiled_color_bitmaps.size();
+                    resource_layout.color_bitmap_start;
                 const std::size_t color_pixel_start =
-                    compiled_color_pixels.size();
+                    resource_layout.color_pixel_start;
                 const std::size_t glyph_start = compiled_glyphs.size();
                 const std::size_t outline_count = color_glyphs
                     ? resource.payload_size /
@@ -2175,7 +2216,7 @@ progpu_native_status render_scene(
                         PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                         "The semantic glyph text style changed after validation.");
                 }
-                if (color_glyphs) {
+                if (!resource_layout.compiled && color_glyphs) {
                     compiled_color_pixels.insert(
                         compiled_color_pixels.end(),
                         bytes + resource.auxiliary_offset,
@@ -2193,7 +2234,7 @@ progpu_native_status render_scene(
                         bitmap.pixel_offset += color_pixel_start;
                         compiled_color_bitmaps.push_back(bitmap);
                     }
-                } else {
+                } else if (!resource_layout.compiled) {
                     const auto* source_segments = reinterpret_cast<
                         const progpu_native_path_segment*>(
                             bytes + resource.auxiliary_offset);
@@ -2214,6 +2255,7 @@ progpu_native_status render_scene(
                         compiled_outlines.push_back(outline);
                     }
                 }
+                resource_layout.compiled = true;
                 for (std::size_t glyph_index = 0U;
                      glyph_index < glyph_count;
                      ++glyph_index) {
