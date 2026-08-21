@@ -94,6 +94,34 @@ contract suitable for desktop, mobile, NativeAOT, and browser/Wasm hosts.
   final managed/native binaries and investigate statistically repeatable regressions before
   integration.
 
+### A-2.1. Mandatory Managed and Native Rendering Parity
+
+Treat the managed C# renderer and the native C++ renderer as two implementations of one
+ProGPU rendering contract. Every rendering, scene-compilation, resource-lifetime, cache,
+text, glyph, path, image, effect, invalidation, device-loss, or performance change must
+include an explicit applicability audit for both implementations.
+
+* When a fix, feature, or optimization applies to both implementations, update both. Keep
+  behavior, quality, resource identity/generation rules, complexity, retention, upload,
+  fallback, and failure semantics equivalent. Do not merge a reduced approximation in one
+  implementation while the other retains the complete algorithm.
+* Prefer one PR when the changes are reviewable together. If platform packaging or review
+  scope requires separate PRs, use small linked PRs, identify their dependency and merge
+  order, and do not declare the work complete until both sides are merged and validated.
+* When a change is genuinely implementation-specific, record why the other implementation
+  is not applicable in the task or PR. Language, API shape, or current test coverage alone
+  is not a sufficient non-applicability reason.
+* Add matched managed/native regressions for shared semantic behavior. Performance work must
+  use equivalent workloads and report comparable Release counters and p50/p95/p99 evidence,
+  including stable replay, retained uploads, allocations, and GPU resource residency where
+  applicable.
+* Keep shared public C records, generated C# wire declarations, canonical shaders, fixtures,
+  and expected results synchronized. A wire or shader change is incomplete while generated
+  output is stale or only one implementation consumes the new contract.
+* Before merge, search both implementation trees for the affected algorithm and document the
+  paired files/tests changed or the concrete non-applicability finding. Review and CI must
+  treat an unexplained one-sided rendering change as incomplete.
+
 ### A-3. Mandatory Clang, C++20, and Module-First Native Code
 
 All ProGPU-owned native renderer, scene compiler, text, font, shaping, and layout code targets
