@@ -251,6 +251,39 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
+    public void ManagedAndNativeBrowserHostsShareTheWebGpuPlatformContract()
+    {
+        var managedHost = Read(
+            "src", "ProGPU.Browser", "BrowserAssets", "progpu-browser.js");
+        var sharedHost = Read(
+            "src", "ProGPU.Browser", "BrowserAssets", "progpu-browser-host.js");
+        var nativeHost = Read(
+            "src", "ProGPU.Native", "browser", "gallery_pre.js");
+        var nativeBuild = Read("src", "ProGPU.Native", "CMakeLists.txt");
+
+        Assert.Contains("from './progpu-browser-host.js'", managedHost, StringComparison.Ordinal);
+        Assert.Contains("requestProGpuWebGpuDevice({", managedHost, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "state.adapter = await navigator.gpu.requestAdapter({",
+            managedHost,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export async function requestProGpuWebGpuDevice(options = {})",
+            sharedHost,
+            StringComparison.Ordinal);
+        Assert.Contains("if (info.reason === 'destroyed')", sharedHost, StringComparison.Ordinal);
+        Assert.Contains("options.onDeviceDestroyed?.(info)", sharedHost, StringComparison.Ordinal);
+        Assert.Contains("options.onDeviceLost?.(info)", sharedHost, StringComparison.Ordinal);
+        Assert.Contains("import('./progpu-browser-host.js')", nativeHost, StringComparison.Ordinal);
+        Assert.Contains("host.installResponsiveCanvas(", nativeHost, StringComparison.Ordinal);
+        Assert.Contains("host.requestProGpuWebGpuDevice({", nativeHost, StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGPU.Browser/BrowserAssets/progpu-browser-host.js",
+            nativeBuild,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BrowserDiagnosticsAreHiddenByDefaultAndExposedInSampleSettings()
     {
         var html = Read("src", "ProGPU.Samples.Browser", "wwwroot", "index.html");
@@ -1235,7 +1268,7 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
-    public void GitHubPagesPublishesAotBrowserArtifactBelowRepositoryPath()
+    public void GitHubPagesPublishesManagedAndNativeAotBrowserArtifacts()
     {
         var workflow = Read(".github", "workflows", "browser-pages.yml");
         var html = Read("src", "ProGPU.Samples.Browser", "wwwroot", "index.html");
@@ -1243,6 +1276,9 @@ public sealed class SampleProjectSplitTests
 
         Assert.Contains("dotnet publish src/ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj", workflow, StringComparison.Ordinal);
         Assert.Contains("--configuration Release", workflow, StringComparison.Ordinal);
+        Assert.Contains("mymindstorm/setup-emsdk@v16", workflow, StringComparison.Ordinal);
+        Assert.Contains("./eng/publish-progpu-native-browser-gallery.sh", workflow, StringComparison.Ordinal);
+        Assert.Contains("artifacts/browser-aot/wwwroot/native", workflow, StringComparison.Ordinal);
         Assert.Contains("path: artifacts/browser-aot/wwwroot", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/configure-pages@v5", workflow, StringComparison.Ordinal);
         Assert.Contains("actions/upload-pages-artifact@v4", workflow, StringComparison.Ordinal);

@@ -19,5 +19,8 @@
     <None Update="BrowserAssets/progpu-browser.js"
           Pack="true"
           PackagePath="contentFiles/any/any/wwwroot/progpu-browser.js" />
+    <None Update="BrowserAssets/progpu-browser-host.js"
+          Pack="true"
+          PackagePath="contentFiles/any/any/wwwroot/progpu-browser-host.js" />
   </ItemGroup>
 </Project>

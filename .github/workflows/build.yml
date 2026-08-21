@@ -46,6 +46,8 @@ jobs:
           path: |
             artifacts/progpu-native/browser-evidence/progpu-native-browser-webgpu.png
             artifacts/progpu-native/browser-evidence/progpu-native-browser-contract.json
+            artifacts/progpu-native/browser-evidence/progpu-native-browser-gallery.png
+            artifacts/progpu-native/browser-evidence/progpu-native-browser-gallery.json
           if-no-files-found: warn
 
   native-cpp:

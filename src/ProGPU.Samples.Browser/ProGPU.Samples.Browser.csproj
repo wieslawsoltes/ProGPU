@@ -33,6 +33,10 @@
     <Content Update="wwwroot/progpu-audio-worklet-smoke.js"
              CopyToOutputDirectory="Always"
              CopyToPublishDirectory="Always" />
+    <Content Include="..\ProGPU.Browser\BrowserAssets\progpu-browser-host.js"
+             Link="wwwroot/progpu-browser-host.js"
+             CopyToOutputDirectory="Always"
+             CopyToPublishDirectory="Always" />
     <UpToDateCheckInput Include="..\ProGPU.Browser\BrowserAssets\progpu-browser.js" />
     <!-- WgpuContext uses this iOS-only import to root the static wgpu-native archive.
          WebAssembly still resolves imports at link time, so provide an unreachable stub. -->

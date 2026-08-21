@@ -991,9 +991,43 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
     endif()
 endif()
 
+add_library(progpu_native_motion_mark_sample STATIC
+    samples/Views/progpu_native_motion_mark.cpp
+    samples/Views/progpu_native_motion_mark.hpp)
+target_compile_features(progpu_native_motion_mark_sample PUBLIC cxx_std_20)
+target_include_directories(progpu_native_motion_mark_sample PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/samples/Views")
+target_link_libraries(progpu_native_motion_mark_sample PUBLIC
+    progpu_native_scene_builder)
+progpu_native_enable_warnings(progpu_native_motion_mark_sample)
+
 if(EMSCRIPTEN)
+    add_library(progpu_native_browser_renderer_objects OBJECT
+        ${PROGPU_NATIVE_RENDERER_SOURCES})
+    add_dependencies(
+        progpu_native_browser_renderer_objects
+        progpu_native_generated_shaders)
+    target_compile_features(
+        progpu_native_browser_renderer_objects PRIVATE cxx_std_20)
+    target_compile_definitions(
+        progpu_native_browser_renderer_objects PRIVATE
+        PROGPU_NATIVE_BUILD=1
+        PROGPU_NATIVE_DAWN_ABI=1
+        PROGPU_NATIVE_BROWSER=1)
+    target_include_directories(
+        progpu_native_browser_renderer_objects PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/browser/include"
+        "${generated_directory}")
+    target_compile_options(
+        progpu_native_browser_renderer_objects PRIVATE
+        --use-port=emdawnwebgpu:cpp_bindings=false)
+    progpu_native_enable_warnings(progpu_native_browser_renderer_objects)
+
     add_executable(progpu_native_browser_smoke
-        ${PROGPU_NATIVE_RENDERER_SOURCES}
+        $<TARGET_OBJECTS:progpu_native_browser_renderer_objects>
         include/progpu_native_browser.h
         include/progpu_native_dawn.h
         browser/progpu_native_browser_evidence.cpp
@@ -1052,6 +1086,59 @@ if(EMSCRIPTEN)
         SUFFIX ".html"
         LINK_DEPENDS
             "${CMAKE_CURRENT_SOURCE_DIR}/browser/pre.js;${CMAKE_CURRENT_SOURCE_DIR}/browser/shell.html")
+
+    add_executable(progpu_native_browser_gallery
+        $<TARGET_OBJECTS:progpu_native_browser_renderer_objects>
+        include/progpu_native_browser.h
+        include/progpu_native_dawn.h
+        browser/Host/progpu_native_browser_window_host.cpp
+        browser/Host/progpu_native_browser_window_host.hpp
+        browser/progpu_native_browser_gallery.cpp)
+    add_dependencies(
+        progpu_native_browser_gallery
+        progpu_native_generated_shaders)
+    target_compile_features(progpu_native_browser_gallery PRIVATE cxx_std_20)
+    target_compile_definitions(progpu_native_browser_gallery PRIVATE
+        PROGPU_NATIVE_BUILD=1
+        PROGPU_NATIVE_DAWN_ABI=1
+        PROGPU_NATIVE_BROWSER=1)
+    target_include_directories(progpu_native_browser_gallery PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/browser"
+        "${CMAKE_CURRENT_SOURCE_DIR}/browser/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/samples/Views"
+        "${generated_directory}")
+    target_link_libraries(progpu_native_browser_gallery PRIVATE
+        progpu_native_image
+        progpu_native_motion_mark_sample
+        progpu_native_scene_builder
+        progpu_native_text)
+    target_compile_options(progpu_native_browser_gallery PRIVATE
+        --use-port=emdawnwebgpu:cpp_bindings=false
+        $<$<CONFIG:Release>:-O3>
+        $<$<CONFIG:Release>:-flto>)
+    target_link_options(progpu_native_browser_gallery PRIVATE
+        --use-port=emdawnwebgpu:cpp_bindings=false
+        --pre-js=${CMAKE_CURRENT_SOURCE_DIR}/browser/gallery_pre.js
+        --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/browser/gallery_shell.html
+        -sALLOW_MEMORY_GROWTH=1
+        -sEXIT_RUNTIME=0
+        -sENVIRONMENT=web
+        -sFILESYSTEM=0
+        $<$<CONFIG:Release>:-O3>
+        $<$<CONFIG:Release>:-flto>
+        $<$<CONFIG:Release>:-sASSERTIONS=0>)
+    progpu_native_enable_warnings(progpu_native_browser_gallery)
+    set_target_properties(progpu_native_browser_gallery PROPERTIES
+        SUFFIX ".html"
+        LINK_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/browser/gallery_pre.js;${CMAKE_CURRENT_SOURCE_DIR}/browser/gallery_shell.html;${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Browser/BrowserAssets/progpu-browser-host.js")
+    add_custom_command(TARGET progpu_native_browser_gallery POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Browser/BrowserAssets/progpu-browser-host.js"
+            "$<TARGET_FILE_DIR:progpu_native_browser_gallery>/progpu-browser-host.js"
+        VERBATIM)
 endif()
 
 if(NOT EMSCRIPTEN AND PROGPU_NATIVE_BUILD_WGPU_TARGET)
@@ -1256,6 +1343,22 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         COMMAND progpu_native_internal_tests)
     set_tests_properties(
         progpu_native_internal_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_motion_mark_tests
+        tests/progpu_native_motion_mark_tests.cpp)
+    target_compile_features(progpu_native_motion_mark_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_motion_mark_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/samples/Views")
+    target_link_libraries(progpu_native_motion_mark_tests PRIVATE
+        progpu_native_motion_mark_sample)
+    progpu_native_enable_warnings(progpu_native_motion_mark_tests)
+    progpu_native_enable_sanitizers(progpu_native_motion_mark_tests)
+    add_test(
+        NAME progpu_native_motion_mark_tests
+        COMMAND progpu_native_motion_mark_tests)
+    set_tests_properties(
+        progpu_native_motion_mark_tests PROPERTIES TIMEOUT 60)
 
     if(PROGPU_NATIVE_BUILD_WGPU_TARGET)
     add_executable(progpu_native_text_interop_tests

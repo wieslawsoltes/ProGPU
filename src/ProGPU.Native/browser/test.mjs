@@ -193,6 +193,104 @@ try {
     `${contract.semanticDraws} GPU draws, exact per-draw vector/glyph/image ` +
     `masks, retained rounded/vector, picture, and composite brush/stroked-geometry ` +
     `masks, coverage masks, and direct image sampling verified.\n`);
+
+  const galleryUrl = new URL(
+    "progpu_native_browser_gallery.html",
+    testUrl);
+  await page.goto(galleryUrl.toString(), { waitUntil: "domcontentloaded" });
+  try {
+    await page.waitForFunction(
+      () => document.body.dataset.progpuNative === "running" &&
+        Number(document.body.dataset.progpuNativeFrames) >= 3,
+      undefined,
+      { timeout: 120_000 });
+  } catch (error) {
+    const diagnostics = await page.evaluate(() => ({
+      status: document.body.dataset.progpuNative,
+      error: document.body.dataset.progpuNativeError ?? ""
+    }));
+    throw new Error(
+      `Native gallery did not present its MotionMark scene: ` +
+      `${JSON.stringify(diagnostics)}; ${errors.join(" | ")}`, {
+      cause: error
+    });
+  }
+  const galleryContract = await page.evaluate(() => {
+    const canvas = document.querySelector("#progpu-canvas");
+    const rect = canvas.getBoundingClientRect();
+    return {
+      status: document.body.dataset.progpuNative,
+      renderer: document.body.dataset.progpuNativeRenderer,
+      presentation: document.body.dataset.progpuNativePresentation,
+      aot: document.body.dataset.progpuNativeAot,
+      elements: Number(document.body.dataset.progpuNativeElements),
+      groups: Number(document.body.dataset.progpuNativeGroups),
+      draws: Number(document.body.dataset.progpuNativeDraws),
+      streamBytes: Number(document.body.dataset.progpuNativeStreamBytes),
+      width: Number(document.body.dataset.progpuNativeBackingWidth),
+      height: Number(document.body.dataset.progpuNativeBackingHeight),
+      dpiScale: Number(document.body.dataset.progpuNativeDpiScale),
+      frames: Number(document.body.dataset.progpuNativeFrames),
+      canvasWidth: canvas.width,
+      canvasHeight: canvas.height,
+      cssWidth: rect.width,
+      cssHeight: rect.height,
+      error: document.body.dataset.progpuNativeError ?? ""
+    };
+  });
+  assert.equal(galleryContract.status, "running");
+  assert.equal(galleryContract.renderer, "pure-cpp-webgpu");
+  assert.equal(galleryContract.presentation, "canvas-swapchain");
+  assert.equal(galleryContract.aot, "emscripten-wasm");
+  assert.equal(galleryContract.elements, 1000);
+  assert.ok(galleryContract.groups > 0 &&
+    galleryContract.groups <= galleryContract.elements);
+  assert.equal(galleryContract.draws, 1);
+  assert.ok(galleryContract.streamBytes > 0);
+  assert.equal(galleryContract.width, galleryContract.canvasWidth);
+  assert.equal(galleryContract.height, galleryContract.canvasHeight);
+  assert.equal(
+    galleryContract.width,
+    Math.round(galleryContract.cssWidth * galleryContract.dpiScale));
+  assert.equal(
+    galleryContract.height,
+    Math.round(galleryContract.cssHeight * galleryContract.dpiScale));
+  assert.ok(galleryContract.frames >= 3);
+  assert.equal(galleryContract.error, "");
+
+  const framesBeforeControlChange = galleryContract.frames;
+  await page.locator("#complexity").selectOption("250");
+  await page.waitForFunction(
+    previousFrames =>
+      document.body.dataset.progpuNativeElements === "250" &&
+      Number(document.body.dataset.progpuNativeFrames) > previousFrames,
+    framesBeforeControlChange,
+    { timeout: 30_000 });
+  galleryContract.controlledElements = Number(
+    await page.locator("body").getAttribute("data-progpu-native-elements"));
+  galleryContract.controlledFrames = Number(
+    await page.locator("body").getAttribute("data-progpu-native-frames"));
+  assert.equal(galleryContract.controlledElements, 250);
+  assert.ok(galleryContract.controlledFrames > framesBeforeControlChange,
+    "The native gallery did not present after its scene changed.");
+  assert.equal(
+    await page.locator("body").getAttribute("data-progpu-native-error"),
+    null,
+    "The native gallery reported an error after its scene changed.");
+  const galleryScreenshot = await page.locator(".stage").screenshot({
+    path: path.join(
+      evidenceDirectory,
+      "progpu-native-browser-gallery.png")
+  });
+  assert.ok(galleryScreenshot.length > 1000,
+    "The native gallery WebGPU screenshot is empty.");
+  await fs.writeFile(
+    path.join(evidenceDirectory, "progpu-native-browser-gallery.json"),
+    `${JSON.stringify(galleryContract, null, 2)}\n`);
+  assert.deepEqual(errors, []);
+  process.stdout.write(
+    `ProGPU pure C++ browser gallery presented MotionMark as one GPU draw ` +
+    `at ${galleryContract.width}x${galleryContract.height} physical pixels.\n`);
 } finally {
   await browser.close();
 }

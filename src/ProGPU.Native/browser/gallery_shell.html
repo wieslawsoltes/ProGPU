@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="data:,">
+  <title>ProGPU Native C++ Gallery</title>
+  <style>
+    :root { font: 15px Inter, ui-sans-serif, system-ui, sans-serif; color: #f4f6ff; background: #070911; }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; min-height: 100%; margin: 0; }
+    body { min-height: 100dvh; background: radial-gradient(circle at 70% 0%, #182244 0, #090b15 36%, #05060b 100%); }
+    button, select { font: inherit; }
+    .app { min-height: 100dvh; display: grid; grid-template-rows: auto 1fr; }
+    header { min-height: 68px; display: flex; align-items: center; gap: 18px; padding: 14px clamp(18px, 3vw, 44px); border-bottom: 1px solid #ffffff14; background: #090a11d9; backdrop-filter: blur(18px); }
+    .mark { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; background: linear-gradient(145deg, #168fff, #6559ff); font-weight: 900; }
+    .title { min-width: 0; }
+    h1 { margin: 0; font-size: clamp(18px, 2vw, 24px); letter-spacing: -.03em; }
+    .subtitle { margin-top: 3px; color: #9098ae; font-size: 12px; }
+    .badge { margin-left: auto; padding: 7px 10px; border: 1px solid #65a9ff4a; border-radius: 999px; color: #9bc8ff; background: #1164bd20; font: 700 11px ui-monospace, monospace; white-space: nowrap; }
+    .workspace { min-height: 0; display: grid; grid-template-columns: 224px minmax(0, 1fr); }
+    nav { padding: 24px 14px; border-right: 1px solid #ffffff12; background: #0d0f18d9; }
+    .nav-label { padding: 0 12px 10px; color: #666f87; font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    .nav-item { width: 100%; display: flex; gap: 10px; align-items: center; padding: 11px 12px; border: 1px solid #4c7fd33d; border-radius: 10px; color: #eef4ff; background: #24487948; text-align: left; }
+    .nav-item span { color: #7bbcff; }
+    main { min-width: 0; padding: clamp(18px, 3vw, 38px); overflow: auto; }
+    .intro { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 18px; }
+    h2 { margin: 0; font-size: clamp(25px, 4vw, 40px); letter-spacing: -.045em; }
+    .intro p { max-width: 720px; margin: 7px 0 0; color: #8f98b0; line-height: 1.5; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+    .control { min-height: 40px; padding: 0 14px; border: 1px solid #ffffff19; border-radius: 9px; color: #edf1ff; background: #202431; }
+    button.control { cursor: pointer; }
+    button.control:hover { border-color: #4d98ff; background: #293044; }
+    .stage { position: relative; overflow: hidden; min-height: 340px; height: min(68vh, 720px); border: 1px solid #ffffff1b; border-radius: 16px; background: #202026; box-shadow: 0 28px 90px #0008; }
+    #progpu-canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    .metrics { position: absolute; left: 14px; right: 14px; bottom: 14px; display: flex; flex-wrap: wrap; gap: 8px; pointer-events: none; }
+    .metric { padding: 7px 10px; border: 1px solid #ffffff1c; border-radius: 8px; background: #080b14d9; color: #9fa8be; font: 11px ui-monospace, monospace; backdrop-filter: blur(10px); }
+    .metric strong { color: #62adff; }
+    #status-message { color: #7f899f; font: 12px ui-monospace, monospace; }
+    @media (max-width: 760px) {
+      .badge { display: none; }
+      .workspace { grid-template-columns: 1fr; }
+      nav { display: none; }
+      main { padding: 16px; }
+      .intro { align-items: start; flex-direction: column; }
+      .stage { height: 58vh; min-height: 360px; }
+    }
+  </style>
+</head>
+<body data-progpu-native="loading">
+  <div class="app">
+    <header>
+      <div class="mark">P</div>
+      <div class="title"><h1>ProGPU Native C++ Gallery</h1><div class="subtitle">The shared ProGPU architecture compiled directly to WebAssembly</div></div>
+      <div class="badge">C++20 · WASM AOT · WEBGPU</div>
+    </header>
+    <div class="workspace">
+      <nav><div class="nav-label">Native samples</div><button class="nav-item"><span>◉</span> MotionMark</button></nav>
+      <main>
+        <section class="intro">
+          <div><h2>MotionMark</h2><p>Mixed line, quadratic, and cubic paths animated through one immutable native semantic stream and the production ProGPU GPU pipeline.</p></div>
+          <div id="status-message">Initializing native WebGPU…</div>
+        </section>
+        <div class="controls">
+          <select id="complexity" class="control" aria-label="Shape count">
+            <option value="250">250 segments</option><option value="1000" selected>1,000 segments</option><option value="2500">2,500 segments</option><option value="5000">5,000 segments</option>
+          </select>
+          <select id="palette" class="control" aria-label="Color palette">
+            <option value="0">Vello palette</option><option value="1">Fluent palette</option><option value="2">Spectrum</option><option value="3">Monochrome</option>
+          </select>
+          <button id="pause" class="control">Pause</button>
+          <button id="regenerate" class="control">Regenerate</button>
+        </div>
+        <div class="stage">
+          <canvas id="progpu-canvas" aria-label="Pure C++ ProGPU MotionMark rendering surface"></canvas>
+          <div class="metrics">
+            <div class="metric">FPS <strong id="metric-fps">0</strong></div>
+            <div class="metric">segments <strong id="metric-elements">0</strong></div>
+            <div class="metric">groups <strong id="metric-groups">0</strong></div>
+            <div class="metric">GPU draws <strong id="metric-draws">0</strong></div>
+            <div class="metric">scene <strong id="metric-bytes">0 B</strong></div>
+            <div class="metric">DPR <strong id="metric-dpr">1</strong></div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+  <script>
+    addEventListener('load', () => {
+      const complexity = document.querySelector('#complexity');
+      const palette = document.querySelector('#palette');
+      const pause = document.querySelector('#pause');
+      const regenerate = document.querySelector('#regenerate');
+
+      complexity.addEventListener('change', event => Module._progpu_native_gallery_set_element_count(Number(event.target.value)));
+      palette.addEventListener('change', event => Module._progpu_native_gallery_set_color_mode(Number(event.target.value)));
+      pause.addEventListener('click', () => {
+        const paused = Module._progpu_native_gallery_toggle_paused() !== 0;
+        pause.textContent = paused ? 'Resume' : 'Pause';
+      });
+      regenerate.addEventListener('click', () => Module._progpu_native_gallery_regenerate());
+    });
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>

@@ -808,6 +808,18 @@ PROGPU_NATIVE_BROWSER_INSTALL_CHROMIUM=1 \
   ./eng/progpu-test-native-browser.sh
 ```
 
+The same browser lane also builds and exercises the production-style pure C++
+gallery with MotionMark as its first sample. Publish its optimized C++20/LTO
+WebAssembly files without a .NET runtime using:
+
+```sh
+./eng/publish-progpu-native-browser-gallery.sh
+```
+
+See [`docs/NATIVE_CPP_BROWSER_GALLERY.md`](../../docs/NATIVE_CPP_BROWSER_GALLERY.md)
+for the shared managed/native JavaScript host contract, architecture, AOT
+artifact sizes, source provenance, and qualification evidence.
+
 The Emscripten/Emdawnwebgpu lane compiles the shared renderer modules and WGSL,
 serves the generated page over HTTP, and runs a Playwright integration test.
 The gate validates the browser-specific ABI/capability identity and replays a
