@@ -57,6 +57,47 @@ Growth clears a new texture, copies the old top-left texels entirely on the GPU,
 
 The text shader selects the R8 or RGBA binding from the retained glyph representation flag. This avoids scaling the color allocation to the dimensions required by Latin/CJK/vector coverage while preserving premultiplied bitmap-glyph sampling.
 
+### Tile-safe filtered sampling and shared outline geometry
+
+The WebGPU sampler's `clamp-to-edge` address mode applies to the complete atlas
+texture, not to an allocation within it. Linear filtering can therefore include
+a neighboring tile when a glyph quad is minified or lands at a fractional device
+position. The canonical managed/native `Text.wgsl` vertex stage now carries each
+allocation's half-texel-inset bounds as one flat `vec4`; every grayscale, ClearType,
+color-glyph, masked, and premultiplied fragment path clamps its sample coordinate to
+those bounds. This preserves the existing derivatives and sample count while
+preventing neighboring coverage from appearing as glyph-quad hairlines. ClearType's
+two offset samples receive the same per-tile clamp.
+
+This follows the [WebGPU sampler contract](https://www.w3.org/TR/webgpu/#sampler-creation),
+which defines address clamping at normalized texture edges and linear filtering as a
+multi-texel operation. The retained-atlas decision remains consistent with
+[Skia's plot-based atlas](https://skia.googlesource.com/skia/+/main/src/gpu/ganesh/GrDrawOpAtlas.h),
+[WebRender's retained glyph rasterizer](https://searchfox.org/mozilla-central/source/gfx/wr/wr_glyph_rasterizer/src/lib.rs),
+and [Vello's glyph-cache design](https://github.com/linebender/vello/issues/204):
+cache reusable glyph coverage and preserve allocation ownership at sampling time.
+DirectWrite/Win2D, SkParagraph, Parley, and HarfBuzz remain shaping/layout references
+as recorded in the primary-source table above; this correction begins only after a
+positioned glyph and retained atlas allocation already exist. No third-party source
+text, data structure, or control flow was used.
+
+The native semantic builder additionally permits multiple glyph-outline records to
+reference the same gap-free immutable segment range. Different physical raster sizes
+and phases retain distinct coverage keys and records, but no longer duplicate the
+font outline bytes in the scene stream. For `S` unique outline segments and `R`
+raster representations, auxiliary storage stays `O(S)` instead of `O(R*S)` while
+record validation and construction remain `O(R + S)`. The managed compositor already
+keeps one immutable font outline per glyph and uses separate raster cache keys, so no
+managed builder change is applicable.
+
+Fragment work remains `O(1)`: the grayscale/color path still performs one atlas
+sample, ClearType still performs three, and masks are unchanged. The cost is one flat
+four-float vertex-to-fragment value and bounded scalar clamps; there is no extra
+texture access, allocation, upload, draw, or managed/native crossing. DPR 1 and DPR 2
+browser captures of the native Romanian localized-form specimen are the visual
+regression workload because its composite glyphs exposed both minification and
+neighbor-tile bleed.
+
 ### Bounded outline storage
 
 GPU glyph outline records and segments now use one global pair of buffers across all fonts. Per-font state contains only the glyph-to-global-slot map, eliminating per-font minimum allocations and slack. Capacity grows by 1.5x through GPU-to-GPU copy instead of doubling. A reusable CPU scratch list is used only while parsing a newly demanded outline. Allocated GPU outline capacity is measured and bounded to 4 MiB by default; the cache is rebuilt lazily after a frame-boundary trim. Coverage already resident in the atlas remains valid.

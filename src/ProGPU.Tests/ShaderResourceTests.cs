@@ -185,6 +185,33 @@ public class ShaderResourceTests
     }
 
     [Fact]
+    public void TextShaderKeepsLinearSamplingInsideEachGlyphTile()
+    {
+        Assert.Contains(
+            "@location(5) @interpolate(flat) texelBounds: vec4<f32>",
+            Shaders.TextShader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "texCoordMin + vec2<f32>(0.5)",
+            Shaders.TextShader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "texCoordMax - vec2<f32>(0.5)",
+            Shaders.TextShader,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            CountOccurrences(
+                Shaders.TextShader,
+                "input.texelBounds.zw) / selectedSize"));
+        Assert.Equal(
+            4,
+            CountOccurrences(
+                Shaders.TextShader,
+                "clamp(atlasCoord "));
+    }
+
+    [Fact]
     public void VectorShapeBranchesReuseUniformlyEvaluatedDerivatives()
     {
         const string shapeControlStart = "if (sType == 0u && input.strokeThickness <= 0.0)";
@@ -339,6 +366,19 @@ public class ShaderResourceTests
     {
         string extension = Path.GetExtension(path);
         return extension is ".wgsl" or ".glsl" or ".hlsl";
+    }
+
+    private static int CountOccurrences(string source, string value)
+    {
+        int count = 0;
+        int offset = 0;
+        while ((offset = source.IndexOf(value, offset, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            offset += value.Length;
+        }
+
+        return count;
     }
 
     private static DirectoryInfo FindRepositoryRoot()

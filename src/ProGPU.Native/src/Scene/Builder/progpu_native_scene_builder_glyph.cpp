@@ -2,6 +2,7 @@
 
 #include "progpu_native_semantic_validation.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <limits>
 #include <new>
@@ -84,20 +85,23 @@ bool semantic_scene_builder::add_glyph_outlines(
             PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
-    std::uint64_t expected_segment_offset = 0U;
+    // Outlines may deliberately share immutable segment ranges when the same
+    // glyph geometry is rasterized at multiple physical sizes or subpixel
+    // phases. Keep the packed auxiliary stream gap-free while permitting
+    // overlapping and repeated references into the already validated data.
+    std::uint64_t covered_segment_end = 0U;
     for (const auto& outline : outlines) {
-        if (outline.segment_offset != expected_segment_offset ||
+        if (outline.segment_offset > covered_segment_end ||
             !semantic::is_valid_semantic_glyph_outline(
                 outline,
-                segments.size()) ||
-            outline.segment_count >
-                std::numeric_limits<std::uint64_t>::max() -
-                    expected_segment_offset) {
+                segments.size())) {
             return implementation_->fail(scene_build_error::invalid_argument);
         }
-        expected_segment_offset += outline.segment_count;
+        covered_segment_end = std::max(
+            covered_segment_end,
+            outline.segment_offset + outline.segment_count);
     }
-    if (expected_segment_offset != segments.size()) {
+    if (covered_segment_end != segments.size()) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
     for (const auto& segment : segments) {
