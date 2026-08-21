@@ -939,6 +939,23 @@ bool semantic_scene_builder_records_styled_glyph_runs() {
         return false;
     }
 
+    auto glyph_position_changed = stream;
+    auto positioned_glyph = read<progpu_native_positioned_glyph>(
+        glyph_position_changed,
+        command.payload_offset + sizeof(progpu_native_scene_glyph_draw));
+    positioned_glyph.position.x += 3.0F;
+    std::memcpy(
+        glyph_position_changed.data() + command.payload_offset +
+            sizeof(progpu_native_scene_glyph_draw),
+        &positioned_glyph,
+        sizeof(positioned_glyph));
+    const auto positioned_hashes = semantic::compute_content_hashes(
+        glyph_position_changed.data(), validated.header);
+    if (!(positioned_hashes.text_style == original_hashes.text_style &&
+        positioned_hashes.glyph != original_hashes.glyph)) {
+        return false;
+    }
+
     auto style_mapping_changed = stream;
     auto glyph_draw = read<progpu_native_scene_glyph_draw>(
         style_mapping_changed, command.payload_offset);
@@ -951,6 +968,181 @@ bool semantic_scene_builder_records_styled_glyph_runs() {
         style_mapping_changed.data(), validated.header);
     return mapping_hashes.text_style != original_hashes.text_style &&
         mapping_hashes.glyph != original_hashes.glyph;
+}
+
+bool semantic_scene_content_hashes_normalize_resource_ordinals() {
+    const std::array segments{
+        progpu_native_path_segment{
+            {0.0F, 0.0F}, {12.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {12.0F, 0.0F}, {12.0F, 16.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {12.0F, 16.0F}, {0.0F, 16.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {0.0F, 16.0F}, {0.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const progpu_native_scene_glyph_outline outline{
+        0U,
+        segments.size(),
+        0.0F,
+        0.0F,
+        12.0F,
+        16.0F,
+        1.0F,
+        0.0F};
+    const progpu_native_scene_text_style style{
+        {0.4F, 0.7F, 0.9F, 1.0F},
+        PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE,
+        0U,
+        0U,
+        0U};
+    const progpu_native_positioned_glyph glyph{
+        0U,
+        0U,
+        {20.0F, 24.0F},
+        {1.0F, 0.0F},
+        {0.0F, 1.0F},
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        1.0F,
+        0.0F,
+        0.0F,
+        0.0F};
+    constexpr std::array<std::byte, 4U> pixel{
+        std::byte{0x20},
+        std::byte{0x40},
+        std::byte{0x80},
+        std::byte{0xff}};
+    const auto build = [&](bool insert_unrelated_image,
+                           std::vector<std::byte>& stream) {
+        semantic_scene_builder builder(706U, 1U);
+        if (insert_unrelated_image) {
+            std::uint32_t image_resource = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!builder.add_rgba8_image(
+                    1U, 1U, 4U, pixel, image_resource) ||
+                !builder.set_resource_identity(
+                    image_resource, 5U, 1U)) {
+                return false;
+            }
+        }
+        std::uint32_t glyph_resource = PROGPU_NATIVE_SCENE_NO_INDEX;
+        std::uint32_t style_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder.add_glyph_outlines(
+                std::span<const progpu_native_scene_glyph_outline>(
+                    &outline, 1U),
+                segments,
+                glyph_resource) ||
+            !builder.set_resource_identity(glyph_resource, 10U, 1U) ||
+            !builder.add_text_style(style, style_index)) {
+            return false;
+        }
+        const std::uint32_t style_resource = glyph_resource + 1U;
+        return builder.set_resource_identity(style_resource, 20U, 1U) &&
+            builder.draw_glyph_run(
+                glyph_resource,
+                std::span<const progpu_native_positioned_glyph>(&glyph, 1U),
+                {20.0F, 24.0F, 12.0F, 16.0F},
+                PROGPU_NATIVE_SCENE_NO_INDEX,
+                style_index) &&
+            builder.build(stream);
+    };
+
+    std::vector<std::byte> original;
+    std::vector<std::byte> shifted;
+    if (!build(false, original) || !build(true, shifted)) {
+        return false;
+    }
+    const auto original_validation = scene::validate(
+        original.data(), original.size());
+    const auto shifted_validation = scene::validate(
+        shifted.data(), shifted.size());
+    if (original_validation.status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        shifted_validation.status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return false;
+    }
+    const auto original_hashes = semantic::compute_content_hashes(
+        original.data(), original_validation.header);
+    const auto shifted_hashes = semantic::compute_content_hashes(
+        shifted.data(), shifted_validation.header);
+    if (!(original_hashes.text_style == shifted_hashes.text_style &&
+        original_hashes.glyph == shifted_hashes.glyph &&
+        original_hashes.image != shifted_hashes.image)) {
+        return false;
+    }
+
+    const progpu_native_analytic_primitive primitive{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        4.0F,
+        6.0F,
+        18.0F,
+        14.0F,
+        0.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        semantic_scene_builder::identity_transform()};
+    const auto build_analytic = [&](bool insert_unrelated_image,
+                                    std::vector<std::byte>& stream) {
+        semantic_scene_builder builder(707U, 1U);
+        const std::uint32_t shift = insert_unrelated_image ? 1U : 0U;
+        if (insert_unrelated_image) {
+            std::uint32_t image_resource = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!builder.add_rgba8_image(
+                    1U, 1U, 4U, pixel, image_resource) ||
+                !builder.set_resource_identity(
+                    image_resource, 5U, 1U)) {
+                return false;
+            }
+        }
+        std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder.add_solid_brush(
+                {0.3F, 0.6F, 0.8F, 1.0F},
+                1.0F,
+                brush_index) ||
+            !builder.draw_analytic(
+                std::span<const progpu_native_analytic_primitive>(
+                    &primitive, 1U),
+                std::span<const std::uint32_t>(&brush_index, 1U),
+                {4.0F, 6.0F, 18.0F, 14.0F}) ||
+            !builder.set_resource_identity(shift, 10U, 1U) ||
+            !builder.set_resource_identity(shift + 1U, 20U, 1U)) {
+            return false;
+        }
+        return builder.build(stream);
+    };
+
+    std::vector<std::byte> original_analytic;
+    std::vector<std::byte> shifted_analytic;
+    if (!build_analytic(false, original_analytic) ||
+        !build_analytic(true, shifted_analytic)) {
+        return false;
+    }
+    const auto original_analytic_validation = scene::validate(
+        original_analytic.data(), original_analytic.size());
+    const auto shifted_analytic_validation = scene::validate(
+        shifted_analytic.data(), shifted_analytic.size());
+    if (original_analytic_validation.status !=
+            PROGPU_NATIVE_STATUS_SUCCESS ||
+        shifted_analytic_validation.status !=
+            PROGPU_NATIVE_STATUS_SUCCESS) {
+        return false;
+    }
+    const auto original_analytic_hashes =
+        semantic::compute_content_hashes(
+            original_analytic.data(),
+            original_analytic_validation.header);
+    const auto shifted_analytic_hashes =
+        semantic::compute_content_hashes(
+            shifted_analytic.data(),
+            shifted_analytic_validation.header);
+    return original_analytic_hashes.brush ==
+            shifted_analytic_hashes.brush &&
+        original_analytic_hashes.analytic ==
+            shifted_analytic_hashes.analytic &&
+        original_analytic_hashes.image !=
+            shifted_analytic_hashes.image;
 }
 
 bool semantic_scene_builder_shares_glyph_segments_across_raster_sizes() {
