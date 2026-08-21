@@ -7,6 +7,7 @@ namespace System.Drawing.Benchmarks;
 public class GraphicsPathBenchmarks
 {
     private GraphicsPath _path = null!;
+    private GraphicsPathIterator _iterator = null!;
     private PointF[] _points = null!;
     private byte[] _types = null!;
 
@@ -21,6 +22,7 @@ public class GraphicsPathBenchmarks
 
         _points = new PointF[_path.PointCount];
         _types = new byte[_path.PointCount];
+        _iterator = new GraphicsPathIterator(_path);
     }
 
     [Benchmark]
@@ -28,8 +30,16 @@ public class GraphicsPathBenchmarks
         _path.GetPathPoints(_points) + _path.GetPathTypes(_types);
 
     [Benchmark]
+    public int EnumerateIteratorToCallerStorage() =>
+        _iterator.Enumerate(_points, _types);
+
+    [Benchmark]
     public RectangleF QueryAnalyticBounds() => _path.GetBounds();
 
     [GlobalCleanup]
-    public void DisposePath() => _path.Dispose();
+    public void DisposePath()
+    {
+        _iterator.Dispose();
+        _path.Dispose();
+    }
 }

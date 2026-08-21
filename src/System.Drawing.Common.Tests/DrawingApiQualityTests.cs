@@ -677,4 +677,74 @@ public sealed class DrawingApiQualityTests
         Assert.InRange(flattenedBounds.Left, originalBounds.Left - 0.001f, originalBounds.Left + 0.001f);
         Assert.InRange(flattenedBounds.Right, originalBounds.Right - 0.001f, originalBounds.Right + 0.001f);
     }
+
+    [Fact]
+    public void GraphicsPathIteratorEnumeratesMarkersSubpathsAndPathTypes()
+    {
+        using var source = new GraphicsPath(FillMode.Winding);
+        source.AddLine(0f, 0f, 10f, 0f);
+        source.SetMarkers();
+        source.AddBezier(10f, 0f, 12f, 4f, 18f, 4f, 20f, 0f);
+        source.CloseFigure();
+        source.AddRectangle(new RectangleF(30f, 10f, 5f, 7f));
+        using var iterator = new GraphicsPathIterator(source);
+
+        Assert.Equal(9, iterator.Count);
+        Assert.Equal(2, iterator.SubpathCount);
+        Assert.True(iterator.HasCurve());
+
+        PointF[] points = null!;
+        byte[] types = null!;
+        Assert.Equal(9, iterator.Enumerate(ref points, ref types));
+        Assert.Equal(source.PathPoints, points);
+        Assert.Equal(source.PathTypes, types);
+
+        Assert.Equal(2, iterator.NextMarker(out int markerStart, out int markerEnd));
+        Assert.Equal((0, 1), (markerStart, markerEnd));
+        using var markerPath = new GraphicsPath();
+        Assert.Equal(7, iterator.NextMarker(markerPath));
+        Assert.Equal(FillMode.Winding, markerPath.FillMode);
+        Assert.Equal(new PointF(10f, 0f), markerPath.PathPoints[0]);
+        Assert.Equal(new PointF(30f, 10f), markerPath.PathPoints[4]);
+
+        iterator.Rewind();
+        using var subpath = new GraphicsPath();
+        Assert.Equal(5, iterator.NextSubpath(subpath, out bool isClosed));
+        Assert.True(isClosed);
+        Assert.Equal(5, subpath.PointCount);
+        Assert.Equal(4, iterator.NextSubpath(out int subpathStart, out int subpathEnd, out isClosed));
+        Assert.Equal((5, 8), (subpathStart, subpathEnd));
+        Assert.True(isClosed);
+
+        iterator.Rewind();
+        Assert.Equal(1, iterator.NextPathType(out byte pathType, out int typeStart, out int typeEnd));
+        Assert.Equal((byte)PathPointType.Start, pathType);
+        Assert.Equal((0, 0), (typeStart, typeEnd));
+        Assert.Equal(1, iterator.NextPathType(out pathType, out typeStart, out typeEnd));
+        Assert.Equal((byte)PathPointType.Line, pathType);
+        Assert.Equal(3, iterator.NextPathType(out pathType, out typeStart, out typeEnd));
+        Assert.Equal((byte)PathPointType.Bezier3, pathType);
+    }
+
+    [Fact]
+    public void GraphicsPathIteratorSpanEnumerationAllocatesNothingAfterWarmup()
+    {
+        using var source = new GraphicsPath();
+        source.AddEllipse(0f, 0f, 40f, 20f);
+        using var iterator = new GraphicsPathIterator(source);
+        var points = new PointF[iterator.Count];
+        var types = new byte[iterator.Count];
+        iterator.Enumerate(points, types);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 64; iteration++)
+        {
+            iterator.Enumerate(points, types);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+        iterator.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => _ = iterator.Count);
+    }
 }
