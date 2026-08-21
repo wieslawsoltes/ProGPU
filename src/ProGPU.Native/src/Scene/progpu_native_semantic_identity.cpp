@@ -86,6 +86,8 @@ std::uint64_t append_brush_mapping(
     hash = append_fnv1a64(hash, &command_index, sizeof(command_index));
     hash = append_fnv1a64(hash, &command.kind, sizeof(command.kind));
     hash = append_fnv1a64(hash, &command.flags, sizeof(command.flags));
+    hash = append_fnv1a64(
+        hash, &command.state_index, sizeof(command.state_index));
     if (command.payload_size < sizeof(progpu_native_scene_draw_brushes)) {
         return hash;
     }
@@ -253,14 +255,14 @@ semantic_content_hashes compute_content_hashes(
         return finish(append_fnv1a64(
             hash, &resources, sizeof(resources)));
     };
-    result.brush = resource_only(
+    result.brush = combine(
         fnv_offset ^ 0x01U, brush_commands, brushes);
-    result.text_style = resource_only(
+    result.text_style = combine(
         fnv_offset ^ 0x02U, style_commands, styles);
     result.analytic = combine(
-        fnv_offset ^ 0x03U, analytic_commands, analytics, brushes);
+        fnv_offset ^ 0x03U, analytic_commands, analytics, result.brush);
     result.path = combine(
-        fnv_offset ^ 0x04U, path_commands, paths, brushes);
+        fnv_offset ^ 0x04U, path_commands, paths, result.brush);
     // Positioned glyphs carry their color directly. Only the optional styled
     // command form reads the text-style page; neither glyph form reads the
     // analytic brush table. Keep unrelated material updates out of the glyph
@@ -269,7 +271,7 @@ semantic_content_hashes compute_content_hashes(
         fnv_offset ^ 0x05U, glyph_commands, glyphs);
     if (glyph_uses_text_styles) {
         result.glyph = finish(append_fnv1a64(
-            result.glyph, &styles, sizeof(styles)));
+            result.glyph, &result.text_style, sizeof(result.text_style)));
     }
     result.image = combine(
         fnv_offset ^ 0x06U, image_commands, images);

@@ -1687,6 +1687,82 @@ bool semantic_scene_content_hashes_isolate_image_updates() {
         return false;
     }
 
+    semantic_scene_builder interleaved_builder(712U, 1U);
+    std::uint32_t interleaved_analytic_brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t interleaved_path_brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    const std::array path_segments{
+        progpu_native_path_segment{
+            {0.0F, 0.0F}, {12.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {12.0F, 0.0F}, {12.0F, 12.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {12.0F, 12.0F}, {0.0F, 12.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {0.0F, 12.0F}, {0.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    auto path = progpu_native_scene_path_fill{};
+    path.segment_count = path_segments.size();
+    path.max_x = 12.0F;
+    path.max_y = 12.0F;
+    path.color = {1.0F, 1.0F, 1.0F, 1.0F};
+    path.transform = semantic_scene_builder::identity_transform();
+    path.fill_rule = PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+    path.sample_grid = 4U;
+    if (!interleaved_builder.add_solid_brush(
+            {0.2F, 0.5F, 0.9F, 1.0F},
+            1.0F,
+            interleaved_analytic_brush) ||
+        !interleaved_builder.add_solid_brush(
+            {0.9F, 0.4F, 0.1F, 1.0F},
+            1.0F,
+            interleaved_path_brush) ||
+        !interleaved_builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &primitive, 1U),
+            std::span<const std::uint32_t>(
+                &interleaved_analytic_brush, 1U),
+            {0.0F, 0.0F, 20.0F, 20.0F}) ||
+        !interleaved_builder.draw_paths(
+            std::span<const progpu_native_scene_path_fill>(&path, 1U),
+            path_segments,
+            std::span<const std::uint32_t>(&interleaved_path_brush, 1U),
+            {24.0F, 0.0F, 12.0F, 12.0F})) {
+        return false;
+    }
+    std::vector<std::byte> interleaved;
+    if (!interleaved_builder.build(interleaved)) {
+        return false;
+    }
+    const auto interleaved_header = read<progpu_native_scene_header>(
+        interleaved, 0U);
+    const auto interleaved_hashes = semantic::compute_content_hashes(
+        interleaved.data(), interleaved_header);
+    auto reordered = interleaved;
+    auto analytic_record = read<progpu_native_scene_command>(
+        reordered, interleaved_header.command_offset);
+    auto path_record = read<progpu_native_scene_command>(
+        reordered,
+        interleaved_header.command_offset + interleaved_header.command_stride);
+    std::memcpy(
+        reordered.data() + interleaved_header.command_offset,
+        &path_record,
+        sizeof(path_record));
+    std::memcpy(
+        reordered.data() + interleaved_header.command_offset +
+            interleaved_header.command_stride,
+        &analytic_record,
+        sizeof(analytic_record));
+    const auto reordered_hashes = semantic::compute_content_hashes(
+        reordered.data(), interleaved_header);
+    if (!(reordered_hashes.brush != interleaved_hashes.brush &&
+        reordered_hashes.analytic != interleaved_hashes.analytic &&
+        reordered_hashes.path != interleaved_hashes.path)) {
+        return false;
+    }
+
     semantic_scene_builder scoped_builder(711U, 1U);
     std::uint32_t scoped_brush = PROGPU_NATIVE_SCENE_NO_INDEX;
     auto first_state = semantic_scene_builder::identity_state();
@@ -1714,6 +1790,54 @@ bool semantic_scene_content_hashes_isolate_image_updates() {
     const auto scoped_header = read<progpu_native_scene_header>(scoped, 0U);
     const auto scoped_hashes = semantic::compute_content_hashes(
         scoped.data(), scoped_header);
+    auto state_resource_changed = scoped;
+    for (std::uint32_t index = 0U;
+         index < scoped_header.resource_count;
+         ++index) {
+        const auto offset = static_cast<std::uint32_t>(
+            scoped_header.resource_offset +
+            index * scoped_header.resource_stride);
+        auto resource = read<progpu_native_scene_resource>(
+            state_resource_changed, offset);
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            continue;
+        }
+        ++resource.generation;
+        std::memcpy(
+            state_resource_changed.data() + offset,
+            &resource,
+            sizeof(resource));
+        break;
+    }
+    const auto state_resource_hashes = semantic::compute_content_hashes(
+        state_resource_changed.data(), scoped_header);
+    if (!(state_resource_hashes.brush != scoped_hashes.brush &&
+        state_resource_hashes.text_style != scoped_hashes.text_style &&
+        state_resource_hashes.analytic != scoped_hashes.analytic)) {
+        return false;
+    }
+
+    auto draw_state_changed = scoped;
+    auto analytic_draw_command = read<progpu_native_scene_command>(
+        draw_state_changed,
+        scoped_header.command_offset + scoped_header.command_stride);
+    if (analytic_draw_command.kind !=
+        PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC) {
+        return false;
+    }
+    analytic_draw_command.state_index = second_state_index;
+    std::memcpy(
+        draw_state_changed.data() + scoped_header.command_offset +
+            scoped_header.command_stride,
+        &analytic_draw_command,
+        sizeof(analytic_draw_command));
+    const auto draw_state_hashes = semantic::compute_content_hashes(
+        draw_state_changed.data(), scoped_header);
+    if (!(draw_state_hashes.brush != scoped_hashes.brush &&
+        draw_state_hashes.analytic != scoped_hashes.analytic)) {
+        return false;
+    }
+
     auto scope_changed = scoped;
     auto save_command = read<progpu_native_scene_command>(
         scope_changed, scoped_header.command_offset);
