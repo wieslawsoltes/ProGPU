@@ -2,6 +2,7 @@
 
 #include "progpu_native_draw_state.hpp"
 
+#include <array>
 #include <cstring>
 
 namespace progpu::native::semantic {
@@ -33,12 +34,6 @@ std::uint64_t append_identity(
         hash, &resource.payload_size, sizeof(resource.payload_size));
     return append_fnv1a64(
         hash, &resource.auxiliary_size, sizeof(resource.auxiliary_size));
-}
-
-bool is_common_resource(std::uint32_t kind) noexcept {
-    return kind == PROGPU_NATIVE_SCENE_RESOURCE_STATE ||
-        kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
-        kind == PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN;
 }
 
 bool is_analytic_resource(std::uint32_t kind) noexcept {
@@ -94,8 +89,6 @@ std::uint64_t append_command_record(
     semantic_command.payload_offset = 0U;
     hash = append_fnv1a64(
         hash, &semantic_command, sizeof(semantic_command));
-    hash = append_resource_reference(
-        hash, bytes, header, command.state_index);
     return append_resource_reference(
         hash, bytes, header, command.resource_index);
 }
@@ -145,16 +138,29 @@ std::uint64_t append_scope_command(
         hash, bytes, header, effect_resource_index);
 }
 
-std::uint64_t append_state_scope(
+std::uint64_t append_effective_state(
     std::uint64_t hash,
     const std::byte* bytes,
     const progpu_native_scene_header& header,
-    std::uint32_t command_index,
-    const progpu_native_scene_command& command) noexcept {
-    hash = append_fnv1a64(hash, &command_index, sizeof(command_index));
-    hash = append_fnv1a64(hash, &command.kind, sizeof(command.kind));
+    std::uint32_t state_index) noexcept {
     return append_resource_reference(
-        hash, bytes, header, command.state_index);
+        hash, bytes, header, state_index);
+}
+
+std::uint64_t append_active_layers(
+    std::uint64_t hash,
+    const std::byte* bytes,
+    const progpu_native_scene_header& header,
+    const std::array<progpu_native_scene_command,
+        PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH>& scopes,
+    std::uint32_t depth) noexcept {
+    for (std::uint32_t index = 0U; index < depth; ++index) {
+        if (scopes[index].kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
+            hash = append_scope_command(
+                hash, bytes, header, scopes[index]);
+        }
+    }
+    return hash;
 }
 
 std::uint64_t append_brush_mapping(
@@ -162,12 +168,13 @@ std::uint64_t append_brush_mapping(
     const std::byte* bytes,
     const progpu_native_scene_header& header,
     std::uint32_t command_index,
-    const progpu_native_scene_command& command) noexcept {
+    const progpu_native_scene_command& command,
+    std::uint32_t effective_state_index) noexcept {
     hash = append_fnv1a64(hash, &command_index, sizeof(command_index));
     hash = append_fnv1a64(hash, &command.kind, sizeof(command.kind));
     hash = append_fnv1a64(hash, &command.flags, sizeof(command.flags));
-    hash = append_resource_reference(
-        hash, bytes, header, command.state_index);
+    hash = append_effective_state(
+        hash, bytes, header, effective_state_index);
     if (command.payload_size < sizeof(progpu_native_scene_draw_brushes)) {
         return hash;
     }
@@ -196,10 +203,11 @@ std::uint64_t append_style_mapping(
     const std::byte* bytes,
     const progpu_native_scene_header& header,
     std::uint32_t command_index,
-    const progpu_native_scene_command& command) noexcept {
+    const progpu_native_scene_command& command,
+    std::uint32_t effective_state_index) noexcept {
     hash = append_fnv1a64(hash, &command_index, sizeof(command_index));
-    hash = append_resource_reference(
-        hash, bytes, header, command.state_index);
+    hash = append_effective_state(
+        hash, bytes, header, effective_state_index);
     if (command.payload_size < sizeof(progpu_native_scene_glyph_draw)) {
         return hash;
     }
@@ -271,10 +279,10 @@ semantic_content_hashes compute_content_hashes(
         return result;
     }
 
-    // One draw family cannot affect another family's compiled GPU page, but
-    // every family consumes the shared save/restore and layer cursors. Preserve
-    // complete draw identity within each family and shared scope identity
-    // across them; the full scene hash independently owns bundle ordering.
+    // One draw family cannot affect another family's compiled GPU page. Hash
+    // the effective state and active layer stack only when a family consumes
+    // them; closed or trailing scopes cannot affect that family's compiler.
+    // The full scene hash independently owns bundle ordering.
     std::uint64_t brush_commands = fnv_offset;
     std::uint64_t style_commands = fnv_offset;
     std::uint64_t analytic_commands = fnv_offset;
@@ -283,59 +291,111 @@ semantic_content_hashes compute_content_hashes(
     std::uint64_t image_commands = fnv_offset;
     std::uint64_t three_d_commands = fnv_offset;
     bool glyph_uses_text_styles = false;
+    std::array<progpu_native_scene_command,
+        PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> active_scopes{};
+    std::array<std::uint32_t,
+        PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> state_stack{};
+    std::uint32_t scope_depth = 0U;
+    std::uint32_t current_state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
     for (std::uint32_t index = 0U; index < header.command_count; ++index) {
         const std::size_t offset = header.command_offset +
             static_cast<std::size_t>(index) * header.command_stride;
         const auto command =
             read_record<progpu_native_scene_command>(bytes, offset);
         if (is_scope_command(command.kind)) {
-            brush_commands = append_state_scope(
-                brush_commands, bytes, header, index, command);
-            style_commands = append_state_scope(
-                style_commands, bytes, header, index, command);
-            analytic_commands = append_scope_command(
-                analytic_commands, bytes, header, command);
-            path_commands = append_scope_command(
-                path_commands, bytes, header, command);
-            glyph_commands = append_scope_command(
-                glyph_commands, bytes, header, command);
-            image_commands = append_scope_command(
-                image_commands, bytes, header, command);
-            three_d_commands = append_scope_command(
-                three_d_commands, bytes, header, command);
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE ||
+                command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
+                if (scope_depth == PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH) {
+                    return {};
+                }
+                active_scopes[scope_depth] = command;
+                state_stack[scope_depth] = current_state_index;
+                ++scope_depth;
+                if (command.state_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                    current_state_index = command.state_index;
+                }
+            } else {
+                if (scope_depth == 0U) {
+                    return {};
+                }
+                --scope_depth;
+                current_state_index = state_stack[scope_depth];
+            }
             continue;
         }
+        const auto effective_state_index = command.state_index ==
+                PROGPU_NATIVE_SCENE_NO_INDEX
+            ? current_state_index
+            : command.state_index;
         if (is_analytic_command(command.kind)) {
+            analytic_commands = append_active_layers(
+                analytic_commands,
+                bytes,
+                header,
+                active_scopes,
+                scope_depth);
             analytic_commands = append_command(
                 analytic_commands, bytes, header, command, false);
+            analytic_commands = append_effective_state(
+                analytic_commands, bytes, header, effective_state_index);
             brush_commands = append_brush_mapping(
-                brush_commands, bytes, header, index, command);
+                brush_commands,
+                bytes,
+                header,
+                index,
+                command,
+                effective_state_index);
         } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
+            path_commands = append_active_layers(
+                path_commands, bytes, header, active_scopes, scope_depth);
             path_commands = append_command(
                 path_commands, bytes, header, command, false);
+            path_commands = append_effective_state(
+                path_commands, bytes, header, effective_state_index);
             brush_commands = append_brush_mapping(
-                brush_commands, bytes, header, index, command);
+                brush_commands,
+                bytes,
+                header,
+                index,
+                command,
+                effective_state_index);
         } else if (command.kind ==
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
+            glyph_commands = append_active_layers(
+                glyph_commands, bytes, header, active_scopes, scope_depth);
             glyph_commands = append_glyph_command(
                 glyph_commands, bytes, header, command);
+            glyph_commands = append_effective_state(
+                glyph_commands, bytes, header, effective_state_index);
             if ((command.flags & PROGPU_NATIVE_SCENE_GLYPH_STYLED) != 0U) {
                 style_commands = append_style_mapping(
-                    style_commands, bytes, header, index, command);
+                    style_commands,
+                    bytes,
+                    header,
+                    index,
+                    command,
+                    effective_state_index);
             }
         } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+            image_commands = append_active_layers(
+                image_commands, bytes, header, active_scopes, scope_depth);
             image_commands = append_command(
                 image_commands, bytes, header, command, true);
+            image_commands = append_effective_state(
+                image_commands, bytes, header, effective_state_index);
         } else if (is_3d_command(command.kind)) {
+            three_d_commands = append_active_layers(
+                three_d_commands, bytes, header, active_scopes, scope_depth);
             three_d_commands = append_command(
                 three_d_commands, bytes, header, command, true);
+            three_d_commands = append_effective_state(
+                three_d_commands, bytes, header, effective_state_index);
         }
         glyph_uses_text_styles = glyph_uses_text_styles ||
             (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN &&
                 (command.flags & PROGPU_NATIVE_SCENE_GLYPH_STYLED) != 0U);
     }
 
-    std::uint64_t common = fnv_offset;
     std::uint64_t brushes = fnv_offset;
     std::uint64_t styles = fnv_offset;
     std::uint64_t analytics = fnv_offset;
@@ -349,9 +409,6 @@ semantic_content_hashes compute_content_hashes(
             static_cast<std::size_t>(index) * header.resource_stride;
         const auto resource =
             read_record<progpu_native_scene_resource>(bytes, offset);
-        if (is_common_resource(resource.kind)) {
-            common = append_identity(common, resource);
-        }
         if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE) {
             brushes = append_identity(brushes, resource);
         } else if (resource.kind ==
@@ -373,13 +430,12 @@ semantic_content_hashes compute_content_hashes(
         }
     }
 
-    const auto combine = [common](
+    const auto combine = [](
         std::uint64_t seed,
         std::uint64_t commands,
         std::uint64_t primary,
         std::uint64_t secondary = 0U) noexcept {
         auto hash = append_fnv1a64(seed, &commands, sizeof(commands));
-        hash = append_fnv1a64(hash, &common, sizeof(common));
         hash = append_fnv1a64(hash, &primary, sizeof(primary));
         if (secondary != 0U) {
             hash = append_fnv1a64(hash, &secondary, sizeof(secondary));
