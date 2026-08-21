@@ -77,14 +77,18 @@ std::uint64_t append_command(
 std::uint64_t append_family_command(
     std::uint64_t hash,
     const std::byte* bytes,
+    std::uint32_t command_index,
     const progpu_native_scene_command& command) noexcept {
+    hash = append_fnv1a64(hash, &command_index, sizeof(command_index));
     return append_command(hash, bytes, command);
 }
 
 std::uint64_t append_brush_mapping(
     std::uint64_t hash,
     const std::byte* bytes,
+    std::uint32_t command_index,
     const progpu_native_scene_command& command) noexcept {
+    hash = append_fnv1a64(hash, &command_index, sizeof(command_index));
     hash = append_fnv1a64(hash, &command.kind, sizeof(command.kind));
     hash = append_fnv1a64(hash, &command.flags, sizeof(command.flags));
     hash = append_fnv1a64(
@@ -156,36 +160,36 @@ semantic_content_hashes compute_content_hashes(
             read_record<progpu_native_scene_command>(bytes, offset);
         if (is_scope_command(command.kind)) {
             brush_commands = append_family_command(
-                brush_commands, bytes, command);
+                brush_commands, bytes, index, command);
             style_commands = append_family_command(
-                style_commands, bytes, command);
+                style_commands, bytes, index, command);
             analytic_commands = append_family_command(
-                analytic_commands, bytes, command);
+                analytic_commands, bytes, index, command);
             path_commands = append_family_command(
-                path_commands, bytes, command);
+                path_commands, bytes, index, command);
             glyph_commands = append_family_command(
-                glyph_commands, bytes, command);
+                glyph_commands, bytes, index, command);
             image_commands = append_family_command(
-                image_commands, bytes, command);
+                image_commands, bytes, index, command);
             three_d_commands = append_family_command(
-                three_d_commands, bytes, command);
+                three_d_commands, bytes, index, command);
             continue;
         }
         if (is_analytic_command(command.kind)) {
             analytic_commands = append_command(
                 analytic_commands, bytes, command);
             brush_commands = append_brush_mapping(
-                brush_commands, bytes, command);
+                brush_commands, bytes, index, command);
         } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
             path_commands = append_command(path_commands, bytes, command);
             brush_commands = append_brush_mapping(
-                brush_commands, bytes, command);
+                brush_commands, bytes, index, command);
         } else if (command.kind ==
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
             glyph_commands = append_command(glyph_commands, bytes, command);
             if ((command.flags & PROGPU_NATIVE_SCENE_GLYPH_STYLED) != 0U) {
                 style_commands = append_family_command(
-                    style_commands, bytes, command);
+                    style_commands, bytes, index, command);
             }
         } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
             image_commands = append_command(image_commands, bytes, command);
