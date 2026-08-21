@@ -204,6 +204,204 @@ The native migration must preserve the managed invalidation and resource
 generation contract. A native cache hit may skip compilation/uploads but never
 the current clear/render/present operation.
 
+### 4.1 Authoritative managed/native parity ledger
+
+This ledger describes the final branch state, rather than the chronological
+state captured by the delivery notes in sections 9 and 10. It compares three
+supported ownership models:
+
+1. the managed C# compositor and backend;
+2. a managed ProGPU scene compiled once and retained/executed by C++;
+3. a fully native C++ scene/text producer using the same C++ renderer.
+
+`Exact` means the observable supported contract is matched and protected by a
+managed/native differential or shared-contract test. It does not require the
+CPU object layout or every antialiasing edge byte to be identical when the
+documented pixel tolerance applies. `Hybrid` means managed policy or immutable
+stream production is intentionally retained while C++ owns compilation,
+resources, WebGPU execution, and stable replay; it is not a per-frame managed
+rendering fallback. `Scoped` identifies a typed, explicitly documented payload
+subset. `Excluded` is outside the agreed native-core goal and fails closed when
+it reaches a native-only boundary. `Qualification pending` means the code and
+automated gates exist but the named physical/manual release evidence is still
+outstanding.
+
+#### Runtime and ownership variants
+
+| Variant | Scene/text producer | Renderer and WebGPU owner | Status |
+| --- | --- | --- | --- |
+| Managed C# + Silk/wgpu-native | Managed `Visual`, `GpuPicture`, text, and `Compositor` | Managed compositor over Silk.NET/wgpu-native | Managed baseline |
+| Managed C# + typed Dawn | Managed scene and text | Managed compositor over the typed Dawn/WebGPUSharp provider | Managed baseline |
+| Managed C# browser | Managed scene and text in .NET/Wasm | Managed compositor over browser WebGPU | Managed baseline |
+| .NET + C++ direct wgpu-native | Managed immutable scene compiler or native builder | `ProGPU.Backend.Native` and C++ renderer over the exact pinned wgpu-native ABI | Exact core parity |
+| .NET + C++ Dawn provider | Managed immutable scene compiler or native builder | Provider-resolved C++ renderer over the host-owned Dawn device/queue | Exact core parity |
+| Pure C++ desktop | C++20 scene builder and native text/font/layout libraries | C++ renderer over wgpu-native or a Dawn procedure resolver | Exact core parity |
+| Pure C++ browser/Wasm | C++20 scene builder and native text library compiled by Emscripten | The same C++ renderer and canonical WGSL over Emdawnwebgpu/browser WebGPU | Exact core parity |
+| Android/iOS native adapters | Managed or native immutable producer | The same provider-resolved C++ renderer over Android Dawn/Vulkan or iOS Dawn/Metal | Automated package/build parity; physical lifecycle qualification pending |
+| Desktop gallery native page | Managed WinUI gallery shell and controls; managed or native scene producer | C++ renders the preview texture; managed ProGPU composites that texture into the page | Hybrid sample boundary |
+
+#### Complete managed command inventory
+
+`NativePictureCompilerTests.EveryRenderCommandHasDocumentedNativeCapability`
+enumerates this table's source enum automatically. A new managed command fails
+the test until it receives a native route or an explicit reviewed exclusion.
+Payload validation remains transactional even for a structurally supported
+command.
+
+| Managed `RenderCommandType` | Native C++ route | Status / qualification |
+| --- | --- | --- |
+| `DrawRect` | Retained analytic or general-path fill/stroke batch | Exact |
+| `DrawPath` | Retained canonical path/boolean fill and general stroke resources | Scoped: ordinary, hairline, fixed-device, cap/join/dash strokes are exact; a stroke whose boundary is itself a combined path is a typed exclusion |
+| `DrawText` | Managed text command lowers once to positioned native glyph/path/color resources; pure C++ callers can use the native shaping pipeline directly | Hybrid |
+| `DrawTexture` | Retained upload-backed or same-device texture, sampler, patches, alpha mode, pixel snapping, and affine color processing | Scoped: non-affine image-effect payloads fail typed |
+| `PushClip` | Absolute retained scissor state | Exact |
+| `PopClip` | Retained state restore | Exact |
+| `PushOpacity` | Absolute retained opacity state or isolated layer where group semantics require it | Exact |
+| `PopOpacity` | Retained state/layer restore | Exact |
+| `DrawLine` | Direct or general-path stroke with ordinary, hairline, or fixed-device width | Exact |
+| `DrawEllipse` | Retained analytic fill and exact advanced-stroke lowering | Exact |
+| `DrawCircle` | Retained analytic fill and exact advanced-stroke lowering | Exact |
+| `DrawRoundedRect` | Per-corner retained analytic/path fill and exact advanced-stroke lowering | Exact |
+| `DrawBezier` | Retained quadratic curve or transform-adaptive general stroke | Exact |
+| `DrawCubicBezier` | Retained cubic curve or transform-adaptive general stroke | Exact |
+| `DrawPolyline` | Connected native stroke batch | Exact |
+| `DrawSpline` | Adaptive B-spline/NURBS stroke batch using the managed sampling contract | Exact |
+| `FillTriangle` | Retained indexed geometry batch | Exact |
+| `FillQuad` | Retained indexed geometry batch | Exact |
+| `DrawLine3D` | Retained local-space 3D line resource with camera and GPU projection | Exact |
+| `DrawHatch` | Stable built-in hatch extension using the canonical material shader | Exact |
+| `DrawAcisSolid` | Immutable ACIS edge snapshot lowered to retained 3D line resources | Exact |
+| `DrawStaticDxf` | Immutable backend-neutral picture snapshot flattened once into ordinary native resources | Hybrid |
+| `DrawGpuLineSeries` | Coalesced retained connected-stroke resource | Exact |
+| `DrawGpuScatterSeries` | Coalesced retained point-batch resource | Exact |
+| `DrawPicture` | Recursively validated and flattened immutable picture tree | Hybrid; mutable/cyclic/over-depth content fails typed |
+| `DrawVisual` | No native route for a live mutable managed visual | Excluded by design; the sole structurally unsupported command |
+| `DrawExtension` | Stable built-in extension IDs lower to native resources | Scoped: unknown or managed-object extension payloads fail typed instead of falling back |
+| `PushGeometryClip` | Analytic chain, retained vector mask, or bounded combined-path GPU boolean mask | Exact for finite supported geometry |
+| `PopGeometryClip` | Retained state restore | Exact |
+| `PushOpacityMask` | Solid fold, GPU brush mask, stroked path, nested picture, or bounded composite mask | Exact for supported immutable mask programs |
+| `PopOpacityMask` | Retained state/layer restore | Exact |
+| `PushBlendMode` | Fixed-function or destination-aware isolated native layer | Exact for all 29 managed blend modes |
+| `PopBlendMode` | Native layer composite and state restore | Exact |
+| `DrawGlyphRun` | Retained monochrome/vector/color glyph resources and positioned instances | Hybrid producer, exact native raster/composition |
+| `DrawVertexMesh` | Retained list/strip/fan mesh using the shared vector shader | Exact |
+| `DrawPointBatch` | Coalesced packed point resource and one native draw | Exact |
+| `DrawDotGrid` | One periodic analytic primitive; dots remain GPU-evaluated | Exact |
+
+#### Renderer, material, image, and lifecycle subsystems
+
+| Area | Managed C# implementation | Native C++20 implementation | Status / boundary |
+| --- | --- | --- | --- |
+| Semantic scene/archive | Managed versioned pointer-free writer/reader | Same validated fixed-width stream and a caller-owned two-pass C++ writer | Exact |
+| Scene production | `Visual`/`GpuPicture` compiler | Standalone C++20 scene builder plus managed-to-native compiler | Parallel producers |
+| Stable replay | Managed compiled-scene cache | Native immutable generations, retained render bundles/resources, zero retained upload | Exact |
+| Incremental resources | Managed page generations and atlas generations | Family-granular native resource generations and reuse | Exact |
+| C# / C++ boundary | Not applicable inside managed renderer | One changed-scene update plus one render/submission call; generated blittable ABI | Exact boundary contract |
+| Canonical shaders | Embedded ProGPU WGSL | Build-generated embeddings of the same WGSL files | Exact shared source |
+| Analytic geometry | Rectangles, ellipses, circles, rounded rectangles | Same logical primitives, DPI projection, transforms, fills, and strokes | Exact |
+| General paths | Line/quadratic/cubic/arc contours and fill rules | Same retained segment model and shared compute rasterizer | Exact |
+| Combined paths | Managed boolean path program | Same bounded postfix program for fills and clips | Exact fills/clips; combined-boundary stroke excluded |
+| Stroke semantics | Ordinary/local, fixed-device, hairline, dashes, caps, joins | Same transform order and bounded general-stroke compiler | Exact supported contract |
+| Brushes | Solid, linear/radial/conical/sweep gradients, hatch/cross-hatch, Perlin | Same canonical material records and `Vector.wgsl` evaluation | Exact |
+| Opacity and affine state | Managed state stack | Absolute native state resources with balanced save/restore | Exact |
+| Rectangle/geometry clips | Scissor, analytic, general, and combined geometry | Scissor, analytic mask chain, vector R8 mask, and boolean mask | Exact supported contract |
+| Opacity masks | Brush, analytic/vector geometry, picture, and nested composition | GPU-generated brush/stroke/picture masks and bounded composite program | Exact supported contract |
+| Layers | Managed isolated layers and pooled textures | Bounded nested semantic layers and pooled native textures | Exact supported contract |
+| Blend modes | 29 managed Porter-Duff and advanced modes | Fixed-function or destination-aware layer execution for all 29 | Exact |
+| Backdrop | Retained bounded parent input | Native bounded parent capture and effect input | Exact bounded contract; unbounded platform-host sources excluded |
+| Effects | Gaussian blur, drop shadow, ordered effect composition | Native GPU blur/shadow and bounded linear chains of up to eight | Exact bounded contract |
+| General effect graphs | Managed framework/user effect objects | No arbitrary branching/user shader object ABI | Scoped exclusion; non-affine image and arbitrary shader effects fail typed |
+| Uploaded images | Managed straight/premultiplied RGBA texture path | Retained native RGBA8 upload and zero-upload stable replay | Exact |
+| External images | Managed same-device texture views | Zero-copy straight/premultiplied RGBA/BGRA views with domain validation | Exact supported formats |
+| Sampling | Ten nearest/linear/cubic/mip modes and anisotropy 1-16 | Same sampler resolver/cache, including custom cubic coefficients | Exact |
+| Pixel snapping | Managed physical-grid policy | Exact per-corner midpoint-to-even physical-grid snap in C++ | Exact |
+| Color processing | Managed affine color matrix | Fused native affine color matrix in canonical texture shader | Exact affine contract |
+| Texture patches | Texture, fixed-color, and atlas-color patch batches | One retained native batch with transforms/blends/sampling | Exact |
+| Path atlas | Managed bounded R8 coverage atlas | Native bounded R8 atlas, phase keys, generation, growth, recovery | Exact supported policy |
+| Glyph/color atlas | Managed monochrome/vector/color glyph atlases | Native compute-rasterized glyph atlas plus retained RGBA color atlas | Exact supported policy |
+| GPU hit testing | Managed retained GPU index and shared shader | Native retained index, canonical shader, batched async readback | Exact; designated software adapters may report typed deferred execution |
+| Submission lifetime | Managed queue/resource retirement | Typed native submission tokens and external-texture leases | Exact |
+| Device loss | Managed resource recreation | Transactional C++ engine recreation with immutable scene snapshot | Exact |
+| Resize and DPI | Managed target/cache invalidation | Physical target sizing, explicit DPI, cache-sensitive rebuild | Exact |
+| Diagnostics | Managed frame/cache/upload counters | Caller-owned native metrics and bounded error buffer | Equivalent typed contract |
+| 3D | Managed lines, ACIS edges, and extension meshes | Native local-space line/mesh resources, GPU projection/depth/lighting | Exact supported semantic resources |
+| Charts/CAD | Managed line/scatter/DXF/hatch commands | Native stroke/point/3D/brush resources; Static DXF snapshots compile once | Exact or hybrid producer as listed above |
+| Arbitrary managed extensions | Managed extension registry can own framework objects | Only stable pointer-free built-in/native extension contracts cross | Scoped exclusion |
+
+#### Native text, font, shaping, and layout subsystems
+
+| Area | Managed C# implementation | Native C++20 implementation | Status / boundary |
+| --- | --- | --- | --- |
+| Font containers | SFNT, TTC, and WOFF1 | Direct ProGPU port of SFNT, TTC, and WOFF1 parsing | Exact; WOFF2 is unsupported in both implementations |
+| Font metadata | Names, styles, embedding rights, resident/standalone data | Matching native metadata and face-selection contracts | Exact |
+| TrueType outlines | Simple/composite glyphs and quadratic contours | Matching bounded native decoder and path projection | Exact |
+| CFF outlines | CFF1/CFF2 Type 2 charstrings | Matching native CFF dictionaries, FD selection, charstrings, and outlines | Exact |
+| Variable fonts | `fvar`/`avar`, `gvar`, HVAR, MVAR, GDEF variation data | Matching native variation coordinates, deltas, phantom points, and metrics | Exact |
+| Horizontal/vertical metrics | Advances, bounds, kerning, vertical origins | Matching native metrics, legacy kern, HVAR and variation projections | Exact supported tables |
+| Color/bitmap/SVG glyphs | COLR/CPAL, sbix, CBLC/CBDT, OpenType SVG | Matching native decoders/metadata plus retained GPU color/vector resources | Exact supported formats |
+| Font subsetting | Glyph-ID-preserving SFNT subsetter | Matching two-pass caller-buffer native subsetter | Exact |
+| Unicode scalar/category data | UTF-16 decode, generated categories/properties | Same generated Unicode 17 data and scalar validation | Exact |
+| Normalization/graphemes | NFC decomposition/reorder/compose and grapheme boundaries | Matching allocation-bounded native algorithms | Exact |
+| Script and direction | Script inference, mirroring, vertical fallback, default direction | Matching native Unicode/OpenType script and directional resolution | Exact |
+| UAX #9 bidi | Paragraph levels, per-scalar levels, L1/L2 visual order | Matching native bidi resolution and per-line visual order | Exact |
+| UAX #14 line breaking | Managed Unicode line-break resolver | Matching allocation-free native resolver | Exact |
+| OpenType planning | Language tags, feature ordering/values, variations, lookup digests | Matching native plan, feature metadata, acceleration, and replay | Exact |
+| GSUB/GPOS/GDEF | Substitution, positioning, attachments, contextual lookup | Matching native GSUB/GPOS/GDEF execution and nullable-anchor behavior | Exact |
+| Complex scripts | Arabic, Indic, Khmer, Myanmar, USE, Hangul, Hebrew, Thai/Lao paths | Matching native preprocessing, syllables, reorder, fallback, and stage order | Exact production-font corpus |
+| Font fallback | Family preferences, style scoring, renderable glyph filtering | Matching retained provider/cache with caller/platform catalog input | Hybrid platform discovery; exact selection policy |
+| Shaped glyph projection | Glyph IDs, clusters, advances, offsets, unsafe flags | Matching native `ShapedGlyph` and horizontal/vertical projection | Exact |
+| Horizontal layout | Wrap, alignment, justification, trimming, clipping, metrics | Matching positioned native line layout | Exact |
+| Vertical layout | TTB/BTT columns, clipping, metrics, interaction boxes | Matching positioned native column layout | Exact |
+| Paragraph orchestration | Itemization, fallback, shaping, breaking, bidi reorder, layout | One retained native paragraph call with per-font/script plan cache | Exact supported single-font/fallback contract |
+| Text interaction | Hit testing, caret stops/movement, selection geometry | Matching native horizontal and vertical interaction algorithms | Exact |
+| Retained shaping plans | Managed plan/table caches | Native per-font/per-script multi-plan cache and retained font ownership | Exact |
+| Managed/native text boundary | Managed in-process calls | One bulk shaping/paragraph/layout call with caller-owned buffers | Exact boundary contract; zero native-path managed allocation in the measured steady path |
+| Glyph GPU connection | Managed shaped run feeds managed glyph atlas | Native shaped run feeds retained native scene and canonical glyph/text shaders | Exact rendering connection |
+
+#### Matched Release performance and pixel checkpoint
+
+These Apple M3 Pro/Metal numbers compare the same final Release process,
+workload, target, and synchronization policy. They are a reproducible local
+checkpoint, not a claim about unrelated hardware. Lower timing is better. The
+ignored source artifact is
+`artifacts/progpu-native/benchmarks/native-gpu-gap-current.json`; the commands
+and acceptance rules are recorded in
+[`NATIVE_CPP_PERFORMANCE_BASELINE.md`](NATIVE_CPP_PERFORMANCE_BASELINE.md).
+
+| Metric | Managed C# | Native C++20 | Parity result |
+| --- | ---: | ---: | --- |
+| Representative renderer submission p50 / p95 / p99 | 0.6752 / 1.6391 / 1.9452 ms | 0.1619 / 0.5114 / 0.6737 ms | Native faster |
+| Representative GPU-completion wait p50 / p95 / p99 | 3.0457 / 6.2224 / 7.6858 ms | 2.8445 / 6.1032 / 7.5569 ms | Native on par or faster |
+| Representative synchronized total p50 / p95 / p99 | 3.7390 / 7.6432 / 8.8478 ms | 3.1025 / 6.4040 / 7.9436 ms | Native faster |
+| Stable managed allocation | 0 B/frame | 0 B/frame | Exact |
+| Stable retained upload | Managed retained baseline | 0 B across every reported native upload domain | Pass |
+| 960x540 pixel differential | Reference | max 11/255; 3 of 518,400 pixels above 3/255; mean 0.000310089/255 | Pass, differences confined to antialiasing edges |
+| 130-glyph shaping median | 101.000 us | 66.042 us | Exact output; native faster; one crossing and 0 B/run managed allocation on native path |
+| 520-glyph shaping median | 332.833 us | 263.583 us | Exact output; native faster |
+| 130-glyph one-call paragraph median | 84.917 us | 86.458 us | Exact output; within 5% no-regression gate |
+| 520-glyph one-call paragraph median | 336.416 us | 346.917 us | Exact output; within 5% no-regression gate |
+
+#### Platform, distribution, and deliberately separate framework scope
+
+| Area | Managed C# state | Native C++20 state | Status / boundary |
+| --- | --- | --- | --- |
+| Desktop WebGPU providers | Silk/wgpu-native and typed Dawn | Direct wgpu-native plus provider-resolved Dawn libraries | Exact supported ABIs |
+| Browser | Managed .NET/Wasm renderer | Full C++/Wasm renderer linked through Emscripten/Emdawnwebgpu | Exact core renderer; manual visual approval pending |
+| Android/iOS | Managed platform host and typed Dawn adapter | Provider-resolved C++ renderer packages for Android and iOS | Automated build/package parity; physical lifecycle qualification pending |
+| Compiler portability | C# compiler/NativeAOT | Clang C++20 reference plus GCC, MSVC, Apple Clang, NDK Clang, and Emscripten gates | Qualified in CI |
+| C++ modules | Not applicable | Named-module and matching header consumer over the same sources | Qualified in CI |
+| Packaging | Managed NuGets | Six desktop RID native assets, Android packages, iOS XCFramework, symbols/notices/checksums | Qualified in CI |
+| NativeAOT | Managed renderer supports NativeAOT | Packaged C++ providers are loaded and exercised by six-RID NativeAOT consumers | Qualified in CI |
+| Compression/image utility | Managed ProGPU deflate/zlib/gzip and PNG paths | Parallel native compression and PNG libraries | Exact supported utility scope |
+| WinUI controls | Managed | Not ported | Excluded from native-core goal |
+| XAML/compiler | Managed | Not ported | Excluded from native-core goal |
+| Avalonia/LibreWPF/LibreWinForms public APIs | Managed framework-facing scene producers | Consume the native renderer through the shared scene/texture boundary | Hybrid by design; public API replacement is not required |
+| Layout/input/accessibility policy | Managed framework | Not ported | Excluded from native-core goal |
+| Animation policy and mutable live visuals | Managed framework/visual tree | Immutable snapshots only; live `DrawVisual` rejected | Excluded from native-core goal |
+| Media decode/playback/editing/audio | Managed platform/media projects | Not part of this C++ renderer/text port | Excluded from native-core goal |
+| Managed scene compiler removal | Managed compiler remains supported | Parallel native scene builder is available | No parity gap; dual-producer architecture is intentional |
+| User desktop/browser review | Managed baseline and native sample are runnable | Exact-head automated gates pass | Qualification pending before the draft can be marked ready or merged |
+
 ## 5. WebScene PR #10 analysis
 
 [WebScene PR #10](https://github.com/wieslawsoltes/WebScene/pull/10) is the
