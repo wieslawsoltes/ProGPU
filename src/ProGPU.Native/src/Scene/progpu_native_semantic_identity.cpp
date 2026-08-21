@@ -69,6 +69,7 @@ semantic_content_hashes compute_content_hashes(
     // are shared inputs to compiled pages. Hash them once without the header's
     // scene generation, then combine them with typed resource identities.
     std::uint64_t commands = fnv_offset;
+    bool glyph_uses_text_styles = false;
     for (std::uint32_t index = 0U; index < header.command_count; ++index) {
         const std::size_t offset = header.command_offset +
             static_cast<std::size_t>(index) * header.command_stride;
@@ -81,6 +82,9 @@ semantic_content_hashes compute_content_hashes(
                 bytes + command.payload_offset,
                 command.payload_size);
         }
+        glyph_uses_text_styles = glyph_uses_text_styles ||
+            (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN &&
+                (command.flags & PROGPU_NATIVE_SCENE_GLYPH_STYLED) != 0U);
     }
 
     std::uint64_t common = fnv_offset;
@@ -137,9 +141,15 @@ semantic_content_hashes compute_content_hashes(
     result.text_style = combine(fnv_offset ^ 0x02U, styles);
     result.analytic = combine(fnv_offset ^ 0x03U, analytics, brushes);
     result.path = combine(fnv_offset ^ 0x04U, paths, brushes);
-    result.glyph = combine(fnv_offset ^ 0x05U, glyphs, brushes);
-    result.glyph = finish(append_fnv1a64(
-        result.glyph, &styles, sizeof(styles)));
+    // Positioned glyphs carry their color directly. Only the optional styled
+    // command form reads the text-style page; neither glyph form reads the
+    // analytic brush table. Keep unrelated material updates out of the glyph
+    // page identity so its retained coverage survives analytic-only changes.
+    result.glyph = combine(fnv_offset ^ 0x05U, glyphs);
+    if (glyph_uses_text_styles) {
+        result.glyph = finish(append_fnv1a64(
+            result.glyph, &styles, sizeof(styles)));
+    }
     result.image = combine(fnv_offset ^ 0x06U, images);
     result.three_d = combine(fnv_offset ^ 0x07U, three_d);
     result.hit_test = combine(fnv_offset ^ 0x08U, hit_tests);
