@@ -1448,6 +1448,24 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.Equal(1u, atlas.AtlasGrowthCount);
         Assert.Equal(0u, atlas.AtlasShrinkCount);
         Assert.Equal(1, atlas.CachedPathCount);
+
+        // The first delayed probe established that this exact full live set
+        // cannot satisfy the shrink policy. Stable retained replay must not
+        // rebuild the same packing scratch every hysteresis interval.
+        _ = GC.GetAllocatedBytesForCurrentThread();
+        long allocationStart = GC.GetAllocatedBytesForCurrentThread();
+        for (uint frame = 0;
+             frame <= PathAtlas.DefaultAtlasShrinkDelayFrames;
+             frame++)
+        {
+            atlas.MarkRetainedPathReplay();
+            atlas.CleanupFrame();
+        }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocationStart;
+
+        Assert.Equal(0L, allocated);
+        Assert.Equal(0u, atlas.AtlasShrinkCount);
     }
 
     [Fact]
@@ -1484,6 +1502,21 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.Equal(1u, atlas.AtlasShrinkCount);
         Assert.Equal(2, atlas.CachedPathCount);
         Assert.True(atlas.CachedCoverageBytes > 0);
+
+        _ = GC.GetAllocatedBytesForCurrentThread();
+        long allocationStart = GC.GetAllocatedBytesForCurrentThread();
+        for (uint frame = 0;
+             frame <= PathAtlas.DefaultAtlasShrinkDelayFrames;
+             frame++)
+        {
+            atlas.MarkRetainedPathReplay();
+            atlas.CleanupFrame();
+        }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocationStart;
+
+        Assert.Equal(0L, allocated);
+        Assert.Equal(1u, atlas.AtlasShrinkCount);
     }
 
     [Fact]
@@ -2401,6 +2434,33 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
 
         picture.Dispose();
 
+        Assert.Equal(1, resource.DisposeCount);
+    }
+
+    [Fact]
+    public void PictureOpacityMaskRetainsNestedPictureResources()
+    {
+        var resource = new CountingDisposable();
+        var maskRecorder = new GpuPictureRecorder();
+        DrawingContext maskContext = maskRecorder.BeginRecording(
+            new Rect(0f, 0f, 16f, 16f));
+        maskContext.RetainResource(resource);
+        GpuPicture maskPicture = maskRecorder.EndRecording();
+
+        var parentRecorder = new GpuPictureRecorder();
+        DrawingContext parentContext = parentRecorder.BeginRecording(
+            new Rect(0f, 0f, 16f, 16f));
+        parentContext.PushOpacityMask(
+            maskPicture,
+            new Rect(0f, 0f, 16f, 16f));
+        parentContext.PopOpacityMask();
+        GpuPicture parentPicture = parentRecorder.EndRecording();
+
+        Assert.Equal(1, maskPicture.RetainedResourceCount);
+        Assert.Equal(1, parentPicture.RetainedResourceCount);
+        maskPicture.Dispose();
+        Assert.Equal(0, resource.DisposeCount);
+        parentPicture.Dispose();
         Assert.Equal(1, resource.DisposeCount);
     }
 
@@ -3684,8 +3744,7 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.True(metrics.AnalyticMaskBindGroupCount > 0);
         Assert.Equal(0, metrics.MaskRenderPassCount);
         Assert.Equal(
-            metrics.IncrementalSceneUploadPageWrites +
-            1,
+            metrics.IncrementalSceneUploadPageWrites,
             metrics.SceneUploadCopyCount);
     }
 
@@ -4239,6 +4298,29 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
 
         var maskTexturePool = GetMaskTexturePool(window.Compositor);
         Assert.Contains(maskTexturePool, texture => texture.Width == 64 && texture.Height == 64);
+    }
+
+    [Fact]
+    public void OpacityMaskBoundsTransformIsAllocationFree()
+    {
+        var bounds = new Rect(3f, 5f, 17f, 11f);
+        Matrix4x4 transform =
+            Matrix4x4.CreateScale(1.5f, 0.75f, 1f) *
+            Matrix4x4.CreateRotationZ(0.35f) *
+            Matrix4x4.CreateTranslation(9f, -4f, 0f);
+        Rect expected = new GeneralTransform(transform).TransformBounds(bounds);
+        Rect actual = Compositor.TransformMaskBounds(bounds, transform);
+        Assert.Equal(expected, actual);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 10_000; index++)
+        {
+            actual = Compositor.TransformMaskBounds(bounds, transform);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+        Assert.Equal(expected, actual);
     }
 
     [Fact]
@@ -7751,7 +7833,7 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
             pixels[index + 3]);
     }
 
-    private static byte[] BuildColorLayerFont()
+    internal static byte[] BuildColorLayerFont()
     {
         byte[][] glyphs =
         {

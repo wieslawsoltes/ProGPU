@@ -61,6 +61,7 @@ test project builds without warnings or errors.
 ## NuGet Packages
 
 - `ProGPU.Backend`
+- `ProGPU.Backend.Native`
 - `ProGPU.Backend.Dawn`
 - `ProGPU.Media`
 - `ProGPU.Media.Editing`
@@ -78,6 +79,7 @@ test project builds without warnings or errors.
 - `ProGPU.Fonts.Inter`
 - `ProGPU.Fonts.Noto`
 - `ProGPU.Scene`
+- `ProGPU.Scene.Native`
 - `ProGPU.Voxel`
 - `ProGPU.Layout`
 - `ProGPU.Virtualization`

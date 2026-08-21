@@ -2,6 +2,7 @@
   <Project Path="SkiaSharp/SkiaSharp.csproj" />
   <Project Path="ProGPU.Transpiler/ProGPU.Transpiler.csproj" />
   <Project Path="ProGPU.Backend/ProGPU.Backend.csproj" />
+  <Project Path="ProGPU.Backend.Native/ProGPU.Backend.Native.csproj" />
   <Project Path="ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj" />
   <Project Path="ProGPU.Media/ProGPU.Media.csproj" />
   <Project Path="ProGPU.Media.Editing/ProGPU.Media.Editing.csproj" />
@@ -21,6 +22,7 @@
   <Project Path="ProGPU.Fonts.Noto/ProGPU.Fonts.Noto.csproj" />
   <Project Path="ProGPU.Compute/ProGPU.Compute.csproj" />
   <Project Path="ProGPU.Scene/ProGPU.Scene.csproj" />
+  <Project Path="ProGPU.Scene.Native/ProGPU.Scene.Native.csproj" />
   <Project Path="ProGPU.Voxel/ProGPU.Voxel.csproj" />
   <Project Path="ProGPU.Voxel.WinUI/ProGPU.Voxel.WinUI.csproj" />
   <Project Path="ProGPU.Voxel.Tests/ProGPU.Voxel.Tests.csproj" />
@@ -45,6 +47,8 @@
   <Project Path="ProGPU.Samples/ProGPU.Samples.csproj" />
   <Project Path="ProGPU.Samples.ActivityMonitor/ProGPU.Samples.ActivityMonitor.csproj" />
   <Project Path="ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj" />
+  <Project Path="ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj" />
+  <Project Path="ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" />
   <Project Path="ProGPU.Samples.Browser/ProGPU.Samples.Browser.csproj" />
   <Project Path="ProGPU.Samples.Android/ProGPU.Samples.Android.csproj" />
   <Project Path="ProGPU.Samples.Avalonia/ProGPU.Samples.Avalonia.csproj" />

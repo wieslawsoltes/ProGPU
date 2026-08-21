@@ -1599,17 +1599,27 @@ public static class OpenTypeTextShaper
             {
                 continue;
             }
-            int conditionSet = featureVariations + (int)conditionSetRelative;
-            if (!MatchesFeatureVariationConditions(font, data, conditionSet))
+            if (conditionSetRelative != 0 &&
+                !MatchesFeatureVariationConditions(
+                    font,
+                    data,
+                    featureVariations + (int)conditionSetRelative))
             {
                 continue;
             }
+            if (substitutionRelative == 0)
+            {
+                return [];
+            }
             int substitutionTable = featureVariations + (int)substitutionRelative;
-            if (!CanRead(data, substitutionTable, 6) ||
-                ReadU16(data, substitutionTable) != 1 ||
-                ReadU16(data, substitutionTable + 2) != 0)
+            if (!CanRead(data, substitutionTable, 6))
             {
                 return null;
+            }
+            if (ReadU16(data, substitutionTable) != 1 ||
+                ReadU16(data, substitutionTable + 2) != 0)
+            {
+                continue;
             }
             ushort substitutionCount = ReadU16(data, substitutionTable + 4);
             if (!CanRead(data, substitutionTable + 6, substitutionCount * 6))

@@ -181,7 +181,7 @@ public sealed class StrokeJoinRenderTests
     }
 
     [Fact]
-    public void RoundCapTrianglesOnlyAntialiasCurvedBoundary()
+    public void RoundCapsUseOneAnalyticQuadPerEndpoint()
     {
         var window = HeadlessWindow.Shared;
         window.Resize(64, 64);
@@ -192,10 +192,11 @@ public sealed class StrokeJoinRenderTests
             window.Render();
 
             var capVertices = window.Compositor.VectorVertices
-                .Where(vertex => DecodeShapeType(vertex.ShapeType) == 13)
+                .Where(vertex => DecodeShapeType(vertex.ShapeType) == 24)
                 .ToArray();
-            Assert.Equal(64, capVertices.Length);
+            Assert.Equal(8, capVertices.Length);
             Assert.All(capVertices, vertex => Assert.Equal(2f, vertex.CornerRadius));
+            Assert.All(capVertices, vertex => Assert.Equal(16f, vertex.ShapeSize.X));
         }
         finally
         {

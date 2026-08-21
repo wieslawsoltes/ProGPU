@@ -1,6 +1,6 @@
-// Algorithm: Expand and transform batched vector primitives and meshes; direct 2D strokes use a scalar screen-space fast path for conformal transforms and an exact transformed local-outline path with derivative anti-aliasing for anisotropic or sheared transforms; reserved negative width encodings select either the Skia one-framebuffer-pixel hairline or an arbitrary positive fixed-device width, both expanded after the late transform, while one fixed quad regenerates each cap or join from transformed centerline directions and evaluates its exterior analytically with hard-owned body seams; evaluate analytic curves, arcs, and quarter-pixel-snapped periodic dot grids; use exact single-evaluation box/rounded-box distance gradients; then shade fills, strokes, gradients, vertex-color blends, and edges. Dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
-// Time complexity: O(1) per vertex or fragment under the shader's fixed primitive and gradient limits; static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and fixed-device bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, fixed-device caps/joins use one fixed quad with bounded line-intersection and at most four signed-edge evaluations, and non-conformal or analytic fixed-device stroke fragments add fixed derivative/gradient arithmetic.
-// Space complexity: O(1) local storage and bounded uniform/storage reads; texture masks add one sample per fragment while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no texture bandwidth.
+// Algorithm: Expand and transform batched vector primitives and meshes; direct 2D strokes use a scalar screen-space fast path for conformal transforms and an exact transformed local-outline path with derivative anti-aliasing for anisotropic or sheared transforms; reserved negative width encodings select either the Skia one-framebuffer-pixel hairline or an arbitrary positive fixed-device width, both expanded after the late transform, while one fixed quad evaluates each device or affine round cap and device join analytically with hard-owned body seams; evaluate analytic curves, arcs, and quarter-pixel-snapped periodic dot grids; use exact single-evaluation box/rounded-box distance gradients; then shade fills, strokes, gradients, vertex-color blends, and edges. Dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
+// Time complexity: O(1) per vertex or fragment under the shader's fixed primitive and gradient limits; static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and fixed-device bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, fixed-device caps/joins use one fixed quad with bounded line-intersection and at most four signed-edge evaluations, non-conformal or analytic fixed-device stroke fragments add fixed derivative/gradient arithmetic, and a semantic mask chain evaluates at most four analytic rounded masks.
+// Space complexity: O(1) local storage and bounded uniform/storage reads; texture masks add one sample per fragment while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no texture bandwidth; a nested analytic chain reads one primary 96-byte record and one fixed 288-byte continuation record.
 struct Brush {
     brushType: u32,
     opacity: f32,
@@ -63,11 +63,17 @@ struct MaskSamplingUniforms {
 
 @group(2) @binding(2) var<uniform> maskSampling: MaskSamplingUniforms;
 
-fn analytic_rounded_mask_alpha(position: vec2<f32>) -> f32 {
+struct MaskChainUniforms {
+    masks: array<MaskSamplingUniforms, 3>,
+};
+
+@group(2) @binding(3) var<uniform> maskChain: MaskChainUniforms;
+
+fn analytic_rounded_mask_alpha_for(position: vec2<f32>, sampling: MaskSamplingUniforms) -> f32 {
     let local = vec2<f32>(
-        dot(vec3<f32>(position, 1.0), maskSampling.coordinate0.xyz),
-        dot(vec3<f32>(position, 1.0), maskSampling.coordinate1.xyz));
-    let bounds = maskSampling.bounds;
+        dot(vec3<f32>(position, 1.0), sampling.coordinate0.xyz),
+        dot(vec3<f32>(position, 1.0), sampling.coordinate1.xyz));
+    let bounds = sampling.bounds;
     let edge = max(
         max(bounds.x - local.x, local.x - bounds.z),
         max(bounds.y - local.y, local.y - bounds.w));
@@ -75,24 +81,24 @@ fn analytic_rounded_mask_alpha(position: vec2<f32>) -> f32 {
     var center = vec2<f32>(0.0);
     var radius = vec2<f32>(0.0);
     var usesCorner = false;
-    if (local.x < bounds.x + maskSampling.cornerRadiiX.x &&
-        local.y < bounds.y + maskSampling.cornerRadiiY.x) {
-        radius = vec2<f32>(maskSampling.cornerRadiiX.x, maskSampling.cornerRadiiY.x);
+    if (local.x < bounds.x + sampling.cornerRadiiX.x &&
+        local.y < bounds.y + sampling.cornerRadiiY.x) {
+        radius = vec2<f32>(sampling.cornerRadiiX.x, sampling.cornerRadiiY.x);
         center = vec2<f32>(bounds.x + radius.x, bounds.y + radius.y);
         usesCorner = all(radius > vec2<f32>(0.0));
-    } else if (local.x > bounds.z - maskSampling.cornerRadiiX.y &&
-               local.y < bounds.y + maskSampling.cornerRadiiY.y) {
-        radius = vec2<f32>(maskSampling.cornerRadiiX.y, maskSampling.cornerRadiiY.y);
+    } else if (local.x > bounds.z - sampling.cornerRadiiX.y &&
+               local.y < bounds.y + sampling.cornerRadiiY.y) {
+        radius = vec2<f32>(sampling.cornerRadiiX.y, sampling.cornerRadiiY.y);
         center = vec2<f32>(bounds.z - radius.x, bounds.y + radius.y);
         usesCorner = all(radius > vec2<f32>(0.0));
-    } else if (local.x > bounds.z - maskSampling.cornerRadiiX.z &&
-               local.y > bounds.w - maskSampling.cornerRadiiY.z) {
-        radius = vec2<f32>(maskSampling.cornerRadiiX.z, maskSampling.cornerRadiiY.z);
+    } else if (local.x > bounds.z - sampling.cornerRadiiX.z &&
+               local.y > bounds.w - sampling.cornerRadiiY.z) {
+        radius = vec2<f32>(sampling.cornerRadiiX.z, sampling.cornerRadiiY.z);
         center = vec2<f32>(bounds.z - radius.x, bounds.w - radius.y);
         usesCorner = all(radius > vec2<f32>(0.0));
-    } else if (local.x < bounds.x + maskSampling.cornerRadiiX.w &&
-               local.y > bounds.w - maskSampling.cornerRadiiY.w) {
-        radius = vec2<f32>(maskSampling.cornerRadiiX.w, maskSampling.cornerRadiiY.w);
+    } else if (local.x < bounds.x + sampling.cornerRadiiX.w &&
+               local.y > bounds.w - sampling.cornerRadiiY.w) {
+        radius = vec2<f32>(sampling.cornerRadiiX.w, sampling.cornerRadiiY.w);
         center = vec2<f32>(bounds.x + radius.x, bounds.w - radius.y);
         usesCorner = all(radius > vec2<f32>(0.0));
     }
@@ -103,6 +109,22 @@ fn analytic_rounded_mask_alpha(position: vec2<f32>) -> f32 {
     let implicit = select(edge, ellipse, usesCorner);
     let antialiasWidth = max(fwidth(implicit), 0.0001);
     return clamp(0.5 - implicit / antialiasWidth, 0.0, 1.0);
+}
+
+fn analytic_rounded_mask_alpha(position: vec2<f32>) -> f32 {
+    return analytic_rounded_mask_alpha_for(position, maskSampling);
+}
+
+fn sample_mask_chain_alpha(position: vec2<f32>) -> f32 {
+    let targetPosition = position + uniforms.renderOrigin;
+    var alpha = 1.0;
+    for (var index = 0u; index < 3u; index++) {
+        let sampling = maskChain.masks[index];
+        if (sampling.options.x > 1.5) {
+            alpha *= analytic_rounded_mask_alpha_for(targetPosition, sampling) * sampling.options.y;
+        }
+    }
+    return alpha;
 }
 
 fn sample_mask_alpha(position: vec2<f32>) -> f32 {
@@ -117,9 +139,12 @@ fn sample_mask_alpha(position: vec2<f32>) -> f32 {
     }
 
     let uv = (targetPosition - maskSampling.coordinate0.xy) * maskSampling.coordinate1.xy;
-    let sampled = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0))).r;
+    let sample = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)));
+    let sampled = select(sample.r, sample.a, maskSampling.options.w > 1.5);
     let inside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
-    return select(0.0, sampled, inside);
+    let textureOpacity = select(1.0, maskSampling.options.y,
+        maskSampling.options.w > 0.5);
+    return select(0.0, sampled * textureOpacity, inside);
 }
 
 struct VertexInput {
@@ -1148,7 +1173,7 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
     }
 
     var brushCoord = texCoord;
-    if (isHairlineAdornment) {
+    if (isHairlineAdornment || sType == 24u) {
         brushCoord = worldPos;
     }
     if (sType == 8u) {
@@ -2127,10 +2152,11 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             0.0001);
         shapeAlpha = 1.0 -
             smoothstep(-0.5 * filterWidth, 0.5 * filterWidth, dotDistance);
-    } else if (sType == 22u) {
-        // Analytic one-device-pixel path cap. The cap/body interface is a
-        // hard-owned internal seam; only the round, square, or triangular
-        // exterior contributes antialias coverage. Work and storage are O(1).
+    } else if (sType == 22u || sType == 24u) {
+        // Analytic path cap. Shape 22 is expanded as a fixed-device adornment
+        // in the vertex stage; shape 24 arrives as an already affine-expanded
+        // positive-width quad. The cap/body interface is a hard-owned internal
+        // seam; only the exterior contributes AA coverage. Work/storage are O(1).
         let point = input.texCoord;
         let capKind = u32(round(input.cornerRadius));
         let isFullCap = input.strokeThickness > 0.5;
@@ -2332,7 +2358,7 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
     if (brush.brushType == 0u) {
         if (sType == 5u || sType == 6u ||
             (sType >= 12u && sType <= 18u) ||
-            sType == 22u || sType == 23u) {
+            sType == 22u || sType == 23u || sType == 24u) {
             finalColor = vec4<f32>(brush.stopColors0.rgb, brush.stopColors0.a * brush.opacity);
         } else {
             finalColor = vec4<f32>(input.color.rgb, input.color.a * brush.opacity);
@@ -2369,6 +2395,29 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
                     }
                 }
             }
+        } else if (brush.brushType == 3u || brush.brushType == 4u) {
+            // Analytic hatch: project the local point onto one periodic axis;
+            // cross-hatch evaluates the perpendicular axis as well. The native
+            // semantic compiler validates positive spacing before GPU upload.
+            let theta = brush.gradientRadius;
+            let spacing = brush.gradientCenter.x;
+            let thickness = brush.gradientCenter.y;
+            let direction0 = vec2<f32>(cos(theta), sin(theta));
+            let distance0 = dot(evalCoord, direction0);
+            let phase0 = abs(fract(distance0 / spacing) * spacing - spacing * 0.5);
+            var hatchHit = phase0 < thickness * 0.5;
+            if (brush.brushType == 4u) {
+                let direction1 = vec2<f32>(-direction0.y, direction0.x);
+                let distance1 = dot(evalCoord, direction1);
+                let phase1 = abs(fract(distance1 / spacing) * spacing - spacing * 0.5);
+                hatchHit = hatchHit || phase1 < thickness * 0.5;
+            }
+            if (!hatchHit) {
+                discard;
+            }
+            finalColor = vec4<f32>(
+                brush.stopColors0.rgb,
+                brush.stopColors0.a * brush.opacity);
         } else if (brush.brushType == 5u) {
             // Two-point conical gradient: interpolate between two moving circle boundaries.
             let solution = solve_two_point_conical_gradient(brush, brushCoord);
@@ -2390,8 +2439,9 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             let noiseColor = sample_perlin_noise(brush, brushCoord);
             finalColor = vec4<f32>(noiseColor.rgb, noiseColor.a * brush.opacity);
         }
-        if (brush.brushType == 7u) {
-            // Procedural noise was evaluated directly above.
+        if (brush.brushType == 3u || brush.brushType == 4u ||
+            brush.brushType == 7u) {
+            // Procedural hatch/noise was evaluated directly above.
         } else if (gradientCoverage <= 0.0) {
             if ((brush.spreadMethod & 0x80000000u) != 0u) {
                 finalColor = vec4<f32>(brush.stopColors0.rgb, brush.stopColors0.a * brush.opacity);
@@ -2411,12 +2461,27 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         finalColor = blend_mesh_colors(finalColor, input.color, u32(round(input.cornerRadius)));
     }
 
-    return vec4<f32>(finalColor.rgb, finalColor.a * shapeAlpha * maskAlpha);
+    // Vertex meshes apply semantic state opacity after brush/vertex blending.
+    // Applying it to the brush first is not equivalent for Porter-Duff and
+    // advanced color blend modes. Other shapes retain their existing alpha.
+    let stateOpacity = select(1.0, clamp(input.strokeThickness, 0.0, 1.0), sType == 18u);
+    return vec4<f32>(finalColor.rgb, finalColor.a * shapeAlpha * maskAlpha * stateOpacity);
 }
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let maskAlpha = sample_mask_alpha(input.position.xy);
+    let color = vector_fs_main(input, maskAlpha);
+    if (maskAlpha <= 0.0) {
+        discard;
+    }
+    return color;
+}
+
+@fragment
+fn fs_main_chain(input: VertexOutput) -> @location(0) vec4<f32> {
+    let maskAlpha = sample_mask_alpha(input.position.xy) *
+        sample_mask_chain_alpha(input.position.xy);
     let color = vector_fs_main(input, maskAlpha);
     if (maskAlpha <= 0.0) {
         discard;

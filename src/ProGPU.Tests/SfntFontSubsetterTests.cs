@@ -15,6 +15,8 @@ public class SfntFontSubsetterTests
         byte[] subset = SfntFontSubsetter.CreateGlyphIdPreservingSubset(fontData, 0, new ushort[] { 2 });
 
         Assert.True(subset.Length < fontData.Length);
+        Assert.Equal(272, subset.Length);
+        Assert.Equal(10017802304682166674UL, HashBytes(subset));
         SfntFontFace subsetFace = SfntFontFace.Load(subset);
         Assert.True(subsetFace.TryGetGlyphCount(out ushort glyphCount));
         Assert.Equal(4, glyphCount);
@@ -41,6 +43,27 @@ public class SfntFontSubsetterTests
             new ushort[] { 1 },
             out byte[] subset));
         Assert.Empty(subset);
+    }
+
+    [Fact]
+    public void CompactSubsetMatchesNativeByteOracle()
+    {
+        byte[] fontData = BuildTrueTypeSubsetFixtureFont();
+
+        byte[] subset = SfntFontSubsetter.CreateCompactSubset(
+            fontData,
+            0,
+            new ushort[] { 2 },
+            out SfntGlyphRemap[] glyphMap);
+
+        Assert.Equal(new[]
+        {
+            new SfntGlyphRemap(0, 0),
+            new SfntGlyphRemap(1, 1),
+            new SfntGlyphRemap(2, 2)
+        }, glyphMap);
+        Assert.Equal(264, subset.Length);
+        Assert.Equal(5117190155084041207UL, HashBytes(subset));
     }
 
     [Fact]
@@ -296,6 +319,18 @@ public class SfntFontSubsetterTests
     private static int Align4(int value)
     {
         return checked((value + 3) & ~3);
+    }
+
+    private static ulong HashBytes(ReadOnlySpan<byte> bytes)
+    {
+        ulong hash = 1469598103934665603UL;
+        foreach (byte value in bytes)
+        {
+            hash ^= value;
+            hash *= 1099511628211UL;
+        }
+
+        return hash;
     }
 
     private static short ReadShort(ReadOnlySpan<byte> data, int offset)

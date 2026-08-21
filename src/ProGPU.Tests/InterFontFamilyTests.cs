@@ -11,6 +11,152 @@ namespace ProGPU.Tests;
 public sealed class InterFontFamilyTests
 {
     [Fact]
+    public void NativeSfntCheckpointMatchesManagedMediumFaceMetrics()
+    {
+        var assembly = typeof(InterFontFamily).Assembly;
+        string resourceName = Assert.Single(
+            assembly.GetManifestResourceNames(),
+            static name => name.EndsWith("Inter-Medium.ttf", StringComparison.Ordinal));
+        using Stream resource = assembly.GetManifestResourceStream(resourceName)!;
+        using var memory = new MemoryStream();
+        resource.CopyTo(memory);
+        byte[] data = memory.ToArray();
+        SfntFontFace face = SfntFontFace.Load(data);
+        var font = new TtfFont(data);
+
+        Assert.Equal((ushort)2048, font.UnitsPerEm);
+        Assert.Equal((short)-1546, font.XMin);
+        Assert.Equal((short)-668, font.YMin);
+        Assert.Equal((short)5290, font.XMax);
+        Assert.Equal((short)2272, font.YMax);
+        Assert.Equal((short)1984, font.Ascender);
+        Assert.Equal((short)-494, font.Descender);
+        Assert.Equal((short)0, font.LineGap);
+        Assert.Equal((ushort)2937, font.NumGlyphs);
+        Assert.True(face.TryGetGlyphIndex(0x53, out ushort glyphIndex));
+        Assert.Equal((ushort)397, glyphIndex);
+        Assert.True(face.TryGetHorizontalGlyphMetrics(glyphIndex, out var metrics));
+        Assert.Equal((ushort)1323, metrics.AdvanceWidth);
+        Assert.Equal((short)106, metrics.LeftSideBearing);
+        Assert.True(face.TryGetGlyphBounds(glyphIndex, out var bounds));
+        Assert.Equal((short)106, bounds.XMin);
+        Assert.Equal((short)-25, bounds.YMin);
+        Assert.Equal((short)1217, bounds.XMax);
+        Assert.Equal((short)1510, bounds.YMax);
+        var outline = Assert.IsType<ProGPU.Vector.PathGeometry>(
+            font.GetGlyphOutline(glyphIndex));
+        var figure = Assert.Single(outline.Figures);
+        Assert.Equal(new Vector2(665f, -25f), figure.StartPoint);
+        Assert.Equal(34, figure.Segments.Count);
+        Assert.Equal(13245664145576799719UL, HashOutline(outline));
+
+        Assert.True(face.TryGetGlyphIndex(0x00E9, out ushort compositeIndex));
+        Assert.Equal((ushort)618, compositeIndex);
+        var composite = Assert.IsType<ProGPU.Vector.PathGeometry>(
+            font.GetGlyphOutline(compositeIndex));
+        Assert.Equal(3, composite.Figures.Count);
+        Assert.Equal(27, composite.Figures.Sum(static item => item.Segments.Count));
+        Assert.Equal(new Vector2(630f, -23f), composite.Figures[0].StartPoint);
+        Assert.Equal(5543379682355176128UL, HashOutline(composite));
+    }
+
+    [Fact]
+    public void NativeFvarCheckpointMatchesManagedVariableAxes()
+    {
+        var assembly = typeof(InterFontFamily).Assembly;
+        string resourceName = Assert.Single(
+            assembly.GetManifestResourceNames(),
+            static name => name.EndsWith("InterVariable.ttf", StringComparison.Ordinal));
+        using Stream resource = assembly.GetManifestResourceStream(resourceName)!;
+        using var memory = new MemoryStream();
+        resource.CopyTo(memory);
+        var font = new TtfFont(memory.ToArray());
+
+        Assert.Collection(
+            font.VariationAxes,
+            axis =>
+            {
+                Assert.Equal("opsz", axis.Tag);
+                Assert.Equal(14f, axis.Minimum);
+                Assert.Equal(14f, axis.Default);
+                Assert.Equal(32f, axis.Maximum);
+                Assert.False(axis.IsHidden);
+            },
+            axis =>
+            {
+                Assert.Equal("wght", axis.Tag);
+                Assert.Equal(100f, axis.Minimum);
+                Assert.Equal(400f, axis.Default);
+                Assert.Equal(900f, axis.Maximum);
+                Assert.False(axis.IsHidden);
+            });
+
+        TtfFont optical = font.WithVariations(
+            new FontVariationSetting("opsz", 23f));
+        Assert.Equal(1314f, font.GetAdvanceWidth(397, 2048f));
+        Assert.Equal(1286f, optical.GetAdvanceWidth(397, 2048f));
+        Assert.Equal((short?)1118, font.XHeight);
+        Assert.Equal((short?)1087, optical.XHeight);
+        var opticalOutline = Assert.IsType<ProGPU.Vector.PathGeometry>(
+            optical.GetGlyphOutline(397));
+        Assert.Equal(
+            new Vector2(648.5f, -25f),
+            Assert.Single(opticalOutline.Figures).StartPoint);
+        Assert.Equal(12343280691057163238UL, HashOutline(opticalOutline));
+
+        var opticalComposite = Assert.IsType<ProGPU.Vector.PathGeometry>(
+            optical.GetGlyphOutline(618));
+        Assert.Equal(12064242707506207632UL, HashOutline(opticalComposite));
+        Assert.Equal(new Vector2(595f, -24f), opticalComposite.Figures[0].StartPoint);
+        Assert.Equal(2, opticalComposite.Figures.Count);
+        Assert.Equal(36, opticalComposite.Figures.Sum(static figure => figure.Segments.Count));
+    }
+
+    private static ulong HashOutline(ProGPU.Vector.PathGeometry outline)
+    {
+        ulong hash = 1469598103934665603UL;
+        foreach (ProGPU.Vector.PathFigure figure in outline.Figures)
+        {
+            Vector2 current = figure.StartPoint;
+            foreach (ProGPU.Vector.PathSegment segment in figure.Segments)
+            {
+                Vector2 p0 = current;
+                uint kind;
+                Vector2 p1;
+                Vector2 p2;
+                switch (segment)
+                {
+                    case ProGPU.Vector.LineSegment line:
+                        kind = 0;
+                        p1 = line.Point;
+                        p2 = default;
+                        current = line.Point;
+                        break;
+                    case ProGPU.Vector.QuadraticBezierSegment quadratic:
+                        kind = 1;
+                        p1 = quadratic.ControlPoint;
+                        p2 = quadratic.Point;
+                        current = quadratic.Point;
+                        break;
+                    default:
+                        throw new InvalidOperationException(segment.GetType().Name);
+                }
+                hash = Append(hash, kind);
+                hash = Append(hash, BitConverter.SingleToUInt32Bits(p0.X));
+                hash = Append(hash, BitConverter.SingleToUInt32Bits(p0.Y));
+                hash = Append(hash, BitConverter.SingleToUInt32Bits(p1.X));
+                hash = Append(hash, BitConverter.SingleToUInt32Bits(p1.Y));
+                hash = Append(hash, BitConverter.SingleToUInt32Bits(p2.X));
+                hash = Append(hash, BitConverter.SingleToUInt32Bits(p2.Y));
+            }
+        }
+        return hash;
+
+        static ulong Append(ulong value, uint field) =>
+            unchecked((value ^ field) * 1099511628211UL);
+    }
+
+    [Fact]
     public void RegularFaceIsUnmodifiedOfficialInter41Asset()
     {
         var font = InterFontFamily.Regular;

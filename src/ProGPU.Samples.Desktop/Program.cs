@@ -24,6 +24,8 @@ namespace ProGPU.Samples.Desktop;
 
 public static class Program
 {
+    internal static DawnGpuContext? CurrentDawnContext { get; private set; }
+
 #if MACOS
     private const string MediaColorEffectId =
         "ProGPU.Sample.Desktop.VideoColor";
@@ -80,12 +82,36 @@ public static class Program
 #endif
         GlfwWindowing.Use();
         GlfwInput.RegisterPlatform();
-        AppBuilder<App>.Configure()
+        bool useNativeRenderer = Array.Exists(
+            args,
+            static argument => string.Equals(
+                argument,
+                "--native-renderer",
+                StringComparison.OrdinalIgnoreCase));
+        bool showNativeRenderer = useNativeRenderer || Array.Exists(
+            args,
+            static argument => string.Equals(
+                argument,
+                "--native-renderer-dawn",
+                StringComparison.OrdinalIgnoreCase));
+        SamplePlatformServices.CreateNativeRendererPage =
+            NativeRendererSamplePage.Create;
+        SamplePlatformServices.InitialPage = showNativeRenderer
+            ? "Native C++ Renderer"
+            : null;
+
+        AppBuilder<App> builder = AppBuilder<App>.Configure()
             .WithTitle("ProGPU Substrate - High-Performance WinUI Gallery Dashboard")
-            .WithSize(1280, 800)
-            .WithGpuContextFactory(CreateDesktopGpuContext)
-            .Build()
-            .Run(args);
+            .WithSize(1280, 800);
+        if (!useNativeRenderer)
+        {
+            builder.WithGpuContextFactory(CreateDesktopGpuContext);
+        }
+
+        // Run returns after scheduling the native host on platforms whose
+        // window loop owns its own thread. These process-lifetime factories
+        // must therefore remain published until process shutdown.
+        builder.Build().Run(args);
     }
 
     private static WgpuContext CreateDesktopGpuContext(
@@ -130,10 +156,12 @@ public static class Program
                 source,
                 width,
                 height);
+            CurrentDawnContext = dawn;
             return dawn.Context;
         }
         catch
         {
+            CurrentDawnContext = null;
             dawn.Dispose();
             throw;
         }

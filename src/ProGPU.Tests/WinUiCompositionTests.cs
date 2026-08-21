@@ -63,6 +63,16 @@ public sealed class WinUiCompositionTests
 
         brush.Offset = Vector2.Zero;
         brush.Scale = Vector2.One;
+        // Exercise both mutating setter routes before measuring. Linux JITs the
+        // enum setter lazily after the vector invalidation path, while the hot
+        // contract is allocation-free once both retained routes are compiled.
+        for (int index = 0; index < 32; index++)
+        {
+            brush.Offset = new Vector2(index & 1, 0f);
+            brush.BitmapInterpolationMode = (index & 1) == 0
+                ? CompositionBitmapInterpolationMode.Linear
+                : CompositionBitmapInterpolationMode.NearestNeighbor;
+        }
         long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
         for (int index = 0; index < 10_000; index++)
         {
@@ -1596,12 +1606,19 @@ public sealed class WinUiCompositionTests
         shape.FillBrush = brush;
         visual.Shapes.Add(shape);
 
-        shape.Offset = Vector2.One;
-        shape.Offset = Vector2.Zero;
-        brush.Color = Color.FromArgb(255, 0, 255, 0);
-        brush.Color = Color.FromArgb(255, 255, 0, 0);
+        ExerciseCompositionShapeUpdates(shape, brush);
 
         long before = GC.GetAllocatedBytesForCurrentThread();
+        ExerciseCompositionShapeUpdates(shape, brush);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    private static void ExerciseCompositionShapeUpdates(
+        CompositionSpriteShape shape,
+        CompositionColorBrush brush)
+    {
         for (int index = 0; index < 10_000; index++)
         {
             shape.Offset = new Vector2(index & 1, 0f);
@@ -1609,9 +1626,6 @@ public sealed class WinUiCompositionTests
                 ? Color.FromArgb(255, 255, 0, 0)
                 : Color.FromArgb(255, 0, 255, 0);
         }
-        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-
-        Assert.Equal(0, allocated);
     }
 
     [Fact]

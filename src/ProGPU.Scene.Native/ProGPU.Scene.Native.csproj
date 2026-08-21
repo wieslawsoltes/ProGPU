@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <Description>Typed clean-room compiler from immutable ProGPU scenes to the retained native C++ WebGPU scene ABI.</Description>
+    <PackageTags>progpu;scene;native;c++;webgpu;renderer</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.Backend.Native\ProGPU.Backend.Native.csproj" />
+    <ProjectReference Include="..\ProGPU.Scene\ProGPU.Scene.csproj" />
+  </ItemGroup>
+</Project>

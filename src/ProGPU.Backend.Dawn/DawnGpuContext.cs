@@ -174,6 +174,22 @@ public sealed unsafe partial class DawnGpuContext :
     public DawnSharedTextureMemoryFeature SharedTextureMemory { get; }
 
     /// <summary>
+    /// Returns the exact native WebGPU handles owned by this context as a
+    /// package-neutral value record for typed native renderer integration.
+    /// </summary>
+    public DawnNativeDeviceHandles GetNativeDeviceHandles()
+    {
+        if (Context.IsDisposed || Context.IsDeviceLost)
+        {
+            throw new ObjectDisposedException(nameof(DawnGpuContext));
+        }
+        return new DawnNativeDeviceHandles(
+            (nuint)Instance.GetAddress(),
+            (nuint)Device.GetAddress(),
+            (nuint)Queue.GetAddress());
+    }
+
+    /// <summary>
     /// Forces this Dawn device into its native lost state for an isolated
     /// recovery qualification. This is destructive for the current device and
     /// must never be used as an ordinary shutdown mechanism.
@@ -803,6 +819,15 @@ public sealed unsafe partial class DawnGpuContext :
             _ => SW.ErrorType.Unknown
         };
 }
+
+/// <summary>
+/// Package-neutral borrowed Dawn handles. The owning
+/// <see cref="DawnGpuContext"/> must outlive every consumer.
+/// </summary>
+public readonly record struct DawnNativeDeviceHandles(
+    nuint Instance,
+    nuint Device,
+    nuint Queue);
 
 internal static unsafe partial class DawnNativeDiagnostics
 {

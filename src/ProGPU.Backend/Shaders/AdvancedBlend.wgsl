@@ -1,4 +1,4 @@
-// Algorithm: Sample a full-size destination and a bounded source region, then evaluate one compile-time-selected advanced Porter-Duff blend function.
+// Algorithm: Sample a full-size destination and a bounded source region, then evaluate one runtime-selected advanced Porter-Duff blend function.
 // Time complexity: O(1) per vertex and fragment.
 // Space complexity: O(1) local storage with two texture reads per fragment.
 @group(0) @binding(0) var destinationTexture: texture_2d<f32>;
@@ -7,11 +7,13 @@
 struct SamplingUniforms {
     sourceOrigin: vec2<f32>,
     sourceExtent: vec2<f32>,
+    blendMode: u32,
+    pad0: u32,
+    pad1: u32,
+    pad2: u32,
 };
 
 @group(0) @binding(2) var<uniform> sampling: SamplingUniforms;
-
-const blendMode = __BLEND_MODE__u;
 
 @vertex
 fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> @builtin(position) vec4<f32> {
@@ -135,7 +137,7 @@ fn set_saturation(color: vec3<f32>, targetSaturation: f32) -> vec3<f32> {
 }
 
 fn blend(backdrop: vec3<f32>, source: vec3<f32>) -> vec3<f32> {
-    switch blendMode {
+    switch sampling.blendMode {
         case 11u: {
             return backdrop * source;
         }
@@ -217,7 +219,7 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
             vec4<f32>(1.0));
     }
 
-    if (blendMode == 1u) {
+    if (sampling.blendMode == 1u) {
         return source;
     }
 

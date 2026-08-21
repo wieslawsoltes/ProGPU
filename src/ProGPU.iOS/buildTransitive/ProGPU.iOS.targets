@@ -1,4 +1,16 @@
 <Project>
+  <PropertyGroup Condition="'$(TargetPlatformIdentifier)' == 'ios' And '$(ProGpuNativeDawnIOSXCFramework)' == ''">
+    <ProGpuNativeDawnIOSXCFramework>$(MSBuildThisFileDirectory)..\runtimes\ios\native\progpu_native_dawn.xcframework</ProGpuNativeDawnIOSXCFramework>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'ios' And Exists('$(ProGpuNativeDawnIOSXCFramework)')">
+    <NativeReference Include="$(ProGpuNativeDawnIOSXCFramework)">
+      <Kind>Static</Kind>
+      <ForceLoad>true</ForceLoad>
+      <SmartLink>false</SmartLink>
+      <IsCxx>true</IsCxx>
+      <Frameworks>Metal</Frameworks>
+    </NativeReference>
+  </ItemGroup>
   <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'ios' And '$(ProGpuWgpuNativeXCFramework)' != '' And Exists('$(ProGpuWgpuNativeXCFramework)')">
     <NativeReference Include="$(ProGpuWgpuNativeXCFramework)">
       <Kind>Framework</Kind>

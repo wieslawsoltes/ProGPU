@@ -27,6 +27,8 @@ public static class ComputeShaders
 
     public static readonly string GaussianBlurVertical = ShaderResource.Load(typeof(ComputeShaders), "GaussianBlurVertical.wgsl");
 
+    public static readonly string GroupDropShadowCompose = ShaderResource.Load(typeof(ComputeShaders), "GroupDropShadowCompose.wgsl");
+
     public static readonly string DropShadow = ShaderResource.Load(typeof(ComputeShaders), "DropShadow.wgsl");
 
     public static readonly string ShadowBlurHorizontal = ShaderResource.Load(typeof(ComputeShaders), "ShadowBlurHorizontal.wgsl");

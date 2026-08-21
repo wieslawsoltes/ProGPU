@@ -1,10 +1,15 @@
-// Algorithm: Transform an image-effect quad, optionally map each perspective ray into an equirectangular source, sample RGB or planar YUV with an optional bounded 2D Gaussian footprint, apply fused color operations, and combine texture-mask or affine analytic rounded-mask coverage.
-// Time complexity: O(1) per vertex and fragment because spherical mapping is fixed work and blur radius R is clamped to 5; RGB performs 1 source sample without blur or at most 121 samples, planar YUV performs 2 or at most 242 samples, and a mask adds at most one sample.
-// Space complexity: O(1) local/private storage per invocation and O(1) uniform storage; spherical mapping, planar conversion, and fused effects use no intermediate texture, while blur has a fixed bounded source-texture bandwidth cost.
+// Algorithm: Transform an image-effect quad, optionally map each perspective ray into an equirectangular source, sample RGB or planar YUV with an optional bounded 2D Gaussian footprint, apply fused color operations, and combine texture-mask or up to four affine analytic rounded-mask coverages.
+// Time complexity: O(1) per vertex and fragment because spherical mapping and the maximum four-mask chain are fixed work and blur radius R is clamped to 5; RGB performs 1 source sample without blur or at most 121 samples, planar YUV performs 2 or at most 242 samples, and a texture mask adds at most one sample.
+// Space complexity: O(1) local/private storage per invocation and bounded uniform storage; spherical mapping, planar conversion, fused effects, and analytic mask chains use no intermediate texture, while blur has a fixed bounded source-texture bandwidth cost.
 struct VSUniforms {
     projection: mat4x4<f32>,
     mvp: mat4x4<f32>,
     view: mat4x4<f32>,
+    canvasSize: vec2<f32>,
+    dpiScale: f32,
+    boundedSourcePass: f32,
+    renderOrigin: vec2<f32>,
+    pad1: vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: VSUniforms;
@@ -50,29 +55,37 @@ struct MaskSamplingUniforms {
 
 @group(3) @binding(2) var<uniform> maskSampling: MaskSamplingUniforms;
 
-fn analytic_rounded_mask_alpha(position: vec2<f32>) -> f32 {
+struct MaskChainUniforms {
+    masks: array<MaskSamplingUniforms, 3>,
+};
+
+@group(3) @binding(3) var<uniform> maskChain: MaskChainUniforms;
+
+fn analytic_rounded_mask_alpha_for(
+    position: vec2<f32>,
+    sampling: MaskSamplingUniforms) -> f32 {
     let local = vec2<f32>(
-        dot(vec3<f32>(position, 1.0), maskSampling.coordinate0.xyz),
-        dot(vec3<f32>(position, 1.0), maskSampling.coordinate1.xyz));
-    let bounds = maskSampling.bounds;
+        dot(vec3<f32>(position, 1.0), sampling.coordinate0.xyz),
+        dot(vec3<f32>(position, 1.0), sampling.coordinate1.xyz));
+    let bounds = sampling.bounds;
     let edge = max(max(bounds.x - local.x, local.x - bounds.z), max(bounds.y - local.y, local.y - bounds.w));
     var center = vec2<f32>(0.0);
     var radius = vec2<f32>(0.0);
     var usesCorner = false;
-    if (local.x < bounds.x + maskSampling.cornerRadiiX.x && local.y < bounds.y + maskSampling.cornerRadiiY.x) {
-        radius = vec2<f32>(maskSampling.cornerRadiiX.x, maskSampling.cornerRadiiY.x);
+    if (local.x < bounds.x + sampling.cornerRadiiX.x && local.y < bounds.y + sampling.cornerRadiiY.x) {
+        radius = vec2<f32>(sampling.cornerRadiiX.x, sampling.cornerRadiiY.x);
         center = vec2<f32>(bounds.x + radius.x, bounds.y + radius.y);
         usesCorner = all(radius > vec2<f32>(0.0));
-    } else if (local.x > bounds.z - maskSampling.cornerRadiiX.y && local.y < bounds.y + maskSampling.cornerRadiiY.y) {
-        radius = vec2<f32>(maskSampling.cornerRadiiX.y, maskSampling.cornerRadiiY.y);
+    } else if (local.x > bounds.z - sampling.cornerRadiiX.y && local.y < bounds.y + sampling.cornerRadiiY.y) {
+        radius = vec2<f32>(sampling.cornerRadiiX.y, sampling.cornerRadiiY.y);
         center = vec2<f32>(bounds.z - radius.x, bounds.y + radius.y);
         usesCorner = all(radius > vec2<f32>(0.0));
-    } else if (local.x > bounds.z - maskSampling.cornerRadiiX.z && local.y > bounds.w - maskSampling.cornerRadiiY.z) {
-        radius = vec2<f32>(maskSampling.cornerRadiiX.z, maskSampling.cornerRadiiY.z);
+    } else if (local.x > bounds.z - sampling.cornerRadiiX.z && local.y > bounds.w - sampling.cornerRadiiY.z) {
+        radius = vec2<f32>(sampling.cornerRadiiX.z, sampling.cornerRadiiY.z);
         center = vec2<f32>(bounds.z - radius.x, bounds.w - radius.y);
         usesCorner = all(radius > vec2<f32>(0.0));
-    } else if (local.x < bounds.x + maskSampling.cornerRadiiX.w && local.y > bounds.w - maskSampling.cornerRadiiY.w) {
-        radius = vec2<f32>(maskSampling.cornerRadiiX.w, maskSampling.cornerRadiiY.w);
+    } else if (local.x < bounds.x + sampling.cornerRadiiX.w && local.y > bounds.w - sampling.cornerRadiiY.w) {
+        radius = vec2<f32>(sampling.cornerRadiiX.w, sampling.cornerRadiiY.w);
         center = vec2<f32>(bounds.x + radius.x, bounds.w - radius.y);
         usesCorner = all(radius > vec2<f32>(0.0));
     }
@@ -88,14 +101,29 @@ fn sample_mask_alpha(position: vec2<f32>) -> f32 {
     if (maskSampling.options.x < 0.5) {
         return 1.0;
     }
+    let targetPosition = position + uniforms.renderOrigin;
     if (maskSampling.options.x > 1.5) {
-        return analytic_rounded_mask_alpha(position) *
+        return analytic_rounded_mask_alpha_for(targetPosition, maskSampling) *
             maskSampling.options.y;
     }
-    let uv = (position - maskSampling.coordinate0.xy) * maskSampling.coordinate1.xy;
+    let uv = (targetPosition - maskSampling.coordinate0.xy) * maskSampling.coordinate1.xy;
     let sampled = textureSample(maskTexture, maskSampler, clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0))).r;
     let inside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
     return select(0.0, sampled, inside);
+}
+
+fn sample_mask_chain_alpha(position: vec2<f32>) -> f32 {
+    let targetPosition = position + uniforms.renderOrigin;
+    var alpha = 1.0;
+    for (var index = 0u; index < 3u; index++) {
+        let sampling = maskChain.masks[index];
+        if (sampling.options.x > 1.5) {
+            alpha *= analytic_rounded_mask_alpha_for(
+                targetPosition,
+                sampling) * sampling.options.y;
+        }
+    }
+    return alpha;
 }
 
 struct VertexInput {
@@ -180,8 +208,9 @@ fn project_source_coordinate(texCoord: vec2<f32>) -> vec2<f32> {
         equirectangular * effect.sphericalUvRect.zw;
 }
 
-@fragment
-fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+fn render_image_effect(
+    input: VertexOutput,
+    maskAlpha: f32) -> vec4<f32> {
     var color = vec4<f32>(0.0);
     let sourceCoordinate =
         project_source_coordinate(input.texCoord);
@@ -268,15 +297,26 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
     straightColor = clamp(straightColor, vec4<f32>(0.0), vec4<f32>(1.0));
 
-    var maskAlpha = 1.0;
-    if (effect.effects1.w > 0.5) {
-        maskAlpha = sample_mask_alpha(input.position.xy);
-    }
-
     let coverage = input.color.a * maskAlpha;
     if (effect.texture0.w > 0.5) {
         return vec4<f32>(straightColor.rgb * straightColor.a * input.color.rgb * coverage, straightColor.a * coverage);
     }
 
     return vec4<f32>(straightColor.rgb * input.color.rgb, straightColor.a * coverage);
+}
+
+@fragment
+fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    var maskAlpha = 1.0;
+    if (effect.effects1.w > 0.5) {
+        maskAlpha = sample_mask_alpha(input.position.xy);
+    }
+    return render_image_effect(input, maskAlpha);
+}
+
+@fragment
+fn fs_main_chain(input: VertexOutput) -> @location(0) vec4<f32> {
+    return render_image_effect(
+        input,
+        sample_mask_chain_alpha(input.position.xy));
 }

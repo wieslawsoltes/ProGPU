@@ -1,6 +1,6 @@
 // Algorithm: Vertically blur a four-coverages-per-RGBA8 packed alpha mask, then tint it.
-// Time complexity: O(R) per output texel for blur radius R.
-// Space complexity: O(1) local storage with O(R) reads from the packed coverage intermediate.
+// Time complexity: O(R) per output texel for blur radius R; weights use two transcendental evaluations plus an O(R) recurrence.
+// Space complexity: O(1) local storage with exactly 2R+1 reads from the packed coverage intermediate.
 struct Params {
     offset: vec2<f32>,
     color: vec4<f32>,
@@ -36,14 +36,19 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     let sigma = max(params.blurRadius, 0.5);
     let radius = min(i32(ceil(sigma * 3.0)), 64);
-    var alphaSum = 0.0;
-    var weightSum: f32 = 0.0;
-    for (var dy = -radius; dy <= radius; dy = dy + 1) {
-        let sampleY = clamp(y + dy, 0, i32(size.y) - 1);
-        let distance = f32(dy);
-        let weight = exp(-0.5 * distance * distance / (sigma * sigma));
-        alphaSum += load_coverage(x, sampleY) * weight;
-        weightSum += weight;
+    var alphaSum = load_coverage(x, y);
+    var weightSum = 1.0;
+    let inverseVariance = 0.5 / (sigma * sigma);
+    var weight = exp(-inverseVariance);
+    let ratioStep = exp(-2.0 * inverseVariance);
+    var weightRatio = weight * ratioStep;
+    for (var dy = 1; dy <= radius; dy = dy + 1) {
+        let top = load_coverage(x, clamp(y - dy, 0, i32(size.y) - 1));
+        let bottom = load_coverage(x, clamp(y + dy, 0, i32(size.y) - 1));
+        alphaSum += (top + bottom) * weight;
+        weightSum += 2.0 * weight;
+        weight = weight * weightRatio;
+        weightRatio = weightRatio * ratioStep;
     }
 
     let shadowAlpha = params.color.a * alphaSum / max(weightSum, 0.0001);

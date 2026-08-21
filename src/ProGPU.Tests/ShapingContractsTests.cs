@@ -362,6 +362,8 @@ public sealed class ShapingContractsTests : IClassFixture<ShapingGpuFixture>
             new FeatureVariationFontFace(0));
         GpuOpenTypeShapingPlan varied = GpuOpenTypeShapingPlanCompiler.Compile(
             new FeatureVariationFontFace(0x2000));
+        GpuOpenTypeShapingPlan universal = GpuOpenTypeShapingPlanCompiler.Compile(
+            new FeatureVariationFontFace(0, universalCondition: true));
         var request = new ShapingRequest(ShapingDirection.LeftToRight, OpenTypeTag.DefaultScript);
 
         GpuOpenTypeLookupCommand regularLiga = Assert.Single(
@@ -370,8 +372,12 @@ public sealed class ShapingContractsTests : IClassFixture<ShapingGpuFixture>
         GpuOpenTypeLookupCommand variedLiga = Assert.Single(
             GpuOpenTypeLookupPlanCompiler.Compile(varied, request),
             command => command.FeatureTag == new OpenTypeTag("liga").Value);
+        GpuOpenTypeLookupCommand universalLiga = Assert.Single(
+            GpuOpenTypeLookupPlanCompiler.Compile(universal, request),
+            command => command.FeatureTag == new OpenTypeTag("liga").Value);
 
         Assert.NotEqual(regularLiga.LookupOffset, variedLiga.LookupOffset);
+        Assert.Equal(variedLiga.LookupOffset, universalLiga.LookupOffset);
         Assert.Equal(0, regular.NormalizedVariationCoordinates.Span[0]);
         Assert.Equal(0x2000, varied.NormalizedVariationCoordinates.Span[0]);
     }
@@ -2058,9 +2064,11 @@ public sealed class ShapingContractsTests : IClassFixture<ShapingGpuFixture>
         }
     }
 
-    private sealed class FeatureVariationFontFace(short coordinate) : IShapingFontFace
+    private sealed class FeatureVariationFontFace(
+        short coordinate,
+        bool universalCondition = false) : IShapingFontFace
     {
-        private static readonly byte[] s_gsub = CreateGsub();
+        private readonly byte[] _gsub = CreateGsub(universalCondition);
 
         public int FaceIndex => 0;
         public ushort UnitsPerEm => 1000;
@@ -2069,7 +2077,7 @@ public sealed class ShapingContractsTests : IClassFixture<ShapingGpuFixture>
         public bool HasActiveVariations => coordinate != 0;
         public bool TryGetTable(OpenTypeTag tag, out ReadOnlyMemory<byte> table)
         {
-            table = tag == new OpenTypeTag("GSUB") ? s_gsub : ReadOnlyMemory<byte>.Empty;
+            table = tag == new OpenTypeTag("GSUB") ? _gsub : ReadOnlyMemory<byte>.Empty;
             return !table.IsEmpty;
         }
         public uint GetNominalGlyph(uint codePoint) => 0;
@@ -2089,7 +2097,7 @@ public sealed class ShapingContractsTests : IClassFixture<ShapingGpuFixture>
         }
         public float GetLayoutVariationDelta(ushort outerIndex, ushort innerIndex) => 0;
 
-        private static byte[] CreateGsub()
+        private static byte[] CreateGsub(bool universalCondition)
         {
             var data = new byte[116];
             U16(0, 1); U16(2, 1); U16(4, 14); U16(6, 34); U16(8, 50); U32(10, 68);
@@ -2102,7 +2110,7 @@ public sealed class ShapingContractsTests : IClassFixture<ShapingGpuFixture>
             U16(56, 1); U16(58, 0); U16(60, 0);
             U16(62, 1); U16(64, 0); U16(66, 0);
             U16(68, 1); U16(70, 0); U32(72, 1);
-            U32(76, 16); U32(80, 30);
+            U32(76, universalCondition ? 0U : 16U); U32(80, 30);
             U16(84, 1); U32(86, 6);
             U16(90, 1); U16(92, 0); U16(94, 0x2000); U16(96, 0x4000);
             U16(98, 1); U16(100, 0); U16(102, 1);

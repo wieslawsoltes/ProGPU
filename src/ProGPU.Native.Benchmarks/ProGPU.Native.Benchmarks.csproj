@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
+    <ProjectReference Include="..\ProGPU.Backend.Native\ProGPU.Backend.Native.csproj" />
+    <ProjectReference Include="..\ProGPU.Scene\ProGPU.Scene.csproj" />
+    <ProjectReference Include="..\ProGPU.Scene.Native\ProGPU.Scene.Native.csproj" />
+    <ProjectReference Include="..\ProGPU.Text\ProGPU.Text.csproj" />
+    <ProjectReference Include="..\ProGPU.Fonts.Inter\ProGPU.Fonts.Inter.csproj" />
+    <ProjectReference Include="..\ProGPU.Vector\ProGPU.Vector.csproj" />
+  </ItemGroup>
+
+  <!-- Benchmark the exact locally built native renderer instead of a stale
+       package artifact left in the output directory by an earlier build. -->
+  <ItemGroup>
+    <None Include="..\..\artifacts\progpu-native\build\libprogpu_native.dylib"
+          Link="libprogpu_native.dylib"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\..\artifacts\progpu-native\build\libprogpu_native.dylib')" />
+    <None Include="..\..\artifacts\progpu-native\build\libprogpu_native.so"
+          Link="libprogpu_native.so"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\..\artifacts\progpu-native\build\libprogpu_native.so')" />
+    <None Include="..\..\artifacts\progpu-native\build\Release\progpu_native.dll"
+          Link="progpu_native.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\..\artifacts\progpu-native\build\Release\progpu_native.dll')" />
+  </ItemGroup>
+</Project>

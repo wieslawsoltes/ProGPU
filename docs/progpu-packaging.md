@@ -9,6 +9,7 @@ Avalonia 11 version lanes:
 | 12.0.5 | `ProGPU.Avalonia.SilkNet` `12.0.5-preview.54` | `Avalonia.SilkNet` | Cross-platform Silk.NET windowing backend |
 | 11.3.18 | `ProGPU.Avalonia.Rendering` `11.3.18-preview.54` | `Avalonia.ProGpu` | Shared-source ProGPU/WebGPU rendering backend |
 | 11.3.18 | `ProGPU.Avalonia.SilkNet` `11.3.18-preview.54` | `Avalonia.SilkNet` | Shared-source Silk.NET windowing backend |
+| native ABI | `ProGPU.Backend.Native` `0.1.0-preview.54` | `ProGPU.Backend.Native` | Experimental typed C++ renderer host with isolated wgpu-native and provider-resolved Dawn binaries for Linux, macOS, and Windows x64/arm64 |
 | native ABI | `ProGPU.Backend.Dawn` `0.1.0-preview.54` | `ProGPU.Backend.Dawn` | Exact-ABI Dawn device, IOSurface shared memory, and timeline fences |
 
 The Avalonia 12 packages are built against exactly Avalonia `12.0.5`; the

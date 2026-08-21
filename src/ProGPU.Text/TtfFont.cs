@@ -11,6 +11,7 @@ using System.Xml;
 using OpenFontSharp;
 using OpenFontSharp.Tables.CFF;
 using ProGPU.Vector;
+using StbImageSharp;
 
 namespace ProGPU.Text;
 
@@ -116,6 +117,16 @@ public readonly struct BitmapGlyphData
         ReadOnlyMemory<byte> data) =>
         new(pixelsPerEm, bearingX, bearingY, graphicType, data);
 }
+
+internal readonly record struct DecodedBitmapGlyphData(
+    byte[] RgbaPixels,
+    uint Width,
+    uint Height,
+    float BearX,
+    float BearY,
+    float RenderWidth,
+    float RenderHeight,
+    float RasterScale);
 
 public partial class TtfFont
 {
@@ -888,6 +899,99 @@ public partial class TtfFont
 
         return TryGetSbixBitmapGlyph(glyphIndex, targetPixelsPerEm, out glyph) ||
                TryGetCbdtBitmapGlyph(glyphIndex, targetPixelsPerEm, out glyph);
+    }
+
+    /// <summary>
+    /// Decodes one embedded bitmap glyph into tightly packed straight-alpha
+    /// RGBA8 pixels and resolves the same presentation metrics used by the
+    /// managed glyph atlas. Callers retain the returned immutable byte array
+    /// at the scene/resource revision boundary instead of decoding per frame.
+    /// </summary>
+    internal bool TryDecodeBitmapGlyph(
+        ushort glyphIndex,
+        float targetPixelsPerEm,
+        out DecodedBitmapGlyphData decodedGlyph)
+    {
+        decodedGlyph = default;
+        if (!float.IsFinite(targetPixelsPerEm) || targetPixelsPerEm <= 0f ||
+            !TryGetBitmapGlyph(
+                glyphIndex,
+                targetPixelsPerEm,
+                out BitmapGlyphData bitmap))
+        {
+            return false;
+        }
+
+        ImageResult decoded;
+        try
+        {
+            byte[] encodedBytes =
+                MemoryMarshal.TryGetArray(
+                    bitmap.Data,
+                    out ArraySegment<byte> encodedSegment) &&
+                encodedSegment.Offset == 0 &&
+                encodedSegment.Count == encodedSegment.Array!.Length
+                    ? encodedSegment.Array
+                    : bitmap.Data.ToArray();
+            decoded = ImageResult.FromMemory(
+                encodedBytes,
+                ColorComponents.RedGreenBlueAlpha);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return false;
+        }
+
+        if (decoded.Width <= 0 || decoded.Height <= 0 ||
+            (long)decoded.Width * decoded.Height * 4L !=
+                decoded.Data.LongLength)
+        {
+            return false;
+        }
+
+        uint width = checked((uint)decoded.Width);
+        uint height = checked((uint)decoded.Height);
+        float bitmapScale = bitmap.PixelsPerEm > 0
+            ? targetPixelsPerEm / bitmap.PixelsPerEm
+            : 1f;
+        float bearX = bitmap.UsesHorizontalMetrics
+            ? bitmap.BearingX
+            : -(float)bitmap.OriginOffsetX;
+        float bearY = bitmap.UsesHorizontalMetrics
+            ? -bitmap.BearingY
+            : bitmap.OriginOffsetY - decoded.Height;
+        float renderWidth = 0f;
+        float renderHeight = 0f;
+        float rasterScale = bitmapScale;
+        if (!bitmap.UsesHorizontalMetrics && UnitsPerEm > 0 &&
+            TryGetGlyphBounds(
+                glyphIndex,
+                out short xMin,
+                out short yMin,
+                out short xMax,
+                out short yMax) &&
+            xMax > xMin && yMax > yMin)
+        {
+            float outlineScale = targetPixelsPerEm / UnitsPerEm;
+            bearX = xMin * outlineScale -
+                bitmap.OriginOffsetX * bitmapScale;
+            bearY = -yMax * outlineScale +
+                bitmap.OriginOffsetY * bitmapScale;
+            renderWidth = (xMax - xMin) * outlineScale;
+            renderHeight = (yMax - yMin) * outlineScale;
+            rasterScale = 1f;
+        }
+
+        decodedGlyph = new(
+            decoded.Data,
+            width,
+            height,
+            bearX,
+            bearY,
+            renderWidth,
+            renderHeight,
+            rasterScale);
+        return true;
     }
 
     private bool TryGetSbixBitmapGlyph(

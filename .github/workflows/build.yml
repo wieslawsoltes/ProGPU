@@ -9,10 +9,380 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
+  native-cpp-browser:
+    name: Native C++ browser WebGPU
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v16
+        with:
+          version: 4.0.18
+          actions-cache-folder: artifacts/emsdk-cache
+
+      - name: Build and test native browser renderer
+        shell: bash
+        env:
+          PROGPU_NATIVE_BROWSER_INSTALL_CHROMIUM: 1
+        run: ./eng/progpu-test-native-browser.sh
+
+      - name: Upload native browser evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-native-browser-webgpu
+          path: |
+            artifacts/progpu-native/browser-evidence/progpu-native-browser-webgpu.png
+            artifacts/progpu-native/browser-evidence/progpu-native-browser-contract.json
+          if-no-files-found: warn
+
+  native-cpp:
+    name: Native C++ renderer (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+          - os: macos-15-intel
+            rid: osx-x64
+          - os: macos-26
+            rid: osx-arm64
+          - os: windows-latest
+            rid: win-x64
+          - os: windows-11-arm
+            rid: win-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Cache Windows native dependencies
+        if: runner.os == 'Windows'
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.nuget/packages
+            artifacts/wgpu-native-src
+            artifacts/webgpu-headers-dawn
+          key: progpu-native-windows-v2-${{ matrix.rid }}-${{ hashFiles('global.json', 'Directory.Packages.props', 'src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj') }}
+
+      - name: Verify generated C# native contract
+        if: matrix.rid == 'linux-x64'
+        shell: bash
+        run: ./eng/progpu-verify-native-contract.sh
+
+      - name: Install Linux WebGPU dependencies
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        run: |
+          ./eng/progpu-install-linux-packages.sh \
+            clang \
+            clang-tools \
+            cmake \
+            ninja-build \
+            libvulkan1 \
+            mesa-vulkan-drivers \
+            libx11-xcb1 \
+            libxcb1 \
+            libxcb-randr0 \
+            libxcb-render0 \
+            libxcb-shape0 \
+            libxcb-shm0 \
+            libxcb-xfixes0 \
+            libxcb-present0 \
+            libxkbcommon0
+
+      - name: Install macOS native build tools
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Build and integration-test native renderer
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          PROGPU_NATIVE_RUN_SANITIZERS: ${{ matrix.rid == 'linux-x64' && '1' || '0' }}
+          PROGPU_NATIVE_RUN_DAWN_HEADER_CONTRACT: 1
+          PROGPU_NATIVE_ENABLE_CPP_MODULES: ${{ matrix.rid == 'linux-x64' && 'ON' || '' }}
+        run: |
+          ./eng/build-progpu-native.sh
+          ./eng/progpu-stage-native-runtime.sh
+
+      - name: Build and integration-test native renderer on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: >-
+          ./eng/build-progpu-native-windows.ps1
+          -Rid "${{ matrix.rid }}"
+          -BenchmarkProfile Smoke
+
+      - name: Verify exact WebScene provider on Metal
+        if: matrix.rid == 'osx-arm64'
+        shell: bash
+        run: ./eng/progpu-verify-native-webscene-provider.sh
+
+      - name: Upload WebScene provider hardware evidence
+        if: matrix.rid == 'osx-arm64'
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-native-webscene-provider-osx-arm64
+          path: |
+            artifacts/progpu-native/sample/progpu-native-webscene-provider.ppm
+            artifacts/progpu-native/sample/progpu-native-webscene-provider.png
+            artifacts/progpu-native/sample/progpu-native-webscene-provider.txt
+            artifacts/progpu-native/sample/progpu-native-managed-dawn.ppm
+            artifacts/progpu-native/sample/progpu-native-managed-dawn.png
+          if-no-files-found: error
+
+      - name: Upload native backend execution evidence
+        if: matrix.rid == 'linux-x64' || matrix.rid == 'linux-arm64' || matrix.rid == 'osx-x64' || matrix.rid == 'osx-arm64' || matrix.rid == 'win-x64' || matrix.rid == 'win-arm64'
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-native-backend-${{ matrix.rid }}
+          path: |
+            artifacts/progpu-native/sample/progpu-native-sample.ppm
+            artifacts/progpu-native/sample/progpu-native-provider.txt
+          if-no-files-found: error
+
+      - name: Upload native runtime
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-native-runtime-${{ matrix.rid }}
+          path: artifacts/progpu-native/package
+          if-no-files-found: error
+
+      - name: Upload native symbols
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-native-symbols-${{ matrix.rid }}
+          path: artifacts/progpu-native/symbols/${{ matrix.rid }}
+          if-no-files-found: warn
+
+  native-cpp-compiler-compat:
+    name: Native C++20 compiler compatibility (${{ matrix.compiler }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            compiler: GCC
+          - os: windows-latest
+            compiler: MSVC
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Cache MSVC qualification dependencies
+        if: matrix.compiler == 'MSVC'
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.nuget/packages
+            artifacts/wgpu-native-src
+          key: progpu-native-msvc-v2-${{ hashFiles('global.json', 'Directory.Packages.props', 'src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj') }}
+
+      - name: Install GCC compatibility dependencies
+        if: matrix.compiler == 'GCC'
+        timeout-minutes: 10
+        run: |
+          ./eng/progpu-install-linux-packages.sh \
+            cmake \
+            g++ \
+            ninja-build \
+            libvulkan1 \
+            mesa-vulkan-drivers \
+            libx11-xcb1 \
+            libxcb1 \
+            libxcb-randr0 \
+            libxcb-render0 \
+            libxcb-shape0 \
+            libxcb-shm0 \
+            libxcb-xfixes0 \
+            libxcb-present0 \
+            libxkbcommon0
+
+      - name: Compile and test with GCC C++20
+        if: matrix.compiler == 'GCC'
+        shell: bash
+        env:
+          PROGPU_NATIVE_CXX_COMPILER: g++
+          PROGPU_NATIVE_ENABLE_CPP_MODULES: OFF
+          PROGPU_NATIVE_SKIP_EXTENDED_INTEGRATION: 1
+        run: ./eng/build-progpu-native.sh
+
+      - name: Compile and test with Visual Studio MSVC C++20
+        if: matrix.compiler == 'MSVC'
+        shell: pwsh
+        run: >-
+          ./eng/build-progpu-native-windows.ps1
+          -Rid win-x64
+          -Compiler MSVC
+          -SkipExtendedIntegration
+
+  native-package:
+    name: Native C++ NuGet package
+    needs: native-cpp
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Install Linux WebGPU dependencies
+        timeout-minutes: 10
+        run: |
+          ./eng/progpu-install-linux-packages.sh libvulkan1 mesa-vulkan-drivers
+
+      - name: Download native runtimes
+        uses: actions/download-artifact@v8
+        with:
+          pattern: progpu-native-runtime-*
+          path: artifacts/progpu-native/package
+          merge-multiple: true
+
+      - name: Pack and run source-independent consumer
+        shell: bash
+        run: |
+          version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
+          echo "PROGPU_NATIVE_CI_VERSION=${version}" >> "${GITHUB_ENV}"
+          output="${GITHUB_WORKSPACE}/artifacts/packages-native/Release"
+          dotnet pack src/ProGPU.Backend/ProGPU.Backend.csproj \
+            --configuration Release --output "${output}" \
+            -p:Version="${version}" -p:PackageVersion="${version}"
+          dotnet pack src/ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj \
+            --configuration Release --output "${output}" \
+            -p:Version="${version}" -p:PackageVersion="${version}"
+          dotnet pack src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj \
+            --configuration Release --output "${output}" \
+            -p:Version="${version}" -p:PackageVersion="${version}"
+          PROGPU_PACKAGE_VERSION="${version}" \
+          PROGPU_PACKAGE_OUTPUT="${output}" \
+            ./eng/progpu-verify-native-package.sh
+
+      - name: Upload native NuGet package
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-native-package
+          path: |
+            artifacts/packages-native/Release/*.nupkg
+            artifacts/packages-native/Release/*.snupkg
+          if-no-files-found: error
+
+  native-package-consumer:
+    name: Native package consumer (${{ matrix.rid }})
+    needs: native-package
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+          - os: macos-15-intel
+            rid: osx-x64
+          - os: macos-26
+            rid: osx-arm64
+          - os: windows-latest
+            rid: win-x64
+          - os: windows-11-arm
+            rid: win-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Install Linux WebGPU dependencies
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        run: |
+          ./eng/progpu-install-linux-packages.sh libvulkan1 mesa-vulkan-drivers
+
+      - name: Download native NuGet package
+        uses: actions/download-artifact@v8
+        with:
+          name: progpu-native-package
+          path: artifacts/packages-native/Release
+
+      - name: Restore and run package consumer
+        shell: bash
+        run: |
+          version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
+          dotnet restore tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
+            -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
+            -p:ProGpuNativePackageVersion="${version}"
+          dotnet run --project tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
+            --configuration Release --no-restore \
+            -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
+            -p:ProGpuNativePackageVersion="${version}"
+
+      - name: Publish and run NativeAOT package consumer
+        shell: bash
+        run: |
+          version="0.1.0-ci.${GITHUB_RUN_NUMBER}"
+          output="${GITHUB_WORKSPACE}/artifacts/progpu-native/package-consumer-aot/${{ matrix.rid }}"
+          dotnet publish tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
+            --configuration Release \
+            --runtime "${{ matrix.rid }}" \
+            --self-contained true \
+            --output "${output}" \
+            -p:PublishAot=true \
+            -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
+            -p:ProGpuNativePackageVersion="${version}"
+          executable="${output}/ProGPU.Native.PackageConsumer"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            executable="${executable}.exe"
+          fi
+          test -x "${executable}"
+          "${executable}"
+
   avalonia-compositor-contract:
     name: Avalonia retained compositor contract
     runs-on: ubuntu-latest
@@ -339,6 +709,7 @@ jobs:
     name: Pack portable packages
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: native-cpp
 
     steps:
       - name: Checkout
@@ -350,6 +721,13 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
+
+      - name: Download native runtimes
+        uses: actions/download-artifact@v8
+        with:
+          pattern: progpu-native-runtime-*
+          path: artifacts/progpu-native/package
+          merge-multiple: true
 
       - name: Pack shipping packages
         shell: bash
@@ -367,7 +745,10 @@ jobs:
   pack-mobile:
     name: Pack mobile packages
     runs-on: macos-26
-    timeout-minutes: 30
+    # The provider-resolved Android+iOS cross-build alone can exceed 45
+    # minutes on a cold hosted runner. Leave enough budget for workload
+    # restore, package verification, and artifact upload after compilation.
+    timeout-minutes: 75
 
     steps:
       - name: Checkout
@@ -378,6 +759,19 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android NDK
+        shell: bash
+        run: |
+          sdkmanager "ndk;27.2.12479018"
+          echo "ANDROID_NDK_ROOT=${ANDROID_SDK_ROOT}/ndk/27.2.12479018" >> "${GITHUB_ENV}"
+
+      - name: Build provider-resolved mobile C++ renderer
+        shell: bash
+        run: ./eng/build-progpu-native-mobile.sh all
+
       - name: Restore mobile workloads
         run: |
           dotnet workload restore src/ProGPU.Android/ProGPU.Android.csproj --skip-manifest-update
@@ -385,7 +779,21 @@ jobs:
 
       - name: Pack mobile packages
         shell: bash
-        run: PROGPU_PACKAGE_GROUP=mobile PROGPU_PACKAGE_VERSION=0.1.0-ci.${{ github.run_number }} PROGPU_PACKAGE_OUTPUT=artifacts/packages-mobile/Release ./eng/progpu-pack.sh
+        run: |
+          PROGPU_PACKAGE_GROUP=mobile \
+          PROGPU_PACKAGE_VERSION=0.1.0-ci.${{ github.run_number }} \
+          PROGPU_PACKAGE_OUTPUT=artifacts/packages-mobile/Release \
+            ./eng/progpu-pack.sh
+          PROGPU_PACKAGE_VERSION=0.1.0-ci.${{ github.run_number }} \
+          PROGPU_PACKAGE_OUTPUT=artifacts/packages-mobile/Release \
+            ./eng/progpu-verify-native-mobile-package.sh
+
+      - name: Upload mobile C++ renderer artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-native-mobile
+          path: artifacts/progpu-native/mobile
+          if-no-files-found: error
 
       - name: Upload NuGet packages
         uses: actions/upload-artifact@v7

@@ -1,0 +1,70 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
+    <IsPackable>true</IsPackable>
+    <PackageDescription>Typed zero-copy .NET host plus standalone C++20 SDK for the isolated wgpu-native and provider-resolved Dawn ProGPU renderers.</PackageDescription>
+    <PackageTags>progpu;native;c++;webgpu;renderer;interop</PackageTags>
+    <ProGpuNativeRuntimeRoot Condition="'$(ProGpuNativeRuntimeRoot)' == ''">$(MSBuildThisFileDirectory)..\..\artifacts\progpu-native\package</ProGpuNativeRuntimeRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
+    <ProjectReference Include="..\ProGPU.Backend.Dawn\ProGPU.Backend.Dawn.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="ProGPU.Tests, PublicKey=$(ProGPUPublicKey)" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="$(ProGpuNativeRuntimeRoot)\**\*"
+          Pack="true"
+          PackagePath="%(RecursiveDir)%(Filename)%(Extension)"
+          Visible="false" />
+    <None Include="..\ProGPU.Native\include\*"
+          Pack="true"
+          PackagePath="build\native\include\%(Filename)%(Extension)"
+          Visible="false" />
+    <None Include="..\ProGPU.Native\src\Compression\progpu_native_compression.cppm;
+                   ..\ProGPU.Native\src\HitTesting\progpu_native_hit_testing.cppm;
+                   ..\ProGPU.Native\src\Image\progpu_native_image.cppm;
+                   ..\ProGPU.Native\src\Scene\Builder\progpu_native_scene_builder.cppm;
+                   ..\ProGPU.Native\src\Text\progpu_native_text.cppm"
+          Pack="true"
+          PackagePath="build\native\modules\%(Filename)%(Extension)"
+          Visible="false" />
+    <None Include="..\ProGPU.Native\cmake\ProGPUNativeConfig.cmake"
+          Pack="true"
+          PackagePath="build\native\cmake\ProGPUNativeConfig.cmake"
+          Visible="false" />
+  </ItemGroup>
+  <Target Name="ValidateProGpuNativePackageRuntimes"
+          BeforeTargets="Pack"
+          Condition="'$(ProGpuNativeSkipRuntimeValidation)' != 'true'">
+    <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\linux-x64\native\libprogpu_native.so')"
+           Text="The linux-x64 ProGPU native runtime has not been staged." />
+    <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\linux-arm64\native\libprogpu_native.so')"
+           Text="The linux-arm64 ProGPU native runtime has not been staged." />
+    <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\osx-x64\native\libprogpu_native.dylib')"
+           Text="The osx-x64 ProGPU native runtime has not been staged." />
+    <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\osx-arm64\native\libprogpu_native.dylib')"
+           Text="The osx-arm64 ProGPU native runtime has not been staged." />
+    <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\win-x64\native\progpu_native.dll')"
+           Text="The win-x64 ProGPU native runtime has not been staged." />
+    <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\win-arm64\native\progpu_native.dll')"
+           Text="The win-arm64 ProGPU native runtime has not been staged." />
+    <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\linux-x64\native\libprogpu_native_dawn.so')"
+           Text="The linux-x64 ProGPU Dawn adapter has not been staged." />
+    <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\linux-arm64\native\libprogpu_native_dawn.so')"
+           Text="The linux-arm64 ProGPU Dawn adapter has not been staged." />
+    <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\osx-x64\native\libprogpu_native_dawn.dylib')"
+           Text="The osx-x64 ProGPU Dawn adapter has not been staged." />
+    <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\osx-arm64\native\libprogpu_native_dawn.dylib')"
+           Text="The osx-arm64 ProGPU Dawn adapter has not been staged." />
+    <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\win-x64\native\progpu_native_dawn.dll')"
+           Text="The win-x64 ProGPU Dawn adapter has not been staged." />
+    <Error Condition="!Exists('$(ProGpuNativeRuntimeRoot)\runtimes\win-arm64\native\progpu_native_dawn.dll')"
+           Text="The win-arm64 ProGPU Dawn adapter has not been staged." />
+  </Target>
+</Project>

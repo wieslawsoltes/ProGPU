@@ -5,7 +5,6 @@ using System.Runtime.InteropServices;
 using Silk.NET.WebGPU;
 using ProGPU.Backend;
 using ProGPU.Vector;
-using StbImageSharp;
 
 namespace ProGPU.Text;
 
@@ -1109,32 +1108,16 @@ public unsafe class GlyphAtlas : IDisposable
         out GlyphInfo info)
     {
         info = default;
-        if (!font.TryGetBitmapGlyph(glyphIndex, size, out var bitmap))
+        if (!font.TryDecodeBitmapGlyph(
+                glyphIndex,
+                size,
+                out DecodedBitmapGlyphData decoded))
         {
             return false;
         }
 
-        ImageResult decoded;
-        try
-        {
-            decoded = ImageResult.FromMemory(
-                bitmap.Data.ToArray(),
-                ColorComponents.RedGreenBlueAlpha);
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            return false;
-        }
-
-        if (decoded.Width <= 0 ||
-            decoded.Height <= 0 ||
-            (long)decoded.Width * decoded.Height * 4L > decoded.Data.LongLength)
-        {
-            return false;
-        }
-
-        var width = checked((uint)decoded.Width);
-        var height = checked((uint)decoded.Height);
+        uint width = decoded.Width;
+        uint height = decoded.Height;
         if (!TryAllocateAtlasRegion(
                 width,
                 height,
@@ -1148,44 +1131,25 @@ public unsafe class GlyphAtlas : IDisposable
             return false;
         }
 
-        _colorAtlasTexture.WritePixelsSubRect(decoded.Data, x, y, width, height);
+        _colorAtlasTexture.WritePixelsSubRect(
+            decoded.RgbaPixels,
+            x,
+            y,
+            width,
+            height);
         var texelSize = 1f / _colorAtlasSize;
-        var bitmapScale = bitmap.PixelsPerEm > 0 ? size / bitmap.PixelsPerEm : 1f;
-        var bearX = bitmap.UsesHorizontalMetrics
-            ? bitmap.BearingX
-            : -(float)bitmap.OriginOffsetX;
-        var bearY = bitmap.UsesHorizontalMetrics
-            ? -bitmap.BearingY
-            : bitmap.OriginOffsetY - (float)decoded.Height;
-        var renderWidth = 0f;
-        var renderHeight = 0f;
-        var rasterScale = bitmapScale;
-        if (!bitmap.UsesHorizontalMetrics &&
-            font.UnitsPerEm > 0 &&
-            font.TryGetGlyphBounds(glyphIndex, out var xMin, out var yMin, out var xMax, out var yMax) &&
-            xMax > xMin &&
-            yMax > yMin)
-        {
-            var outlineScale = size / font.UnitsPerEm;
-            bearX = xMin * outlineScale - bitmap.OriginOffsetX * bitmapScale;
-            bearY = -yMax * outlineScale + bitmap.OriginOffsetY * bitmapScale;
-            renderWidth = (xMax - xMin) * outlineScale;
-            renderHeight = (yMax - yMin) * outlineScale;
-            rasterScale = 1f;
-        }
-
         info = new GlyphInfo
         {
             X = x,
             Y = y,
             Width = width,
             Height = height,
-            BearX = bearX,
-            BearY = bearY,
-            RenderWidth = renderWidth,
-            RenderHeight = renderHeight,
+            BearX = decoded.BearX,
+            BearY = decoded.BearY,
+            RenderWidth = decoded.RenderWidth,
+            RenderHeight = decoded.RenderHeight,
             Advance = font.GetAdvanceWidth(glyphIndex, size),
-            RasterScale = rasterScale,
+            RasterScale = decoded.RasterScale,
             IsColorBitmap = true,
             TexCoordMin = new Vector2(x * texelSize, y * texelSize),
             TexCoordMax = new Vector2((x + width) * texelSize, (y + height) * texelSize),

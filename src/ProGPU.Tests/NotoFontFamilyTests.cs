@@ -70,6 +70,24 @@ public sealed class NotoFontFamilyTests
     }
 
     [Theory]
+    [InlineData('A', 34, 14, 1714381338565491643UL)]
+    [InlineData('日', 20220, 16, 5620540281806238275UL)]
+    public void JapaneseCffOutlinesMatchNativeCanonicalSegmentCheckpoints(
+        char character,
+        ushort expectedGlyph,
+        int expectedSegments,
+        ulong expectedHash)
+    {
+        TtfFont font = NotoFontFamily.Japanese;
+        ushort glyph = font.GetGlyphIndex(character);
+        PathGeometry outline = Assert.IsType<PathGeometry>(font.GetGlyphOutline(glyph));
+
+        Assert.Equal(expectedGlyph, glyph);
+        Assert.Equal(expectedSegments, CountCanonicalSegments(outline));
+        Assert.Equal(expectedHash, HashCanonicalSegments(outline));
+    }
+
+    [Theory]
     [InlineData('♠')]
     [InlineData('♦')]
     [InlineData('♣')]
@@ -149,5 +167,82 @@ public sealed class NotoFontFamilyTests
     {
         Assert.InRange(MathF.Abs(expected.X - actual.X), 0f, 0.001f);
         Assert.InRange(MathF.Abs(expected.Y - actual.Y), 0f, 0.001f);
+    }
+
+    private static int CountCanonicalSegments(PathGeometry geometry)
+    {
+        int count = 0;
+        foreach (PathFigure figure in geometry.Figures)
+        {
+            count += figure.Segments.Count;
+            System.Numerics.Vector2 current = figure.StartPoint;
+            foreach (PathSegment segment in figure.Segments)
+            {
+                current = segment switch
+                {
+                    LineSegment line => line.Point,
+                    CubicBezierSegment cubic => cubic.Point,
+                    _ => current
+                };
+            }
+            if (figure.IsClosed && current != figure.StartPoint)
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static ulong HashCanonicalSegments(PathGeometry geometry)
+    {
+        const ulong offset = 1469598103934665603UL;
+        const ulong prime = 1099511628211UL;
+        ulong hash = offset;
+        static uint Bits(float value) => BitConverter.SingleToUInt32Bits(value);
+        void Append(uint value) => hash = (hash ^ value) * prime;
+        void AppendPoint(System.Numerics.Vector2 point)
+        {
+            Append(Bits(point.X));
+            Append(Bits(point.Y));
+        }
+
+        foreach (PathFigure figure in geometry.Figures)
+        {
+            System.Numerics.Vector2 current = figure.StartPoint;
+            foreach (PathSegment segment in figure.Segments)
+            {
+                switch (segment)
+                {
+                    case LineSegment line:
+                        Append(0U);
+                        AppendPoint(current);
+                        AppendPoint(line.Point);
+                        AppendPoint(default);
+                        AppendPoint(default);
+                        current = line.Point;
+                        break;
+                    case CubicBezierSegment cubic:
+                        Append(2U);
+                        AppendPoint(current);
+                        AppendPoint(cubic.ControlPoint1);
+                        AppendPoint(cubic.ControlPoint2);
+                        AppendPoint(cubic.Point);
+                        current = cubic.Point;
+                        break;
+                    default:
+                        throw new Xunit.Sdk.XunitException(
+                            $"Unexpected canonical CFF segment {segment.GetType().Name}.");
+                }
+            }
+            if (figure.IsClosed && current != figure.StartPoint)
+            {
+                Append(0U);
+                AppendPoint(current);
+                AppendPoint(figure.StartPoint);
+                AppendPoint(default);
+                AppendPoint(default);
+            }
+        }
+        return hash;
     }
 }

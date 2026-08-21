@@ -370,6 +370,108 @@ public sealed class OpenTypeTextShaperTests
     }
 
     [Fact]
+    public void InterDesignUnitShapingMatchesNativeQualificationSignature()
+    {
+        using var glyphs = new ShapingBuffer(64);
+        OpenTypeTextShaper.ShapeDesignUnits(
+            "AVATAR",
+            InterFontFamily.GetFont(500),
+            TextShapingOptions.Default,
+            glyphs);
+
+        ulong hash = 1469598103934665603UL;
+        static void Mix(ref ulong value, uint field)
+        {
+            for (int shift = 0; shift < 32; shift += 8)
+            {
+                value ^= (field >> shift) & 0xffU;
+                value *= 1099511628211UL;
+            }
+        }
+
+        Mix(ref hash, (uint)glyphs.Count);
+        foreach (ref readonly ShapingGlyph glyph in glyphs.Glyphs)
+        {
+            Mix(ref hash, glyph.GlyphId);
+            Mix(ref hash, unchecked((uint)glyph.Cluster));
+            Mix(ref hash, unchecked((uint)glyph.AdvanceX));
+            Mix(ref hash, unchecked((uint)glyph.AdvanceY));
+            Mix(ref hash, unchecked((uint)glyph.OffsetX));
+            Mix(ref hash, unchecked((uint)glyph.OffsetY));
+            Mix(ref hash, (uint)glyph.Flags);
+        }
+
+        Assert.Equal(13341559627338683649UL, hash);
+
+        using var contextual = new ShapingBuffer(64);
+        OpenTypeTextShaper.ShapeDesignUnits(
+            "office AV",
+            InterFontFamily.GetFont(500),
+            TextShapingOptions.Default,
+            contextual);
+        ulong contextualHash = 1469598103934665603UL;
+        Mix(ref contextualHash, (uint)contextual.Count);
+        foreach (ref readonly ShapingGlyph glyph in contextual.Glyphs)
+        {
+            Mix(ref contextualHash, glyph.GlyphId);
+            Mix(ref contextualHash, unchecked((uint)glyph.Cluster));
+            Mix(ref contextualHash, unchecked((uint)glyph.AdvanceX));
+            Mix(ref contextualHash, unchecked((uint)glyph.AdvanceY));
+            Mix(ref contextualHash, unchecked((uint)glyph.OffsetX));
+            Mix(ref contextualHash, unchecked((uint)glyph.OffsetY));
+            Mix(ref contextualHash, (uint)glyph.Flags);
+        }
+        Assert.Equal(17720644002999414799UL, contextualHash);
+
+        using var ranged = new ShapingBuffer(64);
+        CpuOpenTypeShaper.Instance.Shape(
+            "office AV",
+            new TtfShapingFontFace(InterFontFamily.GetFont(500)),
+            new ShapingRequest(
+                ShapingDirection.LeftToRight,
+                new OpenTypeTag("latn"),
+                features: new ShapingFeature[]
+                {
+                    new ShapingFeature(new OpenTypeTag("liga"), 0, 0, 6),
+                    new ShapingFeature(new OpenTypeTag("kern"), 0, 7, 9)
+                }),
+            ranged);
+        ulong rangedHash = 1469598103934665603UL;
+        Mix(ref rangedHash, (uint)ranged.Count);
+        foreach (ref readonly ShapingGlyph glyph in ranged.Glyphs)
+        {
+            Mix(ref rangedHash, glyph.GlyphId);
+            Mix(ref rangedHash, unchecked((uint)glyph.Cluster));
+            Mix(ref rangedHash, unchecked((uint)glyph.AdvanceX));
+            Mix(ref rangedHash, unchecked((uint)glyph.AdvanceY));
+            Mix(ref rangedHash, unchecked((uint)glyph.OffsetX));
+            Mix(ref rangedHash, unchecked((uint)glyph.OffsetY));
+            Mix(ref rangedHash, (uint)glyph.Flags);
+        }
+        Assert.Equal(14240206642389312925UL, rangedHash);
+
+        using var fraction = new ShapingBuffer(64);
+        OpenTypeTextShaper.ShapeDesignUnits(
+            "1\u20442",
+            InterFontFamily.GetFont(500),
+            TextShapingOptions.Default,
+            fraction);
+        ulong fractionHash = 1469598103934665603UL;
+        Mix(ref fractionHash, (uint)fraction.Count);
+        foreach (ref readonly ShapingGlyph glyph in fraction.Glyphs)
+        {
+            Mix(ref fractionHash, glyph.GlyphId);
+            Mix(ref fractionHash, unchecked((uint)glyph.Cluster));
+            Mix(ref fractionHash, unchecked((uint)glyph.AdvanceX));
+            Mix(ref fractionHash, unchecked((uint)glyph.AdvanceY));
+            Mix(ref fractionHash, unchecked((uint)glyph.OffsetX));
+            Mix(ref fractionHash, unchecked((uint)glyph.OffsetY));
+            Mix(ref fractionHash, (uint)glyph.Flags);
+        }
+        Assert.Equal(13775989768008147903UL, fractionHash);
+    }
+
+    [Fact]
     public void IndicSyllableBoundariesExposeUnsafeToBreakDependencies()
     {
         IReadOnlyList<ShapedGlyph> glyphs = OpenTypeTextShaper.Shape(

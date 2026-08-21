@@ -29,6 +29,14 @@ public class SfntFontFaceTests
         vdiPDvbvfd8PdP/uk/rTwc4HAFZkMPwAAAH0AAAAMgAA
         """;
 
+    internal static byte[] BuildSingleBitmapGlyphFont() =>
+        BuildSfntWithTables(
+            ("head", BuildHeadTable()),
+            ("maxp", BuildMaxpTable(3)),
+            ("cmap", BuildCmapFormat4Table()),
+            ("sbix", BuildSingleSbixTable(
+                Convert.FromBase64String(OnePixelPngBase64))));
+
     [Fact]
     public void ReadsNamesFromSfntNameTable()
     {
@@ -42,6 +50,17 @@ public class SfntFontFaceTests
         Assert.Equal("ProGPU Sans Regular", fullName);
         Assert.True(face.TryGetTable("name", out ReadOnlyMemory<byte> nameTable));
         Assert.NotEqual(0, nameTable.Length);
+    }
+
+    [Fact]
+    public void NameDecodeRemovesNulsAndTrimsLikeNativeMetadataContract()
+    {
+        byte[] fontData = BuildSfnt("ProGPU Sans", " \0ProGPU Sans Regular ");
+
+        SfntFontFace face = SfntFontFace.Load(fontData);
+
+        Assert.True(face.TryGetName(SfntNameIds.FullName, out string fullName));
+        Assert.Equal("ProGPU Sans Regular", fullName);
     }
 
     [Fact]
@@ -503,6 +522,71 @@ public class SfntFontFaceTests
         var gradient = Assert.IsType<LinearGradientBrush>(layer.Brush);
         Assert.Equal(new Vector2(10, 20), gradient.StartPoint);
         Assert.Equal(new Vector2(20, 20), gradient.EndPoint);
+    }
+
+    [Fact]
+    public void OpenTypeSvgManagedOracleMatchesNativeLayerFixture()
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg"
+                 fill="red" transform="translate(1 2)">
+              <defs>
+                <linearGradient id="gradient" gradientTransform="scale(2)"
+                                spreadMethod="reflect">
+                  <stop offset="0%" stop-color="#000"/>
+                  <stop offset="100%" stop-color="#fff" stop-opacity="50%"/>
+                </linearGradient>
+                <radialGradient id="radial" cx="20" cy="20" r="5"
+                                fx="18" fy="19" spreadMethod="repeat">
+                  <stop offset="0" stop-color="red"/>
+                  <stop offset="1" stop-color="blue"/>
+                </radialGradient>
+                <rect id="box" x="0" y="0" width="5" height="6"
+                      fill="url(#gradient)"/>
+              </defs>
+              <g id="glyph7" opacity="50%" transform="translate(10 20)">
+                <path d="M0 0L10 0L0 10Z" fill="#0f08"
+                      fill-rule="evenodd"/>
+                <use href="#box" x="3" y="4"/>
+                <circle cx="20" cy="20" r="5" fill="url(#radial)"/>
+                <polygon points="30,0 40,0 35,10" fill="currentColor"/>
+              </g>
+            </svg>
+            """;
+        byte[] fontData = BuildSfntWithTables(
+            ("head", BuildHeadTable()),
+            ("maxp", BuildMaxpTable(8)),
+            ("cmap", BuildCmapFormat4Table()),
+            ("SVG ", BuildSingleSvgTable(svg, compress: false, glyphId: 7)));
+        var font = new TtfFont(fontData);
+
+        List<FontColorLayer> layers = Assert.IsType<List<FontColorLayer>>(
+            font.GetColorLayers(7));
+
+        Assert.Equal(4, layers.Count);
+        Assert.All(layers, static layer => Assert.True(layer.UsesSvgCoordinates));
+        Assert.True(layers[0].Geometry!.TryGetBounds(out var pathMin, out var pathMax));
+        Assert.Equal(new Vector2(11, 22), pathMin);
+        Assert.Equal(new Vector2(21, 32), pathMax);
+        var solid = Assert.IsType<SolidColorBrush>(layers[0].Brush);
+        Assert.Equal(1f, solid.Color.Y);
+        Assert.Equal(4f / 15f, solid.Color.W, precision: 5);
+
+        Assert.True(layers[1].Geometry!.TryGetBounds(out var rectMin, out var rectMax));
+        Assert.Equal(new Vector2(14, 26), rectMin);
+        Assert.Equal(new Vector2(19, 32), rectMax);
+        var linear = Assert.IsType<LinearGradientBrush>(layers[1].Brush);
+        Assert.Equal(new Vector2(14, 26), linear.StartPoint);
+        Assert.Equal(new Vector2(2014, 26), linear.EndPoint);
+        Assert.Equal(GradientSpreadMethod.Reflect, linear.SpreadMethod);
+        Assert.Equal(0.25f, linear.Stops[1].Color.W, precision: 5);
+
+        var radial = Assert.IsType<RadialGradientBrush>(layers[2].Brush);
+        Assert.Equal(new Vector2(31, 42), radial.Center);
+        Assert.Equal(new Vector2(29, 41), radial.GradientOrigin);
+        Assert.Equal(5f, radial.RadiusX);
+        Assert.Equal(5f, radial.RadiusY);
+        Assert.Equal(GradientSpreadMethod.Repeat, radial.SpreadMethod);
     }
 
     [Fact]
@@ -1277,7 +1361,10 @@ public class SfntFontFaceTests
         writer.Write((byte)5); // vertical advance
     }
 
-    private static byte[] BuildSingleSvgTable(string xml, bool compress)
+    private static byte[] BuildSingleSvgTable(
+        string xml,
+        bool compress,
+        ushort glyphId = 1)
     {
         byte[] document = Encoding.UTF8.GetBytes(xml);
         if (compress)
@@ -1296,8 +1383,8 @@ public class SfntFontFaceTests
         WriteUInt(writer, 10);
         WriteUInt(writer, 0);
         WriteUShort(writer, 1);
-        WriteUShort(writer, 1);
-        WriteUShort(writer, 1);
+        WriteUShort(writer, glyphId);
+        WriteUShort(writer, glyphId);
         WriteUInt(writer, 14);
         WriteUInt(writer, (uint)document.Length);
         writer.Write(document);

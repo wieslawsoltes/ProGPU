@@ -14,6 +14,21 @@ for research, but that research may inform only observable behavior, public cont
 algorithms described in specifications or papers, architecture, test cases, and measured
 tradeoffs. It must not be used as a source-text implementation shortcut.
 
+This restriction does not prohibit cross-language or cross-backend ports of original
+ProGPU-owned implementation already present in this repository. The existing original
+ProGPU C# implementation, C++ implementation, and production shader sources are already
+covered by this clean-room policy and are approved authoritative sources for direct ports,
+translations, refactoring, and sharing across ProGPU languages and backends. Such work
+must record the exact in-repository source provenance, preserve the original public and
+performance contracts, add matched cross-implementation differential tests, and must not
+introduce implementation text or structure that originated in a third-party project.
+Parallel ProGPU backends should fully port the applicable proven ProGPU-owned algorithms
+and contracts rather than replace them with reduced approximations. Backend-specific data
+layout and ownership may be optimized when behavior, quality, complexity, and performance
+contracts remain equivalent and the difference is documented and measured.
+The existing ProGPU implementation is authoritative for behavioral compatibility;
+third-party engines remain research and conformance references only.
+
 When an equivalent feature exists elsewhere, implement it clean-room:
 
 * Start from authoritative specifications, public API contracts, primary research, and
@@ -37,6 +52,80 @@ When an equivalent feature exists elsewhere, implement it clean-room:
 Third-party dependencies may be consumed only through the repository's normal reviewed
 package, submodule, or explicitly vendored-dependency process with compatible licensing;
 that does not permit copying their source into ordinary ProGPU implementation files.
+
+### A-2. Mandatory High-Performance C# / C++ Boundary
+
+Treat every managed/native crossing as a measured rendering hot path and keep the native
+contract suitable for desktop, mobile, NativeAOT, and browser/Wasm hosts.
+
+* Batch work by immutable scene/resource generation. Normal retained operation performs at
+  most one scene update call when content changes and one render/submission call per frame;
+  never add per-command, per-primitive, per-glyph, per-font-table, or per-cache-entry P/Invoke.
+* Make the public C header the source of truth for eligible blittable enums, flags, constants,
+  and fixed-layout records. Generate matching internal C# wire declarations from marked
+  native contracts, keep checked-in output deterministic, and fail PR/release CI when it is
+  stale. Handwritten C# may provide typed partial wrappers, validation, spans, ownership,
+  and convenience APIs, but must not duplicate opted-in field layouts or numeric values.
+* Use source-generated `LibraryImport` with runtime marshalling disabled, an explicit calling
+  convention, and blittable primitives/pointers. Do not use reflection, object marshalling,
+  COM-style variant transport, per-call delegates, strings, arrays, or wrapper allocation in
+  render, update, shaping, layout, upload, cache, or submission paths. UTF-8 conversion and
+  reverse callbacks are limited to initialization, symbol resolution, diagnostics, or bounded
+  asynchronous completion seams and must use cached state or `UnmanagedCallersOnly` where
+  applicable.
+* Pass caller-owned contiguous data as pinned `Span<T>`/`ReadOnlySpan<T>` only for synchronous
+  calls whose native implementation cannot retain the pointer. Persistent pointer-free streams
+  use fixed-width little-endian offsets and counts, never process-sized pointers or `size_t`.
+  Native retention requires an explicit owned snapshot or typed lease; same-device GPU resources
+  carry device-domain identity and remain leased through their submission/fence completion.
+* Prefer bounded `stackalloc`, ref structs, `MemoryMarshal`, generated sequential/explicit
+  records, reusable arenas, and native-owned caches. Do not copy a scene merely to cross the
+  boundary, pin an object beyond its documented synchronous lifetime, allocate a `SafeHandle`
+  or delegate per frame, or return variable native data through repeated size-probe calls when
+  a caller-provided bounded buffer or immutable snapshot can be used.
+* No C++ exception, STL object, compiler-specific class layout, or backend WebGPU descriptor may
+  cross the stable C ABI. Return typed status codes and populate caller-owned metrics/error
+  buffers. Validate structure size, ABI version, alignment, enum/flag ranges, reserved zeros,
+  offsets, overflow, and device domain before native handle use; cover both 32-bit and 64-bit
+  layouts where the contract is portable.
+* Gate boundary changes with matched Release measurements: crossings per update/frame, bytes
+  copied, pin duration, upload bytes, managed/native allocations, and CPU submission p50/p95/p99.
+  Stable replay must remain zero managed allocation and zero retained upload. Compare the same
+  final managed/native binaries and investigate statistically repeatable regressions before
+  integration.
+
+### A-3. Mandatory Clang, C++20, and Module-First Native Code
+
+All ProGPU-owned native renderer, scene compiler, text, font, shaping, and layout code targets
+portable standard C++20. Clang is the primary/reference toolchain: LLVM Clang on Linux, Apple
+Clang or LLVM Clang on macOS/iOS, clang-cl on Windows, Android NDK Clang, and Emscripten Clang
+in the browser. The header compatibility path must also compile with current GCC and the Visual
+Studio MSVC compiler in strict C++20 mode. Keep compiler extensions disabled, warnings as
+errors, and sanitizer coverage on supported host lanes. Do not add a Clang-only, GCC-only,
+MSVC-only, or newer-language implementation path outside a narrowly feature-detected build
+adapter.
+
+* Prefer standard C++20 named modules and internal module partitions for new ProGPU-owned C++
+  APIs and cohesive implementation domains. Avoid adding broad textual internal headers,
+  transitive include graphs, macro-configured implementation, or umbrella headers when a
+  module interface or partition can express the dependency and ownership boundary.
+* Keep `progpu_native.h` as the stable C ABI authority and retain a thin installed C++ header
+  compatibility surface for C consumers, Emscripten configurations without module dependency
+  scanning, and downstream build systems that cannot yet import named modules. Module and
+  header consumers must compile the same implementation sources and must never become semantic
+  forks.
+* Use CMake `FILE_SET CXX_MODULES` with CMake 3.28 or newer, C++20 dependency scanning, and a
+  supported Ninja or Visual Studio generator. Do not use experimental Clang header modules,
+  header units, `import std`, manually shared compiler-specific BMI files, or checked-in BMI
+  artifacts. BMIs are toolchain/configuration outputs and must remain inside the build tree.
+* Require an import-based native consumer test whenever a public module surface changes. Keep
+  a matching include-based consumer test for the compatibility surface, and run both against
+  the same library. Keep explicit GCC and MSVC compatibility gates in addition to the primary
+  Clang matrix. Browser/Wasm CI must continue compiling the compatibility path until the pinned
+  Emscripten/CMake toolchain provides production-ready standard-module scanning.
+* Record compile-time/toolchain measurements when migrating a substantial header graph. Module
+  adoption must not weaken ABI validation, warnings, sanitizers, packaging, cross-platform
+  builds, or runtime performance and output-quality gates.
 
 ### A0. Reflection-Free WPF Port Support
 When adding ProGPU APIs for the WPF port, keep hot paths typed and source-integrated. Runtime reflection is allowed only for diagnostics, compatibility probes, or transitional adapters with a documented removal path; rendering, text, image upload, clipping, hit testing, shader effects, DirectX shims, cache metadata, and platform services should be implemented as reusable ProGPU/Silk.NET primitives or neutral DTO contracts instead of WPF bridge workarounds.
@@ -67,6 +156,13 @@ When creating or refactoring UI controls:
 ### D. Mandatory Shader Source and Complexity Contract
 
 Static production shader source must be reusable, reviewable source code rather than a C# string literal.
+
+The managed and native backends must consume the same canonical ProGPU-owned production
+shader files whenever they implement the same GPU algorithm. Build systems may generate
+different embedding wrappers or bindings, but must not maintain translated or duplicated
+WGSL, GLSL, or HLSL forks. A genuinely target-specific shader variant requires a documented
+technical reason, the same algorithm/complexity contract, and matched output/performance
+tests against the canonical implementation.
 
 * Put each fixed WGSL, GLSL, or HLSL module or composition template in its owning project's `Shaders/` directory, using the proper `.wgsl`, `.glsl`, or `.hlsl` extension. Keep one logical module or template per file.
 * Load embedded shader source through `ProGPU.Backend.ShaderResource` into a `static readonly string`. The shared build glob in `Directory.Build.props` embeds the files, and the loader caches UTF-8 decoding by assembly and filename. Never open a manifest stream, read a shader file, concatenate fixed helpers, or decode source in a frame, draw, dispatch, atlas, or pipeline-cache hot path.

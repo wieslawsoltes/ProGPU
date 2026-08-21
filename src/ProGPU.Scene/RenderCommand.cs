@@ -427,7 +427,7 @@ public sealed class RenderCommandGeometryCache
         SecondaryFillPath = secondaryFillPath;
     }
 
-    public PathGeometry? StrokePath { get; }
+    public PathGeometry? StrokePath { get; private set; }
     public PathGeometry? FillPath { get; }
     public PathGeometry? SecondaryFillPath { get; }
 
@@ -441,6 +441,26 @@ public sealed class RenderCommandGeometryCache
     {
         ArgumentNullException.ThrowIfNull(path);
         return new RenderCommandGeometryCache(path, null, null);
+    }
+
+    internal static RenderCommandGeometryCache ForDeferredStrokePath() =>
+        new(null, null, null);
+
+    internal PathGeometry GetOrCreatePolylineStrokePath(
+        ReadOnlySpan<Vector2> points,
+        bool isClosed)
+    {
+        if (StrokePath != null)
+        {
+            return StrokePath;
+        }
+
+        // Span-recorded points already have retained ownership in DrawingContext's
+        // point arena. Materialize the object graph once on first compilation so
+        // recording remains O(N) copy work with O(1) object allocation and stable
+        // replay never reconstructs either the source or dashed geometry.
+        StrokePath = CreatePolylinePath(points, isClosed);
+        return StrokePath;
     }
 
     public static RenderCommandGeometryCache ForFillPath(PathGeometry path)
@@ -2456,6 +2476,16 @@ public class GpuPicture :
     private RenderCommand[]? _materializedCommands;
     public RenderCommand[] Commands =>
         _materializedCommands ??= _retainedCommands.Clone();
+    /// <summary>
+    /// Gets the number of immutable retained commands without materializing
+    /// the compatibility <see cref="Commands"/> array.
+    /// </summary>
+    public int CommandCount => _retainedCommands.Count;
+
+    /// <summary>
+    /// Reads one immutable retained command in O(1) time without allocating.
+    /// </summary>
+    public RenderCommand GetCommand(int index) => _retainedCommands[index];
     public Vector2[] PointBuffer { get; }
     public double[] DoubleBuffer { get; }
     public Line3D[] Line3DBuffer { get; }
@@ -3424,6 +3454,27 @@ public class DrawingContext :
         return leases;
     }
 
+    /// <summary>
+    /// Creates an immutable retained snapshot without clearing this recording
+    /// context. Static-buffer compilation uses the snapshot as the
+    /// backend-neutral source for native scene lowering; all command-side
+    /// arrays and retained resource leases remain independent of later context
+    /// reuse.
+    /// </summary>
+    internal GpuPicture CreatePictureSnapshot() => new(
+        Commands.AsSpan(),
+        CopyBuffer(_pointBuffer),
+        CopyBuffer(_doubleBuffer),
+        CopyBuffer(_line3DBuffer),
+        CopyBuffer(_floatBuffer),
+        CopyImageEffects(),
+        CloneRetainedResources());
+
+    private static T[] CopyBuffer<T>(List<T>? values) =>
+        values is null || values.Count == 0
+            ? Array.Empty<T>()
+            : values.ToArray();
+
     public ReadOnlySpan<Vector2> GetPoints(int offset, int count) => 
         CollectionsMarshal.AsSpan(PointBuffer).Slice(offset, count);
 
@@ -4002,6 +4053,7 @@ public class DrawingContext :
     public void PushOpacityMask(GpuPicture maskPicture, Rect bounds)
     {
         ArgumentNullException.ThrowIfNull(maskPicture);
+        RetainPictureResources(maskPicture);
         Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.PushOpacityMask,
@@ -4390,7 +4442,10 @@ public class DrawingContext :
             PointBufferOffset = offset,
             PointBufferCount = count,
             IsClosed = isClosed,
-            IsPenThicknessLocal = true
+            IsPenThicknessLocal = true,
+            GeometryCache = pen.HasDashPattern
+                ? RenderCommandGeometryCache.ForDeferredStrokePath()
+                : null
         });
     }
 
@@ -5010,9 +5065,12 @@ public class DrawingContext :
             _ => null
         };
 
-        command.GeometryCache = strokePath == null
-            ? null
-            : RenderCommandGeometryCache.ForStrokePath(strokePath);
+        command.GeometryCache = command.Type == RenderCommandType.DrawPolyline &&
+            pen.HasDashPattern
+                ? RenderCommandGeometryCache.ForDeferredStrokePath()
+                : strokePath == null
+                    ? null
+                    : RenderCommandGeometryCache.ForStrokePath(strokePath);
     }
 
     private void TranslatePointBufferSlice(int offset, int count, Vector2 translation)

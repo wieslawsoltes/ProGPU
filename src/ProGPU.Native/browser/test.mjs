@@ -1,0 +1,198 @@
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import path from "node:path";
+import process from "node:process";
+import { chromium } from "playwright";
+
+const url = process.env.PROGPU_NATIVE_BROWSER_URL ??
+  "http://127.0.0.1:4173/progpu_native_browser_smoke.html";
+const evidenceDirectory = path.resolve(
+  process.env.PROGPU_NATIVE_BROWSER_EVIDENCE ??
+    "../../../artifacts/progpu-native/browser-evidence");
+await fs.mkdir(evidenceDirectory, { recursive: true });
+
+const useSwiftShader =
+  process.env.PROGPU_NATIVE_BROWSER_USE_SWIFTSHADER !== "0";
+const deviceScaleFactor = Number(
+  process.env.PROGPU_NATIVE_BROWSER_DEVICE_SCALE_FACTOR ?? "1");
+assert.ok(Number.isFinite(deviceScaleFactor) &&
+  deviceScaleFactor >= 1 && deviceScaleFactor <= 4,
+  `Invalid browser device scale factor ${deviceScaleFactor}.`);
+const browserArgs = ["--enable-unsafe-webgpu"];
+if (useSwiftShader) {
+  browserArgs.push("--use-angle=swiftshader");
+}
+const browser = await chromium.launch({
+  channel: "chromium",
+  headless: true,
+  args: browserArgs
+});
+const page = await browser.newPage({
+  viewport: { width: 900, height: 680 },
+  deviceScaleFactor
+});
+const errors = [];
+page.on("console", (message) => {
+  if (message.type() === "error") {
+    errors.push(message.text());
+  }
+});
+page.on("pageerror", (error) => errors.push(error.message));
+
+try {
+  const testUrl = new URL(url);
+  if (useSwiftShader) {
+    testUrl.searchParams.set("progpuNativeGpuHitTesting", "0");
+  }
+  await page.goto(testUrl.toString(), { waitUntil: "domcontentloaded" });
+  try {
+    await page.waitForFunction(
+      () => document.body.dataset.progpuNative !== "loading",
+      undefined,
+      { timeout: 120_000 });
+  } catch (error) {
+    const stage = await page.evaluate(() =>
+      document.body.dataset.progpuNativeStage ?? "uninitialized");
+    const diagnostics = errors.length === 0 ? "no browser errors" :
+      errors.join(" | ");
+    throw new Error(
+      `Browser smoke timed out at native stage '${stage}': ${diagnostics}.`, {
+      cause: error
+    });
+  }
+  const contract = await page.evaluate(() => ({
+    status: document.body.dataset.progpuNative,
+    semanticCommands: document.body.dataset.progpuNativeSemanticCommands,
+    semanticResources: document.body.dataset.progpuNativeSemanticResources,
+    semanticDraws: document.body.dataset.progpuNativeSemanticDraws,
+    rendererSubmissions:
+      document.body.dataset.progpuNativeRendererSubmissions,
+    evidenceTarget: document.body.dataset.progpuNativeEvidenceTarget,
+    backendAbi: document.body.dataset.progpuNativeBackendAbi,
+    explicitTimeline:
+      document.body.dataset.progpuNativeExplicitTimeline,
+    coverageMasks: document.body.dataset.progpuNativeCoverageMasks,
+    roundedMasks: document.body.dataset.progpuNativeRoundedMasks,
+    stateMasks: document.body.dataset.progpuNativeStateMasks,
+    stateMaskMedia: document.body.dataset.progpuNativeStateMaskMedia,
+    vectorClipMasks:
+      document.body.dataset.progpuNativeVectorClipMasks,
+    compositeGeometryMasks:
+      document.body.dataset.progpuNativeCompositeGeometryMasks,
+    directImageSampling:
+      document.body.dataset.progpuNativeDirectImageSampling,
+    semanticGeometry:
+      document.body.dataset.progpuNativeSemanticGeometry,
+    nativeSceneBuilder:
+      document.body.dataset.progpuNativeSceneBuilder,
+    nativePngDecode:
+      document.body.dataset.progpuNativePngDecode,
+    incrementalUpdate:
+      document.body.dataset.progpuNativeIncrementalUpdate,
+    deviceRecovery: document.body.dataset.progpuNativeDeviceRecovery,
+    gpuHitTesting: document.body.dataset.progpuNativeGpuHitTesting,
+    backingWidth: Number(document.body.dataset.progpuNativeBackingWidth),
+    backingHeight: Number(document.body.dataset.progpuNativeBackingHeight),
+    dpiScale: Number(document.body.dataset.progpuNativeDpiScale),
+    error: document.body.dataset.progpuNativeError ?? ""
+  }));
+  assert.deepEqual(contract, {
+    status: "passed",
+    semanticCommands: "2",
+    semanticResources: "4",
+    semanticDraws: "2",
+    rendererSubmissions: "1",
+    evidenceTarget: "offscreen-texture-readback",
+    backendAbi: "3",
+    explicitTimeline: "0",
+    coverageMasks: "passed",
+    roundedMasks: "passed",
+    stateMasks: "passed",
+    stateMaskMedia: "passed",
+    vectorClipMasks: "passed",
+    compositeGeometryMasks: "passed",
+    directImageSampling: "passed",
+    semanticGeometry: "passed",
+    nativeSceneBuilder: "passed",
+    nativePngDecode: "passed",
+    incrementalUpdate: "passed",
+    deviceRecovery: "passed",
+    gpuHitTesting: useSwiftShader
+      ? "deferred-software-adapter"
+      : "passed",
+    backingWidth: Math.round(640 * contract.dpiScale),
+    backingHeight: Math.round(360 * contract.dpiScale),
+    dpiScale: contract.dpiScale,
+    error: ""
+  }, errors.length === 0 ? "no browser errors" : errors.join(" | "));
+  assert.ok(contract.dpiScale >= 1 && contract.dpiScale <= 4,
+    `Unexpected browser render scale ${contract.dpiScale}.`);
+  assert.equal(
+    await page.locator("#progpu-native-evidence").evaluate(
+      (canvas) => canvas.width),
+    contract.backingWidth,
+    "The browser evidence canvas lost its physical-pixel backing width.");
+  const screenshotPath = path.join(
+    evidenceDirectory,
+    "progpu-native-browser-webgpu.png");
+  await page.waitForFunction(
+    () => document.body.dataset.progpuNativeEvidence === "ready",
+    undefined,
+    { timeout: 120_000 });
+  const screenshot = await page.locator("#progpu-native-evidence").screenshot({
+    path: screenshotPath
+  });
+  assert.ok(screenshot.length > 0, "The browser evidence screenshot is empty.");
+  const pixels = await page.locator("#progpu-native-evidence").evaluate(
+    (canvas) => {
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    const physicalScale = canvas.width / 640;
+    const sample = (x, y) =>
+      Array.from(context.getImageData(
+        Math.round(x * physicalScale),
+        Math.round(y * physicalScale),
+        1,
+        1).data);
+    return {
+      image: sample(250, 250),
+      glyph: sample(100, 150),
+      maskInside: sample(310, 180),
+      maskOutside: sample(330, 180),
+      right: sample(480, 180)
+    };
+  });
+  const near = (actual, expected, tolerance = 20) =>
+    Math.abs(actual - expected) <= tolerance;
+  contract.pixels = pixels;
+  await fs.writeFile(
+    path.join(evidenceDirectory, "progpu-native-browser-contract.json"),
+    `${JSON.stringify(contract, null, 2)}\n`);
+  const browserDiagnostics = errors.length === 0
+    ? "no WebGPU console errors"
+    : errors.join(" | ");
+  const diagnostics = `${browserDiagnostics}; pixels=${JSON.stringify(pixels)}`;
+  const opaque = (pixel) => pixel[3] >= 240;
+  const matrixImage = (pixel) => near(pixel[0], 224, 4) &&
+    near(pixel[1], 16, 4) && near(pixel[2], 96, 4) && opaque(pixel);
+  const glyphMagenta = (pixel) => near(pixel[0], 255) &&
+    near(pixel[1], 32) && near(pixel[2], 192) && opaque(pixel);
+  const clear = (pixel) => pixel[0] <= 16 && pixel[1] <= 16 &&
+    pixel[2] <= 16 && opaque(pixel);
+  assert.ok(matrixImage(pixels.image),
+    `Browser per-draw mask lost the color-matrix image: ${diagnostics}`);
+  assert.ok(glyphMagenta(pixels.glyph),
+    `Browser per-draw mask lost the retained color glyph: ${diagnostics}`);
+  assert.ok(matrixImage(pixels.maskInside),
+    `Browser coverage mask clipped its included half: ${diagnostics}`);
+  assert.ok(clear(pixels.maskOutside) && clear(pixels.right),
+    `Browser coverage mask escaped its excluded half: ${diagnostics}`);
+  assert.deepEqual(errors, []);
+  process.stdout.write(
+    `ProGPU native browser contract ${contract.status}: ` +
+    `${contract.semanticCommands} semantic commands, ` +
+    `${contract.semanticDraws} GPU draws, exact per-draw vector/glyph/image ` +
+    `masks, retained rounded/vector, picture, and composite brush/stroked-geometry ` +
+    `masks, coverage masks, and direct image sampling verified.\n`);
+} finally {
+  await browser.close();
+}

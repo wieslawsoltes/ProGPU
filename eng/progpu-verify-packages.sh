@@ -103,6 +103,22 @@ for package_id in "${selected_package_ids[@]}"; do
     exit 1
   fi
 
+  if [[ "${package_id}" == "ProGPU.Backend.Native" ]]; then
+    for native_entry in \
+      runtimes/linux-x64/native/libprogpu_native.so \
+      runtimes/linux-arm64/native/libprogpu_native.so \
+      runtimes/osx-x64/native/libprogpu_native.dylib \
+      runtimes/osx-arm64/native/libprogpu_native.dylib \
+      runtimes/win-x64/native/progpu_native.dll \
+      runtimes/win-arm64/native/progpu_native.dll \
+      build/native/include/progpu_native.h; do
+      if ! unzip -Z1 "${package}" | grep -Fx "${native_entry}" >/dev/null; then
+        echo "${package_id} is missing ${native_entry}." >&2
+        exit 1
+      fi
+    done
+  fi
+
   while IFS=$'\t' read -r dependency_id dependency_version; do
     [[ -z "${dependency_id}" ]] && continue
     if is_shipping_package_id "${dependency_id}"; then
