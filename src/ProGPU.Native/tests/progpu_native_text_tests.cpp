@@ -7070,6 +7070,33 @@ void native_font_fallback_family_preferences_match_managed_policy() {
         std::string_view{"Liberation Sans"}};
     require(latin_families == expected_latin);
 
+    std::array<std::string_view, 10U> symbol_families{};
+    require(try_get_font_fallback_family_preferences(
+        {}, 0x2630U, symbol_families, written, &error));
+    constexpr std::array expected_symbols{
+        std::string_view{"Apple Symbols"},
+        std::string_view{"Zapf Dingbats"},
+        std::string_view{"Segoe UI Symbol"},
+        std::string_view{"Noto Sans Symbols 2"},
+        std::string_view{"Noto Sans Symbols"},
+        std::string_view{"Apple Color Emoji"},
+        std::string_view{"Segoe UI Emoji"},
+        std::string_view{"Noto Color Emoji"},
+        std::string_view{"Symbola"},
+        std::string_view{"DejaVu Sans"}};
+    require(symbol_families == expected_symbols);
+
+    std::array<std::string_view, 5U> emoji_families{};
+    require(try_get_font_fallback_family_preferences(
+        {}, 0x1F600U, emoji_families, written, &error));
+    constexpr std::array expected_emoji{
+        std::string_view{"Apple Color Emoji"},
+        std::string_view{"Segoe UI Emoji"},
+        std::string_view{"Noto Color Emoji"},
+        std::string_view{"Noto Emoji"},
+        std::string_view{"Segoe UI Symbol"}};
+    require(emoji_families == expected_emoji);
+
     std::array<std::string_view, 5U> short_output{};
     short_output.fill("unchanged");
     written = 99U;

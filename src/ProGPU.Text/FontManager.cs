@@ -583,6 +583,16 @@ public sealed class FontManager
         {
             Add("Arial Hebrew", "Lucida Grande", "Noto Sans Hebrew", "Segoe UI", "Arial", "DejaVu Sans");
         }
+        else if (codePoint is >= 0x1F000 and <= 0x1FAFF)
+        {
+            Add("Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Noto Emoji", "Segoe UI Symbol");
+        }
+        else if (codePoint is >= 0x2000 and <= 0x2BFF)
+        {
+            Add("Apple Symbols", "Zapf Dingbats", "Segoe UI Symbol", "Noto Sans Symbols 2",
+                "Noto Sans Symbols", "Apple Color Emoji", "Segoe UI Emoji",
+                "Noto Color Emoji", "Symbola", "DejaVu Sans");
+        }
         else if (codePoint is >= 0x3040 and <= 0x30FF)
         {
             AddLanguage("ja");
