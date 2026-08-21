@@ -2341,10 +2341,17 @@ progpu_native_status progpu_native_text_context_layout_paragraph(
         }
         for (std::uint32_t index = 0U; index < positioned_count; ++index) {
             const auto& source = positioned[index];
+            // Layout owns the synthetic ellipsis, so it has no source-glyph
+            // index. The public paragraph contract resolves that caller-
+            // supplied glyph against the primary face.
+            const auto font_index = source.glyph_index ==
+                    std::numeric_limits<std::uint32_t>::max()
+                ? 0U
+                : glyph_font_indices[source.glyph_index];
             glyphs[index] = progpu_native_positioned_text_glyph{
                 source.glyph_index,
                 source.glyph_id,
-                glyph_font_indices[source.glyph_index],
+                font_index,
                 source.cluster,
                 source.x,
                 source.y,

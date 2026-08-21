@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <stdexcept>
 #include <string_view>
 #include <vector>
@@ -450,6 +451,34 @@ void bulk_shape_is_deterministic_and_caller_owned() {
             paragraph_glyphs[index].advance_x == positioned[index].advance_x &&
             paragraph_glyphs[index].advance_y == positioned[index].advance_y);
     }
+
+    auto trimmed_options = paragraph_options;
+    trimmed_options.maximum_width = 1.0F;
+    trimmed_options.maximum_lines = 1U;
+    trimmed_options.trimming = PROGPU_NATIVE_TEXT_TRIMMING_CHARACTER_ELLIPSIS;
+    trimmed_options.alignment = PROGPU_NATIVE_TEXT_ALIGNMENT_LEFT;
+    trimmed_options.ellipsis_glyph_id = first[0U].glyph_id;
+    trimmed_options.ellipsis_advance =
+        static_cast<float>(first[0U].advance_x);
+    paragraph_result.struct_size = sizeof(paragraph_result);
+    require(progpu_native_text_context_layout_paragraph(
+                context,
+                &retained_request,
+                &trimmed_options,
+                paragraph_glyphs.data(),
+                static_cast<std::uint32_t>(paragraph_glyphs.size()),
+                paragraph_lines.data(),
+                static_cast<std::uint32_t>(paragraph_lines.size()),
+                paragraph_scratch.data(),
+                paragraph_scratch.size(),
+                &paragraph_result) == PROGPU_NATIVE_STATUS_SUCCESS);
+    require(paragraph_result.glyph_count == 1U &&
+        paragraph_result.line_count == 1U &&
+        paragraph_glyphs[0U].glyph_index ==
+            std::numeric_limits<std::uint32_t>::max() &&
+        paragraph_glyphs[0U].glyph_id == trimmed_options.ellipsis_glyph_id &&
+        paragraph_glyphs[0U].font_index == 0U &&
+        paragraph_lines[0U].clipped != 0U);
 
     progpu_native_text_paragraph_result short_paragraph_result{};
     short_paragraph_result.struct_size = sizeof(short_paragraph_result);
