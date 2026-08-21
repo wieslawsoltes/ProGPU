@@ -1441,6 +1441,19 @@ typedef struct progpu_native_scene_color_glyph_bitmap {
     uint32_t reserved2;
 } progpu_native_scene_color_glyph_bitmap;
 
+typedef enum progpu_native_scene_frame_flags {
+    PROGPU_NATIVE_SCENE_FRAME_NONE = 0,
+    /* Load the existing target contents instead of clearing the attachment.
+     * Damage replay does not clear the damaged area; callers requesting an
+     * incremental repaint must ensure replay overwrites it opaquely before
+     * translucent/blended content, or request a full cleared frame. */
+    PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET = 1U << 0U,
+    /* Restrict flat semantic replay to the logical-coordinate damage rect. */
+    PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT = 1U << 1U
+} progpu_native_scene_frame_flags;
+
+#define PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT_AVAILABLE 1
+
 /* PROGPU_CSHARP_STRUCT: NativeMethods.SceneFrame */
 typedef struct progpu_native_scene_frame {
     uint32_t struct_size;
@@ -1451,6 +1464,11 @@ typedef struct progpu_native_scene_frame {
     progpu_native_color clear_color;
     uint64_t scene_id;
     uint64_t generation;
+    uint32_t flags;
+    float damage_x;
+    float damage_y;
+    float damage_width;
+    float damage_height;
 } progpu_native_scene_frame;
 
 /* PROGPU_CSHARP_STRUCT: NativeMethods.SceneFrameMetrics */

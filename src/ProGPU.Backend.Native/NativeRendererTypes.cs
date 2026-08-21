@@ -3630,6 +3630,18 @@ public readonly record struct NativeSceneUpdateMetrics(
     ulong PayloadBytes,
     bool SnapshotReused);
 
+/// <summary>
+/// Logical-coordinate rectangle whose existing target contents are preserved
+/// outside the damaged area during flat semantic scene replay. Replay does not
+/// clear the damaged area; callers must ensure it is repainted opaquely before
+/// translucent or blended content, or request a full frame.
+/// </summary>
+public readonly record struct NativeSceneDamageRect(
+    float X,
+    float Y,
+    float Width,
+    float Height);
+
 public readonly record struct NativeSceneFrameMetrics(
     uint CommandCount,
     uint DrawCallCount,

@@ -23,6 +23,8 @@ namespace ProGPU.Backend.Native;
 public sealed unsafe class NativeCompositor : IDisposable
 {
     private const uint ExternalImageSourceViewFlag = 1U;
+    private const uint SceneFramePreserveTargetFlag = 1U << 0;
+    private const uint SceneFrameDamageRectFlag = 1U << 1;
 
     private readonly WgpuContext _context;
     private readonly TextureFormat _targetFormat;
@@ -585,9 +587,37 @@ public sealed unsafe class NativeCompositor : IDisposable
         float dpiScale,
         ulong sceneId,
         ulong generation,
-        Vector4 clearColor)
+        Vector4 clearColor) => RenderScene(
+            target,
+            dpiScale,
+            sceneId,
+            generation,
+            clearColor,
+            damage: null);
+
+    /// <summary>
+    /// Renders the installed immutable semantic scene generation while
+    /// preserving target contents outside an optional logical damage rect.
+    /// Complex isolated-layer scenes conservatively fall back to full replay.
+    /// Damage replay does not clear the preserved target; the damaged area must
+    /// be covered opaquely before translucent or blended content is replayed.
+    /// </summary>
+    public NativeSceneFrameMetrics RenderScene(
+        GpuTexture target,
+        float dpiScale,
+        ulong sceneId,
+        ulong generation,
+        Vector4 clearColor,
+        NativeSceneDamageRect? damage)
     {
         ValidateTarget(target);
+        if (damage is { } value &&
+            (!float.IsFinite(value.X) || !float.IsFinite(value.Y) ||
+             !float.IsFinite(value.Width) || !float.IsFinite(value.Height) ||
+             value.Width <= 0f || value.Height <= 0f))
+        {
+            throw new ArgumentOutOfRangeException(nameof(damage));
+        }
         var frame = new NativeMethods.SceneFrame
         {
             StructSize = (uint)Unsafe.SizeOf<NativeMethods.SceneFrame>(),
@@ -603,7 +633,14 @@ public sealed unsafe class NativeCompositor : IDisposable
                 A = clearColor.W
             },
             SceneId = sceneId,
-            Generation = generation
+            Generation = generation,
+            Flags = damage.HasValue
+                ? SceneFramePreserveTargetFlag | SceneFrameDamageRectFlag
+                : 0U,
+            DamageX = damage?.X ?? 0f,
+            DamageY = damage?.Y ?? 0f,
+            DamageWidth = damage?.Width ?? 0f,
+            DamageHeight = damage?.Height ?? 0f
         };
         var metrics = new NativeMethods.SceneFrameMetrics
         {

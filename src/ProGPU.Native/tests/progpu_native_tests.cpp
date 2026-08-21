@@ -570,7 +570,7 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(sizeof(progpu_native_scene_path_fill) == 96U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_stroke) == 160U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_glyph_outline) == 40U);
-    PROGPU_REQUIRE(sizeof(progpu_native_scene_frame) == 56U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_frame) == 80U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_brush) == 256U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_gradient_stop) == 32U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_draw_brushes) == 16U);
@@ -638,6 +638,12 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(offsetof(
         progpu_native_scene_frame,
         scene_id) == 40U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_scene_frame,
+        flags) == 56U);
+    PROGPU_REQUIRE(offsetof(
+        progpu_native_scene_frame,
+        damage_height) == 72U);
     PROGPU_REQUIRE(sizeof(progpu_native_glyph_outline) == 40U);
     PROGPU_REQUIRE(sizeof(progpu_native_positioned_glyph) == 64U);
     PROGPU_REQUIRE(sizeof(progpu_native_clip_path) == 88U);
