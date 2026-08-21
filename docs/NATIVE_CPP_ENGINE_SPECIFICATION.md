@@ -1,7 +1,7 @@
 # ProGPU native C++ engine specification
 
 Status: native core-renderer/text implementation and exact-head automated CI
-complete on the Preview.53 baseline; draft integration remains pending manual
+complete on the Preview.54 baseline; draft integration remains pending manual
 desktop/browser qualification and optional physical-device lifecycle evidence
 
 Initial implementation: `src/ProGPU.Native`
@@ -2590,6 +2590,8 @@ path with WebGPU validation and bounded resource policies.
    snapshot contracts; they must never cross the C ABI as managed pointers.
 3. Preserve the completed final-head text/scene/image differential, seam-budget,
    six-RID package-consumer, compiler-matrix, and browser WebGPU gates.
+   Desktop and browser presentation samples must size their backing targets in
+   physical pixels while retaining logical scene coordinates and explicit DPI.
 4. Collect additional WebScene-provider D3D12/Vulkan, physical-mobile, and
    Windows/Linux profiler evidence when the corresponding real hardware is
    available. These are lifecycle/release qualifications; their absence does

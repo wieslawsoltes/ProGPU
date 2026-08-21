@@ -20,6 +20,7 @@
 
 #include <array>
 #include <cinttypes>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -30,6 +31,9 @@ namespace {
 
 constexpr std::uint32_t width = 640U;
 constexpr std::uint32_t height = 360U;
+std::uint32_t physical_width = width;
+std::uint32_t physical_height = height;
+float display_scale = 1.0F;
 
 struct browser_resources final {
     progpu_native_engine* engine = nullptr;
@@ -40,6 +44,37 @@ struct browser_resources final {
 };
 
 browser_resources resources{};
+
+void initialize_display_metrics() {
+    const double requested_scale = EM_ASM_DOUBLE({
+        const scale = Number(globalThis.devicePixelRatio) || 1;
+        return Math.min(4, Math.max(1, scale));
+    });
+    display_scale = static_cast<float>(requested_scale);
+    physical_width = static_cast<std::uint32_t>(std::lround(
+        static_cast<double>(width) * requested_scale));
+    physical_height = static_cast<std::uint32_t>(std::lround(
+        static_cast<double>(height) * requested_scale));
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdollar-in-identifier-extension"
+    EM_ASM({
+        const width = $0;
+        const height = $1;
+        const scale = $2;
+        for (const id of [
+            "progpu-native-canvas",
+            "progpu-native-evidence"
+        ]) {
+            const canvas = document.getElementById(id);
+            canvas.width = width;
+            canvas.height = height;
+        }
+        document.body.dataset.progpuNativeBackingWidth = String(width);
+        document.body.dataset.progpuNativeBackingHeight = String(height);
+        document.body.dataset.progpuNativeDpiScale = String(scale);
+    }, physical_width, physical_height, requested_scale);
+#pragma clang diagnostic pop
+}
 
 bool verify_native_png_decode() {
     constexpr std::array png{
@@ -301,8 +336,8 @@ bool render_browser_frame(double, void*) {
     if (!progpu::native::browser::create_evidence_target(
             resources.device,
             WGPUTextureFormat_BGRA8Unorm,
-            width,
-            height,
+            physical_width,
+            physical_height,
             &render_texture,
             &render_view)) {
         fail("The browser WebGPU render target could not be created.");
@@ -315,9 +350,9 @@ bool render_browser_frame(double, void*) {
         255U, 255U, 255U, 255U};
     progpu_native_image_frame direct_image{};
     direct_image.struct_size = sizeof(direct_image);
-    direct_image.width = width;
-    direct_image.height = height;
-    direct_image.dpi_scale = 1.0F;
+    direct_image.width = physical_width;
+    direct_image.height = physical_height;
+    direct_image.dpi_scale = display_scale;
     direct_image.target_view =
         reinterpret_cast<std::uintptr_t>(render_view);
     direct_image.clear_color = {0.01F, 0.015F, 0.03F, 1.0F};
@@ -364,9 +399,9 @@ bool render_browser_frame(double, void*) {
 
     progpu_native_scene_frame semantic_frame{};
     semantic_frame.struct_size = sizeof(semantic_frame);
-    semantic_frame.width = width;
-    semantic_frame.height = height;
-    semantic_frame.dpi_scale = 1.0F;
+    semantic_frame.width = physical_width;
+    semantic_frame.height = physical_height;
+    semantic_frame.dpi_scale = display_scale;
     semantic_frame.target_view = reinterpret_cast<std::uintptr_t>(render_view);
     semantic_frame.clear_color = {0.01F, 0.015F, 0.03F, 1.0F};
 
@@ -1721,8 +1756,8 @@ bool render_browser_frame(double, void*) {
             resources.device,
             resources.queue,
             resources.render_texture,
-            width,
-            height,
+            physical_width,
+            physical_height,
             finish_browser_evidence)) {
         fail("The browser WebGPU evidence copy could not be scheduled.");
     }
@@ -1732,6 +1767,7 @@ bool render_browser_frame(double, void*) {
 } // namespace
 
 int main() {
+    initialize_display_metrics();
     if (!verify_native_png_decode()) {
         fail("The dependency-free native PNG decoder contract is invalid.");
     }

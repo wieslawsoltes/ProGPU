@@ -3967,6 +3967,14 @@ public class NativeRendererInteropTests
             "emscripten_request_animation_frame(\n            render_browser_frame",
             browserSmoke,
             StringComparison.Ordinal);
+        Assert.Contains("globalThis.devicePixelRatio", browserSmoke,
+            StringComparison.Ordinal);
+        Assert.Contains("physical_width", browserSmoke,
+            StringComparison.Ordinal);
+        Assert.Contains("direct_image.dpi_scale = display_scale", browserSmoke,
+            StringComparison.Ordinal);
+        Assert.Contains("semantic_frame.dpi_scale = display_scale", browserSmoke,
+            StringComparison.Ordinal);
         Assert.Contains("WGPUTextureUsage_CopySrc", browserEvidence,
             StringComparison.Ordinal);
         Assert.Contains("wgpuCommandEncoderCopyTextureToBuffer", browserEvidence,
@@ -3998,6 +4006,12 @@ public class NativeRendererInteropTests
         Assert.Contains("progpuNativeStateMaskMedia", browserSmoke,
             StringComparison.Ordinal);
         Assert.Contains("locator(\"#progpu-native-evidence\").screenshot", browserTest,
+            StringComparison.Ordinal);
+        Assert.Contains("progpuNativeBackingWidth", browserTest,
+            StringComparison.Ordinal);
+        Assert.Contains("PROGPU_NATIVE_BROWSER_DEVICE_SCALE_FACTOR", browserTest,
+            StringComparison.Ordinal);
+        Assert.Contains("physical-pixel backing width", browserTest,
             StringComparison.Ordinal);
         Assert.Contains("emcmake", verifier, StringComparison.Ordinal);
         Assert.Contains("native-cpp-browser", workflow, StringComparison.Ordinal);

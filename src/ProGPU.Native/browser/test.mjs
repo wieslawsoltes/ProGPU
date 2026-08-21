@@ -13,6 +13,11 @@ await fs.mkdir(evidenceDirectory, { recursive: true });
 
 const useSwiftShader =
   process.env.PROGPU_NATIVE_BROWSER_USE_SWIFTSHADER !== "0";
+const deviceScaleFactor = Number(
+  process.env.PROGPU_NATIVE_BROWSER_DEVICE_SCALE_FACTOR ?? "1");
+assert.ok(Number.isFinite(deviceScaleFactor) &&
+  deviceScaleFactor >= 1 && deviceScaleFactor <= 4,
+  `Invalid browser device scale factor ${deviceScaleFactor}.`);
 const browserArgs = ["--enable-unsafe-webgpu"];
 if (useSwiftShader) {
   browserArgs.push("--use-angle=swiftshader");
@@ -22,7 +27,10 @@ const browser = await chromium.launch({
   headless: true,
   args: browserArgs
 });
-const page = await browser.newPage({ viewport: { width: 900, height: 680 } });
+const page = await browser.newPage({
+  viewport: { width: 900, height: 680 },
+  deviceScaleFactor
+});
 const errors = [];
 page.on("console", (message) => {
   if (message.type() === "error") {
@@ -83,6 +91,9 @@ try {
       document.body.dataset.progpuNativeIncrementalUpdate,
     deviceRecovery: document.body.dataset.progpuNativeDeviceRecovery,
     gpuHitTesting: document.body.dataset.progpuNativeGpuHitTesting,
+    backingWidth: Number(document.body.dataset.progpuNativeBackingWidth),
+    backingHeight: Number(document.body.dataset.progpuNativeBackingHeight),
+    dpiScale: Number(document.body.dataset.progpuNativeDpiScale),
     error: document.body.dataset.progpuNativeError ?? ""
   }));
   assert.deepEqual(contract, {
@@ -109,8 +120,18 @@ try {
     gpuHitTesting: useSwiftShader
       ? "deferred-software-adapter"
       : "passed",
+    backingWidth: Math.round(640 * contract.dpiScale),
+    backingHeight: Math.round(360 * contract.dpiScale),
+    dpiScale: contract.dpiScale,
     error: ""
   }, errors.length === 0 ? "no browser errors" : errors.join(" | "));
+  assert.ok(contract.dpiScale >= 1 && contract.dpiScale <= 4,
+    `Unexpected browser render scale ${contract.dpiScale}.`);
+  assert.equal(
+    await page.locator("#progpu-native-evidence").evaluate(
+      (canvas) => canvas.width),
+    contract.backingWidth,
+    "The browser evidence canvas lost its physical-pixel backing width.");
   const screenshotPath = path.join(
     evidenceDirectory,
     "progpu-native-browser-webgpu.png");
@@ -121,17 +142,17 @@ try {
   const screenshot = await page.locator("#progpu-native-evidence").screenshot({
     path: screenshotPath
   });
-  const pixels = await page.evaluate(async (png) => {
-    const image = new Image();
-    image.src = `data:image/png;base64,${png}`;
-    await image.decode();
-    const copy = document.createElement("canvas");
-    copy.width = image.naturalWidth;
-    copy.height = image.naturalHeight;
-    const context = copy.getContext("2d", { willReadFrequently: true });
-    context.drawImage(image, 0, 0);
+  assert.ok(screenshot.length > 0, "The browser evidence screenshot is empty.");
+  const pixels = await page.locator("#progpu-native-evidence").evaluate(
+    (canvas) => {
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    const physicalScale = canvas.width / 640;
     const sample = (x, y) =>
-      Array.from(context.getImageData(x, y, 1, 1).data);
+      Array.from(context.getImageData(
+        Math.round(x * physicalScale),
+        Math.round(y * physicalScale),
+        1,
+        1).data);
     return {
       image: sample(250, 250),
       glyph: sample(100, 150),
@@ -139,7 +160,7 @@ try {
       maskOutside: sample(330, 180),
       right: sample(480, 180)
     };
-  }, screenshot.toString("base64"));
+  });
   const near = (actual, expected, tolerance = 20) =>
     Math.abs(actual - expected) <= tolerance;
   contract.pixels = pixels;
@@ -153,8 +174,8 @@ try {
   const opaque = (pixel) => pixel[3] >= 240;
   const matrixImage = (pixel) => near(pixel[0], 224, 4) &&
     near(pixel[1], 16, 4) && near(pixel[2], 96, 4) && opaque(pixel);
-  const glyphMagenta = (pixel) => near(pixel[0], 255, 4) &&
-    near(pixel[1], 32, 4) && near(pixel[2], 192, 4) && opaque(pixel);
+  const glyphMagenta = (pixel) => near(pixel[0], 255) &&
+    near(pixel[1], 32) && near(pixel[2], 192) && opaque(pixel);
   const clear = (pixel) => pixel[0] <= 16 && pixel[1] <= 16 &&
     pixel[2] <= 16 && opaque(pixel);
   assert.ok(matrixImage(pixels.image),
