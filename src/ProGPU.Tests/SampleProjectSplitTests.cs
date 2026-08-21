@@ -271,6 +271,9 @@ public sealed class SampleProjectSplitTests
             "export async function requestProGpuWebGpuDevice(options = {})",
             sharedHost,
             StringComparison.Ordinal);
+        Assert.Contains("if (info.reason === 'destroyed')", sharedHost, StringComparison.Ordinal);
+        Assert.Contains("options.onDeviceDestroyed?.(info)", sharedHost, StringComparison.Ordinal);
+        Assert.Contains("options.onDeviceLost?.(info)", sharedHost, StringComparison.Ordinal);
         Assert.Contains("import('./progpu-browser-host.js')", nativeHost, StringComparison.Ordinal);
         Assert.Contains("host.installResponsiveCanvas(", nativeHost, StringComparison.Ordinal);
         Assert.Contains("host.requestProGpuWebGpuDevice({", nativeHost, StringComparison.Ordinal);

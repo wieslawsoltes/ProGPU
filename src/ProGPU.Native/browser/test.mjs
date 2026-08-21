@@ -258,14 +258,25 @@ try {
   assert.ok(galleryContract.frames >= 3);
   assert.equal(galleryContract.error, "");
 
+  const framesBeforeControlChange = galleryContract.frames;
   await page.locator("#complexity").selectOption("250");
   await page.waitForFunction(
-    () => document.body.dataset.progpuNativeElements === "250",
-    undefined,
+    previousFrames =>
+      document.body.dataset.progpuNativeElements === "250" &&
+      Number(document.body.dataset.progpuNativeFrames) > previousFrames,
+    framesBeforeControlChange,
     { timeout: 30_000 });
   galleryContract.controlledElements = Number(
     await page.locator("body").getAttribute("data-progpu-native-elements"));
+  galleryContract.controlledFrames = Number(
+    await page.locator("body").getAttribute("data-progpu-native-frames"));
   assert.equal(galleryContract.controlledElements, 250);
+  assert.ok(galleryContract.controlledFrames > framesBeforeControlChange,
+    "The native gallery did not present after its scene changed.");
+  assert.equal(
+    await page.locator("body").getAttribute("data-progpu-native-error"),
+    null,
+    "The native gallery reported an error after its scene changed.");
   const galleryScreenshot = await page.locator(".stage").screenshot({
     path: path.join(
       evidenceDirectory,

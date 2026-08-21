@@ -37,6 +37,11 @@ The HTML shell provides accessible navigation and controls. MotionMark
 topology, animation, scene building, and all pixels inside the WebGPU canvas are
 produced by native C++; the DOM is not used as a rendering fallback.
 
+An explicitly destroyed `GPUDevice` is treated as graceful host teardown. Only
+an abnormal device-loss reason reaches the engine recovery callback. The real-
+browser gate changes MotionMark complexity and requires a later presented
+frame, so this lifecycle distinction cannot hide an unusable device.
+
 ## MotionMark parity and performance contract
 
 | Managed contract | Native implementation |
@@ -109,8 +114,8 @@ Local optimized artifact sizes on 2026-08-21:
 | `progpu_native_browser_gallery.wasm` | 628,799 |
 | `progpu_native_browser_gallery.js` | 61,784 |
 | `progpu_native_browser_gallery.html` | 5,638 |
-| shared `progpu-browser-host.js` | 4,042 |
-| Total | 700,263 |
+| shared `progpu-browser-host.js` | 4,153 |
+| Total | 700,374 |
 
 Sizes are uncompressed filesystem bytes. HTTP Brotli/gzip transfer sizes are
 expected to be lower and are server-dependent.

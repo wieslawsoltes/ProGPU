@@ -92,7 +92,13 @@ export async function requestProGpuWebGpuDevice(options = {}) {
     const detail = String(event.error?.message || event.error);
     options.onUncapturedError?.(detail);
   });
-  device.lost.then(info => options.onDeviceLost?.(info));
+  device.lost.then(info => {
+    if (info.reason === 'destroyed') {
+      options.onDeviceDestroyed?.(info);
+      return;
+    }
+    options.onDeviceLost?.(info);
+  });
 
   return Object.freeze({
     adapter,
