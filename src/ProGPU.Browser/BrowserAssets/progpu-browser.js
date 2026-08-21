@@ -1,4 +1,9 @@
 import { dotnet } from './_framework/dotnet.js';
+import {
+  measurePhysicalCanvas,
+  requestProGpuWebGpuDevice,
+  updateProGpuVisualViewport
+} from './progpu-browser-host.js';
 
 const isDispatcherWorker = typeof WorkerGlobalScope !== 'undefined' && globalThis instanceof WorkerGlobalScope;
 let runtime = null;
@@ -344,10 +349,9 @@ function chooseExecutionMode(request, diagnostics) {
 }
 
 function resizeCanvas() {
-  const dpr = globalThis.devicePixelRatio || 1;
-  const rect = state.canvas.getBoundingClientRect();
-  const width = Math.max(1, Math.round(rect.width * dpr));
-  const height = Math.max(1, Math.round(rect.height * dpr));
+  const metrics = measurePhysicalCanvas(state.canvas);
+  const width = metrics.width;
+  const height = metrics.height;
   const changed = state.framebufferWidth !== width || state.framebufferHeight !== height;
   state.framebufferWidth = width;
   state.framebufferHeight = height;
@@ -363,15 +367,7 @@ function resizeCanvas() {
 
 function updateVisualViewport() {
   if (!state.canvas) return;
-  const viewport = globalThis.visualViewport;
-  const keyboardRect = navigator.virtualKeyboard?.boundingRect;
-  const keyboardInset = keyboardRect && keyboardRect.height > 0 ? keyboardRect.height : 0;
-  const rootStyle = document.documentElement.style;
-  rootStyle.setProperty('--progpu-viewport-left', `${viewport?.offsetLeft || 0}px`);
-  rootStyle.setProperty('--progpu-viewport-top', `${viewport?.offsetTop || 0}px`);
-  rootStyle.setProperty('--progpu-viewport-width', `${viewport?.width || globalThis.innerWidth}px`);
-  rootStyle.setProperty('--progpu-viewport-height', `${viewport?.height || globalThis.innerHeight}px`);
-  rootStyle.setProperty('--progpu-keyboard-inset', `${keyboardInset}px`);
+  updateProGpuVisualViewport();
   resizeCanvas();
   positionTextInput();
 }
@@ -2803,34 +2799,32 @@ async function initializeGpu(request, canvas, executionMode, diagnostics) {
   state.context = state.canvas.getContext('webgpu');
   if (!state.context) throw new Error('The selected canvas cannot create a WebGPU context.');
 
-  state.adapter = await navigator.gpu.requestAdapter({ powerPreference: request.powerPreference });
-  if (!state.adapter) throw new Error('No WebGPU adapter matched the requested power preference.');
-
-  const supportsBgraStorage = state.adapter.features.has('bgra8unorm-storage');
-  const requiredFeatures = [];
-  let activeProfile = request.gpuProfile === 'Full' ? 1 : 0;
-  if (request.gpuProfile === 'Full' && supportsBgraStorage) requiredFeatures.push('bgra8unorm-storage');
+  const webGpu = await requestProGpuWebGpuDevice({
+    powerPreference: request.powerPreference,
+    gpuProfile: request.gpuProfile,
+    onUncapturedError: detail => {
+      globalThis.console.error(`[ProGPU] WebGPU validation error: ${detail}`);
+      if (state.firstGpuError === null) {
+        state.firstGpuError = detail;
+        reportGpuStatus('WebGPU validation error', detail, true);
+      }
+    },
+    onDeviceLost: info => {
+      reportGpuStatus('WebGPU device lost', `${info.reason}: ${info.message}. Reloading the retained application to reconstruct GPU resources.`, true);
+      if (isDispatcherWorker) globalThis.postMessage({ type: 'device-lost' });
+      else globalThis.setTimeout(() => globalThis.location?.reload(), 250);
+    }
+  });
+  state.adapter = webGpu.adapter;
+  state.device = webGpu.device;
+  state.format = webGpu.format;
+  const supportsBgraStorage = webGpu.supportsBgra8UnormStorage;
+  let activeProfile = webGpu.activeProfile === 'Full' ? 1 : 0;
   if (request.gpuProfile === 'Full' && !supportsBgraStorage) {
     activeProfile = 0;
     diagnostics.push('Full profile downgraded: bgra8unorm-storage is unavailable; dependent Wavefront storage output is disabled.');
   }
-
-  state.device = await state.adapter.requestDevice({ requiredFeatures });
-  state.format = navigator.gpu.getPreferredCanvasFormat();
   state.context.configure({ device: state.device, format: state.format, alphaMode: 'premultiplied' });
-  state.device.addEventListener('uncapturederror', event => {
-    const detail = String(event.error?.message || event.error);
-    globalThis.console.error(`[ProGPU] WebGPU validation error: ${detail}`);
-    if (state.firstGpuError === null) {
-      state.firstGpuError = detail;
-      reportGpuStatus('WebGPU validation error', detail, true);
-    }
-  });
-  state.device.lost.then(info => {
-    reportGpuStatus('WebGPU device lost', `${info.reason}: ${info.message}. Reloading the retained application to reconstruct GPU resources.`, true);
-    if (isDispatcherWorker) globalThis.postMessage({ type: 'device-lost' });
-    else globalThis.setTimeout(() => globalThis.location?.reload(), 250);
-  });
 
   const adapterInfo = state.adapter.info;
   return {
