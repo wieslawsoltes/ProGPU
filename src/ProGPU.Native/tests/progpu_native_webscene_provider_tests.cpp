@@ -73,6 +73,41 @@ std::vector<std::byte> create_gpu_hit_test_scene_stream() {
     return scene;
 }
 
+std::vector<std::byte> create_collapsed_stroke_scene_stream() {
+    using progpu::native::semantic_scene_builder;
+    semantic_scene_builder builder(797U, 1U);
+    std::uint32_t brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    require(builder.add_solid_brush(
+        {0.9F, 0.2F, 0.4F, 1.0F}, 1.0F, brush),
+        "collapsed-stroke brush recording failed");
+    constexpr std::array points{
+        progpu_native_point{4.0F, 4.0F},
+        progpu_native_point{32.0F, 20.0F},
+        progpu_native_point{60.0F, 4.0F}};
+    progpu_native_scene_stroke stroke{};
+    stroke.struct_size = sizeof(stroke);
+    stroke.kind = PROGPU_NATIVE_SCENE_STROKE_POLYLINE;
+    stroke.point_count = points.size();
+    stroke.color = {0.9F, 0.2F, 0.4F, 1.0F};
+    stroke.transform = {0.0F, 0.0F, 0.0F, 1.0F, 32.0F, 24.0F};
+    stroke.stroke_thickness = 1.5F;
+    stroke.miter_limit = 4.0F;
+    stroke.start_cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+    stroke.end_cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+    stroke.line_join = PROGPU_NATIVE_STROKE_JOIN_ROUND;
+    stroke.dash_cap = PROGPU_NATIVE_STROKE_CAP_ROUND;
+    require(builder.draw_strokes(
+        std::span<const progpu_native_scene_stroke>(&stroke, 1U),
+        points,
+        {},
+        std::span<const std::uint32_t>(&brush, 1U),
+        {0.0F, 0.0F, 64.0F, 48.0F}),
+        "collapsed-stroke draw recording failed");
+    std::vector<std::byte> scene;
+    require(builder.build(scene), "collapsed-stroke scene build failed");
+    return scene;
+}
+
 std::vector<std::byte> create_native_3d_scene_stream() {
     using progpu::native::semantic_scene_builder;
     progpu_native_matrix_4x4 identity{};
@@ -2631,6 +2666,46 @@ int main(int argc, char** argv) {
         semantic_metrics.text_style_upload_bytes == 0U &&
         semantic_metrics.payload_hash == semantic_payload_hash,
         "stable mixed semantic scene replay rebuilt retained resources");
+
+    auto collapsed_stroke_scene = create_collapsed_stroke_scene_stream();
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        collapsed_stroke_scene.data(),
+        collapsed_stroke_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        scene_metrics.draw_count == 1U,
+        "collapsed-stroke semantic scene update failed");
+    semantic_frame.scene_id = 797U;
+    semantic_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    const auto collapsed_stroke_status = progpu_native_engine_render_scene(
+        engine,
+        &semantic_frame,
+        &semantic_metrics);
+    if (collapsed_stroke_status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        semantic_metrics.vertex_upload_bytes != 0U ||
+        semantic_metrics.index_upload_bytes != 0U) {
+        std::array<char, 512U> collapsed_stroke_error{};
+        progpu_native_engine_get_last_error(
+            engine,
+            collapsed_stroke_error.data(),
+            collapsed_stroke_error.size());
+        std::fprintf(stderr,
+            "collapsed stroke status=%u vertex=%llu index=%llu error=%s\n",
+            static_cast<unsigned>(collapsed_stroke_status),
+            static_cast<unsigned long long>(
+                semantic_metrics.vertex_upload_bytes),
+            static_cast<unsigned long long>(
+                semantic_metrics.index_upload_bytes),
+            collapsed_stroke_error.data());
+    }
+    require(collapsed_stroke_status == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.vertex_upload_bytes == 0U &&
+        semantic_metrics.index_upload_bytes == 0U,
+        "collapsed semantic stroke did not render as an empty draw");
 
     auto hit_test_scene = create_gpu_hit_test_scene_stream();
     scene_metrics = {};

@@ -120,6 +120,17 @@ inline progpu_native_dash_style make_semantic_dash_style(
         0U};
 }
 
+inline bool semantic_stroke_is_collapsed(
+    const progpu_native_scene_stroke& stroke) noexcept {
+    float maximum_scale = 0.0F;
+    float minimum_scale = 0.0F;
+    return is_finite(stroke.transform) &&
+        !try_get_stroke_scales(
+            stroke.transform,
+            maximum_scale,
+            minimum_scale);
+}
+
 inline bool semantic_stroke_capacity(
     const progpu_native_scene_stroke& stroke,
     const progpu_native_point* points,
@@ -129,6 +140,11 @@ inline bool semantic_stroke_capacity(
     std::vector<spline_homogeneous_point>& work,
     std::size_t& vertex_count,
     std::size_t& index_count) {
+    if (semantic_stroke_is_collapsed(stroke)) {
+        vertex_count = 0U;
+        index_count = 0U;
+        return true;
+    }
     auto polyline = make_semantic_polyline(stroke);
     const auto dash = make_semantic_dash_style(stroke);
     const auto* dash_styles =
@@ -182,6 +198,9 @@ inline bool append_semantic_stroke(
     std::vector<spline_homogeneous_point>& work,
     std::vector<vector_vertex>& vertices,
     std::vector<std::uint32_t>& indices) {
+    if (semantic_stroke_is_collapsed(stroke)) {
+        return true;
+    }
     auto polyline = make_semantic_polyline(stroke);
     const auto dash = make_semantic_dash_style(stroke);
     const auto* dash_styles =

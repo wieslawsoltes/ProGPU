@@ -106,6 +106,9 @@ progpu_native_status encode_semantic_analytic_draw(
     std::uint32_t target_layer,
     WGPUBindGroup mask_bind_group,
     WGPUBindGroup mask_chain_bind_group) {
+    if (draw.vertex_count == 0U && draw.index_count == 0U) {
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    }
     auto& page = engine.semantic_analytic_cache;
     WGPUBindGroup uniform_group =
         select_semantic_analytic_uniform_bind_group(

@@ -1710,6 +1710,36 @@ void semantic_stroke_batch_preserves_retained_stroke_contracts() {
     PROGPU_REQUIRE(vertices.size() > polyline_vertex_count);
     PROGPU_REQUIRE(nearly_equal(vertices.back().brush_index, 8.0F));
 
+    auto collapsed = polyline;
+    collapsed.transform = {0.0F, 0.0F, 0.0F, 1.0F, 454.0F, 130.5F};
+    std::size_t collapsed_vertex_count = 1U;
+    std::size_t collapsed_index_count = 1U;
+    PROGPU_REQUIRE(progpu::native::semantic_stroke_capacity(
+        collapsed,
+        points.data(),
+        doubles.data(),
+        doubles.size(),
+        sampled_points,
+        work,
+        collapsed_vertex_count,
+        collapsed_index_count));
+    PROGPU_REQUIRE(collapsed_vertex_count == 0U);
+    PROGPU_REQUIRE(collapsed_index_count == 0U);
+    const auto retained_vertex_count = vertices.size();
+    const auto retained_index_count = indices.size();
+    PROGPU_REQUIRE(progpu::native::append_semantic_stroke(
+        collapsed,
+        points.data(),
+        doubles.data(),
+        doubles.size(),
+        9.0F,
+        sampled_points,
+        work,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.size() == retained_vertex_count);
+    PROGPU_REQUIRE(indices.size() == retained_index_count);
+
     auto invalid_layout = strokes;
     invalid_layout[1].point_offset = 4U;
     point_count = 17U;
