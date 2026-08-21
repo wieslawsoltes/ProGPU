@@ -31,14 +31,14 @@ bool normalize_request(font_style_request& request) noexcept {
     if (request.optical_size_fixed <= 0) {
         request.optical_size_fixed = 0;
     }
-    if (request.weight == 0 && request.width == 0 &&
-        request.slant == font_provider_slant::normal &&
-        request.optical_size_fixed == 0) {
-        request = {};
-        return true;
-    }
-    request.weight = std::clamp(request.weight, 1, 1000);
-    request.width = std::clamp(request.width, 1, 9);
+    const bool unspecified_base = request.weight == 0 && request.width == 0 &&
+        request.slant == font_provider_slant::normal;
+    request.weight = unspecified_base
+        ? 400
+        : std::clamp(request.weight, 1, 1000);
+    request.width = unspecified_base
+        ? 5
+        : std::clamp(request.width, 1, 9);
     return true;
 }
 
