@@ -55,6 +55,8 @@ for rid in linux-x64 linux-arm64 osx-x64 osx-arm64; do
   done
 done
 for rid in win-x64 win-arm64; do
+  required_entries+=(
+    "runtimes/${rid}/native/sdk/progpu_native_dawn.lib")
   for library in compression hit_testing image text scene_builder; do
     required_entries+=(
       "runtimes/${rid}/native/sdk/progpu_native_${library}.lib")

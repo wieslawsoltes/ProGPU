@@ -1,11 +1,16 @@
 #include <progpu_native_scene_builder.hpp>
 #include <progpu_native_hit_testing.hpp>
+#include <progpu_native_dawn.h>
 
 #include <cstddef>
 #include <cstdint>
 #include <vector>
 
 int main() {
+    if (progpu_native_dawn_get_adapter_abi_version() !=
+        PROGPU_NATIVE_DAWN_ADAPTER_ABI_VERSION) {
+        return 5;
+    }
     progpu::native::hit_testing::hit_test_index hit_test_index;
     if (!hit_test_index.nodes().empty()) {
         return 1;
