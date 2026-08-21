@@ -59,7 +59,12 @@ std::uint64_t append_command(
     std::uint64_t hash,
     const std::byte* bytes,
     const progpu_native_scene_command& command) noexcept {
-    hash = append_fnv1a64(hash, &command, sizeof(command));
+    // payload_offset is an arena serialization detail. It moves whenever the
+    // resource/command tables change size and is not part of draw semantics.
+    auto semantic_command = command;
+    semantic_command.payload_offset = 0U;
+    hash = append_fnv1a64(
+        hash, &semantic_command, sizeof(semantic_command));
     if (command.payload_size != 0U) {
         hash = append_fnv1a64(
             hash,

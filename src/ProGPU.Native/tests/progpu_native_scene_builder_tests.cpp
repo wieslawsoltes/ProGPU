@@ -1599,6 +1599,38 @@ bool semantic_scene_content_hashes_isolate_image_updates() {
         return false;
     }
 
+    semantic_scene_builder analytic_only_builder(710U, 1U);
+    std::uint32_t analytic_only_brush = PROGPU_NATIVE_SCENE_NO_INDEX;
+    std::uint32_t analytic_only_alternate = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!analytic_only_builder.add_solid_brush(
+            {0.2F, 0.5F, 0.9F, 1.0F},
+            1.0F,
+            analytic_only_brush) ||
+        !analytic_only_builder.add_solid_brush(
+            {0.9F, 0.4F, 0.1F, 1.0F},
+            1.0F,
+            analytic_only_alternate) ||
+        !analytic_only_builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &primitive, 1U),
+            std::span<const std::uint32_t>(&analytic_only_brush, 1U),
+            {0.0F, 0.0F, 20.0F, 20.0F})) {
+        return false;
+    }
+    std::vector<std::byte> analytic_only;
+    if (!analytic_only_builder.build(analytic_only)) {
+        return false;
+    }
+    const auto analytic_only_header = read<progpu_native_scene_header>(
+        analytic_only, 0U);
+    const auto analytic_only_hashes = semantic::compute_content_hashes(
+        analytic_only.data(), analytic_only_header);
+    if (!(analytic_only_hashes.brush == first_hashes.brush &&
+        analytic_only_hashes.analytic == first_hashes.analytic &&
+        analytic_only_hashes.image != first_hashes.image)) {
+        return false;
+    }
+
     auto brush_changed = first;
     const auto brush_header = read<progpu_native_scene_header>(
         brush_changed, 0U);
