@@ -15,6 +15,12 @@ public readonly record struct FontStyleRequest(int Weight, int Width, FontSlant 
 {
     public static FontStyleRequest Normal { get; } = new(400, 5, FontSlant.Upright);
 
+    /// <summary>
+    /// Gets an optional OpenType <c>opsz</c> coordinate in typographic points.
+    /// Zero preserves the font's default optical-size instance.
+    /// </summary>
+    public float OpticalSize { get; init; }
+
     public FontStyleRequest(int weight = 400, int width = 5)
         : this(weight, width, FontSlant.Upright)
     {
@@ -617,7 +623,16 @@ public sealed class FontManager
     private static FontStyleRequest NormalizeStyle(FontStyleRequest style) =>
         style == default
             ? FontStyleRequest.Normal
-            : new FontStyleRequest(Math.Clamp(style.Weight, 1, 1000), Math.Clamp(style.Width, 1, 9), style.Slant);
+            : new FontStyleRequest(
+                Math.Clamp(style.Weight, 1, 1000),
+                Math.Clamp(style.Width, 1, 9),
+                style.Slant)
+            {
+                OpticalSize = float.IsFinite(style.OpticalSize) &&
+                    style.OpticalSize > 0
+                        ? style.OpticalSize
+                        : 0
+            };
 
     private static string GetStyleName(string familyName, FontStyleRequest style)
     {
@@ -828,7 +843,7 @@ public sealed class FontManager
             return font;
         }
 
-        var settings = new List<FontVariationSetting>(3);
+        var settings = new List<FontVariationSetting>(4);
         IReadOnlyList<FontVariationAxis> axes = font.VariationAxes;
         for (var index = 0; index < axes.Count; index++)
         {
@@ -854,6 +869,11 @@ public sealed class FontManager
                             : MathF.Abs(axis.Minimum) >= MathF.Abs(axis.Maximum)
                                 ? axis.Minimum
                                 : axis.Maximum));
+                    break;
+                case "opsz" when style.OpticalSize > 0:
+                    settings.Add(new FontVariationSetting(
+                        axis.Tag,
+                        style.OpticalSize));
                     break;
             }
         }

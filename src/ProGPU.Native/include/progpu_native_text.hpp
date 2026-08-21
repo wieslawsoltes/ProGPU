@@ -1654,6 +1654,9 @@ struct font_style_request final {
     std::int32_t weight = 400;
     std::int32_t width = 5;
     font_provider_slant slant = font_provider_slant::normal;
+    /* Optional OpenType opsz coordinate in signed 16.16 user units. Zero
+     * preserves the face default for callers without a point-size context. */
+    std::int32_t optical_size_fixed = 0;
 };
 
 struct font_style_variation_requirements final {
@@ -1667,7 +1670,7 @@ struct font_style_variation final {
     std::uint16_t axis_index = 0U;
 };
 
-/* Maps the managed FontStyleRequest contract onto wght/wdth/ital/slnt axes.
+/* Maps the managed FontStyleRequest contract onto wght/wdth/ital/slnt/opsz axes.
  * Requirements fully validate recognized axes before a caller-owned result is
  * written, so short buffers and malformed variation data are transactional. */
 bool try_get_font_style_variation_requirements(

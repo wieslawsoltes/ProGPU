@@ -17,6 +17,7 @@ constexpr auto weight_tag = open_type_tag::from_chars('w', 'g', 'h', 't');
 constexpr auto width_tag = open_type_tag::from_chars('w', 'd', 't', 'h');
 constexpr auto italic_tag = open_type_tag::from_chars('i', 't', 'a', 'l');
 constexpr auto slant_tag = open_type_tag::from_chars('s', 'l', 'n', 't');
+constexpr auto optical_size_tag = open_type_tag::from_chars('o', 'p', 's', 'z');
 
 void set_error(font_error* destination, font_error value) noexcept {
     if (destination != nullptr) *destination = value;
@@ -27,8 +28,12 @@ bool normalize_request(font_style_request& request) noexcept {
         static_cast<std::uint8_t>(font_provider_slant::oblique)) {
         return false;
     }
+    if (request.optical_size_fixed <= 0) {
+        request.optical_size_fixed = 0;
+    }
     if (request.weight == 0 && request.width == 0 &&
-        request.slant == font_provider_slant::normal) {
+        request.slant == font_provider_slant::normal &&
+        request.optical_size_fixed == 0) {
         request = {};
         return true;
     }
@@ -85,6 +90,10 @@ bool try_select_user_fixed(
                 ? axis.minimum_fixed
                 : axis.maximum_fixed;
         }
+        return true;
+    }
+    if (axis.tag == optical_size_tag && request.optical_size_fixed > 0) {
+        result = request.optical_size_fixed;
         return true;
     }
     return false;

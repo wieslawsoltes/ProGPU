@@ -320,7 +320,10 @@ namespace Microsoft.UI.Xaml.Controls
                     ? requestedFont.WidthClass == 0 ? 5 : requestedFont.WidthClass
                     : (int)richChar.FontStretch,
                 richChar.FontStyle is Windows.UI.Text.FontStyle.Italic or Windows.UI.Text.FontStyle.Oblique ||
-                richChar.IsItalic || requestedFont.IsItalic ? FontSlant.Italic : FontSlant.Upright);
+                richChar.IsItalic || requestedFont.IsItalic ? FontSlant.Italic : FontSlant.Upright)
+            {
+                OpticalSize = richChar.FontSize
+            };
             charFont = FontApi.Manager.MatchTypeface(requestedFont, requestedStyle) ?? requestedFont;
             richChar.Font = charFont;
             ushort glyphIndex = charFont.GetGlyphIndex(scalar);

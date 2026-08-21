@@ -321,6 +321,30 @@ public sealed class InterFontFamilyTests
         Assert.DoesNotContain(italic.VariationAxes, static axis => axis.Tag is "ital" or "slnt");
     }
 
+    [Fact]
+    public void TypefaceMatchingAppliesRequestedOpticalSizeAxis()
+    {
+        var manager = new FontManager();
+        InterFontFamily.RegisterFonts(manager);
+        var request = new FontStyleRequest(
+            637,
+            5,
+            FontSlant.Upright)
+        {
+            OpticalSize = 23f
+        };
+
+        TtfFont matched = Assert.IsType<TtfFont>(manager.MatchFamily(
+            InterFontFamily.VariableFamilyName,
+            request));
+
+        Assert.Equal(
+            23f,
+            Assert.Single(
+                matched.VariationSettings,
+                static setting => setting.Tag == "opsz").Value);
+    }
+
     [Theory]
     [InlineData(100f, 14f, 100, false)]
     [InlineData(537f, 23f, 537, false)]
