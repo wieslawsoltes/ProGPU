@@ -208,6 +208,7 @@ if (-not $SkipExtendedIntegration) {
     $SdkPackageStage = Join-Path $PackageStage "sdk"
     New-Item -ItemType Directory -Force -Path $SdkPackageStage | Out-Null
     $SdkLibraries = @(
+        "progpu_native_dawn.lib",
         "progpu_native_compression.lib",
         "progpu_native_hit_testing.lib",
         "progpu_native_image.lib",

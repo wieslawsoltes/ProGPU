@@ -1438,12 +1438,19 @@ if(NOT EMSCRIPTEN)
         ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
     install(FILES
         include/progpu_native.h
+        include/progpu_native_dawn.h
         include/progpu_native_compression.hpp
         include/progpu_native_hit_testing.hpp
         include/progpu_native_image.hpp
         include/progpu_native_scene_builder.hpp
         include/progpu_native_text.hpp
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+    if(TARGET progpu_native_dawn)
+        install(TARGETS progpu_native_dawn
+            RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+            LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+            ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+    endif()
     install(FILES
         src/Compression/progpu_native_compression.cppm
         src/HitTesting/progpu_native_hit_testing.cppm
