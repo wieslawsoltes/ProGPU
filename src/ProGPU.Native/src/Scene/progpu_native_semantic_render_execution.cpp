@@ -2204,12 +2204,16 @@ progpu_native_status render_scene(
                 const std::size_t glyph_count = glyph_count32;
                 std::uint32_t text_style_index =
                     PROGPU_NATIVE_SCENE_NO_INDEX;
-                if (!try_get_command_text_style_index(
-                        semantic_text_style_page,
-                        index,
-                        text_style_index) ||
-                    ((command.flags &
-                            PROGPU_NATIVE_SCENE_GLYPH_STYLED) != 0U &&
+                // Unstyled glyphs consume their inline color and do not depend
+                // on the command-indexed retained text-style page. Its family-
+                // local identity may therefore remain valid across unrelated
+                // command insertions that change this command's global index.
+                if ((command.flags &
+                        PROGPU_NATIVE_SCENE_GLYPH_STYLED) != 0U &&
+                    (!try_get_command_text_style_index(
+                            semantic_text_style_page,
+                            index,
+                            text_style_index) ||
                         text_style_index ==
                             PROGPU_NATIVE_SCENE_NO_INDEX)) {
                     return engine->fail(
