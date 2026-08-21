@@ -211,6 +211,8 @@ progpu_nonshipping_projects=(
   src/ProGPU.Samples.Uno/ProGPU.Samples.Uno/ProGPU.Samples.Uno.csproj
   src/ProGPU.Samples.iOS/ProGPU.Samples.iOS.csproj
   src/ProGPU.Samples/ProGPU.Samples.csproj
+  src/System.Drawing.Common.Benchmarks/System.Drawing.Common.Benchmarks.csproj
+  src/System.Drawing.Common.Tests/System.Drawing.Common.Tests.csproj
   src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj
   src/ProGPU.Tests/ProGPU.Tests.csproj
   src/ProGPU.Voxel.Tests/ProGPU.Voxel.Tests.csproj
@@ -231,6 +233,8 @@ progpu_nonshipping_reasons=(
   "Uno sample application."
   "iOS sample application."
   "Shared sample gallery."
+  "System.Drawing performance benchmark project."
+  "System.Drawing API and behavior test project."
   "Headless test project."
   "Test project."
   "Voxel engine test project."
