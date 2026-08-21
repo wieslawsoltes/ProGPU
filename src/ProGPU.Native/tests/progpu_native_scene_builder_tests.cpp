@@ -1700,6 +1700,22 @@ bool semantic_scene_content_hashes_isolate_image_updates() {
         return false;
     }
 
+    auto analytic_command_id_changed = first;
+    auto renumbered_analytic_command = read<progpu_native_scene_command>(
+        analytic_command_id_changed, first_header.command_offset);
+    renumbered_analytic_command.command_id += 100U;
+    std::memcpy(
+        analytic_command_id_changed.data() + first_header.command_offset,
+        &renumbered_analytic_command,
+        sizeof(renumbered_analytic_command));
+    const auto analytic_command_id_hashes = semantic::compute_content_hashes(
+        analytic_command_id_changed.data(), first_header);
+    if (!(analytic_command_id_hashes.analytic == first_hashes.analytic &&
+        analytic_command_id_hashes.brush == first_hashes.brush &&
+        analytic_command_id_hashes.image == first_hashes.image)) {
+        return false;
+    }
+
     auto brush_mapping_changed = first;
     const auto analytic_draw = read<progpu_native_scene_draw_brushes>(
         brush_mapping_changed, analytic_command.payload_offset);
