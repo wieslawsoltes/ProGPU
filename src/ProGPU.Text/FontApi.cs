@@ -100,9 +100,28 @@ public static class FontApi
         out TtfFont? fallbackFont,
         out ushort glyphIndex)
     {
+        return TryResolvePlatformFallback(
+            requestedFont,
+            FontStyleRequest.FromFont(requestedFont),
+            codePoint,
+            out fallbackFont,
+            out glyphIndex);
+    }
+
+    /// <summary>
+    /// Resolves a platform fallback while preserving the caller's original
+    /// style coordinates, including values clamped by the requested face.
+    /// </summary>
+    public static bool TryResolvePlatformFallback(
+        TtfFont requestedFont,
+        FontStyleRequest requestedStyle,
+        int codePoint,
+        out TtfFont? fallbackFont,
+        out ushort glyphIndex)
+    {
         if (Manager.TryMatchCharacter(
                 requestedFont.FamilyName,
-                FontStyleRequest.FromFont(requestedFont),
+                requestedStyle,
                 languageTags: null,
                 codePoint,
                 requestedFont,
@@ -120,10 +139,14 @@ public static class FontApi
             var candidate = fonts[index];
             if (ReferenceEquals(candidate, requestedFont)) continue;
 
-            ushort candidateGlyph = candidate.GetGlyphIndex((uint)codePoint);
+            TtfFont styledCandidate = Manager.MatchTypeface(
+                candidate,
+                requestedStyle);
+            ushort candidateGlyph = styledCandidate.GetGlyphIndex(
+                (uint)codePoint);
             if (candidateGlyph != 0)
             {
-                fallbackFont = candidate;
+                fallbackFont = styledCandidate;
                 glyphIndex = candidateGlyph;
                 return true;
             }
@@ -136,10 +159,14 @@ public static class FontApi
             if (candidate is null) continue;
             if (ReferenceEquals(candidate, requestedFont)) continue;
 
-            ushort candidateGlyph = candidate.GetGlyphIndex((uint)codePoint);
+            TtfFont styledCandidate = Manager.MatchTypeface(
+                candidate,
+                requestedStyle);
+            ushort candidateGlyph = styledCandidate.GetGlyphIndex(
+                (uint)codePoint);
             if (candidateGlyph != 0)
             {
-                fallbackFont = candidate;
+                fallbackFont = styledCandidate;
                 glyphIndex = candidateGlyph;
                 return true;
             }

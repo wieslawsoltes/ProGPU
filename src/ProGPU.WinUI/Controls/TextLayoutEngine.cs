@@ -330,6 +330,7 @@ namespace Microsoft.UI.Xaml.Controls
             if (glyphIndex == 0 &&
                 FontApi.TryResolvePlatformFallback(
                     charFont,
+                    requestedStyle,
                     checked((int)scalar),
                     out TtfFont? fallbackFont,
                     out ushort fallbackGlyphIndex) &&
