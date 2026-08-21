@@ -90,6 +90,7 @@
             <option value="6">locl · Localized Romanian</option>
             <option value="7">mkmk · Mark-to-mark</option>
           </select>
+          <button id="benchmark-text" class="control">Benchmark all presets</button>
           <span class="control" aria-label="Font asset">Inter Regular · separate 404 KiB asset</span>
         </div>
         <div class="stage">
@@ -100,6 +101,9 @@
             <div class="metric"><span id="metric-groups-label">groups</span> <strong id="metric-groups">0</strong></div>
             <div class="metric">GPU draws <strong id="metric-draws">0</strong></div>
             <div class="metric">scene <strong id="metric-bytes">0 B</strong></div>
+            <div class="metric">update <strong id="metric-update">0 ms</strong></div>
+            <div class="metric">preset p95 <strong id="metric-benchmark">—</strong></div>
+            <div class="metric">Wasm <strong id="metric-wasm">—</strong></div>
             <div class="metric">DPR <strong id="metric-dpr">1</strong></div>
           </div>
         </div>
@@ -117,6 +121,7 @@
       const motionControls = document.querySelector('#motion-controls');
       const textControls = document.querySelector('#text-controls');
       const textPreset = document.querySelector('#text-preset');
+      const benchmarkText = document.querySelector('#benchmark-text');
       const title = document.querySelector('#sample-title');
       const description = document.querySelector('#sample-description');
       const status = document.querySelector('#status-message');
@@ -150,6 +155,15 @@
         document.body.dataset.progpuNativeFontBytes = String(bytes.byteLength);
       })();
 
+      fetch('progpu_native_browser_gallery.wasm', { method: 'HEAD' })
+        .then(response => Number(response.headers.get('content-length')))
+        .then(bytes => {
+          if (!Number.isFinite(bytes) || bytes <= 0) return;
+          document.body.dataset.progpuNativeWasmBytes = String(bytes);
+          document.querySelector('#metric-wasm').textContent =
+            (bytes / (1024 * 1024)).toFixed(2) + ' MiB';
+        });
+
       complexity.addEventListener('change', event => Module._progpu_native_gallery_set_element_count(Number(event.target.value)));
       palette.addEventListener('change', event => Module._progpu_native_gallery_set_color_mode(Number(event.target.value)));
       pause.addEventListener('click', () => {
@@ -179,6 +193,51 @@
       });
       textPreset.addEventListener('change', event =>
         Module._progpu_native_gallery_set_text_preset(Number(event.target.value)));
+      benchmarkText.addEventListener('click', async () => {
+        benchmarkText.disabled = true;
+        const samples = [];
+        try {
+          for (let round = 0; round < 4; round++) {
+            for (let step = 0; step < textPreset.options.length; step++) {
+              const preset = (step + 1) % textPreset.options.length;
+              textPreset.value = String(preset);
+              Module._progpu_native_gallery_set_text_preset(preset);
+              await new Promise((resolve, reject) => {
+                const started = performance.now();
+                const poll = () => {
+                  if (document.body.dataset.progpuNativeTextPreset === String(preset)) {
+                    resolve();
+                  } else if (performance.now() - started > 5000) {
+                    reject(new Error('Preset benchmark timed out.'));
+                  } else {
+                    requestAnimationFrame(poll);
+                  }
+                };
+                requestAnimationFrame(poll);
+              });
+              samples.push(Number(
+                document.body.dataset.progpuNativeUpdateMilliseconds));
+            }
+          }
+          samples.sort((left, right) => left - right);
+          const percentile = value => samples[
+            Math.min(samples.length - 1, Math.ceil(samples.length * value) - 1)];
+          const p50 = percentile(0.50);
+          const p95 = percentile(0.95);
+          const maximum = samples[samples.length - 1];
+          document.querySelector('#metric-benchmark').textContent =
+            p95.toFixed(2) + ' ms';
+          document.body.dataset.progpuNativeBenchmarkSamples = String(samples.length);
+          document.body.dataset.progpuNativeBenchmarkP50 = String(p50);
+          document.body.dataset.progpuNativeBenchmarkP95 = String(p95);
+          document.body.dataset.progpuNativeBenchmarkMax = String(maximum);
+        } catch (error) {
+          status.textContent = String(error);
+          console.error(error);
+        } finally {
+          benchmarkText.disabled = false;
+        }
+      });
     });
   </script>
   {{{ SCRIPT }}}

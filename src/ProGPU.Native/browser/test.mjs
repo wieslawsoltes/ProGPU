@@ -289,6 +289,7 @@ try {
   await page.waitForFunction(
     () => document.body.dataset.progpuNativeSample === "text-shaping" &&
       Number(document.body.dataset.progpuNativeFontBytes) > 0 &&
+      Number(document.body.dataset.progpuNativeWasmBytes) > 0 &&
       Number(document.body.dataset.progpuNativeGlyphs) > 0 &&
       Number(document.body.dataset.progpuNativeOutlines) > 0,
     undefined,
@@ -296,6 +297,7 @@ try {
   const textContract = await page.evaluate(() => ({
     sample: document.body.dataset.progpuNativeSample,
     fontBytes: Number(document.body.dataset.progpuNativeFontBytes),
+    wasmBytes: Number(document.body.dataset.progpuNativeWasmBytes),
     glyphs: Number(document.body.dataset.progpuNativeGlyphs),
     outlines: Number(document.body.dataset.progpuNativeOutlines),
     draws: Number(document.body.dataset.progpuNativeDraws),
@@ -310,6 +312,7 @@ try {
   }));
   assert.equal(textContract.sample, "text-shaping");
   assert.ok(textContract.fontBytes > 300_000);
+  assert.ok(textContract.wasmBytes > 1_000_000);
   assert.ok(textContract.glyphs > 100);
   assert.ok(textContract.outlines > 16);
   assert.ok(textContract.draws > 1);
@@ -331,6 +334,23 @@ try {
     await page.locator("body").getAttribute(
       "data-progpu-native-text-preset"));
   assert.equal(textContract.changedPreset, 1);
+  await page.locator("#benchmark-text").click();
+  await page.waitForFunction(
+    () => Number(document.body.dataset.progpuNativeBenchmarkSamples) === 32,
+    undefined,
+    { timeout: 30_000 });
+  Object.assign(textContract, await page.evaluate(() => ({
+    benchmarkSamples:
+      Number(document.body.dataset.progpuNativeBenchmarkSamples),
+    benchmarkP50: Number(document.body.dataset.progpuNativeBenchmarkP50),
+    benchmarkP95: Number(document.body.dataset.progpuNativeBenchmarkP95),
+    benchmarkMax: Number(document.body.dataset.progpuNativeBenchmarkMax)
+  })));
+  assert.equal(textContract.benchmarkSamples, 32);
+  assert.ok(Number.isFinite(textContract.benchmarkP50) &&
+    textContract.benchmarkP50 >= 0);
+  assert.ok(textContract.benchmarkP95 >= textContract.benchmarkP50);
+  assert.ok(textContract.benchmarkMax >= textContract.benchmarkP95);
   const textScreenshot = await page.locator(".stage").screenshot({
     path: path.join(
       evidenceDirectory,

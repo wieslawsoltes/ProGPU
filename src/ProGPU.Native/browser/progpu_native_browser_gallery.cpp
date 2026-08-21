@@ -109,6 +109,7 @@ void publish_metrics(
         set('#metric-draws', Number($3).toLocaleString());
         set('#metric-bytes', Number($4).toLocaleString() + ' B');
         set('#metric-dpr', Number($5).toFixed(2));
+        set('#metric-update', Number($6).toFixed(3) + ' ms');
         const status = document.querySelector('#status-message');
         if (status) status.textContent =
           'native update ' + Number($6).toFixed(3) + ' ms / ' +
