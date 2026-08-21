@@ -14,6 +14,7 @@ namespace System.Drawing;
 
 public class Graphics :
     IDisposable,
+    IDeviceContext,
     IProGpuDrawingContextSource
 {
     private readonly DrawingContext _context;
@@ -26,8 +27,24 @@ public class Graphics :
     private float _pageScale = 1f;
     private GraphicsUnit _pageUnit = GraphicsUnit.Display;
     private CompositingQuality _compositingQuality = CompositingQuality.Default;
+    private Region? _clip;
+    private bool _hasPushedClip;
 
     public DrawingContext DrawingContext => _context;
+
+    public Region Clip
+    {
+        get => _clip?.Clone() ?? new Region();
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            SetClip(value, CombineMode.Replace);
+        }
+    }
+
+    public RectangleF ClipBounds => _clip?.GetBounds(this) ?? VisibleClipBounds;
+    public bool IsClipEmpty => _clip?.IsEmpty(this) == true;
+    public bool IsVisibleClipEmpty => IsClipEmpty || VisibleClipBounds.IsEmpty;
 
     public Matrix Transform
     {
@@ -141,6 +158,12 @@ public class Graphics :
         return new Graphics(drawingContext);
     }
 
+    public static Graphics FromHdc(IntPtr hdc) =>
+        throw new PlatformNotSupportedException(
+            "HDC import requires the explicit Windows GDI drawing adapter.");
+
+    public static Graphics FromHdc(IntPtr hdc, IntPtr hdevice) => FromHdc(hdc);
+
     public static Graphics FromProGpuDrawingContext(
         DrawingContext drawingContext,
         Matrix4x4 outerTransform)
@@ -200,6 +223,20 @@ public class Graphics :
     public void TranslateTransform(float dx, float dy)
     {
         _transform.Translate(dx, dy);
+    }
+
+    public void TranslateClip(int dx, int dy) => TranslateClip((float)dx, dy);
+
+    public void TranslateClip(float dx, float dy)
+    {
+        if (_clip is null)
+        {
+            return;
+        }
+
+        Region translated = _clip.Clone();
+        translated.Translate(dx, dy);
+        ReplaceClip(translated);
     }
 
     public void ScaleTransform(float sx, float sy)
@@ -272,7 +309,8 @@ public class Graphics :
             PixelOffsetMode,
             PageScale,
             PageUnit,
-            CompositingQuality));
+            CompositingQuality,
+            _clip?.Clone()));
         return state;
     }
 
@@ -305,6 +343,7 @@ public class Graphics :
         _pageScale = saved.PageScale;
         _pageUnit = saved.PageUnit;
         _compositingQuality = saved.CompositingQuality;
+        ReplaceClip(saved.Clip?.Clone());
 
         _savedStates.RemoveRange(stateIndex, _savedStates.Count - stateIndex);
     }
@@ -318,7 +357,110 @@ public class Graphics :
         PixelOffsetMode PixelOffsetMode,
         float PageScale,
         GraphicsUnit PageUnit,
-        CompositingQuality CompositingQuality);
+        CompositingQuality CompositingQuality,
+        Region? Clip);
+
+    public void SetClip(Graphics g) => SetClip(g, CombineMode.Replace);
+
+    public void SetClip(Graphics g, CombineMode combineMode)
+    {
+        ArgumentNullException.ThrowIfNull(g);
+        using Region region = g.Clip;
+        SetClip(region, combineMode);
+    }
+
+    public void SetClip(Rectangle rect) => SetClip(rect, CombineMode.Replace);
+    public void SetClip(Rectangle rect, CombineMode combineMode) =>
+        SetClip(new RectangleF(rect.X, rect.Y, rect.Width, rect.Height), combineMode);
+    public void SetClip(RectangleF rect) => SetClip(rect, CombineMode.Replace);
+
+    public void SetClip(RectangleF rect, CombineMode combineMode)
+    {
+        using var region = new Region(rect);
+        SetClip(region, combineMode);
+    }
+
+    public void SetClip(GraphicsPath path) => SetClip(path, CombineMode.Replace);
+
+    public void SetClip(GraphicsPath path, CombineMode combineMode)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        using var region = new Region(path);
+        SetClip(region, combineMode);
+    }
+
+    public void SetClip(Region region, CombineMode combineMode)
+    {
+        ArgumentNullException.ThrowIfNull(region);
+        if (combineMode < CombineMode.Replace || combineMode > CombineMode.Complement)
+        {
+            throw new InvalidEnumArgumentException(nameof(combineMode), (int)combineMode, typeof(CombineMode));
+        }
+
+        Region next = combineMode == CombineMode.Replace
+            ? region.Clone()
+            : _clip?.Clone() ?? new Region();
+        if (combineMode != CombineMode.Replace)
+        {
+            switch (combineMode)
+            {
+                case CombineMode.Intersect:
+                    next.Intersect(region);
+                    break;
+                case CombineMode.Union:
+                    next.Union(region);
+                    break;
+                case CombineMode.Xor:
+                    next.Xor(region);
+                    break;
+                case CombineMode.Exclude:
+                    next.Exclude(region);
+                    break;
+                case CombineMode.Complement:
+                    next.Complement(region);
+                    break;
+            }
+        }
+
+        ReplaceClip(next);
+    }
+
+    public void IntersectClip(Rectangle rect) => SetClip(rect, CombineMode.Intersect);
+    public void IntersectClip(RectangleF rect) => SetClip(rect, CombineMode.Intersect);
+    public void IntersectClip(Region region) => SetClip(region, CombineMode.Intersect);
+    public void ExcludeClip(Rectangle rect) => SetClip(rect, CombineMode.Exclude);
+    public void ExcludeClip(Region region) => SetClip(region, CombineMode.Exclude);
+
+    public void ResetClip() => ReplaceClip(null);
+
+    private void ReplaceClip(Region? clip)
+    {
+        if (_hasPushedClip)
+        {
+            _context.PopGeometryClip();
+            _hasPushedClip = false;
+        }
+
+        _clip?.Dispose();
+        _clip = clip;
+        if (_clip == null || _clip.IsInfinite(this))
+        {
+            return;
+        }
+
+        _context.PushGeometryClip(
+            _clip.CreatePathGeometry(GetFiniteDrawingUniverse()),
+            CurrentTransform4x4());
+        _hasPushedClip = true;
+    }
+
+    private RectangleF GetFiniteDrawingUniverse()
+    {
+        RectangleF visible = VisibleClipBounds;
+        return visible.Width > 0f && visible.Height > 0f
+            ? visible
+            : new RectangleF(-1_000_000f, -1_000_000f, 2_000_000f, 2_000_000f);
+    }
 
     private Vector2 Tx(float x, float y)
     {
@@ -417,6 +559,8 @@ public class Graphics :
         _context.PopBlendMode();
     }
 
+    public Color GetNearestColor(Color color) => color;
+
     public void DrawLine(Pen pen, PointF p1, PointF p2) => DrawLine(pen, p1.X, p1.Y, p2.X, p2.Y);
     public void DrawLine(Pen pen, Point p1, Point p2) => DrawLine(pen, p1.X, p1.Y, p2.X, p2.Y);
     public void DrawLine(Pen pen, int x1, int y1, int x2, int y2) => DrawLine(pen, (float)x1, y1, x2, y2);
@@ -450,6 +594,9 @@ public class Graphics :
         path.AddLines(points);
         DrawTransformedPath(pen, path.Geometry);
     }
+
+    public void DrawLines(Pen pen, ReadOnlySpan<Point> points) => DrawLines(pen, points.ToArray());
+    public void DrawLines(Pen pen, ReadOnlySpan<PointF> points) => DrawLines(pen, points.ToArray());
 
     public void DrawCurve(Pen pen, PointF[] points) =>
         DrawCurve(pen, points, 0, GetCurveSegmentCount(points), 0.5f);
@@ -634,8 +781,12 @@ public class Graphics :
         var transform = CurrentTransform4x4();
         var right = rect.Right;
         var bottom = rect.Bottom;
-        var startX = MathF.Floor(rect.X / tileWidth) * tileWidth;
-        var startY = MathF.Floor(rect.Y / tileHeight) * tileHeight;
+        Matrix brushTransform = brush.Transform;
+        var originX = brushTransform.OffsetX;
+        var originY = brushTransform.OffsetY;
+        brushTransform.Dispose();
+        var startX = originX + (MathF.Floor((rect.X - originX) / tileWidth) * tileWidth);
+        var startY = originY + (MathF.Floor((rect.Y - originY) / tileHeight) * tileHeight);
 
         for (var tileY = startY; tileY < bottom; tileY += tileHeight)
         {
@@ -746,6 +897,9 @@ public class Graphics :
         DrawPath(pen, path);
     }
 
+    public void DrawPolygon(Pen pen, ReadOnlySpan<Point> points) => DrawPolygon(pen, points.ToArray());
+    public void DrawPolygon(Pen pen, ReadOnlySpan<PointF> points) => DrawPolygon(pen, points.ToArray());
+
     public void FillPolygon(Brush brush, PointF[] points)
     {
         if (points == null || points.Length < 2) return;
@@ -759,6 +913,36 @@ public class Graphics :
         if (points == null || points.Length < 2) return;
         using var path = new GraphicsPath();
         path.AddPolygon(points);
+        FillPath(brush, path);
+    }
+
+    public void FillPolygon(Brush brush, ReadOnlySpan<Point> points) => FillPolygon(brush, points.ToArray());
+    public void FillPolygon(Brush brush, ReadOnlySpan<PointF> points) => FillPolygon(brush, points.ToArray());
+
+    public void DrawPie(Pen pen, Rectangle rect, float startAngle, float sweepAngle) =>
+        DrawPie(pen, rect.X, rect.Y, rect.Width, rect.Height, startAngle, sweepAngle);
+
+    public void DrawPie(Pen pen, float x, float y, float width, float height, float startAngle, float sweepAngle)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        using var path = new GraphicsPath();
+        path.AddPie(x, y, width, height, startAngle, sweepAngle);
+        DrawPath(pen, path);
+    }
+
+    public void DrawRoundedRectangle(Pen pen, Rectangle rect, Size radius)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        using var path = new GraphicsPath();
+        path.AddRoundedRectangle(rect, radius);
+        DrawPath(pen, path);
+    }
+
+    public void FillRoundedRectangle(Brush brush, Rectangle rect, Size radius)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        using var path = new GraphicsPath();
+        path.AddRoundedRectangle(rect, radius);
         FillPath(brush, path);
     }
 
@@ -782,6 +966,48 @@ public class Graphics :
         if (path == null) return;
         _context.DrawPath(brush.ToProGpuBrush(), null, path.Geometry, CurrentTransform4x4());
     }
+
+    public void FillRegion(Brush brush, Region region)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        ArgumentNullException.ThrowIfNull(region);
+        _context.DrawPath(
+            brush.ToProGpuBrush(),
+            null,
+            region.CreatePathGeometry(GetFiniteDrawingUniverse()),
+            CurrentTransform4x4());
+    }
+
+    public Region[] MeasureCharacterRanges(string text, Font font, RectangleF layoutRect, StringFormat stringFormat)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        ArgumentNullException.ThrowIfNull(font);
+        ArgumentNullException.ThrowIfNull(stringFormat);
+        CharacterRange[] ranges = stringFormat.GetMeasurableCharacterRanges();
+        var result = new Region[ranges.Length];
+        for (int index = 0; index < ranges.Length; index++)
+        {
+            CharacterRange range = ranges[index];
+            int first = Math.Clamp(range.First, 0, text.Length);
+            int length = Math.Clamp(range.Length, 0, text.Length - first);
+            float prefixWidth = first == 0 ? 0f : MeasureString(text[..first], font).Width;
+            SizeF rangeSize = length == 0 ? SizeF.Empty : MeasureString(text.Substring(first, length), font);
+            result[index] = new Region(new RectangleF(
+                layoutRect.X + prefixWidth,
+                layoutRect.Y,
+                rangeSize.Width,
+                MathF.Min(rangeSize.Height, layoutRect.Height)));
+        }
+
+        return result;
+    }
+
+    public bool IsVisible(Point point) => IsVisible(point.X, point.Y);
+    public bool IsVisible(PointF point) => IsVisible(point.X, point.Y);
+    public bool IsVisible(int x, int y) => IsVisible((float)x, y);
+    public bool IsVisible(float x, float y) => _clip?.IsVisible(x, y, this) ?? VisibleClipBounds.Contains(x, y);
+    public bool IsVisible(Rectangle rect) => IsVisible((RectangleF)rect);
+    public bool IsVisible(RectangleF rect) => _clip?.IsVisible(rect, this) ?? VisibleClipBounds.IntersectsWith(rect);
 
     public void DrawString(string s, Font font, Brush brush, PointF point) => DrawString(s, font, brush, point.X, point.Y);
     public void DrawString(string s, Font font, Brush brush, PointF point, StringFormat? format) =>
@@ -1453,6 +1679,13 @@ public class Graphics :
         DrawImage(bitmap, targetRect);
     }
 
+    public void DrawIconUnstretched(Icon icon, Rectangle targetRect)
+    {
+        ArgumentNullException.ThrowIfNull(icon);
+        using Bitmap bitmap = icon.ToBitmap();
+        DrawImageUnscaled(bitmap, targetRect.X, targetRect.Y);
+    }
+
     public void DrawImageUnscaled(Image image, int x, int y)
     {
         DrawImage(image, x, y);
@@ -1462,6 +1695,18 @@ public class Graphics :
     {
         DrawImageUnscaled(image, point.X, point.Y);
     }
+
+    public void DrawImageUnscaled(Image image, Rectangle rect) => DrawImageUnscaled(image, rect.X, rect.Y);
+
+    public void DrawImage(
+        Image image,
+        Rectangle destRect,
+        int srcX,
+        int srcY,
+        int srcWidth,
+        int srcHeight,
+        GraphicsUnit srcUnit) =>
+        DrawImage(image, destRect, srcX, srcY, srcWidth, srcHeight, srcUnit, null);
 
     public void DrawImage(
         Image image,
@@ -1482,6 +1727,28 @@ public class Graphics :
         }
     }
 
+    public delegate bool DrawImageAbort(IntPtr callbackdata);
+
+    public void DrawImage(
+        Image image,
+        Rectangle destRect,
+        int srcX,
+        int srcY,
+        int srcWidth,
+        int srcHeight,
+        GraphicsUnit srcUnit,
+        ImageAttributes? imageAttr,
+        DrawImageAbort? callback,
+        IntPtr callbackData)
+    {
+        if (callback?.Invoke(callbackData) == true)
+        {
+            return;
+        }
+
+        DrawImage(image, destRect, srcX, srcY, srcWidth, srcHeight, srcUnit, imageAttr);
+    }
+
     private void DrawBitmap(Bitmap bitmap, RectangleF rect)
     {
         DrawBitmap(bitmap, rect, default, null);
@@ -1489,7 +1756,10 @@ public class Graphics :
 
     private void DrawBitmap(Bitmap bitmap, RectangleF rect, RectangleF sourceRect, ImageAttributes? imageAttributes)
     {
-        var retainedTexture = RetainBitmapTexture(bitmap);
+        using Bitmap? remappedBitmap = imageAttributes is { RemapTable.Length: > 0 }
+            ? bitmap.CreateColorRemapped(imageAttributes.RemapTable)
+            : null;
+        var retainedTexture = RetainBitmapTexture(remappedBitmap ?? bitmap);
         var srcRect = sourceRect.Width > 0f && sourceRect.Height > 0f
             ? new Rect(sourceRect.X, sourceRect.Y, sourceRect.Width, sourceRect.Height)
             : Rect.Empty;
@@ -1607,6 +1877,17 @@ public class Graphics :
 
     public void Dispose()
     {
+        if (_hasPushedClip)
+        {
+            _context.PopGeometryClip();
+            _hasPushedClip = false;
+        }
+        _clip?.Dispose();
+        _clip = null;
+        foreach (SavedGraphicsState state in _savedStates)
+        {
+            state.Clip?.Dispose();
+        }
         _savedStates.Clear();
         _transform.Dispose();
         // Bitmap commands are intentionally retained until the image is
@@ -1614,4 +1895,16 @@ public class Graphics :
         // Disposing Graphics must not submit work through an ambient host
         // context whose render scope may already be ending.
     }
+
+    public IntPtr GetHdc() =>
+        throw new PlatformNotSupportedException(
+            "The portable ProGPU drawing context does not expose a native HDC.");
+
+    public void ReleaseHdc() =>
+        throw new PlatformNotSupportedException(
+            "The portable ProGPU drawing context does not own a native HDC.");
+
+    public void ReleaseHdc(IntPtr hdc) => ReleaseHdc();
+
+    public void ReleaseHdcInternal(IntPtr hdc) => ReleaseHdc(hdc);
 }

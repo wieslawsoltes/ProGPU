@@ -107,6 +107,11 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         }
     }
 
+    public Bitmap(Image original, Size newSize)
+        : this(original, newSize.Width, newSize.Height)
+    {
+    }
+
     public Bitmap(Image original)
         : this(original, GetImageWidth(original), GetImageHeight(original))
     {
@@ -118,10 +123,20 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         InitializeFromStream(fs);
     }
 
+    public Bitmap(string filename, bool useIcm)
+        : this(filename)
+    {
+    }
+
     public Bitmap(System.IO.Stream stream)
     {
         ArgumentNullException.ThrowIfNull(stream);
         InitializeFromStream(stream);
+    }
+
+    public Bitmap(System.IO.Stream stream, bool useIcm)
+        : this(stream)
+    {
     }
 
     public Bitmap(Bitmap original)
@@ -131,7 +146,87 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         _height = original.Height;
         _cpuPixels = original.CopyPixelsForClone(out _cpuAlphaMode);
         _hasDefinedPixels = true;
+        original.CopyMetadataTo(this);
     }
+
+    public override object Clone() => new Bitmap(this);
+
+    public override void RotateFlip(RotateFlipType rotateFlipType)
+    {
+        int operation = (int)rotateFlipType;
+        if ((uint)operation > 7u)
+        {
+            throw new ArgumentException("Invalid rotate/flip operation.", nameof(rotateFlipType));
+        }
+
+        lock (_textureLifetimeLock)
+        {
+            ThrowIfDisposed();
+            byte[] source = ReadPixelsCore(out GpuTextureAlphaMode alphaMode);
+            int sourceWidth = _width;
+            int sourceHeight = _height;
+            int rotation = operation & 3;
+            bool flipX = (operation & 4) != 0;
+            int destinationWidth = (rotation & 1) == 0 ? sourceWidth : sourceHeight;
+            int destinationHeight = (rotation & 1) == 0 ? sourceHeight : sourceWidth;
+            byte[] destination = new byte[checked(source.Length)];
+
+            for (int sourceY = 0; sourceY < sourceHeight; sourceY++)
+            {
+                for (int sourceX = 0; sourceX < sourceWidth; sourceX++)
+                {
+                    int destinationX;
+                    int destinationY;
+                    switch (rotation)
+                    {
+                        case 1:
+                            destinationX = sourceHeight - 1 - sourceY;
+                            destinationY = sourceX;
+                            break;
+                        case 2:
+                            destinationX = sourceWidth - 1 - sourceX;
+                            destinationY = sourceHeight - 1 - sourceY;
+                            break;
+                        case 3:
+                            destinationX = sourceY;
+                            destinationY = sourceWidth - 1 - sourceX;
+                            break;
+                        default:
+                            destinationX = sourceX;
+                            destinationY = sourceY;
+                            break;
+                    }
+
+                    if (flipX)
+                    {
+                        destinationX = destinationWidth - 1 - destinationX;
+                    }
+
+                    int sourceOffset = ((sourceY * sourceWidth) + sourceX) * 4;
+                    int destinationOffset = ((destinationY * destinationWidth) + destinationX) * 4;
+                    source.AsSpan(sourceOffset, 4).CopyTo(destination.AsSpan(destinationOffset, 4));
+                }
+            }
+
+            if (_textureLifetime is { } lifetime)
+            {
+                RetireTextureLifetime(lifetime);
+                _textureLifetime = null;
+            }
+
+            _width = destinationWidth;
+            _height = destinationHeight;
+            _cpuPixels = destination;
+            _cpuAlphaMode = alphaMode;
+            _hasDefinedPixels = true;
+        }
+    }
+
+    public IntPtr GetHbitmap() => GetHbitmap(Color.Transparent);
+
+    public IntPtr GetHbitmap(Color background) =>
+        throw new PlatformNotSupportedException(
+            "HBITMAP export requires the explicit Windows GDI image adapter.");
 
     private void InitializeFromStream(System.IO.Stream stream)
     {
@@ -461,6 +556,90 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         }
     }
 
+    internal Bitmap CreateColorRemapped(ReadOnlySpan<(Color OldColor, Color NewColor)> remapTable)
+    {
+        lock (_textureLifetimeLock)
+        {
+            ThrowIfDisposed();
+            byte[] pixels = (byte[])ReadPixelsCore(out GpuTextureAlphaMode alphaMode).Clone();
+            if (remapTable.IsEmpty)
+            {
+                return CreateFromPixels(_width, _height, pixels, alphaMode);
+            }
+
+            var replacements = new Dictionary<int, int>(remapTable.Length);
+            foreach ((Color oldColor, Color newColor) in remapTable)
+            {
+                replacements[oldColor.ToArgb()] = newColor.ToArgb();
+            }
+
+            for (int offset = 0; offset < pixels.Length; offset += 4)
+            {
+                byte alpha = pixels[offset + 3];
+                byte red = pixels[offset];
+                byte green = pixels[offset + 1];
+                byte blue = pixels[offset + 2];
+                if (alphaMode == GpuTextureAlphaMode.Premultiplied)
+                {
+                    red = UnpremultiplyChannel(red, alpha);
+                    green = UnpremultiplyChannel(green, alpha);
+                    blue = UnpremultiplyChannel(blue, alpha);
+                }
+
+                int sourceArgb = (alpha << 24) | (red << 16) | (green << 8) | blue;
+                if (!replacements.TryGetValue(sourceArgb, out int replacementArgb))
+                {
+                    continue;
+                }
+
+                byte replacementAlpha = (byte)(replacementArgb >> 24);
+                byte replacementRed = (byte)(replacementArgb >> 16);
+                byte replacementGreen = (byte)(replacementArgb >> 8);
+                byte replacementBlue = (byte)replacementArgb;
+                if (alphaMode == GpuTextureAlphaMode.Premultiplied)
+                {
+                    replacementRed = PremultiplyChannel(replacementRed, replacementAlpha);
+                    replacementGreen = PremultiplyChannel(replacementGreen, replacementAlpha);
+                    replacementBlue = PremultiplyChannel(replacementBlue, replacementAlpha);
+                }
+
+                pixels[offset] = replacementRed;
+                pixels[offset + 1] = replacementGreen;
+                pixels[offset + 2] = replacementBlue;
+                pixels[offset + 3] = replacementAlpha;
+            }
+
+            return CreateFromPixels(_width, _height, pixels, alphaMode);
+        }
+    }
+
+    internal byte[] CopyStraightPixelsForPalette()
+    {
+        lock (_textureLifetimeLock)
+        {
+            ThrowIfDisposed();
+            byte[] pixels = ReadPixelsCore(out GpuTextureAlphaMode alphaMode);
+            return alphaMode == GpuTextureAlphaMode.Premultiplied
+                ? UnpremultiplyPixels(pixels)
+                : (byte[])pixels.Clone();
+        }
+    }
+
+    private static Bitmap CreateFromPixels(
+        int width,
+        int height,
+        byte[] pixels,
+        GpuTextureAlphaMode alphaMode)
+    {
+        var bitmap = new Bitmap(width, height)
+        {
+            _cpuPixels = pixels,
+            _cpuAlphaMode = alphaMode,
+            _hasDefinedPixels = true
+        };
+        return bitmap;
+    }
+
     private byte[] ReadPixelsCore(out GpuTextureAlphaMode alphaMode)
     {
         FlushCore(requiredContext: null);
@@ -565,16 +744,12 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         }
     }
 
-    public void Save(string filename)
-    {
-        ArgumentNullException.ThrowIfNull(filename);
-        using var stream = System.IO.File.Create(filename);
-        SavePng(stream);
-    }
+    public void SetResolution(float xDpi, float yDpi) => SetResolutionCore(xDpi, yDpi);
 
     public IntPtr GetHicon()
     {
-        return Icon.RegisterBitmapHandle(this);
+        throw new PlatformNotSupportedException(
+            "HICON export requires the explicit Windows GDI image adapter.");
     }
 
     public void MakeTransparent()

@@ -1,5 +1,15 @@
 namespace System.Drawing.Drawing2D;
 
+public enum CombineMode
+{
+    Replace = 0,
+    Intersect = 1,
+    Union = 2,
+    Xor = 3,
+    Exclude = 4,
+    Complement = 5,
+}
+
 public enum SmoothingMode
 {
     Invalid = -1,
@@ -81,4 +91,22 @@ public enum LineJoin
     Bevel = 1,
     Round = 2,
     MiterClipped = 3
+}
+
+public enum PenAlignment
+{
+    Center = 0,
+    Inset = 1,
+    Outset = 2,
+    Left = 3,
+    Right = 4
+}
+
+public enum WrapMode
+{
+    Tile = 0,
+    TileFlipX = 1,
+    TileFlipY = 2,
+    TileFlipXY = 3,
+    Clamp = 4
 }

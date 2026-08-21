@@ -3,7 +3,7 @@ using System.Drawing.Drawing2D;
 
 namespace System.Drawing;
 
-public class Pen : IDisposable
+public class Pen : IDisposable, ICloneable
 {
     private static readonly double[] s_dashPattern = { 3.0, 1.0 };
     private static readonly double[] s_dotPattern = { 1.0, 1.0 };
@@ -15,11 +15,29 @@ public class Pen : IDisposable
     private LineJoin _lineJoin;
     private float _miterLimit = 10f;
     private LineCap _startCap;
+    private float[]? _customDashPattern;
 
     public Brush Brush { get; set; }
     public float Width { get; set; }
     public System.Drawing.Drawing2D.DashStyle DashStyle { get; set; }
     public float DashOffset { get; set; }
+    public PenAlignment Alignment { get; set; }
+
+    public float[] DashPattern
+    {
+        get => _customDashPattern is null ? [1f] : (float[])_customDashPattern.Clone();
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            if (value.Length == 0 || Array.Exists(value, element => !float.IsFinite(element) || element <= 0f))
+            {
+                throw new ArgumentException("Dash pattern entries must be finite and greater than zero.", nameof(value));
+            }
+
+            _customDashPattern = (float[])value.Clone();
+            DashStyle = DashStyle.Custom;
+        }
+    }
 
     public DashCap DashCap
     {
@@ -108,7 +126,7 @@ public class Pen : IDisposable
             startLineCap: ToProGpuLineCap(_startCap),
             endLineCap: ToProGpuLineCap(_endCap),
             dashCap: ToProGpuDashCap(_dashCap),
-            dashArray: GetDashArray(DashStyle),
+            dashArray: GetDashArray(),
             dashOffset: DashOffset);
         nativePen.MiterLimit = _miterLimit;
         return nativePen;
@@ -123,9 +141,14 @@ public class Pen : IDisposable
         _dashCap = Enum.IsDefined(dashCap) ? dashCap : DashCap.Flat;
     }
 
-    private static double[]? GetDashArray(System.Drawing.Drawing2D.DashStyle dashStyle)
+    private double[]? GetDashArray()
     {
-        return dashStyle switch
+        if (DashStyle == DashStyle.Custom && _customDashPattern is not null)
+        {
+            return Array.ConvertAll(_customDashPattern, static value => (double)value);
+        }
+
+        return DashStyle switch
         {
             System.Drawing.Drawing2D.DashStyle.Dash => s_dashPattern,
             System.Drawing.Drawing2D.DashStyle.Dot => s_dotPattern,
@@ -134,6 +157,23 @@ public class Pen : IDisposable
             System.Drawing.Drawing2D.DashStyle.Custom => s_defaultCustomPattern,
             _ => null
         };
+    }
+
+    public object Clone()
+    {
+        var clone = new Pen(Brush is SolidBrush solid ? new SolidBrush(solid.Color) : Brush, Width)
+        {
+            Alignment = Alignment,
+            DashCap = DashCap,
+            DashOffset = DashOffset,
+            DashStyle = DashStyle,
+            EndCap = EndCap,
+            LineJoin = LineJoin,
+            MiterLimit = MiterLimit,
+            StartCap = StartCap
+        };
+        clone._customDashPattern = _customDashPattern is null ? null : (float[])_customDashPattern.Clone();
+        return clone;
     }
 
     private static ProGPU.Vector.PenLineCap ToProGpuLineCap(LineCap lineCap)

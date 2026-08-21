@@ -17,6 +17,49 @@ permissions:
   contents: read
 
 jobs:
+  system-drawing-contract:
+    name: System.Drawing API, quality, and performance
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Verify pinned API contract
+        shell: bash
+        run: ./eng/progpu-verify-system-drawing-api.sh
+
+      - name: Run focused quality and allocation gates
+        run: dotnet test src/System.Drawing.Common.Tests/System.Drawing.Common.Tests.csproj --configuration Release --verbosity normal
+
+      - name: Capture System.Drawing microbenchmarks
+        run: >-
+          dotnet run
+          --project src/System.Drawing.Common.Benchmarks/System.Drawing.Common.Benchmarks.csproj
+          --configuration Release
+          --
+          --job short
+          --filter '*'
+          --exporters json
+
+      - name: Upload API and benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-system-drawing-contract
+          path: |
+            artifacts/system-drawing-api-compat/current.txt
+            BenchmarkDotNet.Artifacts/results/*
+          if-no-files-found: warn
+
   native-cpp-browser:
     name: Native C++ browser WebGPU
     runs-on: ubuntu-latest

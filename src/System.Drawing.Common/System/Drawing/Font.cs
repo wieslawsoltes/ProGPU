@@ -42,6 +42,8 @@ public class Font : IDisposable
     public bool Italic => (Style & FontStyle.Italic) != 0;
     public bool Underline => (Style & FontStyle.Underline) != 0;
     public bool Strikeout => (Style & FontStyle.Strikeout) != 0;
+    public bool IsSystemFont => false;
+    public string SystemFontName => string.Empty;
     public int Height => (int)MathF.Ceiling(GetHeight());
 
     internal TtfFont TtfFont { get; }
@@ -155,6 +157,14 @@ public class Font : IDisposable
             * emSize
             / TtfFont.UnitsPerEm;
     }
+
+    public IntPtr ToHfont() =>
+        throw new PlatformNotSupportedException(
+            "HFONT export requires the explicit Windows GDI font adapter.");
+
+    public static Font FromHfont(IntPtr hfont) =>
+        throw new PlatformNotSupportedException(
+            "HFONT import requires the explicit Windows GDI font adapter.");
 
     public void Dispose() {}
 }

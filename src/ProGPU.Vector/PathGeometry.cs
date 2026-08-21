@@ -101,6 +101,23 @@ enum FillRule
     Nonzero = 1
 }
 
+/// <summary>
+/// Defines a retained boolean operation between two filled path geometries.
+/// </summary>
+#if PROGPU_VECTOR_INTERNAL
+internal
+#else
+public
+#endif
+enum PathBooleanOperation
+{
+    Difference = 0,
+    Intersect = 1,
+    Union = 2,
+    ExclusiveOr = 3,
+    ReverseDifference = 4,
+}
+
 internal enum CombinedPathQueryKind : byte
 {
     Unknown = 0,
@@ -264,6 +281,15 @@ class PathGeometry
     public PathGeometry? PathA { get; set; }
     public PathGeometry? PathB { get; set; }
     public int Op { get; set; }
+
+    /// <summary>
+    /// Creates an immutable retained boolean expression without materializing it on the CPU or GPU.
+    /// </summary>
+    public static PathGeometry CombineDeferred(
+        PathGeometry pathA,
+        PathGeometry pathB,
+        PathBooleanOperation operation) =>
+        PathOpGeometrySolver.CreateDeferred(pathA, pathB, operation);
 
     internal bool IsSharedSnapshot => (_combinedState & SharedSnapshotBit) != 0;
     internal CombinedPathQueryKind CombinedQueryKind =>

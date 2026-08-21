@@ -9,6 +9,17 @@ public class PageSettings : ICloneable
     private bool _landscape;
     private Margins _margins = new();
     private PaperSize _paperSize = new(PaperKind.Letter, "Letter", 850, 1100);
+    private PrinterSettings _printerSettings;
+
+    public PageSettings()
+        : this(new PrinterSettings(skipDefaultPageSettings: true))
+    {
+    }
+
+    internal PageSettings(PrinterSettings printerSettings)
+    {
+        _printerSettings = printerSettings;
+    }
 
     public Rectangle Bounds => _landscape
         ? new Rectangle(0, 0, _paperSize.Height, _paperSize.Width)
@@ -51,12 +62,24 @@ public class PageSettings : ICloneable
         }
     }
 
+    public PrinterSettings PrinterSettings
+    {
+        get => _printerSettings;
+        set => _printerSettings = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
     public object Clone()
     {
         var clone = (PageSettings)MemberwiseClone();
         clone._margins = (Margins)_margins.Clone();
         return clone;
     }
+
+    public void CopyToHdevmode(IntPtr hdevmode) =>
+        throw new PlatformNotSupportedException("Native DEVMODE access requires a platform print adapter.");
+
+    public void SetHdevmode(IntPtr hdevmode) =>
+        throw new PlatformNotSupportedException("Native DEVMODE access requires a platform print adapter.");
 
     public override string ToString() =>
         $"[PageSettings: Color={Color}, Landscape={Landscape}, Margins={Margins}, PaperSize={PaperSize}]";

@@ -168,6 +168,45 @@ public class GraphicsPath : IDisposable
     public void AddEllipse(float x, float y, float width, float height) => AddEllipse(new RectangleF(x, y, width, height));
     public void AddEllipse(int x, int y, int width, int height) => AddEllipse(new RectangleF(x, y, width, height));
 
+    public void AddRoundedRectangle(Rectangle rect, Size radius) =>
+        AddRoundedRectangle((RectangleF)rect, new SizeF(radius.Width, radius.Height));
+
+    public void AddRoundedRectangle(RectangleF rect, SizeF radius)
+    {
+        float diameterX = MathF.Min(MathF.Abs(radius.Width), MathF.Abs(rect.Width));
+        float diameterY = MathF.Min(MathF.Abs(radius.Height), MathF.Abs(rect.Height));
+        if (diameterX <= 0f || diameterY <= 0f)
+        {
+            AddRectangle(rect);
+            return;
+        }
+
+        StartFigure();
+        AddArc(rect.X, rect.Y, diameterX, diameterY, 180f, 90f);
+        AddArc(rect.Right - diameterX, rect.Y, diameterX, diameterY, 270f, 90f);
+        AddArc(rect.Right - diameterX, rect.Bottom - diameterY, diameterX, diameterY, 0f, 90f);
+        AddArc(rect.X, rect.Bottom - diameterY, diameterX, diameterY, 90f, 90f);
+        CloseFigure();
+    }
+
+    public void AddPie(Rectangle rect, float startAngle, float sweepAngle) =>
+        AddPie(rect.X, rect.Y, rect.Width, rect.Height, startAngle, sweepAngle);
+
+    public void AddPie(float x, float y, float width, float height, float startAngle, float sweepAngle)
+    {
+        StartFigure();
+        float centerX = x + (width / 2f);
+        float centerY = y + (height / 2f);
+        double startRadians = startAngle * Math.PI / 180d;
+        PointF start = new(
+            centerX + ((width / 2f) * (float)Math.Cos(startRadians)),
+            centerY + ((height / 2f) * (float)Math.Sin(startRadians)));
+        AddLine(centerX, centerY, start.X, start.Y);
+        AddArc(x, y, width, height, startAngle, sweepAngle);
+        AddLine(_lastPoint.X, _lastPoint.Y, centerX, centerY);
+        CloseFigure();
+    }
+
     public void AddArc(RectangleF rect, float startAngle, float sweepAngle) => AddArc(rect.X, rect.Y, rect.Width, rect.Height, startAngle, sweepAngle);
     public void AddArc(Rectangle rect, float startAngle, float sweepAngle) => AddArc(rect.X, rect.Y, rect.Width, rect.Height, startAngle, sweepAngle);
     public void AddArc(int x, int y, int width, int height, float startAngle, float sweepAngle) => AddArc((float)x, y, width, height, startAngle, sweepAngle);
