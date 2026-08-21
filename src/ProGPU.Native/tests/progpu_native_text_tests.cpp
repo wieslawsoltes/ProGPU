@@ -332,6 +332,19 @@ void require(
     }
 }
 
+bool environment_variable_is_set(const char* name) noexcept {
+#if defined(_WIN32)
+    char* value = nullptr;
+    std::size_t length = 0U;
+    if (_dupenv_s(&value, &length, name) != 0) return false;
+    const bool result = value != nullptr;
+    std::free(value);
+    return result;
+#else
+    return std::getenv(name) != nullptr;
+#endif
+}
+
 struct normalization_fixture final {
     std::vector<std::byte> bytes{};
     unicode_normalization_data data{};
@@ -10115,7 +10128,8 @@ void system_font_catalog_streams_metadata_and_owns_selected_faces() {
 }
 
 void benchmark_system_font_catalog_if_requested() {
-    if (std::getenv("PROGPU_NATIVE_BENCHMARK_SYSTEM_FONT_CATALOG") == nullptr) {
+    if (!environment_variable_is_set(
+            "PROGPU_NATIVE_BENCHMARK_SYSTEM_FONT_CATALOG")) {
         return;
     }
     system_font_catalog catalog;
