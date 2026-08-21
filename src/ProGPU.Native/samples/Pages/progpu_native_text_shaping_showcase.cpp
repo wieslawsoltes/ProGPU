@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <limits>
 #include <new>
@@ -49,6 +50,23 @@ struct shaped_run final {
     progpu_native_color color{1.0F, 1.0F, 1.0F, 1.0F};
     float advance_x = 0.0F;
 };
+
+struct retained_glyph_geometry final {
+    std::uint64_t segment_offset = 0U;
+    std::uint32_t segment_count = 0U;
+    float min_x = 0.0F;
+    float min_y = 0.0F;
+    float max_x = 0.0F;
+    float max_y = 0.0F;
+};
+
+std::uint64_t outline_key(
+    std::uint32_t glyph_id,
+    float raster_font_size) noexcept {
+    return static_cast<std::uint64_t>(
+        std::bit_cast<std::uint32_t>(raster_font_size)) << 32U |
+        glyph_id;
+}
 
 bool shape(
     std::span<const std::byte> font_bytes,
@@ -307,14 +325,9 @@ bool text_shaping_showcase_scene::compile(
         if (!font_.try_get_header_metrics(header) || header.units_per_em == 0U) {
             return false;
         }
-        const float raster_font_size = std::max(56.0F, preview_size);
-        const float raster_scale = raster_font_size * dpi_scale_ /
-            static_cast<float>(header.units_per_em);
-        std::vector<progpu_native_scene_glyph_outline> outlines;
         std::vector<progpu_native_path_segment> segments;
-        std::unordered_map<std::uint32_t, std::uint32_t> outline_indices;
-        outlines.reserve(glyph_ids.size());
-        outline_indices.reserve(glyph_ids.size());
+        std::unordered_map<std::uint32_t, retained_glyph_geometry> geometries;
+        geometries.reserve(glyph_ids.size());
         for (const std::uint32_t glyph_id : glyph_ids) {
             const auto glyph_index = static_cast<std::uint16_t>(glyph_id);
             text::sfnt_glyph_data_view data{};
@@ -349,20 +362,62 @@ bool text_shaping_showcase_scene::compile(
                 segments.resize(segment_offset);
                 return false;
             }
-            const std::uint32_t outline_index = static_cast<std::uint32_t>(
-                outlines.size());
-            outline_indices.emplace(glyph_id, outline_index);
-            outlines.push_back({
+            geometries.emplace(glyph_id, retained_glyph_geometry{
                 segment_offset,
                 segments_written,
                 static_cast<float>(data.x_min),
                 static_cast<float>(data.y_min),
                 static_cast<float>(data.x_max),
-                static_cast<float>(data.y_max),
-                raster_scale,
-                0.0F});
+                static_cast<float>(data.y_max)});
         }
-        if (outlines.empty() || segments.empty()) {
+        if (geometries.empty() || segments.empty()) {
+            return false;
+        }
+
+        std::vector<progpu_native_scene_glyph_outline> outlines;
+        std::vector<progpu_native_path_segment> raster_segments;
+        std::unordered_map<std::uint64_t, std::uint32_t> outline_indices;
+        outlines.reserve(glyph_ids.size() * 3U);
+        raster_segments.reserve(segments.size() * 3U);
+        outline_indices.reserve(glyph_ids.size() * 3U);
+        for (const auto& run : runs) {
+            const float raster_font_size = std::clamp(
+                run.font_size, 4.0F, 128.0F);
+            const float raster_scale = raster_font_size * dpi_scale_ /
+                static_cast<float>(header.units_per_em);
+            for (const auto& glyph : run.glyphs) {
+                const auto geometry = geometries.find(glyph.glyph_id);
+                if (geometry == geometries.end()) {
+                    continue;
+                }
+                const std::uint64_t key = outline_key(
+                    glyph.glyph_id, raster_font_size);
+                if (outline_indices.contains(key)) {
+                    continue;
+                }
+                const std::uint32_t outline_index =
+                    static_cast<std::uint32_t>(outlines.size());
+                outline_indices.emplace(key, outline_index);
+                const auto& retained = geometry->second;
+                const std::uint64_t segment_offset = raster_segments.size();
+                raster_segments.insert(
+                    raster_segments.end(),
+                    segments.begin() + static_cast<std::ptrdiff_t>(
+                        retained.segment_offset),
+                    segments.begin() + static_cast<std::ptrdiff_t>(
+                        retained.segment_offset + retained.segment_count));
+                outlines.push_back({
+                    segment_offset,
+                    retained.segment_count,
+                    retained.min_x,
+                    retained.min_y,
+                    retained.max_x,
+                    retained.max_y,
+                    raster_scale,
+                    0.0F});
+            }
+        }
+        if (outlines.empty() || raster_segments.empty()) {
             return false;
         }
 
@@ -372,11 +427,14 @@ bool text_shaping_showcase_scene::compile(
             total_glyphs += static_cast<std::uint32_t>(run.glyphs.size());
             float cursor_x = run.x;
             float cursor_y = run.baseline;
+            const float raster_font_size = std::clamp(
+                run.font_size, 4.0F, 128.0F);
             const float design_scale = run.font_size /
                 static_cast<float>(header.units_per_em);
             run.positioned.reserve(run.glyphs.size());
             for (const auto& glyph : run.glyphs) {
-                const auto found = outline_indices.find(glyph.glyph_id);
+                const auto found = outline_indices.find(outline_key(
+                    glyph.glyph_id, raster_font_size));
                 if (found != outline_indices.end()) {
                     run.positioned.push_back({
                         found->second,
@@ -402,7 +460,7 @@ bool text_shaping_showcase_scene::compile(
             !builder_.reserve(
                 static_cast<std::uint32_t>(runs.size() + 1U),
                 6U,
-                static_cast<std::uint64_t>(segments.size()) *
+                static_cast<std::uint64_t>(raster_segments.size()) *
                     sizeof(progpu_native_path_segment) +
                     visible_glyphs * sizeof(progpu_native_positioned_glyph))) {
             return false;
@@ -440,7 +498,7 @@ bool text_shaping_showcase_scene::compile(
         }
         std::uint32_t glyph_resource = PROGPU_NATIVE_SCENE_NO_INDEX;
         if (!builder_.add_glyph_outlines(
-                outlines, segments, glyph_resource)) {
+                outlines, raster_segments, glyph_resource)) {
             return false;
         }
         for (const auto& run : runs) {
