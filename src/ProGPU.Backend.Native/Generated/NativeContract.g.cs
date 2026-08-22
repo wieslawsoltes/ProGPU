@@ -646,6 +646,11 @@ internal static unsafe partial class NativeMethods
         internal NativeColor ClearColor;
         internal ulong SceneId;
         internal ulong Generation;
+        internal uint Flags;
+        internal float DamageX;
+        internal float DamageY;
+        internal float DamageWidth;
+        internal float DamageHeight;
     }
 
     // Native source: progpu_native_scene_frame_metrics.

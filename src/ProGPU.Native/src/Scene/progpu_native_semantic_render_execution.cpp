@@ -13,6 +13,9 @@ progpu_native_status render_scene(
     constexpr std::uint32_t legacy_metrics_size = offsetof(
         progpu_native_scene_frame_metrics,
         brush_upload_bytes);
+    constexpr std::uint32_t legacy_frame_size = offsetof(
+        progpu_native_scene_frame,
+        flags);
     if (metrics != nullptr &&
         metrics->struct_size >= legacy_metrics_size) {
         const std::uint32_t struct_size = metrics->struct_size;
@@ -33,7 +36,7 @@ progpu_native_status render_scene(
             "Semantic scene rendering is owner-thread affine.");
     }
     if (frame == nullptr ||
-        frame->struct_size < sizeof(progpu_native_scene_frame) ||
+        frame->struct_size < legacy_frame_size ||
         frame->width == 0U ||
         frame->height == 0U || !std::isfinite(frame->dpi_scale) ||
         frame->dpi_scale <= 0.0F || frame->target_view == 0U ||
@@ -45,6 +48,36 @@ progpu_native_status render_scene(
         return engine->fail(
             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
             "The semantic scene frame descriptor is invalid.");
+    }
+    constexpr std::uint32_t allowed_frame_flags =
+        PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET |
+        PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT;
+    const bool has_extended_frame =
+        frame->struct_size >= sizeof(progpu_native_scene_frame);
+    const auto frame_flags = has_extended_frame ? frame->flags : 0U;
+    const bool damage_requested =
+        (frame_flags & PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT) != 0U;
+    const bool preserve_requested =
+        (frame_flags & PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET) != 0U;
+    const auto logical_width =
+        static_cast<float>(frame->width) / frame->dpi_scale;
+    const auto logical_height =
+        static_cast<float>(frame->height) / frame->dpi_scale;
+    if ((frame_flags & ~allowed_frame_flags) != 0U ||
+        (damage_requested &&
+            (!preserve_requested || !std::isfinite(frame->damage_x) ||
+                !std::isfinite(frame->damage_y) ||
+                !std::isfinite(frame->damage_width) ||
+                !std::isfinite(frame->damage_height) ||
+                frame->damage_width <= 0.0F ||
+                frame->damage_height <= 0.0F ||
+                frame->damage_x >= logical_width ||
+                frame->damage_y >= logical_height ||
+                frame->damage_x + frame->damage_width <= 0.0F ||
+                frame->damage_y + frame->damage_height <= 0.0F))) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "The semantic scene frame damage descriptor is invalid.");
     }
     if (frame->scene_id != engine->semantic_scene_id ||
         frame->generation != engine->semantic_scene_generation ||
@@ -1332,6 +1365,42 @@ progpu_native_status render_scene(
     const bool semantic_destination_sampling_active =
         semantic_advanced_layer_count != 0U ||
         semantic_backdrop_layer_count != 0U;
+    const bool semantic_partial_replay_supported =
+        !semantic_has_materialized_layers && !semantic_has_state_masks &&
+        !semantic_destination_sampling_active && semantic_3d_draw_count == 0U;
+    const bool semantic_partial_damage_active =
+        damage_requested && semantic_partial_replay_supported;
+    const bool semantic_preserve_target_active =
+        preserve_requested && semantic_partial_replay_supported &&
+        (!damage_requested || semantic_partial_damage_active);
+    semantic_scissor semantic_frame_damage{
+        0U, 0U, frame->width, frame->height, true};
+    if (semantic_partial_damage_active) {
+        const auto left = std::max(
+            0.0,
+            std::floor(
+                static_cast<double>(frame->damage_x) * frame->dpi_scale));
+        const auto top = std::max(
+            0.0,
+            std::floor(
+                static_cast<double>(frame->damage_y) * frame->dpi_scale));
+        const auto right = std::min(
+            static_cast<double>(frame->width),
+            std::ceil(
+                static_cast<double>(frame->damage_x + frame->damage_width) *
+                frame->dpi_scale));
+        const auto bottom = std::min(
+            static_cast<double>(frame->height),
+            std::ceil(
+                static_cast<double>(frame->damage_y + frame->damage_height) *
+                frame->dpi_scale));
+        semantic_frame_damage = {
+            static_cast<std::uint32_t>(left),
+            static_cast<std::uint32_t>(top),
+            static_cast<std::uint32_t>(right - left),
+            static_cast<std::uint32_t>(bottom - top),
+            right > left && bottom > top};
+    }
     std::uint64_t semantic_destination_frame_bytes = 0U;
     std::uint64_t semantic_advanced_source_bytes = 0U;
     const std::uint64_t destination_frame_texture_count =
@@ -1511,10 +1580,26 @@ progpu_native_status render_scene(
         }
     }
 
+    auto semantic_bundle_replay_hash = engine->semantic_scene_hash;
+    semantic_bundle_replay_hash = append_fnv1a64(
+        semantic_bundle_replay_hash,
+        &semantic_partial_damage_active,
+        sizeof(semantic_partial_damage_active));
+    if (semantic_partial_damage_active) {
+        const std::array damage_identity{
+            semantic_frame_damage.x,
+            semantic_frame_damage.y,
+            semantic_frame_damage.width,
+            semantic_frame_damage.height};
+        semantic_bundle_replay_hash = append_fnv1a64(
+            semantic_bundle_replay_hash,
+            damage_identity.data(),
+            sizeof(damage_identity));
+    }
     const bool semantic_render_bundle_hit =
         engine->semantic_render_bundle_valid &&
         engine->semantic_render_bundle_scene_hash ==
-            engine->semantic_scene_hash &&
+            semantic_bundle_replay_hash &&
         engine->semantic_render_bundle_dpi_scale == frame->dpi_scale &&
         engine->semantic_render_bundle_width == frame->width &&
         engine->semantic_render_bundle_height == frame->height &&
@@ -3960,12 +4045,18 @@ progpu_native_status render_scene(
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) {
                 continue;
             }
-            const auto scissor = resolve_semantic_target_scissor(
+            auto scissor = resolve_semantic_target_scissor(
                 state,
                 target_extent,
                 frame->width,
                 frame->height,
                 frame->dpi_scale);
+            if (semantic_partial_damage_active &&
+                current_target_layer == PROGPU_NATIVE_SCENE_NO_INDEX) {
+                scissor = intersect_semantic_scissors(
+                    scissor,
+                    semantic_frame_damage);
+            }
             const std::uint32_t mask_resource_index =
                 (state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U
                 ? state.mask_resource_index
@@ -4327,7 +4418,7 @@ progpu_native_status render_scene(
             std::move(compiled_effect_dispatches);
         engine->semantic_render_bundle_valid = true;
         engine->semantic_render_bundle_scene_hash =
-            engine->semantic_scene_hash;
+            semantic_bundle_replay_hash;
         engine->semantic_render_bundle_dpi_scale = frame->dpi_scale;
         engine->semantic_render_bundle_width = frame->width;
         engine->semantic_render_bundle_height = frame->height;
@@ -4359,7 +4450,9 @@ progpu_native_status render_scene(
             color_attachment);
         color_attachment.view = reinterpret_cast<WGPUTextureView>(
             frame->target_view);
-        color_attachment.loadOp = WGPULoadOp_Clear;
+        color_attachment.loadOp = semantic_preserve_target_active
+            ? WGPULoadOp_Load
+            : WGPULoadOp_Clear;
         color_attachment.storeOp = WGPUStoreOp_Store;
         color_attachment.clearValue = WGPUColor{
             frame->clear_color.r,

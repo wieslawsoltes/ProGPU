@@ -361,7 +361,7 @@ public class NativeRendererInteropTests
             OffsetOf<NativeScenePathFill>(
                 nameof(NativeScenePathFill.BooleanNodeOffset)));
         Assert.Equal(40, Unsafe.SizeOf<NativeSceneGlyphOutline>());
-        Assert.Equal(56, Unsafe.SizeOf<NativeMethods.SceneFrame>());
+        Assert.Equal(80, Unsafe.SizeOf<NativeMethods.SceneFrame>());
         Assert.Equal(256, Unsafe.SizeOf<NativeSceneBrush>());
         Assert.Equal(32, Unsafe.SizeOf<NativeSceneGradientStop>());
         Assert.Equal(32, Unsafe.SizeOf<NativeSceneTextStyle>());
@@ -460,6 +460,14 @@ public class NativeRendererInteropTests
             40,
             OffsetOf<NativeMethods.SceneFrame>(
                 nameof(NativeMethods.SceneFrame.SceneId)));
+        Assert.Equal(
+            56,
+            OffsetOf<NativeMethods.SceneFrame>(
+                nameof(NativeMethods.SceneFrame.Flags)));
+        Assert.Equal(
+            72,
+            OffsetOf<NativeMethods.SceneFrame>(
+                nameof(NativeMethods.SceneFrame.DamageHeight)));
         Assert.Equal(
             24,
             OffsetOf<NativeMethods.SceneHeader>(nameof(NativeMethods.SceneHeader.SceneId)));

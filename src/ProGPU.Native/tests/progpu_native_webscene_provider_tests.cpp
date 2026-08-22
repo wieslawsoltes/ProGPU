@@ -2667,6 +2667,32 @@ int main(int argc, char** argv) {
         semantic_metrics.payload_hash == semantic_payload_hash,
         "stable mixed semantic scene replay rebuilt retained resources");
 
+    auto invalid_damage_frame = semantic_frame;
+    invalid_damage_frame.flags = PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT;
+    invalid_damage_frame.damage_width = 8.0F;
+    invalid_damage_frame.damage_height = 8.0F;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &invalid_damage_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+        semantic_metrics.submission_count == 0U,
+        "semantic damage replay accepted a non-preserved target");
+
+    auto legacy_semantic_frame = semantic_frame;
+    legacy_semantic_frame.struct_size = offsetof(
+        progpu_native_scene_frame,
+        flags);
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &legacy_semantic_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.submission_count == 1U,
+        "legacy semantic frame ABI no longer performs full replay");
+
     auto collapsed_stroke_scene = create_collapsed_stroke_scene_stream();
     scene_metrics = {};
     scene_metrics.struct_size = sizeof(scene_metrics);
@@ -2997,6 +3023,30 @@ int main(int argc, char** argv) {
         &semantic_submission) == PROGPU_NATIVE_STATUS_SUCCESS &&
         semantic_submission != 0U,
         "semantic restore submission token unavailable");
+
+    auto damage_frame = semantic_frame;
+    damage_frame.flags = PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET |
+        PROGPU_NATIVE_SCENE_FRAME_DAMAGE_RECT;
+    damage_frame.damage_x = 0.0F;
+    damage_frame.damage_y = 0.0F;
+    damage_frame.damage_width = 32.0F;
+    damage_frame.damage_height = 16.0F;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &damage_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.submission_count == 1U &&
+        semantic_metrics.vertex_upload_bytes == 0U &&
+        semantic_metrics.index_upload_bytes == 0U &&
+        semantic_metrics.texture_upload_bytes == 0U,
+        "flat semantic damage replay rebuilt retained GPU resources");
+    require(progpu_native_engine_get_last_submission(
+        engine,
+        &semantic_submission) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_submission != 0U,
+        "semantic damage replay submission token unavailable");
 
     auto invalid_style_scene = create_renderable_semantic_scene_stream(4U);
     progpu_native_scene_header invalid_style_header{};
