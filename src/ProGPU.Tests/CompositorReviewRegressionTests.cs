@@ -6700,6 +6700,25 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void AnalyticClipDoesNotMaskPendingPrecedingDraws()
+    {
+        using var window = new HeadlessWindow(64, 64);
+        window.Content = new AnalyticClipBatchBoundaryVisual();
+
+        window.Render();
+
+        byte[] pixels = window.ReadPixels();
+        var preceding = ReadPixel(pixels, window.Width, x: 12, y: 28);
+        var clipped = ReadPixel(pixels, window.Width, x: 48, y: 28);
+        Assert.True(
+            preceding.R >= 220 && preceding.G <= 35 && preceding.B <= 35,
+            $"Expected the draw preceding the analytic clip to remain red, found {preceding}.");
+        Assert.True(
+            clipped.G >= 220 && clipped.R <= 35 && clipped.B <= 35,
+            $"Expected the draw inside the analytic clip to remain green, found {clipped}.");
+    }
+
+    [Fact]
     public void OpacityMaskWritesComputedAlphaIntoMaskTarget()
     {
         var window = HeadlessWindow.Shared;
@@ -9694,6 +9713,41 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                     new Vector4(0f, 1f, 0f, 1f)),
                 null,
                 new Rect(0f, 0f, 64f, 64f));
+            context.PopGeometryClip();
+        }
+    }
+
+    private sealed class AnalyticClipBatchBoundaryVisual : FrameworkElement
+    {
+        private static readonly SolidColorBrush Red =
+            new(new Vector4(1f, 0f, 0f, 1f));
+        private static readonly SolidColorBrush Green =
+            new(new Vector4(0f, 1f, 0f, 1f));
+
+        public AnalyticClipBatchBoundaryVisual()
+        {
+            Width = 64f;
+            Height = 64f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                Red,
+                null,
+                new Rect(4f, 20f, 16f, 16f));
+            context.PushGeometryClip(
+                PrimitivePathGeometry.CreateRoundedRectangle(
+                    36f,
+                    8f,
+                    24f,
+                    48f,
+                    6f,
+                    6f));
+            context.DrawRectangle(
+                Green,
+                null,
+                new Rect(36f, 8f, 24f, 48f));
             context.PopGeometryClip();
         }
     }

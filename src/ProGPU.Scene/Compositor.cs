@@ -19695,6 +19695,8 @@ SceneStateUploadComplete:
             return false;
         }
 
+        CommitPendingDrawCalls();
+
         Matrix4x4 normalizedTransform =
             transform == default
                 ? Matrix4x4.Identity
