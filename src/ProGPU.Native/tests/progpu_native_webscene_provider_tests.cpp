@@ -16,7 +16,6 @@
 
 #include <IOSurface/IOSurface.h>
 #include <dlfcn.h>
-
 #include <chrono>
 #include <array>
 #include <condition_variable>
@@ -105,6 +104,117 @@ std::vector<std::byte> create_collapsed_stroke_scene_stream() {
         "collapsed-stroke draw recording failed");
     std::vector<std::byte> scene;
     require(builder.build(scene), "collapsed-stroke scene build failed");
+    return scene;
+}
+
+std::vector<std::byte> create_reused_glyph_resource_scene_stream(
+    std::uint64_t scene_id = 798U,
+    std::uint64_t generation = 1U) {
+    using progpu::native::semantic_scene_builder;
+    semantic_scene_builder builder(scene_id, generation);
+    constexpr std::array segments{
+        progpu_native_path_segment{{0.0F, 0.0F}, {8.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{{8.0F, 0.0F}, {8.0F, 8.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{{8.0F, 8.0F}, {0.0F, 8.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{{0.0F, 8.0F}, {0.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const progpu_native_scene_glyph_outline outline{
+        0U,
+        segments.size(),
+        0.0F,
+        0.0F,
+        8.0F,
+        8.0F,
+        1.0F,
+        0.0F};
+    std::uint32_t glyph_resource = PROGPU_NATIVE_SCENE_NO_INDEX;
+    require(builder.add_glyph_outlines(
+        std::span<const progpu_native_scene_glyph_outline>(&outline, 1U),
+        segments,
+        glyph_resource),
+        "reused-glyph fixture resource recording failed");
+    const progpu_native_positioned_glyph glyph{
+        0U,
+        0U,
+        {8.0F, 8.0F},
+        {1.0F, 0.0F},
+        {0.0F, 1.0F},
+        {0.2F, 0.8F, 1.0F, 1.0F},
+        1.0F,
+        0.0F,
+        0.0F,
+        0.0F};
+    for (std::uint32_t index = 0U; index < 3U; ++index) {
+        require(builder.draw_glyph_run(
+            glyph_resource,
+            std::span<const progpu_native_positioned_glyph>(&glyph, 1U),
+            {8.0F, 8.0F, 8.0F, 8.0F}),
+            "reused-glyph fixture draw recording failed");
+    }
+    std::vector<std::byte> scene;
+    require(builder.build(scene), "reused-glyph fixture build failed");
+    return scene;
+}
+
+std::vector<std::byte> create_distinct_glyph_resource_scene_stream() {
+    using progpu::native::semantic_scene_builder;
+    semantic_scene_builder builder(800U, 2U);
+    constexpr std::array segments{
+        progpu_native_path_segment{{0.0F, 0.0F}, {8.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{{8.0F, 0.0F}, {8.0F, 8.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{{8.0F, 8.0F}, {0.0F, 8.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{{0.0F, 8.0F}, {0.0F, 0.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const progpu_native_scene_glyph_outline outline{
+        0U,
+        segments.size(),
+        0.0F,
+        0.0F,
+        8.0F,
+        8.0F,
+        1.0F,
+        0.0F};
+    std::array<std::uint32_t, 2U> glyph_resources{
+        PROGPU_NATIVE_SCENE_NO_INDEX,
+        PROGPU_NATIVE_SCENE_NO_INDEX};
+    for (std::uint32_t index = 0U; index < glyph_resources.size(); ++index) {
+        require(builder.add_glyph_outlines(
+            std::span<const progpu_native_scene_glyph_outline>(&outline, 1U),
+            segments,
+            glyph_resources[index]),
+            "distinct-glyph fixture resource recording failed");
+    }
+    require(builder.set_resource_identity(
+            glyph_resources[0], 0x800501U, 7U) &&
+        builder.set_resource_identity(
+            glyph_resources[1], 0x800502U, 8U),
+        "distinct-glyph fixture resource identity recording failed");
+    const progpu_native_positioned_glyph glyph{
+        0U,
+        0U,
+        {8.0F, 8.0F},
+        {1.0F, 0.0F},
+        {0.0F, 1.0F},
+        {0.2F, 0.8F, 1.0F, 1.0F},
+        1.0F,
+        0.0F,
+        0.0F,
+        0.0F};
+    for (const std::uint32_t glyph_resource : glyph_resources) {
+        require(builder.draw_glyph_run(
+            glyph_resource,
+            std::span<const progpu_native_positioned_glyph>(&glyph, 1U),
+            {8.0F, 8.0F, 8.0F, 8.0F}),
+            "distinct-glyph fixture draw recording failed");
+    }
+    std::vector<std::byte> scene;
+    require(builder.build(scene), "distinct-glyph fixture build failed");
     return scene;
 }
 
@@ -5550,6 +5660,174 @@ int main(int argc, char** argv) {
         semantic_metrics.command_count == 2U &&
         semantic_metrics.draw_call_count == 2U,
         "native retained 3D GPU execution failed");
+
+    const auto reused_glyph_scene = create_reused_glyph_resource_scene_stream();
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        reused_glyph_scene.data(),
+        reused_glyph_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        scene_metrics.draw_count == 3U &&
+        scene_metrics.resource_count == 1U,
+        "reused-glyph scene update failed");
+    auto reused_glyph_frame = native_3d_frame;
+    reused_glyph_frame.scene_id = 798U;
+    reused_glyph_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &reused_glyph_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.command_count == 3U &&
+        semantic_metrics.draw_call_count != 0U &&
+        semantic_metrics.draw_call_count <= 3U &&
+        semantic_metrics.vertex_upload_bytes != 0U &&
+        semantic_metrics.coverage_staging_bytes != 0U,
+        "reused-glyph scene initial rendering failed");
+    const std::uint64_t reused_glyph_payload_hash =
+        semantic_metrics.payload_hash;
+    const std::uint32_t reused_glyph_draw_calls =
+        semantic_metrics.draw_call_count;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+            engine,
+            &reused_glyph_frame,
+            &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.command_count == 3U &&
+        semantic_metrics.draw_call_count == reused_glyph_draw_calls &&
+        semantic_metrics.vertex_upload_bytes == 0U &&
+        semantic_metrics.index_upload_bytes == 0U &&
+        semantic_metrics.texture_upload_bytes == 0U &&
+        semantic_metrics.coverage_staging_bytes == 0U &&
+        semantic_metrics.brush_upload_bytes == 0U &&
+        semantic_metrics.gradient_stop_upload_bytes == 0U &&
+        semantic_metrics.text_style_upload_bytes == 0U &&
+        semantic_metrics.color_glyph_upload_bytes == 0U &&
+        semantic_metrics.payload_hash == reused_glyph_payload_hash,
+        "stable reused-glyph scene replay rebuilt retained resources");
+
+    auto malformed_positioned_scene =
+        create_reused_glyph_resource_scene_stream(799U, 1U);
+    progpu_native_scene_header malformed_positioned_header{};
+    std::memcpy(
+        &malformed_positioned_header,
+        malformed_positioned_scene.data(),
+        sizeof(malformed_positioned_header));
+    require(malformed_positioned_header.command_count == 3U &&
+        malformed_positioned_header.command_stride >=
+            sizeof(progpu_native_scene_command),
+        "malformed-positioned fixture command table is invalid");
+    progpu_native_scene_command second_glyph_command{};
+    const std::size_t second_glyph_command_offset =
+        malformed_positioned_header.command_offset +
+        malformed_positioned_header.command_stride;
+    std::memcpy(
+        &second_glyph_command,
+        malformed_positioned_scene.data() + second_glyph_command_offset,
+        sizeof(second_glyph_command));
+    require(second_glyph_command.payload_size ==
+        sizeof(progpu_native_positioned_glyph),
+        "malformed-positioned fixture payload layout changed");
+    progpu_native_positioned_glyph malformed_positioned_glyph{};
+    std::memcpy(
+        &malformed_positioned_glyph,
+        malformed_positioned_scene.data() +
+            second_glyph_command.payload_offset,
+        sizeof(malformed_positioned_glyph));
+    require(malformed_positioned_glyph.outline_index == 0U,
+        "malformed-positioned fixture outline index changed");
+    malformed_positioned_glyph.outline_index = 1U;
+    std::memcpy(
+        malformed_positioned_scene.data() +
+            second_glyph_command.payload_offset,
+        &malformed_positioned_glyph,
+        sizeof(malformed_positioned_glyph));
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        malformed_positioned_scene.data(),
+        malformed_positioned_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "malformed-positioned scene update failed before render validation");
+    auto malformed_positioned_frame = native_3d_frame;
+    malformed_positioned_frame.scene_id = 799U;
+    malformed_positioned_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+            engine,
+            &malformed_positioned_frame,
+            &semantic_metrics) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+        semantic_metrics.submission_count == 0U,
+        "shared glyph resource skipped second positioned-payload validation");
+
+    auto distinct_glyph_scene =
+        create_distinct_glyph_resource_scene_stream();
+    progpu_native_scene_header distinct_glyph_header{};
+    std::memcpy(
+        &distinct_glyph_header,
+        distinct_glyph_scene.data(),
+        sizeof(distinct_glyph_header));
+    require(distinct_glyph_header.resource_count == 2U &&
+        distinct_glyph_header.resource_stride >=
+            sizeof(progpu_native_scene_resource),
+        "distinct-glyph fixture resource table is invalid");
+    std::array<progpu_native_scene_resource, 2U> distinct_glyph_resources{};
+    for (std::uint32_t index = 0U;
+         index < distinct_glyph_resources.size();
+         ++index) {
+        const std::size_t resource_offset =
+            distinct_glyph_header.resource_offset +
+            index * distinct_glyph_header.resource_stride;
+        std::memcpy(
+            &distinct_glyph_resources[index],
+            distinct_glyph_scene.data() + resource_offset,
+            sizeof(distinct_glyph_resources[index]));
+    }
+    require(distinct_glyph_resources[0].resource_id !=
+            distinct_glyph_resources[1].resource_id &&
+        distinct_glyph_resources[0].generation !=
+            distinct_glyph_resources[1].generation,
+        "distinct-glyph fixture identities or generations were reused");
+    progpu_native_scene_glyph_outline malformed_distinct_outline{};
+    std::memcpy(
+        &malformed_distinct_outline,
+        distinct_glyph_scene.data() +
+            distinct_glyph_resources[1].payload_offset,
+        sizeof(malformed_distinct_outline));
+    malformed_distinct_outline.segment_count =
+        distinct_glyph_resources[1].auxiliary_size /
+            sizeof(progpu_native_path_segment) +
+        1U;
+    std::memcpy(
+        distinct_glyph_scene.data() +
+            distinct_glyph_resources[1].payload_offset,
+        &malformed_distinct_outline,
+        sizeof(malformed_distinct_outline));
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        distinct_glyph_scene.data(),
+        distinct_glyph_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "distinct malformed glyph scene update failed before render validation");
+    auto distinct_glyph_frame = native_3d_frame;
+    distinct_glyph_frame.scene_id = 800U;
+    distinct_glyph_frame.generation = 2U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+            engine,
+            &distinct_glyph_frame,
+            &semantic_metrics) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+        semantic_metrics.submission_count == 0U,
+        "distinct glyph resource reused another resource validation result");
     require(progpu_native_engine_render(engine, &frame, &metrics) ==
         PROGPU_NATIVE_STATUS_SUCCESS,
         "post-3D capture baseline replay failed");
