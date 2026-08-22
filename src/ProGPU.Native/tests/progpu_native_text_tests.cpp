@@ -8330,6 +8330,45 @@ void font_style_variations_match_managed_font_manager_policy() {
     require(output[3].user_fixed == -20 * (1 << 16) &&
         output[3].normalized == -16384);
 
+    const std::array<table_data, 1U> optical_tables{
+        table_data{
+            open_type_tag::from_chars('f', 'v', 'a', 'r'),
+            make_fvar()}};
+    const auto optical_data = make_font(
+        0U, 22U, 0U, false, false, false, optical_tables);
+    require(sfnt_font_view::try_create(optical_data, 0U, font, &error));
+    const font_style_request optical_request{
+        700, 5, font_provider_slant::normal, 23 << 16};
+    std::array<font_style_variation, 2U> optical_output{};
+    require(try_resolve_font_style_variations(
+        font,
+        optical_request,
+        optical_output,
+        written,
+        &reported,
+        &error));
+    require(written == 2U &&
+        optical_output[0].tag ==
+            open_type_tag::from_chars('o', 'p', 's', 'z') &&
+        optical_output[0].user_fixed == 23 << 16 &&
+        optical_output[0].normalized == 8192 &&
+        optical_output[1].tag ==
+            open_type_tag::from_chars('w', 'g', 'h', 't'));
+    const font_style_request optical_only_request{
+        0, 0, font_provider_slant::normal, 23 << 16};
+    require(try_resolve_font_style_variations(
+        font,
+        optical_only_request,
+        optical_output,
+        written,
+        &reported,
+        &error));
+    require(written == 2U &&
+        optical_output[0].user_fixed == 23 << 16 &&
+        optical_output[1].user_fixed == 400 << 16 &&
+        optical_output[1].normalized == 0);
+
+    require(sfnt_font_view::try_create(data, 0U, font, &error));
     require(try_resolve_font_style_variations(
         font, font_style_request{0, 0, font_provider_slant::normal},
         output, written, nullptr, &error));

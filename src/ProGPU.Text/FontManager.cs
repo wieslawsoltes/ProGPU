@@ -15,6 +15,12 @@ public readonly record struct FontStyleRequest(int Weight, int Width, FontSlant 
 {
     public static FontStyleRequest Normal { get; } = new(400, 5, FontSlant.Upright);
 
+    /// <summary>
+    /// Gets an optional OpenType <c>opsz</c> coordinate in typographic points.
+    /// Zero preserves the font's default optical-size instance.
+    /// </summary>
+    public float OpticalSize { get; init; }
+
     public FontStyleRequest(int weight = 400, int width = 5)
         : this(weight, width, FontSlant.Upright)
     {
@@ -23,10 +29,20 @@ public readonly record struct FontStyleRequest(int Weight, int Width, FontSlant 
     public static FontStyleRequest FromFont(TtfFont font)
     {
         ArgumentNullException.ThrowIfNull(font);
-        return new FontStyleRequest(
+        var result = new FontStyleRequest(
             font.WeightClass == 0 ? 400 : font.WeightClass,
             font.WidthClass == 0 ? 5 : font.WidthClass,
             font.IsItalic ? FontSlant.Italic : FontSlant.Upright);
+        for (var index = 0; index < font.VariationSettings.Count; index++)
+        {
+            FontVariationSetting setting = font.VariationSettings[index];
+            if (setting.Tag == "opsz" && float.IsFinite(setting.Value) &&
+                setting.Value > 0)
+            {
+                return result with { OpticalSize = setting.Value };
+            }
+        }
+        return result;
     }
 }
 
@@ -56,6 +72,7 @@ public sealed class FontFace
 public sealed class FontManager
 {
     private const int MaximumCharacterMatchCacheEntries = 4096;
+    private const int MaximumStyleMatchCacheEntries = 256;
     private const int MaximumVariationMatchCacheEntries = 256;
 
     private readonly record struct CharacterMatchKey(
@@ -106,6 +123,7 @@ public sealed class FontManager
     private readonly object _registeredLock = new();
     private RegisteredFace[] _registeredFaces = [];
     private readonly ConcurrentDictionary<(TtfFont Font, FontStyleRequest Style), TtfFont> _styleMatches = new();
+    private readonly ConcurrentQueue<(TtfFont Font, FontStyleRequest Style)> _styleMatchOrder = new();
     private readonly ConcurrentDictionary<(TtfFont Font, FontStyleRequest Style), TtfFont> _variationMatches = new();
     private readonly ConcurrentQueue<(TtfFont Font, FontStyleRequest Style)> _variationMatchOrder = new();
     // Fallback lookup is on the per-character layout path. Positive and negative
@@ -267,6 +285,7 @@ public sealed class FontManager
             };
             Volatile.Write(ref _registeredFaces, updated);
             _styleMatches.Clear();
+            _styleMatchOrder.Clear();
             _variationMatches.Clear();
             _variationMatchOrder.Clear();
             Interlocked.Increment(ref _catalogVersion);
@@ -303,7 +322,7 @@ public sealed class FontManager
             bool requestedItalic = style.Slant != FontSlant.Upright;
             if (currentItalic != requestedItalic && !SupportsSlantVariation(typeface))
             {
-                return _styleMatches.GetOrAdd(
+                return GetOrAddStyleMatch(
                     (typeface, style),
                     key => MatchFamily(key.Font.FamilyName, key.Style) is { } familyMatch &&
                            !ReferenceEquals(familyMatch, key.Font)
@@ -316,9 +335,31 @@ public sealed class FontManager
         {
             return typeface;
         }
-        return _styleMatches.GetOrAdd(
+        return GetOrAddStyleMatch(
             (typeface, style),
             key => MatchFamily(key.Font.FamilyName, key.Style) ?? key.Font);
+    }
+
+    private TtfFont GetOrAddStyleMatch(
+        (TtfFont Font, FontStyleRequest Style) key,
+        Func<(TtfFont Font, FontStyleRequest Style), TtfFont> create)
+    {
+        if (_styleMatches.TryGetValue(key, out TtfFont? cached))
+        {
+            return cached;
+        }
+        TtfFont created = create(key);
+        if (!_styleMatches.TryAdd(key, created))
+        {
+            return _styleMatches.TryGetValue(key, out cached) ? cached : created;
+        }
+        _styleMatchOrder.Enqueue(key);
+        while (_styleMatches.Count > MaximumStyleMatchCacheEntries &&
+               _styleMatchOrder.TryDequeue(out var oldest))
+        {
+            _styleMatches.TryRemove(oldest, out _);
+        }
+        return created;
     }
 
     public bool TryMatchCharacter(
@@ -614,10 +655,23 @@ public sealed class FontManager
         return result;
     }
 
-    private static FontStyleRequest NormalizeStyle(FontStyleRequest style) =>
-        style == default
-            ? FontStyleRequest.Normal
-            : new FontStyleRequest(Math.Clamp(style.Weight, 1, 1000), Math.Clamp(style.Width, 1, 9), style.Slant);
+    private static FontStyleRequest NormalizeStyle(FontStyleRequest style)
+    {
+        bool unspecifiedBase = style.Weight == 0 && style.Width == 0 &&
+            style.Slant == FontSlant.Upright;
+        return new FontStyleRequest(
+            unspecifiedBase ? FontStyleRequest.Normal.Weight :
+                Math.Clamp(style.Weight, 1, 1000),
+            unspecifiedBase ? FontStyleRequest.Normal.Width :
+                Math.Clamp(style.Width, 1, 9),
+            style.Slant)
+        {
+            OpticalSize = float.IsFinite(style.OpticalSize) &&
+                style.OpticalSize > 0
+                    ? style.OpticalSize
+                    : 0
+        };
+    }
 
     private static string GetStyleName(string familyName, FontStyleRequest style)
     {
@@ -828,7 +882,7 @@ public sealed class FontManager
             return font;
         }
 
-        var settings = new List<FontVariationSetting>(3);
+        var settings = new List<FontVariationSetting>(4);
         IReadOnlyList<FontVariationAxis> axes = font.VariationAxes;
         for (var index = 0; index < axes.Count; index++)
         {
@@ -854,6 +908,11 @@ public sealed class FontManager
                             : MathF.Abs(axis.Minimum) >= MathF.Abs(axis.Maximum)
                                 ? axis.Minimum
                                 : axis.Maximum));
+                    break;
+                case "opsz" when style.OpticalSize > 0:
+                    settings.Add(new FontVariationSetting(
+                        axis.Tag,
+                        style.OpticalSize));
                     break;
             }
         }

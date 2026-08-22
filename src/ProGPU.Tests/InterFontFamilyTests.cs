@@ -321,6 +321,70 @@ public sealed class InterFontFamilyTests
         Assert.DoesNotContain(italic.VariationAxes, static axis => axis.Tag is "ital" or "slnt");
     }
 
+    [Fact]
+    public void TypefaceMatchingAppliesRequestedOpticalSizeAxis()
+    {
+        var manager = new FontManager();
+        InterFontFamily.RegisterFonts(manager);
+        var request = new FontStyleRequest(
+            637,
+            5,
+            FontSlant.Upright)
+        {
+            OpticalSize = 23f
+        };
+
+        TtfFont matched = Assert.IsType<TtfFont>(manager.MatchFamily(
+            InterFontFamily.VariableFamilyName,
+            request));
+
+        Assert.Equal(
+            23f,
+            Assert.Single(
+                matched.VariationSettings,
+                static setting => setting.Tag == "opsz").Value);
+    }
+
+    [Fact]
+    public void OpticalSizeOnlyRequestUsesNormalWeightAndWidth()
+    {
+        var manager = new FontManager();
+        InterFontFamily.RegisterFonts(manager);
+        var request = new FontStyleRequest { OpticalSize = 23f };
+
+        TtfFont matched = Assert.IsType<TtfFont>(manager.MatchFamily(
+            InterFontFamily.VariableFamilyName,
+            request));
+
+        Assert.Equal((ushort)400, matched.WeightClass);
+        Assert.Equal((ushort)5, matched.WidthClass);
+        Assert.Equal(
+            23f,
+            Assert.Single(
+                matched.VariationSettings,
+                static setting => setting.Tag == "opsz").Value);
+    }
+
+    [Fact]
+    public void StyleRequestRecoveredFromVariableFontPreservesOpticalSize()
+    {
+        TtfFont font = InterFontFamily.GetVariableFont(537f, 23f);
+
+        FontStyleRequest style = FontStyleRequest.FromFont(font);
+
+        Assert.Equal((537, 5, FontSlant.Upright, 23f),
+            (style.Weight, style.Width, style.Slant, style.OpticalSize));
+    }
+
+    [Fact]
+    public void WinUiFontSizeConvertsDipsToOpticalPoints()
+    {
+        Assert.Equal(
+            12f,
+            Microsoft.UI.Xaml.Controls.TextLayoutEngine
+                .ConvertFontSizeToOpticalPoints(16f));
+    }
+
     [Theory]
     [InlineData(100f, 14f, 100, false)]
     [InlineData(537f, 23f, 537, false)]
