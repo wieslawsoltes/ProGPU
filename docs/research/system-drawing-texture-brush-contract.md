@@ -21,7 +21,7 @@ Rectangle, ellipse, path, polygon, closed curve, rounded rectangle, and region e
 ## Validation evidence
 
 - ApiCompat debt moved from 59/425/47/531 to 59/409/46/514 with no breaking changes and no stale suppressions.
-- The focused `System.Drawing.Common.Tests` suite passes 113/113 cases.
+- The focused `System.Drawing.Common.Tests` suite passes 115/115 cases. Its hosted Linux lane provisions Mesa's software Vulkan adapter because the texture cases intentionally execute the same typed WebGPU recording and readback path as production rather than substituting a fake drawing context.
 - Texture-specific tests cover all constructors represented by the behavior groups, source and clone ownership, crop/remap state, wrap validation, transform order/reset, disposal, rectangular and geometry clips, exact 4×4 pixels for all five wrap modes, clamp transparency, retained-resource count, zero-allocation warmed transform mutation, and bounded fill recording allocation.
 - The affected ProGPU headless GDI tests pass 3/3 with the new owned-snapshot and shape-general behavior.
 - ARM64/.NET 10.0.11 BenchmarkDotNet ShortRun measured the four-tile record/release cycle at a 556.757 ns median, 556.451 ns mean, and 96 B/op. This is a three-iteration local regression checkpoint, not a renderer-wide throughput claim.
