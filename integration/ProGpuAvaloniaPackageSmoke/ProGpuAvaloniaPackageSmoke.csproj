@@ -7,7 +7,7 @@
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
     <AssemblyName>ProGpuAvaloniaPackageSmoke</AssemblyName>
     <RootNamespace>ProGpuAvaloniaPackageSmoke</RootNamespace>
-    <ProGpuIntegrationPackageVersion Condition="'$(ProGpuIntegrationPackageVersion)' == ''">12.0.5-preview.54</ProGpuIntegrationPackageVersion>
+    <ProGpuIntegrationPackageVersion Condition="'$(ProGpuIntegrationPackageVersion)' == ''">12.0.5-preview.55</ProGpuIntegrationPackageVersion>
   </PropertyGroup>
 
   <ItemGroup>

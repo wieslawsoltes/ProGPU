@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${repo_root}/eng/progpu-package-list.sh"
 
-package_version="${PROGPU_PACKAGE_VERSION:-0.1.0-preview.54}"
+package_version="${PROGPU_PACKAGE_VERSION:-0.1.0-preview.55}"
 package_output="${PROGPU_PACKAGE_OUTPUT:-${repo_root}/artifacts/packages/Release}"
 package_group="${PROGPU_PACKAGE_GROUP:-all}"
 
