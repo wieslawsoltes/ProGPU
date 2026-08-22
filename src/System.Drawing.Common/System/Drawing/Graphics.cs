@@ -21,6 +21,8 @@ public class Graphics :
     private readonly DrawingContext _context;
     private readonly Bitmap? _bitmap;
     private readonly RectangleF? _deviceBounds;
+    private readonly WgpuContext? _targetContext;
+    private readonly Action? _completed;
     // Device/host state is immutable; public Transform APIs mutate only _transform.
     private readonly Matrix3x2 _baseTransform;
     private Matrix _transform = new();
@@ -31,6 +33,7 @@ public class Graphics :
     private CompositingQuality _compositingQuality = CompositingQuality.Default;
     private Region? _clip;
     private bool _hasPushedClip;
+    private int _disposed;
 
     public DrawingContext DrawingContext => _context;
 
@@ -152,7 +155,13 @@ public class Graphics :
     }
 
     internal Graphics(DrawingContext context, Bitmap? bitmap = null)
-        : this(context, bitmap, Matrix3x2.Identity, deviceBounds: null)
+        : this(
+            context,
+            bitmap,
+            Matrix3x2.Identity,
+            deviceBounds: null,
+            targetContext: null,
+            completed: null)
     {
     }
 
@@ -160,12 +169,16 @@ public class Graphics :
         DrawingContext context,
         Bitmap? bitmap,
         Matrix3x2 baseTransform,
-        RectangleF? deviceBounds)
+        RectangleF? deviceBounds,
+        WgpuContext? targetContext,
+        Action? completed)
     {
         _context = context;
         _bitmap = bitmap;
         _baseTransform = baseTransform;
         _deviceBounds = deviceBounds;
+        _targetContext = targetContext;
+        _completed = completed;
     }
 
     public static Graphics FromProGpuDrawingContext(DrawingContext drawingContext)
@@ -224,10 +237,73 @@ public class Graphics :
             deviceBounds);
     }
 
+    /// <summary>
+    /// Creates a host-owned Graphics recorder and invokes
+    /// <paramref name="completed"/> exactly once when the recorder is disposed.
+    /// This overload uses the normal ambient System.Drawing GPU context.
+    /// </summary>
+    public static Graphics FromProGpuDrawingContext(
+        DrawingContext drawingContext,
+        RectangleF deviceBounds,
+        Matrix4x4 outerTransform,
+        Action completed)
+    {
+        ArgumentNullException.ThrowIfNull(completed);
+
+        if (!IsFiniteNonNegative(deviceBounds))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(deviceBounds),
+                "Device bounds must be finite and have non-negative dimensions.");
+        }
+
+        return FromProGpuDrawingContextCore(
+            drawingContext,
+            outerTransform,
+            deviceBounds,
+            targetContext: null,
+            completed);
+    }
+
+    /// <summary>
+    /// Creates a host-owned Graphics recorder that targets an explicit WebGPU
+    /// device and invokes <paramref name="completed"/> exactly once when the
+    /// recorder is disposed. Framework hosts use this overload to record on the
+    /// calling thread, then commit the retained commands on their presentation
+    /// thread without relying on ambient GPU state.
+    /// </summary>
+    public static Graphics FromProGpuDrawingContext(
+        DrawingContext drawingContext,
+        RectangleF deviceBounds,
+        Matrix4x4 outerTransform,
+        WgpuContext targetContext,
+        Action completed)
+    {
+        ArgumentNullException.ThrowIfNull(targetContext);
+        ArgumentNullException.ThrowIfNull(completed);
+        ObjectDisposedException.ThrowIf(targetContext.IsDisposed, targetContext);
+
+        if (!IsFiniteNonNegative(deviceBounds))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(deviceBounds),
+                "Device bounds must be finite and have non-negative dimensions.");
+        }
+
+        return FromProGpuDrawingContextCore(
+            drawingContext,
+            outerTransform,
+            deviceBounds,
+            targetContext,
+            completed);
+    }
+
     private static Graphics FromProGpuDrawingContextCore(
         DrawingContext drawingContext,
         Matrix4x4 outerTransform,
-        RectangleF? deviceBounds)
+        RectangleF? deviceBounds,
+        WgpuContext? targetContext = null,
+        Action? completed = null)
     {
         ArgumentNullException.ThrowIfNull(drawingContext);
         if (!IsFinite2DAffineTransform(outerTransform))
@@ -247,7 +323,9 @@ public class Graphics :
                 outerTransform.M22,
                 outerTransform.M41,
                 outerTransform.M42),
-            deviceBounds);
+            deviceBounds,
+            targetContext,
+            completed);
     }
 
     private static bool IsFiniteNonNegative(RectangleF bounds) =>
@@ -2920,7 +2998,7 @@ public class Graphics :
                 "Drawing a Bitmap into itself requires an explicit snapshot texture and is not supported by the deferred GPU path.");
         }
 
-        var targetContext = _bitmap?.GetDrawingContext() ?? GpuProvider.Context;
+        var targetContext = _bitmap?.GetDrawingContext() ?? _targetContext ?? GpuProvider.Context;
         if (!_context.TryRetainTexture(bitmap, targetContext, out var retainedTexture))
         {
             throw new ObjectDisposedException(nameof(bitmap), "Cannot draw a disposed GDI Bitmap.");
@@ -2931,6 +3009,11 @@ public class Graphics :
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
         if (_hasPushedClip)
         {
             _context.PopGeometryClip();
@@ -2948,6 +3031,7 @@ public class Graphics :
         // consumed (GetPixel, Save, GpuTexture, or a context-bound lease).
         // Disposing Graphics must not submit work through an ambient host
         // context whose render scope may already be ending.
+        _completed?.Invoke();
     }
 
     public IntPtr GetHdc() =>

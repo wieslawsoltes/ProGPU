@@ -5,6 +5,7 @@ using System.Drawing.Printing;
 using System.ComponentModel;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using ProGPU.Backend;
 using ProGPU.Scene;
 using Xunit;
 
@@ -40,6 +41,28 @@ public sealed class DrawingApiQualityTests
             Graphics.FromProGpuDrawingContext(
                 context,
                 new RectangleF(0f, 0f, -1f, 480f)));
+    }
+
+    [Fact]
+    public void HostOwnedContextGraphicsCompletesExactlyOnce()
+    {
+        var context = new DrawingContext();
+        using var targetContext = new WgpuContext();
+        int completed = 0;
+        Graphics graphics = Graphics.FromProGpuDrawingContext(
+            context,
+            new RectangleF(20f, 30f, 160f, 90f),
+            Matrix4x4.CreateTranslation(20f, 30f, 0f),
+            targetContext,
+            () => completed++);
+
+        Assert.Equal(new RectangleF(0f, 0f, 160f, 90f), graphics.VisibleClipBounds);
+        graphics.FillRectangle(Brushes.Red, 0f, 0f, 10f, 10f);
+        graphics.Dispose();
+        graphics.Dispose();
+
+        Assert.Equal(1, completed);
+        Assert.NotEmpty(context.Commands);
     }
 
     [Fact]
