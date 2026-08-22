@@ -1240,6 +1240,13 @@ The ProGPU solution is partitioned into modular, highly specialized C# projects.
 | **`ProGPU.Virtualization`** | `ProGPU.Virtualization.dll` | Dynamic scrolling viewport orchestration and UI virtualization controllers. | `VirtualizingPanel`, `ViewportInfo` |
 | **`ProGPU.Samples`** | `ProGPU.Samples.dll` | Showcase bootstrap, bounded UI scheduling, animation drivers, diagnostics, and repeatable stress/performance workloads. | `MainWindowController`, `SamplePerformanceBenchmark`, `LolsPage`, `UIThread` |
 
+`ProGPU.Vector` includes its WinRT-shaped `IGeometrySource2D` compatibility
+contract by default. A host that already supplies an incompatible
+`Windows.Graphics` projection can build the core vector/scene stack with
+`-p:ProGPUUseWinRTContracts=false`. In that mode `PathGeometry` retains the same
+vector and renderer behavior but does not implement the optional projection
+marker, and `ProGPU.Vector` does not reference `ProGPU.WinRT`.
+
 ---
 
 ## WebGPU WGSL Shader Specifications & Implementations
