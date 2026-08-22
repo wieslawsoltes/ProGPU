@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Numerics;
+#if PROGPU_USE_WINRT_CONTRACTS
 using Windows.Graphics;
+#endif
 
 #nullable enable
 #pragma warning disable IDE0057, IDE0059, IDE0078, IDE0300, IDE0301, IDE0305
@@ -237,7 +239,10 @@ internal
 #else
 public
 #endif
-class PathGeometry : IGeometrySource2D
+class PathGeometry
+#if PROGPU_USE_WINRT_CONTRACTS
+    : IGeometrySource2D
+#endif
 {
     private const byte CombinedBit = 1 << 0;
     private const byte SharedSnapshotBit = 1 << 1;
