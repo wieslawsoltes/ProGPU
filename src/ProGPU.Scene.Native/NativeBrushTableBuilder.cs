@@ -241,6 +241,18 @@ internal sealed class NativeBrushTableBuilder
                     crossHatch: true,
                     opacity: brush.Opacity);
                 break;
+            case TilePatternBrush tilePattern:
+                if (!IsFinite(tilePattern.ForegroundColor) ||
+                    !IsFinite(tilePattern.BackgroundColor))
+                {
+                    return Fail(out index, out error);
+                }
+                native = NativeSceneBrush.TilePattern(
+                    tilePattern.Pattern,
+                    tilePattern.ForegroundColor,
+                    tilePattern.BackgroundColor,
+                    brush.Opacity);
+                break;
             default:
                 return Fail(out index, out error);
         }
@@ -290,8 +302,9 @@ internal sealed class NativeBrushTableBuilder
                 NativeSceneBrush.PerlinTableRecordCount,
             _ => 0U
         };
-        if (native.StopOffset > (uint)_gradientStops.Count ||
-            storedStopCount > (uint)_gradientStops.Count - native.StopOffset)
+        if (native.Kind != NativeSceneBrushKind.TilePattern &&
+            (native.StopOffset > (uint)_gradientStops.Count ||
+             storedStopCount > (uint)_gradientStops.Count - native.StopOffset))
         {
             error = NativePictureCompileError.UnsupportedBrush;
             native = default;

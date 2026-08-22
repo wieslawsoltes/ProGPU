@@ -2450,6 +2450,17 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             finalColor = vec4<f32>(
                 brush.stopColors0.rgb,
                 brush.stopColors0.a * brush.opacity);
+        } else if (brush.brushType == 8u) {
+            // Fixed 8x8 System.Drawing hatch tile. Signed remainder keeps the
+            // pattern phase stable for negative world coordinates.
+            let integerCoord = vec2<i32>(floor(brushCoord));
+            let tileX = u32(((integerCoord.x % 8) + 8) % 8);
+            let tileY = u32(((integerCoord.y % 8) + 8) % 8);
+            let bitIndex = tileY * 8u + tileX;
+            let word = select(brush.stopCount, brush.stopOffset, bitIndex >= 32u);
+            let patternBit = (word >> (bitIndex & 31u)) & 1u;
+            let patternColor = select(brush.stopColors1, brush.stopColors0, patternBit != 0u);
+            finalColor = vec4<f32>(patternColor.rgb, patternColor.a * brush.opacity);
         } else if (brush.brushType == 5u) {
             // Two-point conical gradient: interpolate between two moving circle boundaries.
             let solution = solve_two_point_conical_gradient(brush, brushCoord);
@@ -2472,6 +2483,7 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             finalColor = vec4<f32>(noiseColor.rgb, noiseColor.a * brush.opacity);
         }
         if (brush.brushType == 3u || brush.brushType == 4u ||
+            brush.brushType == 8u ||
             brush.brushType == 7u) {
             // Procedural hatch/noise was evaluated directly above.
         } else if (gradientCoverage <= 0.0) {

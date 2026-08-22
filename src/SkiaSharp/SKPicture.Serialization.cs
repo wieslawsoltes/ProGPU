@@ -140,7 +140,7 @@ public partial class SKPicture
 internal static class PictureArchive
 {
     private const ulong Magic = 0x314349504B534750UL;
-    private const int Version = 3;
+    private const int Version = 4;
     private const int MinimumSupportedVersion = 1;
     private const int MaxDepth = 64;
     private const int MaxCommands = 1_000_000;
@@ -163,6 +163,7 @@ internal static class PictureArchive
         ThemeResource,
         BackdropMaterial,
         SweepAngles,
+        TilePattern,
     }
 
     private enum SegmentKind : byte
@@ -535,6 +536,7 @@ internal static class PictureArchive
             PerlinNoiseBrush => BrushKind.PerlinNoise,
             HatchPatternBrush => BrushKind.Hatch,
             CrossHatchBrush => BrushKind.CrossHatch,
+            TilePatternBrush => BrushKind.TilePattern,
             ThemeResourceBrush => BrushKind.ThemeResource,
             BackdropMaterialBrush => BrushKind.BackdropMaterial,
             _ => throw new NotSupportedException($"Brush type '{brush.GetType().FullName}' is not serializable."),
@@ -615,6 +617,11 @@ internal static class PictureArchive
                 writer.Write(crossHatch.Thickness);
                 WriteVector4(writer, crossHatch.Color);
                 break;
+            case TilePatternBrush tilePattern:
+                writer.Write(tilePattern.Pattern);
+                WriteVector4(writer, tilePattern.ForegroundColor);
+                WriteVector4(writer, tilePattern.BackgroundColor);
+                break;
             case ThemeResourceBrush theme:
                 WriteString(writer, theme.ResourceKey as string ?? throw new NotSupportedException(
                     $"Picture serialization supports string theme-resource keys; key type '{theme.ResourceKey.GetType().FullName}' is not serializable."));
@@ -663,6 +670,10 @@ internal static class PictureArchive
                 reader.ReadSingle(),
                 reader.ReadSingle(),
                 reader.ReadSingle(),
+                ReadVector4(reader)),
+            BrushKind.TilePattern => new TilePatternBrush(
+                reader.ReadUInt64(),
+                ReadVector4(reader),
                 ReadVector4(reader)),
             BrushKind.ThemeResource => new ThemeResourceBrush(
                 ReadString(reader) ?? throw new InvalidDataException("Theme resource keys cannot be null.")),

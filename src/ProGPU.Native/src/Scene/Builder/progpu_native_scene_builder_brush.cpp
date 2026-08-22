@@ -48,7 +48,7 @@ bool valid_brush_input(
     std::span<const progpu_native_scene_gradient_stop> stops) noexcept {
     const std::uint32_t spread = brush.spread_method & 0x7fffffffU;
     const bool outside = (brush.spread_method & 0x80000000U) != 0U;
-    if (brush.type > PROGPU_NATIVE_SCENE_BRUSH_PERLIN_NOISE ||
+    if (brush.type > PROGPU_NATIVE_SCENE_BRUSH_TILE_PATTERN ||
         !std::isfinite(brush.opacity) || brush.opacity < 0.0F ||
         brush.opacity > 1.0F || !finite_point(brush.start_point) ||
         !finite_point(brush.end_point) || !finite_point(brush.center) ||
@@ -92,6 +92,11 @@ bool valid_brush_input(
         return false;
     }
     if (!gradient_kind(brush.type)) {
+        if (brush.type == PROGPU_NATIVE_SCENE_BRUSH_TILE_PATTERN) {
+            return stops.empty() && brush.spread_method == 0U &&
+                brush.color_interpolation_mode ==
+                    PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB;
+        }
         return stops.empty() && brush.stop_count == 0U &&
             brush.stop_offset == 0U && brush.spread_method == 0U &&
             brush.color_interpolation_mode ==
@@ -235,7 +240,7 @@ bool semantic_scene_builder::add_brush(
             implementation_->gradient_stops.insert(
                 implementation_->gradient_stops.end(),
                 gradient_stops.begin(), gradient_stops.end());
-        } else {
+        } else if (brush.type != PROGPU_NATIVE_SCENE_BRUSH_TILE_PATTERN) {
             brush.stop_offset = 0U;
         }
         brush_index = static_cast<std::uint32_t>(

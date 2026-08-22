@@ -137,6 +137,36 @@ bool semantic_perlin_brush_table_is_exact_and_bounded() {
             bytes.data(), resource, error_offset)) {
         return false;
     }
+
+    auto tile = brush;
+    tile.type = PROGPU_NATIVE_SCENE_BRUSH_TILE_PATTERN;
+    tile.stop_count = 0x76543210U;
+    tile.stop_offset = 0xfedcba98U;
+    tile.spread_method = 0U;
+    tile.color_interpolation_mode =
+        PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB;
+    tile.colors[0] = {1.0F, 0.5F, 0.25F, 0.75F};
+    tile.colors[1] = {0.1F, 0.2F, 0.3F, 0.4F};
+    std::memcpy(bytes.data() + brush_offset, &tile, sizeof(tile));
+    semantic::semantic_brush_page tile_page{};
+    if (!semantic::validate_brush_table(
+            bytes.data(), resource, error_offset) ||
+        !semantic::compile_brush_page(
+            bytes.data(), header, 0x5678U, tile_page) ||
+        tile_page.brushes.size() != 2U ||
+        tile_page.gradient_stops.size() != 1U ||
+        tile_page.brushes[1].type !=
+            PROGPU_NATIVE_SCENE_BRUSH_TILE_PATTERN ||
+        tile_page.brushes[1].stop_count != 0x76543210U ||
+        tile_page.brushes[1].stop_offset != 0xfedcba98U) {
+        return false;
+    }
+    tile.spread_method = 1U;
+    std::memcpy(bytes.data() + brush_offset, &tile, sizeof(tile));
+    if (semantic::validate_brush_table(
+            bytes.data(), resource, error_offset)) {
+        return false;
+    }
     std::memcpy(bytes.data() + brush_offset, &brush, sizeof(brush));
 
     auto truncated = resource;

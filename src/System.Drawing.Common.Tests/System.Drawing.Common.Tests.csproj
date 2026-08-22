@@ -13,6 +13,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ProGPU.Backend.Native\ProGPU.Backend.Native.csproj" />
+    <ProjectReference Include="..\ProGPU.Scene.Native\ProGPU.Scene.Native.csproj" />
     <ProjectReference Include="..\System.Drawing.Common\System.Drawing.Common.csproj" />
   </ItemGroup>
 

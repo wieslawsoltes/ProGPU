@@ -566,7 +566,8 @@ public enum NativeSceneBrushKind : uint
     CrossHatch = 4,
     TwoPointConicalGradient = 5,
     SweepGradient = 6,
-    PerlinNoise = 7
+    PerlinNoise = 7,
+    TilePattern = 8
 }
 
 public enum NativeSceneGradientSpread : uint
@@ -868,6 +869,23 @@ public struct NativeSceneBrush
         brush.Radius = angle;
         brush.Center = new Vector2(spacing, thickness);
         brush.Color0 = color;
+        return brush;
+    }
+
+    public static NativeSceneBrush TilePattern(
+        ulong pattern,
+        Vector4 foregroundColor,
+        Vector4 backgroundColor,
+        float opacity = 1f)
+    {
+        var brush = CreateBase(
+            NativeSceneBrushKind.TilePattern,
+            opacity,
+            Matrix3x2.Identity);
+        brush.StopCount = (uint)pattern;
+        brush.StopOffset = (uint)(pattern >> 32);
+        brush.Color0 = foregroundColor;
+        brush.Color1 = backgroundColor;
         return brush;
     }
 

@@ -301,3 +301,37 @@ public class CrossHatchBrush : Brush
         Color = color;
     }
 }
+
+/// <summary>
+/// Paints a repeating, axis-aligned 8 by 8 one-bit tile with independent
+/// foreground and background colors.
+/// </summary>
+/// <remarks>
+/// Bit <c>y * 8 + x</c> selects the foreground color at integer tile
+/// coordinate <c>(x, y)</c>; a cleared bit selects the background color.
+/// The immutable value payload lets retained pictures share the brush safely.
+/// </remarks>
+public sealed class TilePatternBrush : Brush
+{
+    public ulong Pattern { get; }
+    public Vector4 ForegroundColor { get; }
+    public Vector4 BackgroundColor { get; }
+
+    public TilePatternBrush(
+        ulong pattern,
+        Vector4 foregroundColor,
+        Vector4 backgroundColor)
+    {
+        Pattern = pattern;
+        ForegroundColor = foregroundColor;
+        BackgroundColor = backgroundColor;
+    }
+
+    public bool IsForegroundPixel(int x, int y)
+    {
+        int tileX = x & 7;
+        int tileY = y & 7;
+        int bitIndex = (tileY * 8) + tileX;
+        return ((Pattern >> bitIndex) & 1UL) != 0UL;
+    }
+}

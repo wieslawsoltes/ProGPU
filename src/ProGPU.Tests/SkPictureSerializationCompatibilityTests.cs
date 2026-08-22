@@ -300,6 +300,10 @@ public sealed class SkPictureSerializationCompatibilityTests
             new PerlinNoiseBrush(true, new Vector2(0.1f, 0.2f), 4, 3f, new Vector2(32f, 48f)),
             new HatchPatternBrush(30f, 5f, 2f, Vector4.One),
             new CrossHatchBrush(45f, 6f, 3f, Vector4.UnitW),
+            new TilePatternBrush(
+                0xfedcba9876543210UL,
+                new Vector4(1f, 0.5f, 0.25f, 0.75f),
+                new Vector4(0.1f, 0.2f, 0.3f, 0.4f)),
             new ThemeResourceBrush("AccentBrush"),
             backdrop,
         ];
@@ -337,8 +341,12 @@ public sealed class SkPictureSerializationCompatibilityTests
         var actualNoise = Assert.IsType<PerlinNoiseBrush>(copy.Picture.Commands[4].Brush);
         Assert.Equal(4, actualNoise.NumOctaves);
         Assert.Equal(new Vector2(32f, 48f), actualNoise.TileSize);
-        Assert.Equal("AccentBrush", Assert.IsType<ThemeResourceBrush>(copy.Picture.Commands[7].Brush).ResourceKey);
-        var actualBackdrop = Assert.IsType<BackdropMaterialBrush>(copy.Picture.Commands[8].Brush);
+        var actualTile = Assert.IsType<TilePatternBrush>(copy.Picture.Commands[7].Brush);
+        Assert.Equal(0xfedcba9876543210UL, actualTile.Pattern);
+        Assert.Equal(new Vector4(1f, 0.5f, 0.25f, 0.75f), actualTile.ForegroundColor);
+        Assert.Equal(new Vector4(0.1f, 0.2f, 0.3f, 0.4f), actualTile.BackgroundColor);
+        Assert.Equal("AccentBrush", Assert.IsType<ThemeResourceBrush>(copy.Picture.Commands[8].Brush).ResourceKey);
+        var actualBackdrop = Assert.IsType<BackdropMaterialBrush>(copy.Picture.Commands[9].Brush);
         Assert.Equal(BackdropMaterialKind.Mica, actualBackdrop.Kind);
         Assert.Equal(BackdropMaterialSource.Texture, actualBackdrop.Source);
         Assert.True(actualBackdrop.UseFallback);

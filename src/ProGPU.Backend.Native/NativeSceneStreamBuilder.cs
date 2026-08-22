@@ -1123,7 +1123,8 @@ public ref struct NativeSceneStreamBuilder
             MathF.Abs(mask.Transform.GetDeterminant()) <= 0.000001f ||
             !float.IsFinite(mask.Opacity) ||
             mask.Opacity is < 0f or > 1f ||
-            mask.Brush.StopOffset != 0U ||
+            (mask.Brush.Kind != NativeSceneBrushKind.TilePattern &&
+                mask.Brush.StopOffset != 0U) ||
             !IsValidBrushTable(brush, gradientStops))
         {
             return false;
@@ -1204,7 +1205,8 @@ public ref struct NativeSceneStreamBuilder
                 NativeSceneBrush.PerlinTableRecordCount,
             _ => 0U
         };
-        if (mask.Brush.StopOffset != 0U ||
+        if ((mask.Brush.Kind != NativeSceneBrushKind.TilePattern &&
+                mask.Brush.StopOffset != 0U) ||
             mask.GradientStopCount != storedStopCount ||
             !IsValidBrushTable(brush, stops))
         {
@@ -2711,7 +2713,8 @@ public ref struct NativeSceneStreamBuilder
                 NativeSceneBrushKind.CrossHatch or
                 NativeSceneBrushKind.TwoPointConicalGradient or
                 NativeSceneBrushKind.SweepGradient or
-                NativeSceneBrushKind.PerlinNoise;
+                NativeSceneBrushKind.PerlinNoise or
+                NativeSceneBrushKind.TilePattern;
             bool gradient = brush.Kind is
                 NativeSceneBrushKind.LinearGradient or
                 NativeSceneBrushKind.RadialGradient or
@@ -2765,7 +2768,8 @@ public ref struct NativeSceneStreamBuilder
                 bool hatch = brush.Kind is
                     NativeSceneBrushKind.HatchPattern or
                     NativeSceneBrushKind.CrossHatch;
-                if (brush.StopCount != 0U || brush.StopOffset != 0U ||
+                bool tilePattern = brush.Kind == NativeSceneBrushKind.TilePattern;
+                if ((!tilePattern && (brush.StopCount != 0U || brush.StopOffset != 0U)) ||
                     spread != 0U || brush.Interpolation !=
                         NativeSceneGradientInterpolation.SRgb ||
                     (hatch && (brush.Center.X <= 0f ||

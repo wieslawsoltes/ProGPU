@@ -19,7 +19,7 @@ namespace ProGPU.Scene;
 [StructLayout(LayoutKind.Explicit, Size = 256)]
 public struct GpuBrush
 {
-    [FieldOffset(0)] public uint Type;             // 0 = Solid, 1 = Linear, 2 = Radial, 5 = Two-point conical, 6 = Sweep, 7 = Perlin noise
+    [FieldOffset(0)] public uint Type;             // 0 = Solid, 1 = Linear, 2 = Radial, 5 = Two-point conical, 6 = Sweep, 7 = Perlin noise, 8 = 8x8 tile
     [FieldOffset(4)] public float Opacity;
     [FieldOffset(8)] public Vector2 StartPoint;
     [FieldOffset(16)] public Vector2 EndPoint;
@@ -12162,6 +12162,14 @@ SceneStateUploadComplete:
             gpuBrush.Color0 = crossHatch.Color;
             gpuBrush.StopCount = 1;
         }
+        else if (brush is TilePatternBrush tilePattern)
+        {
+            gpuBrush.Type = 8;
+            gpuBrush.StopCount = (uint)tilePattern.Pattern;
+            gpuBrush.StopOffset = (uint)(tilePattern.Pattern >> 32);
+            gpuBrush.Color0 = tilePattern.ForegroundColor;
+            gpuBrush.Color1 = tilePattern.BackgroundColor;
+        }
 
         for (int i = 0; i < _activeBrushes.Count; i++)
         {
@@ -12211,6 +12219,11 @@ SceneStateUploadComplete:
             a.Offsets1 != b.Offsets1 ||
             a.CoordinateTransform0 != b.CoordinateTransform0 ||
             a.CoordinateTransform1 != b.CoordinateTransform1)
+        {
+            return false;
+        }
+
+        if (a.Type == 8 && a.StopOffset != b.StopOffset)
         {
             return false;
         }

@@ -257,7 +257,8 @@ bool valid_brush_mask(
         !valid_bounds(mask.bounds) || !valid_transform(mask.transform) ||
         !std::isfinite(mask.opacity) || mask.opacity < 0.0F ||
         mask.opacity > 1.0F || mask.reserved0 != 0U ||
-        mask.brush.stop_offset != 0U ||
+        (mask.brush.type != PROGPU_NATIVE_SCENE_BRUSH_TILE_PATTERN &&
+            mask.brush.stop_offset != 0U) ||
         (stop_count != 0U && stops == nullptr)) {
         return false;
     }
@@ -280,8 +281,9 @@ bool valid_composite_brush(
         valid_bounds(mask.bounds) && valid_transform(mask.transform) &&
         std::isfinite(mask.opacity) && mask.opacity >= 0.0F &&
         mask.opacity <= 1.0F && mask.reserved0 == 0U &&
-        mask.brush.stop_offset <= stop_count &&
-        stored_stop_count <= stop_count - mask.brush.stop_offset &&
+        (mask.brush.type == PROGPU_NATIVE_SCENE_BRUSH_TILE_PATTERN ||
+            (mask.brush.stop_offset <= stop_count &&
+             stored_stop_count <= stop_count - mask.brush.stop_offset)) &&
         is_valid_semantic_brush(
             mask.brush,
             std::span<const progpu_native_scene_gradient_stop>(
@@ -307,8 +309,10 @@ bool valid_geometry_mask(
         mask.gradient_stop_count != stored_stop_count ||
         !valid_bounds(mask.bounds) || !valid_transform(mask.transform) ||
         !std::isfinite(mask.opacity) || mask.opacity < 0.0F ||
-        mask.opacity > 1.0F || mask.brush.stop_offset > stop_count ||
-        stored_stop_count > stop_count - mask.brush.stop_offset ||
+        mask.opacity > 1.0F ||
+        (mask.brush.type != PROGPU_NATIVE_SCENE_BRUSH_TILE_PATTERN &&
+            (mask.brush.stop_offset > stop_count ||
+             stored_stop_count > stop_count - mask.brush.stop_offset)) ||
         primitives == nullptr ||
         !is_valid_semantic_brush(
             mask.brush,
