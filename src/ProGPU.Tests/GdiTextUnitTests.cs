@@ -31,11 +31,13 @@ public sealed class GdiTextUnitTests
     [Fact]
     public void FontsAndFamiliesUseSystemDrawingValueEquality()
     {
-        using var first = new DrawingFont("Microsoft Sans Serif", 10f, DrawingFontStyle.Regular, DrawingGraphicsUnit.Point);
-        using var equivalent = new DrawingFont("Microsoft Sans Serif", 10f, DrawingFontStyle.Regular, DrawingGraphicsUnit.Point);
-        using var bold = new DrawingFont("Microsoft Sans Serif", 10f, DrawingFontStyle.Bold, DrawingGraphicsUnit.Point);
-        using var firstFamily = new DrawingFontFamily("Microsoft Sans Serif");
-        using var equivalentFamily = new DrawingFontFamily("Microsoft Sans Serif");
+        using var genericFamily = DrawingFontFamily.GenericSansSerif;
+        string familyName = genericFamily.Name;
+        using var first = new DrawingFont(familyName, 10f, DrawingFontStyle.Regular, DrawingGraphicsUnit.Point);
+        using var equivalent = new DrawingFont(familyName, 10f, DrawingFontStyle.Regular, DrawingGraphicsUnit.Point);
+        using var bold = new DrawingFont(familyName, 10f, DrawingFontStyle.Bold, DrawingGraphicsUnit.Point);
+        using var firstFamily = new DrawingFontFamily(familyName);
+        using var equivalentFamily = new DrawingFontFamily(familyName);
 
         Assert.Equal(firstFamily, equivalentFamily);
         Assert.Equal(firstFamily.GetHashCode(), equivalentFamily.GetHashCode());
