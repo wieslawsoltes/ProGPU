@@ -969,12 +969,13 @@ public class GdiShimTests
         graphics.FillRectangle(brush, 1, 1, 5, 3);
 
         var commands = graphics.DrawingContext.Commands;
-        Assert.Equal(6, commands.Count);
-        var retainedTexture = commands[0].Texture;
-        Assert.Same(source.GpuTexture, retainedTexture);
+        Assert.Equal(8, commands.Count);
+        Assert.Equal(RenderCommandType.PushClip, commands[0].Type);
+        var retainedTexture = commands[1].Texture;
+        Assert.NotSame(source.GpuTexture, retainedTexture);
         Assert.Equal(1, graphics.DrawingContext.RetainedResourceCount);
         Assert.All(
-            commands,
+            commands.Where(static command => command.Type == RenderCommandType.DrawTexture),
             command =>
             {
                 Assert.Equal(RenderCommandType.DrawTexture, command.Type);
@@ -982,10 +983,13 @@ public class GdiShimTests
                 Assert.Equal(TextureSamplingMode.Linear, command.TextureSamplingMode);
             });
 
-        Assert.Equal(new Rect(1f, 1f, 1f, 1f), commands[0].Rect);
-        Assert.Equal(new Rect(1f, 1f, 1f, 1f), commands[0].SrcRect);
-        Assert.Equal(new Rect(2f, 2f, 2f, 2f), commands[4].Rect);
-        Assert.Equal(new Rect(0f, 0f, 2f, 2f), commands[4].SrcRect);
+        Assert.Equal(new Rect(0f, 0f, 2f, 2f), commands[1].Rect);
+        Assert.Equal(new Rect(0f, 0f, 2f, 2f), commands[1].SrcRect);
+        Assert.Equal(0f, commands[1].Transform.M41);
+        Assert.Equal(0f, commands[1].Transform.M42);
+        Assert.Equal(4f, commands[6].Transform.M41);
+        Assert.Equal(2f, commands[6].Transform.M42);
+        Assert.Equal(RenderCommandType.PopClip, commands[7].Type);
     }
 
     [Fact]
@@ -994,12 +998,14 @@ public class GdiShimTests
         var source = new Bitmap(1, 1);
         using var target = new Bitmap(2, 2);
         using var graphics = Graphics.FromImage(target);
-        using var brush = new TextureBrush(source);
         source.SetPixel(0, 0, Color.Red);
+        using var brush = new TextureBrush(source);
 
         graphics.FillRectangle(brush, 0, 0, 1, 1);
-        var retainedTexture = Assert.Single(graphics.DrawingContext.Commands).Texture!;
-        Assert.Same(source.GpuTexture, retainedTexture);
+        var retainedTexture = Assert.Single(
+            graphics.DrawingContext.Commands,
+            static command => command.Type == RenderCommandType.DrawTexture).Texture!;
+        Assert.NotSame(source.GpuTexture, retainedTexture);
         Assert.Equal(1, graphics.DrawingContext.RetainedResourceCount);
 
         var retainedTextureDisposed = false;
@@ -1019,9 +1025,13 @@ public class GdiShimTests
             Assert.False(retainedTexture.IsDisposed);
 
             Assert.Equal(Color.Red.ToArgb(), target.GetPixel(0, 0).ToArgb());
+            Assert.False(retainedTextureDisposed);
+            Assert.False(retainedTexture.IsDisposed);
+            Assert.Equal(0, graphics.DrawingContext.RetainedResourceCount);
+
+            brush.Dispose();
             Assert.True(retainedTextureDisposed);
             Assert.True(retainedTexture.IsDisposed);
-            Assert.Equal(0, graphics.DrawingContext.RetainedResourceCount);
         }
         finally
         {
@@ -1030,7 +1040,7 @@ public class GdiShimTests
     }
 
     [Fact]
-    public void TextureBrushFillPathFailsExplicitly()
+    public void TextureBrushFillPathUsesTypedGeometryClip()
     {
         using var source = new Bitmap(2, 2);
         using var target = new Bitmap(8, 8);
@@ -1039,10 +1049,17 @@ public class GdiShimTests
         using var path = new GraphicsPath();
         path.AddEllipse(0, 0, 4, 4);
 
-        var exception = Assert.Throws<NotSupportedException>(() => graphics.FillPath(brush, path));
+        graphics.FillPath(brush, path);
 
-        Assert.Contains("TextureBrush", exception.Message);
-        Assert.Empty(graphics.DrawingContext.Commands);
+        Assert.Equal(
+            RenderCommandType.PushGeometryClip,
+            graphics.DrawingContext.Commands[0].Type);
+        Assert.Contains(
+            graphics.DrawingContext.Commands,
+            static command => command.Type == RenderCommandType.DrawTexture);
+        Assert.Equal(
+            RenderCommandType.PopGeometryClip,
+            graphics.DrawingContext.Commands[^1].Type);
     }
 
     [Fact]

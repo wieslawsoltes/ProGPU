@@ -597,7 +597,11 @@ public class Graphics :
 
     private Matrix4x4 CurrentTransform4x4()
     {
-        var m32 = CombinedTransform;
+        return ToMatrix4x4(CombinedTransform);
+    }
+
+    private static Matrix4x4 ToMatrix4x4(Matrix3x2 m32)
+    {
         return new Matrix4x4(
             m32.M11, m32.M12, 0f, 0f,
             m32.M21, m32.M22, 0f, 0f,
@@ -837,60 +841,133 @@ public class Graphics :
             return;
         }
 
-        if (brush.Image is not Bitmap bitmap)
+        _context.PushClip(
+            new Rect(rect.X, rect.Y, rect.Width, rect.Height),
+            CurrentTransform4x4());
+        try
         {
-            throw new NotSupportedException("Only bitmap-backed TextureBrush fills are supported.");
+            EmitTextureTiles(brush, rect);
         }
+        finally
+        {
+            _context.PopClip();
+        }
+    }
 
-        var tileWidth = bitmap.Width;
-        var tileHeight = bitmap.Height;
-        if (tileWidth <= 0 || tileHeight <= 0)
+    private void FillTexturePath(TextureBrush brush, PathGeometry geometry)
+    {
+        if (!geometry.TryGetBounds(out Vector2 minimum, out Vector2 maximum))
         {
             return;
         }
 
-        var retainedTexture = RetainBitmapTexture(bitmap);
-        var transform = CurrentTransform4x4();
-        var right = rect.Right;
-        var bottom = rect.Bottom;
-        Matrix brushTransform = brush.Transform;
-        var originX = brushTransform.OffsetX;
-        var originY = brushTransform.OffsetY;
-        brushTransform.Dispose();
-        var startX = originX + (MathF.Floor((rect.X - originX) / tileWidth) * tileWidth);
-        var startY = originY + (MathF.Floor((rect.Y - originY) / tileHeight) * tileHeight);
-
-        for (var tileY = startY; tileY < bottom; tileY += tileHeight)
+        var bounds = new RectangleF(
+            minimum.X,
+            minimum.Y,
+            maximum.X - minimum.X,
+            maximum.Y - minimum.Y);
+        if (bounds.Width <= 0f || bounds.Height <= 0f)
         {
-            var destY = MathF.Max(tileY, rect.Y);
-            var destBottom = MathF.Min(tileY + tileHeight, bottom);
-            var destHeight = destBottom - destY;
-            if (destHeight <= 0f)
-            {
-                continue;
-            }
+            return;
+        }
 
-            for (var tileX = startX; tileX < right; tileX += tileWidth)
-            {
-                var destX = MathF.Max(tileX, rect.X);
-                var destRight = MathF.Min(tileX + tileWidth, right);
-                var destWidth = destRight - destX;
-                if (destWidth <= 0f)
-                {
-                    continue;
-                }
+        _context.PushGeometryClip(geometry, CurrentTransform4x4());
+        try
+        {
+            EmitTextureTiles(brush, bounds);
+        }
+        finally
+        {
+            _context.PopGeometryClip();
+        }
+    }
 
-                _context.Commands.Add(new RenderCommand
-                {
-                    Type = RenderCommandType.DrawTexture,
-                    Texture = retainedTexture,
-                    Rect = new Rect(destX, destY, destWidth, destHeight),
-                    SrcRect = new Rect(destX - tileX, destY - tileY, destWidth, destHeight),
-                    Transform = transform,
-                    TextureSamplingMode = TextureSamplingMode.Linear
-                });
+    private void EmitTextureTiles(TextureBrush brush, RectangleF worldBounds)
+    {
+        Bitmap bitmap = brush.Bitmap;
+        float tileWidth = bitmap.Width;
+        float tileHeight = bitmap.Height;
+        Matrix3x2 brushTransform = brush.TransformValue;
+        if (!Matrix3x2.Invert(brushTransform, out Matrix3x2 inverseBrushTransform))
+        {
+            throw new ArgumentException("The texture transform must be invertible.", nameof(brush));
+        }
+
+        RectangleF textureBounds = TransformBounds(worldBounds, inverseBrushTransform);
+        int firstX;
+        int lastX;
+        int firstY;
+        int lastY;
+        if (brush.WrapMode == WrapMode.Clamp)
+        {
+            firstX = lastX = firstY = lastY = 0;
+        }
+        else
+        {
+            firstX = checked((int)MathF.Floor(textureBounds.Left / tileWidth));
+            lastX = checked((int)MathF.Ceiling(textureBounds.Right / tileWidth) - 1);
+            firstY = checked((int)MathF.Floor(textureBounds.Top / tileHeight));
+            lastY = checked((int)MathF.Ceiling(textureBounds.Bottom / tileHeight) - 1);
+        }
+
+        long tileCount = checked((long)(lastX - firstX + 1) * (lastY - firstY + 1));
+        if (tileCount <= 0)
+        {
+            return;
+        }
+
+        const int MaxRetainedTilesPerFill = 1_000_000;
+        if (tileCount > MaxRetainedTilesPerFill)
+        {
+            throw new InvalidOperationException(
+                "The texture fill exceeds the retained tile safety limit.");
+        }
+
+        GpuTexture retainedTexture = RetainBitmapTexture(bitmap);
+        var sourceRect = new Rect(0f, 0f, tileWidth, tileHeight);
+        var destinationRect = new Rect(0f, 0f, tileWidth, tileHeight);
+        WrapMode wrapMode = brush.WrapMode;
+        Matrix3x2 graphicsTransform = CombinedTransform;
+        TextureSamplingMode samplingMode = GetTextureSamplingMode();
+
+        for (int tileY = firstY; tileY <= lastY; tileY++)
+        {
+            bool flipY = wrapMode is WrapMode.TileFlipY or WrapMode.TileFlipXY
+                && (tileY & 1) != 0;
+            for (int tileX = firstX; tileX <= lastX; tileX++)
+            {
+                bool flipX = wrapMode is WrapMode.TileFlipX or WrapMode.TileFlipXY
+                    && (tileX & 1) != 0;
+                Matrix3x2 tileTransform = Matrix3x2.CreateScale(
+                        flipX ? -1f : 1f,
+                        flipY ? -1f : 1f)
+                    * Matrix3x2.CreateTranslation(
+                        (flipX ? tileX + 1 : tileX) * tileWidth,
+                        (flipY ? tileY + 1 : tileY) * tileHeight)
+                    * brushTransform
+                    * graphicsTransform;
+
+                _context.DrawTexture(
+                    retainedTexture,
+                    destinationRect,
+                    sourceRect,
+                    ToMatrix4x4(tileTransform),
+                    samplingMode);
             }
         }
+    }
+
+    private static RectangleF TransformBounds(RectangleF bounds, Matrix3x2 transform)
+    {
+        Vector2 topLeft = Vector2.Transform(new Vector2(bounds.Left, bounds.Top), transform);
+        Vector2 topRight = Vector2.Transform(new Vector2(bounds.Right, bounds.Top), transform);
+        Vector2 bottomLeft = Vector2.Transform(new Vector2(bounds.Left, bounds.Bottom), transform);
+        Vector2 bottomRight = Vector2.Transform(new Vector2(bounds.Right, bounds.Bottom), transform);
+        float left = MathF.Min(MathF.Min(topLeft.X, topRight.X), MathF.Min(bottomLeft.X, bottomRight.X));
+        float top = MathF.Min(MathF.Min(topLeft.Y, topRight.Y), MathF.Min(bottomLeft.Y, bottomRight.Y));
+        float right = MathF.Max(MathF.Max(topLeft.X, topRight.X), MathF.Max(bottomLeft.X, bottomRight.X));
+        float bottom = MathF.Max(MathF.Max(topLeft.Y, topRight.Y), MathF.Max(bottomLeft.Y, bottomRight.Y));
+        return new RectangleF(left, top, right - left, bottom - top);
     }
 
     public void FillRectangles(Brush brush, Rectangle[] rects)
@@ -934,6 +1011,14 @@ public class Graphics :
 
     public void FillEllipse(Brush brush, float x, float y, float width, float height)
     {
+        if (brush is TextureBrush textureBrush)
+        {
+            using var path = new GraphicsPath();
+            path.AddEllipse(x, y, width, height);
+            FillTexturePath(textureBrush, path.Geometry);
+            return;
+        }
+
         if (HasRotationOrShear)
         {
             using var path = new GraphicsPath();
@@ -1036,6 +1121,12 @@ public class Graphics :
     public void FillPath(Brush brush, GraphicsPath path)
     {
         if (path == null) return;
+        if (brush is TextureBrush textureBrush)
+        {
+            FillTexturePath(textureBrush, path.Geometry);
+            return;
+        }
+
         _context.DrawPath(brush.ToProGpuBrush(), null, path.Geometry, CurrentTransform4x4());
     }
 
@@ -1043,10 +1134,17 @@ public class Graphics :
     {
         ArgumentNullException.ThrowIfNull(brush);
         ArgumentNullException.ThrowIfNull(region);
+        PathGeometry geometry = region.CreatePathGeometry(GetFiniteDrawingUniverse());
+        if (brush is TextureBrush textureBrush)
+        {
+            FillTexturePath(textureBrush, geometry);
+            return;
+        }
+
         _context.DrawPath(
             brush.ToProGpuBrush(),
             null,
-            region.CreatePathGeometry(GetFiniteDrawingUniverse()),
+            geometry,
             CurrentTransform4x4());
     }
 

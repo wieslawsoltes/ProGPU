@@ -688,6 +688,65 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         }
     }
 
+    internal Bitmap CreateImageAttributesAdjusted(ImageAttributes attributes)
+    {
+        ArgumentNullException.ThrowIfNull(attributes);
+
+        lock (_textureLifetimeLock)
+        {
+            ThrowIfDisposed();
+            byte[] pixels = (byte[])ReadPixelsCore(out GpuTextureAlphaMode alphaMode).Clone();
+            var replacements = new Dictionary<int, int>(attributes.RemapTable.Length);
+            foreach ((Color oldColor, Color newColor) in attributes.RemapTable)
+            {
+                replacements[oldColor.ToArgb()] = newColor.ToArgb();
+            }
+
+            for (int offset = 0; offset < pixels.Length; offset += 4)
+            {
+                byte alpha = pixels[offset + 3];
+                byte red = pixels[offset];
+                byte green = pixels[offset + 1];
+                byte blue = pixels[offset + 2];
+                if (alphaMode == GpuTextureAlphaMode.Premultiplied)
+                {
+                    red = UnpremultiplyChannel(red, alpha);
+                    green = UnpremultiplyChannel(green, alpha);
+                    blue = UnpremultiplyChannel(blue, alpha);
+                }
+
+                Color color = Color.FromArgb(alpha, red, green, blue);
+                if (replacements.TryGetValue(color.ToArgb(), out int replacementArgb))
+                {
+                    color = Color.FromArgb(replacementArgb);
+                }
+
+                if (attributes.ColorMatrix is not null)
+                {
+                    color = ImageAttributes.ApplyColorMatrix(color, attributes.ColorMatrix);
+                }
+
+                alpha = color.A;
+                red = color.R;
+                green = color.G;
+                blue = color.B;
+                if (alphaMode == GpuTextureAlphaMode.Premultiplied)
+                {
+                    red = PremultiplyChannel(red, alpha);
+                    green = PremultiplyChannel(green, alpha);
+                    blue = PremultiplyChannel(blue, alpha);
+                }
+
+                pixels[offset] = red;
+                pixels[offset + 1] = green;
+                pixels[offset + 2] = blue;
+                pixels[offset + 3] = alpha;
+            }
+
+            return CreateFromPixels(_width, _height, pixels, alphaMode, PixelFormat.Format32bppPArgb);
+        }
+    }
+
     internal byte[] CopyStraightPixelsForPalette()
     {
         lock (_textureLifetimeLock)

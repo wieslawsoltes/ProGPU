@@ -1874,70 +1874,6 @@
     <Target>M:System.Drawing.SystemIcons.GetStockIcon(System.Drawing.StockIconId,System.Drawing.StockIconOptions)</Target>
   </Suppression>
   <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.TextureBrush.#ctor(System.Drawing.Image,System.Drawing.Drawing2D.WrapMode,System.Drawing.Rectangle)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.TextureBrush.#ctor(System.Drawing.Image,System.Drawing.Drawing2D.WrapMode,System.Drawing.RectangleF)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.TextureBrush.#ctor(System.Drawing.Image,System.Drawing.Rectangle,System.Drawing.Imaging.ImageAttributes)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.TextureBrush.#ctor(System.Drawing.Image,System.Drawing.Rectangle)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.TextureBrush.#ctor(System.Drawing.Image,System.Drawing.RectangleF,System.Drawing.Imaging.ImageAttributes)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.TextureBrush.#ctor(System.Drawing.Image,System.Drawing.RectangleF)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.TextureBrush.MultiplyTransform(System.Drawing.Drawing2D.Matrix,System.Drawing.Drawing2D.MatrixOrder)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.TextureBrush.MultiplyTransform(System.Drawing.Drawing2D.Matrix)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.TextureBrush.ResetTransform</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.TextureBrush.RotateTransform(System.Single,System.Drawing.Drawing2D.MatrixOrder)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.TextureBrush.RotateTransform(System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.TextureBrush.ScaleTransform(System.Single,System.Single,System.Drawing.Drawing2D.MatrixOrder)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.TextureBrush.ScaleTransform(System.Single,System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.TextureBrush.set_WrapMode(System.Drawing.Drawing2D.WrapMode)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.TextureBrush.TranslateTransform(System.Single,System.Single,System.Drawing.Drawing2D.MatrixOrder)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.TextureBrush.TranslateTransform(System.Single,System.Single)</Target>
-  </Suppression>
-  <Suppression>
     <DiagnosticId>CP0003</DiagnosticId>
     <Target>System.Drawing.Common, Version=10.0.0.0, Culture=neutral, PublicKeyToken=c29c9752855ee183</Target>
   </Suppression>
@@ -2048,10 +1984,6 @@
   <Suppression>
     <DiagnosticId>CP0008</DiagnosticId>
     <Target>T:System.Drawing.Region</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0008</DiagnosticId>
-    <Target>T:System.Drawing.TextureBrush</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0009</DiagnosticId>

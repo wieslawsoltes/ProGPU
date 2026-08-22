@@ -450,7 +450,7 @@ public sealed class ImageAttributes : IDisposable, ICloneable
         }
     }
 
-    private static Color ApplyColorMatrix(Color color, ColorMatrix matrix)
+    internal static Color ApplyColorMatrix(Color color, ColorMatrix matrix)
     {
         float red = color.R / 255f;
         float green = color.G / 255f;
