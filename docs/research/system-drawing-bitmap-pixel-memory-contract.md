@@ -10,6 +10,7 @@ This record covers the managed pixel-memory surface used by LibreWinForms and im
 - `BitmapData` layout and validation;
 - packed, indexed, straight-alpha, premultiplied-alpha, and high-depth row conversion; and
 - rectangle/rectangle-float crop clones with an observable destination format.
+- in-place `Bitmap.ConvertFormat` with fixed/custom/optimal palette selection, alpha thresholds, and all public dithering modes.
 
 The public contract was checked against the .NET 10.0.11 reference assembly and the official [`PixelFormat`](https://learn.microsoft.com/dotnet/api/system.drawing.imaging.pixelformat?view=windowsdesktop-10.0), [`BitmapData`](https://learn.microsoft.com/dotnet/api/system.drawing.imaging.bitmapdata?view=windowsdesktop-10.0), [`Bitmap.LockBits`](https://learn.microsoft.com/dotnet/api/system.drawing.bitmap.lockbits?view=windowsdesktop-10.0), [`Bitmap` scan0 constructor](https://learn.microsoft.com/dotnet/api/system.drawing.bitmap.-ctor?view=windowsdesktop-10.0#system-drawing-bitmap-ctor(system-int32-system-int32-system-int32-system-drawing-imaging-pixelformat-system-intptr)), and [`Bitmap.Clone`](https://learn.microsoft.com/dotnet/api/system.drawing.bitmap.clone?view=windowsdesktop-10.0) documentation. Official dotnet/winforms source was used only to confirm public signature, validation, enum-value, and layout facts. The implementation is original ProGPU managed code.
 
@@ -40,6 +41,8 @@ The scan0 constructor snapshots the supplied rows into managed RGBA storage. Thi
 
 ## Validation and remaining debt
 
-Focused tests cover enum identities/classifiers, scan0 decoding, caller-buffer ownership, read/write round trips, packed/high-depth quantization, crop cloning, stale/unrelated unlock rejection, and zero-allocation warmed read-only caller locks. `BitmapPixelMemoryBenchmarks.CopyRgbaToCallerOwnedLockBuffer` measures a fixed 256×256 BGRA export without GPU initialization.
+`ConvertFormat` preserves the canonical RGBA renderer boundary while replacing the bitmap's public memory format. Non-indexed formats round-trip through the same row codecs as `LockBits`. Indexed conversion selects a caller palette, a fixed `PaletteType`, or a deterministic optimal palette; applies the documented alpha threshold when a transparent entry exists; and materializes palette colors in the canonical store. `None`/`Solid`, ordered Bayer 4×4/8×8/16×16, spiral/dual-spiral 4×4/8×8, and fixed-point Floyd-Steinberg error diffusion are deterministic CPU algorithms. Reduced direct-color 5:5:5, 5:6:5, and 1:5:5:5 conversion also applies ordered or error-diffusion quantization instead of silently ignoring the requested mode.
 
-This slice does not claim codec or format-conversion completion. `ConvertFormat`, palette dithering algorithms, effect processing, encoder parameterization, and native HBITMAP/HICON adapters remain separate reviewed imaging debt.
+Focused tests cover enum identities/classifiers, scan0 decoding, caller-buffer ownership, read/write round trips, packed/high-depth quantization, crop cloning, stale/unrelated unlock rejection, zero-allocation warmed read-only caller locks, palette/alpha-threshold behavior, every dithering mode, direct-color dithering, deterministic results, validation, and bounded clone-and-convert allocation. `BitmapPixelMemoryBenchmarks.CopyRgbaToCallerOwnedLockBuffer` measures a fixed 256×256 BGRA export without GPU initialization. `ConvertRgbaToErrorDiffusedIndexedClone` measures a fixed 256×256 RGBA clone converted to a 4-bit custom palette with error diffusion.
+
+Codec loading/saving beyond the existing PNG/BMP paths, effect processing, encoder parameterization, and native HBITMAP/HICON adapters remain separate reviewed imaging debt.

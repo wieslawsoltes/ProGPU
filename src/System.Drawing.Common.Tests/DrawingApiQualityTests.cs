@@ -323,6 +323,159 @@ public sealed class DrawingApiQualityTests
     }
 
     [Fact]
+    public void BitmapConvertFormatQuantizesNonIndexedChannelsInPlace()
+    {
+        using var bitmap = new Bitmap(1, 1);
+        bitmap.SetPixel(0, 0, Color.FromArgb(255, 123, 65, 31));
+
+        bitmap.ConvertFormat(PixelFormat.Format16bppRgb565);
+
+        Assert.Equal(PixelFormat.Format16bppRgb565, bitmap.PixelFormat);
+        Color quantized = bitmap.GetPixel(0, 0);
+        Assert.InRange(Math.Abs(quantized.R - 123), 0, 8);
+        Assert.InRange(Math.Abs(quantized.G - 65), 0, 4);
+        Assert.InRange(Math.Abs(quantized.B - 31), 0, 8);
+        Assert.Equal(255, quantized.A);
+    }
+
+    [Fact]
+    public void BitmapConvertFormatAppliesPaletteAndAlphaThreshold()
+    {
+        using var bitmap = new Bitmap(2, 1);
+        bitmap.SetPixel(0, 0, Color.FromArgb(32, 255, 0, 0));
+        bitmap.SetPixel(1, 0, Color.Red);
+        var palette = new ColorPalette(Color.Transparent, Color.Red);
+
+        bitmap.ConvertFormat(
+            PixelFormat.Format8bppIndexed,
+            DitherType.None,
+            PaletteType.Custom,
+            palette,
+            alphaThresholdPercent: 50f);
+
+        Assert.Equal(PixelFormat.Format8bppIndexed, bitmap.PixelFormat);
+        Assert.Equal(Color.Transparent.ToArgb(), bitmap.GetPixel(0, 0).ToArgb());
+        Assert.Equal(Color.Red.ToArgb(), bitmap.GetPixel(1, 0).ToArgb());
+        Assert.Equal(
+            new[] { Color.Transparent.ToArgb(), Color.Red.ToArgb() },
+            bitmap.Palette.Entries.Select(color => color.ToArgb()));
+    }
+
+    [Fact]
+    public void BitmapConvertFormatDitherModesAreDeterministicAndPaletteBounded()
+    {
+        DitherType[] modes =
+        [
+            DitherType.None,
+            DitherType.Solid,
+            DitherType.Ordered4x4,
+            DitherType.Ordered8x8,
+            DitherType.Ordered16x16,
+            DitherType.Spiral4x4,
+            DitherType.Spiral8x8,
+            DitherType.DualSpiral4x4,
+            DitherType.DualSpiral8x8,
+            DitherType.ErrorDiffusion
+        ];
+        var palette = new ColorPalette(Color.Black, Color.White);
+
+        foreach (DitherType mode in modes)
+        {
+            using Bitmap first = CreateGrayGradientBitmap(16, 16);
+            using Bitmap second = CreateGrayGradientBitmap(16, 16);
+            first.ConvertFormat(PixelFormat.Format1bppIndexed, mode, PaletteType.Custom, palette);
+            second.ConvertFormat(PixelFormat.Format1bppIndexed, mode, PaletteType.Custom, palette);
+
+            for (int y = 0; y < first.Height; y++)
+            {
+                for (int x = 0; x < first.Width; x++)
+                {
+                    int firstArgb = first.GetPixel(x, y).ToArgb();
+                    Assert.True(firstArgb == Color.Black.ToArgb() || firstArgb == Color.White.ToArgb());
+                    Assert.Equal(firstArgb, second.GetPixel(x, y).ToArgb());
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void BitmapConvertFormatDithersReducedDirectColorFormats()
+    {
+        using Bitmap solid = CreateGrayGradientBitmap(64, 1);
+        using Bitmap diffused = CreateGrayGradientBitmap(64, 1);
+        solid.ConvertFormat(PixelFormat.Format16bppRgb565, DitherType.Solid);
+        diffused.ConvertFormat(PixelFormat.Format16bppRgb565, DitherType.ErrorDiffusion);
+
+        Assert.Equal(PixelFormat.Format16bppRgb565, diffused.PixelFormat);
+        Assert.Contains(
+            Enumerable.Range(0, solid.Width),
+            x => solid.GetPixel(x, 0).ToArgb() != diffused.GetPixel(x, 0).ToArgb());
+    }
+
+    [Fact]
+    public void BitmapConvertFormatValidatesFormatDitherPaletteAndThreshold()
+    {
+        using var bitmap = new Bitmap(2, 2);
+        Assert.Throws<ArgumentException>(() => bitmap.ConvertFormat(PixelFormat.Indexed));
+        Assert.Throws<NotSupportedException>(() => bitmap.ConvertFormat(PixelFormat.Format16bppGrayScale));
+        Assert.Throws<ArgumentException>(() => bitmap.ConvertFormat(PixelFormat.Format8bppIndexed, (DitherType)99));
+        Assert.Throws<ArgumentException>(
+            () => bitmap.ConvertFormat(PixelFormat.Format8bppIndexed, DitherType.None, (PaletteType)1));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => bitmap.ConvertFormat(
+                PixelFormat.Format8bppIndexed,
+                DitherType.None,
+                PaletteType.Custom,
+                new ColorPalette(Color.Black),
+                alphaThresholdPercent: 101f));
+    }
+
+    [Fact]
+    public void BitmapErrorDiffusionConversionHasBoundedAllocation()
+    {
+        using Bitmap source = CreateGrayGradientBitmap(64, 64);
+        var palette = new ColorPalette(PaletteType.FixedHalftone8);
+        using (var warmup = (Bitmap)source.Clone())
+        {
+            warmup.ConvertFormat(
+                PixelFormat.Format4bppIndexed,
+                DitherType.ErrorDiffusion,
+                PaletteType.Custom,
+                palette);
+        }
+
+        const int iterations = 8;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < iterations; iteration++)
+        {
+            using var clone = (Bitmap)source.Clone();
+            clone.ConvertFormat(
+                PixelFormat.Format4bppIndexed,
+                DitherType.ErrorDiffusion,
+                PaletteType.Custom,
+                palette);
+        }
+        long bytesPerConversion = (GC.GetAllocatedBytesForCurrentThread() - before) / iterations;
+
+        Assert.InRange(bytesPerConversion, 18_000, 24_000);
+    }
+
+    private static Bitmap CreateGrayGradientBitmap(int width, int height)
+    {
+        var bitmap = new Bitmap(width, height);
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int value = (x * 255) / (width - 1);
+                bitmap.SetPixel(x, y, Color.FromArgb(value, value, value));
+            }
+        }
+
+        return bitmap;
+    }
+
+    [Fact]
     public void CallerOwnedReadOnlyLockBitsHasBoundedWarmedAllocation()
     {
         using var bitmap = new Bitmap(64, 64);

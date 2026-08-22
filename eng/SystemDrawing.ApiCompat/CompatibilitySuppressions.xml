@@ -635,14 +635,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Bitmap.ConvertFormat(System.Drawing.Imaging.PixelFormat,System.Drawing.Imaging.DitherType,System.Drawing.Imaging.PaletteType,System.Drawing.Imaging.ColorPalette,System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Bitmap.ConvertFormat(System.Drawing.Imaging.PixelFormat)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Bitmap.FromHicon(System.IntPtr)</Target>
   </Suppression>
   <Suppression>

@@ -927,6 +927,448 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         }
     }
 
+    public void ConvertFormat(PixelFormat format)
+    {
+        ValidateConcretePixelFormat(format);
+        if (format == PixelFormat.Format16bppGrayScale)
+        {
+            throw new NotSupportedException("Bitmap.ConvertFormat does not support Format16bppGrayScale.");
+        }
+
+        if (PixelFormatInfo.IsIndexed(format))
+        {
+            int paletteSize = 1 << Image.GetPixelFormatSize(format);
+            bool useTransparentColor = Image.IsAlphaPixelFormat(format);
+            ColorPalette palette = ColorPalette.CreateOptimalPalette(paletteSize, useTransparentColor, this);
+            ConvertFormat(
+                format,
+                DitherType.ErrorDiffusion,
+                PaletteType.Custom,
+                palette,
+                alphaThresholdPercent: 0.25f);
+            return;
+        }
+
+        int targetSize = Image.GetPixelFormatSize(format);
+        int sourceSize = Image.GetPixelFormatSize(_pixelFormat);
+        ConvertFormat(format, targetSize > sourceSize ? DitherType.None : DitherType.Solid);
+    }
+
+    public void ConvertFormat(
+        PixelFormat format,
+        DitherType ditherType,
+        PaletteType paletteType = PaletteType.Custom,
+        ColorPalette? palette = null,
+        float alphaThresholdPercent = 0f)
+    {
+        ValidateConcretePixelFormat(format);
+        if (format == PixelFormat.Format16bppGrayScale)
+        {
+            throw new NotSupportedException("Bitmap.ConvertFormat does not support Format16bppGrayScale.");
+        }
+
+        if (ditherType is < DitherType.None or > DitherType.ErrorDiffusion)
+        {
+            throw new ArgumentException("Invalid dither type.", nameof(ditherType));
+        }
+
+        if (paletteType is < PaletteType.Custom or > PaletteType.FixedHalftone256 || paletteType == (PaletteType)1)
+        {
+            throw new ArgumentException("Invalid palette type.", nameof(paletteType));
+        }
+
+        if (!float.IsFinite(alphaThresholdPercent) || alphaThresholdPercent is < 0f or > 100f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(alphaThresholdPercent));
+        }
+
+        lock (_textureLifetimeLock)
+        {
+            ThrowIfDisposed();
+            if (_lockedBitmapData is not null)
+            {
+                throw new InvalidOperationException("A bitmap cannot be converted while its pixels are locked.");
+            }
+
+            if (PixelFormatInfo.IsIndexed(format))
+            {
+                int capacity = 1 << Image.GetPixelFormatSize(format);
+                ColorPalette selectedPalette = SelectConversionPalette(
+                    palette,
+                    paletteType,
+                    capacity,
+                    alphaThresholdPercent > 0f);
+                byte[] straightPixels = ReadPixelsCore(out GpuTextureAlphaMode alphaMode);
+                if (alphaMode == GpuTextureAlphaMode.Premultiplied)
+                {
+                    UnpremultiplyPixelsInPlace(straightPixels);
+                }
+                QuantizeToPalette(
+                    straightPixels,
+                    _width,
+                    _height,
+                    selectedPalette,
+                    capacity,
+                    ditherType,
+                    alphaThresholdPercent);
+                Palette = selectedPalette;
+                _pixelFormat = format;
+                WritePixelsCore(straightPixels, GpuTextureAlphaMode.Straight);
+                return;
+            }
+
+            if (palette is not null)
+            {
+                Palette = palette;
+            }
+
+            if (IsReducedDirectColorFormat(format) && ditherType is not DitherType.None and not DitherType.Solid)
+            {
+                byte[] pixels = ReadPixelsCore(out GpuTextureAlphaMode alphaMode);
+                if (alphaMode == GpuTextureAlphaMode.Premultiplied)
+                {
+                    UnpremultiplyPixelsInPlace(pixels);
+                }
+
+                DitherDirectColor(pixels, _width, _height, format, ditherType);
+                WritePixelsCore(pixels, GpuTextureAlphaMode.Straight);
+            }
+
+            _pixelFormat = format;
+            BitmapData lockData = LockBits(
+                new Rectangle(0, 0, _width, _height),
+                ImageLockMode.ReadWrite,
+                format);
+            UnlockBits(lockData);
+        }
+    }
+
+    private ColorPalette SelectConversionPalette(
+        ColorPalette? palette,
+        PaletteType paletteType,
+        int capacity,
+        bool useTransparentColor)
+    {
+        ColorPalette selected = palette is not null
+            ? palette.ClonePalette()
+            : paletteType == PaletteType.Custom
+                ? ColorPalette.CreateOptimalPalette(capacity, useTransparentColor, this)
+                : new ColorPalette(paletteType);
+
+        if (selected.Entries.Length == 0)
+        {
+            throw new ArgumentException("Indexed conversion requires a non-empty palette.", nameof(palette));
+        }
+
+        return selected;
+    }
+
+    private static void QuantizeToPalette(
+        byte[] pixels,
+        int width,
+        int height,
+        ColorPalette palette,
+        int capacity,
+        DitherType ditherType,
+        float alphaThresholdPercent)
+    {
+        Color[] entries = palette.Entries;
+        int entryCount = Math.Min(capacity, entries.Length);
+        int transparentIndex = -1;
+        for (int index = 0; index < entryCount; index++)
+        {
+            if (entries[index].A == 0)
+            {
+                transparentIndex = index;
+                break;
+            }
+        }
+
+        int alphaThreshold = (int)MathF.Round(alphaThresholdPercent * 255f / 100f);
+        if (ditherType == DitherType.ErrorDiffusion)
+        {
+            QuantizeWithErrorDiffusion(
+                pixels,
+                width,
+                height,
+                palette,
+                entryCount,
+                transparentIndex,
+                alphaThreshold);
+            return;
+        }
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int offset = ((y * width) + x) * 4;
+                byte alpha = pixels[offset + 3];
+                int paletteIndex;
+                if (transparentIndex >= 0 && alpha < alphaThreshold)
+                {
+                    paletteIndex = transparentIndex;
+                }
+                else
+                {
+                    int adjustment = GetDitherAdjustment(ditherType, x, y);
+                    byte red = ClampToByte(pixels[offset] + adjustment);
+                    byte green = ClampToByte(pixels[offset + 1] + adjustment);
+                    byte blue = ClampToByte(pixels[offset + 2] + adjustment);
+                    paletteIndex = FindNearestPaletteIndex(
+                        palette,
+                        red,
+                        green,
+                        blue,
+                        alpha,
+                        entryCount);
+                }
+
+                WritePalettePixel(pixels, offset, entries[paletteIndex]);
+            }
+        }
+    }
+
+    private static bool IsReducedDirectColorFormat(PixelFormat format) => format is
+        PixelFormat.Format16bppRgb555 or
+        PixelFormat.Format16bppRgb565 or
+        PixelFormat.Format16bppArgb1555;
+
+    private static void DitherDirectColor(
+        byte[] pixels,
+        int width,
+        int height,
+        PixelFormat format,
+        DitherType ditherType)
+    {
+        int redLevels = 31;
+        int greenLevels = format == PixelFormat.Format16bppRgb565 ? 63 : 31;
+        int blueLevels = 31;
+        if (ditherType == DitherType.ErrorDiffusion)
+        {
+            DitherDirectColorWithErrorDiffusion(
+                pixels,
+                width,
+                height,
+                redLevels,
+                greenLevels,
+                blueLevels);
+            return;
+        }
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int offset = ((y * width) + x) * 4;
+                int adjustment = GetDitherAdjustment(ditherType, x, y);
+                pixels[offset] = QuantizeChannel(ClampToByte(pixels[offset] + adjustment), redLevels);
+                pixels[offset + 1] = QuantizeChannel(ClampToByte(pixels[offset + 1] + adjustment), greenLevels);
+                pixels[offset + 2] = QuantizeChannel(ClampToByte(pixels[offset + 2] + adjustment), blueLevels);
+            }
+        }
+    }
+
+    private static void DitherDirectColorWithErrorDiffusion(
+        byte[] pixels,
+        int width,
+        int height,
+        int redLevels,
+        int greenLevels,
+        int blueLevels)
+    {
+        var currentRed = new int[width + 2];
+        var currentGreen = new int[width + 2];
+        var currentBlue = new int[width + 2];
+        var nextRed = new int[width + 2];
+        var nextGreen = new int[width + 2];
+        var nextBlue = new int[width + 2];
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int offset = ((y * width) + x) * 4;
+                int red = ClampToByte(pixels[offset] + DivideRoundedBy16(currentRed[x + 1]));
+                int green = ClampToByte(pixels[offset + 1] + DivideRoundedBy16(currentGreen[x + 1]));
+                int blue = ClampToByte(pixels[offset + 2] + DivideRoundedBy16(currentBlue[x + 1]));
+                byte quantizedRed = QuantizeChannel(red, redLevels);
+                byte quantizedGreen = QuantizeChannel(green, greenLevels);
+                byte quantizedBlue = QuantizeChannel(blue, blueLevels);
+                AddDiffusionError(currentRed, nextRed, x, red - quantizedRed);
+                AddDiffusionError(currentGreen, nextGreen, x, green - quantizedGreen);
+                AddDiffusionError(currentBlue, nextBlue, x, blue - quantizedBlue);
+                pixels[offset] = quantizedRed;
+                pixels[offset + 1] = quantizedGreen;
+                pixels[offset + 2] = quantizedBlue;
+            }
+
+            (currentRed, nextRed) = (nextRed, currentRed);
+            (currentGreen, nextGreen) = (nextGreen, currentGreen);
+            (currentBlue, nextBlue) = (nextBlue, currentBlue);
+            Array.Clear(nextRed);
+            Array.Clear(nextGreen);
+            Array.Clear(nextBlue);
+        }
+    }
+
+    private static byte QuantizeChannel(int value, int maximum) =>
+        (byte)((((value * maximum) + 127) / 255) * 255 / maximum);
+
+    private static void QuantizeWithErrorDiffusion(
+        byte[] pixels,
+        int width,
+        int height,
+        ColorPalette palette,
+        int entryCount,
+        int transparentIndex,
+        int alphaThreshold)
+    {
+        var currentRed = new int[width + 2];
+        var currentGreen = new int[width + 2];
+        var currentBlue = new int[width + 2];
+        var nextRed = new int[width + 2];
+        var nextGreen = new int[width + 2];
+        var nextBlue = new int[width + 2];
+        Color[] entries = palette.Entries;
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int offset = ((y * width) + x) * 4;
+                byte alpha = pixels[offset + 3];
+                int paletteIndex;
+                int red = ClampToByte(pixels[offset] + DivideRoundedBy16(currentRed[x + 1]));
+                int green = ClampToByte(pixels[offset + 1] + DivideRoundedBy16(currentGreen[x + 1]));
+                int blue = ClampToByte(pixels[offset + 2] + DivideRoundedBy16(currentBlue[x + 1]));
+                if (transparentIndex >= 0 && alpha < alphaThreshold)
+                {
+                    paletteIndex = transparentIndex;
+                }
+                else
+                {
+                    paletteIndex = FindNearestPaletteIndex(
+                        palette,
+                        (byte)red,
+                        (byte)green,
+                        (byte)blue,
+                        alpha,
+                        entryCount);
+                }
+
+                Color selected = entries[paletteIndex];
+                int redError = red - selected.R;
+                int greenError = green - selected.G;
+                int blueError = blue - selected.B;
+                AddDiffusionError(currentRed, nextRed, x, redError);
+                AddDiffusionError(currentGreen, nextGreen, x, greenError);
+                AddDiffusionError(currentBlue, nextBlue, x, blueError);
+                WritePalettePixel(pixels, offset, selected);
+            }
+
+            (currentRed, nextRed) = (nextRed, currentRed);
+            (currentGreen, nextGreen) = (nextGreen, currentGreen);
+            (currentBlue, nextBlue) = (nextBlue, currentBlue);
+            Array.Clear(nextRed);
+            Array.Clear(nextGreen);
+            Array.Clear(nextBlue);
+        }
+    }
+
+    private static void AddDiffusionError(int[] current, int[] next, int x, int error)
+    {
+        current[x + 2] += error * 7;
+        next[x] += error * 3;
+        next[x + 1] += error * 5;
+        next[x + 2] += error;
+    }
+
+    private static int DivideRoundedBy16(int value) =>
+        value >= 0 ? (value + 8) / 16 : (value - 8) / 16;
+
+    private static int GetDitherAdjustment(DitherType type, int x, int y)
+    {
+        int size = type switch
+        {
+            DitherType.Ordered4x4 or DitherType.Spiral4x4 or DitherType.DualSpiral4x4 => 4,
+            DitherType.Ordered8x8 or DitherType.Spiral8x8 or DitherType.DualSpiral8x8 => 8,
+            DitherType.Ordered16x16 => 16,
+            _ => 0
+        };
+        if (size == 0)
+        {
+            return 0;
+        }
+
+        int threshold = type switch
+        {
+            DitherType.Spiral4x4 or DitherType.Spiral8x8 => SpiralThreshold(x, y, size),
+            DitherType.DualSpiral4x4 or DitherType.DualSpiral8x8 =>
+                ((x + y) & 1) == 0 ? SpiralThreshold(x, y, size) : size * size - 1 - SpiralThreshold(x, y, size),
+            _ => BayerThreshold(x, y, size)
+        };
+        return ((threshold * 64) / (size * size - 1)) - 32;
+    }
+
+    private static int BayerThreshold(int x, int y, int size)
+    {
+        int value = 0;
+        for (int bit = 0; (1 << bit) < size; bit++)
+        {
+            int xBit = (x >> bit) & 1;
+            int yBit = (y >> bit) & 1;
+            value |= (xBit ^ yBit) << (bit * 2);
+            value |= yBit << (bit * 2 + 1);
+        }
+
+        return value;
+    }
+
+    private static int SpiralThreshold(int x, int y, int size)
+    {
+        int left = 0;
+        int top = 0;
+        int right = size - 1;
+        int bottom = size - 1;
+        int index = 0;
+        while (left <= right && top <= bottom)
+        {
+            for (int column = left; column <= right; column++, index++)
+            {
+                if (column == (x & (size - 1)) && top == (y & (size - 1))) return index;
+            }
+            top++;
+            for (int row = top; row <= bottom; row++, index++)
+            {
+                if (right == (x & (size - 1)) && row == (y & (size - 1))) return index;
+            }
+            right--;
+            for (int column = right; column >= left && top <= bottom; column--, index++)
+            {
+                if (column == (x & (size - 1)) && bottom == (y & (size - 1))) return index;
+            }
+            bottom--;
+            for (int row = bottom; row >= top && left <= right; row--, index++)
+            {
+                if (left == (x & (size - 1)) && row == (y & (size - 1))) return index;
+            }
+            left++;
+        }
+
+        return 0;
+    }
+
+    private static byte ClampToByte(int value) => (byte)Math.Clamp(value, 0, 255);
+
+    private static void WritePalettePixel(byte[] pixels, int offset, Color color)
+    {
+        pixels[offset] = color.R;
+        pixels[offset + 1] = color.G;
+        pixels[offset + 2] = color.B;
+        pixels[offset + 3] = color.A;
+    }
+
     private void ApplyTransparentColorKey(
         byte[] pixels,
         byte keyRed,
@@ -1082,6 +1524,17 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         }
 
         return straightPixels;
+    }
+
+    private static void UnpremultiplyPixelsInPlace(byte[] pixels)
+    {
+        for (int offset = 0; offset < pixels.Length; offset += 4)
+        {
+            byte alpha = pixels[offset + 3];
+            pixels[offset] = UnpremultiplyChannel(pixels[offset], alpha);
+            pixels[offset + 1] = UnpremultiplyChannel(pixels[offset + 1], alpha);
+            pixels[offset + 2] = UnpremultiplyChannel(pixels[offset + 2], alpha);
+        }
     }
 
     private void NormalizeExistingContentsForPremultipliedRenderTarget(GpuTexture texture)
