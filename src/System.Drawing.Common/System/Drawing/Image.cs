@@ -259,6 +259,62 @@ public abstract class Image : MarshalByRefObject, IDisposable, ICloneable
         Save(stream, format);
     }
 
+    public void Save(string filename, ImageCodecInfo encoder, EncoderParameters? encoderParams)
+    {
+        ArgumentNullException.ThrowIfNull(filename);
+        ArgumentNullException.ThrowIfNull(encoder);
+        using Stream stream = File.Create(filename);
+        Save(stream, encoder, encoderParams);
+    }
+
+    public void Save(Stream stream, ImageCodecInfo encoder, EncoderParameters? encoderParams)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(encoder);
+
+        ImageCodecInfo? registeredEncoder = ImageCodecInfo.FindEncoder(encoder.Clsid);
+        if (registeredEncoder is null || registeredEncoder.FormatID != encoder.FormatID)
+        {
+            throw new ArgumentException("The requested image encoder is not registered.", nameof(encoder));
+        }
+
+        if (this is Bitmap bitmap)
+        {
+            bitmap.SaveWithEncoder(stream, new ImageFormat(registeredEncoder.FormatID), encoderParams);
+            return;
+        }
+
+        Save(stream, new ImageFormat(registeredEncoder.FormatID));
+    }
+
+    public void SaveAdd(EncoderParameters? encoderParams) =>
+        throw new NotSupportedException("Multi-frame image encoding is not implemented by the managed ProGPU codec layer.");
+
+    public void SaveAdd(Image image, EncoderParameters? encoderParams)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        throw new NotSupportedException("Multi-frame image encoding is not implemented by the managed ProGPU codec layer.");
+    }
+
+    public EncoderParameters? GetEncoderParameterList(Guid encoder)
+    {
+        ImageCodecInfo? codec = ImageCodecInfo.FindEncoder(encoder);
+        if (codec is null)
+        {
+            throw new ArgumentException("The requested image encoder is not registered.", nameof(encoder));
+        }
+
+        if (codec.FormatID != ImageFormat.Jpeg.Guid)
+        {
+            return new EncoderParameters(0);
+        }
+
+        return new EncoderParameters(1)
+        {
+            Param = [new EncoderParameter(Encoder.Quality, 0L, 100L)]
+        };
+    }
+
     public virtual void Save(Stream stream, ImageFormat format)
     {
         ArgumentNullException.ThrowIfNull(stream);

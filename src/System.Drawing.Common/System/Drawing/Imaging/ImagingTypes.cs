@@ -45,6 +45,61 @@ public enum DitherType
     ErrorDiffusion = 9
 }
 
+public enum EncoderParameterValueType
+{
+    ValueTypeByte = 1,
+    ValueTypeAscii = 2,
+    ValueTypeShort = 3,
+    ValueTypeLong = 4,
+    ValueTypeRational = 5,
+    ValueTypeLongRange = 6,
+    ValueTypeUndefined = 7,
+    ValueTypeRationalRange = 8,
+    ValueTypePointer = 9
+}
+
+public enum EncoderValue
+{
+    ColorTypeCMYK,
+    ColorTypeYCCK,
+    CompressionLZW,
+    CompressionCCITT3,
+    CompressionCCITT4,
+    CompressionRle,
+    CompressionNone,
+    ScanMethodInterlaced,
+    ScanMethodNonInterlaced,
+    VersionGif87,
+    VersionGif89,
+    RenderProgressive,
+    RenderNonProgressive,
+    TransformRotate90,
+    TransformRotate180,
+    TransformRotate270,
+    TransformFlipHorizontal,
+    TransformFlipVertical,
+    MultiFrame,
+    LastFrame,
+    Flush,
+    FrameDimensionTime,
+    FrameDimensionResolution,
+    FrameDimensionPage
+}
+
+[Flags]
+public enum ImageCodecFlags
+{
+    Encoder = 0x00000001,
+    Decoder = 0x00000002,
+    SupportBitmap = 0x00000004,
+    SupportVector = 0x00000008,
+    SeekableEncode = 0x00000010,
+    BlockingDecode = 0x00000020,
+    Builtin = 0x00010000,
+    System = 0x00020000,
+    User = 0x00040000
+}
+
 [Flags]
 public enum ImageFlags
 {
@@ -479,6 +534,19 @@ internal static class PixelFormatInfo
 
 public sealed class ImageFormat
 {
+    private static readonly ImageFormat s_memoryBmp = new(new Guid("b96b3caa-0728-11d3-9d7b-0000f81ef32e"));
+    private static readonly ImageFormat s_bmp = new(new Guid("b96b3cab-0728-11d3-9d7b-0000f81ef32e"));
+    private static readonly ImageFormat s_emf = new(new Guid("b96b3cac-0728-11d3-9d7b-0000f81ef32e"));
+    private static readonly ImageFormat s_wmf = new(new Guid("b96b3cad-0728-11d3-9d7b-0000f81ef32e"));
+    private static readonly ImageFormat s_jpeg = new(new Guid("b96b3cae-0728-11d3-9d7b-0000f81ef32e"));
+    private static readonly ImageFormat s_png = new(new Guid("b96b3caf-0728-11d3-9d7b-0000f81ef32e"));
+    private static readonly ImageFormat s_gif = new(new Guid("b96b3cb0-0728-11d3-9d7b-0000f81ef32e"));
+    private static readonly ImageFormat s_tiff = new(new Guid("b96b3cb1-0728-11d3-9d7b-0000f81ef32e"));
+    private static readonly ImageFormat s_exif = new(new Guid("b96b3cb2-0728-11d3-9d7b-0000f81ef32e"));
+    private static readonly ImageFormat s_icon = new(new Guid("b96b3cb5-0728-11d3-9d7b-0000f81ef32e"));
+    private static readonly ImageFormat s_heif = new(new Guid("b96b3cb6-0728-11d3-9d7b-0000f81ef32e"));
+    private static readonly ImageFormat s_webp = new(new Guid("b96b3cb7-0728-11d3-9d7b-0000f81ef32e"));
+
     public Guid Guid { get; }
 
     public ImageFormat(Guid guid)
@@ -486,9 +554,37 @@ public sealed class ImageFormat
         Guid = guid;
     }
 
-    public static ImageFormat Bmp { get; } = new ImageFormat(new Guid("b96b3cab-0728-11d3-9d7b-0000f81ef32e"));
-    public static ImageFormat Jpeg { get; } = new ImageFormat(new Guid("b96b3cae-0728-11d3-9d7b-0000f81ef32e"));
-    public static ImageFormat Png { get; } = new ImageFormat(new Guid("b96b3caf-0728-11d3-9d7b-0000f81ef32e"));
-    public static ImageFormat Gif { get; } = new ImageFormat(new Guid("b96b3cb0-0728-11d3-9d7b-0000f81ef32e"));
-    public static ImageFormat Icon { get; } = new ImageFormat(new Guid("b96b3cb5-0728-11d3-9d7b-0000f81ef32e"));
+    public static ImageFormat MemoryBmp => s_memoryBmp;
+    public static ImageFormat Bmp => s_bmp;
+    public static ImageFormat Emf => s_emf;
+    public static ImageFormat Wmf => s_wmf;
+    public static ImageFormat Jpeg => s_jpeg;
+    public static ImageFormat Png => s_png;
+    public static ImageFormat Gif => s_gif;
+    public static ImageFormat Tiff => s_tiff;
+    public static ImageFormat Exif => s_exif;
+    public static ImageFormat Icon => s_icon;
+    public static ImageFormat Heif => s_heif;
+    public static ImageFormat Webp => s_webp;
+
+    public override bool Equals(object? obj) => obj is ImageFormat format && Guid == format.Guid;
+
+    public override int GetHashCode() => Guid.GetHashCode();
+
+    public override string ToString()
+    {
+        if (Equals(MemoryBmp)) return "MemoryBMP";
+        if (Equals(Bmp)) return "Bmp";
+        if (Equals(Emf)) return "Emf";
+        if (Equals(Wmf)) return "Wmf";
+        if (Equals(Gif)) return "Gif";
+        if (Equals(Jpeg)) return "Jpeg";
+        if (Equals(Png)) return "Png";
+        if (Equals(Tiff)) return "Tiff";
+        if (Equals(Exif)) return "Exif";
+        if (Equals(Icon)) return "Icon";
+        if (Equals(Heif)) return "Heif";
+        if (Equals(Webp)) return "Webp";
+        return $"[ImageFormat: {Guid}]";
+    }
 }

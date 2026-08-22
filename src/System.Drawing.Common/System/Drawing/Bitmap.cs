@@ -1432,7 +1432,56 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
             return;
         }
 
-        throw new NotSupportedException($"Image format '{format.Guid}' is not supported by the ProGPU System.Drawing bitmap shim.");
+        if (format.Guid == ImageFormat.Jpeg.Guid)
+        {
+            SaveJpeg(stream, quality: 75);
+            return;
+        }
+
+        throw new NotSupportedException($"Image format '{format.Guid}' is not supported by the managed ProGPU codec layer.");
+    }
+
+    internal void SaveWithEncoder(System.IO.Stream stream, ImageFormat format, EncoderParameters? encoderParameters)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(format);
+
+        if (encoderParameters is null)
+        {
+            Save(stream, format);
+            return;
+        }
+
+        EncoderParameter[] parameters = encoderParameters.Param
+            ?? throw new ArgumentException("Encoder parameter storage cannot be null.", nameof(encoderParameters));
+        if (parameters.Length == 0)
+        {
+            Save(stream, format);
+            return;
+        }
+
+        if (format.Guid != ImageFormat.Jpeg.Guid)
+        {
+            throw new NotSupportedException("The selected managed image encoder does not accept encoder parameters.");
+        }
+
+        int quality = 75;
+        foreach (EncoderParameter? parameter in parameters)
+        {
+            if (parameter is null)
+            {
+                throw new ArgumentException("Encoder parameter arrays cannot contain null entries.", nameof(encoderParameters));
+            }
+
+            if (parameter.Encoder.Guid != Encoder.Quality.Guid || !parameter.TryGetInt64(out long value))
+            {
+                throw new NotSupportedException("The managed JPEG encoder currently supports only an integral Encoder.Quality parameter.");
+            }
+
+            quality = checked((int)Math.Clamp(value, 0L, 100L));
+        }
+
+        SaveJpeg(stream, quality);
     }
 
     private void SavePng(System.IO.Stream stream)
@@ -1451,6 +1500,31 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         }
 
         PngEncoder.SavePng(stream, pixels, (uint)Width, (uint)Height);
+    }
+
+    private void SaveJpeg(System.IO.Stream stream, int quality)
+    {
+        byte[] pixels;
+        GpuTextureAlphaMode alphaMode;
+        lock (_textureLifetimeLock)
+        {
+            ThrowIfDisposed();
+            pixels = ReadPixelsCore(out alphaMode);
+        }
+
+        if (alphaMode == GpuTextureAlphaMode.Premultiplied)
+        {
+            pixels = UnpremultiplyPixels(pixels);
+        }
+
+        var writer = new StbImageWriteSharp.ImageWriter();
+        writer.WriteJpg(
+            pixels,
+            Width,
+            Height,
+            StbImageWriteSharp.ColorComponents.RedGreenBlueAlpha,
+            stream,
+            Math.Clamp(quality, 1, 100));
     }
 
     private void SaveBmp(System.IO.Stream stream)

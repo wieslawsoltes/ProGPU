@@ -195,34 +195,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Imaging.Encoder</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Imaging.EncoderParameter</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Imaging.EncoderParameters</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Imaging.EncoderParameterValueType</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Imaging.EncoderValue</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Imaging.ImageCodecFlags</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Imaging.ImageCodecInfo</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
     <Target>T:System.Drawing.Imaging.MetafileFrameUnit</Target>
   </Suppression>
   <Suppression>
@@ -1447,27 +1419,7 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Image.GetEncoderParameterList(System.Guid)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Image.GetThumbnailImage(System.Int32,System.Int32,System.Drawing.Image.GetThumbnailImageAbort,System.IntPtr)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Image.Save(System.IO.Stream,System.Drawing.Imaging.ImageCodecInfo,System.Drawing.Imaging.EncoderParameters)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Image.Save(System.String,System.Drawing.Imaging.ImageCodecInfo,System.Drawing.Imaging.EncoderParameters)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Image.SaveAdd(System.Drawing.Image,System.Drawing.Imaging.EncoderParameters)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Image.SaveAdd(System.Drawing.Imaging.EncoderParameters)</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
@@ -1584,34 +1536,6 @@
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Imaging.ImageAttributes.SetThreshold(System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageFormat.get_Emf</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageFormat.get_Exif</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageFormat.get_Heif</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageFormat.get_MemoryBmp</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageFormat.get_Tiff</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageFormat.get_Webp</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageFormat.get_Wmf</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
