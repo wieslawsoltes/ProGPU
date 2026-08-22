@@ -747,4 +747,132 @@ public sealed class DrawingApiQualityTests
         iterator.Dispose();
         Assert.Throws<ObjectDisposedException>(() => _ = iterator.Count);
     }
+
+    [Fact]
+    public void GraphicsPathOutlineHitTestingHonorsWidthCapsAndDashIntervals()
+    {
+        using var path = new GraphicsPath();
+        path.AddLine(0f, 0f, 20f, 0f);
+        using var pen = new Pen(Color.Black, 2f);
+
+        Assert.True(path.IsOutlineVisible(2f, 0.99f, pen));
+        Assert.False(path.IsOutlineVisible(2f, 1.01f, pen));
+        Assert.False(path.IsOutlineVisible(-0.01f, 0f, pen));
+
+        pen.StartCap = LineCap.Square;
+        Assert.True(path.IsOutlineVisible(-0.99f, 0f, pen));
+        Assert.False(path.IsOutlineVisible(-1.01f, 0f, pen));
+
+        pen.StartCap = LineCap.Flat;
+        pen.DashStyle = DashStyle.Custom;
+        pen.DashPattern = [2f, 2f];
+        Assert.True(path.IsOutlineVisible(new PointF(2f, 0f), pen));
+        Assert.False(path.IsOutlineVisible(new Point(5, 0), pen));
+        Assert.True(path.IsOutlineVisible(9, 0, pen));
+
+        using var widened = (GraphicsPath)path.Clone();
+        widened.Widen(pen);
+        Assert.True(widened.IsVisible(2f, 0f));
+        Assert.False(widened.IsVisible(5f, 0f));
+        Assert.True(widened.IsVisible(9f, 0f));
+    }
+
+    [Fact]
+    public void GraphicsPathOutlineHitTestingHonorsJoinsAndCurves()
+    {
+        using var corner = new GraphicsPath();
+        corner.AddLines([new PointF(0f, 10f), new PointF(0f, 0f), new PointF(10f, 0f)]);
+        using var pen = new Pen(Color.Black, 4f) { LineJoin = LineJoin.Round };
+
+        Assert.True(corner.IsOutlineVisible(-1.3f, -1.3f, pen));
+        Assert.False(corner.IsOutlineVisible(-1.9f, -1.9f, pen));
+
+        using var ellipse = new GraphicsPath();
+        ellipse.AddEllipse(0f, 0f, 20f, 10f);
+        Assert.True(ellipse.IsOutlineVisible(10f, 0.5f, pen));
+        Assert.False(ellipse.IsOutlineVisible(10f, 5f, pen));
+    }
+
+    [Fact]
+    public void GraphicsPathWidenProducesFilledGeometryWithTransformAndHairlineFloor()
+    {
+        using var path = new GraphicsPath();
+        path.AddLine(0f, 0f, 10f, 0f);
+        using var pen = new Pen(Color.Black, 0.25f);
+        using var matrix = new Matrix();
+        matrix.Translate(5f, 7f);
+
+        path.Widen(pen, matrix, 0.1f);
+
+        Assert.Equal(FillMode.Winding, path.FillMode);
+        Assert.Equal(new RectangleF(5f, 6.5f, 10f, 1f), path.GetBounds());
+        Assert.True(path.IsVisible(10f, 7f));
+        Assert.False(path.IsVisible(10f, 7.51f));
+        Assert.All(path.PathTypes, type => Assert.NotEqual((byte)PathPointType.Bezier3, (byte)(type & (byte)PathPointType.PathTypeMask)));
+    }
+
+    [Fact]
+    public void GraphicsPathWidenHandlesEmptyPathsAndRejectsNullPens()
+    {
+        using var empty = new GraphicsPath(FillMode.Winding);
+        using var pen = new Pen(Color.Black, 3f);
+
+        empty.Widen(pen);
+
+        Assert.Equal(0, empty.PointCount);
+        Assert.Equal(FillMode.Winding, empty.FillMode);
+        Assert.Throws<ArgumentNullException>(() => empty.Widen(null!));
+        Assert.Throws<ArgumentNullException>(() => empty.IsOutlineVisible(0f, 0f, null!));
+    }
+
+    [Fact]
+    public void GraphicsPathLineOutlineQueryHasBoundedAllocation()
+    {
+        using var path = new GraphicsPath();
+        path.AddLines([new PointF(0f, 0f), new PointF(20f, 0f), new PointF(20f, 20f)]);
+        using var pen = new Pen(Color.Black, 3f) { LineJoin = LineJoin.Round };
+        _ = path.IsOutlineVisible(10f, 1f, pen);
+
+        const int iterations = 256;
+        int hits = 0;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < iterations; iteration++)
+        {
+            if (path.IsOutlineVisible(10f, 1f, pen))
+            {
+                hits++;
+            }
+        }
+        long bytesPerQuery = (GC.GetAllocatedBytesForCurrentThread() - before) / iterations;
+
+        Assert.Equal(iterations, hits);
+        Assert.InRange(bytesPerQuery, 0, 256);
+    }
+
+    [Fact]
+    public void GraphicsPathCurveWideningHasBoundedAllocation()
+    {
+        using var path = new GraphicsPath();
+        for (int index = 0; index < 16; index++)
+        {
+            path.AddEllipse(index * 8f, index * 4f, 64f, 32f);
+        }
+        using var pen = new Pen(Color.Black, 3f) { LineJoin = LineJoin.Round };
+        using (var warmup = (GraphicsPath)path.Clone())
+        {
+            warmup.Widen(pen);
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int pointCount;
+        using (var widened = (GraphicsPath)path.Clone())
+        {
+            widened.Widen(pen);
+            pointCount = widened.PointCount;
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(pointCount > path.PointCount);
+        Assert.InRange(allocated, 0, 280_000);
+    }
 }

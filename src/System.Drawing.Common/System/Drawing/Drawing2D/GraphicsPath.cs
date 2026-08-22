@@ -684,6 +684,30 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
             out bool contains) && contains;
     }
 
+    public bool IsOutlineVisible(Point point, Pen pen) => IsOutlineVisible(point.X, point.Y, pen, null);
+    public bool IsOutlineVisible(Point point, Pen pen, Graphics? graphics) => IsOutlineVisible(point.X, point.Y, pen, graphics);
+    public bool IsOutlineVisible(PointF point, Pen pen) => IsOutlineVisible(point.X, point.Y, pen, null);
+    public bool IsOutlineVisible(PointF point, Pen pen, Graphics? graphics) => IsOutlineVisible(point.X, point.Y, pen, graphics);
+    public bool IsOutlineVisible(int x, int y, Pen pen) => IsOutlineVisible((float)x, y, pen, null);
+    public bool IsOutlineVisible(int x, int y, Pen pen, Graphics? graphics) => IsOutlineVisible((float)x, y, pen, graphics);
+    public bool IsOutlineVisible(float x, float y, Pen pen) => IsOutlineVisible(x, y, pen, null);
+
+    public bool IsOutlineVisible(float x, float y, Pen pen, Graphics? graphics)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(pen);
+        if (_geometry.Figures.Count == 0)
+        {
+            return false;
+        }
+
+        PathGeometry flattened = RequiresFlattening()
+            ? CreateFlattenedGeometry(matrix: null, flatness: 0.25f)
+            : _geometry;
+        ProGPU.Vector.Pen nativePen = pen.ToProGpuPen(GetEffectiveStrokeWidth(pen));
+        return StrokePathGeometry.TryContains(flattened, nativePen, new Vector2(x, y), out bool contains) && contains;
+    }
+
     public void Transform(Matrix matrix)
     {
         ThrowIfDisposed();
@@ -701,58 +725,33 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
     public void Flatten(Matrix? matrix, float flatness)
     {
         ThrowIfDisposed();
-        if (!float.IsFinite(flatness) || flatness <= 0f)
+        _geometry = CreateFlattenedGeometry(matrix, flatness);
+        _markers.Clear();
+        SynchronizeCurrentState();
+    }
+
+    public void Widen(Pen pen) => Widen(pen, null, 0.25f);
+
+    public void Widen(Pen pen, Matrix? matrix) => Widen(pen, matrix, 0.25f);
+
+    public void Widen(Pen pen, Matrix? matrix, float flatness)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(pen);
+        if (_geometry.Figures.Count == 0)
         {
-            throw new ArgumentException("Parameter is not valid.", nameof(flatness));
+            return;
         }
 
-        PathGeometry source = matrix == null
-            ? _geometry
-            : _geometry.CreateTransformed(ToMatrix4x4(matrix.MatrixElements));
-        var flattened = new PathGeometry { FillRule = source.FillRule };
-        foreach (PathFigure figure in source.Figures)
+        PathGeometry flattened = CreateFlattenedGeometry(matrix, flatness);
+        ProGPU.Vector.Pen nativePen = pen.ToProGpuPen(GetEffectiveStrokeWidth(pen));
+        if (!StrokePathGeometry.TryCreateWidenedPath(flattened, nativePen, out PathGeometry widened))
         {
-            var output = new PathFigure(figure.StartPoint, figure.IsClosed)
-            {
-                IsFilled = figure.IsFilled,
-                StrokeStartLineCap = figure.StrokeStartLineCap,
-                StrokeEndLineCap = figure.StrokeEndLineCap
-            };
-            Vector2 current = figure.StartPoint;
-            foreach (PathSegment segment in figure.Segments)
-            {
-                switch (segment)
-                {
-                    case LineSegment line:
-                        output.Segments.Add(new LineSegment(line.Point, line.IsSmoothJoin, line.IsStroked));
-                        current = line.Point;
-                        break;
-                    case QuadraticBezierSegment quadratic:
-                        FlattenQuadratic(output, current, quadratic, flatness, depth: 0);
-                        current = quadratic.Point;
-                        break;
-                    case CubicBezierSegment cubic:
-                        FlattenCubic(output, current, cubic.ControlPoint1, cubic.ControlPoint2, cubic.Point, cubic.IsStroked, flatness, depth: 0);
-                        current = cubic.Point;
-                        break;
-                    case ArcSegment arc:
-                        float radius = MathF.Max(MathF.Abs(arc.Size.X), MathF.Abs(arc.Size.Y));
-                        float maxAngle = radius <= flatness
-                            ? MathF.PI * 0.5f
-                            : MathF.Min(MathF.PI * 0.5f, 2f * MathF.Acos(Math.Clamp(1f - (flatness / radius), -1f, 1f)));
-                        Vector2[] arcPoints = ArcSegmentGeometry.FlattenArc(current, arc, MathF.Max(maxAngle, 0.001f));
-                        for (int i = 1; i < arcPoints.Length; i++)
-                        {
-                            output.Segments.Add(new LineSegment(arcPoints[i], isStroked: arc.IsStroked));
-                        }
-                        current = arc.Point;
-                        break;
-                }
-            }
-            flattened.Figures.Add(output);
+            throw new ArgumentException("Parameter is not valid.", nameof(pen));
         }
 
-        _geometry = flattened;
+        _geometry = widened;
+        _fillMode = System.Drawing.Drawing2D.FillMode.Winding;
         _markers.Clear();
         SynchronizeCurrentState();
     }
@@ -829,6 +828,89 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
                 new PointF(next.X - ((following.X - current.X) * scale), next.Y - ((following.Y - current.Y) * scale)),
                 next);
         }
+    }
+
+    private PathGeometry CreateFlattenedGeometry(Matrix? matrix, float flatness)
+    {
+        if (!float.IsFinite(flatness) || flatness <= 0f)
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(flatness));
+        }
+
+        PathGeometry source = matrix == null
+            ? _geometry
+            : _geometry.CreateTransformed(ToMatrix4x4(matrix.MatrixElements));
+        var flattened = new PathGeometry { FillRule = source.FillRule };
+        foreach (PathFigure figure in source.Figures)
+        {
+            var output = new PathFigure(figure.StartPoint, figure.IsClosed)
+            {
+                IsFilled = figure.IsFilled,
+                StrokeStartLineCap = figure.StrokeStartLineCap,
+                StrokeEndLineCap = figure.StrokeEndLineCap
+            };
+            Vector2 current = figure.StartPoint;
+            foreach (PathSegment segment in figure.Segments)
+            {
+                switch (segment)
+                {
+                    case LineSegment line:
+                        output.Segments.Add(new LineSegment(line.Point, line.IsSmoothJoin, line.IsStroked));
+                        current = line.Point;
+                        break;
+                    case QuadraticBezierSegment quadratic:
+                        FlattenQuadratic(output, current, quadratic, flatness, depth: 0);
+                        current = quadratic.Point;
+                        break;
+                    case CubicBezierSegment cubic:
+                        FlattenCubic(output, current, cubic.ControlPoint1, cubic.ControlPoint2, cubic.Point, cubic.IsStroked, flatness, depth: 0);
+                        current = cubic.Point;
+                        break;
+                    case ArcSegment arc:
+                        float radius = MathF.Max(MathF.Abs(arc.Size.X), MathF.Abs(arc.Size.Y));
+                        float maxAngle = radius <= flatness
+                            ? MathF.PI * 0.5f
+                            : MathF.Min(MathF.PI * 0.5f, 2f * MathF.Acos(Math.Clamp(1f - (flatness / radius), -1f, 1f)));
+                        Vector2[] arcPoints = ArcSegmentGeometry.FlattenArc(current, arc, MathF.Max(maxAngle, 0.001f));
+                        for (int i = 1; i < arcPoints.Length; i++)
+                        {
+                            output.Segments.Add(new LineSegment(arcPoints[i], isStroked: arc.IsStroked));
+                        }
+                        current = arc.Point;
+                        break;
+                }
+            }
+            flattened.Figures.Add(output);
+        }
+
+        return flattened;
+    }
+
+    private static float GetEffectiveStrokeWidth(Pen pen)
+    {
+        float width = MathF.Abs(pen.Width);
+        if (!float.IsFinite(width))
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(pen));
+        }
+
+        return MathF.Max(1f, width);
+    }
+
+    private bool RequiresFlattening()
+    {
+        foreach (PathFigure figure in _geometry.Figures)
+        {
+            foreach (PathSegment segment in figure.Segments)
+            {
+                if (segment is not LineSegment)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static void FlattenQuadratic(

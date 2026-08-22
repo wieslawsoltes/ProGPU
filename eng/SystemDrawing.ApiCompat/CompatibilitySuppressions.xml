@@ -771,38 +771,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.IsOutlineVisible(System.Drawing.Point,System.Drawing.Pen,System.Drawing.Graphics)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.IsOutlineVisible(System.Drawing.Point,System.Drawing.Pen)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.IsOutlineVisible(System.Drawing.PointF,System.Drawing.Pen,System.Drawing.Graphics)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.IsOutlineVisible(System.Drawing.PointF,System.Drawing.Pen)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.IsOutlineVisible(System.Int32,System.Int32,System.Drawing.Pen,System.Drawing.Graphics)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.IsOutlineVisible(System.Int32,System.Int32,System.Drawing.Pen)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.IsOutlineVisible(System.Single,System.Single,System.Drawing.Pen,System.Drawing.Graphics)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.IsOutlineVisible(System.Single,System.Single,System.Drawing.Pen)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Drawing2D.GraphicsPath.Warp(System.Drawing.PointF[],System.Drawing.RectangleF,System.Drawing.Drawing2D.Matrix,System.Drawing.Drawing2D.WarpMode,System.Single)</Target>
   </Suppression>
   <Suppression>
@@ -820,18 +788,6 @@
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Drawing2D.GraphicsPath.Warp(System.ReadOnlySpan{System.Drawing.PointF},System.Drawing.RectangleF,System.Drawing.Drawing2D.Matrix,System.Drawing.Drawing2D.WarpMode,System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.Widen(System.Drawing.Pen,System.Drawing.Drawing2D.Matrix,System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.Widen(System.Drawing.Pen,System.Drawing.Drawing2D.Matrix)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.Widen(System.Drawing.Pen)</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
