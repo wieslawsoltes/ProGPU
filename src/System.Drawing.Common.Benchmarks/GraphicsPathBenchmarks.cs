@@ -11,6 +11,7 @@ public class GraphicsPathBenchmarks
     private GraphicsPath _strokePath = null!;
     private Pen _strokePen = null!;
     private PointF[] _warpDestination = null!;
+    private StringFormat _textFormat = null!;
     private PointF[] _points = null!;
     private byte[] _types = null!;
 
@@ -42,6 +43,7 @@ public class GraphicsPathBenchmarks
             new PointF(12f, 160f),
             new PointF(220f, 192f),
         ];
+        _textFormat = StringFormat.GenericTypographic;
     }
 
     [Benchmark]
@@ -74,6 +76,14 @@ public class GraphicsPathBenchmarks
         return clone.PointCount;
     }
 
+    [Benchmark]
+    public int AddShapedTextOutline()
+    {
+        using var path = new GraphicsPath();
+        path.AddString("LibreWinForms", FontFamily.GenericSansSerif, 0, 24f, PointF.Empty, _textFormat);
+        return path.PointCount;
+    }
+
     [GlobalCleanup]
     public void DisposePath()
     {
@@ -81,5 +91,6 @@ public class GraphicsPathBenchmarks
         _path.Dispose();
         _strokePath.Dispose();
         _strokePen.Dispose();
+        _textFormat.Dispose();
     }
 }

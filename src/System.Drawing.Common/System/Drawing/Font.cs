@@ -106,13 +106,18 @@ public class Font : IDisposable
         GdiCharSet = gdiCharSet;
         GdiVerticalFont = gdiVerticalFont;
 
+        var styleRequest = new FontStyleRequest(
+            (style & FontStyle.Bold) != 0 ? 700 : 400,
+            5,
+            (style & FontStyle.Italic) != 0 ? FontSlant.Italic : FontSlant.Upright);
+        TtfFont? matched = FontApi.Manager.MatchFamily(family.Name, styleRequest);
         string path = family.FilePath;
-        if (string.IsNullOrEmpty(path))
+        if (matched is null && string.IsNullOrEmpty(path))
         {
             throw new FileNotFoundException("No system font found for family " + family.Name);
         }
 
-        TtfFont = s_ttfCache.GetOrAdd(family.CacheKey, _ => new TtfFont(path, family.FaceIndex));
+        TtfFont = matched ?? s_ttfCache.GetOrAdd(family.CacheKey, _ => new TtfFont(path, family.FaceIndex));
     }
 
     public override string ToString()

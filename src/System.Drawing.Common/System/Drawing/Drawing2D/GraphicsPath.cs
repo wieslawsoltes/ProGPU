@@ -1,4 +1,6 @@
 using ProGPU.Vector;
+using ProGPU.Text;
+using ProGPU.Text.Shaping;
 using System;
 using System.Collections.Generic;
 using System.Numerics;
@@ -553,6 +555,119 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
 
             first = false;
         }
+    }
+
+    public void AddString(
+        string s,
+        FontFamily family,
+        int style,
+        float emSize,
+        Point origin,
+        StringFormat? format) =>
+        AddString(s, family, style, emSize, new RectangleF(origin.X, origin.Y, 0f, 0f), format);
+
+    public void AddString(
+        string s,
+        FontFamily family,
+        int style,
+        float emSize,
+        PointF origin,
+        StringFormat? format) =>
+        AddString(s, family, style, emSize, new RectangleF(origin.X, origin.Y, 0f, 0f), format);
+
+    public void AddString(
+        string s,
+        FontFamily family,
+        int style,
+        float emSize,
+        Rectangle layoutRect,
+        StringFormat? format) =>
+        AddString(s, family, style, emSize, (RectangleF)layoutRect, format);
+
+    public void AddString(
+        string s,
+        FontFamily family,
+        int style,
+        float emSize,
+        RectangleF layoutRect,
+        StringFormat? format)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(s);
+        ArgumentNullException.ThrowIfNull(family);
+        format?.EnsureNotDisposed();
+        if (!float.IsFinite(emSize) || emSize == 0f ||
+            !float.IsFinite(layoutRect.X) || !float.IsFinite(layoutRect.Y) ||
+            !float.IsFinite(layoutRect.Width) || !float.IsFinite(layoutRect.Height))
+        {
+            throw new ArgumentException("Parameter is not valid.");
+        }
+
+        if (s.Length == 0)
+        {
+            return;
+        }
+
+        FontStyle fontStyle = (FontStyle)style;
+        using var font = new Font(family, MathF.Abs(emSize), fontStyle, GraphicsUnit.Pixel);
+        StringFormatFlags flags = format?.FormatFlags ?? 0;
+        bool rightToLeft = (flags & StringFormatFlags.DirectionRightToLeft) != 0;
+        bool vertical = (flags & StringFormatFlags.DirectionVertical) != 0;
+        StringAlignment alignment = format?.Alignment ?? StringAlignment.Near;
+        TextAlignment textAlignment = alignment switch
+        {
+            StringAlignment.Center => TextAlignment.Center,
+            StringAlignment.Far => rightToLeft ? TextAlignment.Left : TextAlignment.Right,
+            _ => rightToLeft ? TextAlignment.Right : TextAlignment.Left,
+        };
+        float maxWidth = layoutRect.Width > 0f && (flags & StringFormatFlags.NoWrap) == 0
+            ? layoutRect.Width
+            : float.PositiveInfinity;
+        var shapingOptions = new TextShapingOptions
+        {
+            Direction = vertical
+                ? ShapingDirection.TopToBottom
+                : rightToLeft ? ShapingDirection.RightToLeft : ShapingDirection.LeftToRight,
+        };
+        var layout = new TextLayout(
+            s,
+            font.TtfFont,
+            MathF.Abs(emSize),
+            maxWidth,
+            textAlignment,
+            atlas: null,
+            shapingOptions);
+
+        float horizontalOffset = 0f;
+        if ((flags & StringFormatFlags.NoWrap) != 0 && layoutRect.Width > layout.ContentSize.X)
+        {
+            horizontalOffset = textAlignment switch
+            {
+                TextAlignment.Center => (layoutRect.Width - layout.ContentSize.X) * 0.5f,
+                TextAlignment.Right => layoutRect.Width - layout.ContentSize.X,
+                _ => 0f,
+            };
+        }
+
+        float verticalOffset = 0f;
+        if (layoutRect.Height > layout.ContentSize.Y)
+        {
+            verticalOffset = (format?.LineAlignment ?? StringAlignment.Near) switch
+            {
+                StringAlignment.Center => (layoutRect.Height - layout.ContentSize.Y) * 0.5f,
+                StringAlignment.Far => layoutRect.Height - layout.ContentSize.Y,
+                _ => 0f,
+            };
+        }
+
+        PathGeometry outlines = TextOutlineGeometry.Create(
+            layout,
+            new Vector2(layoutRect.X + horizontalOffset, layoutRect.Y + verticalOffset),
+            syntheticItalic: (fontStyle & FontStyle.Italic) != 0,
+            underline: (fontStyle & FontStyle.Underline) != 0,
+            strikeout: (fontStyle & FontStyle.Strikeout) != 0);
+        _geometry.Figures.AddRange(outlines.Figures);
+        SynchronizeCurrentState();
     }
 
     public void SetMarkers()

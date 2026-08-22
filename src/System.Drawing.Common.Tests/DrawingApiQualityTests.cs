@@ -930,6 +930,95 @@ public sealed class DrawingApiQualityTests
     }
 
     [Fact]
+    public void GraphicsPathAddStringMaterializesAllOfficialLayoutOverloads()
+    {
+        using var point = new GraphicsPath();
+        using var pointF = new GraphicsPath();
+        using var rectangle = new GraphicsPath();
+        using var rectangleF = new GraphicsPath();
+        using var format = StringFormat.GenericDefault;
+
+        point.AddString("mono", FontFamily.GenericMonospace, (int)FontStyle.Regular, 18f, new Point(10, 12), format);
+        pointF.AddString("mono", FontFamily.GenericMonospace, (int)FontStyle.Regular, 18f, new PointF(10f, 12f), format);
+        rectangle.AddString("mono", FontFamily.GenericMonospace, (int)FontStyle.Regular, 18f, new Rectangle(10, 12, 120, 40), format);
+        rectangleF.AddString("mono", FontFamily.GenericMonospace, (int)FontStyle.Regular, 18f, new RectangleF(10f, 12f, 120f, 40f), format);
+
+        Assert.True(point.PointCount > 0);
+        Assert.Equal(point.PointCount, pointF.PointCount);
+        Assert.True(rectangle.PointCount > 0);
+        Assert.Equal(rectangle.PointCount, rectangleF.PointCount);
+        Assert.True(point.GetBounds().Left >= 10f);
+        Assert.True(point.GetBounds().Top >= 12f);
+    }
+
+    [Fact]
+    public void GraphicsPathAddStringUsesShapedAlignmentWrappingAndDecorations()
+    {
+        using var near = new GraphicsPath();
+        using var far = new GraphicsPath();
+        using var decorated = new GraphicsPath();
+        using var nearFormat = StringFormat.GenericTypographic;
+        using var farFormat = StringFormat.GenericTypographic;
+        farFormat.Alignment = StringAlignment.Far;
+        var layout = new RectangleF(5f, 7f, 180f, 80f);
+
+        near.AddString("office", FontFamily.GenericSansSerif, (int)FontStyle.Regular, 24f, layout, nearFormat);
+        far.AddString("office", FontFamily.GenericSansSerif, (int)FontStyle.Regular, 24f, layout, farFormat);
+        decorated.AddString(
+            "office",
+            FontFamily.GenericSansSerif,
+            (int)(FontStyle.Italic | FontStyle.Underline | FontStyle.Strikeout),
+            24f,
+            layout,
+            nearFormat);
+
+        Assert.True(far.GetBounds().Left > near.GetBounds().Left);
+        Assert.True(decorated.PointCount > near.PointCount);
+        Assert.Contains(near.PathTypes, type =>
+            (type & (byte)PathPointType.PathTypeMask) == (byte)PathPointType.Bezier3);
+
+        using var wrapped = new GraphicsPath();
+        wrapped.AddString("word word word", FontFamily.GenericSansSerif, 0, 20f, new RectangleF(0f, 0f, 45f, 200f), nearFormat);
+        Assert.True(wrapped.GetBounds().Height > near.GetBounds().Height);
+    }
+
+    [Fact]
+    public void GraphicsPathAddStringHandlesEmptyNegativeAndInvalidArguments()
+    {
+        using var path = new GraphicsPath();
+        path.AddString(string.Empty, FontFamily.GenericSansSerif, 0, 16f, PointF.Empty, null);
+        Assert.Equal(0, path.PointCount);
+
+        path.AddString("A", FontFamily.GenericSansSerif, 0, -16f, PointF.Empty, null);
+        Assert.True(path.PointCount > 0);
+        Assert.Throws<ArgumentNullException>(() => path.AddString(null!, FontFamily.GenericSansSerif, 0, 16f, PointF.Empty, null));
+        Assert.Throws<ArgumentNullException>(() => path.AddString("A", null!, 0, 16f, PointF.Empty, null));
+        Assert.Throws<ArgumentException>(() => path.AddString("A", FontFamily.GenericSansSerif, 0, 0f, PointF.Empty, null));
+    }
+
+    [Fact]
+    public void GraphicsPathAddStringHasBoundedWarmAllocation()
+    {
+        using var format = StringFormat.GenericTypographic;
+        using (var warmup = new GraphicsPath())
+        {
+            warmup.AddString("LibreWinForms", FontFamily.GenericSansSerif, 0, 24f, PointF.Empty, format);
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int pointCount;
+        using (var path = new GraphicsPath())
+        {
+            path.AddString("LibreWinForms", FontFamily.GenericSansSerif, 0, 24f, PointF.Empty, format);
+            pointCount = path.PointCount;
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(pointCount > 0);
+        Assert.InRange(allocated, 0, 24_000);
+    }
+
+    [Fact]
     public void GraphicsPathLineOutlineQueryHasBoundedAllocation()
     {
         using var path = new GraphicsPath();
