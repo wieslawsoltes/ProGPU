@@ -70,11 +70,28 @@ constexpr std::array latin{
     std::string_view{"Noto Sans"},
     std::string_view{"DejaVu Sans"},
     std::string_view{"Liberation Sans"}};
+constexpr std::array symbols{
+    std::string_view{"Apple Symbols"},
+    std::string_view{"Zapf Dingbats"},
+    std::string_view{"Segoe UI Symbol"},
+    std::string_view{"Noto Sans Symbols 2"},
+    std::string_view{"Noto Sans Symbols"},
+    std::string_view{"Apple Color Emoji"},
+    std::string_view{"Segoe UI Emoji"},
+    std::string_view{"Noto Color Emoji"},
+    std::string_view{"Symbola"},
+    std::string_view{"DejaVu Sans"}};
+constexpr std::array emoji{
+    std::string_view{"Apple Color Emoji"},
+    std::string_view{"Segoe UI Emoji"},
+    std::string_view{"Noto Color Emoji"},
+    std::string_view{"Noto Emoji"},
+    std::string_view{"Segoe UI Symbol"}};
 
 static_assert(
     arabic.size() + japanese.size() + korean.size() +
         chinese_traditional.size() + chinese_simplified.size() +
-        hebrew.size() + latin.size() <= 64U,
+        hebrew.size() + latin.size() + symbols.size() + emoji.size() <= 64U,
     "The fixed fallback preference buffer must contain every policy family.");
 
 constexpr char normalized(char value) noexcept {
@@ -199,6 +216,14 @@ bool is_hebrew(std::uint32_t code_point) noexcept {
         (code_point >= 0xFB1DU && code_point <= 0xFB4FU);
 }
 
+bool is_symbol(std::uint32_t code_point) noexcept {
+    return code_point >= 0x2000U && code_point <= 0x2BFFU;
+}
+
+bool is_emoji(std::uint32_t code_point) noexcept {
+    return code_point >= 0x1F000U && code_point <= 0x1FAFFU;
+}
+
 bool try_build_preferences(
     std::span<const std::string_view> language_tags,
     std::uint32_t code_point,
@@ -216,6 +241,10 @@ bool try_build_preferences(
         result.add(arabic);
     } else if (is_hebrew(code_point)) {
         result.add(hebrew);
+    } else if (is_emoji(code_point)) {
+        result.add(emoji);
+    } else if (is_symbol(code_point)) {
+        result.add(symbols);
     } else if (code_point >= 0x3040U && code_point <= 0x30FFU) {
         result.add(japanese);
     } else if ((code_point >= 0xAC00U && code_point <= 0xD7AFU) ||

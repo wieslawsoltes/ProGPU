@@ -202,6 +202,32 @@ public class SkiaSharpFontManagerTests
         Assert.True(IndexOf(families, "Arial") < IndexOf(families, "DejaVu Sans"));
     }
 
+    [Theory]
+    [InlineData(0x2192)]
+    [InlineData(0x25C7)]
+    [InlineData(0x2630)]
+    public void SymbolsPrioritizeRenderableSymbolFamilies(int codepoint)
+    {
+        IReadOnlyList<string> families = SKFontManager.GetFallbackFamilyPreferences(
+            Array.Empty<string>(),
+            codepoint);
+
+        Assert.Equal("Apple Symbols", families[0]);
+        Assert.True(IndexOf(families, "Zapf Dingbats") < IndexOf(families, "DejaVu Sans"));
+        Assert.True(IndexOf(families, "Segoe UI Symbol") < IndexOf(families, "DejaVu Sans"));
+    }
+
+    [Fact]
+    public void EmojiPrioritizeColorEmojiFamilies()
+    {
+        IReadOnlyList<string> families = SKFontManager.GetFallbackFamilyPreferences(
+            Array.Empty<string>(),
+            0x1F600);
+
+        Assert.Equal("Apple Color Emoji", families[0]);
+        Assert.True(IndexOf(families, "Segoe UI Emoji") < IndexOf(families, "Segoe UI Symbol"));
+    }
+
     [Fact]
     public void HebrewScriptPrioritizesNativeCompatibleHebrewFamilies()
     {
