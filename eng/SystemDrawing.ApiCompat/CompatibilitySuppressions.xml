@@ -222,22 +222,6 @@
     <Target>T:System.Drawing.StringUnit</Target>
   </Suppression>
   <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Text.FontCollection</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Text.GenericFontFamilies</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Text.InstalledFontCollection</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Text.PrivateFontCollection</Target>
-  </Suppression>
-  <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
     <Target>F:System.Drawing.StockIconId.AudioFiles</Target>
   </Suppression>
@@ -619,34 +603,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Font.#ctor(System.Drawing.FontFamily,System.Single,System.Drawing.FontStyle)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Font.#ctor(System.Drawing.FontFamily,System.Single,System.Drawing.GraphicsUnit)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Font.#ctor(System.Drawing.FontFamily,System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Font.#ctor(System.String,System.Single,System.Drawing.FontStyle)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Font.#ctor(System.String,System.Single,System.Drawing.GraphicsUnit)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Font.#ctor(System.String,System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Font.Clone</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Font.FromHdc(System.IntPtr)</Target>
   </Suppression>
   <Suppression>
@@ -667,10 +623,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Font.get_OriginalFontName</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Font.ToLogFont(System.Drawing.Interop.LOGFONT@,System.Drawing.Graphics)</Target>
   </Suppression>
   <Suppression>
@@ -684,46 +636,6 @@
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Font.ToLogFont(System.Object)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.FontFamily.#ctor(System.Drawing.Text.GenericFontFamilies)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.FontFamily.#ctor(System.String,System.Drawing.Text.FontCollection)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.FontFamily.get_Families</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.FontFamily.GetCellAscent(System.Drawing.FontStyle)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.FontFamily.GetCellDescent(System.Drawing.FontStyle)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.FontFamily.GetEmHeight(System.Drawing.FontStyle)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.FontFamily.GetFamilies(System.Drawing.Graphics)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.FontFamily.GetLineSpacing(System.Drawing.FontStyle)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.FontFamily.GetName(System.Int32)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.FontFamily.IsStyleAvailable(System.Drawing.FontStyle)</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
@@ -1887,14 +1799,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0007</DiagnosticId>
-    <Target>T:System.Drawing.Font</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0007</DiagnosticId>
-    <Target>T:System.Drawing.FontFamily</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0007</DiagnosticId>
     <Target>T:System.Drawing.Graphics</Target>
   </Suppression>
   <Suppression>
@@ -1984,6 +1888,18 @@
   <Suppression>
     <DiagnosticId>CP0008</DiagnosticId>
     <Target>T:System.Drawing.Region</Target>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0008</DiagnosticId>
+    <Target>T:System.Drawing.Text.FontCollection</Target>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0008</DiagnosticId>
+    <Target>T:System.Drawing.Text.InstalledFontCollection</Target>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0008</DiagnosticId>
+    <Target>T:System.Drawing.Text.PrivateFontCollection</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0009</DiagnosticId>

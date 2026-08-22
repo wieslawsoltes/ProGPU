@@ -1,6 +1,5 @@
 using ProGPU.Text;
-using System.Collections.Concurrent;
-using System.IO;
+using System.Runtime.Serialization;
 
 namespace System.Drawing;
 
@@ -25,9 +24,24 @@ public enum GraphicsUnit
     Millimeter = 6
 }
 
-public class Font : IDisposable
+/// <summary>
+/// Defines a font using a typed ProGPU typeface and portable drawing metrics.
+/// </summary>
+[Serializable]
+public sealed class Font : MarshalByRefObject, ICloneable, IDisposable, ISerializable
 {
-    private static readonly ConcurrentDictionary<string, TtfFont> s_ttfCache = new(StringComparer.OrdinalIgnoreCase);
+    private bool _disposed;
+
+#pragma warning disable SYSLIB0050
+    private Font(SerializationInfo info, StreamingContext context)
+        : this(
+            info.GetString("Name")!,
+            info.GetSingle("Size"),
+            (FontStyle)info.GetValue("Style", typeof(FontStyle))!,
+            (GraphicsUnit)info.GetValue("Unit", typeof(GraphicsUnit))!)
+    {
+    }
+#pragma warning restore SYSLIB0050
 
     public FontFamily FontFamily { get; }
     public string Name => FontFamily.Name;
@@ -44,51 +58,88 @@ public class Font : IDisposable
     public bool Strikeout => (Style & FontStyle.Strikeout) != 0;
     public bool IsSystemFont => false;
     public string SystemFontName => string.Empty;
+    public string? OriginalFontName { get; }
     public int Height => (int)MathF.Ceiling(GetHeight());
 
     internal TtfFont TtfFont { get; }
 
-    public Font(string familyName, float emSize, FontStyle style = FontStyle.Regular, GraphicsUnit unit = GraphicsUnit.Point)
-        : this(new FontFamily(familyName), emSize, style, unit)
+    public Font(string familyName, float emSize)
+        : this(familyName, emSize, FontStyle.Regular, GraphicsUnit.Point, 1, false)
+    {
+    }
+
+    public Font(string familyName, float emSize, FontStyle style)
+        : this(familyName, emSize, style, GraphicsUnit.Point, 1, false)
+    {
+    }
+
+    public Font(string familyName, float emSize, GraphicsUnit unit)
+        : this(familyName, emSize, FontStyle.Regular, unit, 1, false)
+    {
+    }
+
+    public Font(string familyName, float emSize, FontStyle style, GraphicsUnit unit)
+        : this(familyName, emSize, style, unit, 1, false)
     {
     }
 
     public Font(string familyName, float emSize, FontStyle style, GraphicsUnit unit, byte gdiCharSet)
-        : this(new FontFamily(familyName), emSize, style, unit, gdiCharSet)
+        : this(familyName, emSize, style, unit, gdiCharSet, false)
     {
     }
 
     public Font(string familyName, float emSize, FontStyle style, GraphicsUnit unit, byte gdiCharSet, bool gdiVerticalFont)
-        : this(new FontFamily(familyName), emSize, style, unit, gdiCharSet, gdiVerticalFont)
+        : this(CreateFamilyForFont(familyName), emSize, style, unit, gdiCharSet, gdiVerticalFont, familyName)
     {
     }
 
     public Font(Font prototype, FontStyle newStyle)
-        : this(prototype.FontFamily, prototype.Size, newStyle, prototype.Unit, prototype.GdiCharSet, prototype.GdiVerticalFont)
+        : this(
+            prototype.FontFamily.Snapshot(),
+            prototype.Size,
+            newStyle,
+            prototype.Unit,
+            prototype.GdiCharSet,
+            prototype.GdiVerticalFont,
+            prototype.OriginalFontName)
     {
     }
 
     /// <summary>
-    /// Creates a GDI-compatible font from an already loaded ProGPU typeface.
-    /// This avoids a second platform font lookup on runtimes such as WebAssembly
-    /// that do not expose operating-system font discovery.
+    /// Creates a font from an already loaded ProGPU typeface without platform discovery.
     /// </summary>
     public Font(TtfFont typeface, float emSize, FontStyle style = FontStyle.Regular, GraphicsUnit unit = GraphicsUnit.Point)
     {
         ArgumentNullException.ThrowIfNull(typeface);
+        Validate(emSize, unit);
 
-        FontFamily = new FontFamily(
-            string.IsNullOrWhiteSpace(typeface.FamilyName) ? "ProGPU Font" : typeface.FamilyName);
+        FontFamily = new FontFamily(typeface);
         Size = emSize;
         Style = style;
         Unit = unit;
         GdiCharSet = 1;
         GdiVerticalFont = false;
-        TtfFont = typeface;
+        OriginalFontName = FontFamily.Name;
+        TtfFont = FontApi.Manager.MatchTypeface(typeface, FontFamily.CreateStyleRequest(style));
     }
 
-    public Font(FontFamily family, float emSize, FontStyle style = FontStyle.Regular, GraphicsUnit unit = GraphicsUnit.Point)
-        : this(family, emSize, style, unit, 1)
+    public Font(FontFamily family, float emSize)
+        : this(family, emSize, FontStyle.Regular, GraphicsUnit.Point, 1, false)
+    {
+    }
+
+    public Font(FontFamily family, float emSize, FontStyle style)
+        : this(family, emSize, style, GraphicsUnit.Point, 1, false)
+    {
+    }
+
+    public Font(FontFamily family, float emSize, GraphicsUnit unit)
+        : this(family, emSize, FontStyle.Regular, unit, 1, false)
+    {
+    }
+
+    public Font(FontFamily family, float emSize, FontStyle style, GraphicsUnit unit)
+        : this(family, emSize, style, unit, 1, false)
     {
     }
 
@@ -98,51 +149,65 @@ public class Font : IDisposable
     }
 
     public Font(FontFamily family, float emSize, FontStyle style, GraphicsUnit unit, byte gdiCharSet, bool gdiVerticalFont)
+        : this(family, emSize, style, unit, gdiCharSet, gdiVerticalFont, family?.Name)
     {
-        FontFamily = family;
+    }
+
+    private Font(
+        FontFamily family,
+        float emSize,
+        FontStyle style,
+        GraphicsUnit unit,
+        byte gdiCharSet,
+        bool gdiVerticalFont,
+        string? originalFontName)
+    {
+        ArgumentNullException.ThrowIfNull(family);
+        Validate(emSize, unit);
+
+        FontFamily = family.Snapshot();
         Size = emSize;
         Style = style;
         Unit = unit;
         GdiCharSet = gdiCharSet;
         GdiVerticalFont = gdiVerticalFont;
-
-        var styleRequest = new FontStyleRequest(
-            (style & FontStyle.Bold) != 0 ? 700 : 400,
-            5,
-            (style & FontStyle.Italic) != 0 ? FontSlant.Italic : FontSlant.Upright);
-        TtfFont? matched = FontApi.Manager.MatchFamily(family.Name, styleRequest);
-        string path = family.FilePath;
-        if (matched is null && string.IsNullOrEmpty(path))
-        {
-            throw new FileNotFoundException("No system font found for family " + family.Name);
-        }
-
-        TtfFont = matched ?? s_ttfCache.GetOrAdd(family.CacheKey, _ => new TtfFont(path, family.FaceIndex));
+        OriginalFontName = originalFontName;
+        TtfFont = FontFamily.ResolveTypeface(style);
     }
 
-    public override string ToString()
+    public object Clone()
     {
-        return $"[Font: Name={Name}, Size={Size}, Units={Unit}, GdiCharSet={GdiCharSet}, GdiVerticalFont={GdiVerticalFont}]";
+        ThrowIfDisposed();
+        return new Font(FontFamily, Size, Style, Unit, GdiCharSet, GdiVerticalFont, OriginalFontName);
     }
 
-    public override bool Equals(object? obj)
+#pragma warning disable SYSLIB0050
+    void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
     {
-        return ReferenceEquals(this, obj)
-            || obj is Font font
-                && font.FontFamily.Equals(FontFamily)
-                && font.GdiVerticalFont == GdiVerticalFont
-                && font.GdiCharSet == GdiCharSet
-                && font.Style == Style
-                && font.Size == Size
-                && font.Unit == Unit;
+        ArgumentNullException.ThrowIfNull(info);
+        info.AddValue("Name", string.IsNullOrEmpty(OriginalFontName) ? Name : OriginalFontName);
+        info.AddValue("Size", Size);
+        info.AddValue("Style", Style);
+        info.AddValue("Unit", Unit);
     }
+#pragma warning restore SYSLIB0050
+
+    public override string ToString() =>
+        $"[Font: Name={Name}, Size={Size}, Units={Unit}, GdiCharSet={GdiCharSet}, GdiVerticalFont={GdiVerticalFont}]";
+
+    public override bool Equals(object? obj) =>
+        ReferenceEquals(this, obj) ||
+        obj is Font font &&
+        font.FontFamily.Equals(FontFamily) &&
+        font.GdiVerticalFont == GdiVerticalFont &&
+        font.GdiCharSet == GdiCharSet &&
+        font.Style == Style &&
+        font.Size == Size &&
+        font.Unit == Unit;
 
     public override int GetHashCode() => HashCode.Combine(Name, Style, Size, Unit);
 
-    public float GetHeight()
-    {
-        return GetHeight(96f);
-    }
+    public float GetHeight() => GetHeight(96f);
 
     public float GetHeight(Graphics graphics)
     {
@@ -158,18 +223,41 @@ public class Font : IDisposable
             return emSize;
         }
 
-        return (TtfFont.Ascender - TtfFont.Descender + TtfFont.LineGap)
-            * emSize
-            / TtfFont.UnitsPerEm;
+        return (TtfFont.Ascender - TtfFont.Descender + TtfFont.LineGap) * emSize / TtfFont.UnitsPerEm;
     }
 
     public IntPtr ToHfont() =>
-        throw new PlatformNotSupportedException(
-            "HFONT export requires the explicit Windows GDI font adapter.");
+        throw new PlatformNotSupportedException("HFONT export requires the explicit Windows GDI font adapter.");
 
     public static Font FromHfont(IntPtr hfont) =>
-        throw new PlatformNotSupportedException(
-            "HFONT import requires the explicit Windows GDI font adapter.");
+        throw new PlatformNotSupportedException("HFONT import requires the explicit Windows GDI font adapter.");
 
-    public void Dispose() {}
+    public void Dispose() => _disposed = true;
+
+    private static FontFamily CreateFamilyForFont(string familyName)
+    {
+        ArgumentNullException.ThrowIfNull(familyName);
+        return FontFamily.CreateDefault(familyName);
+    }
+
+    private static void Validate(float emSize, GraphicsUnit unit)
+    {
+        if (!(emSize > 0) || !float.IsFinite(emSize))
+        {
+            throw new ArgumentException("Font size must be finite and greater than zero.", nameof(emSize));
+        }
+
+        if (unit == GraphicsUnit.Display || unit < GraphicsUnit.World || unit > GraphicsUnit.Millimeter)
+        {
+            throw new ArgumentException("The graphics unit is not valid for a font.", nameof(unit));
+        }
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (_disposed)
+        {
+            throw new ArgumentException("Parameter is not valid.");
+        }
+    }
 }

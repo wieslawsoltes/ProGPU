@@ -14,4 +14,10 @@
   <ItemGroup>
     <ProjectReference Include="..\System.Drawing.Common\System.Drawing.Common.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\ProGPU.Fonts.Inter\Fonts\Inter-Regular.ttf"
+          Link="Fonts\Inter-Regular.ttf"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

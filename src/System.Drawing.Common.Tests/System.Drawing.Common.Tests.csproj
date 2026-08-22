@@ -22,5 +22,8 @@
     <None Update="xunit.runner.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="..\ProGPU.Fonts.Inter\Fonts\Inter-Regular.ttf"
+          Link="Fonts\Inter-Regular.ttf"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
