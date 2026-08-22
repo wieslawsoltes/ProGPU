@@ -826,6 +826,110 @@ public sealed class DrawingApiQualityTests
     }
 
     [Fact]
+    public void GraphicsPathPerspectiveWarpMapsRectangleCornersAndAppliesMatrixFirst()
+    {
+        using var path = new GraphicsPath(FillMode.Winding);
+        path.AddRectangle(new RectangleF(0f, 0f, 10f, 10f));
+        using var matrix = new Matrix();
+        matrix.Translate(10f, 20f);
+        PointF[] destination =
+        [
+            new PointF(2f, 3f),
+            new PointF(22f, 5f),
+            new PointF(4f, 23f),
+            new PointF(18f, 19f),
+        ];
+
+        path.Warp(destination, new RectangleF(10f, 20f, 10f, 10f), matrix);
+
+        Assert.Equal(FillMode.Winding, path.FillMode);
+        Assert.Equal(destination[0], path.PathPoints[0]);
+        Assert.Equal(destination[1], path.PathPoints[1]);
+        Assert.Equal(destination[3], path.PathPoints[2]);
+        Assert.Equal(destination[2], path.PathPoints[3]);
+        Assert.Equal((byte)PathPointType.CloseSubpath, (byte)(path.PathTypes[^1] & (byte)PathPointType.CloseSubpath));
+    }
+
+    [Fact]
+    public void GraphicsPathBilinearWarpAdaptivelySubdividesCurvedDiagonal()
+    {
+        PointF[] destination =
+        [
+            new PointF(0f, 0f),
+            new PointF(10f, 0f),
+            new PointF(0f, 10f),
+            new PointF(20f, 20f),
+        ];
+        using var bilinear = new GraphicsPath();
+        bilinear.AddLine(0f, 0f, 10f, 10f);
+        using var perspective = Assert.IsType<GraphicsPath>(bilinear.Clone());
+
+        bilinear.Warp(destination, new RectangleF(0f, 0f, 10f, 10f), null, WarpMode.Bilinear, 0.1f);
+        perspective.Warp(destination, new RectangleF(0f, 0f, 10f, 10f), null, WarpMode.Perspective, 0.1f);
+
+        Assert.True(bilinear.PointCount > 2);
+        Assert.Contains(bilinear.PathPoints, point => MathF.Abs(point.X - 7.5f) < 0.001f && MathF.Abs(point.Y - 7.5f) < 0.001f);
+        Assert.Equal(2, perspective.PointCount);
+        Assert.Equal(new PointF(20f, 20f), bilinear.GetLastPoint());
+        Assert.All(bilinear.PathTypes[1..], type =>
+            Assert.Equal((byte)PathPointType.Line, (byte)(type & (byte)PathPointType.PathTypeMask)));
+    }
+
+    [Fact]
+    public void GraphicsPathWarpSupportsImpliedParallelogramAndValidatesInputs()
+    {
+        PointF[] destination = [new PointF(5f, 7f), new PointF(25f, 7f), new PointF(5f, 27f)];
+        using var path = new GraphicsPath();
+        path.AddRectangle(new RectangleF(0f, 0f, 10f, 10f));
+
+        path.Warp(destination, new RectangleF(0f, 0f, 10f, 10f), null, WarpMode.Bilinear);
+
+        Assert.Equal(new PointF(25f, 27f), path.PathPoints[2]);
+        Assert.Throws<ArgumentNullException>(() => path.Warp(null!, new RectangleF(0f, 0f, 1f, 1f)));
+        Assert.Throws<ArgumentException>(() => path.Warp([], new RectangleF(0f, 0f, 1f, 1f)));
+        Assert.Throws<ArgumentException>(() => path.Warp(destination, RectangleF.Empty));
+        Assert.Throws<ArgumentException>(() => path.Warp(destination, new RectangleF(0f, 0f, 1f, 1f), null, (WarpMode)42));
+
+        using var empty = new GraphicsPath();
+        empty.Warp(destination, new RectangleF(0f, 0f, 10f, 10f));
+        Assert.Equal(0, empty.PointCount);
+    }
+
+    [Fact]
+    public void GraphicsPathBilinearWarpHasBoundedAllocation()
+    {
+        using var source = new GraphicsPath();
+        for (int index = 0; index < 16; index++)
+        {
+            source.AddEllipse(index * 8f, index * 4f, 64f, 32f);
+        }
+        PointF[] destination =
+        [
+            new PointF(0f, 0f),
+            new PointF(256f, 8f),
+            new PointF(12f, 160f),
+            new PointF(220f, 192f),
+        ];
+        RectangleF sourceRectangle = source.GetBounds();
+        using (var warmup = Assert.IsType<GraphicsPath>(source.Clone()))
+        {
+            warmup.Warp(destination, sourceRectangle, null, WarpMode.Bilinear, 0.25f);
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int pointCount;
+        using (var warped = Assert.IsType<GraphicsPath>(source.Clone()))
+        {
+            warped.Warp(destination, sourceRectangle, null, WarpMode.Bilinear, 0.25f);
+            pointCount = warped.PointCount;
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(pointCount > source.PointCount);
+        Assert.InRange(allocated, 0, 72_000);
+    }
+
+    [Fact]
     public void GraphicsPathLineOutlineQueryHasBoundedAllocation()
     {
         using var path = new GraphicsPath();

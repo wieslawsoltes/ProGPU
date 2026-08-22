@@ -59,10 +59,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Drawing2D.WarpMode</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
     <Target>T:System.Drawing.FontConverter</Target>
   </Suppression>
   <Suppression>
@@ -768,26 +764,6 @@
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Drawing2D.GraphicsPath.AddString(System.String,System.Drawing.FontFamily,System.Int32,System.Single,System.Drawing.RectangleF,System.Drawing.StringFormat)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.Warp(System.Drawing.PointF[],System.Drawing.RectangleF,System.Drawing.Drawing2D.Matrix,System.Drawing.Drawing2D.WarpMode,System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.Warp(System.Drawing.PointF[],System.Drawing.RectangleF,System.Drawing.Drawing2D.Matrix,System.Drawing.Drawing2D.WarpMode)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.Warp(System.Drawing.PointF[],System.Drawing.RectangleF,System.Drawing.Drawing2D.Matrix)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.Warp(System.Drawing.PointF[],System.Drawing.RectangleF)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Drawing2D.GraphicsPath.Warp(System.ReadOnlySpan{System.Drawing.PointF},System.Drawing.RectangleF,System.Drawing.Drawing2D.Matrix,System.Drawing.Drawing2D.WarpMode,System.Single)</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>

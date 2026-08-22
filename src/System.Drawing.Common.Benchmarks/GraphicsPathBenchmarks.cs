@@ -10,6 +10,7 @@ public class GraphicsPathBenchmarks
     private GraphicsPathIterator _iterator = null!;
     private GraphicsPath _strokePath = null!;
     private Pen _strokePen = null!;
+    private PointF[] _warpDestination = null!;
     private PointF[] _points = null!;
     private byte[] _types = null!;
 
@@ -34,6 +35,13 @@ public class GraphicsPathBenchmarks
             new PointF(16f, 64f)
         ]);
         _strokePen = new Pen(Color.Black, 3f) { LineJoin = LineJoin.Round };
+        _warpDestination =
+        [
+            new PointF(0f, 0f),
+            new PointF(256f, 8f),
+            new PointF(12f, 160f),
+            new PointF(220f, 192f),
+        ];
     }
 
     [Benchmark]
@@ -55,6 +63,14 @@ public class GraphicsPathBenchmarks
     {
         using var clone = (GraphicsPath)_path.Clone();
         clone.Widen(_strokePen);
+        return clone.PointCount;
+    }
+
+    [Benchmark]
+    public int WarpRetainedCurveClone()
+    {
+        using var clone = (GraphicsPath)_path.Clone();
+        clone.Warp(_warpDestination, new RectangleF(0f, 0f, 184f, 92f), null, WarpMode.Bilinear, 0.25f);
         return clone.PointCount;
     }
 

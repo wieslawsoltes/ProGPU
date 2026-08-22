@@ -756,6 +756,72 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
         SynchronizeCurrentState();
     }
 
+    public void Warp(PointF[] destPoints, RectangleF srcRect)
+    {
+        ArgumentNullException.ThrowIfNull(destPoints);
+        Warp((ReadOnlySpan<PointF>)destPoints, srcRect);
+    }
+
+    public void Warp(PointF[] destPoints, RectangleF srcRect, Matrix? matrix)
+    {
+        ArgumentNullException.ThrowIfNull(destPoints);
+        Warp((ReadOnlySpan<PointF>)destPoints, srcRect, matrix);
+    }
+
+    public void Warp(PointF[] destPoints, RectangleF srcRect, Matrix? matrix, WarpMode warpMode)
+    {
+        ArgumentNullException.ThrowIfNull(destPoints);
+        Warp((ReadOnlySpan<PointF>)destPoints, srcRect, matrix, warpMode);
+    }
+
+    public void Warp(PointF[] destPoints, RectangleF srcRect, Matrix? matrix, WarpMode warpMode, float flatness)
+    {
+        ArgumentNullException.ThrowIfNull(destPoints);
+        Warp((ReadOnlySpan<PointF>)destPoints, srcRect, matrix, warpMode, flatness);
+    }
+
+    public void Warp(
+        ReadOnlySpan<PointF> destPoints,
+        RectangleF srcRect,
+        Matrix? matrix = null,
+        WarpMode warpMode = WarpMode.Perspective,
+        float flatness = 0.25f)
+    {
+        ThrowIfDisposed();
+        if (destPoints.Length is not (3 or 4))
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(destPoints));
+        }
+
+        if (warpMode is not WarpMode.Perspective and not WarpMode.Bilinear)
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(warpMode));
+        }
+
+        Span<Vector2> destination = stackalloc Vector2[destPoints.Length];
+        for (int index = 0; index < destPoints.Length; index++)
+        {
+            destination[index] = new Vector2(destPoints[index].X, destPoints[index].Y);
+        }
+
+        PathGeometry flattened = CreateFlattenedGeometry(matrix, flatness);
+        if (!PathWarpGeometry.TryCreateWarpedPath(
+                flattened,
+                destination,
+                new Vector2(srcRect.X, srcRect.Y),
+                new Vector2(srcRect.Width, srcRect.Height),
+                warpMode == WarpMode.Perspective ? PathWarpMode.Perspective : PathWarpMode.Bilinear,
+                flatness,
+                out PathGeometry warped))
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(destPoints));
+        }
+
+        _geometry = warped;
+        _markers.Clear();
+        SynchronizeCurrentState();
+    }
+
     public void Reverse()
     {
         ThrowIfDisposed();

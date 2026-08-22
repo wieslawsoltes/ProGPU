@@ -110,3 +110,9 @@ public enum WrapMode
     TileFlipXY = 3,
     Clamp = 4
 }
+
+public enum WarpMode
+{
+    Perspective = 0,
+    Bilinear = 1
+}
