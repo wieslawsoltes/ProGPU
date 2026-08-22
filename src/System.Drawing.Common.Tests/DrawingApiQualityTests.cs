@@ -4,6 +4,7 @@ using System.Drawing.Imaging;
 using System.Drawing.Printing;
 using System.ComponentModel;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using Xunit;
 
 namespace ProGPU.SystemDrawing.Tests;
@@ -167,6 +168,195 @@ public sealed class DrawingApiQualityTests
         Assert.True(Image.IsCanonicalPixelFormat(PixelFormat.Format32bppArgb));
         Assert.False(Image.IsCanonicalPixelFormat(PixelFormat.Format32bppPArgb));
         Assert.False(Image.IsExtendedPixelFormat(PixelFormat.Format32bppArgb));
+        Assert.Equal(1, Image.GetPixelFormatSize(PixelFormat.Format1bppIndexed));
+        Assert.Equal(4, Image.GetPixelFormatSize(PixelFormat.Format4bppIndexed));
+        Assert.Equal(16, Image.GetPixelFormatSize(PixelFormat.Format16bppGrayScale));
+        Assert.Equal(48, Image.GetPixelFormatSize(PixelFormat.Format48bppRgb));
+        Assert.Equal(64, Image.GetPixelFormatSize(PixelFormat.Format64bppArgb));
+        Assert.Equal(198659, (int)PixelFormat.Format8bppIndexed);
+        Assert.Equal(135174, (int)PixelFormat.Format16bppRgb565);
+    }
+
+    [Fact]
+    public void BitmapScan0ConstructorDecodesTypedPixelRows()
+    {
+        byte[] source = [0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0, 0];
+        GCHandle handle = GCHandle.Alloc(source, GCHandleType.Pinned);
+        try
+        {
+            using var bitmap = new Bitmap(
+                width: 2,
+                height: 1,
+                stride: 8,
+                format: PixelFormat.Format24bppRgb,
+                scan0: handle.AddrOfPinnedObject());
+
+            Assert.Equal(Color.FromArgb(0x30, 0x20, 0x10).ToArgb(), bitmap.GetPixel(0, 0).ToArgb());
+            Assert.Equal(Color.FromArgb(0x60, 0x50, 0x40).ToArgb(), bitmap.GetPixel(1, 0).ToArgb());
+            Assert.Equal(PixelFormat.Format24bppRgb, bitmap.PixelFormat);
+        }
+        finally
+        {
+            handle.Free();
+        }
+    }
+
+    [Fact]
+    public void BitmapScan0ConstructorHonorsNegativeStrideFromFirstLogicalRow()
+    {
+        byte[] source = [255, 0, 0, 255, 0, 0, 255, 255];
+        GCHandle handle = GCHandle.Alloc(source, GCHandleType.Pinned);
+        try
+        {
+            using var bitmap = new Bitmap(
+                width: 1,
+                height: 2,
+                stride: -4,
+                format: PixelFormat.Format32bppArgb,
+                scan0: IntPtr.Add(handle.AddrOfPinnedObject(), 4));
+
+            Assert.Equal(Color.Red.ToArgb(), bitmap.GetPixel(0, 0).ToArgb());
+            Assert.Equal(Color.Blue.ToArgb(), bitmap.GetPixel(0, 1).ToArgb());
+        }
+        finally
+        {
+            handle.Free();
+        }
+    }
+
+    [Fact]
+    public void CallerOwnedLockBitsBufferRoundTripsWithoutOwnershipTransfer()
+    {
+        using var bitmap = new Bitmap(2, 1);
+        bitmap.SetPixel(0, 0, Color.Red);
+        bitmap.SetPixel(1, 0, Color.Blue);
+
+        byte[] buffer = new byte[8];
+        GCHandle handle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+        try
+        {
+            var data = new BitmapData
+            {
+                Scan0 = handle.AddrOfPinnedObject(),
+                Stride = 8
+            };
+            BitmapData returned = bitmap.LockBits(
+                new Rectangle(0, 0, 2, 1),
+                ImageLockMode.ReadWrite | ImageLockMode.UserInputBuffer,
+                PixelFormat.Format32bppArgb,
+                data);
+
+            Assert.Same(data, returned);
+            Assert.Equal(new byte[] { 0, 0, 255, 255, 255, 0, 0, 255 }, buffer);
+            buffer[0] = 0;
+            buffer[1] = 255;
+            buffer[2] = 0;
+            buffer[3] = 255;
+            bitmap.UnlockBits(data);
+
+            Assert.Equal(Color.Lime.ToArgb(), bitmap.GetPixel(0, 0).ToArgb());
+            Assert.Equal(Color.Blue.ToArgb(), bitmap.GetPixel(1, 0).ToArgb());
+            Assert.Throws<ArgumentException>(() => bitmap.UnlockBits(data));
+        }
+        finally
+        {
+            handle.Free();
+        }
+    }
+
+    [Fact]
+    public void PackedAndHighDepthLockBitsFormatsRoundTripThroughManagedRgba()
+    {
+        PixelFormat[] formats =
+        [
+            PixelFormat.Format16bppArgb1555,
+            PixelFormat.Format16bppGrayScale,
+            PixelFormat.Format16bppRgb555,
+            PixelFormat.Format16bppRgb565,
+            PixelFormat.Format24bppRgb,
+            PixelFormat.Format32bppRgb,
+            PixelFormat.Format32bppArgb,
+            PixelFormat.Format32bppPArgb,
+            PixelFormat.Format48bppRgb,
+            PixelFormat.Format64bppArgb,
+            PixelFormat.Format64bppPArgb
+        ];
+
+        foreach (PixelFormat format in formats)
+        {
+            using var bitmap = new Bitmap(1, 1);
+            bitmap.SetPixel(0, 0, Color.FromArgb(255, 123, 65, 31));
+            BitmapData data = bitmap.LockBits(new Rectangle(0, 0, 1, 1), ImageLockMode.ReadWrite, format);
+            bitmap.UnlockBits(data);
+            Color roundTrip = bitmap.GetPixel(0, 0);
+
+            if (format == PixelFormat.Format16bppGrayScale)
+            {
+                Assert.Equal(roundTrip.R, roundTrip.G);
+                Assert.Equal(roundTrip.G, roundTrip.B);
+            }
+            else
+            {
+                Assert.InRange(Math.Abs(roundTrip.R - 123), 0, 8);
+                Assert.InRange(Math.Abs(roundTrip.G - 65), 0, 8);
+                Assert.InRange(Math.Abs(roundTrip.B - 31), 0, 8);
+            }
+        }
+    }
+
+    [Fact]
+    public void BitmapCropCloneMaterializesTheRequestedPixelFormat()
+    {
+        using var bitmap = new Bitmap(3, 2);
+        bitmap.SetPixel(1, 0, Color.FromArgb(255, 123, 65, 31));
+        bitmap.SetPixel(1, 1, Color.Blue);
+
+        using Bitmap clone = bitmap.Clone(new Rectangle(1, 0, 1, 2), PixelFormat.Format16bppRgb565);
+
+        Assert.Equal(new Size(1, 2), clone.Size);
+        Assert.Equal(PixelFormat.Format16bppRgb565, clone.PixelFormat);
+        Color quantized = clone.GetPixel(0, 0);
+        Assert.InRange(Math.Abs(quantized.R - 123), 0, 8);
+        Assert.InRange(Math.Abs(quantized.G - 65), 0, 4);
+        Assert.InRange(Math.Abs(quantized.B - 31), 0, 8);
+        Assert.Equal(Color.Blue.ToArgb(), clone.GetPixel(0, 1).ToArgb());
+    }
+
+    [Fact]
+    public void CallerOwnedReadOnlyLockBitsHasBoundedWarmedAllocation()
+    {
+        using var bitmap = new Bitmap(64, 64);
+        byte[] buffer = new byte[64 * 64 * 4];
+        GCHandle handle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+        try
+        {
+            var data = new BitmapData { Scan0 = handle.AddrOfPinnedObject(), Stride = 64 * 4 };
+            Rectangle rectangle = new(0, 0, 64, 64);
+            bitmap.LockBits(
+                rectangle,
+                ImageLockMode.ReadOnly | ImageLockMode.UserInputBuffer,
+                PixelFormat.Format32bppArgb,
+                data);
+            bitmap.UnlockBits(data);
+
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int iteration = 0; iteration < 32; iteration++)
+            {
+                bitmap.LockBits(
+                    rectangle,
+                    ImageLockMode.ReadOnly | ImageLockMode.UserInputBuffer,
+                    PixelFormat.Format32bppArgb,
+                    data);
+                bitmap.UnlockBits(data);
+            }
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+            Assert.InRange(allocated, 0, 512);
+        }
+        finally
+        {
+            handle.Free();
+        }
     }
 
     [Fact]

@@ -1,16 +1,48 @@
 using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
 
 namespace System.Drawing.Imaging;
 
-[Flags]
 public enum PixelFormat
 {
+    Indexed = 0x0001_0000,
+    Gdi = 0x0002_0000,
+    Alpha = 0x0004_0000,
+    PAlpha = 0x0008_0000,
+    Extended = 0x0010_0000,
+    Canonical = 0x0020_0000,
+    Undefined = 0,
+    DontCare = 0,
+    Format1bppIndexed = (1 << 8) | (1) | Indexed | Gdi,
+    Format4bppIndexed = (4 << 8) | (2) | Indexed | Gdi,
+    Format8bppIndexed = (8 << 8) | (3) | Indexed | Gdi,
+    Format16bppGrayScale = (16 << 8) | (4) | Extended,
+    Format16bppRgb555 = (16 << 8) | (5) | Gdi,
+    Format16bppRgb565 = (16 << 8) | (6) | Gdi,
+    Format16bppArgb1555 = (16 << 8) | (7) | Alpha | Gdi,
+    Format24bppRgb = (24 << 8) | (8) | Gdi,
+    Format32bppRgb = (32 << 8) | (9) | Gdi,
     Format32bppArgb = 2498570,
-    Format24bppRgb = 137224,
-    Format8bppIndexed = 198658,
-    Format32bppRgb = 139273,
-    Format32bppPArgb = 925707,
-    Format16bppRgb565 = 135173
+    Format32bppPArgb = (32 << 8) | (11) | Alpha | PAlpha | Gdi,
+    Format48bppRgb = (48 << 8) | (12) | Extended,
+    Format64bppArgb = (64 << 8) | (13) | Alpha | Canonical | Extended,
+    Format64bppPArgb = (64 << 8) | (14) | Alpha | PAlpha | Extended,
+    Max = 15
+}
+
+public enum DitherType
+{
+    None = 0,
+    Solid = 1,
+    Ordered4x4 = 2,
+    Ordered8x8 = 3,
+    Ordered16x16 = 4,
+    Spiral4x4 = 5,
+    Spiral8x8 = 6,
+    DualSpiral4x4 = 7,
+    DualSpiral8x8 = 8,
+    ErrorDiffusion = 9
 }
 
 [Flags]
@@ -32,6 +64,7 @@ public enum ImageFlags
     Caching = 0x20000
 }
 
+[Flags]
 public enum ImageLockMode
 {
     ReadOnly = 1,
@@ -381,14 +414,67 @@ public sealed class ImageAttributes : IDisposable, ICloneable
         (int)MathF.Round(Math.Clamp(value, 0f, 1f) * 255f);
 }
 
+[StructLayout(LayoutKind.Sequential)]
 public sealed class BitmapData
 {
-    public int Width { get; set; }
-    public int Height { get; set; }
-    public int Stride { get; set; }
-    public PixelFormat PixelFormat { get; set; }
-    public IntPtr Scan0 { get; set; }
-    public int Reserved { get; set; }
+    private int _width;
+    private int _height;
+    private int _stride;
+    private PixelFormat _pixelFormat;
+    private IntPtr _scan0;
+    private int _reserved;
+
+    public int Width { get => _width; set => _width = value; }
+    public int Height { get => _height; set => _height = value; }
+    public int Stride { get => _stride; set => _stride = value; }
+
+    public PixelFormat PixelFormat
+    {
+        get => _pixelFormat;
+        set
+        {
+            if (!PixelFormatInfo.IsDefined(value))
+            {
+                throw new InvalidEnumArgumentException(nameof(value), (int)value, typeof(PixelFormat));
+            }
+
+            _pixelFormat = value;
+        }
+    }
+
+    public IntPtr Scan0 { get => _scan0; set => _scan0 = value; }
+    public int Reserved { get => _reserved; set => _reserved = value; }
+}
+
+internal static class PixelFormatInfo
+{
+    internal static bool IsDefined(PixelFormat format) => format is
+        PixelFormat.DontCare or
+        PixelFormat.Max or
+        PixelFormat.Indexed or
+        PixelFormat.Gdi or
+        PixelFormat.Format16bppRgb555 or
+        PixelFormat.Format16bppRgb565 or
+        PixelFormat.Format24bppRgb or
+        PixelFormat.Format32bppRgb or
+        PixelFormat.Format1bppIndexed or
+        PixelFormat.Format4bppIndexed or
+        PixelFormat.Format8bppIndexed or
+        PixelFormat.Alpha or
+        PixelFormat.Format16bppArgb1555 or
+        PixelFormat.PAlpha or
+        PixelFormat.Format32bppPArgb or
+        PixelFormat.Extended or
+        PixelFormat.Format16bppGrayScale or
+        PixelFormat.Format48bppRgb or
+        PixelFormat.Format64bppPArgb or
+        PixelFormat.Canonical or
+        PixelFormat.Format32bppArgb or
+        PixelFormat.Format64bppArgb;
+
+    internal static bool IsConcrete(PixelFormat format) => ((int)format & 0xff) is >= 1 and <= 14;
+
+    internal static bool IsIndexed(PixelFormat format) => ((int)format & (int)PixelFormat.Indexed) != 0;
 }
 
 public sealed class ImageFormat

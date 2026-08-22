@@ -29,6 +29,7 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
     private readonly object _textureLifetimeLock = new();
     private int _width;
     private int _height;
+    private PixelFormat _pixelFormat = PixelFormat.Format32bppArgb;
     private byte[]? _cpuPixels;
     private GpuTextureAlphaMode _cpuAlphaMode = GpuTextureAlphaMode.Premultiplied;
     private bool _isDisposed;
@@ -59,6 +60,7 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
 
     public override int Width => _width;
     public override int Height => _height;
+    public override PixelFormat PixelFormat => _pixelFormat;
 
     public Bitmap(int width, int height)
     {
@@ -82,6 +84,30 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
     public Bitmap(int width, int height, PixelFormat format)
         : this(width, height)
     {
+        ValidateConcretePixelFormat(format);
+        _pixelFormat = format;
+        InitializeDefaultPalette(format);
+    }
+
+    public Bitmap(int width, int height, int stride, PixelFormat format, IntPtr scan0)
+        : this(width, height, format)
+    {
+        if (scan0 == IntPtr.Zero)
+        {
+            throw new ArgumentException("The pixel buffer pointer cannot be zero.", nameof(scan0));
+        }
+
+        int minimumStride = GetLockStride(width, format);
+        if (stride == 0 || Math.Abs((long)stride) < minimumStride)
+        {
+            throw new ArgumentException("The stride is smaller than the requested pixel row.", nameof(stride));
+        }
+
+        _cpuPixels = CopyExternalPixelsToRgba(scan0, stride, width, height, format, Palette);
+        _cpuAlphaMode = IsPremultiplied(format)
+            ? GpuTextureAlphaMode.Premultiplied
+            : GpuTextureAlphaMode.Straight;
+        _hasDefinedPixels = true;
     }
 
     public Bitmap(Image original, int width, int height)
@@ -144,12 +170,61 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         ArgumentNullException.ThrowIfNull(original);
         _width = original.Width;
         _height = original.Height;
+        _pixelFormat = original.PixelFormat;
         _cpuPixels = original.CopyPixelsForClone(out _cpuAlphaMode);
         _hasDefinedPixels = true;
         original.CopyMetadataTo(this);
     }
 
     public override object Clone() => new Bitmap(this);
+
+    public Bitmap Clone(Rectangle rect, PixelFormat format) =>
+        Clone(new RectangleF(rect.X, rect.Y, rect.Width, rect.Height), format);
+
+    public Bitmap Clone(RectangleF rect, PixelFormat format)
+    {
+        ValidateConcretePixelFormat(format);
+        if (!(rect.Width > 0f) || !(rect.Height > 0f) || !float.IsFinite(rect.X) || !float.IsFinite(rect.Y))
+        {
+            throw new ArgumentException("The clone rectangle must be finite and non-empty.", nameof(rect));
+        }
+
+        int left = checked((int)MathF.Floor(rect.Left));
+        int top = checked((int)MathF.Floor(rect.Top));
+        int right = checked((int)MathF.Ceiling(rect.Right));
+        int bottom = checked((int)MathF.Ceiling(rect.Bottom));
+        if (left < 0 || top < 0 || right > Width || bottom > Height || right <= left || bottom <= top)
+        {
+            throw new ArgumentException("The clone rectangle must be contained within the bitmap bounds.", nameof(rect));
+        }
+
+        lock (_textureLifetimeLock)
+        {
+            ThrowIfDisposed();
+            byte[] source = ReadPixelsCore(out GpuTextureAlphaMode sourceAlphaMode);
+            int cloneWidth = right - left;
+            int cloneHeight = bottom - top;
+            var pixels = new byte[checked(cloneWidth * cloneHeight * 4)];
+            for (int y = 0; y < cloneHeight; y++)
+            {
+                source.AsSpan(((top + y) * Width + left) * 4, cloneWidth * 4)
+                    .CopyTo(pixels.AsSpan(y * cloneWidth * 4));
+            }
+
+            var clone = CreateFromPixels(cloneWidth, cloneHeight, pixels, sourceAlphaMode, format);
+            CopyMetadataTo(clone);
+            if (PixelFormatInfo.IsIndexed(format) && !PixelFormatInfo.IsIndexed(_pixelFormat))
+            {
+                clone.InitializeDefaultPalette(format);
+            }
+            BitmapData lockData = clone.LockBits(
+                new Rectangle(0, 0, cloneWidth, cloneHeight),
+                ImageLockMode.ReadWrite,
+                format);
+            clone.UnlockBits(lockData);
+            return clone;
+        }
+    }
 
     public override void RotateFlip(RotateFlipType rotateFlipType)
     {
@@ -629,15 +704,73 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         int width,
         int height,
         byte[] pixels,
-        GpuTextureAlphaMode alphaMode)
+        GpuTextureAlphaMode alphaMode,
+        PixelFormat pixelFormat = PixelFormat.Format32bppArgb)
     {
-        var bitmap = new Bitmap(width, height)
+        var bitmap = new Bitmap(width, height, pixelFormat)
         {
             _cpuPixels = pixels,
             _cpuAlphaMode = alphaMode,
             _hasDefinedPixels = true
         };
         return bitmap;
+    }
+
+    private static void ValidateConcretePixelFormat(PixelFormat format)
+    {
+        if (!PixelFormatInfo.IsConcrete(format))
+        {
+            throw new ArgumentException("A concrete pixel format is required.", nameof(format));
+        }
+    }
+
+    private void InitializeDefaultPalette(PixelFormat format)
+    {
+        if (!PixelFormatInfo.IsIndexed(format))
+        {
+            return;
+        }
+
+        int count = 1 << Image.GetPixelFormatSize(format);
+        var colors = new Color[count];
+        for (int index = 0; index < colors.Length; index++)
+        {
+            int intensity = colors.Length == 1 ? 0 : index * 255 / (colors.Length - 1);
+            colors[index] = Color.FromArgb(255, intensity, intensity, intensity);
+        }
+
+        Palette = new ColorPalette(colors);
+    }
+
+    private static bool IsPremultiplied(PixelFormat format) =>
+        ((int)format & (int)PixelFormat.PAlpha) != 0;
+
+    private static unsafe byte[] CopyExternalPixelsToRgba(
+        IntPtr scan0,
+        int stride,
+        int width,
+        int height,
+        PixelFormat format,
+        ColorPalette palette)
+    {
+        int absoluteStride = checked((int)Math.Abs((long)stride));
+        var rgba = new byte[checked(width * height * 4)];
+        for (int y = 0; y < height; y++)
+        {
+            byte* rowPointer = (byte*)scan0 + checked(y * stride);
+            var row = new ReadOnlySpan<byte>(rowPointer, absoluteStride);
+            for (int x = 0; x < width; x++)
+            {
+                ReadLockPixel(row, 0, x, format, palette, out byte red, out byte green, out byte blue, out byte alpha);
+                int destination = ((y * width) + x) * 4;
+                rgba[destination] = red;
+                rgba[destination + 1] = green;
+                rgba[destination + 2] = blue;
+                rgba[destination + 3] = alpha;
+            }
+        }
+
+        return rgba;
     }
 
     private byte[] ReadPixelsCore(out GpuTextureAlphaMode alphaMode)
@@ -994,6 +1127,7 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
 
     private byte[]? _lockedBytes;
     private GCHandle _lockedHandle;
+    private BitmapData? _lockedBitmapData;
     private Rectangle _lockedRect;
     private PixelFormat _lockedPixelFormat;
     private int _lockedStride;
@@ -1001,59 +1135,126 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
     private GpuTextureAlphaMode _lockedTextureAlphaMode;
 
     public BitmapData LockBits(Rectangle rect, ImageLockMode flags, PixelFormat format)
+        => LockBits(rect, flags, format, new BitmapData());
+
+    public unsafe BitmapData LockBits(
+        Rectangle rect,
+        ImageLockMode flags,
+        PixelFormat format,
+        BitmapData bitmapData)
     {
+        ArgumentNullException.ThrowIfNull(bitmapData);
         lock (_textureLifetimeLock)
         {
             ThrowIfDisposed();
             ValidateLockBitsRectangle(rect);
-            if (_lockedBytes != null || _lockedHandle.IsAllocated)
+            ValidateConcretePixelFormat(format);
+            int access = (int)flags & (int)ImageLockMode.ReadWrite;
+            if (access is < (int)ImageLockMode.ReadOnly or > (int)ImageLockMode.ReadWrite)
+            {
+                throw new ArgumentException("The lock mode must specify read, write, or read/write access.", nameof(flags));
+            }
+
+            if (_lockedBitmapData is not null)
             {
                 throw new InvalidOperationException("Bitmap already has an active lock. Call UnlockBits before LockBits again.");
             }
 
-            byte[] fullPixels = ReadPixelsCore(out _lockedTextureAlphaMode);
+            byte[] fullPixels = ReadPixelsCore(out GpuTextureAlphaMode lockAlphaMode);
             int subWidth = rect.Width;
             int subHeight = rect.Height;
-            int stride = GetLockStride(subWidth, format);
-            _lockedBytes = new byte[stride * subHeight];
+            bool usesCallerBuffer = (((int)flags & (int)ImageLockMode.UserInputBuffer) != 0);
+            int stride;
+            if (usesCallerBuffer)
+            {
+                if (bitmapData.Scan0 == IntPtr.Zero)
+                {
+                    throw new ArgumentException("UserInputBuffer requires a non-zero Scan0 pointer.", nameof(bitmapData));
+                }
+
+                stride = bitmapData.Stride;
+                int minimumRowBytes = GetMinimumRowBytes(subWidth, format);
+                if (stride == 0 || Math.Abs((long)stride) < minimumRowBytes)
+                {
+                    throw new ArgumentException("The caller buffer stride is smaller than the requested pixel row.", nameof(bitmapData));
+                }
+            }
+            else
+            {
+                stride = GetLockStride(subWidth, format);
+                _lockedBytes = new byte[checked(stride * subHeight)];
+                _lockedHandle = GCHandle.Alloc(_lockedBytes, GCHandleType.Pinned);
+                bitmapData.Scan0 = _lockedHandle.AddrOfPinnedObject();
+            }
+
+            ColorPalette? palette = PixelFormatInfo.IsIndexed(format) ? Palette : null;
+            try
+            {
+                if (access != (int)ImageLockMode.WriteOnly)
+                {
+                    CopyRgbaToExternalBuffer(
+                        fullPixels,
+                        bitmapData.Scan0,
+                        stride,
+                        rect,
+                        format,
+                        lockAlphaMode,
+                        palette);
+                }
+            }
+            catch
+            {
+                if (_lockedHandle.IsAllocated)
+                {
+                    _lockedHandle.Free();
+                }
+
+                _lockedBytes = null;
+                throw;
+            }
+
+            bitmapData.Width = subWidth;
+            bitmapData.Height = subHeight;
+            bitmapData.Stride = stride;
+            bitmapData.PixelFormat = format;
             _lockedRect = rect;
             _lockedPixelFormat = format;
             _lockedStride = stride;
-            _lockedWriteBack = flags != ImageLockMode.ReadOnly;
-
-            CopyRgbaToLockBuffer(fullPixels, _lockedBytes, rect, format, stride, _lockedTextureAlphaMode);
-            _lockedHandle = GCHandle.Alloc(_lockedBytes, GCHandleType.Pinned);
-
-            return new BitmapData
-            {
-                Width = subWidth,
-                Height = subHeight,
-                Stride = stride,
-                PixelFormat = format,
-                Scan0 = _lockedHandle.AddrOfPinnedObject()
-            };
+            _lockedWriteBack = access != (int)ImageLockMode.ReadOnly;
+            _lockedBitmapData = bitmapData;
+            _lockedTextureAlphaMode = lockAlphaMode;
+            return bitmapData;
         }
     }
 
     private static int GetLockStride(int width, PixelFormat format)
     {
-        var bytesPerRow = format switch
-        {
-            PixelFormat.Format32bppArgb or PixelFormat.Format32bppPArgb or PixelFormat.Format32bppRgb => checked(width * 4),
-            PixelFormat.Format24bppRgb => checked(width * 3),
-            PixelFormat.Format16bppRgb565 => checked(width * 2),
-            _ => throw new NotSupportedException($"LockBits pixel format '{format}' is not supported.")
-        };
-
+        int bytesPerRow = GetMinimumRowBytes(width, format);
         return (bytesPerRow + 3) & ~3;
     }
 
-    private void CopyRgbaToLockBuffer(byte[] source, byte[] destination, Rectangle rect, PixelFormat format, int stride, GpuTextureAlphaMode sourceAlphaMode)
+    private static int GetMinimumRowBytes(int width, PixelFormat format)
     {
+        ValidateConcretePixelFormat(format);
+        int bitsPerPixel = Image.GetPixelFormatSize(format);
+        return checked((width * bitsPerPixel + 7) / 8);
+    }
+
+    private unsafe void CopyRgbaToExternalBuffer(
+        byte[] source,
+        IntPtr destination,
+        int stride,
+        Rectangle rect,
+        PixelFormat format,
+        GpuTextureAlphaMode sourceAlphaMode,
+        ColorPalette? palette)
+    {
+        int rowLength = checked((int)Math.Abs((long)stride));
         for (int y = 0; y < rect.Height; y++)
         {
             var srcOffset = ((rect.Y + y) * Width + rect.X) * 4;
-            var dstOffset = y * stride;
+            var row = new Span<byte>((byte*)destination + checked(y * stride), rowLength);
+            row.Clear();
             for (int x = 0; x < rect.Width; x++)
             {
                 var src = srcOffset + x * 4;
@@ -1062,20 +1263,21 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
                 var b = source[src + 2];
                 var a = source[src + 3];
                 ConvertPixelFromTextureAlphaMode(ref r, ref g, ref b, a, sourceAlphaMode, format);
-                WriteLockPixel(destination, dstOffset, x, format, r, g, b, a);
+                WriteLockPixel(row, x, format, palette, r, g, b, a);
             }
         }
     }
 
     private static void ConvertPixelFromTextureAlphaMode(ref byte r, ref byte g, ref byte b, byte a, GpuTextureAlphaMode sourceAlphaMode, PixelFormat lockPixelFormat)
     {
-        if (sourceAlphaMode == GpuTextureAlphaMode.Premultiplied && lockPixelFormat != PixelFormat.Format32bppPArgb)
+        bool lockPixelsArePremultiplied = IsPremultiplied(lockPixelFormat);
+        if (sourceAlphaMode == GpuTextureAlphaMode.Premultiplied && !lockPixelsArePremultiplied)
         {
             r = UnpremultiplyChannel(r, a);
             g = UnpremultiplyChannel(g, a);
             b = UnpremultiplyChannel(b, a);
         }
-        else if (sourceAlphaMode == GpuTextureAlphaMode.Straight && lockPixelFormat == PixelFormat.Format32bppPArgb)
+        else if (sourceAlphaMode == GpuTextureAlphaMode.Straight && lockPixelsArePremultiplied)
         {
             r = PremultiplyChannel(r, a);
             g = PremultiplyChannel(g, a);
@@ -1083,38 +1285,146 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         }
     }
 
-    private static void WriteLockPixel(byte[] destination, int rowOffset, int x, PixelFormat format, byte r, byte g, byte b, byte a)
+    private static void WriteLockPixel(
+        Span<byte> row,
+        int x,
+        PixelFormat format,
+        ColorPalette? palette,
+        byte r,
+        byte g,
+        byte b,
+        byte a)
     {
         switch (format)
         {
+            case PixelFormat.Format1bppIndexed:
+            {
+                int paletteIndex = FindNearestPaletteIndex(palette!, r, g, b, a, 2);
+                int offset = x >> 3;
+                row[offset] = (byte)(row[offset] | (paletteIndex << (7 - (x & 7))));
+                break;
+            }
+            case PixelFormat.Format4bppIndexed:
+            {
+                int paletteIndex = FindNearestPaletteIndex(palette!, r, g, b, a, 16);
+                int offset = x >> 1;
+                int shift = (x & 1) == 0 ? 4 : 0;
+                row[offset] = (byte)(row[offset] | (paletteIndex << shift));
+                break;
+            }
+            case PixelFormat.Format8bppIndexed:
+                row[x] = (byte)FindNearestPaletteIndex(palette!, r, g, b, a, 256);
+                break;
+            case PixelFormat.Format16bppGrayScale:
+            {
+                ushort gray = (ushort)(((r * 2126 + g * 7152 + b * 722) * 257L + 5000) / 10000);
+                WriteUInt16(row, x * 2, gray);
+                break;
+            }
+            case PixelFormat.Format16bppRgb555:
+            {
+                ushort rgb555 = (ushort)(((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3));
+                WriteUInt16(row, x * 2, rgb555);
+                break;
+            }
             case PixelFormat.Format32bppArgb:
             case PixelFormat.Format32bppPArgb:
-                var offset32 = rowOffset + x * 4;
-                destination[offset32] = b;
-                destination[offset32 + 1] = g;
-                destination[offset32 + 2] = r;
-                destination[offset32 + 3] = a;
+                var offset32 = x * 4;
+                row[offset32] = b;
+                row[offset32 + 1] = g;
+                row[offset32 + 2] = r;
+                row[offset32 + 3] = a;
                 break;
             case PixelFormat.Format32bppRgb:
-                offset32 = rowOffset + x * 4;
-                destination[offset32] = b;
-                destination[offset32 + 1] = g;
-                destination[offset32 + 2] = r;
-                destination[offset32 + 3] = 255;
+                offset32 = x * 4;
+                row[offset32] = b;
+                row[offset32 + 1] = g;
+                row[offset32 + 2] = r;
+                row[offset32 + 3] = 255;
                 break;
             case PixelFormat.Format24bppRgb:
-                var offset24 = rowOffset + x * 3;
-                destination[offset24] = b;
-                destination[offset24 + 1] = g;
-                destination[offset24 + 2] = r;
+                var offset24 = x * 3;
+                row[offset24] = b;
+                row[offset24 + 1] = g;
+                row[offset24 + 2] = r;
                 break;
             case PixelFormat.Format16bppRgb565:
-                var offset16 = rowOffset + x * 2;
                 ushort rgb565 = (ushort)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
-                destination[offset16] = (byte)(rgb565 & 0xFF);
-                destination[offset16 + 1] = (byte)(rgb565 >> 8);
+                WriteUInt16(row, x * 2, rgb565);
                 break;
+            case PixelFormat.Format16bppArgb1555:
+            {
+                ushort argb1555 = (ushort)((a >= 128 ? 0x8000 : 0) | ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3));
+                WriteUInt16(row, x * 2, argb1555);
+                break;
+            }
+            case PixelFormat.Format48bppRgb:
+            {
+                int offset = x * 6;
+                WriteUInt16(row, offset, (ushort)(b * 257));
+                WriteUInt16(row, offset + 2, (ushort)(g * 257));
+                WriteUInt16(row, offset + 4, (ushort)(r * 257));
+                break;
+            }
+            case PixelFormat.Format64bppArgb:
+            case PixelFormat.Format64bppPArgb:
+            {
+                int offset = x * 8;
+                WriteUInt16(row, offset, (ushort)(b * 257));
+                WriteUInt16(row, offset + 2, (ushort)(g * 257));
+                WriteUInt16(row, offset + 4, (ushort)(r * 257));
+                WriteUInt16(row, offset + 6, (ushort)(a * 257));
+                break;
+            }
         }
+    }
+
+    private static int FindNearestPaletteIndex(
+        ColorPalette palette,
+        byte red,
+        byte green,
+        byte blue,
+        byte alpha,
+        int maximumEntries)
+    {
+        Color[] entries = palette.Entries;
+        int count = Math.Min(maximumEntries, entries.Length);
+        if (count == 0)
+        {
+            return 0;
+        }
+
+        int bestIndex = 0;
+        long bestDistance = long.MaxValue;
+        for (int index = 0; index < count; index++)
+        {
+            Color candidate = entries[index];
+            int deltaAlpha = alpha - candidate.A;
+            int deltaRed = red - candidate.R;
+            int deltaGreen = green - candidate.G;
+            int deltaBlue = blue - candidate.B;
+            long distance = (long)deltaAlpha * deltaAlpha
+                + (long)deltaRed * deltaRed
+                + (long)deltaGreen * deltaGreen
+                + (long)deltaBlue * deltaBlue;
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                bestIndex = index;
+                if (distance == 0)
+                {
+                    break;
+                }
+            }
+        }
+
+        return bestIndex;
+    }
+
+    private static void WriteUInt16(Span<byte> destination, int offset, ushort value)
+    {
+        destination[offset] = (byte)value;
+        destination[offset + 1] = (byte)(value >> 8);
     }
 
     private void ValidateLockBitsRectangle(Rectangle rect)
@@ -1135,19 +1445,27 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
 
     public void UnlockBits(BitmapData bitmapData)
     {
+        ArgumentNullException.ThrowIfNull(bitmapData);
         lock (_textureLifetimeLock)
         {
             ThrowIfDisposed();
-            if (_lockedBytes != null)
+            if (!ReferenceEquals(bitmapData, _lockedBitmapData))
             {
-                if (_lockedHandle.IsAllocated)
-                {
-                    _lockedHandle.Free();
-                }
+                throw new ArgumentException("BitmapData does not represent the active bitmap lock.", nameof(bitmapData));
+            }
 
+            try
+            {
                 if (_lockedWriteBack)
                 {
-                    var rgba = ConvertLockBufferToRgba(_lockedBytes, _lockedRect, _lockedPixelFormat, _lockedStride);
+                    ColorPalette? palette = PixelFormatInfo.IsIndexed(_lockedPixelFormat) ? Palette : null;
+                    var rgba = CopyExternalPixelsToRgba(
+                        bitmapData.Scan0,
+                        _lockedStride,
+                        _lockedRect.Width,
+                        _lockedRect.Height,
+                        _lockedPixelFormat,
+                        palette ?? new ColorPalette());
                     ConvertPixelsToTextureAlphaMode(rgba, _lockedPixelFormat, _lockedTextureAlphaMode);
                     if (_textureLifetime is { Texture.IsDisposed: false } current)
                     {
@@ -1175,8 +1493,16 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
                     _cpuAlphaMode = _lockedTextureAlphaMode;
                     _hasDefinedPixels = true;
                 }
+            }
+            finally
+            {
+                if (_lockedHandle.IsAllocated)
+                {
+                    _lockedHandle.Free();
+                }
 
                 _lockedBytes = null;
+                _lockedBitmapData = null;
                 _lockedStride = 0;
                 _lockedPixelFormat = default;
                 _lockedWriteBack = false;
@@ -1187,7 +1513,7 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
 
     private static void ConvertPixelsToTextureAlphaMode(byte[] rgba, PixelFormat lockPixelFormat, GpuTextureAlphaMode targetAlphaMode)
     {
-        var lockPixelsArePremultiplied = lockPixelFormat == PixelFormat.Format32bppPArgb;
+        bool lockPixelsArePremultiplied = IsPremultiplied(lockPixelFormat);
 
         for (int offset = 0; offset < rgba.Length; offset += 4)
         {
@@ -1207,66 +1533,137 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         }
     }
 
-    private static byte[] ConvertLockBufferToRgba(byte[] source, Rectangle rect, PixelFormat format, int stride)
-    {
-        var rgba = new byte[rect.Width * rect.Height * 4];
-        for (int y = 0; y < rect.Height; y++)
-        {
-            var srcRow = y * stride;
-            var dstRow = y * rect.Width * 4;
-            for (int x = 0; x < rect.Width; x++)
-            {
-                ReadLockPixel(source, srcRow, x, format, out var r, out var g, out var b, out var a);
-                var dst = dstRow + x * 4;
-                rgba[dst] = r;
-                rgba[dst + 1] = g;
-                rgba[dst + 2] = b;
-                rgba[dst + 3] = a;
-            }
-        }
-
-        return rgba;
-    }
-
-    private static void ReadLockPixel(byte[] source, int rowOffset, int x, PixelFormat format, out byte r, out byte g, out byte b, out byte a)
+    private static void ReadLockPixel(
+        ReadOnlySpan<byte> row,
+        int rowOffset,
+        int x,
+        PixelFormat format,
+        ColorPalette palette,
+        out byte r,
+        out byte g,
+        out byte b,
+        out byte a)
     {
         switch (format)
         {
+            case PixelFormat.Format1bppIndexed:
+            {
+                int index = (row[rowOffset + (x >> 3)] >> (7 - (x & 7))) & 1;
+                ReadPaletteColor(palette, index, out r, out g, out b, out a);
+                break;
+            }
+            case PixelFormat.Format4bppIndexed:
+            {
+                byte packed = row[rowOffset + (x >> 1)];
+                int index = (x & 1) == 0 ? packed >> 4 : packed & 0x0f;
+                ReadPaletteColor(palette, index, out r, out g, out b, out a);
+                break;
+            }
+            case PixelFormat.Format8bppIndexed:
+                ReadPaletteColor(palette, row[rowOffset + x], out r, out g, out b, out a);
+                break;
+            case PixelFormat.Format16bppGrayScale:
+            {
+                ushort gray = ReadUInt16(row, rowOffset + x * 2);
+                r = g = b = (byte)((gray + 128) / 257);
+                a = 255;
+                break;
+            }
+            case PixelFormat.Format16bppRgb555:
+            {
+                ushort rgb555 = ReadUInt16(row, rowOffset + x * 2);
+                r = Expand5To8((rgb555 >> 10) & 0x1f);
+                g = Expand5To8((rgb555 >> 5) & 0x1f);
+                b = Expand5To8(rgb555 & 0x1f);
+                a = 255;
+                break;
+            }
             case PixelFormat.Format32bppArgb:
             case PixelFormat.Format32bppPArgb:
                 var offset32 = rowOffset + x * 4;
-                b = source[offset32];
-                g = source[offset32 + 1];
-                r = source[offset32 + 2];
-                a = source[offset32 + 3];
+                b = row[offset32];
+                g = row[offset32 + 1];
+                r = row[offset32 + 2];
+                a = row[offset32 + 3];
                 break;
             case PixelFormat.Format32bppRgb:
                 offset32 = rowOffset + x * 4;
-                b = source[offset32];
-                g = source[offset32 + 1];
-                r = source[offset32 + 2];
+                b = row[offset32];
+                g = row[offset32 + 1];
+                r = row[offset32 + 2];
                 a = 255;
                 break;
             case PixelFormat.Format24bppRgb:
                 var offset24 = rowOffset + x * 3;
-                b = source[offset24];
-                g = source[offset24 + 1];
-                r = source[offset24 + 2];
+                b = row[offset24];
+                g = row[offset24 + 1];
+                r = row[offset24 + 2];
                 a = 255;
                 break;
             case PixelFormat.Format16bppRgb565:
-                var offset16 = rowOffset + x * 2;
-                ushort rgb565 = (ushort)(source[offset16] | (source[offset16 + 1] << 8));
-                r = (byte)(((rgb565 >> 11) & 0x1F) * 255 / 31);
-                g = (byte)(((rgb565 >> 5) & 0x3F) * 255 / 63);
-                b = (byte)((rgb565 & 0x1F) * 255 / 31);
+                ushort rgb565 = ReadUInt16(row, rowOffset + x * 2);
+                r = Expand5To8((rgb565 >> 11) & 0x1f);
+                g = Expand6To8((rgb565 >> 5) & 0x3f);
+                b = Expand5To8(rgb565 & 0x1f);
                 a = 255;
                 break;
-            default:
-                r = g = b = a = 0;
+            case PixelFormat.Format16bppArgb1555:
+            {
+                ushort argb1555 = ReadUInt16(row, rowOffset + x * 2);
+                r = Expand5To8((argb1555 >> 10) & 0x1f);
+                g = Expand5To8((argb1555 >> 5) & 0x1f);
+                b = Expand5To8(argb1555 & 0x1f);
+                a = (argb1555 & 0x8000) == 0 ? (byte)0 : (byte)255;
                 break;
+            }
+            case PixelFormat.Format48bppRgb:
+            {
+                int offset = rowOffset + x * 6;
+                b = ToByte(ReadUInt16(row, offset));
+                g = ToByte(ReadUInt16(row, offset + 2));
+                r = ToByte(ReadUInt16(row, offset + 4));
+                a = 255;
+                break;
+            }
+            case PixelFormat.Format64bppArgb:
+            case PixelFormat.Format64bppPArgb:
+            {
+                int offset = rowOffset + x * 8;
+                b = ToByte(ReadUInt16(row, offset));
+                g = ToByte(ReadUInt16(row, offset + 2));
+                r = ToByte(ReadUInt16(row, offset + 4));
+                a = ToByte(ReadUInt16(row, offset + 6));
+                break;
+            }
+            default:
+                throw new NotSupportedException($"Pixel format '{format}' is not supported.");
         }
     }
+
+    private static void ReadPaletteColor(
+        ColorPalette palette,
+        int index,
+        out byte red,
+        out byte green,
+        out byte blue,
+        out byte alpha)
+    {
+        Color[] entries = palette.Entries;
+        Color color = (uint)index < (uint)entries.Length ? entries[index] : Color.Transparent;
+        red = color.R;
+        green = color.G;
+        blue = color.B;
+        alpha = color.A;
+    }
+
+    private static ushort ReadUInt16(ReadOnlySpan<byte> source, int offset) =>
+        (ushort)(source[offset] | (source[offset + 1] << 8));
+
+    private static byte Expand5To8(int value) => (byte)((value << 3) | (value >> 2));
+
+    private static byte Expand6To8(int value) => (byte)((value << 2) | (value >> 4));
+
+    private static byte ToByte(ushort value) => (byte)((value + 128) / 257);
 
     public override void Dispose()
     {
@@ -1310,6 +1707,7 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
                 }
 
                 _lockedBytes = null;
+                _lockedBitmapData = null;
                 _lockedStride = 0;
                 _lockedPixelFormat = default;
                 _lockedWriteBack = false;
