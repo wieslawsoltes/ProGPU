@@ -1062,6 +1062,19 @@ before creating an encoder: 16,384 draw passes, 256 MiB of expanded vertices,
 64 MiB of indices, 256 MiB each of textures and aligned coverage staging, and
 512 MiB total across those domains. This bounds adversarial expansion while
 the broader stream-format limits remain available for future non-draw records.
+An immutable glyph outline resource is fully validated and charged to those
+budgets on its first command in each preflight. Later commands that reference
+the same resource validate only their independent positioned-glyph payload;
+they cannot change the already-owned outline or segment spans.
+
+The equivalent managed path already separates content layout from glyph
+residency: `GpuPictureNativeSceneCompiler` materializes each immutable glyph
+resource once, while `TtfFont`/`GlyphAtlas` retain the layout and resident glyph
+data independently. It does not repeat the native C++ per-command resource
+preflight, so this validation-loop optimization has no applicable managed
+production change. The managed layout and glyph-residency tests remain the
+parity gate.
+
 Identical repeated-family commands use a content-addressed retained revision,
 so intervening families do not force a flush or extra submission. Distinct
 repeated payloads remain the paged-buffer continuation.

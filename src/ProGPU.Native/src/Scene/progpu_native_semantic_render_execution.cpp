@@ -1070,8 +1070,13 @@ progpu_native_status render_scene(
                         first_semantic_glyph_resource
                     ? resource.auxiliary_size
                     : 0U;
+                // The snapshot owns one immutable outline/segment payload per
+                // resource index. Validate and budget that payload on its
+                // first draw; later commands still validate their independent
+                // positioned-glyph payload below.
                 for (std::uint64_t segment_index = 0U;
-                     valid && segment_index < segment_count;
+                     valid && first_semantic_glyph_resource &&
+                         segment_index < segment_count;
                      ++segment_index) {
                     progpu_native_path_segment segment{};
                     std::memcpy(
@@ -1082,7 +1087,8 @@ progpu_native_status render_scene(
                     valid = is_valid_semantic_segment(segment, false);
                 }
                 for (std::uint64_t outline_index = 0U;
-                     valid && budget_valid && outline_index < outline_count;
+                     valid && budget_valid && first_semantic_glyph_resource &&
+                         outline_index < outline_count;
                      ++outline_index) {
                     if (color_glyphs) {
                         continue;
@@ -1099,11 +1105,10 @@ progpu_native_status render_scene(
                         segment_count,
                         &outline_coverage_bytes);
                     budget_valid = valid &&
-                        (!first_semantic_glyph_resource ||
-                            outline_coverage_bytes <=
-                                semantic_max_coverage_bytes -
-                                    compiled_coverage_bytes);
-                    if (budget_valid && first_semantic_glyph_resource) {
+                        outline_coverage_bytes <=
+                            semantic_max_coverage_bytes -
+                                compiled_coverage_bytes;
+                    if (budget_valid) {
                         compiled_coverage_bytes += outline_coverage_bytes;
                     }
                 }
