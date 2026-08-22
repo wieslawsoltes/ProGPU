@@ -19,6 +19,7 @@ public class Graphics :
 {
     private readonly DrawingContext _context;
     private readonly Bitmap? _bitmap;
+    private readonly RectangleF? _deviceBounds;
     // Device/host state is immutable; public Transform APIs mutate only _transform.
     private readonly Matrix3x2 _baseTransform;
     private Matrix _transform = new();
@@ -117,7 +118,16 @@ public class Graphics :
     {
         get
         {
-            if (_bitmap == null)
+            RectangleF deviceBounds;
+            if (_deviceBounds is { } explicitDeviceBounds)
+            {
+                deviceBounds = explicitDeviceBounds;
+            }
+            else if (_bitmap is not null)
+            {
+                deviceBounds = new RectangleF(0f, 0f, _bitmap.Width, _bitmap.Height);
+            }
+            else
             {
                 return RectangleF.Empty;
             }
@@ -127,10 +137,10 @@ public class Graphics :
                 return RectangleF.Empty;
             }
 
-            Vector2 topLeft = Vector2.Transform(Vector2.Zero, deviceToWorld);
-            Vector2 topRight = Vector2.Transform(new Vector2(_bitmap.Width, 0f), deviceToWorld);
-            Vector2 bottomLeft = Vector2.Transform(new Vector2(0f, _bitmap.Height), deviceToWorld);
-            Vector2 bottomRight = Vector2.Transform(new Vector2(_bitmap.Width, _bitmap.Height), deviceToWorld);
+            Vector2 topLeft = Vector2.Transform(new Vector2(deviceBounds.Left, deviceBounds.Top), deviceToWorld);
+            Vector2 topRight = Vector2.Transform(new Vector2(deviceBounds.Right, deviceBounds.Top), deviceToWorld);
+            Vector2 bottomLeft = Vector2.Transform(new Vector2(deviceBounds.Left, deviceBounds.Bottom), deviceToWorld);
+            Vector2 bottomRight = Vector2.Transform(new Vector2(deviceBounds.Right, deviceBounds.Bottom), deviceToWorld);
             float left = MathF.Min(MathF.Min(topLeft.X, topRight.X), MathF.Min(bottomLeft.X, bottomRight.X));
             float top = MathF.Min(MathF.Min(topLeft.Y, topRight.Y), MathF.Min(bottomLeft.Y, bottomRight.Y));
             float right = MathF.Max(MathF.Max(topLeft.X, topRight.X), MathF.Max(bottomLeft.X, bottomRight.X));
@@ -141,15 +151,20 @@ public class Graphics :
     }
 
     internal Graphics(DrawingContext context, Bitmap? bitmap = null)
-        : this(context, bitmap, Matrix3x2.Identity)
+        : this(context, bitmap, Matrix3x2.Identity, deviceBounds: null)
     {
     }
 
-    private Graphics(DrawingContext context, Bitmap? bitmap, Matrix3x2 baseTransform)
+    private Graphics(
+        DrawingContext context,
+        Bitmap? bitmap,
+        Matrix3x2 baseTransform,
+        RectangleF? deviceBounds)
     {
         _context = context;
         _bitmap = bitmap;
         _baseTransform = baseTransform;
+        _deviceBounds = deviceBounds;
     }
 
     public static Graphics FromProGpuDrawingContext(DrawingContext drawingContext)
@@ -167,6 +182,51 @@ public class Graphics :
     public static Graphics FromProGpuDrawingContext(
         DrawingContext drawingContext,
         Matrix4x4 outerTransform)
+        => FromProGpuDrawingContextCore(
+            drawingContext,
+            outerTransform,
+            deviceBounds: null);
+
+    /// <summary>
+    /// Creates a Graphics recorder for a retained ProGPU context with explicit
+    /// device-space surface bounds. Framework hosts use this overload so
+    /// VisibleClipBounds and clip queries retain normal System.Drawing behavior
+    /// without an HDC or an intermediate bitmap.
+    /// </summary>
+    public static Graphics FromProGpuDrawingContext(
+        DrawingContext drawingContext,
+        RectangleF deviceBounds)
+        => FromProGpuDrawingContext(
+            drawingContext,
+            deviceBounds,
+            Matrix4x4.Identity);
+
+    /// <summary>
+    /// Creates a Graphics recorder for a retained ProGPU context with explicit
+    /// device-space surface bounds and a host-provided outer transform.
+    /// </summary>
+    public static Graphics FromProGpuDrawingContext(
+        DrawingContext drawingContext,
+        RectangleF deviceBounds,
+        Matrix4x4 outerTransform)
+    {
+        if (!IsFiniteNonNegative(deviceBounds))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(deviceBounds),
+                "Device bounds must be finite and have non-negative dimensions.");
+        }
+
+        return FromProGpuDrawingContextCore(
+            drawingContext,
+            outerTransform,
+            deviceBounds);
+    }
+
+    private static Graphics FromProGpuDrawingContextCore(
+        DrawingContext drawingContext,
+        Matrix4x4 outerTransform,
+        RectangleF? deviceBounds)
     {
         ArgumentNullException.ThrowIfNull(drawingContext);
         if (!IsFinite2DAffineTransform(outerTransform))
@@ -176,14 +236,26 @@ public class Graphics :
                 nameof(outerTransform));
         }
 
-        return new Graphics(drawingContext, bitmap: null, baseTransform: new Matrix3x2(
-            outerTransform.M11,
-            outerTransform.M12,
-            outerTransform.M21,
-            outerTransform.M22,
-            outerTransform.M41,
-            outerTransform.M42));
+        return new Graphics(
+            drawingContext,
+            bitmap: null,
+            baseTransform: new Matrix3x2(
+                outerTransform.M11,
+                outerTransform.M12,
+                outerTransform.M21,
+                outerTransform.M22,
+                outerTransform.M41,
+                outerTransform.M42),
+            deviceBounds);
     }
+
+    private static bool IsFiniteNonNegative(RectangleF bounds) =>
+        float.IsFinite(bounds.X)
+        && float.IsFinite(bounds.Y)
+        && float.IsFinite(bounds.Width)
+        && float.IsFinite(bounds.Height)
+        && bounds.Width >= 0f
+        && bounds.Height >= 0f;
 
     private static bool IsFinite2DAffineTransform(Matrix4x4 transform)
     {

@@ -5,12 +5,43 @@ using System.Drawing.Printing;
 using System.ComponentModel;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using ProGPU.Scene;
 using Xunit;
 
 namespace ProGPU.SystemDrawing.Tests;
 
 public sealed class DrawingApiQualityTests
 {
+    [Fact]
+    public void ContextGraphicsUsesExplicitDeviceBoundsForVisibleClipQueries()
+    {
+        var context = new DrawingContext();
+        using var graphics = Graphics.FromProGpuDrawingContext(
+            context,
+            new RectangleF(0f, 0f, 640f, 480f));
+
+        Assert.Equal(new RectangleF(0f, 0f, 640f, 480f), graphics.VisibleClipBounds);
+
+        graphics.TranslateTransform(10f, 20f);
+
+        Assert.Equal(new RectangleF(-10f, -20f, 640f, 480f), graphics.VisibleClipBounds);
+    }
+
+    [Fact]
+    public void ContextGraphicsRejectsInvalidExplicitDeviceBounds()
+    {
+        var context = new DrawingContext();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            Graphics.FromProGpuDrawingContext(
+                context,
+                new RectangleF(0f, 0f, float.NaN, 480f)));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            Graphics.FromProGpuDrawingContext(
+                context,
+                new RectangleF(0f, 0f, -1f, 480f)));
+    }
+
     [Fact]
     public void RotateFlipMovesPixelsAndDimensionsExactly()
     {
