@@ -6728,6 +6728,30 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void RoundedRingMatchingAnalyticParentAvoidsTexturePass()
+    {
+        using var window = new HeadlessWindow(64, 64);
+        window.Content = new UniformRoundedRingClipVisual(nestedInMatchingOuter: true);
+
+        window.Render();
+
+        CompositorMetrics metrics = window.Compositor.Metrics;
+        Assert.Equal(0, metrics.MaskTexturePeakDemand);
+        Assert.Equal(2, metrics.AnalyticMaskBindGroupCount);
+        Assert.Equal(0, metrics.MaskRenderPassCount);
+
+        byte[] pixels = window.ReadPixels();
+        var ring = ReadPixel(pixels, window.Width, x: 6, y: 32);
+        var hole = ReadPixel(pixels, window.Width, x: 32, y: 32);
+        Assert.True(
+            ring.G >= 220 && ring.R <= 35 && ring.B <= 35,
+            $"Expected nested green rounded-ring coverage, found {ring}.");
+        Assert.True(
+            hole.R <= 35 && hole.G <= 35 && hole.B <= 35,
+            $"Expected the nested analytic rounded-ring hole to stay clear, found {hole}.");
+    }
+
+    [Fact]
     public void AnalyticClipDoesNotMaskPendingPrecedingDraws()
     {
         using var window = new HeadlessWindow(64, 64);
@@ -9747,14 +9771,29 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
 
     private sealed class UniformRoundedRingClipVisual : FrameworkElement
     {
-        public UniformRoundedRingClipVisual()
+        private readonly bool _nestedInMatchingOuter;
+
+        public UniformRoundedRingClipVisual(bool nestedInMatchingOuter = false)
         {
+            _nestedInMatchingOuter = nestedInMatchingOuter;
             Width = 64f;
             Height = 64f;
         }
 
         public override void OnRender(DrawingContext context)
         {
+            if (_nestedInMatchingOuter)
+            {
+                context.PushGeometryClip(
+                    PrimitivePathGeometry.CreateRoundedRectangle(
+                        4f,
+                        4f,
+                        56f,
+                        56f,
+                        10f,
+                        10f));
+            }
+
             PathGeometry ring = PrimitivePathGeometry.CreateRoundedRectangle(
                 4f,
                 4f,
@@ -9781,6 +9820,10 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 null,
                 new Rect(0f, 0f, 64f, 64f));
             context.PopGeometryClip();
+            if (_nestedInMatchingOuter)
+            {
+                context.PopGeometryClip();
+            }
         }
     }
 

@@ -19684,9 +19684,7 @@ SceneStateUploadComplete:
         // so canonical clips remain analytic there. Nested layer/effect
         // transactions retain the texture fallback until their composed
         // parent-mask lifetime is represented explicitly.
-        if (_offscreenRenderDepth > 1 ||
-            _maskStack.Count != 0 ||
-            geometry.IsCombined)
+        if (_offscreenRenderDepth > 1 || geometry.IsCombined)
         {
             return false;
         }
@@ -19705,8 +19703,11 @@ SceneStateUploadComplete:
         {
             return false;
         }
+        if (!isRoundedRing && _maskStack.Count != 0)
+        {
+            return false;
+        }
 
-        CommitPendingDrawCalls();
         Matrix4x4 normalizedTransform =
             transform == default
                 ? Matrix4x4.Identity
@@ -19764,6 +19765,14 @@ SceneStateUploadComplete:
                 ringInset,
                 0f)
         };
+        if (_maskStack.Count != 0 &&
+            (_maskStack.Count != 1 ||
+             !MatchesAnalyticOuter(_maskStack.Peek(), samplingUniforms)))
+        {
+            return false;
+        }
+
+        CommitPendingDrawCalls();
         MaskBindGroupResource resource =
             RentAnalyticMaskResource(samplingUniforms);
         var logicalBounds = new Rect(
@@ -19781,6 +19790,24 @@ SceneStateUploadComplete:
                 bounds,
                 resource));
         return true;
+    }
+
+    private static bool MatchesAnalyticOuter(
+        MaskTextureState parent,
+        MaskSamplingUniforms ring)
+    {
+        if (parent.AnalyticResource is not { } resource)
+        {
+            return false;
+        }
+
+        MaskSamplingUniforms outer = resource.SamplingUniforms;
+        return outer.Options.X == 2f &&
+            outer.Coordinate0 == ring.Coordinate0 &&
+            outer.Coordinate1 == ring.Coordinate1 &&
+            outer.Bounds == ring.Bounds &&
+            outer.CornerRadiiX == ring.CornerRadiiX &&
+            outer.CornerRadiiY == ring.CornerRadiiY;
     }
 
     private static bool TryReadUniformRoundedRing(
