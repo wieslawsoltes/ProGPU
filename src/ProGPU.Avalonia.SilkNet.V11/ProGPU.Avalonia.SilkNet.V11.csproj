@@ -12,8 +12,8 @@
     <Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>true</Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>
     <Avalonia_I_Want_To_Use_Private_Apis_In_Nuget_Package_And_Promise_To_Pin_The_Exact_Avalonia_Version_In_Package_Dependency>true</Avalonia_I_Want_To_Use_Private_Apis_In_Nuget_Package_And_Promise_To_Pin_The_Exact_Avalonia_Version_In_Package_Dependency>
     <PackageId>ProGPU.Avalonia.SilkNet</PackageId>
-    <Version>11.3.18-preview.54</Version>
-    <PackageVersion>11.3.18-preview.54</PackageVersion>
+    <Version>11.3.18-preview.55</Version>
+    <PackageVersion>11.3.18-preview.55</PackageVersion>
     <Title>ProGPU Silk.NET windowing for Avalonia 11</Title>
     <Description>Typed, reflection-free Silk.NET desktop windowing and WebGPU presentation for Avalonia 11 and ProGPU.</Description>
     <PackageTags>progpu;avalonia;silk.net;windowing;webgpu</PackageTags>
