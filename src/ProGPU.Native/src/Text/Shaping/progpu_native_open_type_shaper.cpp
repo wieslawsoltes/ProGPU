@@ -1940,6 +1940,22 @@ bool try_shape_open_type_run(
         return false;
     }
 
+    sfnt_horizontal_advance_variation_instance advance_variation{};
+    const sfnt_horizontal_advance_variation_instance*
+        advance_variation_pointer = nullptr;
+    if (!scratch.variation_region_scalars.empty()) {
+        if (!font.try_prepare_horizontal_advance_variation(
+                options.normalized_coordinates,
+                scratch.variation_region_scalars,
+                advance_variation,
+                error)) {
+            return false;
+        }
+        if (advance_variation.uses_hvar) {
+            advance_variation_pointer = &advance_variation;
+        }
+    }
+
     std::span<const unicode_scalar> shaping_input = input;
     if (requirements.normalization_scalar_capacity != 0U) {
         std::uint32_t source_grapheme_count =
@@ -2041,11 +2057,13 @@ bool try_shape_open_type_run(
                 ? font.try_get_design_advance_width(
                     glyph,
                     options.normalized_coordinates,
+                    advance_variation_pointer,
                     advance_width,
                     error)
                 : font.try_get_design_advance_width(
                     glyph,
                     options.normalized_coordinates,
+                    advance_variation_pointer,
                     advance_width,
                     scratch.fallback_marks->advance_width,
                     error);
@@ -2861,11 +2879,13 @@ bool try_shape_open_type_run(
             ? font.try_get_design_advance_width(
                 glyph,
                 options.normalized_coordinates,
+                advance_variation_pointer,
                 advance_width,
                 error)
             : font.try_get_design_advance_width(
                 glyph,
                 options.normalized_coordinates,
+                advance_variation_pointer,
                 advance_width,
                 scratch.fallback_marks->advance_width,
                 error);

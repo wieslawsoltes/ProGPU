@@ -76,6 +76,95 @@ bool try_get_subtable_offset(
     return true;
 }
 
+bool try_calculate_region_scalar(
+    sfnt_item_variation_store_view store,
+    std::span<const std::int16_t> normalized_coordinates,
+    std::uint16_t region_index,
+    float& result,
+    font_error* error) noexcept {
+    result = 0.0F;
+    if (normalized_coordinates.size() < store.axis_count) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
+    }
+    if (region_index >= store.region_count) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    const auto axes_offset = store.region_list_offset + 4U +
+        static_cast<std::size_t>(region_index) * store.axis_count * 6U;
+    constexpr float coordinate_scale = 1.0F / 16384.0F;
+    float scalar = 1.0F;
+    for (std::uint16_t axis = 0U; axis < store.axis_count; ++axis) {
+        const auto offset = axes_offset + static_cast<std::size_t>(axis) * 6U;
+        scalar *= axis_scalar(
+            normalized_coordinates[axis] * coordinate_scale,
+            read_i16(store.bytes, offset) * coordinate_scale,
+            read_i16(store.bytes, offset + 2U) * coordinate_scale,
+            read_i16(store.bytes, offset + 4U) * coordinate_scale);
+        if (scalar == 0.0F) break;
+    }
+    result = scalar;
+    return true;
+}
+
+template <typename ResolveScalar>
+bool try_get_delta_impl(
+    sfnt_item_variation_store_view store,
+    std::uint16_t outer_index,
+    std::uint16_t inner_index,
+    float& result,
+    ResolveScalar&& resolve_scalar) noexcept {
+    result = 0.0F;
+    std::size_t table_offset = 0U;
+    if (!try_get_subtable_offset(store, outer_index, table_offset)) return true;
+    const auto item_count = read_u16(store.bytes, table_offset);
+    if (inner_index >= item_count) return true;
+    const auto packed_word_count = read_u16(store.bytes, table_offset + 2U);
+    const auto region_index_count = read_u16(store.bytes, table_offset + 4U);
+    const auto word_count = packed_word_count & 0x7FFFU;
+    const bool long_words = (packed_word_count & 0x8000U) != 0U;
+    const auto index_offset = table_offset + 6U;
+    const auto word_bytes = long_words ? 4U : 2U;
+    const auto short_bytes = long_words ? 2U : 1U;
+    const auto bytes_per_row =
+        static_cast<std::size_t>(word_count) * word_bytes +
+        static_cast<std::size_t>(region_index_count - word_count) *
+            short_bytes;
+    auto delta_offset = index_offset +
+        static_cast<std::size_t>(region_index_count) * 2U +
+        static_cast<std::size_t>(inner_index) * bytes_per_row;
+    float delta_sum = 0.0F;
+    for (std::uint16_t region = 0U; region < region_index_count; ++region) {
+        std::int32_t delta = 0;
+        if (region < word_count) {
+            if (long_words) {
+                delta = static_cast<std::int32_t>(
+                    read_u32(store.bytes, delta_offset));
+                delta_offset += 4U;
+            } else {
+                delta = read_i16(store.bytes, delta_offset);
+                delta_offset += 2U;
+            }
+        } else if (long_words) {
+            delta = read_i16(store.bytes, delta_offset);
+            delta_offset += 2U;
+        } else {
+            delta = static_cast<std::int8_t>(
+                std::to_integer<std::uint8_t>(store.bytes[delta_offset++]));
+        }
+        const auto region_index = read_u16(
+            store.bytes,
+            index_offset + static_cast<std::size_t>(region) * 2U);
+        if (region_index >= store.region_count) continue;
+        float scalar = 0.0F;
+        if (!resolve_scalar(region_index, scalar)) return false;
+        delta_sum += delta * scalar;
+    }
+    result = delta_sum;
+    return true;
+}
+
 } // namespace
 
 bool sfnt_item_variation_data::try_get_store(
@@ -186,74 +275,54 @@ bool sfnt_item_variation_data::try_get_delta(
         set_error(error, font_error::insufficient_buffer);
         return false;
     }
-    std::size_t table_offset = 0U;
-    if (!try_get_subtable_offset(store, outer_index, table_offset)) {
-        return true;
+    return try_get_delta_impl(
+        store,
+        outer_index,
+        inner_index,
+        result,
+        [&](std::uint16_t region_index, float& scalar) noexcept {
+            return try_calculate_region_scalar(
+                store,
+                normalized_coordinates,
+                region_index,
+                scalar,
+                error);
+        });
+}
+
+bool sfnt_item_variation_data::try_get_delta(
+    sfnt_item_variation_store_view store,
+    std::span<const float> region_scalars,
+    std::uint16_t outer_index,
+    std::uint16_t inner_index,
+    float& result,
+    font_error* error) noexcept {
+    result = 0.0F;
+    set_error(error, font_error::none);
+    if (region_scalars.size() < store.region_count) {
+        set_error(error, font_error::insufficient_buffer);
+        return false;
     }
-    const auto item_count = read_u16(store.bytes, table_offset);
-    if (inner_index >= item_count) {
-        return true;
-    }
-    const auto packed_word_count = read_u16(store.bytes, table_offset + 2U);
-    const auto region_index_count = read_u16(store.bytes, table_offset + 4U);
-    const auto word_count = packed_word_count & 0x7FFFU;
-    const bool long_words = (packed_word_count & 0x8000U) != 0U;
-    const auto index_offset = table_offset + 6U;
-    const auto word_bytes = long_words ? 4U : 2U;
-    const auto short_bytes = long_words ? 2U : 1U;
-    const auto bytes_per_row =
-        static_cast<std::size_t>(word_count) * word_bytes +
-        static_cast<std::size_t>(region_index_count - word_count) *
-            short_bytes;
-    auto delta_offset = index_offset +
-        static_cast<std::size_t>(region_index_count) * 2U +
-        static_cast<std::size_t>(inner_index) * bytes_per_row;
-    float delta_sum = 0.0F;
-    constexpr float coordinate_scale = 1.0F / 16384.0F;
-    for (std::uint16_t region = 0U;
-        region < region_index_count;
-        ++region) {
-        std::int32_t delta = 0;
-        if (region < word_count) {
-            if (long_words) {
-                delta = static_cast<std::int32_t>(
-                    read_u32(store.bytes, delta_offset));
-                delta_offset += 4U;
-            } else {
-                delta = read_i16(store.bytes, delta_offset);
-                delta_offset += 2U;
-            }
-        } else if (long_words) {
-            delta = read_i16(store.bytes, delta_offset);
-            delta_offset += 2U;
-        } else {
-            delta = static_cast<std::int8_t>(
-                std::to_integer<std::uint8_t>(store.bytes[delta_offset++]));
-        }
-        const auto region_index = read_u16(
-            store.bytes,
-            index_offset + static_cast<std::size_t>(region) * 2U);
-        if (region_index >= store.region_count) {
-            continue;
-        }
-        const auto axes_offset = store.region_list_offset + 4U +
-            static_cast<std::size_t>(region_index) * store.axis_count * 6U;
-        float scalar = 1.0F;
-        for (std::uint16_t axis = 0U; axis < store.axis_count; ++axis) {
-            const auto offset = axes_offset + static_cast<std::size_t>(axis) * 6U;
-            scalar *= axis_scalar(
-                normalized_coordinates[axis] * coordinate_scale,
-                read_i16(store.bytes, offset) * coordinate_scale,
-                read_i16(store.bytes, offset + 2U) * coordinate_scale,
-                read_i16(store.bytes, offset + 4U) * coordinate_scale);
-            if (scalar == 0.0F) {
-                break;
-            }
-        }
-        delta_sum += delta * scalar;
-    }
-    result = delta_sum;
-    return true;
+    return try_get_delta_impl(
+        store,
+        outer_index,
+        inner_index,
+        result,
+        [&](std::uint16_t region_index, float& scalar) noexcept {
+            scalar = region_scalars[region_index];
+            return true;
+        });
+}
+
+bool sfnt_item_variation_data::try_get_region_scalar(
+    sfnt_item_variation_store_view store,
+    std::span<const std::int16_t> normalized_coordinates,
+    std::uint16_t region_index,
+    float& result,
+    font_error* error) noexcept {
+    set_error(error, font_error::none);
+    return try_calculate_region_scalar(
+        store, normalized_coordinates, region_index, result, error);
 }
 
 bool sfnt_item_variation_data::try_get_region_scalar_count(
