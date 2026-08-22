@@ -19686,17 +19686,27 @@ SceneStateUploadComplete:
         // parent-mask lifetime is represented explicitly.
         if (_offscreenRenderDepth > 1 ||
             _maskStack.Count != 0 ||
-            geometry.IsCombined ||
-            geometry.Figures.Count != 1 ||
-            !RoundedRectanglePathGeometry.TryReadCanonicalContour(
-                geometry.Figures[0],
-                out RoundedRectanglePathContour contour))
+            geometry.IsCombined)
+        {
+            return false;
+        }
+
+        RoundedRectanglePathContour contour;
+        float ringInset = 0f;
+        bool isRoundedRing = TryReadUniformRoundedRing(
+            geometry,
+            out contour,
+            out ringInset);
+        if (!isRoundedRing &&
+            (geometry.Figures.Count != 1 ||
+             !RoundedRectanglePathGeometry.TryReadCanonicalContour(
+                 geometry.Figures[0],
+                 out contour)))
         {
             return false;
         }
 
         CommitPendingDrawCalls();
-
         Matrix4x4 normalizedTransform =
             transform == default
                 ? Matrix4x4.Identity
@@ -19748,7 +19758,11 @@ SceneStateUploadComplete:
                 contour.Bottom),
             CornerRadiiX = contour.CornerRadiiX,
             CornerRadiiY = contour.CornerRadiiY,
-            Options = new Vector4(2f, 1f, 0f, 0f)
+            Options = new Vector4(
+                isRoundedRing ? 3f : 2f,
+                1f,
+                ringInset,
+                0f)
         };
         MaskBindGroupResource resource =
             RentAnalyticMaskResource(samplingUniforms);
@@ -19768,6 +19782,54 @@ SceneStateUploadComplete:
                 resource));
         return true;
     }
+
+    private static bool TryReadUniformRoundedRing(
+        PathGeometry geometry,
+        out RoundedRectanglePathContour outer,
+        out float inset)
+    {
+        outer = default;
+        inset = 0f;
+        if (geometry.FillRule != FillRule.EvenOdd ||
+            geometry.Figures.Count != 2 ||
+            !RoundedRectanglePathGeometry.TryReadCanonicalContour(
+                geometry.Figures[0],
+                out outer) ||
+            !RoundedRectanglePathGeometry.TryReadCanonicalContour(
+                geometry.Figures[1],
+                out RoundedRectanglePathContour inner))
+        {
+            return false;
+        }
+
+        float left = inner.Left - outer.Left;
+        float top = inner.Top - outer.Top;
+        float right = outer.Right - inner.Right;
+        float bottom = outer.Bottom - inner.Bottom;
+        float tolerance = MathF.Max(outer.Width, outer.Height) * 0.0001f + 0.0001f;
+        if (left <= tolerance ||
+            MathF.Abs(top - left) > tolerance ||
+            MathF.Abs(right - left) > tolerance ||
+            MathF.Abs(bottom - left) > tolerance ||
+            !InsetRadiiMatch(inner.CornerRadiiX, outer.CornerRadiiX, left, tolerance) ||
+            !InsetRadiiMatch(inner.CornerRadiiY, outer.CornerRadiiY, left, tolerance))
+        {
+            return false;
+        }
+
+        inset = left;
+        return true;
+    }
+
+    private static bool InsetRadiiMatch(
+        Vector4 inner,
+        Vector4 outer,
+        float inset,
+        float tolerance) =>
+        MathF.Abs(inner.X - MathF.Max(0f, outer.X - inset)) <= tolerance &&
+        MathF.Abs(inner.Y - MathF.Max(0f, outer.Y - inset)) <= tolerance &&
+        MathF.Abs(inner.Z - MathF.Max(0f, outer.Z - inset)) <= tolerance &&
+        MathF.Abs(inner.W - MathF.Max(0f, outer.W - inset)) <= tolerance;
 
     private static bool IsFinite(Matrix3x2 matrix) =>
         float.IsFinite(matrix.M11) &&

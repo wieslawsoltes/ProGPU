@@ -170,29 +170,25 @@ struct MaskChainUniforms {
 
 @group(2) @binding(3) var<uniform> maskChain: MaskChainUniforms;
 
-fn analytic_rounded_mask_alpha_for(position: vec2<f32>, sampling: MaskSamplingUniforms) -> f32 {
-    let local = vec2<f32>(
-        dot(vec3<f32>(position, 1.0), sampling.coordinate0.xyz),
-        dot(vec3<f32>(position, 1.0), sampling.coordinate1.xyz));
-    let bounds = sampling.bounds;
+fn rounded_mask_alpha_local(local: vec2<f32>, bounds: vec4<f32>, radiiX: vec4<f32>, radiiY: vec4<f32>) -> f32 {
     let edge = max(max(bounds.x - local.x, local.x - bounds.z), max(bounds.y - local.y, local.y - bounds.w));
     var center = vec2<f32>(0.0);
     var radius = vec2<f32>(0.0);
     var usesCorner = false;
-    if (local.x < bounds.x + sampling.cornerRadiiX.x && local.y < bounds.y + sampling.cornerRadiiY.x) {
-        radius = vec2<f32>(sampling.cornerRadiiX.x, sampling.cornerRadiiY.x);
+    if (local.x < bounds.x + radiiX.x && local.y < bounds.y + radiiY.x) {
+        radius = vec2<f32>(radiiX.x, radiiY.x);
         center = vec2<f32>(bounds.x + radius.x, bounds.y + radius.y);
         usesCorner = all(radius > vec2<f32>(0.0));
-    } else if (local.x > bounds.z - sampling.cornerRadiiX.y && local.y < bounds.y + sampling.cornerRadiiY.y) {
-        radius = vec2<f32>(sampling.cornerRadiiX.y, sampling.cornerRadiiY.y);
+    } else if (local.x > bounds.z - radiiX.y && local.y < bounds.y + radiiY.y) {
+        radius = vec2<f32>(radiiX.y, radiiY.y);
         center = vec2<f32>(bounds.z - radius.x, bounds.y + radius.y);
         usesCorner = all(radius > vec2<f32>(0.0));
-    } else if (local.x > bounds.z - sampling.cornerRadiiX.z && local.y > bounds.w - sampling.cornerRadiiY.z) {
-        radius = vec2<f32>(sampling.cornerRadiiX.z, sampling.cornerRadiiY.z);
+    } else if (local.x > bounds.z - radiiX.z && local.y > bounds.w - radiiY.z) {
+        radius = vec2<f32>(radiiX.z, radiiY.z);
         center = vec2<f32>(bounds.z - radius.x, bounds.w - radius.y);
         usesCorner = all(radius > vec2<f32>(0.0));
-    } else if (local.x < bounds.x + sampling.cornerRadiiX.w && local.y > bounds.w - sampling.cornerRadiiY.w) {
-        radius = vec2<f32>(sampling.cornerRadiiX.w, sampling.cornerRadiiY.w);
+    } else if (local.x < bounds.x + radiiX.w && local.y > bounds.w - radiiY.w) {
+        radius = vec2<f32>(radiiX.w, radiiY.w);
         center = vec2<f32>(bounds.x + radius.x, bounds.w - radius.y);
         usesCorner = all(radius > vec2<f32>(0.0));
     }
@@ -202,6 +198,23 @@ fn analytic_rounded_mask_alpha_for(position: vec2<f32>, sampling: MaskSamplingUn
     let implicit = select(edge, ellipse, usesCorner);
     let antialiasWidth = max(fwidth(implicit), 0.0001);
     return clamp(0.5 - implicit / antialiasWidth, 0.0, 1.0);
+}
+
+fn analytic_rounded_mask_alpha_for(position: vec2<f32>, sampling: MaskSamplingUniforms) -> f32 {
+    let local = vec2<f32>(
+        dot(vec3<f32>(position, 1.0), sampling.coordinate0.xyz),
+        dot(vec3<f32>(position, 1.0), sampling.coordinate1.xyz));
+    let outerAlpha = rounded_mask_alpha_local(local, sampling.bounds, sampling.cornerRadiiX, sampling.cornerRadiiY);
+    if (sampling.options.x < 2.5) {
+        return outerAlpha;
+    }
+    let inset = sampling.options.z;
+    let innerAlpha = rounded_mask_alpha_local(
+        local,
+        sampling.bounds + vec4<f32>(inset, inset, -inset, -inset),
+        max(sampling.cornerRadiiX - vec4<f32>(inset), vec4<f32>(0.0)),
+        max(sampling.cornerRadiiY - vec4<f32>(inset), vec4<f32>(0.0)));
+    return outerAlpha * (1.0 - innerAlpha);
 }
 
 fn analytic_rounded_mask_alpha(position: vec2<f32>) -> f32 {
