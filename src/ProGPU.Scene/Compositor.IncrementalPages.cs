@@ -397,7 +397,8 @@ public unsafe partial class Compositor
                 ? commands[index]
                 : ownedRenderCommandCache.GetRenderCommand(index);
             if (command.UseGpuTransforms ||
-                !IsIncrementalScenePageCommandSupported(command.Type))
+                !RenderCommand.IsIncrementalScenePageCommandSupported(
+                    command.Type))
             {
                 _incrementalScenePageRejectReason ??=
                     command.UseGpuTransforms
@@ -428,35 +429,6 @@ public unsafe partial class Compositor
             _activeOpacity,
             _activeBlendMode);
         return true;
-    }
-
-    private static bool IsIncrementalScenePageCommandSupported(
-        RenderCommandType type)
-    {
-        return type is
-            RenderCommandType.DrawRect or
-            RenderCommandType.DrawPath or
-            RenderCommandType.DrawText or
-            RenderCommandType.DrawTexture or
-            RenderCommandType.DrawPicture or
-            RenderCommandType.PushClip or
-            RenderCommandType.PopClip or
-            RenderCommandType.PushOpacity or
-            RenderCommandType.PopOpacity or
-            RenderCommandType.PushBlendMode or
-            RenderCommandType.PopBlendMode or
-            RenderCommandType.DrawLine or
-            RenderCommandType.DrawEllipse or
-            RenderCommandType.DrawCircle or
-            RenderCommandType.DrawRoundedRect or
-            RenderCommandType.DrawBezier or
-            RenderCommandType.DrawCubicBezier or
-            RenderCommandType.DrawPolyline or
-            RenderCommandType.FillTriangle or
-            RenderCommandType.FillQuad or
-            RenderCommandType.DrawGlyphRun or
-            RenderCommandType.DrawVertexMesh or
-            RenderCommandType.DrawPointBatch;
     }
 
     private void CompleteIncrementalScenePage(

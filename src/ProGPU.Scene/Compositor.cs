@@ -5733,13 +5733,14 @@ SceneStateUploadComplete:
         if (picture == null) return;
         if (TryReplayRetainedCompositionPicture(
                 picture,
-                globalTransform))
+                globalTransform,
+                out RetainedPictureObservation? retainedPictureObservation))
         {
             return;
         }
         bool captureRetainedPicture =
             TryBeginRetainedCompositionPicture(
-                picture,
+                retainedPictureObservation,
                 out IncrementalScenePageBoundary retainedPictureBoundary);
         try
         {

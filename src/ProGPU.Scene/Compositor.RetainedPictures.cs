@@ -83,20 +83,10 @@ public unsafe partial class Compositor
             _maskRenderPasses.Count != 0 ||
             _incrementalPagesBlockedByAnalyticMask ||
             _activeBlendMode != GpuBlendMode.SrcOver ||
-            _useGpuTransformsActive)
+            _useGpuTransformsActive ||
+            !picture.SupportsRetainedCompositionPicture)
         {
             return false;
-        }
-
-        for (int index = 0; index < picture.CommandCount; index++)
-        {
-            RenderCommand command = picture.GetCommand(index);
-            if (command.UseGpuTransforms ||
-                !IsIncrementalScenePageCommandSupported(command.Type) ||
-                command.Type == RenderCommandType.DrawVisual)
-            {
-                return false;
-            }
         }
 
         return true;
@@ -104,18 +94,13 @@ public unsafe partial class Compositor
 
     private bool TryReplayRetainedCompositionPicture(
         GpuPicture picture,
-        in Matrix4x4 globalTransform)
+        in Matrix4x4 globalTransform,
+        out RetainedPictureObservation? observation)
     {
+        observation = null;
         if (!CanUseRetainedCompositionPicture(picture))
         {
             return false;
-        }
-
-        RetainedPictureObservation observation =
-            _retainedPictureObservations.GetOrCreateValue(picture);
-        if (observation.Count < 2)
-        {
-            observation.Count++;
         }
 
         var key = CreateRetainedPicturePageKey(globalTransform);
@@ -128,6 +113,12 @@ public unsafe partial class Compositor
             if (page != null)
             {
                 RemoveRetainedCompositionPicture(lookup);
+            }
+            observation =
+                _retainedPictureObservations.GetOrCreateValue(picture);
+            if (observation.Count < 2)
+            {
+                observation.Count++;
             }
             _retainedCompositionPictureMisses++;
             return false;
@@ -142,14 +133,11 @@ public unsafe partial class Compositor
     }
 
     private bool TryBeginRetainedCompositionPicture(
-        GpuPicture picture,
+        RetainedPictureObservation? observation,
         out IncrementalScenePageBoundary boundary)
     {
         boundary = default;
-        if (!CanUseRetainedCompositionPicture(picture) ||
-            !_retainedPictureObservations.TryGetValue(
-                picture,
-                out RetainedPictureObservation? observation) ||
+        if (observation == null ||
             observation.Count < 2)
         {
             return false;
