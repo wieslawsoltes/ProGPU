@@ -34,6 +34,14 @@ public class NativeRendererInteropTests
             managedContext,
             StringComparison.Ordinal);
         Assert.Contains(
+            "wgpuQueueSubmitForIndex",
+            managedContext,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WrappedSubmissionIndex",
+            managedContext,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "poll_interval = 8U",
             nativeSynchronization,
             StringComparison.Ordinal);
