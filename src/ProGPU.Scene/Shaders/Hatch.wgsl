@@ -99,7 +99,11 @@ fn apply_gradient_spread(t: f32, spreadMethod: u32) -> f32 {
         return fract(t);
     }
 
-    return clamp(t, 0.0, 1.0);
+    // Keep Pad coordinates outside the unit interval until stop sampling.
+    // sample_gradient_color clamps through its first/last stop while retaining
+    // the distinction between an outside coordinate and an exact duplicate
+    // endpoint, where the last stop at that offset must win.
+    return t;
 }
 
 fn get_gradient_stop_color(brush: Brush, index: u32) -> vec4<f32> {
@@ -166,7 +170,10 @@ fn sample_gradient_color(brush: Brush, t: f32) -> vec4<f32> {
 
         let currentColor = get_gradient_stop_color(brush, i);
         let currentOffset = get_gradient_stop_offset(brush, i);
-        if (t <= currentOffset) {
+        // An exact offset belongs to the last stop at that offset. Besides
+        // matching Skia, this preserves hard transitions and ensures Pad
+        // selects the final color when duplicate stops sit at t = 1.
+        if (t < currentOffset) {
             let factor = (t - previousOffset) / max(currentOffset - previousOffset, 0.0001);
             return interpolate_gradient_color(brush, previousColor, currentColor, clamp(factor, 0.0, 1.0));
         }

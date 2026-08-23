@@ -30,7 +30,7 @@ public enum WgpuBackendKind
 public unsafe class WgpuContext : IDisposable
 {
     private const int QueuePollSubmissionInterval = 2;
-    private const int MaxDeferredQueueSubmissions = 8;
+    private const int DefaultMaximumDeferredQueueSubmissions = 8;
     private SharedDeviceLifetime? _sharedDeviceLifetime;
     private IWebGpuExternalDeviceLifetime? _externalDeviceLifetime;
     private WgpuDeviceResourceDomain? _deviceResourceDomain;
@@ -142,6 +142,38 @@ public unsafe class WgpuContext : IDisposable
     private long _queueSubmissionCount;
     private long _drainedQueueSubmissionCount;
     private long _polledQueueSubmissionCount;
+    private int _maximumDeferredQueueSubmissions =
+        DefaultMaximumDeferredQueueSubmissions;
+
+    /// <summary>
+    /// Gets or sets the maximum number of queue submissions that may remain
+    /// deferred before resource cleanup forces a blocking device drain.
+    /// </summary>
+    /// <remarks>
+    /// Completed work is retired by non-blocking device polling. This bound is
+    /// a safety valve for hosts that can submit work faster than the GPU can
+    /// retire it; hosts with an explicit frame-latency policy may select a
+    /// larger bounded window to avoid unnecessary CPU/GPU serialization.
+    /// </remarks>
+    public int MaximumDeferredQueueSubmissions
+    {
+        get => Volatile.Read(
+            ref _maximumDeferredQueueSubmissions);
+        set
+        {
+            if (value < 1)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(value),
+                    value,
+                    "The deferred queue submission bound must be positive.");
+            }
+
+            Volatile.Write(
+                ref _maximumDeferredQueueSubmissions,
+                value);
+        }
+    }
 
     public void Submit(
         nuint commandCount,
@@ -366,7 +398,8 @@ public unsafe class WgpuContext : IDisposable
                 var deferredQueueSubmissions =
                     submittedQueueWork - drainedQueueWork;
                 if (externalTextureOwners is not null ||
-                    deferredQueueSubmissions >= MaxDeferredQueueSubmissions)
+                    deferredQueueSubmissions >=
+                    MaximumDeferredQueueSubmissions)
                 {
                     WaitIdle();
                     Volatile.Write(

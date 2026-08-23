@@ -42,38 +42,51 @@ struct MaskSamplingUniforms {
 
 @group(3) @binding(2) var<uniform> maskSampling: MaskSamplingUniforms;
 
+fn rounded_mask_alpha_local(local: vec2<f32>, bounds: vec4<f32>, radiiX: vec4<f32>, radiiY: vec4<f32>) -> f32 {
+	let edge = max(max(bounds.x - local.x, local.x - bounds.z), max(bounds.y - local.y, local.y - bounds.w));
+	var center = vec2<f32>(0.0);
+	var radius = vec2<f32>(0.0);
+	var usesCorner = false;
+	if (local.x < bounds.x + radiiX.x && local.y < bounds.y + radiiY.x) {
+		radius = vec2<f32>(radiiX.x, radiiY.x);
+		center = vec2<f32>(bounds.x + radius.x, bounds.y + radius.y);
+		usesCorner = all(radius > vec2<f32>(0.0));
+	} else if (local.x > bounds.z - radiiX.y && local.y < bounds.y + radiiY.y) {
+		radius = vec2<f32>(radiiX.y, radiiY.y);
+		center = vec2<f32>(bounds.z - radius.x, bounds.y + radius.y);
+		usesCorner = all(radius > vec2<f32>(0.0));
+	} else if (local.x > bounds.z - radiiX.z && local.y > bounds.w - radiiY.z) {
+		radius = vec2<f32>(radiiX.z, radiiY.z);
+		center = vec2<f32>(bounds.z - radius.x, bounds.w - radius.y);
+		usesCorner = all(radius > vec2<f32>(0.0));
+	} else if (local.x < bounds.x + radiiX.w && local.y > bounds.w - radiiY.w) {
+		radius = vec2<f32>(radiiX.w, radiiY.w);
+		center = vec2<f32>(bounds.x + radius.x, bounds.w - radius.y);
+		usesCorner = all(radius > vec2<f32>(0.0));
+	}
+	let safeRadius = max(radius, vec2<f32>(0.000001));
+	let ellipsePoint = (local - center) / safeRadius;
+	let ellipse = dot(ellipsePoint, ellipsePoint) - 1.0;
+	let implicit = select(edge, ellipse, usesCorner);
+	let antialiasWidth = max(fwidth(implicit), 0.0001);
+	return clamp(0.5 - implicit / antialiasWidth, 0.0, 1.0);
+}
+
 fn analytic_rounded_mask_alpha(position: vec2<f32>) -> f32 {
     let local = vec2<f32>(
         dot(vec3<f32>(position, 1.0), maskSampling.coordinate0.xyz),
         dot(vec3<f32>(position, 1.0), maskSampling.coordinate1.xyz));
-    let bounds = maskSampling.bounds;
-    let edge = max(max(bounds.x - local.x, local.x - bounds.z), max(bounds.y - local.y, local.y - bounds.w));
-    var center = vec2<f32>(0.0);
-    var radius = vec2<f32>(0.0);
-    var usesCorner = false;
-    if (local.x < bounds.x + maskSampling.cornerRadiiX.x && local.y < bounds.y + maskSampling.cornerRadiiY.x) {
-        radius = vec2<f32>(maskSampling.cornerRadiiX.x, maskSampling.cornerRadiiY.x);
-        center = vec2<f32>(bounds.x + radius.x, bounds.y + radius.y);
-        usesCorner = all(radius > vec2<f32>(0.0));
-    } else if (local.x > bounds.z - maskSampling.cornerRadiiX.y && local.y < bounds.y + maskSampling.cornerRadiiY.y) {
-        radius = vec2<f32>(maskSampling.cornerRadiiX.y, maskSampling.cornerRadiiY.y);
-        center = vec2<f32>(bounds.z - radius.x, bounds.y + radius.y);
-        usesCorner = all(radius > vec2<f32>(0.0));
-    } else if (local.x > bounds.z - maskSampling.cornerRadiiX.z && local.y > bounds.w - maskSampling.cornerRadiiY.z) {
-        radius = vec2<f32>(maskSampling.cornerRadiiX.z, maskSampling.cornerRadiiY.z);
-        center = vec2<f32>(bounds.z - radius.x, bounds.w - radius.y);
-        usesCorner = all(radius > vec2<f32>(0.0));
-    } else if (local.x < bounds.x + maskSampling.cornerRadiiX.w && local.y > bounds.w - maskSampling.cornerRadiiY.w) {
-        radius = vec2<f32>(maskSampling.cornerRadiiX.w, maskSampling.cornerRadiiY.w);
-        center = vec2<f32>(bounds.x + radius.x, bounds.w - radius.y);
-        usesCorner = all(radius > vec2<f32>(0.0));
-    }
-    let safeRadius = max(radius, vec2<f32>(0.000001));
-    let ellipsePoint = (local - center) / safeRadius;
-    let ellipse = dot(ellipsePoint, ellipsePoint) - 1.0;
-    let implicit = select(edge, ellipse, usesCorner);
-    let antialiasWidth = max(fwidth(implicit), 0.0001);
-    return clamp(0.5 - implicit / antialiasWidth, 0.0, 1.0);
+	let outerAlpha = rounded_mask_alpha_local(local, maskSampling.bounds, maskSampling.cornerRadiiX, maskSampling.cornerRadiiY);
+	if (maskSampling.options.x < 2.5) {
+		return outerAlpha;
+	}
+	let inset = maskSampling.options.z;
+	let innerAlpha = rounded_mask_alpha_local(
+		local,
+		maskSampling.bounds + vec4<f32>(inset, inset, -inset, -inset),
+		max(maskSampling.cornerRadiiX - vec4<f32>(inset), vec4<f32>(0.0)),
+		max(maskSampling.cornerRadiiY - vec4<f32>(inset), vec4<f32>(0.0)));
+	return outerAlpha * (1.0 - innerAlpha);
 }
 
 fn sample_mask_alpha(position: vec2<f32>) -> f32 {
@@ -117,6 +130,58 @@ fn premultiply(color: vec4<f32>) -> vec4<f32> {
 
 fn source_over(destination: vec4<f32>, source: vec4<f32>) -> vec4<f32> {
     return source + destination * (1.0 - source.a);
+}
+
+fn blend_luminosity(color: vec3<f32>) -> f32 {
+    return dot(color, vec3<f32>(0.3, 0.59, 0.11));
+}
+
+fn clip_blend_color(inputColor: vec3<f32>) -> vec3<f32> {
+    var color = inputColor;
+    let lightness = blend_luminosity(color);
+    let minimum = min(min(color.r, color.g), color.b);
+    let maximum = max(max(color.r, color.g), color.b);
+    if (minimum < 0.0 && lightness > minimum) {
+        color = vec3<f32>(lightness) +
+            (color - vec3<f32>(lightness)) * lightness / (lightness - minimum);
+    }
+    if (maximum > 1.0 && maximum > lightness) {
+        color = vec3<f32>(lightness) +
+            (color - vec3<f32>(lightness)) * (1.0 - lightness) /
+                (maximum - lightness);
+    }
+    return color;
+}
+
+fn set_blend_luminosity(color: vec3<f32>, lightness: f32) -> vec3<f32> {
+    return clip_blend_color(
+        color + vec3<f32>(lightness - blend_luminosity(color)));
+}
+
+fn blend_nonseparable_source_over(
+    destination: vec4<f32>,
+    sourceColor: vec4<f32>,
+    useColorMode: bool) -> vec4<f32> {
+    let source = premultiply(sourceColor);
+    let sourceAlpha = source.a;
+    let destinationAlpha = destination.a;
+    let straightDestination = select(
+        vec3<f32>(0.0),
+        destination.rgb / destinationAlpha,
+        destinationAlpha > 0.00001);
+    var mixed = set_blend_luminosity(
+        straightDestination,
+        blend_luminosity(sourceColor.rgb));
+    if (useColorMode) {
+        mixed = set_blend_luminosity(
+            sourceColor.rgb,
+            blend_luminosity(straightDestination));
+    }
+    return vec4<f32>(
+        source.rgb * (1.0 - destinationAlpha) +
+            destination.rgb * (1.0 - sourceAlpha) +
+            mixed * sourceAlpha * destinationAlpha,
+        sourceAlpha + destinationAlpha - sourceAlpha * destinationAlpha);
 }
 
 fn sample_backdrop(uv: vec2<f32>) -> vec4<f32> {
@@ -184,12 +249,27 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let hasSource = material.flags0.x > 0.5;
     let hasMask = material.flags0.y > 0.5;
     let sourceIsPremultiplied = material.flags0.z > 0.5;
+    let sourceIsCapturedHostBackdrop = material.flags0.w > 0.5;
     let useFallback = material.material1.w > 0.5;
     let kind = material.material1.z;
 
     var backdrop = vec4<f32>(0.0);
+    var capturedDestination = vec4<f32>(0.0);
     if (hasSource) {
-        backdrop = sample_backdrop(input.texCoord);
+        let backdropUv = select(
+            input.texCoord,
+            input.position.xy / max(material.geometry0.zw, vec2<f32>(1.0)),
+            sourceIsCapturedHostBackdrop);
+        if (sourceIsCapturedHostBackdrop) {
+            // Captured host textures are premultiplied. Preserve the exact
+            // pre-material destination for coverage mixing below; the blurred
+            // sample is the material input, not the uncovered output.
+            capturedDestination = textureSample(
+                sourceTexture,
+                sourceSampler,
+                backdropUv);
+        }
+        backdrop = sample_backdrop(backdropUv);
         if (sourceIsPremultiplied && backdrop.a > 0.00001) {
             backdrop = vec4<f32>(backdrop.rgb / backdrop.a, backdrop.a);
         }
@@ -214,8 +294,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         let tint = vec4<f32>(
             material.tintColor.rgb,
             clamp(material.tintColor.a * material.material0.x, 0.0, 1.0));
-        result = source_over(result, premultiply(luminosity));
-        result = source_over(result, premultiply(tint));
+        result = blend_nonseparable_source_over(result, luminosity, false);
+        result = blend_nonseparable_source_over(result, tint, true);
     }
 
     let noiseOpacity = clamp(material.material0.w, 0.0, 1.0);
@@ -244,5 +324,15 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         input.color.a *
         maskAlpha *
         clamp(material.material0.z, 0.0, 1.0);
+    if (sourceIsCapturedHostBackdrop) {
+        // The render pipeline uses Src for captured host backdrops. Mix the
+        // complete material result with the captured destination here so a
+        // rounded or geometry-mask edge is preserved without source-over
+        // blending the destination into itself a second time.
+        return clamp(
+            mix(capturedDestination, result, coverage),
+            vec4<f32>(0.0),
+            vec4<f32>(1.0));
+    }
     return clamp(result * coverage, vec4<f32>(0.0), vec4<f32>(1.0));
 }

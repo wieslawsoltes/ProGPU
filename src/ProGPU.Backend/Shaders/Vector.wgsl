@@ -69,11 +69,7 @@ struct MaskChainUniforms {
 
 @group(2) @binding(3) var<uniform> maskChain: MaskChainUniforms;
 
-fn analytic_rounded_mask_alpha_for(position: vec2<f32>, sampling: MaskSamplingUniforms) -> f32 {
-    let local = vec2<f32>(
-        dot(vec3<f32>(position, 1.0), sampling.coordinate0.xyz),
-        dot(vec3<f32>(position, 1.0), sampling.coordinate1.xyz));
-    let bounds = sampling.bounds;
+fn rounded_mask_alpha_local(local: vec2<f32>, bounds: vec4<f32>, radiiX: vec4<f32>, radiiY: vec4<f32>) -> f32 {
     let edge = max(
         max(bounds.x - local.x, local.x - bounds.z),
         max(bounds.y - local.y, local.y - bounds.w));
@@ -81,24 +77,24 @@ fn analytic_rounded_mask_alpha_for(position: vec2<f32>, sampling: MaskSamplingUn
     var center = vec2<f32>(0.0);
     var radius = vec2<f32>(0.0);
     var usesCorner = false;
-    if (local.x < bounds.x + sampling.cornerRadiiX.x &&
-        local.y < bounds.y + sampling.cornerRadiiY.x) {
-        radius = vec2<f32>(sampling.cornerRadiiX.x, sampling.cornerRadiiY.x);
+    if (local.x < bounds.x + radiiX.x &&
+        local.y < bounds.y + radiiY.x) {
+        radius = vec2<f32>(radiiX.x, radiiY.x);
         center = vec2<f32>(bounds.x + radius.x, bounds.y + radius.y);
         usesCorner = all(radius > vec2<f32>(0.0));
-    } else if (local.x > bounds.z - sampling.cornerRadiiX.y &&
-               local.y < bounds.y + sampling.cornerRadiiY.y) {
-        radius = vec2<f32>(sampling.cornerRadiiX.y, sampling.cornerRadiiY.y);
+    } else if (local.x > bounds.z - radiiX.y &&
+               local.y < bounds.y + radiiY.y) {
+        radius = vec2<f32>(radiiX.y, radiiY.y);
         center = vec2<f32>(bounds.z - radius.x, bounds.y + radius.y);
         usesCorner = all(radius > vec2<f32>(0.0));
-    } else if (local.x > bounds.z - sampling.cornerRadiiX.z &&
-               local.y > bounds.w - sampling.cornerRadiiY.z) {
-        radius = vec2<f32>(sampling.cornerRadiiX.z, sampling.cornerRadiiY.z);
+    } else if (local.x > bounds.z - radiiX.z &&
+               local.y > bounds.w - radiiY.z) {
+        radius = vec2<f32>(radiiX.z, radiiY.z);
         center = vec2<f32>(bounds.z - radius.x, bounds.w - radius.y);
         usesCorner = all(radius > vec2<f32>(0.0));
-    } else if (local.x < bounds.x + sampling.cornerRadiiX.w &&
-               local.y > bounds.w - sampling.cornerRadiiY.w) {
-        radius = vec2<f32>(sampling.cornerRadiiX.w, sampling.cornerRadiiY.w);
+    } else if (local.x < bounds.x + radiiX.w &&
+               local.y > bounds.w - radiiY.w) {
+        radius = vec2<f32>(radiiX.w, radiiY.w);
         center = vec2<f32>(bounds.x + radius.x, bounds.w - radius.y);
         usesCorner = all(radius > vec2<f32>(0.0));
     }
@@ -109,6 +105,26 @@ fn analytic_rounded_mask_alpha_for(position: vec2<f32>, sampling: MaskSamplingUn
     let implicit = select(edge, ellipse, usesCorner);
     let antialiasWidth = max(fwidth(implicit), 0.0001);
     return clamp(0.5 - implicit / antialiasWidth, 0.0, 1.0);
+}
+
+fn analytic_rounded_mask_alpha_for(position: vec2<f32>, sampling: MaskSamplingUniforms) -> f32 {
+    let local = vec2<f32>(
+        dot(vec3<f32>(position, 1.0), sampling.coordinate0.xyz),
+        dot(vec3<f32>(position, 1.0), sampling.coordinate1.xyz));
+    let outerAlpha = rounded_mask_alpha_local(
+        local, sampling.bounds, sampling.cornerRadiiX, sampling.cornerRadiiY);
+    if (sampling.options.x < 2.5) {
+        return outerAlpha;
+    }
+
+    let inset = sampling.options.z;
+    let innerBounds = sampling.bounds + vec4<f32>(inset, inset, -inset, -inset);
+    let innerAlpha = rounded_mask_alpha_local(
+        local,
+        innerBounds,
+        max(sampling.cornerRadiiX - vec4<f32>(inset), vec4<f32>(0.0)),
+        max(sampling.cornerRadiiY - vec4<f32>(inset), vec4<f32>(0.0)));
+    return outerAlpha * (1.0 - innerAlpha);
 }
 
 fn analytic_rounded_mask_alpha(position: vec2<f32>) -> f32 {
@@ -182,7 +198,11 @@ fn apply_gradient_spread(t: f32, spreadMethod: u32) -> f32 {
         return fract(t);
     }
 
-    return clamp(t, 0.0, 1.0);
+    // Keep Pad coordinates outside the unit interval until stop sampling.
+    // sample_gradient_color clamps through its first/last stop while retaining
+    // the distinction between an outside coordinate and an exact duplicate
+    // endpoint, where the last stop at that offset must win.
+    return t;
 }
 
 fn get_gradient_stop_color(brush: Brush, index: u32) -> vec4<f32> {
@@ -249,7 +269,10 @@ fn sample_gradient_color(brush: Brush, t: f32) -> vec4<f32> {
 
         let currentColor = get_gradient_stop_color(brush, i);
         let currentOffset = get_gradient_stop_offset(brush, i);
-        if (t <= currentOffset) {
+        // An exact offset belongs to the last stop at that offset. Besides
+        // matching Skia, this preserves hard transitions and ensures Pad
+        // selects the final color when duplicate stops sit at t = 1.
+        if (t < currentOffset) {
             let factor = (t - previousOffset) / max(currentOffset - previousOffset, 0.0001);
             return interpolate_gradient_color(brush, previousColor, currentColor, clamp(factor, 0.0, 1.0));
         }

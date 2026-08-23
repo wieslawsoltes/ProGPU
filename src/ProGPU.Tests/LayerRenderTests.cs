@@ -384,6 +384,65 @@ public sealed class LayerRenderTests
     }
 
     [Fact]
+    public void RetainedPicturesReuseNestedImmutablePagesDuringRootMutation()
+    {
+        var options = CompositorOptions.Default with
+        {
+            EnableGpuHitTesting = false,
+            PrimarySampleCount = 1,
+            MaximumRetainedCompositionPictures = 128
+        };
+        using var window = new HeadlessWindow(64, 32, options);
+        using var visual = new RetainedPictureMutationVisual();
+        window.Content = visual;
+
+        try
+        {
+            window.Render();
+
+            visual.Advance();
+            window.Render();
+            Assert.InRange(
+                window.Compositor.Metrics
+                    .RetainedCompositionPictureCompilations,
+                29,
+                30);
+
+            visual.Advance();
+            window.Render();
+            Assert.InRange(
+                window.Compositor.Metrics.RetainedCompositionPictureHits,
+                29,
+                30);
+            Assert.Equal(
+                2,
+                window.Compositor.Metrics
+                    .RetainedCompositionPictureCompilations);
+
+            visual.Advance();
+            window.Render();
+            CompositorMetrics metrics = window.Compositor.Metrics;
+            Assert.InRange(
+                metrics.RetainedCompositionPictureHits,
+                30,
+                31);
+            Assert.Equal(0, metrics.RetainedCompositionPictureCompilations);
+            Assert.InRange(
+                metrics.RetainedCompositionPictureCount,
+                31,
+                32);
+
+            byte[] pixels = window.ReadPixels();
+            AssertGreen(ReadPixel(pixels, window.Width, 4, 4));
+            AssertRed(ReadPixel(pixels, window.Width, 28, 4));
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
     public void EmptyOwnedCommandCacheSkipsLookupAndStillRendersChildren()
     {
         using var window = new HeadlessWindow(64, 64);
@@ -927,6 +986,97 @@ public sealed class LayerRenderTests
             {
                 AddChild(child);
             }
+        }
+    }
+
+    private sealed class RetainedPictureMutationVisual : FrameworkElement,
+        IDisposable
+    {
+        private readonly GpuPicture[] _normal = new GpuPicture[32];
+        private readonly GpuPicture[] _changed = new GpuPicture[32];
+        private GpuPicture _root;
+        private int _changedIndex;
+
+        public RetainedPictureMutationVisual()
+        {
+            Width = 64f;
+            Height = 32f;
+            for (int index = 0; index < _normal.Length; index++)
+            {
+                _normal[index] = CreateCellPicture(
+                    index,
+                    new Vector4(0f, 1f, 0f, 1f));
+                _changed[index] = CreateCellPicture(
+                    index,
+                    new Vector4(1f, 0f, 0f, 1f));
+            }
+            _root = CreateRootPicture();
+        }
+
+        public void Advance()
+        {
+            _changedIndex = (_changedIndex + 1) % _normal.Length;
+            GpuPicture previous = _root;
+            _root = CreateRootPicture();
+            Invalidate();
+            previous.Dispose();
+        }
+
+        public override void OnRender(DrawingContext context) =>
+            context.DrawPicture(_root);
+
+        public void Dispose()
+        {
+            _root.Dispose();
+            foreach (GpuPicture picture in _normal)
+            {
+                picture.Dispose();
+            }
+            foreach (GpuPicture picture in _changed)
+            {
+                picture.Dispose();
+            }
+        }
+
+        private static GpuPicture CreateCellPicture(
+            int index,
+            Vector4 color)
+        {
+            var recorder = new GpuPictureRecorder();
+            DrawingContext context = recorder.BeginRecording(
+                new Rect(0f, 0f, 64f, 32f));
+            context.DrawRectangle(
+                new SolidColorBrush(color),
+                null,
+                new Rect(index % 8 * 8f, index / 8 * 8f, 4f, 4f));
+            context.DrawRectangle(
+                new SolidColorBrush(color),
+                null,
+                new Rect(index % 8 * 8f + 4f, index / 8 * 8f, 4f, 4f));
+            context.DrawRectangle(
+                new SolidColorBrush(color),
+                null,
+                new Rect(index % 8 * 8f, index / 8 * 8f + 4f, 4f, 4f));
+            context.DrawRectangle(
+                new SolidColorBrush(color),
+                null,
+                new Rect(index % 8 * 8f + 4f, index / 8 * 8f + 4f, 4f, 4f));
+            return recorder.EndRecording();
+        }
+
+        private GpuPicture CreateRootPicture()
+        {
+            var recorder = new GpuPictureRecorder();
+            DrawingContext context = recorder.BeginRecording(
+                new Rect(0f, 0f, 64f, 32f));
+            for (int index = 0; index < _normal.Length; index++)
+            {
+                context.DrawPicture(
+                    index == _changedIndex
+                        ? _changed[index]
+                        : _normal[index]);
+            }
+            return recorder.EndRecording();
         }
     }
 

@@ -185,7 +185,8 @@ public sealed unsafe class BackdropMaterialExtensionPipeline : ICompositorExtens
         }
 
         EnsureLayouts(compositor);
-        var requestedTexture = parameters.SourceTexture;
+        var capturedHostBackdrop = parameters.CapturedHostBackdropTexture;
+        var requestedTexture = parameters.SourceTexture ?? capturedHostBackdrop;
         if (requestedTexture != null &&
             !requestedTexture.Context.SharesDeviceWith(compositor.Context))
         {
@@ -203,10 +204,7 @@ public sealed unsafe class BackdropMaterialExtensionPipeline : ICompositorExtens
         var hasSource = requestedTexture != null && parameters.Source != BackdropMaterialSource.None;
         var useFallback = parameters.UseFallback ||
             (parameters.Source == BackdropMaterialSource.Texture && requestedTexture == null);
-        var effectiveMask = drawCall.MaskTexture;
         bool hasEffectiveMask = Compositor.HasMask(drawCall);
-        var maskWidth = effectiveMask?.Width ?? compositor.CurrentCanvasPixelWidth;
-        var maskHeight = effectiveMask?.Height ?? compositor.CurrentCanvasPixelHeight;
         var sourceUvRect = GetSourceUvRect(parameters, sourceTexture);
 
         var gpuResources = GetGpuResources(compositor);
@@ -229,22 +227,30 @@ public sealed unsafe class BackdropMaterialExtensionPipeline : ICompositorExtens
             Geometry0 = new Vector4(
                 MathF.Max(0.0001f, MathF.Abs(parameters.Rect.Width)),
                 MathF.Max(0.0001f, MathF.Abs(parameters.Rect.Height)),
-                MathF.Max(1f, maskWidth),
-                MathF.Max(1f, maskHeight)),
+                MathF.Max(1f, compositor.CurrentCanvasPixelWidth),
+                MathF.Max(1f, compositor.CurrentCanvasPixelHeight)),
             RadiiX = ClampRadii(parameters.CornerRadiiX),
             RadiiY = ClampRadii(parameters.CornerRadiiY),
             Flags0 = new Vector4(
                 hasSource ? 1f : 0f,
                 hasEffectiveMask ? 1f : 0f,
                 sourceTexture.AlphaMode == GpuTextureAlphaMode.Premultiplied ? 1f : 0f,
-                0f),
+                capturedHostBackdrop != null ? 1f : 0f),
             SourceUvRect = sourceUvRect
         });
 
-        var pipelineKey = (isOffscreen, drawCall.BlendMode);
+        // A captured host backdrop is the destination as it existed before
+        // this draw. The shader produces the complete, coverage-mixed result,
+        // so source-over would composite the same destination twice. Replace
+        // the covered target instead; texture-backed materials keep the
+        // caller's requested blend mode.
+        var effectiveBlendMode = capturedHostBackdrop != null
+            ? GpuBlendMode.Src
+            : drawCall.BlendMode;
+        var pipelineKey = (isOffscreen, effectiveBlendMode);
         if (!_cachedPipelines.TryGetValue(pipelineKey, out var pipelinePointer))
         {
-            pipelinePointer = (nint)CreatePipeline(compositor, isOffscreen, drawCall.BlendMode);
+            pipelinePointer = (nint)CreatePipeline(compositor, isOffscreen, effectiveBlendMode);
             _cachedPipelines.Add(pipelineKey, pipelinePointer);
         }
 

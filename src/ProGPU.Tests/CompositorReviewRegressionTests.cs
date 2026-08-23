@@ -6700,6 +6700,77 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void UniformRoundedRingClipUsesAnalyticMaskWithoutTexturePass()
+    {
+        using var window = new HeadlessWindow(64, 64);
+        window.Content = new UniformRoundedRingClipVisual();
+
+        window.Render();
+
+        CompositorMetrics metrics = window.Compositor.Metrics;
+        Assert.Equal(0, metrics.MaskTexturePeakDemand);
+        Assert.Equal(1, metrics.AnalyticMaskBindGroupCount);
+        Assert.Equal(0, metrics.MaskRenderPassCount);
+
+        byte[] pixels = window.ReadPixels();
+        var ring = ReadPixel(pixels, window.Width, x: 6, y: 32);
+        var hole = ReadPixel(pixels, window.Width, x: 32, y: 32);
+        var outerCorner = ReadPixel(pixels, window.Width, x: 4, y: 4);
+        Assert.True(
+            ring.G >= 220 && ring.R <= 35 && ring.B <= 35,
+            $"Expected green rounded-ring coverage, found {ring}.");
+        Assert.True(
+            hole.R <= 35 && hole.G <= 35 && hole.B <= 35,
+            $"Expected the analytic rounded-ring hole to stay clear, found {hole}.");
+        Assert.True(
+            outerCorner.R <= 35 && outerCorner.G <= 35 && outerCorner.B <= 35,
+            $"Expected the rounded-ring outer corner to stay clear, found {outerCorner}.");
+    }
+
+    [Fact]
+    public void RoundedRingMatchingAnalyticParentAvoidsTexturePass()
+    {
+        using var window = new HeadlessWindow(64, 64);
+        window.Content = new UniformRoundedRingClipVisual(nestedInMatchingOuter: true);
+
+        window.Render();
+
+        CompositorMetrics metrics = window.Compositor.Metrics;
+        Assert.Equal(0, metrics.MaskTexturePeakDemand);
+        Assert.Equal(2, metrics.AnalyticMaskBindGroupCount);
+        Assert.Equal(0, metrics.MaskRenderPassCount);
+
+        byte[] pixels = window.ReadPixels();
+        var ring = ReadPixel(pixels, window.Width, x: 6, y: 32);
+        var hole = ReadPixel(pixels, window.Width, x: 32, y: 32);
+        Assert.True(
+            ring.G >= 220 && ring.R <= 35 && ring.B <= 35,
+            $"Expected nested green rounded-ring coverage, found {ring}.");
+        Assert.True(
+            hole.R <= 35 && hole.G <= 35 && hole.B <= 35,
+            $"Expected the nested analytic rounded-ring hole to stay clear, found {hole}.");
+    }
+
+    [Fact]
+    public void AnalyticClipDoesNotMaskPendingPrecedingDraws()
+    {
+        using var window = new HeadlessWindow(64, 64);
+        window.Content = new AnalyticClipBatchBoundaryVisual();
+
+        window.Render();
+
+        byte[] pixels = window.ReadPixels();
+        var preceding = ReadPixel(pixels, window.Width, x: 12, y: 28);
+        var clipped = ReadPixel(pixels, window.Width, x: 48, y: 28);
+        Assert.True(
+            preceding.R >= 220 && preceding.G <= 35 && preceding.B <= 35,
+            $"Expected the draw preceding the analytic clip to remain red, found {preceding}.");
+        Assert.True(
+            clipped.G >= 220 && clipped.R <= 35 && clipped.B <= 35,
+            $"Expected the draw inside the analytic clip to remain green, found {clipped}.");
+    }
+
+    [Fact]
     public void OpacityMaskWritesComputedAlphaIntoMaskTarget()
     {
         var window = HeadlessWindow.Shared;
@@ -9694,6 +9765,99 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                     new Vector4(0f, 1f, 0f, 1f)),
                 null,
                 new Rect(0f, 0f, 64f, 64f));
+            context.PopGeometryClip();
+        }
+    }
+
+    private sealed class UniformRoundedRingClipVisual : FrameworkElement
+    {
+        private readonly bool _nestedInMatchingOuter;
+
+        public UniformRoundedRingClipVisual(bool nestedInMatchingOuter = false)
+        {
+            _nestedInMatchingOuter = nestedInMatchingOuter;
+            Width = 64f;
+            Height = 64f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            if (_nestedInMatchingOuter)
+            {
+                context.PushGeometryClip(
+                    PrimitivePathGeometry.CreateRoundedRectangle(
+                        4f,
+                        4f,
+                        56f,
+                        56f,
+                        10f,
+                        10f));
+            }
+
+            PathGeometry ring = PrimitivePathGeometry.CreateRoundedRectangle(
+                4f,
+                4f,
+                56f,
+                56f,
+                10f,
+                10f);
+            ring.FillRule = FillRule.EvenOdd;
+            PathGeometry inner = PrimitivePathGeometry.CreateRoundedRectangle(
+                8f,
+                8f,
+                48f,
+                48f,
+                6f,
+                6f);
+            foreach (PathFigure figure in inner.Figures)
+            {
+                ring.Figures.Add(figure);
+            }
+
+            context.PushGeometryClip(ring);
+            context.DrawRectangle(
+                new SolidColorBrush(new Vector4(0f, 1f, 0f, 1f)),
+                null,
+                new Rect(0f, 0f, 64f, 64f));
+            context.PopGeometryClip();
+            if (_nestedInMatchingOuter)
+            {
+                context.PopGeometryClip();
+            }
+        }
+    }
+
+    private sealed class AnalyticClipBatchBoundaryVisual : FrameworkElement
+    {
+        private static readonly SolidColorBrush Red =
+            new(new Vector4(1f, 0f, 0f, 1f));
+        private static readonly SolidColorBrush Green =
+            new(new Vector4(0f, 1f, 0f, 1f));
+
+        public AnalyticClipBatchBoundaryVisual()
+        {
+            Width = 64f;
+            Height = 64f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                Red,
+                null,
+                new Rect(4f, 20f, 16f, 16f));
+            context.PushGeometryClip(
+                PrimitivePathGeometry.CreateRoundedRectangle(
+                    36f,
+                    8f,
+                    24f,
+                    48f,
+                    6f,
+                    6f));
+            context.DrawRectangle(
+                Green,
+                null,
+                new Rect(36f, 8f, 24f, 48f));
             context.PopGeometryClip();
         }
     }

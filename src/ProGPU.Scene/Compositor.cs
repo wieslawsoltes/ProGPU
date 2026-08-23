@@ -3878,6 +3878,14 @@ SceneStateUploadComplete:
             WavefrontTextureBytes = GetTextureBytes(_wavefrontColorTexture),
             MsaaTextureBytes = GetMsaaTextureBytes(),
             TrackedIntermediateTextureBytes = GetTrackedIntermediateTextureBytes(),
+            RetainedCompositionPictureCount =
+                _retainedCompositionPictures.Count,
+            RetainedCompositionPictureHits =
+                _retainedCompositionPictureHits,
+            RetainedCompositionPictureMisses =
+                _retainedCompositionPictureMisses,
+            RetainedCompositionPictureCompilations =
+                _retainedCompositionPictureCompilations,
             IncrementalScenePageCount = _incrementalScenePages.Count,
             IncrementalScenePageHits = _incrementalScenePageHits,
             IncrementalScenePageMisses = _incrementalScenePageMisses,
@@ -5723,6 +5731,18 @@ SceneStateUploadComplete:
         Matrix4x4? hitTestGlobalTransform = null)
     {
         if (picture == null) return;
+        if (TryReplayRetainedCompositionPicture(
+                picture,
+                globalTransform))
+        {
+            return;
+        }
+        bool captureRetainedPicture =
+            TryBeginRetainedCompositionPicture(
+                picture,
+                out IncrementalScenePageBoundary retainedPictureBoundary);
+        try
+        {
         var retainedHitTestTransform = hitTestGlobalTransform ?? globalTransform;
         var commands = picture.RetainedCommands;
         PreparePictureLayerCaches(commands);
@@ -5971,6 +5991,17 @@ SceneStateUploadComplete:
 
             _useGpuTransformsActive = savedUseGpuTransformsActive;
             _cameraViewMatrix = savedCameraViewMatrix;
+        }
+        }
+        finally
+        {
+            if (captureRetainedPicture)
+            {
+                CompleteRetainedCompositionPicture(
+                    picture,
+                    globalTransform,
+                    retainedPictureBoundary);
+            }
         }
     }
 
@@ -14350,6 +14381,37 @@ SceneStateUploadComplete:
             (targetTexture.Usage & TextureUsage.TextureBinding) != 0;
     }
 
+    private static bool IsHostBackdropDrawCall(in CompositorDrawCall drawCall)
+    {
+        return drawCall.Type == DrawCallType.Extension &&
+            drawCall.ExtensionId == CompositorBuiltInExtensions.BackdropMaterial &&
+            drawCall.DataParam is BackdropMaterialParams
+            {
+                Source: BackdropMaterialSource.HostBackdrop,
+                SourceTexture: null,
+                UseFallback: false
+            };
+    }
+
+    private bool HasHostBackdropDrawCall(GpuTexture targetTexture)
+    {
+        if ((targetTexture.Usage & TextureUsage.TextureBinding) == 0)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < _drawCalls.Count; i++)
+        {
+            var drawCall = _drawCalls[i];
+            if (IsHostBackdropDrawCall(in drawCall))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private bool TryGetAdvancedBlendSourceBounds(
         in CompositorDrawCall drawCall,
         uint targetWidth,
@@ -16330,17 +16392,19 @@ SceneStateUploadComplete:
         byte? currentVectorPipelineKind = null;
         var textureEntries = stackalloc BindGroupEntry[2];
         _advancedBlendPassResourceCount = 0;
-        if (TryGetAdvancedBlendSourceCapacity(
+        bool hasHostBackdrop = HasHostBackdropDrawCall(targetTexture);
+        bool hasAdvancedBlend = TryGetAdvancedBlendSourceCapacity(
                 targetTexture,
                 out uint advancedBlendSourceWidth,
-                out uint advancedBlendSourceHeight))
+                out uint advancedBlendSourceHeight);
+        if (hasHostBackdrop || hasAdvancedBlend)
         {
             _advancedBlendLastUsedFrame = _frameNumber;
             EnsureAdvancedBlendResources(
                 targetTexture.Width,
                 targetTexture.Height,
-                advancedBlendSourceWidth,
-                advancedBlendSourceHeight,
+                Math.Max(1u, advancedBlendSourceWidth),
+                Math.Max(1u, advancedBlendSourceHeight),
                 targetTexture.Format);
         }
         else
@@ -16352,6 +16416,69 @@ SceneStateUploadComplete:
         for (var drawCallIndex = 0; drawCallIndex < drawCallCount; drawCallIndex++)
         {
             var dc = _drawCalls[drawCallIndex];
+            if (IsHostBackdropDrawCall(in dc) &&
+                dc.DataParam is BackdropMaterialParams backdropParameters &&
+                _advancedBlendScratchTexture != null)
+            {
+                _context.Api.RenderPassEncoderEnd(pass);
+                _context.Api.RenderPassEncoderRelease(pass);
+
+                var output = ReferenceEquals(currentRenderTarget, targetTexture)
+                    ? _advancedBlendScratchTexture
+                    : targetTexture;
+                var targetBounds = new MaskPixelBounds(
+                    0,
+                    0,
+                    targetTexture.Width,
+                    targetTexture.Height);
+                var copyPassResource = AcquireAdvancedBlendPassResource(
+                    targetBounds,
+                    currentRenderTarget,
+                    GpuBlendMode.Src);
+                EncodeAdvancedBlendFullscreen(
+                    encoder,
+                    currentRenderTarget,
+                    currentRenderTarget,
+                    output,
+                    copyPassResource);
+                currentRenderTarget = output;
+
+                pass = BeginOffscreenTexturePass(
+                    encoder,
+                    currentRenderTarget,
+                    LoadOp.Load,
+                    new Color());
+                currentType = null;
+                currentBlendMode = null;
+                currentMaskBindGroup = null;
+                currentPipelineHasMask = null;
+                currentVectorPipelineKind = null;
+
+                if (ApplyDrawCallScissor(pass, dc, useRenderTargetViewport: false))
+                {
+                    var pipeline = GetExtension(dc.ExtensionId);
+                    if (pipeline != null)
+                    {
+                        backdropParameters.CapturedHostBackdropTexture =
+                            ReferenceEquals(currentRenderTarget, targetTexture)
+                                ? _advancedBlendScratchTexture
+                                : targetTexture;
+                        try
+                        {
+                            var localDc = dc;
+                            pipeline.Render(this, pass, isOffscreen: true, in localDc);
+                        }
+                        finally
+                        {
+                            backdropParameters.CapturedHostBackdropTexture = null;
+                        }
+                    }
+                }
+
+                currentType = DrawCallType.Extension;
+                continue;
+            }
+
             if (CanEncodeAdvancedBlend(in dc, targetTexture) &&
                 TryGetAdvancedBlendSourceBounds(
                     in dc,
@@ -16790,6 +16917,14 @@ SceneStateUploadComplete:
             WavefrontTextureBytes = GetTextureBytes(_wavefrontColorTexture),
             MsaaTextureBytes = GetMsaaTextureBytes(),
             TrackedIntermediateTextureBytes = GetTrackedIntermediateTextureBytes(),
+            RetainedCompositionPictureCount =
+                _retainedCompositionPictures.Count,
+            RetainedCompositionPictureHits =
+                _retainedCompositionPictureHits,
+            RetainedCompositionPictureMisses =
+                _retainedCompositionPictureMisses,
+            RetainedCompositionPictureCompilations =
+                _retainedCompositionPictureCompilations,
             IncrementalScenePageCount = _incrementalScenePages.Count,
             IncrementalScenePageHits = _incrementalScenePageHits,
             IncrementalScenePageMisses = _incrementalScenePageMisses,
@@ -19684,13 +19819,26 @@ SceneStateUploadComplete:
         // so canonical clips remain analytic there. Nested layer/effect
         // transactions retain the texture fallback until their composed
         // parent-mask lifetime is represented explicitly.
-        if (_offscreenRenderDepth > 1 ||
-            _maskStack.Count != 0 ||
-            geometry.IsCombined ||
-            geometry.Figures.Count != 1 ||
-            !RoundedRectanglePathGeometry.TryReadCanonicalContour(
-                geometry.Figures[0],
-                out RoundedRectanglePathContour contour))
+        if (_offscreenRenderDepth > 1 || geometry.IsCombined)
+        {
+            return false;
+        }
+
+        RoundedRectanglePathContour contour;
+        float ringInset = 0f;
+        bool isRoundedRing = TryReadUniformRoundedRing(
+            geometry,
+            out contour,
+            out ringInset);
+        if (!isRoundedRing &&
+            (geometry.Figures.Count != 1 ||
+             !RoundedRectanglePathGeometry.TryReadCanonicalContour(
+                 geometry.Figures[0],
+                 out contour)))
+        {
+            return false;
+        }
+        if (!isRoundedRing && _maskStack.Count != 0)
         {
             return false;
         }
@@ -19746,8 +19894,20 @@ SceneStateUploadComplete:
                 contour.Bottom),
             CornerRadiiX = contour.CornerRadiiX,
             CornerRadiiY = contour.CornerRadiiY,
-            Options = new Vector4(2f, 1f, 0f, 0f)
+            Options = new Vector4(
+                isRoundedRing ? 3f : 2f,
+                1f,
+                ringInset,
+                0f)
         };
+        if (_maskStack.Count != 0 &&
+            (_maskStack.Count != 1 ||
+             !MatchesAnalyticOuter(_maskStack.Peek(), samplingUniforms)))
+        {
+            return false;
+        }
+
+        CommitPendingDrawCalls();
         MaskBindGroupResource resource =
             RentAnalyticMaskResource(samplingUniforms);
         var logicalBounds = new Rect(
@@ -19766,6 +19926,72 @@ SceneStateUploadComplete:
                 resource));
         return true;
     }
+
+    private static bool MatchesAnalyticOuter(
+        MaskTextureState parent,
+        MaskSamplingUniforms ring)
+    {
+        if (parent.AnalyticResource is not { } resource)
+        {
+            return false;
+        }
+
+        MaskSamplingUniforms outer = resource.SamplingUniforms;
+        return outer.Options.X == 2f &&
+            outer.Coordinate0 == ring.Coordinate0 &&
+            outer.Coordinate1 == ring.Coordinate1 &&
+            outer.Bounds == ring.Bounds &&
+            outer.CornerRadiiX == ring.CornerRadiiX &&
+            outer.CornerRadiiY == ring.CornerRadiiY;
+    }
+
+    private static bool TryReadUniformRoundedRing(
+        PathGeometry geometry,
+        out RoundedRectanglePathContour outer,
+        out float inset)
+    {
+        outer = default;
+        inset = 0f;
+        if (geometry.FillRule != FillRule.EvenOdd ||
+            geometry.Figures.Count != 2 ||
+            !RoundedRectanglePathGeometry.TryReadCanonicalContour(
+                geometry.Figures[0],
+                out outer) ||
+            !RoundedRectanglePathGeometry.TryReadCanonicalContour(
+                geometry.Figures[1],
+                out RoundedRectanglePathContour inner))
+        {
+            return false;
+        }
+
+        float left = inner.Left - outer.Left;
+        float top = inner.Top - outer.Top;
+        float right = outer.Right - inner.Right;
+        float bottom = outer.Bottom - inner.Bottom;
+        float tolerance = MathF.Max(outer.Width, outer.Height) * 0.0001f + 0.0001f;
+        if (left <= tolerance ||
+            MathF.Abs(top - left) > tolerance ||
+            MathF.Abs(right - left) > tolerance ||
+            MathF.Abs(bottom - left) > tolerance ||
+            !InsetRadiiMatch(inner.CornerRadiiX, outer.CornerRadiiX, left, tolerance) ||
+            !InsetRadiiMatch(inner.CornerRadiiY, outer.CornerRadiiY, left, tolerance))
+        {
+            return false;
+        }
+
+        inset = left;
+        return true;
+    }
+
+    private static bool InsetRadiiMatch(
+        Vector4 inner,
+        Vector4 outer,
+        float inset,
+        float tolerance) =>
+        MathF.Abs(inner.X - MathF.Max(0f, outer.X - inset)) <= tolerance &&
+        MathF.Abs(inner.Y - MathF.Max(0f, outer.Y - inset)) <= tolerance &&
+        MathF.Abs(inner.Z - MathF.Max(0f, outer.Z - inset)) <= tolerance &&
+        MathF.Abs(inner.W - MathF.Max(0f, outer.W - inset)) <= tolerance;
 
     private static bool IsFinite(Matrix3x2 matrix) =>
         float.IsFinite(matrix.M11) &&

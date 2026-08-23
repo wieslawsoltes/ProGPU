@@ -143,6 +143,7 @@ public unsafe partial class Compositor
 
     private void ResetIncrementalScenePageFrameMetrics()
     {
+        ResetRetainedCompositionPictureFrameMetrics();
         _incrementalScenePageHits = 0;
         _incrementalScenePageMisses = 0;
         _incrementalScenePageCompilations = 0;
@@ -987,24 +988,41 @@ public unsafe partial class Compositor
         int vectorVertexStart = _vectorVerticesList.Count;
         _vectorVerticesList.EnsureCapacity(
             vectorVertexStart + page.VectorVertices.Length);
-        for (int index = 0; index < page.VectorVertices.Length; index++)
+        if (page.Brushes.Length == 0)
         {
-            VectorVertex vertex = page.VectorVertices[index];
-            int localBrushIndex = (int)MathF.Round(vertex.BrushIndex);
-            if ((uint)localBrushIndex < (uint)brushMap.Length)
+            // Specialized solid primitives carry their color inline and have no
+            // brush-table indices to translate. This is the common retained UI
+            // page path, so append it as one contiguous copy instead of visiting
+            // every vertex merely to prove that the empty brush map has no entry.
+            _vectorVerticesList.AddRange(page.VectorVertices);
+        }
+        else
+        {
+            for (int index = 0; index < page.VectorVertices.Length; index++)
             {
-                vertex.BrushIndex = brushMap[localBrushIndex];
+                VectorVertex vertex = page.VectorVertices[index];
+                int localBrushIndex = (int)MathF.Round(vertex.BrushIndex);
+                if ((uint)localBrushIndex < (uint)brushMap.Length)
+                {
+                    vertex.BrushIndex = brushMap[localBrushIndex];
+                }
+                _vectorVerticesList.Add(vertex);
             }
-            _vectorVerticesList.Add(vertex);
         }
 
         int vectorIndexStart = _vectorIndicesList.Count;
         _vectorIndicesList.EnsureCapacity(
             vectorIndexStart + page.VectorIndices.Length);
+        CollectionsMarshal.SetCount(
+            _vectorIndicesList,
+            vectorIndexStart + page.VectorIndices.Length);
+        Span<uint> appendedVectorIndices =
+            CollectionsMarshal.AsSpan(_vectorIndicesList)
+                .Slice(vectorIndexStart, page.VectorIndices.Length);
         for (int index = 0; index < page.VectorIndices.Length; index++)
         {
-            _vectorIndicesList.Add(
-                page.VectorIndices[index] + (uint)vectorVertexStart);
+            appendedVectorIndices[index] =
+                page.VectorIndices[index] + (uint)vectorVertexStart;
         }
 
         int textVertexStart = _textVerticesList.Count;
@@ -1028,10 +1046,16 @@ public unsafe partial class Compositor
         int textureIndexStart = _textureIndicesList.Count;
         _textureIndicesList.EnsureCapacity(
             textureIndexStart + page.TextureIndices.Length);
+        CollectionsMarshal.SetCount(
+            _textureIndicesList,
+            textureIndexStart + page.TextureIndices.Length);
+        Span<uint> appendedTextureIndices =
+            CollectionsMarshal.AsSpan(_textureIndicesList)
+                .Slice(textureIndexStart, page.TextureIndices.Length);
         for (int index = 0; index < page.TextureIndices.Length; index++)
         {
-            _textureIndicesList.Add(
-                page.TextureIndices[index] + (uint)textureVertexStart);
+            appendedTextureIndices[index] =
+                page.TextureIndices[index] + (uint)textureVertexStart;
         }
 
         for (int index = 0; index < page.DrawCalls.Length; index++)
