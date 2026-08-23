@@ -872,7 +872,18 @@ public class DiagnosticsLoggingSourceTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
-            "retainedDrawCall.Expand(indexBase)",
+            "AppendOrMergeIncrementalDrawCall(\n" +
+            "                retainedDrawCall,\n" +
+            "                indexBase)",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_drawCalls.Add(retainedDrawCall.Expand(indexBase))",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ref CompositorDrawCall previous = ref\n" +
+            "            CollectionsMarshal.AsSpan(_drawCalls)[previousIndex]",
             source,
             StringComparison.Ordinal);
         Assert.DoesNotContain(

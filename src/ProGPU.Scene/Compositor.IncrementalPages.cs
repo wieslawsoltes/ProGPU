@@ -1041,9 +1041,9 @@ public unsafe partial class Compositor
                 DrawCallType.Texture => (uint)textureIndexStart,
                 _ => 0u
             };
-            CompositorDrawCall drawCall =
-                retainedDrawCall.Expand(indexBase);
-            AppendOrMergeIncrementalDrawCall(drawCall);
+            AppendOrMergeIncrementalDrawCall(
+                retainedDrawCall,
+                indexBase);
         }
 
         _currentSolidRoundedPrimitiveCount +=
@@ -1091,11 +1091,52 @@ public unsafe partial class Compositor
         }
     }
 
+    private void AppendOrMergeIncrementalDrawCall(
+        in IncrementalScenePageDrawCall retainedDrawCall,
+        uint indexBase)
+    {
+        if (_drawCalls.Count != 0 &&
+            TryMergeIncrementalDrawCall(
+                _drawCalls.Count - 1,
+                retainedDrawCall,
+                indexBase))
+        {
+            return;
+        }
+
+        _drawCalls.Add(retainedDrawCall.Expand(indexBase));
+    }
+
+    private bool TryMergeIncrementalDrawCall(
+        int previousIndex,
+        in IncrementalScenePageDrawCall current,
+        uint indexBase)
+    {
+        ref CompositorDrawCall previous = ref
+            CollectionsMarshal.AsSpan(_drawCalls)[previousIndex];
+        uint indexStart = current.IndexStart + indexBase;
+        if (previous.Type != current.Type ||
+            previous.Type is not (DrawCallType.Vector or DrawCallType.Text) ||
+            previous.IndexStart + previous.IndexCount != indexStart ||
+            previous.IsSolidRect != current.IsSolidRect ||
+            previous.IsSolidRounded != current.IsSolidRounded ||
+            previous.ClipRect != current.ClipRect ||
+            previous.MaskTexture != null ||
+            previous.BlendMode != current.BlendMode)
+        {
+            return false;
+        }
+
+        previous.IndexCount += current.IndexCount;
+        return true;
+    }
+
     private bool TryMergeIncrementalDrawCall(
         int previousIndex,
         in CompositorDrawCall current)
     {
-        CompositorDrawCall previous = _drawCalls[previousIndex];
+        ref CompositorDrawCall previous = ref
+            CollectionsMarshal.AsSpan(_drawCalls)[previousIndex];
         if (previous.Type != current.Type ||
             previous.Type is not (DrawCallType.Vector or DrawCallType.Text) ||
             previous.IndexStart + previous.IndexCount != current.IndexStart ||
@@ -1109,7 +1150,6 @@ public unsafe partial class Compositor
         }
 
         previous.IndexCount += current.IndexCount;
-        _drawCalls[previousIndex] = previous;
         return true;
     }
 
