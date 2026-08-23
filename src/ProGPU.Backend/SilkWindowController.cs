@@ -128,6 +128,16 @@ public sealed class SilkWindowController : IDisposable
         return Apply((platform, _) => platform.SetOpacity(value));
     }
 
+    public bool SetZOrder(NativeWindowZOrder value)
+    {
+        if (value is not NativeWindowZOrder.Front and not NativeWindowZOrder.Back)
+        {
+            throw new ArgumentOutOfRangeException(nameof(value));
+        }
+
+        return Apply((platform, _) => platform.SetZOrder(value));
+    }
+
     public bool SetShowInTaskbar(bool value)
     {
         _state = _state with { ShowInTaskbar = value };

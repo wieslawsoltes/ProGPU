@@ -128,6 +128,21 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
         return ApplyChrome(_state);
     }
 
+    public override bool SetZOrder(NativeWindowZOrder value)
+    {
+        switch (value)
+        {
+            case NativeWindowZOrder.Front:
+                SendVoidObject(_nsWindow, "orderFront:", 0);
+                return true;
+            case NativeWindowZOrder.Back:
+                SendVoidObject(_nsWindow, "orderBack:", 0);
+                return true;
+            default:
+                return false;
+        }
+    }
+
     public override bool SetParent(NativeWindowHandle parent)
     {
         if (_parentWindow != 0)

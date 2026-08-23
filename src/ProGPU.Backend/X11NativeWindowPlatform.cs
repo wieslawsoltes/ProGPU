@@ -114,6 +114,18 @@ internal sealed unsafe class X11NativeWindowPlatform : GlfwNativeWindowPlatform
         return SendWindowState("_NET_WM_STATE_ABOVE", value);
     }
 
+    public override bool SetZOrder(NativeWindowZOrder value)
+    {
+        int result = value switch
+        {
+            NativeWindowZOrder.Front => XRaiseWindow(_display, _window),
+            NativeWindowZOrder.Back => XLowerWindow(_display, _window),
+            _ => 0
+        };
+        XFlush(_display);
+        return result != 0;
+    }
+
     public override bool SetShowInTaskbar(bool value) =>
         SendWindowState("_NET_WM_STATE_SKIP_TASKBAR", !value);
 
@@ -339,6 +351,10 @@ internal sealed unsafe class X11NativeWindowPlatform : GlfwNativeWindowPlatform
         ref XEvent sendEvent);
     [DllImport(X11Library)]
     private static extern int XUngrabPointer(nint display, nuint time);
+    [DllImport(X11Library)]
+    private static extern int XRaiseWindow(nint display, nuint window);
+    [DllImport(X11Library)]
+    private static extern int XLowerWindow(nint display, nuint window);
     [DllImport(X11Library)]
     private static extern int XFlush(nint display);
 }

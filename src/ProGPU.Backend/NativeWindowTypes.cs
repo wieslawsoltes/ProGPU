@@ -56,6 +56,12 @@ public enum NativeResizeEdge
     BottomRight = 7
 }
 
+public enum NativeWindowZOrder
+{
+    Front = 0,
+    Back = 1
+}
+
 [Flags]
 public enum NativeWindowFeatures
 {
@@ -77,7 +83,8 @@ public enum NativeWindowFeatures
     Acrylic = 1 << 14,
     Mica = 1 << 15,
     CloseButton = 1 << 16,
-    Opacity = 1 << 17
+    Opacity = 1 << 17,
+    ZOrder = 1 << 18
 }
 
 [Flags]
@@ -153,6 +160,7 @@ public readonly record struct NativeWindowCapabilities(
         {
             NativeWindowKind.Win32 => new NativeWindowCapabilities(kind,
                 common |
+                NativeWindowFeatures.ZOrder |
                 NativeWindowFeatures.Opacity |
                 NativeWindowFeatures.CloseButton |
                 NativeWindowFeatures.MinimizeButton |
@@ -168,6 +176,7 @@ public readonly record struct NativeWindowCapabilities(
                 NativeWindowFeatures.Mica),
             NativeWindowKind.Cocoa => new NativeWindowCapabilities(kind,
                 common |
+                NativeWindowFeatures.ZOrder |
                 NativeWindowFeatures.Opacity |
                 NativeWindowFeatures.CloseButton |
                 NativeWindowFeatures.MinimizeButton |
@@ -182,6 +191,7 @@ public readonly record struct NativeWindowCapabilities(
                 NativeWindowFeatures.Mica),
             NativeWindowKind.X11 => new NativeWindowCapabilities(kind,
                 common |
+                NativeWindowFeatures.ZOrder |
                 NativeWindowFeatures.Opacity |
                 NativeWindowFeatures.CloseButton |
                 NativeWindowFeatures.MinimizeButton |

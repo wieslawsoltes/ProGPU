@@ -87,6 +87,8 @@ internal unsafe class GlfwNativeWindowPlatform : INativeWindowPlatform
         return true;
     }
 
+    public virtual bool SetZOrder(NativeWindowZOrder value) => false;
+
     public virtual bool SetShowInTaskbar(bool value) => false;
     public virtual bool SetParent(NativeWindowHandle parent) => false;
 

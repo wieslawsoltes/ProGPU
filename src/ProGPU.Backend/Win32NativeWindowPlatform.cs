@@ -131,6 +131,23 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
 
     public override bool SetEnabled(bool value) => EnableWindow(_hwnd, value);
 
+    public override bool SetZOrder(NativeWindowZOrder value)
+    {
+        if (value is not NativeWindowZOrder.Front and not NativeWindowZOrder.Back)
+        {
+            return false;
+        }
+
+        return SetWindowPos(
+            _hwnd,
+            value == NativeWindowZOrder.Front ? nint.Zero : new nint(1),
+            0,
+            0,
+            0,
+            0,
+            SwpNoMove | SwpNoSize);
+    }
+
     public override bool SetShowInTaskbar(bool value)
     {
         var style = GetWindowLongPtr(_hwnd, GwlExStyle).ToInt64();
