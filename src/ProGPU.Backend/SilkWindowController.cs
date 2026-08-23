@@ -79,6 +79,12 @@ public sealed class SilkWindowController : IDisposable
         return Apply(ApplyChromeAndShadow);
     }
 
+    public bool SetCanClose(bool value)
+    {
+        _state = _state with { CanClose = value };
+        return Apply(ApplyChromeAndShadow);
+    }
+
     public bool SetCanMinimize(bool value)
     {
         _state = _state with { CanMinimize = value };

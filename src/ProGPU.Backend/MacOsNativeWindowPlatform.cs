@@ -72,7 +72,11 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
                 }
                 break;
             case NativeWindowDecorations.Full:
-                style |= StyleTitled | StyleClosable;
+                style |= StyleTitled;
+                if (state.CanClose)
+                {
+                    style |= StyleClosable;
+                }
                 if (state.CanMinimize)
                 {
                     style |= StyleMiniaturizable;
@@ -101,7 +105,7 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
         var showButtons =
             state.Decorations == NativeWindowDecorations.Full &&
             (!state.ExtendClientArea || wantsSystemChrome);
-        SetStandardButtonState(0, showButtons, _enabled);
+        SetStandardButtonState(0, showButtons && state.CanClose, state.CanClose && _enabled);
         SetStandardButtonState(1, showButtons, state.CanMinimize && _enabled);
         SetStandardButtonState(2, showButtons, state.CanMaximize && state.CanResize && _enabled);
         ApplyToolbar(

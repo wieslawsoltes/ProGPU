@@ -86,7 +86,7 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
         _canResize = state.CanResize;
         var nativeResizable = RequiresNativeResizableStyle(state);
         var style = GetWindowLongPtr(_hwnd, GwlStyle).ToInt64();
-        style |= WsSysMenu;
+        style = SetFlag(style, WsSysMenu, state.CanClose);
         style = SetFlag(style, WsThickFrame, nativeResizable);
         style = SetFlag(style, WsMinimizeBox, state.CanMinimize);
         style = SetFlag(style, WsMaximizeBox, state.CanMaximize && state.CanResize);
