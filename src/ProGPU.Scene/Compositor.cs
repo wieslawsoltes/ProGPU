@@ -3352,6 +3352,10 @@ DynamicBufferUploadComplete:
         // Rasterize all pending paths before starting the render pass.
         _pathAtlas.RasterizePendingPaths();
 
+        // Embedded effect visuals can be owned only by a retained command and
+        // have no parent chain. Retire entries that were not reached by this
+        // compilation before deciding whether the new scene is cacheable.
+        SweepUnusedEffectTextures(root, externalLayers, activeToolTip);
         CaptureCompiledScene(
             root,
             width,
@@ -3768,7 +3772,6 @@ SceneStateUploadComplete:
         _totalTime += 1f / 60f;
         EvictUnusedBindGroups();
         SweepUnusedLayerTextures(root, externalLayers, activeToolTip);
-        SweepUnusedEffectTextures(root, externalLayers, activeToolTip);
         _activeLayerTextureOwners.Clear();
 
         passSw.Stop();
@@ -4431,7 +4434,7 @@ SceneStateUploadComplete:
 
     private void SweepUnusedEffectTextures(Visual mainRoot, IReadOnlyList<Visual>? externalLayers, Visual? activeToolTip)
     {
-        if (_frameNumber % 60 == 0 && _effectTextures.Count > 0)
+        if (_effectTextures.Count > 0)
         {
             Visual[]? detached = null;
             int detachedCount = 0;

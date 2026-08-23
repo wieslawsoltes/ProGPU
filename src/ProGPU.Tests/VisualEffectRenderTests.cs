@@ -231,6 +231,32 @@ public sealed class VisualEffectRenderTests
         }
     }
 
+    [Fact]
+    public void DetachedEffectTexturesDoNotBlockTheNextSceneCache()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(100, 60);
+        window.Content = new ExplicitShadowBoundsVisual();
+
+        try
+        {
+            window.Render();
+            Assert.True(window.Compositor.Metrics.EffectTextureBytes > 0);
+
+            window.Content = new PlainBoundsVisual();
+            window.Render();
+            Assert.False(window.Compositor.Metrics.SceneCacheHit);
+            Assert.Equal(0UL, window.Compositor.Metrics.EffectTextureBytes);
+
+            window.Render();
+            Assert.True(window.Compositor.Metrics.SceneCacheHit);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
     private static RgbaPixel ReadPixel(byte[] pixels, uint width, int x, int y)
     {
         var index = ((y * (int)width) + x) * 4;
@@ -397,6 +423,26 @@ public sealed class VisualEffectRenderTests
                 _red,
                 null,
                 new Rect(40f, 20f, 12f, 8f));
+        }
+    }
+
+    private sealed class PlainBoundsVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _green =
+            new(new Vector4(0f, 1f, 0f, 1f));
+
+        public PlainBoundsVisual()
+        {
+            Width = 100f;
+            Height = 60f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                _green,
+                null,
+                new Rect(20f, 10f, 60f, 40f));
         }
     }
 }
