@@ -5571,12 +5571,6 @@ SceneStateUploadComplete:
             context,
             activeTransform,
             ref localCommand);
-        ResolveExtensionPointBufferRange(
-            localCommand,
-            _pendingVectorStart,
-            _vectorIndicesList.Count,
-            out var pointBufferOffset,
-            out var pointBufferCount);
         _drawCalls.Add(new CompositorDrawCall
         {
             Type = DrawCallType.Extension,
@@ -5588,8 +5582,9 @@ SceneStateUploadComplete:
             TextureSamplingMode = localCommand.TextureSamplingMode,
             HasImageEffect = localCommand.HasImageEffect,
             ImageEffect = localCommand.ResolveImageEffect(context),
-            PointBufferOffset = pointBufferOffset,
-            PointBufferCount = pointBufferCount,
+            PointBufferOffset = (int)_pendingVectorStart,
+            PointBufferCount =
+                (int)((uint)_vectorIndicesList.Count - _pendingVectorStart),
             DoubleBufferOffset = localCommand.DoubleBufferOffset,
             DoubleBufferCount = localCommand.DoubleBufferCount,
             WeightBufferOffset = localCommand.WeightBufferOffset,
@@ -5917,12 +5912,6 @@ SceneStateUploadComplete:
                             CommitPendingDrawCalls();
                             var localCmd = cmd;
                             pipeline.Compile(this, picture, activeTransform, ref localCmd);
-                            ResolveExtensionPointBufferRange(
-                                localCmd,
-                                _pendingVectorStart,
-                                _vectorIndicesList.Count,
-                                out var pointBufferOffset,
-                                out var pointBufferCount);
                             _drawCalls.Add(new CompositorDrawCall
                             {
                                 Type = DrawCallType.Extension,
@@ -5934,8 +5923,8 @@ SceneStateUploadComplete:
                                 TextureSamplingMode = localCmd.TextureSamplingMode,
                                 HasImageEffect = localCmd.HasImageEffect,
                                 ImageEffect = localCmd.ResolveImageEffect(picture),
-                                PointBufferOffset = pointBufferOffset,
-                                PointBufferCount = pointBufferCount,
+                                PointBufferOffset = (int)_pendingVectorStart,
+                                PointBufferCount = (int)((uint)_vectorIndicesList.Count - _pendingVectorStart),
                                 DoubleBufferOffset = localCmd.DoubleBufferOffset,
                                 DoubleBufferCount = localCmd.DoubleBufferCount,
                                 WeightBufferOffset = localCmd.WeightBufferOffset,
@@ -15960,12 +15949,6 @@ SceneStateUploadComplete:
         };
 
         pipeline.Compile(this, null, parentTransform, ref cmd);
-        ResolveExtensionPointBufferRange(
-            cmd,
-            _pendingVectorStart,
-            _vectorIndicesList.Count,
-            out var pointBufferOffset,
-            out var pointBufferCount);
         var cmdTransform = cmd.Transform;
         if (cmdTransform == default || cmdTransform == new Matrix4x4())
         {
@@ -15979,8 +15962,8 @@ SceneStateUploadComplete:
             IntParam = cmd.IntParam,
             FloatParam = cmd.FloatParam,
             DataParam = cmd.DataParam,
-            PointBufferOffset = pointBufferOffset,
-            PointBufferCount = pointBufferCount,
+            PointBufferOffset = (int)_pendingVectorStart,
+            PointBufferCount = (int)((uint)_vectorIndicesList.Count - _pendingVectorStart),
             DoubleBufferOffset = cmd.DoubleBufferOffset,
             DoubleBufferCount = cmd.DoubleBufferCount,
             WeightBufferOffset = cmd.WeightBufferOffset,
@@ -17373,12 +17356,6 @@ SceneStateUploadComplete:
                                     activeTransform,
                                     localCmd.Transform);
                                 pipeline.Compile(this, null, compileTransform, ref localCmd);
-                                ResolveExtensionPointBufferRange(
-                                    localCmd,
-                                    pendingVectorStart,
-                                    _vectorIndicesList.Count,
-                                    out var pointBufferOffset,
-                                    out var pointBufferCount);
                                 var cmdTransform = localCmd.Transform;
                                 if (cmdTransform == default || cmdTransform == new Matrix4x4())
                                 {
@@ -17395,8 +17372,8 @@ SceneStateUploadComplete:
                                     TextureSamplingMode = localCmd.TextureSamplingMode,
                                     HasImageEffect = localCmd.HasImageEffect,
                                     ImageEffect = localCmd.ResolveImageEffect(null),
-                                    PointBufferOffset = pointBufferOffset,
-                                    PointBufferCount = pointBufferCount,
+                                    PointBufferOffset = (int)pendingVectorStart,
+                                    PointBufferCount = (int)((uint)_vectorIndicesList.Count - pendingVectorStart),
                                     DoubleBufferOffset = localCmd.DoubleBufferOffset,
                                     DoubleBufferCount = localCmd.DoubleBufferCount,
                                     WeightBufferOffset = localCmd.WeightBufferOffset,
@@ -17845,12 +17822,6 @@ SceneStateUploadComplete:
                                     activeTransform,
                                     localCmd.Transform);
                                 pipeline.Compile(this, context, compileTransform, ref localCmd);
-                                ResolveExtensionPointBufferRange(
-                                    localCmd,
-                                    pendingVectorStart,
-                                    _vectorIndicesList.Count,
-                                    out var pointBufferOffset,
-                                    out var pointBufferCount);
                                 var cmdTransform = localCmd.Transform;
                                 if (cmdTransform == default || cmdTransform == new Matrix4x4())
                                 {
@@ -17867,8 +17838,8 @@ SceneStateUploadComplete:
                                     TextureSamplingMode = localCmd.TextureSamplingMode,
                                     HasImageEffect = localCmd.HasImageEffect,
                                     ImageEffect = localCmd.ResolveImageEffect(context),
-                                    PointBufferOffset = pointBufferOffset,
-                                    PointBufferCount = pointBufferCount,
+                                    PointBufferOffset = (int)pendingVectorStart,
+                                    PointBufferCount = (int)((uint)_vectorIndicesList.Count - pendingVectorStart),
                                     DoubleBufferOffset = localCmd.DoubleBufferOffset,
                                     DoubleBufferCount = localCmd.DoubleBufferCount,
                                     WeightBufferOffset = localCmd.WeightBufferOffset,
@@ -18179,24 +18150,6 @@ SceneStateUploadComplete:
             // extensions retain the established identity compile contract.
             _ => Matrix4x4.Identity
         };
-    }
-
-    private static void ResolveExtensionPointBufferRange(
-        in RenderCommand command,
-        uint fallbackStart,
-        int currentIndexCount,
-        out int offset,
-        out int count)
-    {
-        if (command.PointBufferCount > 0)
-        {
-            offset = command.PointBufferOffset;
-            count = command.PointBufferCount;
-            return;
-        }
-
-        offset = (int)fallbackStart;
-        count = currentIndexCount - offset;
     }
 
     internal unsafe void DrawStaticDxfBuffer(
