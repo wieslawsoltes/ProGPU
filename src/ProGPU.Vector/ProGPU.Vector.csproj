@@ -4,9 +4,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ProGPUUseWinRTContracts Condition="'$(ProGPUUseWinRTContracts)' == ''">true</ProGPUUseWinRTContracts>
+    <DefineConstants Condition="'$(ProGPUUseWinRTContracts)' == 'true'">$(DefineConstants);PROGPU_USE_WINRT_CONTRACTS</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
-    <ProjectReference Include="..\ProGPU.WinRT\ProGPU.WinRT.csproj" />
+    <ProjectReference Include="..\ProGPU.WinRT\ProGPU.WinRT.csproj" Condition="'$(ProGPUUseWinRTContracts)' == 'true'" />
   </ItemGroup>
 </Project>
