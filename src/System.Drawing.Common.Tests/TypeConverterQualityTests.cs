@@ -12,6 +12,125 @@ namespace ProGPU.SystemDrawing.Tests;
 public sealed class TypeConverterQualityTests
 {
     [Fact]
+    public void FontTypeDescriptorExposesOfficialDesignerConverters()
+    {
+        TypeConverter converter = TypeDescriptor.GetConverter(typeof(Font));
+        PropertyDescriptorCollection properties = TypeDescriptor.GetProperties(typeof(Font));
+
+        Assert.IsType<FontConverter>(converter);
+        Assert.True(converter.CanConvertFrom(typeof(string)));
+        Assert.True(converter.CanConvertTo(typeof(string)));
+        Assert.True(converter.CanConvertTo(typeof(InstanceDescriptor)));
+        Assert.True(converter.GetCreateInstanceSupported());
+        Assert.True(converter.GetPropertiesSupported());
+        Assert.IsType<FontConverter.FontNameConverter>(properties[nameof(Font.Name)]!.Converter);
+        Assert.IsType<FontConverter.FontUnitConverter>(properties[nameof(Font.Unit)]!.Converter);
+
+        var units = new FontConverter.FontUnitConverter();
+        Assert.Equal(
+            [
+                GraphicsUnit.World,
+                GraphicsUnit.Pixel,
+                GraphicsUnit.Point,
+                GraphicsUnit.Inch,
+                GraphicsUnit.Document,
+                GraphicsUnit.Millimeter
+            ],
+            units.GetStandardValues()!.Cast<GraphicsUnit>());
+        Assert.True(units.GetStandardValuesSupported());
+        Assert.True(units.GetStandardValuesExclusive());
+    }
+
+    [Fact]
+    public void FontConverterRoundTripsCultureAwareTextAndStyles()
+    {
+        var converter = new FontConverter();
+        using FontFamily family = FontFamily.GenericSansSerif;
+        using var source = new Font(family, 12.5f, FontStyle.Bold | FontStyle.Italic);
+
+        string invariant = Assert.IsType<string>(
+            converter.ConvertTo(null, CultureInfo.InvariantCulture, source, typeof(string)));
+        Assert.Equal($"{source.Name}, 12.5pt, style=Bold, Italic", invariant);
+        using var invariantRoundTrip = Assert.IsType<Font>(
+            converter.ConvertFrom(null, CultureInfo.InvariantCulture, invariant));
+        Assert.Equal(source.Name, invariantRoundTrip.Name);
+        Assert.Equal(source.Size, invariantRoundTrip.Size);
+        Assert.Equal(source.Style, invariantRoundTrip.Style);
+        Assert.Equal(source.Unit, invariantRoundTrip.Unit);
+
+        var polish = new CultureInfo("pl-PL");
+        string localized = Assert.IsType<string>(
+            converter.ConvertTo(null, polish, source, typeof(string)));
+        Assert.Equal($"{source.Name}; 12,5pt; style=Bold; Italic", localized);
+        using var localizedRoundTrip = Assert.IsType<Font>(converter.ConvertFrom(null, polish, localized));
+        Assert.Equal(source, localizedRoundTrip);
+
+        Assert.Null(converter.ConvertFrom(null, CultureInfo.InvariantCulture, string.Empty));
+        Assert.Equal(string.Empty, converter.ConvertTo(null, CultureInfo.InvariantCulture, null, typeof(string)));
+        Assert.Throws<ArgumentException>(() =>
+            converter.ConvertFrom(null, CultureInfo.InvariantCulture, $"{source.Name}, 12pt, style=Unknown"));
+    }
+
+    [Fact]
+    public void FontConverterCreatesIndependentDesignerValues()
+    {
+        var converter = new FontConverter();
+        using FontFamily family = FontFamily.GenericSansSerif;
+        using var source = new Font(
+            family,
+            11f,
+            FontStyle.Underline | FontStyle.Strikeout,
+            GraphicsUnit.Pixel,
+            2,
+            true);
+        var descriptor = Assert.IsType<InstanceDescriptor>(
+            converter.ConvertTo(null, CultureInfo.InvariantCulture, source, typeof(InstanceDescriptor)));
+
+        Assert.True(descriptor.IsComplete);
+        using var descriptorFont = Assert.IsType<Font>(descriptor.Invoke());
+        Assert.Equal(source, descriptorFont);
+
+        IDictionary replacements = new Hashtable
+        {
+            [nameof(Font.Name)] = source.Name,
+            [nameof(Font.Size)] = 14f,
+            [nameof(Font.Unit)] = GraphicsUnit.Point,
+            [nameof(Font.Bold)] = true,
+            [nameof(Font.Italic)] = false,
+            [nameof(Font.Strikeout)] = false,
+            [nameof(Font.Underline)] = true,
+            [nameof(Font.GdiCharSet)] = (byte)3,
+            [nameof(Font.GdiVerticalFont)] = false
+        };
+        using var created = Assert.IsType<Font>(converter.CreateInstance(null, replacements));
+        Assert.Equal(14f, created.Size);
+        Assert.Equal(FontStyle.Bold | FontStyle.Underline, created.Style);
+        Assert.Equal(GraphicsUnit.Point, created.Unit);
+        Assert.Equal((byte)3, created.GdiCharSet);
+        Assert.False(created.GdiVerticalFont);
+
+        PropertyDescriptorCollection properties = converter.GetProperties(null, source, null);
+        Assert.Equal(nameof(Font.Name), properties[0].Name);
+        Assert.Equal(nameof(Font.Size), properties[1].Name);
+        Assert.Equal(nameof(Font.Unit), properties[2].Name);
+    }
+
+    [Fact]
+    public void FontNameConverterUsesTypedInstalledCatalogAndAcceptsCustomNames()
+    {
+        var converter = new FontConverter.FontNameConverter();
+        using FontFamily family = FontFamily.GenericSansSerif;
+
+        Assert.True(converter.CanConvertFrom(typeof(string)));
+        Assert.True(converter.GetStandardValuesSupported());
+        Assert.False(converter.GetStandardValuesExclusive());
+        Assert.Contains(family.Name, converter.GetStandardValues()!.Cast<string>());
+        Assert.Equal(family.Name, converter.ConvertFrom(family.Name.ToUpperInvariant()));
+        Assert.Equal("ProGPU Custom Family", converter.ConvertFrom("ProGPU Custom Family"));
+        ((IDisposable)converter).Dispose();
+    }
+
+    [Fact]
     public void ImageAndIconTypeDescriptorsExposeOfficialResourceConversions()
     {
         TypeConverter image = TypeDescriptor.GetConverter(typeof(Image));

@@ -1,5 +1,6 @@
-using ProGPU.Text;
+﻿using System.ComponentModel;
 using System.Runtime.Serialization;
+using ProGPU.Text;
 
 namespace System.Drawing;
 
@@ -28,6 +29,7 @@ public enum GraphicsUnit
 /// Defines a font using a typed ProGPU typeface and portable drawing metrics.
 /// </summary>
 [Serializable]
+[TypeConverter(typeof(FontConverter))]
 public sealed class Font : MarshalByRefObject, ICloneable, IDisposable, ISerializable
 {
     private bool _disposed;
@@ -44,10 +46,12 @@ public sealed class Font : MarshalByRefObject, ICloneable, IDisposable, ISeriali
 #pragma warning restore SYSLIB0050
 
     public FontFamily FontFamily { get; }
+    [TypeConverter(typeof(FontConverter.FontNameConverter))]
     public string Name => FontFamily.Name;
     public float Size { get; }
     public float SizeInPoints => Unit == GraphicsUnit.Point ? Size : Graphics.ConvertFontSizeToPoints(Size, Unit, 96f);
     public FontStyle Style { get; }
+    [TypeConverter(typeof(FontConverter.FontUnitConverter))]
     public GraphicsUnit Unit { get; }
     public GraphicsUnit OriginalUnit => Unit;
     public byte GdiCharSet { get; }
@@ -247,7 +251,7 @@ public sealed class Font : MarshalByRefObject, ICloneable, IDisposable, ISeriali
             throw new ArgumentException("Font size must be finite and greater than zero.", nameof(emSize));
         }
 
-        if (unit == GraphicsUnit.Display || unit < GraphicsUnit.World || unit > GraphicsUnit.Millimeter)
+        if (unit is GraphicsUnit.Display or < GraphicsUnit.World or > GraphicsUnit.Millimeter)
         {
             throw new ArgumentException("The graphics unit is not valid for a font.", nameof(unit));
         }
