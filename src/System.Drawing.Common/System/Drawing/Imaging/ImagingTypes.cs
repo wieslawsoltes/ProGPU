@@ -532,6 +532,7 @@ internal static class PixelFormatInfo
     internal static bool IsIndexed(PixelFormat format) => ((int)format & (int)PixelFormat.Indexed) != 0;
 }
 
+[TypeConverter(typeof(ImageFormatConverter))]
 public sealed class ImageFormat
 {
     private static readonly ImageFormat s_memoryBmp = new(new Guid("b96b3caa-0728-11d3-9d7b-0000f81ef32e"));
