@@ -349,6 +349,7 @@ public sealed class VisualEffectRenderTests
             var outside = ReadPixel(pixels, window.Width, 4, 4);
             var redOnly = ReadPixel(pixels, window.Width, 12, 12);
             var overlap = ReadPixel(pixels, window.Width, 20, 12);
+            var followingSibling = ReadPixel(pixels, window.Width, 40, 12);
             Assert.InRange(outside.R, 122, 133);
             Assert.InRange(outside.G, 122, 133);
             Assert.InRange(outside.B, 122, 133);
@@ -359,6 +360,10 @@ public sealed class VisualEffectRenderTests
             Assert.InRange(overlap.G, 122, 133);
             Assert.InRange(overlap.B, 0, 10);
             Assert.Equal(255, overlap.A);
+            Assert.InRange(followingSibling.R, 0, 10);
+            Assert.InRange(followingSibling.G, 0, 10);
+            Assert.InRange(followingSibling.B, 245, 255);
+            Assert.Equal(255, followingSibling.A);
             Assert.Equal(24u * 16u * 4u, window.Compositor.Metrics.EffectTextureBytes);
 
             effect.BlendMode = GpuBlendMode.Screen;
@@ -622,6 +627,7 @@ public sealed class VisualEffectRenderTests
     private sealed class BlendModeHost : FrameworkElement
     {
         private readonly FrameworkElement _child;
+        private readonly FrameworkElement _followingSibling = new BlendModeSiblingVisual();
         private readonly SolidColorBrush _background =
             new(new Vector4(0.5f, 0.5f, 0.5f, 1f));
 
@@ -634,17 +640,20 @@ public sealed class VisualEffectRenderTests
             // artistic modes exercise the destination-sampling blend path.
             CacheAsLayer = true;
             AddChild(_child);
+            AddChild(_followingSibling);
         }
 
         protected override Vector2 MeasureOverride(Vector2 availableSize)
         {
             _child.Measure(new Vector2(24f, 16f));
+            _followingSibling.Measure(new Vector2(8f, 16f));
             return availableSize;
         }
 
         protected override void ArrangeOverride(Rect arrangeRect)
         {
             _child.Arrange(new Rect(8f, 8f, 24f, 16f));
+            _followingSibling.Arrange(new Rect(36f, 8f, 8f, 16f));
         }
 
         public override void OnRender(DrawingContext context)
@@ -653,6 +662,26 @@ public sealed class VisualEffectRenderTests
                 _background,
                 null,
                 new Rect(0f, 0f, 48f, 32f));
+        }
+    }
+
+    private sealed class BlendModeSiblingVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _blue =
+            new(new Vector4(0f, 0f, 1f, 1f));
+
+        public BlendModeSiblingVisual()
+        {
+            Width = 8f;
+            Height = 16f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                _blue,
+                null,
+                new Rect(0f, 0f, 8f, 16f));
         }
     }
 }
