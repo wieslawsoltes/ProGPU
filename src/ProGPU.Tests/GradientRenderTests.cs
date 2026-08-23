@@ -111,6 +111,37 @@ public sealed class GradientRenderTests
         }
     }
 
+    [Fact]
+    public void DuplicateStartStopsPreserveFirstColorBeforeGradientDomain()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(16, 16);
+        window.Content = new DuplicateStartGradientVisual();
+
+        try
+        {
+            window.Render();
+
+            var pixels = window.ReadPixels();
+            var beforeStart = ReadPixel(pixels, window.Width, x: 8, y: 2);
+            var afterStart = ReadPixel(pixels, window.Width, x: 8, y: 12);
+
+            Assert.InRange(beforeStart.R, 0, 8);
+            Assert.InRange(beforeStart.G, 0, 8);
+            Assert.InRange(beforeStart.B, 247, 255);
+            Assert.Equal(255, beforeStart.A);
+
+            Assert.InRange(afterStart.R, 247, 255);
+            Assert.InRange(afterStart.G, 0, 8);
+            Assert.InRange(afterStart.B, 0, 8);
+            Assert.Equal(255, afterStart.A);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
     private static RgbaPixel ReadPixel(byte[] pixels, uint width, int x, int y)
     {
         var index = ((y * (int)width) + x) * 4;
@@ -195,6 +226,30 @@ public sealed class GradientRenderTests
                 new[]
                 {
                     new GradientStop(new Vector4(0f, 0f, 1f, 1f), 1f),
+                    new GradientStop(new Vector4(1f, 0f, 0f, 1f), 1f)
+                });
+
+            context.DrawRectangle(brush, null, new Rect(0f, 0f, 16f, 16f));
+        }
+    }
+
+    private sealed class DuplicateStartGradientVisual : FrameworkElement
+    {
+        public DuplicateStartGradientVisual()
+        {
+            Width = 16f;
+            Height = 16f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            var brush = new LinearGradientBrush(
+                new Vector2(0f, 8f),
+                new Vector2(0f, 16f),
+                new[]
+                {
+                    new GradientStop(new Vector4(0f, 0f, 1f, 1f), 0f),
+                    new GradientStop(new Vector4(1f, 0f, 0f, 1f), 0f),
                     new GradientStop(new Vector4(1f, 0f, 0f, 1f), 1f)
                 });
 
