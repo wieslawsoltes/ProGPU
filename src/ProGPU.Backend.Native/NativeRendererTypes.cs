@@ -2002,10 +2002,22 @@ public readonly struct NativeSceneEffect
         float sigma,
         Vector2 offset,
         Vector4 color,
+        uint revision) => DropShadow(
+            sigma,
+            sigma,
+            offset,
+            color,
+            revision);
+
+    public static NativeSceneEffect DropShadow(
+        float sigmaX,
+        float sigmaY,
+        Vector2 offset,
+        Vector4 color,
         uint revision) => new(
             NativeGroupEffectKind.DropShadow,
-            sigma,
-            sigma,
+            sigmaX,
+            sigmaY,
             offset,
             color,
             revision);
@@ -2280,10 +2292,22 @@ public readonly struct NativeGroupEffect
         float blurSigma,
         Vector2 offset,
         Vector4 color,
+        uint revision) => DropShadow(
+            blurSigma,
+            blurSigma,
+            offset,
+            color,
+            revision);
+
+    public static NativeGroupEffect DropShadow(
+        float blurSigmaX,
+        float blurSigmaY,
+        Vector2 offset,
+        Vector4 color,
         uint revision) => new(
             NativeGroupEffectKind.DropShadow,
-            blurSigma,
-            blurSigma,
+            blurSigmaX,
+            blurSigmaY,
             offset,
             color,
             revision);

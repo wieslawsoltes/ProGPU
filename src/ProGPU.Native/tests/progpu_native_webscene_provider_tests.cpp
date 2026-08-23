@@ -5452,7 +5452,7 @@ int main(int argc, char** argv) {
     group_effect.kind = PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW;
     group_effect.revision = 3U;
     group_effect.sigma_x = 2.0F;
-    group_effect.sigma_y = 2.0F;
+    group_effect.sigma_y = 1.25F;
     group_effect.offset_x = 3.5F;
     group_effect.offset_y = -1.25F;
     group_effect.color_r = 0.1F;
@@ -5466,8 +5466,10 @@ int main(int argc, char** argv) {
     require(progpu_native_engine_render(engine, &frame, &metrics) ==
         PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 0U,
         "retained drop-shadow group-effect replay failed");
-    require(progpu_native_engine_get_layer_metrics(
-        engine, &layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+    const auto drop_shadow_metrics_status =
+        progpu_native_engine_get_layer_metrics(engine, &layer_metrics);
+    const bool drop_shadow_metrics_valid =
+        drop_shadow_metrics_status == PROGPU_NATIVE_STATUS_SUCCESS &&
         layer_metrics.content_pass_count == 0U &&
         layer_metrics.composite_pass_count == 1U &&
         layer_metrics.cache_hit == 1U &&
@@ -5476,8 +5478,28 @@ int main(int argc, char** argv) {
         layer_metrics.effect_revision == 3U &&
         layer_metrics.effect_pass_count == 3U &&
         layer_metrics.effect_cache_hit == 0U &&
-        layer_metrics.effect_uniform_upload_bytes == 48U &&
-        layer_metrics.effect_texture_bytes == 64U * 48U * 8U,
+        layer_metrics.effect_uniform_upload_bytes == 64U &&
+        layer_metrics.effect_texture_bytes == 64U * 48U * 8U;
+    if (!drop_shadow_metrics_valid) {
+        std::fprintf(
+            stderr,
+            "drop-shadow metrics status=%u content=%u composite=%u "
+            "cache=%u kind=%u revision=%llu passes=%u effect-cache=%u "
+            "uniform-bytes=%llu texture-bytes=%llu\n",
+            static_cast<unsigned>(drop_shadow_metrics_status),
+            layer_metrics.content_pass_count,
+            layer_metrics.composite_pass_count,
+            layer_metrics.cache_hit,
+            layer_metrics.effect_kind,
+            static_cast<unsigned long long>(layer_metrics.effect_revision),
+            layer_metrics.effect_pass_count,
+            layer_metrics.effect_cache_hit,
+            static_cast<unsigned long long>(
+                layer_metrics.effect_uniform_upload_bytes),
+            static_cast<unsigned long long>(
+                layer_metrics.effect_texture_bytes));
+    }
+    require(drop_shadow_metrics_valid,
         "changed drop-shadow group-effect metrics are invalid");
     require(progpu_native_engine_render(engine, &frame, &metrics) ==
         PROGPU_NATIVE_STATUS_SUCCESS && metrics.draw_call_count == 0U,

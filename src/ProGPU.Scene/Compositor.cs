@@ -1898,10 +1898,34 @@ public unsafe partial class Compositor : IDisposable
         Vector2 offset,
         Vector4 color,
         float blurRadius)
+        => ApplyDropShadow(
+            source,
+            temporary,
+            destination,
+            offset,
+            color,
+            blurRadius,
+            blurRadius);
+
+    public void ApplyDropShadow(
+        GpuTexture source,
+        GpuTexture temporary,
+        GpuTexture destination,
+        Vector2 offset,
+        Vector4 color,
+        float blurRadiusX,
+        float blurRadiusY)
     {
         lock (_context.RenderLock)
         {
-            _compute.ApplyDropShadow(source, temporary, destination, offset, color, blurRadius);
+            _compute.ApplyDropShadow(
+                source,
+                temporary,
+                destination,
+                offset,
+                color,
+                blurRadiusX,
+                blurRadiusY);
         }
     }
 
@@ -15201,29 +15225,34 @@ SceneStateUploadComplete:
         var effect = fe.Effect;
         if (effect == null) return;
 
-        float blurRadius = 0f;
-        float padding = 0f;
+        float paddingX = 0f;
+        float paddingY = 0f;
 
         if (effect is BlurEffect blur)
         {
-            blurRadius = blur.BlurRadius;
-            padding = MathF.Ceiling(blurRadius * 2f);
+            float padding = MathF.Ceiling(blur.BlurRadius * 2f);
+            paddingX = padding;
+            paddingY = padding;
         }
         else if (effect is DropShadowEffect shadow)
         {
-            blurRadius = shadow.BlurRadius;
-            padding = MathF.Ceiling(blurRadius * 2f);
+            paddingX = MathF.Ceiling(MathF.Max(0f, shadow.BlurRadiusX) * 2f);
+            paddingY = MathF.Ceiling(MathF.Max(0f, shadow.BlurRadiusY) * 2f);
         }
         else if (effect is WpfShaderEffect shaderEffect)
         {
-            padding = MathF.Ceiling(MathF.Max(0f, shaderEffect.Padding));
+            float padding = MathF.Ceiling(MathF.Max(0f, shaderEffect.Padding));
+            paddingX = padding;
+            paddingY = padding;
         }
 
         if (fe.EffectRasterPadding is { } requestedPadding)
         {
-            padding = float.IsFinite(requestedPadding)
+            float padding = float.IsFinite(requestedPadding)
                 ? MathF.Max(0f, requestedPadding)
                 : 0f;
+            paddingX = padding;
+            paddingY = padding;
         }
 
         Rect contentBounds = fe.EffectContentBounds ??
@@ -15232,10 +15261,10 @@ SceneStateUploadComplete:
             return;
 
         var paddedRect = new Rect(
-            contentBounds.X - padding,
-            contentBounds.Y - padding,
-            contentBounds.Width + padding * 2f,
-            contentBounds.Height + padding * 2f);
+            contentBounds.X - paddingX,
+            contentBounds.Y - paddingY,
+            contentBounds.Width + paddingX * 2f,
+            contentBounds.Height + paddingY * 2f);
         float dpiScale = _currentDpiScale > 0f ? _currentDpiScale : 1f;
         float logicalWidth = MathF.Max(1f, paddedRect.Width);
         float logicalHeight = MathF.Max(1f, paddedRect.Height);
@@ -15294,7 +15323,8 @@ SceneStateUploadComplete:
                 {
                     activeTextures.ReleaseMaskSource();
                 }
-                if (shadowResources.BlurRadius > 0.01f)
+                if (shadowResources.BlurRadiusX > 0.01f ||
+                    shadowResources.BlurRadiusY > 0.01f)
                 {
                     activeTextures.EnsureTemporary(
                         _context,
@@ -15362,7 +15392,8 @@ SceneStateUploadComplete:
                     shadowSource = activeTextures.MaskSource!;
                 }
                 // We pass zero offset to the compute shader because we handle offset dynamically in DrawTextureOnMain on the CPU
-                if (shadowEffect.BlurRadius > 0.01f)
+                if (shadowEffect.BlurRadiusX > 0.01f ||
+                    shadowEffect.BlurRadiusY > 0.01f)
                 {
                     _compute.ApplyDropShadow(
                         shadowSource,
@@ -15370,7 +15401,8 @@ SceneStateUploadComplete:
                         activeTextures.Destination!,
                         Vector2.Zero,
                         shadowEffect.Color,
-                        shadowEffect.BlurRadius * dpiScale);
+                        shadowEffect.BlurRadiusX * dpiScale,
+                        shadowEffect.BlurRadiusY * dpiScale);
                 }
                 else
                 {

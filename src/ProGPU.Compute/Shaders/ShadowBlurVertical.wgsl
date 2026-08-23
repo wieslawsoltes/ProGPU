@@ -1,11 +1,10 @@
 // Algorithm: Vertically blur a four-coverages-per-RGBA8 packed alpha mask, then tint it.
-// Time complexity: O(R) per output texel for blur radius R; weights use two transcendental evaluations plus an O(R) recurrence.
+// Time complexity: O(R) per output texel for blur radius R; a zero vertical sigma performs one packed-coverage load with no transcendental work.
 // Space complexity: O(1) local storage with exactly 2R+1 reads from the packed coverage intermediate.
 struct Params {
     offset: vec2<f32>,
     color: vec4<f32>,
-    blurRadius: f32,
-    padding: f32,
+    blurRadius: vec2<f32>,
     sourceSize: vec2<f32>,
     padding1: vec4<f32>,
 };
@@ -34,9 +33,18 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         return;
     }
 
-    let sigma = max(params.blurRadius, 0.5);
+    let requestedSigma = params.blurRadius.y;
+    let sourceAlpha = load_coverage(x, y);
+    if (requestedSigma <= 0.01) {
+        let shadowAlpha = params.color.a * sourceAlpha;
+        let shadowColor = vec4<f32>(params.color.rgb * shadowAlpha, shadowAlpha);
+        textureStore(outputTex, vec2<i32>(x, y), shadowColor);
+        return;
+    }
+
+    let sigma = max(requestedSigma, 0.5);
     let radius = min(i32(ceil(sigma * 3.0)), 64);
-    var alphaSum = load_coverage(x, y);
+    var alphaSum = sourceAlpha;
     var weightSum = 1.0;
     let inverseVariance = 0.5 / (sigma * sigma);
     var weight = exp(-inverseVariance);

@@ -148,6 +148,67 @@ public sealed class VisualEffectRenderTests
     }
 
     [Fact]
+    public void AnisotropicShadowUsesAxisSpecificRasterPadding()
+    {
+        using var window = new HeadlessWindow(40, 32);
+        using var target = new GpuTexture(
+            window.Context,
+            40,
+            32,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
+            "Anisotropic Shadow Residency Test Target");
+        var visual = CreateEffectVisual(new DropShadowEffect(4f, 0f));
+
+        window.Compositor.RenderOffscreen(
+            visual,
+            width: 40,
+            height: 32,
+            targetTexture: target,
+            padding: 0f,
+            dpiScale: 1f);
+
+        const ulong paddedWidth = 28u;
+        const ulong paddedHeight = 8u;
+        const ulong sourceAndDestinationBytes = paddedWidth * paddedHeight * 8u;
+        const ulong packedTemporaryBytes = ((paddedWidth + 3u) / 4u) * paddedHeight * 4u;
+        Assert.Equal(
+            sourceAndDestinationBytes + packedTemporaryBytes,
+            window.Compositor.Metrics.EffectTextureBytes);
+    }
+
+    [Fact]
+    public void DropShadowRetainsIndependentHorizontalAndVerticalSigma()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(64, 64);
+
+        try
+        {
+            window.Content = CreateAnisotropicShadowVisual(6f, 0f);
+            window.Render();
+            var horizontalPixels = window.ReadPixels();
+            var horizontalMoments = ComputeRedMoments(horizontalPixels, window.Width);
+
+            window.Content = CreateAnisotropicShadowVisual(0f, 6f);
+            window.Render();
+            var verticalPixels = window.ReadPixels();
+            var verticalMoments = ComputeRedMoments(verticalPixels, window.Width);
+
+            Assert.True(
+                horizontalMoments.X > horizontalMoments.Y * 4f,
+                $"Expected horizontal shadow variance to dominate, got {horizontalMoments}.");
+            Assert.True(
+                verticalMoments.Y > verticalMoments.X * 4f,
+                $"Expected vertical shadow variance to dominate, got {verticalMoments}.");
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
     public void VisualEffectHitTestCachePreservesDescendantOwners()
     {
         var window = HeadlessWindow.Shared;
@@ -422,7 +483,78 @@ public sealed class VisualEffectRenderTests
         return visual;
     }
 
+    private static FrameworkElement CreateAnisotropicShadowVisual(
+        float sigmaX,
+        float sigmaY) => new AnisotropicShadowVisual(sigmaX, sigmaY);
+
+    private static Vector2 ComputeRedMoments(byte[] pixels, uint width)
+    {
+        var height = pixels.Length / checked((int)width * 4);
+        byte background = byte.MaxValue;
+        for (var offset = 0; offset < pixels.Length; offset += 4)
+        {
+            background = Math.Min(background, pixels[offset]);
+        }
+
+        var weightedX = 0d;
+        var weightedY = 0d;
+        var total = 0d;
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var weight = pixels[((y * (int)width) + x) * 4] - background;
+                weightedX += x * weight;
+                weightedY += y * weight;
+                total += weight;
+            }
+        }
+
+        Assert.True(total > 0d, "The shadow capture must contain visible coverage.");
+        var meanX = weightedX / total;
+        var meanY = weightedY / total;
+        var momentX = 0d;
+        var momentY = 0d;
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var weight = pixels[((y * (int)width) + x) * 4] - background;
+                momentX += (x - meanX) * (x - meanX) * weight;
+                momentY += (y - meanY) * (y - meanY) * weight;
+            }
+        }
+
+        return new Vector2((float)(momentX / total), (float)(momentY / total));
+    }
+
     private readonly record struct RgbaPixel(byte R, byte G, byte B, byte A);
+
+    private sealed class AnisotropicShadowVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _white = new(Vector4.One);
+
+        public AnisotropicShadowVisual(float sigmaX, float sigmaY)
+        {
+            Width = 2f;
+            Height = 2f;
+            Transform = Matrix4x4.CreateTranslation(31f, 31f, 0f);
+            EffectContentBounds = new Rect(0f, 0f, 2f, 2f);
+            Effect = new DropShadowEffect(sigmaX, sigmaY)
+            {
+                Color = Vector4.One,
+                DrawSource = false
+            };
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                _white,
+                pen: null,
+                new Rect(0f, 0f, 2f, 2f));
+        }
+    }
 
     private sealed class VisualCompositeScopeHost : FrameworkElement
     {
