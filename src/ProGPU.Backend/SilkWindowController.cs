@@ -117,6 +117,17 @@ public sealed class SilkWindowController : IDisposable
         });
     }
 
+    public bool SetOpacity(double value)
+    {
+        if (!double.IsFinite(value) || value is < 0d or > 1d)
+        {
+            throw new ArgumentOutOfRangeException(nameof(value));
+        }
+
+        _state = _state with { Opacity = value };
+        return Apply((platform, _) => platform.SetOpacity(value));
+    }
+
     public bool SetShowInTaskbar(bool value)
     {
         _state = _state with { ShowInTaskbar = value };
@@ -375,6 +386,7 @@ public sealed class SilkWindowController : IDisposable
         platform.SetSizeConstraints(_state.MinimumSize, _state.MaximumSize);
         platform.SetTopMost(_state.TopMost);
         platform.SetEnabled(_state.Enabled);
+        platform.SetOpacity(_state.Opacity);
         platform.SetShowInTaskbar(_state.ShowInTaskbar);
         if (_state.Parent.IsValid)
         {

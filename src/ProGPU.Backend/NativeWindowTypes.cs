@@ -76,7 +76,8 @@ public enum NativeWindowFeatures
     Blur = 1 << 13,
     Acrylic = 1 << 14,
     Mica = 1 << 15,
-    CloseButton = 1 << 16
+    CloseButton = 1 << 16,
+    Opacity = 1 << 17
 }
 
 [Flags]
@@ -152,6 +153,7 @@ public readonly record struct NativeWindowCapabilities(
         {
             NativeWindowKind.Win32 => new NativeWindowCapabilities(kind,
                 common |
+                NativeWindowFeatures.Opacity |
                 NativeWindowFeatures.CloseButton |
                 NativeWindowFeatures.MinimizeButton |
                 NativeWindowFeatures.MaximizeButton |
@@ -166,6 +168,7 @@ public readonly record struct NativeWindowCapabilities(
                 NativeWindowFeatures.Mica),
             NativeWindowKind.Cocoa => new NativeWindowCapabilities(kind,
                 common |
+                NativeWindowFeatures.Opacity |
                 NativeWindowFeatures.CloseButton |
                 NativeWindowFeatures.MinimizeButton |
                 NativeWindowFeatures.MaximizeButton |
@@ -179,6 +182,7 @@ public readonly record struct NativeWindowCapabilities(
                 NativeWindowFeatures.Mica),
             NativeWindowKind.X11 => new NativeWindowCapabilities(kind,
                 common |
+                NativeWindowFeatures.Opacity |
                 NativeWindowFeatures.CloseButton |
                 NativeWindowFeatures.MinimizeButton |
                 NativeWindowFeatures.MaximizeButton |
@@ -210,6 +214,7 @@ internal readonly record struct NativeWindowState(
     bool CanMaximize,
     bool TopMost,
     bool Enabled,
+    double Opacity,
     bool ShowInTaskbar,
     bool AddShadow,
     bool ExtendClientArea,
@@ -230,6 +235,7 @@ internal readonly record struct NativeWindowState(
         CanMaximize: true,
         TopMost: false,
         Enabled: true,
+        Opacity: 1d,
         ShowInTaskbar: true,
         AddShadow: true,
         ExtendClientArea: false,

@@ -17,6 +17,7 @@ internal interface INativeWindowPlatform : IDisposable
     bool ApplyChrome(in NativeWindowState state);
     bool SetTopMost(bool value);
     bool SetEnabled(bool value);
+    bool SetOpacity(double value);
     bool SetShowInTaskbar(bool value);
     bool SetParent(NativeWindowHandle parent);
     bool SetSizeConstraints(NativeWindowSize minimum, NativeWindowSize maximum);
