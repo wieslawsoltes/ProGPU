@@ -142,6 +142,7 @@ public unsafe class WgpuContext : IDisposable
     private long _queueSubmissionCount;
     private long _drainedQueueSubmissionCount;
     private long _polledQueueSubmissionCount;
+    private long _textureContentVersion;
     private int _maximumDeferredQueueSubmissions =
         DefaultMaximumDeferredQueueSubmissions;
 
@@ -174,6 +175,21 @@ public unsafe class WgpuContext : IDisposable
                 value);
         }
     }
+
+    /// <summary>
+    /// Gets a context-wide version that advances whenever an owned texture's
+    /// content or native view identity changes.
+    /// </summary>
+    /// <remarks>
+    /// Retained hosts can capture this value after rendering and require an
+    /// exact match before reusing an already populated output target. Changes
+    /// to unrelated textures may conservatively invalidate that reuse.
+    /// </remarks>
+    public long TextureContentVersion =>
+        Volatile.Read(ref _textureContentVersion);
+
+    internal void NotifyTextureContentChanged() =>
+        Interlocked.Increment(ref _textureContentVersion);
 
     public void Submit(
         nuint commandCount,
