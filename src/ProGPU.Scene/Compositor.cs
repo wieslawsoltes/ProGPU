@@ -3459,7 +3459,6 @@ SceneStateUploadComplete:
         BindGroup* currentMaskBindGroup = null;
         bool? currentPipelineHasMask = null;
         byte? currentVectorPipelineKind = null;
-        var textureEntries = stackalloc BindGroupEntry[2];
 
         var drawCallCount = _drawCalls.Count;
         for (var drawCallIndex = 0; drawCallIndex < drawCallCount; drawCallIndex++)
@@ -3583,36 +3582,12 @@ SceneStateUploadComplete:
                 currentBlendMode = dc.BlendMode;
                 currentPipelineHasMask = hasMask;
 
-                var viewPtr = texture.ViewPtr;
-                var cacheKey = new TextureCacheKey(
-                    texture.Id,
-                    texture.ViewGeneration,
+                var cachedBg = GetOrCreatePersistentTextureBindGroup(
+                    texture,
                     isOffscreen: false,
                     dc.TextureSamplingMode,
-                    dc.TextureMaxAnisotropy);
-
-                CachedBindGroup? cachedBg;
-                lock (_persistentTextureBindGroups)
-                {
-                    if (!_persistentTextureBindGroups.TryGetValue(cacheKey, out cachedBg))
-                    {
-                        textureEntries[0] = new BindGroupEntry
-                        {
-                            Binding = 0,
-                            Sampler = GetTextureSampler(dc.TextureSamplingMode, dc.TextureMaxAnisotropy)
-                        };
-                        textureEntries[1] = new BindGroupEntry { Binding = 1, TextureView = viewPtr };
-
-                        var bgDesc = new BindGroupDescriptor { Layout = _textureBindGroupLayout, EntryCount = 2, Entries = textureEntries };
-                        var bg = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDesc);
-                        cachedBg = new CachedBindGroup((nint)bg, _frameNumber);
-                        _persistentTextureBindGroups[cacheKey] = cachedBg;
-                    }
-                    else
-                    {
-                        cachedBg.LastUsedFrame = _frameNumber;
-                    }
-                }
+                    dc.TextureMaxAnisotropy,
+                    _textureBindGroupLayout);
 
                 var bindGroup = (BindGroup*)cachedBg.BindGroupPtr;
                 _context.Api.RenderPassEncoderSetBindGroup(pass, 1, bindGroup, 0, null);
@@ -4157,6 +4132,80 @@ SceneStateUploadComplete:
             && textureContext.SharesDeviceWith(_context)
             && texture.TexturePtr != null
             && texture.ViewPtr != null;
+    }
+
+    private CachedBindGroup GetOrCreatePersistentTextureBindGroup(
+        GpuTexture texture,
+        bool isOffscreen,
+        TextureSamplingMode samplingMode,
+        byte maxAnisotropy,
+        BindGroupLayout* layout)
+    {
+        var cacheKey = new TextureCacheKey(
+            texture.Id,
+            texture.ViewGeneration,
+            isOffscreen,
+            samplingMode,
+            maxAnisotropy);
+        lock (_persistentTextureBindGroups)
+        {
+            if (_persistentTextureBindGroups.TryGetValue(
+                    cacheKey,
+                    out var cached))
+            {
+                cached.LastUsedFrame = _frameNumber;
+                return cached;
+            }
+        }
+
+        var entries = stackalloc BindGroupEntry[2];
+        entries[0] = new BindGroupEntry
+        {
+            Binding = 0,
+            Sampler = GetTextureSampler(samplingMode, maxAnisotropy)
+        };
+        entries[1] = new BindGroupEntry
+        {
+            Binding = 1,
+            TextureView = texture.ViewPtr
+        };
+        var descriptor = new BindGroupDescriptor
+        {
+            Layout = layout,
+            EntryCount = 2,
+            Entries = entries
+        };
+        var created = new CachedBindGroup(
+            (nint)_context.Api.DeviceCreateBindGroup(
+                _context.Device,
+                &descriptor),
+            _frameNumber);
+
+        nint redundantBindGroup = 0;
+        CachedBindGroup result;
+        lock (_persistentTextureBindGroups)
+        {
+            if (_persistentTextureBindGroups.TryGetValue(
+                    cacheKey,
+                    out var raced))
+            {
+                raced.LastUsedFrame = _frameNumber;
+                redundantBindGroup = created.BindGroupPtr;
+                result = raced;
+            }
+            else
+            {
+                _persistentTextureBindGroups[cacheKey] = created;
+                result = created;
+            }
+        }
+
+        if (redundantBindGroup != 0)
+        {
+            QueueBindGroupRelease(redundantBindGroup);
+        }
+
+        return result;
     }
 
     private void HandleTextureDisposed(ulong textureId)
@@ -14897,45 +14946,12 @@ SceneStateUploadComplete:
                 _textureIndexBuffer.Size);
             _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
 
-            var cacheKey = new TextureCacheKey(
-                texture.Id,
-                texture.ViewGeneration,
+            var cachedBindGroup = GetOrCreatePersistentTextureBindGroup(
+                texture,
                 isOffscreen: true,
                 drawCall.TextureSamplingMode,
-                drawCall.TextureMaxAnisotropy);
-            CachedBindGroup? cachedBindGroup;
-            lock (_persistentTextureBindGroups)
-            {
-                if (!_persistentTextureBindGroups.TryGetValue(cacheKey, out cachedBindGroup))
-                {
-                    var entries = stackalloc BindGroupEntry[2];
-                    entries[0] = new BindGroupEntry
-                    {
-                        Binding = 0,
-                        Sampler = GetTextureSampler(
-                            drawCall.TextureSamplingMode,
-                            drawCall.TextureMaxAnisotropy)
-                    };
-                    entries[1] = new BindGroupEntry
-                    {
-                        Binding = 1,
-                        TextureView = texture.ViewPtr
-                    };
-                    var descriptor = new BindGroupDescriptor
-                    {
-                        Layout = _textureBindGroupLayoutOffscreen,
-                        EntryCount = 2,
-                        Entries = entries
-                    };
-                    var bindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &descriptor);
-                    cachedBindGroup = new CachedBindGroup((nint)bindGroup, _frameNumber);
-                    _persistentTextureBindGroups[cacheKey] = cachedBindGroup;
-                }
-                else
-                {
-                    cachedBindGroup.LastUsedFrame = _frameNumber;
-                }
-            }
+                drawCall.TextureMaxAnisotropy,
+                _textureBindGroupLayoutOffscreen);
 
             _context.Api.RenderPassEncoderSetBindGroup(
                 pass,
@@ -16528,7 +16544,6 @@ SceneStateUploadComplete:
         BindGroup* currentMaskBindGroup = null;
         bool? currentPipelineHasMask = null;
         byte? currentVectorPipelineKind = null;
-        var textureEntries = stackalloc BindGroupEntry[2];
         _advancedBlendPassResourceCount = 0;
         bool hasHostBackdrop = HasHostBackdropDrawCall(targetTexture);
         bool hasAdvancedBlend = TryGetAdvancedBlendSourceCapacity(
@@ -16778,36 +16793,12 @@ SceneStateUploadComplete:
                 currentBlendMode = dc.BlendMode;
                 currentPipelineHasMask = hasMask;
 
-                var viewPtr = texture.ViewPtr;
-                var cacheKey = new TextureCacheKey(
-                    texture.Id,
-                    texture.ViewGeneration,
+                var cachedBg = GetOrCreatePersistentTextureBindGroup(
+                    texture,
                     isOffscreen: true,
                     dc.TextureSamplingMode,
-                    dc.TextureMaxAnisotropy);
-
-                CachedBindGroup? cachedBg;
-                lock (_persistentTextureBindGroups)
-                {
-                    if (!_persistentTextureBindGroups.TryGetValue(cacheKey, out cachedBg))
-                    {
-                        textureEntries[0] = new BindGroupEntry
-                        {
-                            Binding = 0,
-                            Sampler = GetTextureSampler(dc.TextureSamplingMode, dc.TextureMaxAnisotropy)
-                        };
-                        textureEntries[1] = new BindGroupEntry { Binding = 1, TextureView = viewPtr };
-
-                        var bgDesc = new BindGroupDescriptor { Layout = _textureBindGroupLayoutOffscreen, EntryCount = 2, Entries = textureEntries };
-                        var bg = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDesc);
-                        cachedBg = new CachedBindGroup((nint)bg, _frameNumber);
-                        _persistentTextureBindGroups[cacheKey] = cachedBg;
-                    }
-                    else
-                    {
-                        cachedBg.LastUsedFrame = _frameNumber;
-                    }
-                }
+                    dc.TextureMaxAnisotropy,
+                    _textureBindGroupLayoutOffscreen);
 
                 var bindGroup = (BindGroup*)cachedBg.BindGroupPtr;
                 _context.Api.RenderPassEncoderSetBindGroup(pass, 1, bindGroup, 0, null);
@@ -20843,7 +20834,6 @@ SceneStateUploadComplete:
 
             DrawCallType? currentType = null;
             byte? currentVectorPipelineKind = null;
-            var textureEntries = stackalloc BindGroupEntry[2];
 
             var maskDrawCalls = maskPass.DrawCalls;
             var maskDrawCallCount = maskDrawCalls.Count;
@@ -20937,36 +20927,12 @@ SceneStateUploadComplete:
 
                     _context.Api.RenderPassEncoderSetBindGroup(pass, 2, maskBindGroup, 0, null);
 
-                    var viewPtr = texture.ViewPtr;
-                    var cacheKey = new TextureCacheKey(
-                        texture.Id,
-                        texture.ViewGeneration,
+                    var cachedBg = GetOrCreatePersistentTextureBindGroup(
+                        texture,
                         isOffscreen: true,
                         dc.TextureSamplingMode,
-                        dc.TextureMaxAnisotropy);
-
-                    CachedBindGroup? cachedBg;
-                    lock (_persistentTextureBindGroups)
-                    {
-                        if (!_persistentTextureBindGroups.TryGetValue(cacheKey, out cachedBg))
-                        {
-                            textureEntries[0] = new BindGroupEntry
-                            {
-                                Binding = 0,
-                                Sampler = GetTextureSampler(dc.TextureSamplingMode, dc.TextureMaxAnisotropy)
-                            };
-                            textureEntries[1] = new BindGroupEntry { Binding = 1, TextureView = viewPtr };
-
-                            var bgDesc = new BindGroupDescriptor { Layout = _textureBindGroupLayoutOffscreen, EntryCount = 2, Entries = textureEntries };
-                            var bg = _context.Api.DeviceCreateBindGroup(_context.Device, &bgDesc);
-                            cachedBg = new CachedBindGroup((nint)bg, _frameNumber);
-                            _persistentTextureBindGroups[cacheKey] = cachedBg;
-                        }
-                        else
-                        {
-                            cachedBg.LastUsedFrame = _frameNumber;
-                        }
-                    }
+                        dc.TextureMaxAnisotropy,
+                        _textureBindGroupLayoutOffscreen);
 
                     var bindGroup = (BindGroup*)cachedBg.BindGroupPtr;
                     _context.Api.RenderPassEncoderSetBindGroup(pass, 1, bindGroup, 0, null);

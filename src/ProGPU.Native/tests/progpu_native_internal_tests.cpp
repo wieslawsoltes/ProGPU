@@ -17,13 +17,17 @@
 #include "progpu_native_semantic_state.hpp"
 #include "progpu_native_semantic_text_style.hpp"
 #include "progpu_native_semantic_validation.hpp"
+#include "progpu_native_webgpu_synchronization.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
+#include <future>
 #include <limits>
+#include <thread>
 
 namespace {
 
@@ -31,6 +35,45 @@ void require(bool condition) {
     if (!condition) {
         std::abort();
     }
+}
+
+void native_webgpu_scopes_share_one_process_lock() {
+    using namespace std::chrono_literals;
+    using progpu::native::webgpu::process_render_scope;
+
+    // Native renderer operations nest helpers under one outer dispatch scope.
+    // The synchronization primitive must therefore be recursive.
+    {
+        process_render_scope outer;
+        process_render_scope nested;
+    }
+
+    std::promise<void> first_entered;
+    std::promise<void> release_first;
+    std::promise<void> second_entered;
+    auto first_entered_future = first_entered.get_future();
+    auto release_first_future = release_first.get_future();
+    auto second_entered_future = second_entered.get_future();
+
+    std::thread first([&] {
+        process_render_scope scope;
+        first_entered.set_value();
+        release_first_future.wait();
+    });
+    first_entered_future.wait();
+
+    std::thread second([&] {
+        process_render_scope scope;
+        second_entered.set_value();
+    });
+
+    require(second_entered_future.wait_for(50ms) ==
+        std::future_status::timeout);
+    release_first.set_value();
+    require(second_entered_future.wait_for(1s) ==
+        std::future_status::ready);
+    first.join();
+    second.join();
 }
 
 void semantic_contiguous_draws_merge_without_reordering() {
@@ -809,6 +852,7 @@ void draw_state_resolution_is_cpu_only_and_bounded() {
 } // namespace
 
 int main() {
+    native_webgpu_scopes_share_one_process_lock();
     semantic_contiguous_draws_merge_without_reordering();
     effect_plan_uses_three_bounded_intermediates();
     semantic_budget_counts_effected_depth_once();

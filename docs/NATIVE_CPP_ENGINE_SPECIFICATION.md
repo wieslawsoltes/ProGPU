@@ -540,6 +540,30 @@ for every runnable RID. This proves real C++ execution rather than merely
 compilation; it does not imply that one provider's opaque objects can enter the
 other adapter.
 
+### Managed/native optimization parity
+
+The managed C# and native C++ renderers are two implementations of one
+performance contract. Every managed rendering optimization receives an explicit
+native applicability audit before merge. Applicable work must land in both
+implementations with matched behavior, quality, complexity, resource lifetime,
+retention, upload, allocation, and failure-semantics evidence. A one-sided change
+is complete only when the other implementation has no equivalent ownership or
+execution boundary and that non-applicability is recorded with the validation
+result. Language or API shape alone is not a non-applicability reason.
+
+The native wgpu-native adapter therefore mirrors the managed process-wide
+synchronization domain. One recursive process scope encloses complete native
+renderer operations so queue submission, polling, resource creation, and
+resource destruction cannot form an inter-device lock cycle. Recursion is
+required because outer render dispatch calls nested resource helpers. The Dawn
+adapter remains independently synchronized because its provider owns a distinct
+device/resource domain. The managed persistent-texture cache has no native
+dictionary analogue: the C++ engine owns fixed retained resource slots, while
+the shared lifetime invariant is enforced by the native process scope. A native
+threaded regression proves recursive entry and cross-thread exclusion; the
+managed regressions prove shared wgpu-native domains, independent browser/Dawn
+domains, queue exclusion, and native-call/cache lock ordering.
+
 ## 6. Stable native engine ABI
 
 `include/progpu_native.h` is a C ABI so C++, C#, NativeAOT, V8, and other hosts

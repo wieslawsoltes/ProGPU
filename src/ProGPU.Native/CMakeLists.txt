@@ -514,6 +514,7 @@ set(PROGPU_NATIVE_BACKEND_SOURCES
     src/Backend/progpu_native_pipeline.cpp
     src/Backend/progpu_native_pipeline.hpp
     src/Backend/progpu_native_replay_execution.hpp
+    src/Backend/progpu_native_webgpu_synchronization.hpp
     src/Backend/progpu_native_webgpu_resources.hpp
     src/Backend/progpu_native_vector_execution.cpp
     src/Backend/progpu_webgpu_compat.hpp
