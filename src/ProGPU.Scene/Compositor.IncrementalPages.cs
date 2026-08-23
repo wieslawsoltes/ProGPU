@@ -143,6 +143,7 @@ public unsafe partial class Compositor
 
     private void ResetIncrementalScenePageFrameMetrics()
     {
+        ResetRetainedCompositionPictureFrameMetrics();
         _incrementalScenePageHits = 0;
         _incrementalScenePageMisses = 0;
         _incrementalScenePageCompilations = 0;

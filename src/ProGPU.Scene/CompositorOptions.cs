@@ -66,6 +66,24 @@ public sealed record CompositorOptions
     public int IncrementalScenePageVolatilityCooldownFrames { get; init; } = 600;
 
     /// <summary>
+    /// Reuses compiled pages for immutable pictures nested inside a changing
+    /// parent recording. Admission starts on the second observation so
+    /// one-shot pictures do not occupy the bounded cache.
+    /// </summary>
+    public bool EnableRetainedCompositionPictures { get; init; } = true;
+
+    /// <summary>
+    /// Bounds CPU-resident compiled pages for retained immutable pictures.
+    /// </summary>
+    public int MaximumRetainedCompositionPictures { get; init; } = 4096;
+
+    /// <summary>
+    /// Removes retained picture pages that have not been replayed for this
+    /// many compositor frames.
+    /// </summary>
+    public int RetainedCompositionPictureRetentionFrames { get; init; } = 120;
+
+    /// <summary>
     /// Bounds inactive R8 mask textures retained for reuse. Active masks are
     /// never dropped; surplus returned textures are released after submission.
     /// </summary>
@@ -148,6 +166,16 @@ public sealed record CompositorOptions
         {
             throw new ArgumentOutOfRangeException(
                 nameof(IncrementalScenePageVolatilityCooldownFrames));
+        }
+        if (MaximumRetainedCompositionPictures <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(MaximumRetainedCompositionPictures));
+        }
+        if (RetainedCompositionPictureRetentionFrames <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(RetainedCompositionPictureRetentionFrames));
         }
         if (MaximumPooledMaskTextures <= 0)
         {

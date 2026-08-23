@@ -3878,6 +3878,14 @@ SceneStateUploadComplete:
             WavefrontTextureBytes = GetTextureBytes(_wavefrontColorTexture),
             MsaaTextureBytes = GetMsaaTextureBytes(),
             TrackedIntermediateTextureBytes = GetTrackedIntermediateTextureBytes(),
+            RetainedCompositionPictureCount =
+                _retainedCompositionPictures.Count,
+            RetainedCompositionPictureHits =
+                _retainedCompositionPictureHits,
+            RetainedCompositionPictureMisses =
+                _retainedCompositionPictureMisses,
+            RetainedCompositionPictureCompilations =
+                _retainedCompositionPictureCompilations,
             IncrementalScenePageCount = _incrementalScenePages.Count,
             IncrementalScenePageHits = _incrementalScenePageHits,
             IncrementalScenePageMisses = _incrementalScenePageMisses,
@@ -5723,6 +5731,18 @@ SceneStateUploadComplete:
         Matrix4x4? hitTestGlobalTransform = null)
     {
         if (picture == null) return;
+        if (TryReplayRetainedCompositionPicture(
+                picture,
+                globalTransform))
+        {
+            return;
+        }
+        bool captureRetainedPicture =
+            TryBeginRetainedCompositionPicture(
+                picture,
+                out IncrementalScenePageBoundary retainedPictureBoundary);
+        try
+        {
         var retainedHitTestTransform = hitTestGlobalTransform ?? globalTransform;
         var commands = picture.RetainedCommands;
         PreparePictureLayerCaches(commands);
@@ -5971,6 +5991,17 @@ SceneStateUploadComplete:
 
             _useGpuTransformsActive = savedUseGpuTransformsActive;
             _cameraViewMatrix = savedCameraViewMatrix;
+        }
+        }
+        finally
+        {
+            if (captureRetainedPicture)
+            {
+                CompleteRetainedCompositionPicture(
+                    picture,
+                    globalTransform,
+                    retainedPictureBoundary);
+            }
         }
     }
 
@@ -16790,6 +16821,14 @@ SceneStateUploadComplete:
             WavefrontTextureBytes = GetTextureBytes(_wavefrontColorTexture),
             MsaaTextureBytes = GetMsaaTextureBytes(),
             TrackedIntermediateTextureBytes = GetTrackedIntermediateTextureBytes(),
+            RetainedCompositionPictureCount =
+                _retainedCompositionPictures.Count,
+            RetainedCompositionPictureHits =
+                _retainedCompositionPictureHits,
+            RetainedCompositionPictureMisses =
+                _retainedCompositionPictureMisses,
+            RetainedCompositionPictureCompilations =
+                _retainedCompositionPictureCompilations,
             IncrementalScenePageCount = _incrementalScenePages.Count,
             IncrementalScenePageHits = _incrementalScenePageHits,
             IncrementalScenePageMisses = _incrementalScenePageMisses,
