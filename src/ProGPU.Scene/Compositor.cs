@@ -15411,7 +15411,7 @@ SceneStateUploadComplete:
             {
                 // Draw blurred shadow first (at offset, shifted back by padding)
                 var shadowRect = new Rect(
-                    sEff.Offset - new Vector2(padding, padding),
+                    paddedRect.Position + sEff.Offset,
                     new Vector2(logicalWidth, logicalHeight));
                 DrawTextureOnMain(cachedTextures.Destination!, shadowRect, compositeTransform, fe.HitTestId);
 

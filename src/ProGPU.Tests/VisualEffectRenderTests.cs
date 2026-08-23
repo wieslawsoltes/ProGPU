@@ -199,6 +199,38 @@ public sealed class VisualEffectRenderTests
         }
     }
 
+    [Fact]
+    public void DropShadowPreservesExplicitContentBoundsPosition()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(100, 60);
+        window.Content = new ExplicitShadowBoundsVisual();
+
+        try
+        {
+            window.Render();
+
+            var pixels = window.ReadPixels();
+            var content = ReadPixel(pixels, window.Width, x: 44, y: 24);
+            var shadow = ReadPixel(pixels, window.Width, x: 56, y: 24);
+            var staleOrigin = ReadPixel(pixels, window.Width, x: 12, y: 4);
+
+            Assert.InRange(content.R, 245, 255);
+            Assert.InRange(content.G, 0, 10);
+            Assert.InRange(content.B, 0, 10);
+            Assert.InRange(shadow.R, 0, 10);
+            Assert.InRange(shadow.G, 0, 10);
+            Assert.InRange(shadow.B, 245, 255);
+            Assert.InRange(staleOrigin.R, 0, 50);
+            Assert.InRange(staleOrigin.G, 0, 50);
+            Assert.InRange(staleOrigin.B, 0, 50);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
     private static RgbaPixel ReadPixel(byte[] pixels, uint width, int x, int y)
     {
         var index = ((y * (int)width) + x) * 4;
@@ -340,6 +372,31 @@ public sealed class VisualEffectRenderTests
                 _red,
                 null,
                 new Rect(25f, 15f, 30f, 20f));
+        }
+    }
+
+    private sealed class ExplicitShadowBoundsVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _red =
+            new(new Vector4(1f, 0f, 0f, 1f));
+
+        public ExplicitShadowBoundsVisual()
+        {
+            Effect = new DropShadowEffect(0f)
+            {
+                Offset = new Vector2(8f, 0f),
+                Color = new Vector4(0f, 0f, 1f, 1f)
+            };
+            EffectContentBounds = new Rect(40f, 20f, 12f, 8f);
+            EffectRasterPadding = 0f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                _red,
+                null,
+                new Rect(40f, 20f, 12f, 8f));
         }
     }
 }
