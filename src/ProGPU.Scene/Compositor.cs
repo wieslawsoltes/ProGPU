@@ -15437,6 +15437,15 @@ SceneStateUploadComplete:
                     paddedRect,
                     compositeTransform);
             }
+            else if (fe.Effect is BlendModeEffect blendModeEffect)
+            {
+                DrawTextureOnMain(
+                    cachedTextures.Source,
+                    paddedRect,
+                    compositeTransform,
+                    fe.HitTestId,
+                    blendModeEffect.BlendMode);
+            }
 
             AddDescendantVisualHitTestBounds(fe, compositeTransform);
         }
@@ -15920,7 +15929,12 @@ SceneStateUploadComplete:
         }
     }
 
-    private void DrawTextureOnMain(GpuTexture texture, Rect localRect, Matrix4x4 parentTransform, int hitTestId = 0)
+    private void DrawTextureOnMain(
+        GpuTexture texture,
+        Rect localRect,
+        Matrix4x4 parentTransform,
+        int hitTestId = 0,
+        GpuBlendMode? blendMode = null)
     {
         var cmd = new RenderCommand
         {
@@ -15933,7 +15947,23 @@ SceneStateUploadComplete:
             AddHitTestCommand(cmd, parentTransform, hitTestId);
         }
 
-        CompileTextureCommand(cmd, parentTransform);
+        var previousBlendMode = _activeBlendMode;
+        if (blendMode.HasValue)
+        {
+            // Flush preceding geometry with the blend mode under which it was
+            // recorded before temporarily overriding the texture composite.
+            CommitPendingDrawCalls();
+            _activeBlendMode = blendMode.Value;
+        }
+
+        try
+        {
+            CompileTextureCommand(cmd, parentTransform);
+        }
+        finally
+        {
+            _activeBlendMode = previousBlendMode;
+        }
     }
 
     private void DrawWpfShaderEffectOnMain(

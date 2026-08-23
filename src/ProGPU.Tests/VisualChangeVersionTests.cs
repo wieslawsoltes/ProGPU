@@ -180,6 +180,11 @@ public sealed class VisualChangeVersionTests
             Vector4.UnitW,
             Vector4.Zero);
         Assert.True(colorMatrix.ChangeVersion > colorMatrixVersion);
+
+        var blendMode = new BlendModeEffect(GpuBlendMode.Multiply);
+        var blendModeVersion = blendMode.ChangeVersion;
+        blendMode.BlendMode = GpuBlendMode.Screen;
+        Assert.True(blendMode.ChangeVersion > blendModeVersion);
     }
 
     [Fact]

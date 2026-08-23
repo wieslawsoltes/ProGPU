@@ -1382,6 +1382,38 @@ public sealed class ColorMatrixEffect : EffectBase
     }
 }
 
+/// <summary>
+/// Composites an isolated visual subtree onto its destination with one blend
+/// operation after the subtree has been rendered to a premultiplied surface.
+/// </summary>
+public sealed class BlendModeEffect : EffectBase
+{
+    private GpuBlendMode _blendMode;
+
+    public BlendModeEffect(GpuBlendMode blendMode)
+    {
+        _blendMode = blendMode;
+    }
+
+    public GpuBlendMode BlendMode
+    {
+        get => _blendMode;
+        set
+        {
+            if (_blendMode != value)
+            {
+                _blendMode = value;
+                Invalidate();
+            }
+        }
+    }
+
+    internal override int GetRenderCacheKey()
+    {
+        return HashCode.Combine(GetType(), ChangeVersion, BlendMode);
+    }
+}
+
 public sealed class WpfShaderEffect : EffectBase
 {
     private float _padding;

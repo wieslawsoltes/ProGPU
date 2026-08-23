@@ -333,6 +333,55 @@ public sealed class VisualEffectRenderTests
         }
     }
 
+    [Fact]
+    public void BlendModeEffectCompositesTheIsolatedVisualOnceOnGpu()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(48, 32);
+        var effect = new BlendModeEffect(GpuBlendMode.Multiply);
+        window.Content = new BlendModeHost(new BlendModeVisual(effect));
+
+        try
+        {
+            window.Render();
+
+            var pixels = window.ReadPixels();
+            var outside = ReadPixel(pixels, window.Width, 4, 4);
+            var redOnly = ReadPixel(pixels, window.Width, 12, 12);
+            var overlap = ReadPixel(pixels, window.Width, 20, 12);
+            var followingSibling = ReadPixel(pixels, window.Width, 40, 12);
+            Assert.InRange(outside.R, 122, 133);
+            Assert.InRange(outside.G, 122, 133);
+            Assert.InRange(outside.B, 122, 133);
+            Assert.InRange(redOnly.R, 122, 133);
+            Assert.InRange(redOnly.G, 0, 10);
+            Assert.InRange(redOnly.B, 0, 10);
+            Assert.InRange(overlap.R, 0, 10);
+            Assert.InRange(overlap.G, 122, 133);
+            Assert.InRange(overlap.B, 0, 10);
+            Assert.Equal(255, overlap.A);
+            Assert.InRange(followingSibling.R, 0, 10);
+            Assert.InRange(followingSibling.G, 0, 10);
+            Assert.InRange(followingSibling.B, 245, 255);
+            Assert.Equal(255, followingSibling.A);
+            Assert.Equal(24u * 16u * 4u, window.Compositor.Metrics.EffectTextureBytes);
+
+            effect.BlendMode = GpuBlendMode.Screen;
+            window.Render();
+
+            var screened = ReadPixel(window.ReadPixels(), window.Width, 20, 12);
+            Assert.InRange(screened.R, 122, 133);
+            Assert.InRange(screened.G, 245, 255);
+            Assert.InRange(screened.B, 122, 133);
+            Assert.Equal(255, screened.A);
+            Assert.False(window.Compositor.Metrics.SceneCacheHit);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
     private static RgbaPixel ReadPixel(byte[] pixels, uint width, int x, int y)
     {
         var index = ((y * (int)width) + x) * 4;
@@ -543,6 +592,96 @@ public sealed class VisualEffectRenderTests
                 _red,
                 null,
                 new Rect(0f, 0f, 12f, 8f));
+        }
+    }
+
+    private sealed class BlendModeVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _red =
+            new(new Vector4(1f, 0f, 0f, 1f));
+        private readonly SolidColorBrush _green =
+            new(new Vector4(0f, 1f, 0f, 1f));
+
+        public BlendModeVisual(BlendModeEffect effect)
+        {
+            Width = 24f;
+            Height = 16f;
+            Effect = effect;
+            EffectContentBounds = new Rect(0f, 0f, 24f, 16f);
+            EffectRasterPadding = 0f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                _red,
+                null,
+                new Rect(0f, 0f, 16f, 16f));
+            context.DrawRectangle(
+                _green,
+                null,
+                new Rect(8f, 0f, 16f, 16f));
+        }
+    }
+
+    private sealed class BlendModeHost : FrameworkElement
+    {
+        private readonly FrameworkElement _child;
+        private readonly FrameworkElement _followingSibling = new BlendModeSiblingVisual();
+        private readonly SolidColorBrush _background =
+            new(new Vector4(0.5f, 0.5f, 0.5f, 1f));
+
+        public BlendModeHost(FrameworkElement child)
+        {
+            _child = child;
+            Width = 48f;
+            Height = 32f;
+            // The cached parent supplies a texture-bindable destination, so
+            // artistic modes exercise the destination-sampling blend path.
+            CacheAsLayer = true;
+            AddChild(_child);
+            AddChild(_followingSibling);
+        }
+
+        protected override Vector2 MeasureOverride(Vector2 availableSize)
+        {
+            _child.Measure(new Vector2(24f, 16f));
+            _followingSibling.Measure(new Vector2(8f, 16f));
+            return availableSize;
+        }
+
+        protected override void ArrangeOverride(Rect arrangeRect)
+        {
+            _child.Arrange(new Rect(8f, 8f, 24f, 16f));
+            _followingSibling.Arrange(new Rect(36f, 8f, 8f, 16f));
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                _background,
+                null,
+                new Rect(0f, 0f, 48f, 32f));
+        }
+    }
+
+    private sealed class BlendModeSiblingVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _blue =
+            new(new Vector4(0f, 0f, 1f, 1f));
+
+        public BlendModeSiblingVisual()
+        {
+            Width = 8f;
+            Height = 16f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                _blue,
+                null,
+                new Rect(0f, 0f, 8f, 16f));
         }
     }
 }
