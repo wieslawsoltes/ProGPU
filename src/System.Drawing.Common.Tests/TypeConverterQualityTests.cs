@@ -12,6 +12,94 @@ namespace ProGPU.SystemDrawing.Tests;
 public sealed class TypeConverterQualityTests
 {
     [Fact]
+    public void ImageAndIconTypeDescriptorsExposeOfficialResourceConversions()
+    {
+        TypeConverter image = TypeDescriptor.GetConverter(typeof(Image));
+        TypeConverter bitmap = TypeDescriptor.GetConverter(typeof(Bitmap));
+        TypeConverter icon = TypeDescriptor.GetConverter(typeof(Icon));
+
+        Assert.IsType<ImageConverter>(image);
+        Assert.IsType<ImageConverter>(bitmap);
+        Assert.IsType<IconConverter>(icon);
+        foreach (TypeConverter converter in new[] { image, icon })
+        {
+            Assert.True(converter.CanConvertFrom(typeof(byte[])));
+            Assert.False(converter.CanConvertFrom(typeof(string)));
+            Assert.True(converter.CanConvertTo(typeof(byte[])));
+            Assert.True(converter.CanConvertTo(typeof(string)));
+            Assert.True(converter.GetPropertiesSupported());
+        }
+    }
+
+    [Fact]
+    public void ImageConverterRoundTripsEncodedPixelsAndProperties()
+    {
+        var converter = new ImageConverter();
+        using var source = new Bitmap(2, 2);
+        source.SetPixel(0, 0, Color.FromArgb(255, 12, 34, 56));
+        source.SetPixel(1, 1, Color.FromArgb(255, 78, 90, 123));
+
+        byte[] encoded = Assert.IsType<byte[]>(
+            converter.ConvertTo(null, CultureInfo.InvariantCulture, source, typeof(byte[])));
+        Assert.Equal(new byte[] { 0x89, 0x50, 0x4e, 0x47 }, encoded[..4]);
+
+        using var roundTrip = Assert.IsType<Bitmap>(
+            converter.ConvertFrom(null, CultureInfo.InvariantCulture, encoded));
+        Assert.Equal(source.Size, roundTrip.Size);
+        Assert.Equal(source.GetPixel(0, 0), roundTrip.GetPixel(0, 0));
+        Assert.Equal(source.GetPixel(1, 1), roundTrip.GetPixel(1, 1));
+
+        PropertyDescriptorCollection properties = converter.GetProperties(null, roundTrip, null);
+        Assert.Equal(2, properties[nameof(Image.Width)]!.GetValue(roundTrip));
+        Assert.Equal(2, properties[nameof(Image.Height)]!.GetValue(roundTrip));
+    }
+
+    [Fact]
+    public void IconConverterRoundTripsPortableIcoBytes()
+    {
+        var converter = new IconConverter();
+        using var bitmap = new Bitmap(2, 2);
+        bitmap.SetPixel(0, 0, Color.Red);
+        bitmap.SetPixel(1, 1, Color.Blue);
+        byte[] sourceBytes = CreateIconBytes(bitmap);
+
+        using var icon = Assert.IsType<Icon>(
+            converter.ConvertFrom(null, CultureInfo.InvariantCulture, sourceBytes));
+        Assert.Equal(new Size(2, 2), icon.Size);
+
+        byte[] encoded = Assert.IsType<byte[]>(
+            converter.ConvertTo(null, CultureInfo.InvariantCulture, icon, typeof(byte[])));
+        Assert.Equal(new byte[] { 0, 0, 1, 0 }, encoded[..4]);
+
+        using var roundTrip = Assert.IsType<Icon>(
+            converter.ConvertFrom(null, CultureInfo.InvariantCulture, encoded));
+        Assert.Equal(icon.Size, roundTrip.Size);
+    }
+
+    [Fact]
+    public void ImageAndIconConvertersMatchNullAndInvalidValueContracts()
+    {
+        var image = new ImageConverter();
+        var icon = new IconConverter();
+
+        Assert.Equal("(none)", image.ConvertTo(null, CultureInfo.InvariantCulture, null, typeof(string)));
+        Assert.Empty(Assert.IsType<byte[]>(
+            image.ConvertTo(null, CultureInfo.InvariantCulture, null, typeof(byte[]))));
+        Assert.Equal("(none)", icon.ConvertTo(null, CultureInfo.InvariantCulture, null, typeof(string)));
+        Assert.Throws<NotSupportedException>(() =>
+            icon.ConvertTo(null, CultureInfo.InvariantCulture, null, typeof(byte[])));
+
+        Assert.Throws<NotSupportedException>(() =>
+            image.ConvertFrom(null, CultureInfo.InvariantCulture, "image"));
+        Assert.Throws<NotSupportedException>(() =>
+            icon.ConvertFrom(null, CultureInfo.InvariantCulture, "icon"));
+        Assert.Throws<NotSupportedException>(() =>
+            image.ConvertTo(null, CultureInfo.InvariantCulture, new object(), typeof(string)));
+        Assert.Throws<NotSupportedException>(() =>
+            icon.ConvertTo(null, CultureInfo.InvariantCulture, new object(), typeof(string)));
+    }
+
+    [Fact]
     public void ImageFormatTypeDescriptorExposesOfficialNamedValues()
     {
         TypeConverter converter = TypeDescriptor.GetConverter(typeof(ImageFormat));
@@ -111,5 +199,31 @@ public sealed class TypeConverterQualityTests
             converter.ConvertFrom(null, CultureInfo.InvariantCulture, "1, 2, 3"));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             converter.ConvertFrom(null, CultureInfo.InvariantCulture, "-1, 2, 3, 4"));
+    }
+
+    private static byte[] CreateIconBytes(Bitmap bitmap)
+    {
+        using var imageStream = new MemoryStream();
+        bitmap.Save(imageStream, ImageFormat.Png);
+
+        using var iconStream = new MemoryStream();
+        using (var writer = new BinaryWriter(iconStream, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            writer.Write((ushort)0);
+            writer.Write((ushort)1);
+            writer.Write((ushort)1);
+            writer.Write((byte)bitmap.Width);
+            writer.Write((byte)bitmap.Height);
+            writer.Write((byte)0);
+            writer.Write((byte)0);
+            writer.Write((ushort)1);
+            writer.Write((ushort)32);
+            writer.Write(checked((uint)imageStream.Length));
+            writer.Write((uint)22);
+        }
+
+        imageStream.Position = 0;
+        imageStream.CopyTo(iconStream);
+        return iconStream.ToArray();
     }
 }

@@ -22,6 +22,7 @@ public enum RotateFlipType
     Rotate270FlipXY = Rotate90FlipNone
 }
 
+[System.ComponentModel.TypeConverter(typeof(ImageConverter))]
 public abstract class Image : MarshalByRefObject, IDisposable, ICloneable
 {
     private readonly object _metadataLock = new();
