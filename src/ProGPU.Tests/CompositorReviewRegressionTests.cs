@@ -6752,6 +6752,66 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void RoundedParentWithRectangularHoleAvoidsTexturePass()
+    {
+        using var window = new HeadlessWindow(64, 64);
+        window.Content = new RoundedParentRectangularHoleClipVisual();
+
+        window.Render();
+        window.Render();
+
+        CompositorMetrics metrics = window.Compositor.Metrics;
+        Assert.Equal(0, metrics.MaskTexturePeakDemand);
+        Assert.Equal(2, metrics.AnalyticMaskBindGroupCount);
+        Assert.Equal(0, metrics.MaskRenderPassCount);
+        Assert.True(metrics.SceneCacheHit);
+
+        byte[] pixels = window.ReadPixels();
+        var border = ReadPixel(pixels, window.Width, x: 8, y: 32);
+        var hole = ReadPixel(pixels, window.Width, x: 32, y: 32);
+        var outerCorner = ReadPixel(pixels, window.Width, x: 4, y: 4);
+        Assert.True(
+            border.G >= 220 && border.R <= 35 && border.B <= 35,
+            $"Expected green coverage between the rounded edge and rectangular hole, found {border}.");
+        Assert.True(
+            hole.R <= 35 && hole.G <= 35 && hole.B <= 35,
+            $"Expected the rectangular analytic hole to stay clear, found {hole}.");
+        Assert.True(
+            outerCorner.R <= 35 && outerCorner.G <= 35 && outerCorner.B <= 35,
+            $"Expected the rounded parent corner to stay clear, found {outerCorner}.");
+    }
+
+    [Fact]
+    public void RoundedRectangularHoleRingUsesOneAnalyticMask()
+    {
+        using var window = new HeadlessWindow(64, 64);
+        window.Content = new RoundedRectangularHoleClipVisual();
+
+        window.Render();
+        window.Render();
+
+        CompositorMetrics metrics = window.Compositor.Metrics;
+        Assert.Equal(0, metrics.MaskTexturePeakDemand);
+        Assert.Equal(1, metrics.AnalyticMaskBindGroupCount);
+        Assert.Equal(0, metrics.MaskRenderPassCount);
+        Assert.True(metrics.SceneCacheHit);
+
+        byte[] pixels = window.ReadPixels();
+        var border = ReadPixel(pixels, window.Width, x: 8, y: 32);
+        var hole = ReadPixel(pixels, window.Width, x: 32, y: 32);
+        var outerCorner = ReadPixel(pixels, window.Width, x: 4, y: 4);
+        Assert.True(
+            border.G >= 220 && border.R <= 35 && border.B <= 35,
+            $"Expected green rounded-ring coverage, found {border}.");
+        Assert.True(
+            hole.R <= 35 && hole.G <= 35 && hole.B <= 35,
+            $"Expected the rectangular hole to stay clear, found {hole}.");
+        Assert.True(
+            outerCorner.R <= 35 && outerCorner.G <= 35 && outerCorner.B <= 35,
+            $"Expected the rounded-ring corner to stay clear, found {outerCorner}.");
+    }
+
+    [Fact]
     public void AnalyticClipDoesNotMaskPendingPrecedingDraws()
     {
         using var window = new HeadlessWindow(64, 64);
@@ -9824,6 +9884,90 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
             {
                 context.PopGeometryClip();
             }
+        }
+    }
+
+    private sealed class RoundedParentRectangularHoleClipVisual : FrameworkElement
+    {
+        public RoundedParentRectangularHoleClipVisual()
+        {
+            Width = 64f;
+            Height = 64f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.PushGeometryClip(
+                PrimitivePathGeometry.CreateRoundedRectangle(
+                    4f,
+                    4f,
+                    56f,
+                    56f,
+                    10f,
+                    10f));
+
+            PathGeometry rectangularRing =
+                PrimitivePathGeometry.CreateRectangle(
+                    4f,
+                    4f,
+                    56f,
+                    56f);
+            rectangularRing.FillRule = FillRule.EvenOdd;
+            PathGeometry hole = PrimitivePathGeometry.CreateRectangle(
+                18f,
+                14f,
+                26f,
+                32f);
+            foreach (PathFigure figure in hole.Figures)
+            {
+                rectangularRing.Figures.Add(figure);
+            }
+
+            context.PushGeometryClip(rectangularRing);
+            context.DrawRectangle(
+                new SolidColorBrush(new Vector4(0f, 1f, 0f, 1f)),
+                null,
+                new Rect(0f, 0f, 64f, 64f));
+            context.PopGeometryClip();
+            context.PopGeometryClip();
+        }
+    }
+
+    private sealed class RoundedRectangularHoleClipVisual : FrameworkElement
+    {
+        public RoundedRectangularHoleClipVisual()
+        {
+            Width = 64f;
+            Height = 64f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            PathGeometry ring =
+                PrimitivePathGeometry.CreateRoundedRectangle(
+                    4f,
+                    4f,
+                    56f,
+                    56f,
+                    10f,
+                    10f);
+            ring.FillRule = FillRule.EvenOdd;
+            PathGeometry hole = PrimitivePathGeometry.CreateRectangle(
+                18f,
+                14f,
+                26f,
+                32f);
+            foreach (PathFigure figure in hole.Figures)
+            {
+                ring.Figures.Add(figure);
+            }
+
+            context.PushGeometryClip(ring);
+            context.DrawRectangle(
+                new SolidColorBrush(new Vector4(0f, 1f, 0f, 1f)),
+                null,
+                new Rect(0f, 0f, 64f, 64f));
+            context.PopGeometryClip();
         }
     }
 

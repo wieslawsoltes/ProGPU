@@ -1204,6 +1204,7 @@ public unsafe partial class Compositor : IDisposable
     private readonly Dictionary<GpuTexture, MaskBindGroupResource> _maskBindGroups = new();
     private readonly List<MaskBindGroupResource> _analyticMaskResourcePool = new();
     private readonly List<MaskBindGroupResource> _analyticMasksToReturnToPool = new();
+    private readonly List<MaskBindGroupResource> _compiledSceneAnalyticMaskResources = new();
     private readonly Dictionary<GpuTexture, MaskRenderResource> _maskRenderResources = new();
     private readonly Dictionary<GpuTexture, MaskPixelBounds> _maskTextureBounds = new();
 
@@ -2923,6 +2924,7 @@ public unsafe partial class Compositor : IDisposable
         // 2. Clear CPU collection batch lists and active brushes
         if (!reuseCompiledScene)
         {
+            ReleaseCompiledSceneAnalyticMaskResources();
             _currentSolidRoundedPrimitiveCount = 0;
             _activeBrushes.Clear();
             _activeTextStyles.Clear();
@@ -3350,6 +3352,10 @@ DynamicBufferUploadComplete:
         // Rasterize all pending paths before starting the render pass.
         _pathAtlas.RasterizePendingPaths();
 
+        // Embedded effect visuals can be owned only by a retained command and
+        // have no parent chain. Retire entries that were not reached by this
+        // compilation before deciding whether the new scene is cacheable.
+        SweepUnusedEffectTextures(root, externalLayers, activeToolTip);
         CaptureCompiledScene(
             root,
             width,
@@ -3766,7 +3772,6 @@ SceneStateUploadComplete:
         _totalTime += 1f / 60f;
         EvictUnusedBindGroups();
         SweepUnusedLayerTextures(root, externalLayers, activeToolTip);
-        SweepUnusedEffectTextures(root, externalLayers, activeToolTip);
         _activeLayerTextureOwners.Clear();
 
         passSw.Stop();
@@ -3847,7 +3852,8 @@ SceneStateUploadComplete:
             MaskBindGroupCount = _maskBindGroups.Count,
             AnalyticMaskBindGroupCount =
                 _analyticMaskResourcePool.Count +
-                _analyticMasksToReturnToPool.Count,
+                _analyticMasksToReturnToPool.Count +
+                _compiledSceneAnalyticMaskResources.Count,
             MaskRenderBindGroupCount = CountMaskRenderBindGroups(),
             MaskTexturePoolCount = _maskTexturePool.Count,
             MaskTextureRetentionLimit = _maskTextureRetentionLimit,
@@ -4063,6 +4069,10 @@ SceneStateUploadComplete:
             _compiledLayerOwners.Clear();
             return;
         }
+
+        _compiledSceneAnalyticMaskResources.AddRange(
+            _analyticMasksToReturnToPool);
+        _analyticMasksToReturnToPool.Clear();
 
         _compiledSceneRoot = root;
         _compiledSceneRootVersion = root.ChangeVersion;
@@ -4424,7 +4434,7 @@ SceneStateUploadComplete:
 
     private void SweepUnusedEffectTextures(Visual mainRoot, IReadOnlyList<Visual>? externalLayers, Visual? activeToolTip)
     {
-        if (_frameNumber % 60 == 0 && _effectTextures.Count > 0)
+        if (_effectTextures.Count > 0)
         {
             Visual[]? detached = null;
             int detachedCount = 0;
@@ -14236,6 +14246,14 @@ SceneStateUploadComplete:
                     _analyticMasksToReturnToPool[index]);
             }
             _analyticMasksToReturnToPool.Clear();
+            for (int index = 0;
+                 index < _compiledSceneAnalyticMaskResources.Count;
+                 index++)
+            {
+                DisposeMaskBindGroupResource(
+                    _compiledSceneAnalyticMaskResources[index]);
+            }
+            _compiledSceneAnalyticMaskResources.Clear();
 
             if (_dummyMaskTexture != null) _dummyMaskTexture.Dispose();
             _dummyMaskSamplingBuffer?.Dispose();
@@ -15396,12 +15414,15 @@ SceneStateUploadComplete:
             {
                 // Draw blurred shadow first (at offset, shifted back by padding)
                 var shadowRect = new Rect(
-                    sEff.Offset - new Vector2(padding, padding),
+                    paddedRect.Position + sEff.Offset,
                     new Vector2(logicalWidth, logicalHeight));
                 DrawTextureOnMain(cachedTextures.Destination!, shadowRect, compositeTransform, fe.HitTestId);
 
-                // Draw original source on top (shifted back by padding)
-                DrawTextureOnMain(cachedTextures.Source, paddedRect, compositeTransform, fe.HitTestId);
+                if (sEff.DrawSource)
+                {
+                    // Draw original source on top (shifted back by padding).
+                    DrawTextureOnMain(cachedTextures.Source, paddedRect, compositeTransform, fe.HitTestId);
+                }
             }
             else if (fe.Effect is WpfShaderEffect shaderEffect)
             {
@@ -16887,7 +16908,8 @@ SceneStateUploadComplete:
             MaskBindGroupCount = _maskBindGroups.Count,
             AnalyticMaskBindGroupCount =
                 _analyticMaskResourcePool.Count +
-                _analyticMasksToReturnToPool.Count,
+                _analyticMasksToReturnToPool.Count +
+                _compiledSceneAnalyticMaskResources.Count,
             MaskRenderBindGroupCount = CountMaskRenderBindGroups(),
             MaskTexturePoolCount = _maskTexturePool.Count,
             MaskTextureRetentionLimit = _maskTextureRetentionLimit,
@@ -19118,6 +19140,18 @@ SceneStateUploadComplete:
         }
     }
 
+    private void ReleaseCompiledSceneAnalyticMaskResources()
+    {
+        if (_compiledSceneAnalyticMaskResources.Count == 0)
+        {
+            return;
+        }
+
+        _analyticMaskResourcePool.AddRange(
+            _compiledSceneAnalyticMaskResources);
+        _compiledSceneAnalyticMaskResources.Clear();
+    }
+
     private void DisposeMaskBindGroupResource(
         MaskBindGroupResource resource)
     {
@@ -19831,7 +19865,12 @@ SceneStateUploadComplete:
             geometry,
             out contour,
             out ringInset);
+        bool isRectangularHoleRing = TryReadRectangularHoleRing(
+            geometry,
+            out RoundedRectanglePathContour rectangularHoleOuter,
+            out RoundedRectanglePathContour rectangularHoleInner);
         if (!isRoundedRing &&
+            !isRectangularHoleRing &&
             (geometry.Figures.Count != 1 ||
              !RoundedRectanglePathGeometry.TryReadCanonicalContour(
                  geometry.Figures[0],
@@ -19839,7 +19878,13 @@ SceneStateUploadComplete:
         {
             return false;
         }
-        if (!isRoundedRing && _maskStack.Count != 0)
+        if (!isRoundedRing && isRectangularHoleRing)
+        {
+            contour = rectangularHoleOuter;
+        }
+        if (!isRoundedRing &&
+            !isRectangularHoleRing &&
+            _maskStack.Count != 0)
         {
             return false;
         }
@@ -19882,12 +19927,16 @@ SceneStateUploadComplete:
                 physicalToLocal.M11,
                 physicalToLocal.M21,
                 physicalToLocal.M31,
-                0f),
+                isRectangularHoleRing
+                    ? rectangularHoleInner.Left
+                    : 0f),
             Coordinate1 = new Vector4(
                 physicalToLocal.M12,
                 physicalToLocal.M22,
                 physicalToLocal.M32,
-                0f),
+                isRectangularHoleRing
+                    ? rectangularHoleInner.Top
+                    : 0f),
             Bounds = new Vector4(
                 contour.Left,
                 contour.Top,
@@ -19896,16 +19945,37 @@ SceneStateUploadComplete:
             CornerRadiiX = contour.CornerRadiiX,
             CornerRadiiY = contour.CornerRadiiY,
             Options = new Vector4(
-                isRoundedRing ? 3f : 2f,
+                isRectangularHoleRing
+                    ? 4f
+                    : isRoundedRing
+                        ? 3f
+                        : 2f,
                 1f,
-                ringInset,
-                0f)
+                isRectangularHoleRing
+                    ? rectangularHoleInner.Right
+                    : ringInset,
+                isRectangularHoleRing
+                    ? rectangularHoleInner.Bottom
+                    : 0f)
         };
-        if (_maskStack.Count != 0 &&
-            (_maskStack.Count != 1 ||
-             !MatchesAnalyticOuter(_maskStack.Peek(), samplingUniforms)))
+        if (_maskStack.Count != 0)
         {
-            return false;
+            if (_maskStack.Count == 1 &&
+                isRectangularHoleRing &&
+                TryComposeAnalyticOuterWithRectangularHole(
+                    _maskStack.Peek(),
+                    samplingUniforms,
+                    rectangularHoleOuter,
+                    rectangularHoleInner,
+                    out MaskSamplingUniforms composedSamplingUniforms))
+            {
+                samplingUniforms = composedSamplingUniforms;
+            }
+            else if (_maskStack.Count != 1 ||
+                     !MatchesAnalyticOuter(_maskStack.Peek(), samplingUniforms))
+            {
+                return false;
+            }
         }
 
         CommitPendingDrawCalls();
@@ -19946,6 +20016,45 @@ SceneStateUploadComplete:
             outer.CornerRadiiY == ring.CornerRadiiY;
     }
 
+    private static bool TryComposeAnalyticOuterWithRectangularHole(
+        MaskTextureState parent,
+        MaskSamplingUniforms ring,
+        RoundedRectanglePathContour ringOuter,
+        RoundedRectanglePathContour ringInner,
+        out MaskSamplingUniforms composed)
+    {
+        composed = default;
+        if (parent.AnalyticResource is not { } resource)
+        {
+            return false;
+        }
+
+        MaskSamplingUniforms outer = resource.SamplingUniforms;
+        if (outer.Options.X != 2f ||
+            new Vector3(outer.Coordinate0.X, outer.Coordinate0.Y, outer.Coordinate0.Z) !=
+                new Vector3(ring.Coordinate0.X, ring.Coordinate0.Y, ring.Coordinate0.Z) ||
+            new Vector3(outer.Coordinate1.X, outer.Coordinate1.Y, outer.Coordinate1.Z) !=
+                new Vector3(ring.Coordinate1.X, ring.Coordinate1.Y, ring.Coordinate1.Z) ||
+            outer.Bounds != new Vector4(
+                ringOuter.Left,
+                ringOuter.Top,
+                ringOuter.Right,
+                ringOuter.Bottom))
+        {
+            return false;
+        }
+
+        composed = outer;
+        composed.Coordinate0.W = ringInner.Left;
+        composed.Coordinate1.W = ringInner.Top;
+        composed.Options = new Vector4(
+            4f,
+            outer.Options.Y,
+            ringInner.Right,
+            ringInner.Bottom);
+        return true;
+    }
+
     private static bool TryReadUniformRoundedRing(
         PathGeometry geometry,
         out RoundedRectanglePathContour outer,
@@ -19982,6 +20091,34 @@ SceneStateUploadComplete:
 
         inset = left;
         return true;
+    }
+
+    private static bool TryReadRectangularHoleRing(
+        PathGeometry geometry,
+        out RoundedRectanglePathContour outer,
+        out RoundedRectanglePathContour inner)
+    {
+        outer = default;
+        inner = default;
+        if (geometry.FillRule != FillRule.EvenOdd ||
+            geometry.Figures.Count != 2 ||
+            !RoundedRectanglePathGeometry.TryReadCanonicalContour(
+                geometry.Figures[0],
+                out outer) ||
+            !RoundedRectanglePathGeometry.TryReadCanonicalContour(
+                geometry.Figures[1],
+                out inner) ||
+            HasRoundedCorners(inner))
+        {
+            return false;
+        }
+
+        return inner.Left >= outer.Left &&
+            inner.Top >= outer.Top &&
+            inner.Right <= outer.Right &&
+            inner.Bottom <= outer.Bottom &&
+            inner.Left < inner.Right &&
+            inner.Top < inner.Bottom;
     }
 
     private static bool InsetRadiiMatch(

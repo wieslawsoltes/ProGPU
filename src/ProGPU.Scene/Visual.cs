@@ -1453,6 +1453,7 @@ public class DropShadowEffect : EffectBase
     private float _blurRadius;
     private Vector2 _offset;
     private Vector4 _color;
+    private bool _drawSource = true;
     private Visual? _opacityMaskVisual;
 
     public float BlurRadius
@@ -1489,6 +1490,24 @@ public class DropShadowEffect : EffectBase
             if (_color != value)
             {
                 _color = value;
+                Invalidate();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets whether the uneffected source is composited above the
+    /// generated shadow. The default preserves conventional drop-shadow
+    /// behavior; shadow-only filter contracts can disable it.
+    /// </summary>
+    public bool DrawSource
+    {
+        get => _drawSource;
+        set
+        {
+            if (_drawSource != value)
+            {
+                _drawSource = value;
                 Invalidate();
             }
         }

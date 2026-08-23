@@ -157,6 +157,10 @@ public sealed class VisualChangeVersionTests
         shadow.Offset = new Vector2(3f, 4f);
         Assert.True(shadow.ChangeVersion > shadowVersion);
 
+        shadowVersion = shadow.ChangeVersion;
+        shadow.DrawSource = false;
+        Assert.True(shadow.ChangeVersion > shadowVersion);
+
         var shader = new WpfShaderEffect(new WpfShaderEffectParams());
         var shaderVersion = shader.ChangeVersion;
         shader.Padding = 6f;

@@ -39,6 +39,14 @@ fn wpf_analytic_rounded_mask_alpha(position: vec2<f32>) -> f32 {
 	if (activeMaskSampling.options.x < 2.5) {
 		return outerAlpha;
 	}
+	if (activeMaskSampling.options.x > 3.5) {
+		let innerAlpha = wpf_rounded_mask_alpha_local(
+			local,
+			vec4<f32>(activeMaskSampling.coordinate0.w, activeMaskSampling.coordinate1.w, activeMaskSampling.options.z, activeMaskSampling.options.w),
+			vec4<f32>(0.0),
+			vec4<f32>(0.0));
+		return outerAlpha * (1.0 - innerAlpha);
+	}
 	let inset = activeMaskSampling.options.z;
 	let innerAlpha = wpf_rounded_mask_alpha_local(
 		local,
