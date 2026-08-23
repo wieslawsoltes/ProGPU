@@ -41,6 +41,10 @@
   <Project Path="ProGPU.Avalonia.Rendering/ProGPU.Avalonia.Rendering.csproj" />
   <Project Path="ProGPU.Avalonia.SilkNet/ProGPU.Avalonia.SilkNet.csproj" />
   <Project Path="ProGPU.Avalonia.SkiaSourceCompatibility/ProGPU.Avalonia.SkiaSourceCompatibility.csproj" />
+  <Project Path="ProGPU.Avalonia.Skia.BinaryCompatibility/ProGPU.Avalonia.Skia.BinaryCompatibility.csproj" />
+  <Project Path="ProGPU.Avalonia.Skia.BinaryCompatibility.V11/ProGPU.Avalonia.Skia.BinaryCompatibility.V11.csproj" />
+  <Project Path="ProGPU.BinaryCompatibility/ProGPU.BinaryCompatibility.csproj" />
+  <Project Path="../tests/ProGPU.BinaryCompatibility.Tests/ProGPU.BinaryCompatibility.Tests.csproj" />
   <Folder Name="/Avalonia 11/">
     <Project Path="ProGPU.Avalonia.Rendering.V11/ProGPU.Avalonia.Rendering.V11.csproj" />
     <Project Path="ProGPU.Avalonia.SilkNet.V11/ProGPU.Avalonia.SilkNet.V11.csproj" />

@@ -1,0 +1,42 @@
+<Project>
+  <PropertyGroup>
+    <_ProGpuBinaryCompatibilityPayload>$(MSBuildThisFileDirectory)..\tools\$(TargetFramework)</_ProGpuBinaryCompatibilityPayload>
+  </PropertyGroup>
+
+  <Target Name="_ProGpuValidateBinaryCompatibilityPayload"
+          BeforeTargets="_ProGpuApplyBinaryCompatibility;_ProGpuPrepareBinaryCompatibilityPublishAssets"
+          Condition="'$(ProGpuBinaryCompatibility)' == 'true'">
+    <Error Condition="!Exists('$(_ProGpuBinaryCompatibilityPayload)\SkiaSharp.dll')"
+           Text="ProGPU binary compatibility does not provide assets for $(TargetFramework)." />
+    <Error Condition="!Exists('$(_ProGpuBinaryCompatibilityPayload)\Avalonia.Skia.dll')"
+           Text="ProGPU binary compatibility does not provide assets for $(TargetFramework)." />
+  </Target>
+
+  <Target Name="_ProGpuApplyBinaryCompatibility"
+          AfterTargets="CopyFilesToOutputDirectory"
+          Condition="'$(ProGpuBinaryCompatibility)' == 'true'">
+    <Copy SourceFiles="$(_ProGpuBinaryCompatibilityPayload)\SkiaSharp.dll;$(_ProGpuBinaryCompatibilityPayload)\Avalonia.Skia.dll"
+          DestinationFiles="$(OutDir)SkiaSharp.dll;$(OutDir)Avalonia.Skia.dll"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="_ProGpuPrepareBinaryCompatibilityPublishAssets"
+          AfterTargets="ComputeFilesToPublish"
+          BeforeTargets="GenerateSingleFileBundle"
+          Condition="'$(ProGpuBinaryCompatibility)' == 'true'">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(Filename)%(Extension)' == 'SkiaSharp.dll' Or '%(Filename)%(Extension)' == 'Avalonia.Skia.dll'" />
+      <ResolvedFileToPublish Include="$(_ProGpuBinaryCompatibilityPayload)\SkiaSharp.dll">
+        <RelativePath>SkiaSharp.dll</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>false</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+      <ResolvedFileToPublish Include="$(_ProGpuBinaryCompatibilityPayload)\Avalonia.Skia.dll">
+        <RelativePath>Avalonia.Skia.dll</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>false</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+</Project>

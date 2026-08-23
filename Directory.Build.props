@@ -3,12 +3,12 @@
     <ProGPUStrongNameKeyFile>$(MSBuildThisFileDirectory)eng/ProGPU.snk</ProGPUStrongNameKeyFile>
     <ProGPUPublicKey>002400000480000094000000060200000024000052534131000400000100010045aa5f537c126e38b67a4e22a49d30ad6424dc66d3e82890c03de2caa8f421736dbe5170b054610320e4a436e808a38b05e02998b776d1ae9133d2bf7197e5eb39e9ba6bee9ed837236a90c151c6d6e154dc8debd4fef44d6597f795ee9e33bf0b2a959915729166099862717525ec4bab3002d4d8f8a81d656b5c25c891cb91</ProGPUPublicKey>
     <VersionPrefix Condition="'$(VersionPrefix)' == ''">0.1.0</VersionPrefix>
-    <VersionSuffix Condition="'$(VersionSuffix)' == ''">preview.57</VersionSuffix>
+    <VersionSuffix Condition="'$(VersionSuffix)' == ''">preview.59</VersionSuffix>
     <Version Condition="'$(Version)' == ''">$(VersionPrefix)-$(VersionSuffix)</Version>
     <PackageVersion Condition="'$(PackageVersion)' == ''">$(Version)</PackageVersion>
     <Description Condition="'$(Description)' == ''">ProGPU runtime package for GPU-accelerated .NET composition, rendering, vector graphics, text, and WebGPU platform integration.</Description>
     <PackageDescription Condition="'$(PackageDescription)' == ''">$(Description)</PackageDescription>
-    <PackageReleaseNotes Condition="'$(PackageReleaseNotes)' == ''">Updates the Avalonia integrations to 12.1.1 and 11.3.20, completes Silk.NET platform and window contracts, adds SkiaSharp API lease compatibility, enforces bounded WebGPU buffer and upload allocation, and renders macOS popups with borderless square chrome.</PackageReleaseNotes>
+    <PackageReleaseNotes Condition="'$(PackageReleaseNotes)' == ''">Adds opt-in binary compatibility for unchanged modern-.NET consumers across SkiaSharp 2.x-4.x and Avalonia 11.x-12.x, with unchanged-package validation for Svg.Skia, Avalonia SVG controls, and WebScene. Stabilizes release allocation-contract validation in optimized test hosts.</PackageReleaseNotes>
     <Authors Condition="'$(Authors)' == ''">Wieslaw Soltes</Authors>
     <Company Condition="'$(Company)' == ''">ProGPU</Company>
     <PackageProjectUrl Condition="'$(PackageProjectUrl)' == ''">https://github.com/wieslawsoltes/ProGPU</PackageProjectUrl>

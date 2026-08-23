@@ -8,9 +8,9 @@ Silk.NET windowing or Avalonia's existing native windowing backend.
 | `ProGPU.Avalonia.Rendering` | Avalonia renderer backed by ProGPU and WebGPU |
 | `ProGPU.Avalonia.SilkNet` | Cross-platform Silk.NET desktop windowing backend |
 
-Version `12.1.1-preview.57` is built against exactly Avalonia `12.1.1` and
-ProGPU `0.1.0-preview.57` on .NET 10. Avalonia 11 applications use the same
-package IDs at `11.3.20-preview.57`, built against exactly Avalonia `11.3.20`.
+Version `12.1.1-preview.59` is built against exactly Avalonia `12.1.1` and
+ProGPU `0.1.0-preview.59` on .NET 10. Avalonia 11 applications use the same
+package IDs at `11.3.20-preview.59`, built against exactly Avalonia `11.3.20`.
 
 ## Install
 
@@ -20,8 +20,8 @@ Reference the renderer, windowing backend, text shaper, and font package:
 <ItemGroup>
   <PackageReference Include="Avalonia" Version="12.1.1" />
   <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.1" />
-  <PackageReference Include="ProGPU.Avalonia.Rendering" Version="12.1.1-preview.57" />
-  <PackageReference Include="ProGPU.Avalonia.SilkNet" Version="12.1.1-preview.57" />
+  <PackageReference Include="ProGPU.Avalonia.Rendering" Version="12.1.1-preview.59" />
+  <PackageReference Include="ProGPU.Avalonia.SilkNet" Version="12.1.1-preview.59" />
 </ItemGroup>
 ```
 
@@ -120,10 +120,23 @@ Avalonia transform or current opacity again. `SkSurface` and
 `TryLeasePlatformGraphicsApi()` return `null` because the ProGPU recorder is
 not backed by an Avalonia Skia surface or platform graphics context.
 
-This compatibility is for source rebuilt against the ProGPU package set.
-Do not add the official `Avalonia.Skia` package: a precompiled library tied to
-the official `Avalonia.Skia` and native `SkiaSharp` assembly identities must
-be recompiled for ProGPU.
+Source rebuilds need no additional package. For a precompiled modern-.NET
+library tied to the official `Avalonia.Skia` and `SkiaSharp` identities, add
+`ProGPU.BinaryCompatibility` and opt in at the application boundary:
+
+```xml
+<PropertyGroup>
+  <ProGpuBinaryCompatibility>true</ProGpuBinaryCompatibility>
+</PropertyGroup>
+```
+
+The current `net10.0` profile uses ceiling identities that accept released
+stable Avalonia.Skia 11.x/12.x packages through 12.1.1 and SkiaSharp
+2.x/3.x/4.x packages through 4.151.1 without a version selector. It does not
+promise removed historical APIs, future releases above those ceilings, or
+.NET Framework compatibility. See
+`docs/PROGPU_BINARY_ASSEMBLY_COMPATIBILITY.md` for identity, packaging, and
+security details.
 
 Custom controls can submit ProGPU scene commands from an Avalonia custom draw operation. Acquire `IProGpuApiLeaseFeature` only inside `ICustomDrawOperation.Render`, dispose the lease before returning, and pass `CurrentTransform` to transform-aware ProGPU methods.
 
@@ -302,7 +315,7 @@ For the Avalonia 11 lane, set both versions:
 
 ```bash
 PROGPU_AVALONIA_PACKAGE_VERSION=11.3.20 \
-PROGPU_INTEGRATION_PACKAGE_VERSION=11.3.20-preview.57 \
+PROGPU_INTEGRATION_PACKAGE_VERSION=11.3.20-preview.59 \
 PROGPU_INTEGRATION_BUILD_ONLY=1 \
   ./integration/ProGpuAvaloniaPackageSmoke/run.sh local
 ```

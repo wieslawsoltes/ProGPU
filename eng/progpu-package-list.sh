@@ -40,6 +40,7 @@ progpu_portable_package_ids=(
   ProGPU.Uno
   ProGPU.Dxf
   ProGPU.SkiaSharp
+  ProGPU.BinaryCompatibility
   ProGPU.System.Drawing.Common
   LibreWPF.Interop
 )
@@ -82,6 +83,7 @@ progpu_portable_package_projects=(
   src/ProGPU.Uno/ProGPU.Uno.csproj
   src/ProGPU.Dxf/ProGPU.Dxf.csproj
   src/SkiaSharp/SkiaSharp.csproj
+  src/ProGPU.BinaryCompatibility/ProGPU.BinaryCompatibility.csproj
   src/System.Drawing.Common/System.Drawing.Common.csproj
   src/ProGPU.Wpf.Interop/ProGPU.Wpf.Interop.csproj
 )
@@ -124,6 +126,7 @@ progpu_portable_package_purposes=(
   "Uno/WinUI integration and compositor backend adapter."
   "DXF import/rendering support for ProGPU vector scenes."
   "ProGPU-backed portable SkiaSharp compatibility shim used by drawing and imaging adapters."
+  "Opt-in official-identity SkiaSharp and Avalonia.Skia runtime/publish compatibility assets."
   "ProGPU-backed portable System.Drawing.Common compatibility shim for LibreWinForms and GDI-style callers."
   "LibreWPF portable interop contracts consumed by the ProGPU/Silk.NET SDK lane."
 )
@@ -143,6 +146,7 @@ progpu_avalonia_runtime_package_ids=(
   ProGPU.Compute
   ProGPU.Scene
   ProGPU.SkiaSharp
+  ProGPU.BinaryCompatibility
 )
 
 progpu_avalonia_runtime_package_projects=(
@@ -156,6 +160,7 @@ progpu_avalonia_runtime_package_projects=(
   src/ProGPU.Compute/ProGPU.Compute.csproj
   src/ProGPU.Scene/ProGPU.Scene.csproj
   src/SkiaSharp/SkiaSharp.csproj
+  src/ProGPU.BinaryCompatibility/ProGPU.BinaryCompatibility.csproj
 )
 
 progpu_avalonia_runtime_package_purposes=(
@@ -169,6 +174,7 @@ progpu_avalonia_runtime_package_purposes=(
   "Avalonia runtime closure: compute pipelines."
   "Avalonia runtime closure: retained compositor scene."
   "Avalonia runtime closure: SkiaSharp compatibility surface."
+  "Avalonia runtime closure: opt-in official assembly identity substitution."
 )
 
 progpu_mobile_package_ids=(
@@ -201,6 +207,8 @@ progpu_package_purposes=("${progpu_portable_package_purposes[@]}" "${progpu_mobi
 progpu_nonshipping_projects=(
   src/PresentationCore/PresentationCore.csproj
   src/ProGPU.Avalonia.SkiaSourceCompatibility/ProGPU.Avalonia.SkiaSourceCompatibility.csproj
+  src/ProGPU.Avalonia.Skia.BinaryCompatibility/ProGPU.Avalonia.Skia.BinaryCompatibility.csproj
+  src/ProGPU.Avalonia.Skia.BinaryCompatibility.V11/ProGPU.Avalonia.Skia.BinaryCompatibility.V11.csproj
   src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj
   src/ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj
   src/ProGPU.Samples.ActivityMonitor/ProGPU.Samples.ActivityMonitor.csproj
@@ -223,6 +231,8 @@ progpu_nonshipping_projects=(
 progpu_nonshipping_reasons=(
   "Framework implementation shim; shipped through consuming compatibility packages."
   "Non-shipping source dependency used to validate the ProGPU SkiaSharp contract against Avalonia's ordinary Skia backend."
+  "Non-shipping Avalonia.Skia facade shipped inside ProGPU.BinaryCompatibility."
+  "Non-shipping Avalonia 11 validation facade for the universal compatibility identity."
   "Native C++ renderer differential and performance benchmark."
   "Native C++ renderer managed-host sample."
   "Activity Monitor sample application."
