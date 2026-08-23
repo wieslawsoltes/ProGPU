@@ -57,6 +57,14 @@ struct semantic_scene_builder::implementation final {
             (index < resources.size() && resources[index].record.kind ==
                 PROGPU_NATIVE_SCENE_RESOURCE_STATE);
     }
+
+    bool try_merge_image_draw(
+        std::uint32_t image_resource_index,
+        const progpu_native_scene_image_draw& image,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index,
+        const progpu_native_scene_image_sampling_options*
+            sampling_options);
 };
 
 namespace scene_builder_detail {

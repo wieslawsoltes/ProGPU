@@ -86,7 +86,8 @@ public static partial class GpuPictureNativeSceneCompiler
         bool HasColorMatrix,
         NativeSceneImageEffect Effect,
         bool HasEffect,
-        NativeSceneImagePatch[] Patches);
+        NativeSceneImagePatch[] Patches,
+        List<NativeSceneImagePatch>? GeneratedPatches);
 
     private readonly record struct AffineColorTransform(
         Vector4 Red,
@@ -1226,7 +1227,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     Unsafe.SizeOf<NativeSceneImageSamplingOptions>() +
                     Unsafe.SizeOf<NativeSceneImagePatchBatch>() + 8) +
                 externalImages.Sum(static image =>
-                    image.Patches.Length *
+                    (image.GeneratedPatches?.Count ?? image.Patches.Length) *
                         Unsafe.SizeOf<NativeSceneImagePatch>()) +
                 materials.BrushCount * Unsafe.SizeOf<NativeSceneBrush>() +
                 materials.GradientStopCount *
@@ -4591,8 +4592,7 @@ public static partial class GpuPictureNativeSceneCompiler
             sampling == NativeImageSampling.LinearMipmap
                 ? (byte)Math.Clamp((int)command.TextureMaxAnisotropy, 1, 16)
                 : (byte)1);
-        int drawIndex = externalImages.Count;
-        externalImages.Add(new(
+        var externalImage = new ExternalImageDraw(
             texture,
             chromaTexture,
             maskTexture,
@@ -4603,7 +4603,21 @@ public static partial class GpuPictureNativeSceneCompiler
             hasColorMatrix,
             nativeEffect,
             hasEffect,
-            patches));
+            patches,
+            GeneratedPatches: null);
+        if (TryMergeExternalImageDraw(
+                externalImage,
+                bounds,
+                externalImages,
+                batches,
+                operations))
+        {
+            error = NativePictureCompileError.None;
+            return true;
+        }
+
+        int drawIndex = externalImages.Count;
+        externalImages.Add(externalImage);
         batches.Add(new Batch
         {
             Kind = BatchKind.Image,
@@ -4616,6 +4630,100 @@ public static partial class GpuPictureNativeSceneCompiler
         return true;
     }
 
+    private static bool TryMergeExternalImageDraw(
+        in ExternalImageDraw current,
+        NativeImageRect currentBounds,
+        List<ExternalImageDraw> externalImages,
+        List<Batch> batches,
+        List<Operation> operations)
+    {
+        if (current.Patches.Length != 0 ||
+            current.HasColorMatrix || current.HasEffect ||
+            batches.Count == 0 || operations.Count == 0 ||
+            operations[^1].Kind != OperationKind.Draw ||
+            operations[^1].BatchIndex != batches.Count - 1 ||
+            batches[^1].Kind != BatchKind.Image)
+        {
+            return false;
+        }
+
+        Batch previousBatch = batches[^1];
+        ExternalImageDraw previous = externalImages[previousBatch.Start];
+        if ((previous.GeneratedPatches is null && previous.Patches.Length != 0) ||
+            previous.HasColorMatrix || previous.HasEffect ||
+            !ReferenceEquals(previous.Texture, current.Texture) ||
+            !ReferenceEquals(previous.ChromaTexture, current.ChromaTexture) ||
+            !ReferenceEquals(previous.MaskTexture, current.MaskTexture) ||
+            previous.HasSamplingOptions != current.HasSamplingOptions ||
+            previous.HasSamplingOptions &&
+                !previous.SamplingOptions.Equals(current.SamplingOptions) ||
+            !CanShareImagePatchBatch(previous.Draw, current.Draw))
+        {
+            return false;
+        }
+
+        List<NativeSceneImagePatch> patches;
+        if (previous.GeneratedPatches is { } generatedPatches)
+        {
+            if (generatedPatches.Count >= 65_536)
+            {
+                return false;
+            }
+            generatedPatches.Add(CreateTexturePatch(current.Draw));
+            patches = generatedPatches;
+        }
+        else
+        {
+            patches = new List<NativeSceneImagePatch>(16)
+            {
+                CreateTexturePatch(previous.Draw),
+                CreateTexturePatch(current.Draw)
+            };
+        }
+
+        NativeSceneImageDraw source = previous.Draw;
+        var batchedDraw = new NativeSceneImageDraw(
+            source.ImageWidth,
+            source.ImageHeight,
+            source.RowBytes,
+            source.Sampling,
+            source.SourceRect,
+            source.DestinationRect,
+            Matrix3x2.Identity,
+            source.Opacity,
+            source.Flags | NativeSceneImageFlags.PatchBatch,
+            checked((byte)source.MaxAnisotropy));
+        externalImages[previousBatch.Start] = previous with
+        {
+            Draw = batchedDraw,
+            Patches = [],
+            GeneratedPatches = patches
+        };
+        previousBatch.Bounds = Union(previousBatch.Bounds, currentBounds);
+        batches[^1] = previousBatch;
+        return true;
+    }
+
+    private static bool CanShareImagePatchBatch(
+        in NativeSceneImageDraw left,
+        in NativeSceneImageDraw right) =>
+        left.ImageWidth == right.ImageWidth &&
+        left.ImageHeight == right.ImageHeight &&
+        left.RowBytes == right.RowBytes &&
+        left.Sampling == right.Sampling &&
+        left.Opacity == right.Opacity &&
+        left.MaxAnisotropy == right.MaxAnisotropy &&
+        (left.Flags & ~NativeSceneImageFlags.PatchBatch) ==
+            (right.Flags & ~NativeSceneImageFlags.PatchBatch);
+
+    private static NativeSceneImagePatch CreateTexturePatch(
+        in NativeSceneImageDraw draw) =>
+        new(
+            NativeSceneImagePatchKind.Texture,
+            draw.SourceRect,
+            draw.DestinationRect,
+            draw.Transform);
+
     private static bool TryDrawExternalImage(
         ref NativeSceneStreamBuilder builder,
         ulong commandId,
@@ -4624,7 +4732,11 @@ public static partial class GpuPictureNativeSceneCompiler
         in ExternalImageDraw image)
     {
         NativeSceneImageDraw draw = image.Draw;
-        if (image.Patches.Length > 0)
+        ReadOnlySpan<NativeSceneImagePatch> patches =
+            image.GeneratedPatches is { } generatedPatches
+                ? CollectionsMarshal.AsSpan(generatedPatches)
+                : image.Patches;
+        if (!patches.IsEmpty)
         {
             NativeSceneImageSamplingOptions? sampling =
                 image.HasSamplingOptions ? image.SamplingOptions : null;
@@ -4637,7 +4749,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 resourceIndex,
                 bounds,
                 in draw,
-                image.Patches,
+                patches,
                 sampling,
                 colorMatrix,
                 effect);

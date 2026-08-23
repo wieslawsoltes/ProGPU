@@ -6,6 +6,7 @@ using ProGPU.Backend;
 using ProGPU.Scene;
 using ProGPU.Tests.Headless;
 using ProGPU.Vector;
+using Silk.NET.WebGPU;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -105,6 +106,53 @@ public sealed class LayerRenderTests
             Assert.Equal(2, window.Compositor.Metrics.IncrementalScenePageCount);
             Assert.True(
                 window.Compositor.Metrics.IncrementalScenePageReusedArrays > 0);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void IncrementalPagesMergeCompatibleRetainedTextureDraws()
+    {
+        var options = CompositorOptions.Default with
+        {
+            EnableGpuHitTesting = false,
+            PrimarySampleCount = 1
+        };
+        using var window = new HeadlessWindow(64, 32, options);
+        using var texture = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "Incremental texture page batch input",
+            alphaMode: GpuTextureAlphaMode.Straight);
+        texture.WritePixels<byte>([33, 211, 97, 255]);
+        var first = new OwnedTexturePageVisual(texture, new Vector2(0f, 0f));
+        var second = new OwnedTexturePageVisual(texture, new Vector2(20f, 0f));
+        window.Content = new IncrementalPageHost(first, second);
+
+        try
+        {
+            window.Render();
+            Assert.Equal(2, window.Compositor.Metrics.IncrementalScenePageCount);
+            Assert.Equal(1, window.Compositor.TextureDrawCallCount);
+
+            first.Transform = Matrix4x4.CreateTranslation(4f, 0f, 0f);
+            window.Render();
+
+            Assert.Equal(1, window.Compositor.Metrics.IncrementalScenePageHits);
+            Assert.Equal(1, window.Compositor.TextureDrawCallCount);
+            byte[] pixels = window.ReadPixels();
+            Assert.Equal(
+                new RgbaPixel(33, 211, 97, 255),
+                ReadPixel(pixels, window.Width, 8, 8));
+            Assert.Equal(
+                new RgbaPixel(33, 211, 97, 255),
+                ReadPixel(pixels, window.Width, 28, 8));
         }
         finally
         {
@@ -1234,6 +1282,22 @@ public sealed class LayerRenderTests
                 new SolidColorBrush(color),
                 null,
                 new Rect(0f, 0f, 20f, 20f));
+        }
+
+        public DrawingContext GetOrUpdateRenderCommandCache() => _commands;
+    }
+
+    private sealed class OwnedTexturePageVisual : FrameworkElement,
+        IIncrementalRenderCommandCache
+    {
+        private readonly DrawingContext _commands = new();
+
+        public OwnedTexturePageVisual(GpuTexture texture, Vector2 offset)
+        {
+            Width = 16f;
+            Height = 16f;
+            Transform = Matrix4x4.CreateTranslation(offset.X, offset.Y, 0f);
+            _commands.DrawTexture(texture, new Rect(0f, 0f, 16f, 16f));
         }
 
         public DrawingContext GetOrUpdateRenderCommandCache() => _commands;

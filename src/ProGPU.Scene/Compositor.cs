@@ -13671,7 +13671,7 @@ SceneStateUploadComplete:
             return;
         }
 
-        _drawCalls.Add(new CompositorDrawCall
+        var drawCall = new CompositorDrawCall
         {
             Type = DrawCallType.Texture,
             IndexStart = (uint)indexStart,
@@ -13684,7 +13684,49 @@ SceneStateUploadComplete:
             TextureSamplingMode = cmd.TextureSamplingMode,
             TextureMaxAnisotropy = cmd.TextureMaxAnisotropy,
             TextureAlphaMode = cmd.Texture.AlphaMode
-        });
+        };
+        AppendOrMergeTextureDrawCall(drawCall);
+    }
+
+    private void AppendOrMergeTextureDrawCall(in CompositorDrawCall drawCall)
+    {
+        if (_drawCalls.Count != 0 &&
+            (_activeIncrementalScenePageDrawCallStart < 0 ||
+                _drawCalls.Count > _activeIncrementalScenePageDrawCallStart))
+        {
+            ref CompositorDrawCall previous = ref
+                CollectionsMarshal.AsSpan(_drawCalls)[_drawCalls.Count - 1];
+            if (TryMergeTextureDrawCall(ref previous, drawCall))
+            {
+                return;
+            }
+        }
+
+        _drawCalls.Add(drawCall);
+    }
+
+    private static bool TryMergeTextureDrawCall(
+        ref CompositorDrawCall previous,
+        in CompositorDrawCall current)
+    {
+        if (previous.Type != DrawCallType.Texture ||
+            current.Type != DrawCallType.Texture ||
+            previous.IndexStart + previous.IndexCount != current.IndexStart ||
+            !ReferenceEquals(previous.Texture, current.Texture) ||
+            previous.ClipRect != current.ClipRect ||
+            !ReferenceEquals(previous.MaskTexture, current.MaskTexture) ||
+            previous.MaskBindGroupOverride != current.MaskBindGroupOverride ||
+            previous.BlendMode != current.BlendMode ||
+            previous.TextureSamplingMode != current.TextureSamplingMode ||
+            previous.TextureMaxAnisotropy != current.TextureMaxAnisotropy ||
+            previous.TextureAlphaMode != current.TextureAlphaMode ||
+            previous.HasImageEffect || current.HasImageEffect)
+        {
+            return false;
+        }
+
+        previous.IndexCount += current.IndexCount;
+        return true;
     }
 
     private void AppendTextureQuad(

@@ -468,6 +468,82 @@ public sealed class TextureBlendRenderTests
         }
     }
 
+    [Fact]
+    public void ConsecutiveCompatibleTextureCommandsShareOneDrawCall()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(48, 16);
+        using var texture = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "Compatible texture batch input",
+            alphaMode: GpuTextureAlphaMode.Straight);
+        texture.WritePixels<byte>([37, 149, 223, 255]);
+        window.Content = new ConsecutiveTextureVisual(texture);
+
+        try
+        {
+            window.Render();
+
+            Assert.Equal(1, window.Compositor.TextureDrawCallCount);
+            Assert.Equal(18, window.Compositor.TextureIndexCount);
+            byte[] pixels = window.ReadPixels();
+            Assert.Equal(new RgbaPixel(37, 149, 223, 255), ReadPixel(pixels, window.Width, 8, 8));
+            Assert.Equal(new RgbaPixel(37, 149, 223, 255), ReadPixel(pixels, window.Width, 24, 8));
+            Assert.Equal(new RgbaPixel(37, 149, 223, 255), ReadPixel(pixels, window.Width, 40, 8));
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void TextureBatchingPreservesSamplingTextureAndClipBoundaries()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(64, 16);
+        using var first = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "Texture batch state input A",
+            alphaMode: GpuTextureAlphaMode.Straight);
+        using var second = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "Texture batch state input B",
+            alphaMode: GpuTextureAlphaMode.Straight);
+        first.WritePixels<byte>([255, 0, 0, 255]);
+        second.WritePixels<byte>([0, 255, 0, 255]);
+        window.Content = new TextureStateBoundaryVisual(first, second);
+
+        try
+        {
+            window.Render();
+
+            Assert.Equal(4, window.Compositor.TextureDrawCallCount);
+            byte[] pixels = window.ReadPixels();
+            Assert.Equal(new RgbaPixel(255, 0, 0, 255), ReadPixel(pixels, window.Width, 8, 8));
+            Assert.Equal(new RgbaPixel(255, 0, 0, 255), ReadPixel(pixels, window.Width, 24, 8));
+            Assert.Equal(new RgbaPixel(0, 255, 0, 255), ReadPixel(pixels, window.Width, 40, 8));
+            Assert.Equal(new RgbaPixel(0, 255, 0, 255), ReadPixel(pixels, window.Width, 52, 8));
+            Assert.Equal(new RgbaPixel(20, 20, 31, 255), ReadPixel(pixels, window.Width, 60, 8));
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
     private static RgbaPixel ReadPixel(byte[] pixels, uint width, int x, int y)
     {
         var index = ((y * (int)width) + x) * 4;
@@ -486,6 +562,54 @@ public sealed class TextureBlendRenderTests
     }
 
     private readonly record struct RgbaPixel(byte R, byte G, byte B, byte A);
+
+    private sealed class ConsecutiveTextureVisual : FrameworkElement
+    {
+        private readonly GpuTexture _texture;
+
+        public ConsecutiveTextureVisual(GpuTexture texture)
+        {
+            _texture = texture;
+            Width = 48f;
+            Height = 16f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawTexture(_texture, new Rect(0f, 0f, 16f, 16f));
+            context.DrawTexture(_texture, new Rect(16f, 0f, 16f, 16f));
+            context.DrawTexture(_texture, new Rect(32f, 0f, 16f, 16f));
+        }
+    }
+
+    private sealed class TextureStateBoundaryVisual : FrameworkElement
+    {
+        private readonly GpuTexture _first;
+        private readonly GpuTexture _second;
+
+        public TextureStateBoundaryVisual(GpuTexture first, GpuTexture second)
+        {
+            _first = first;
+            _second = second;
+            Width = 64f;
+            Height = 16f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawTexture(_first, new Rect(0f, 0f, 16f, 16f));
+            context.DrawTexture(
+                _first,
+                new Rect(16f, 0f, 16f, 16f),
+                default,
+                Matrix4x4.Identity,
+                TextureSamplingMode.Nearest);
+            context.DrawTexture(_second, new Rect(32f, 0f, 16f, 16f));
+            context.PushClip(new Rect(48f, 0f, 8f, 16f));
+            context.DrawTexture(_second, new Rect(48f, 0f, 16f, 16f));
+            context.PopClip();
+        }
+    }
 
     private sealed class TextureBlendVisual : FrameworkElement
     {
