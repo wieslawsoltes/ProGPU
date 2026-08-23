@@ -3769,10 +3769,6 @@ SceneStateUploadComplete:
 
         _context.Api.CommandBufferRelease(cmdBuffer);
         _context.Api.CommandEncoderRelease(encoder);
-        // Native wgpu backends reclaim completed command buffers and their
-        // transient driver resources while polling. Keep this non-blocking:
-        // frame pacing must remain queue-driven rather than waiting for the GPU.
-        _context.PollDevice(wait: false);
 
         ReturnPendingMaskTexturesToPool();
 
@@ -16977,9 +16973,6 @@ SceneStateUploadComplete:
 
         _context.Api.CommandBufferRelease(cmdBuffer);
         _context.Api.CommandEncoderRelease(encoder);
-        // Retire completed native submissions without introducing a CPU/GPU
-        // synchronization point. Browser WebGPU devices are polled by the host.
-        _context.PollDevice(wait: false);
         targetTexture.AlphaMode = GpuTextureAlphaMode.Premultiplied;
         targetTexture.MarkContentsDirty();
         long renderEndTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();

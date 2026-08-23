@@ -29,8 +29,11 @@ public enum WgpuBackendKind
 
 public unsafe class WgpuContext : IDisposable
 {
-    private const int QueuePollSubmissionInterval = 2;
-    private const int DefaultMaximumDeferredQueueSubmissions = 8;
+    // Device polling can materialize internal Metal signal/transition command
+    // buffers even when the renderer has no callbacks to service. Keep progress
+    // bounded without injecting that work into every retained frame.
+    private const int QueuePollSubmissionInterval = 8;
+    private const int DefaultMaximumDeferredQueueSubmissions = 64;
     private SharedDeviceLifetime? _sharedDeviceLifetime;
     private IWebGpuExternalDeviceLifetime? _externalDeviceLifetime;
     private WgpuDeviceResourceDomain? _deviceResourceDomain;
