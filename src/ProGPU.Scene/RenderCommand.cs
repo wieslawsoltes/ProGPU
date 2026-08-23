@@ -2544,6 +2544,16 @@ public class GpuPicture :
     internal long CommandStorageBytes =>
         _retainedCommands.ApproximateStorageBytes;
 
+    /// <summary>
+    /// Returns whether two pictures share the same immutable retained command
+    /// storage. Clones share storage while owning independent resource leases.
+    /// Hosts can use this identity check to avoid invalidating a visual when a
+    /// short-lived ownership clone replaces an otherwise identical picture.
+    /// </summary>
+    public bool SharesRetainedCommandStorageWith(GpuPicture? other) =>
+        other is not null &&
+        ReferenceEquals(_retainedCommands, other._retainedCommands);
+
     public GpuPicture(
         RenderCommand[] commands,
         Vector2[] pointBuffer,
@@ -2725,6 +2735,12 @@ public class GpuPictureRecorder
 
     public GpuPicture EndRecording()
     {
+        if (TryCloneSingleIdentityPicture(out GpuPicture? flattened))
+        {
+            _recordingContext.Clear();
+            return flattened;
+        }
+
         var picture = new GpuPicture(
             _recordingContext.Commands.AsSpan(),
             CopyList(_recordingContext.PointBuffer),
@@ -2736,6 +2752,31 @@ public class GpuPictureRecorder
         );
         _recordingContext.Clear();
         return picture;
+    }
+
+    private bool TryCloneSingleIdentityPicture(out GpuPicture picture)
+    {
+        picture = null!;
+        if (_recordingContext.Commands.Count != 1 ||
+            _recordingContext.HasCommandSideBuffers)
+        {
+            return false;
+        }
+
+        RenderCommand command = _recordingContext.Commands[0];
+        GpuPicture? child = command.Picture;
+        if (command.Type != RenderCommandType.DrawPicture ||
+            child is null ||
+            command.UseGpuTransforms ||
+            command.Transform != default ||
+            _recordingContext.RetainedResourceCount !=
+                child.RetainedResourceCount)
+        {
+            return false;
+        }
+
+        picture = child.Clone();
+        return true;
     }
 
     private static T[] CopyList<T>(List<T> values)
