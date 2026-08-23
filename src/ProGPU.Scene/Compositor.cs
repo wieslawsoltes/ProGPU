@@ -1385,6 +1385,7 @@ public unsafe partial class Compositor : IDisposable
         _compiledSceneRetainedResources = new();
     private readonly List<CompiledVisualVersion> _compiledExternalLayers = new();
     private readonly List<CompiledLayerVersion> _compiledLayerOwners = new();
+    private readonly List<CompiledEffectVersion> _compiledEffectOwners = new();
     private readonly Dictionary<TextureCacheKey, CachedBindGroup> _persistentTextureBindGroups = new();
     private readonly List<GpuBrush> _activeBrushes = new();
     private readonly List<GpuTextStyle> _activeTextStyles = new();
@@ -1441,6 +1442,11 @@ public unsafe partial class Compositor : IDisposable
 
     private readonly record struct CompiledVisualVersion(Visual Visual, long ChangeVersion);
     private readonly record struct CompiledLayerVersion(Visual Visual, GpuTexture Texture);
+    private readonly record struct CompiledEffectVersion(
+        Visual Visual,
+        EffectBase Effect,
+        int CacheKey,
+        EffectTextureSet Textures);
     private readonly record struct TextLayoutCacheKey(
         string Text,
         TtfFont Font,
@@ -4037,6 +4043,19 @@ SceneStateUploadComplete:
             }
         }
 
+        for (int i = 0; i < _compiledEffectOwners.Count; i++)
+        {
+            var compiled = _compiledEffectOwners[i];
+            if (!ReferenceEquals(compiled.Visual.Effect, compiled.Effect) ||
+                compiled.Effect.GetRenderCacheKey() != compiled.CacheKey ||
+                compiled.Textures.Source.IsDisposed ||
+                !_effectTextures.TryGetValue(compiled.Visual, out var textures) ||
+                !ReferenceEquals(compiled.Textures, textures))
+            {
+                return MissCompiledSceneCache("Effect changed");
+            }
+        }
+
         return true;
     }
 
@@ -4044,6 +4063,12 @@ SceneStateUploadComplete:
     {
         _currentSceneCacheMissReason = reason;
         return false;
+    }
+
+    internal void InvalidateCompiledScene(string reason)
+    {
+        _compiledSceneReusable = false;
+        _compiledSceneCacheStateReason = reason;
     }
 
     private void CaptureCompiledScene(
@@ -4067,6 +4092,7 @@ SceneStateUploadComplete:
             _compiledExternalLayers.Clear();
             _compiledEmbeddedVisuals.Clear();
             _compiledLayerOwners.Clear();
+            _compiledEffectOwners.Clear();
             return;
         }
 
@@ -4113,6 +4139,22 @@ SceneStateUploadComplete:
             if (owner.LayerTexture is { IsDisposed: false } texture)
             {
                 _compiledLayerOwners.Add(new CompiledLayerVersion(owner, texture));
+            }
+        }
+
+        _compiledEffectOwners.Clear();
+        foreach (var entry in _effectTextures)
+        {
+            Visual owner = entry.Key;
+            if (owner.Effect is { } effect &&
+                _effectCacheKeys.TryGetValue(owner, out int cacheKey))
+            {
+                _compiledEffectOwners.Add(
+                    new CompiledEffectVersion(
+                        owner,
+                        effect,
+                        cacheKey,
+                        entry.Value));
             }
         }
     }

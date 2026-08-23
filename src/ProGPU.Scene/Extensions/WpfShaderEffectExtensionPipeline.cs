@@ -662,6 +662,8 @@ public sealed unsafe class WpfShaderEffectExtensionPipeline : ICompositorExtensi
             {
                 parameters.IsFailed = true;
                 parameters.LastError = errors;
+                compositor.InvalidateCompiledScene(
+                    "Effect pipeline state changed");
                 compositor.PipelineCache.ReleaseShader(shaderKey);
                 return null;
             }
@@ -711,6 +713,8 @@ public sealed unsafe class WpfShaderEffectExtensionPipeline : ICompositorExtensi
                         parameters.LastError = string.IsNullOrEmpty(parameters.LastError)
                             ? "WPF shader effect pipeline creation failed."
                             : parameters.LastError;
+                        compositor.InvalidateCompiledScene(
+                            "Effect pipeline state changed");
                         compositor.PipelineCache.ReleaseRenderPipeline(pipelineKey);
                         compositor.PipelineCache.ReleaseShader(shaderKey);
                         return null;
@@ -728,6 +732,8 @@ public sealed unsafe class WpfShaderEffectExtensionPipeline : ICompositorExtensi
         {
             parameters.IsFailed = true;
             parameters.LastError = ex.Message;
+            compositor.InvalidateCompiledScene(
+                "Effect pipeline state changed");
             compositor.PipelineCache.ReleaseRenderPipeline(pipelineKey);
             compositor.PipelineCache.ReleaseShader(shaderKey);
             return null;
