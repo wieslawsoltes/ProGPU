@@ -114,6 +114,48 @@ public sealed class BackdropMaterialRenderTests
     }
 
     [Fact]
+    public void HostBackdropReplacesCoverageWithoutCompositingDestinationTwice()
+    {
+        var window = HeadlessWindow.Shared;
+        using var target = new GpuTexture(
+            window.Context,
+            32,
+            32,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+                TextureUsage.TextureBinding |
+                TextureUsage.CopySrc,
+            "Host Backdrop Coverage Target",
+            alphaMode: GpuTextureAlphaMode.Premultiplied);
+
+        window.Compositor.RenderOffscreen(
+            new NestedHostBackdropVisual(),
+            32,
+            32,
+            target,
+            0f,
+            1f,
+            Vector4.Zero);
+
+        var pixels = target.ReadPixels();
+        var center = ReadPixel(pixels, target.Width, 16, 16);
+        var outsideClip = ReadPixel(pixels, target.Width, 1, 1);
+
+        // 50%-alpha black under 80%-alpha white luminosity produces a
+        // premultiplied (0.8, 0.8, 0.8, 0.9) result. Source-over blending it
+        // over the captured 50%-alpha destination again would incorrectly
+        // raise alpha to 0.95.
+        Assert.InRange(center.R, 201, 207);
+        Assert.InRange(center.G, 201, 207);
+        Assert.InRange(center.B, 201, 207);
+        Assert.InRange(center.A, 227, 232);
+        Assert.InRange(outsideClip.R, 0, 2);
+        Assert.InRange(outsideClip.G, 0, 2);
+        Assert.InRange(outsideClip.B, 0, 2);
+        Assert.InRange(outsideClip.A, 126, 129);
+    }
+
+    [Fact]
     public void AppendTranslatesBackdropMaterialWithoutChangingSourceRect()
     {
         var parameters = new BackdropMaterialParams
@@ -243,6 +285,57 @@ public sealed class BackdropMaterialRenderTests
             context.DrawRectangle(_blue, null, new Rect(16f, 0f, 16f, 32f));
             context.DrawBackdropMaterial(_material, new Rect(8f, 8f, 16f, 16f));
             context.DrawRectangle(_green, null, new Rect(14f, 14f, 4f, 4f));
+        }
+    }
+
+    private sealed class NestedHostBackdropVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _background =
+            new(new Vector4(0f, 0f, 0f, 0.5f));
+        private readonly BackdropMaterialBrush _material = new()
+        {
+            Kind = BackdropMaterialKind.Acrylic,
+            Source = BackdropMaterialSource.HostBackdrop,
+            TintColor = new Vector4(1f, 1f, 1f, 0f),
+            LuminosityColor = new Vector4(1f, 1f, 1f, 0.8f),
+            NoiseOpacity = 0f,
+            BlurRadius = 0f,
+            Saturation = 1f
+        };
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                _background,
+                null,
+                new Rect(0f, 0f, 32f, 32f));
+            context.PushGeometryClip(
+                PrimitivePathGeometry.CreateRoundedRectangle(
+                    2f,
+                    2f,
+                    28f,
+                    28f,
+                    4f,
+                    4f));
+            context.PushGeometryClip(
+                PrimitivePathGeometry.CreateEllipse(
+                    new Vector2(16f, 16f),
+                    12f,
+                    12f));
+            context.PushGeometryClip(
+                PrimitivePathGeometry.CreateRoundedRectangle(
+                    6f,
+                    6f,
+                    20f,
+                    20f,
+                    3f,
+                    3f));
+            context.DrawBackdropMaterial(
+                _material,
+                new Rect(0f, 0f, 32f, 32f));
+            context.PopGeometryClip();
+            context.PopGeometryClip();
+            context.PopGeometryClip();
         }
     }
 }

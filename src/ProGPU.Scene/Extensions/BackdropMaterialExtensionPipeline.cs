@@ -239,10 +239,18 @@ public sealed unsafe class BackdropMaterialExtensionPipeline : ICompositorExtens
             SourceUvRect = sourceUvRect
         });
 
-        var pipelineKey = (isOffscreen, drawCall.BlendMode);
+        // A captured host backdrop is the destination as it existed before
+        // this draw. The shader produces the complete, coverage-mixed result,
+        // so source-over would composite the same destination twice. Replace
+        // the covered target instead; texture-backed materials keep the
+        // caller's requested blend mode.
+        var effectiveBlendMode = capturedHostBackdrop != null
+            ? GpuBlendMode.Src
+            : drawCall.BlendMode;
+        var pipelineKey = (isOffscreen, effectiveBlendMode);
         if (!_cachedPipelines.TryGetValue(pipelineKey, out var pipelinePointer))
         {
-            pipelinePointer = (nint)CreatePipeline(compositor, isOffscreen, drawCall.BlendMode);
+            pipelinePointer = (nint)CreatePipeline(compositor, isOffscreen, effectiveBlendMode);
             _cachedPipelines.Add(pipelineKey, pipelinePointer);
         }
 

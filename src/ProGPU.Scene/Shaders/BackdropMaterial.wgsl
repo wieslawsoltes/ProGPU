@@ -254,11 +254,21 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let kind = material.material1.z;
 
     var backdrop = vec4<f32>(0.0);
+    var capturedDestination = vec4<f32>(0.0);
     if (hasSource) {
         let backdropUv = select(
             input.texCoord,
             input.position.xy / max(material.geometry0.zw, vec2<f32>(1.0)),
             sourceIsCapturedHostBackdrop);
+        if (sourceIsCapturedHostBackdrop) {
+            // Captured host textures are premultiplied. Preserve the exact
+            // pre-material destination for coverage mixing below; the blurred
+            // sample is the material input, not the uncovered output.
+            capturedDestination = textureSample(
+                sourceTexture,
+                sourceSampler,
+                backdropUv);
+        }
         backdrop = sample_backdrop(backdropUv);
         if (sourceIsPremultiplied && backdrop.a > 0.00001) {
             backdrop = vec4<f32>(backdrop.rgb / backdrop.a, backdrop.a);
@@ -314,5 +324,15 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         input.color.a *
         maskAlpha *
         clamp(material.material0.z, 0.0, 1.0);
+    if (sourceIsCapturedHostBackdrop) {
+        // The render pipeline uses Src for captured host backdrops. Mix the
+        // complete material result with the captured destination here so a
+        // rounded or geometry-mask edge is preserved without source-over
+        // blending the destination into itself a second time.
+        return clamp(
+            mix(capturedDestination, result, coverage),
+            vec4<f32>(0.0),
+            vec4<f32>(1.0));
+    }
     return clamp(result * coverage, vec4<f32>(0.0), vec4<f32>(1.0));
 }
