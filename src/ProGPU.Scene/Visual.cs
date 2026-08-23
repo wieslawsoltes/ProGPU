@@ -1338,6 +1338,50 @@ public abstract class EffectBase
     }
 }
 
+/// <summary>
+/// Applies an affine 4x5 color transform to a visual after its subtree has
+/// been rendered into an isolated premultiplied surface.
+/// </summary>
+public sealed class ColorMatrixEffect : EffectBase
+{
+    private ImageEffectColorMatrix _colorMatrix;
+
+    public ColorMatrixEffect(ImageEffectColorMatrix colorMatrix)
+    {
+        _colorMatrix = colorMatrix;
+    }
+
+    public ImageEffectColorMatrix ColorMatrix
+    {
+        get => _colorMatrix;
+        set
+        {
+            if (_colorMatrix.Red != value.Red ||
+                _colorMatrix.Green != value.Green ||
+                _colorMatrix.Blue != value.Blue ||
+                _colorMatrix.Alpha != value.Alpha ||
+                _colorMatrix.Offset != value.Offset)
+            {
+                _colorMatrix = value;
+                Invalidate();
+            }
+        }
+    }
+
+    internal override int GetRenderCacheKey()
+    {
+        var hash = new HashCode();
+        hash.Add(GetType());
+        hash.Add(ChangeVersion);
+        hash.Add(ColorMatrix.Red);
+        hash.Add(ColorMatrix.Green);
+        hash.Add(ColorMatrix.Blue);
+        hash.Add(ColorMatrix.Alpha);
+        hash.Add(ColorMatrix.Offset);
+        return hash.ToHashCode();
+    }
+}
+
 public sealed class WpfShaderEffect : EffectBase
 {
     private float _padding;

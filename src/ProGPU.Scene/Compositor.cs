@@ -5566,7 +5566,7 @@ SceneStateUploadComplete:
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void CompileExtensionCommand(
-        DrawingContext context,
+        IRenderDataProvider? provider,
         RenderCommand command,
         Matrix4x4 activeTransform)
     {
@@ -5578,7 +5578,7 @@ SceneStateUploadComplete:
         RenderCommand localCommand = command;
         pipeline.Compile(
             this,
-            context,
+            provider,
             activeTransform,
             ref localCommand);
         _drawCalls.Add(new CompositorDrawCall
@@ -5591,7 +5591,7 @@ SceneStateUploadComplete:
             Texture = localCommand.Texture,
             TextureSamplingMode = localCommand.TextureSamplingMode,
             HasImageEffect = localCommand.HasImageEffect,
-            ImageEffect = localCommand.ResolveImageEffect(context),
+            ImageEffect = localCommand.ResolveImageEffect(provider),
             PointBufferOffset = (int)_pendingVectorStart,
             PointBufferCount =
                 (int)((uint)_vectorIndicesList.Count - _pendingVectorStart),
@@ -15428,6 +15428,15 @@ SceneStateUploadComplete:
             {
                 DrawWpfShaderEffectOnMain(fe, shaderEffect, cachedTextures.Source, paddedRect, compositeTransform);
             }
+            else if (fe.Effect is ColorMatrixEffect colorMatrixEffect)
+            {
+                DrawColorMatrixEffectOnMain(
+                    fe,
+                    colorMatrixEffect,
+                    cachedTextures.Source,
+                    paddedRect,
+                    compositeTransform);
+            }
 
             AddDescendantVisualHitTestBounds(fe, compositeTransform);
         }
@@ -16009,6 +16018,51 @@ SceneStateUploadComplete:
 
         _pendingVectorStart = (uint)_vectorIndicesList.Count;
         _pendingTextStart = (uint)_textVerticesList.Count;
+    }
+
+    private void DrawColorMatrixEffectOnMain(
+        Visual visual,
+        ColorMatrixEffect effect,
+        GpuTexture sourceTexture,
+        Rect localRect,
+        Matrix4x4 parentTransform)
+    {
+        if (visual.HitTestId != 0)
+        {
+            AddHitTestCommand(
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawTexture,
+                    Rect = localRect
+                },
+                parentTransform,
+                visual.HitTestId);
+        }
+
+        var command = new RenderCommand
+        {
+            Type = RenderCommandType.DrawExtension,
+            ExtensionId = CompositorBuiltInExtensions.ImageEffect,
+            Texture = sourceTexture,
+            TextureSamplingMode = TextureSamplingMode.Linear,
+            Rect = localRect,
+            HasImageEffect = true,
+            ImageEffect = new ImageEffectCommandData(
+                brightness: 0f,
+                contrast: 1f,
+                saturation: 1f,
+                grayscale: 0f,
+                sepia: 0f,
+                invert: 0f,
+                blurSigma: 0f,
+                maskTexture: null,
+                colorMatrix: effect.ColorMatrix,
+                luminanceToAlpha: false)
+        };
+        CompileExtensionCommand(
+            provider: null,
+            command,
+            parentTransform);
     }
 
     public void RenderOffscreen(
