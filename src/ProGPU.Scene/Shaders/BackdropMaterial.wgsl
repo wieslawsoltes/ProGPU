@@ -132,6 +132,58 @@ fn source_over(destination: vec4<f32>, source: vec4<f32>) -> vec4<f32> {
     return source + destination * (1.0 - source.a);
 }
 
+fn blend_luminosity(color: vec3<f32>) -> f32 {
+    return dot(color, vec3<f32>(0.3, 0.59, 0.11));
+}
+
+fn clip_blend_color(inputColor: vec3<f32>) -> vec3<f32> {
+    var color = inputColor;
+    let lightness = blend_luminosity(color);
+    let minimum = min(min(color.r, color.g), color.b);
+    let maximum = max(max(color.r, color.g), color.b);
+    if (minimum < 0.0 && lightness > minimum) {
+        color = vec3<f32>(lightness) +
+            (color - vec3<f32>(lightness)) * lightness / (lightness - minimum);
+    }
+    if (maximum > 1.0 && maximum > lightness) {
+        color = vec3<f32>(lightness) +
+            (color - vec3<f32>(lightness)) * (1.0 - lightness) /
+                (maximum - lightness);
+    }
+    return color;
+}
+
+fn set_blend_luminosity(color: vec3<f32>, lightness: f32) -> vec3<f32> {
+    return clip_blend_color(
+        color + vec3<f32>(lightness - blend_luminosity(color)));
+}
+
+fn blend_nonseparable_source_over(
+    destination: vec4<f32>,
+    sourceColor: vec4<f32>,
+    useColorMode: bool) -> vec4<f32> {
+    let source = premultiply(sourceColor);
+    let sourceAlpha = source.a;
+    let destinationAlpha = destination.a;
+    let straightDestination = select(
+        vec3<f32>(0.0),
+        destination.rgb / destinationAlpha,
+        destinationAlpha > 0.00001);
+    var mixed = set_blend_luminosity(
+        straightDestination,
+        blend_luminosity(sourceColor.rgb));
+    if (useColorMode) {
+        mixed = set_blend_luminosity(
+            sourceColor.rgb,
+            blend_luminosity(straightDestination));
+    }
+    return vec4<f32>(
+        source.rgb * (1.0 - destinationAlpha) +
+            destination.rgb * (1.0 - sourceAlpha) +
+            mixed * sourceAlpha * destinationAlpha,
+        sourceAlpha + destinationAlpha - sourceAlpha * destinationAlpha);
+}
+
 fn sample_backdrop(uv: vec2<f32>) -> vec4<f32> {
     let blurRadius = max(material.material1.x, 0.0);
     if (blurRadius <= 0.01) {
@@ -232,8 +284,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         let tint = vec4<f32>(
             material.tintColor.rgb,
             clamp(material.tintColor.a * material.material0.x, 0.0, 1.0));
-        result = source_over(result, premultiply(luminosity));
-        result = source_over(result, premultiply(tint));
+        result = blend_nonseparable_source_over(result, luminosity, false);
+        result = blend_nonseparable_source_over(result, tint, true);
     }
 
     let noiseOpacity = clamp(material.material0.w, 0.0, 1.0);

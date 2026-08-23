@@ -27,7 +27,7 @@ public sealed class BackdropMaterialRenderTests
             var center = ReadPixel(pixels, window.Width, 32, 32);
             var roundedCorner = ReadPixel(pixels, window.Width, 9, 9);
 
-            Assert.InRange(center.R, 120, 136);
+            Assert.InRange(center.R, 40, 54);
             Assert.InRange(center.G, 0, 8);
             Assert.InRange(center.B, 120, 136);
             Assert.Equal(255, center.A);
