@@ -1,5 +1,7 @@
 #pragma once
 
+#include "progpu_native_webgpu_synchronization.hpp"
+
 #include <webgpu.h>
 
 #include <atomic>
@@ -351,6 +353,12 @@ class dispatch_scope final {
 public:
     explicit dispatch_scope(const dispatch*) noexcept {
     }
+
+    dispatch_scope(const dispatch_scope&) = delete;
+    dispatch_scope& operator=(const dispatch_scope&) = delete;
+
+private:
+    process_render_scope synchronization_scope_;
 };
 
 template<std::size_t Size>

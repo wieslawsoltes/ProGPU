@@ -116,15 +116,20 @@ public unsafe class WgpuContext : IDisposable
     private nint _devicePollAddress;
     private nint _generateReportAddress;
 
+    private static readonly object s_silkNativeRenderLock = new();
+
     /// <summary>
-    /// Serializes command recording, queue submission, and device polling for
-    /// every presentation context that shares this native WebGPU device.
+    /// Serializes command recording, queue submission, resource destruction,
+    /// and device polling within the active WebGPU synchronization domain.
     /// </summary>
     /// <remarks>
-    /// Kept as a field for binary compatibility. Shared-device initialization
-    /// replaces it with the owner's lock before the child becomes observable.
+    /// Current wgpu-native instances share an internal process-wide resource
+    /// lock graph, so independently created Silk-native devices use one lock.
+    /// Browser and externally owned native devices receive independent locks;
+    /// shared-device initialization replaces the field with the owner's lock.
+    /// The field remains public for binary compatibility.
     /// </remarks>
-    public object RenderLock = new();
+    public object RenderLock = s_silkNativeRenderLock;
     public readonly object DisposalLock = new();
     public readonly List<IntPtr> PendingBuffers = new();
     public readonly List<IntPtr> PendingTextures = new();
@@ -205,8 +210,12 @@ public unsafe class WgpuContext : IDisposable
             throw new ArgumentNullException(nameof(commandBuffers));
         }
 
-        Api.QueueSubmit(Queue, commandCount, commandBuffers);
-        Interlocked.Increment(ref _queueSubmissionCount);
+        lock (RenderLock)
+        {
+            ObjectDisposedException.ThrowIf(_isDisposed, this);
+            Api.QueueSubmit(Queue, commandCount, commandBuffers);
+            Interlocked.Increment(ref _queueSubmissionCount);
+        }
     }
 
     public void QueueBufferDisposal(IntPtr ptr)
@@ -803,6 +812,24 @@ public unsafe class WgpuContext : IDisposable
         uint framebufferWidth,
         uint framebufferHeight)
     {
+        lock (RenderLock)
+        {
+            InitializeNativeCore(
+                window,
+                metalLayer,
+                androidNativeWindow,
+                framebufferWidth,
+                framebufferHeight);
+        }
+    }
+
+    private void InitializeNativeCore(
+        IWindow? window,
+        void* metalLayer,
+        void* androidNativeWindow,
+        uint framebufferWidth,
+        uint framebufferHeight)
+    {
         string logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ProGPU_test_run.log");
         void SafeLog(string msg)
         {
@@ -819,7 +846,7 @@ public unsafe class WgpuContext : IDisposable
         SafeLog($"[WGPUCONTEXT] Initialize started, window exists={window != null}\n");
         _window = window;
         Wgpu = CreateNativeWebGpuApi();
-        Api = new SilkWebGpuApi(Wgpu);
+        Api = new SilkWebGpuApi(Wgpu, RenderLock);
         
         // 1. Create WebGPU Instance (isolated per context)
         SafeLog("[WGPUCONTEXT] Creating WebGPU Instance\n");
@@ -1355,6 +1382,7 @@ public unsafe class WgpuContext : IDisposable
 
         Api = api;
         BackendKind = WgpuBackendKind.BrowserWebGpu;
+        RenderLock = new object();
         Device = device;
         Queue = queue;
         Surface = surface;
@@ -1429,6 +1457,7 @@ public unsafe class WgpuContext : IDisposable
 
         Api = api;
         BackendKind = WgpuBackendKind.DawnNative;
+        RenderLock = new object();
         Device = device;
         Queue = queue;
         SwapChainFormat = preferredRenderTargetFormat;

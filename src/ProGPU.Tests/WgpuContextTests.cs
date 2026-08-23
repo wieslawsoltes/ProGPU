@@ -11,6 +11,39 @@ namespace ProGPU.Tests;
 public sealed class WgpuContextTests
 {
     [Fact]
+    public void SilkNativeContextsShareProcessWideRenderLock()
+    {
+        using var first = new WgpuContext();
+        using var second = new WgpuContext();
+
+        Assert.Same(first.RenderLock, second.RenderLock);
+    }
+
+    [Fact]
+    public unsafe void BrowserContextsKeepIndependentRenderLocks()
+    {
+        using var firstApi = new BrowserWebGpuApi();
+        using var secondApi = new BrowserWebGpuApi();
+        using var first = new WgpuContext();
+        using var second = new WgpuContext();
+
+        first.InitializeExternal(
+            firstApi,
+            BrowserWebGpuApi.DeviceHandle,
+            BrowserWebGpuApi.QueueHandle,
+            BrowserWebGpuApi.SurfaceHandle,
+            TextureFormat.Bgra8Unorm);
+        second.InitializeExternal(
+            secondApi,
+            BrowserWebGpuApi.DeviceHandle,
+            BrowserWebGpuApi.QueueHandle,
+            BrowserWebGpuApi.SurfaceHandle,
+            TextureFormat.Bgra8Unorm);
+
+        Assert.NotSame(first.RenderLock, second.RenderLock);
+    }
+
+    [Fact]
     public void DeviceLossInvalidatesExistingContextsButNotReplacements()
     {
         var existing = new WgpuContext();
@@ -81,6 +114,55 @@ public sealed class WgpuContextTests
         Assert.True(lifetime.IsDisposed);
         Assert.Equal(2, lifetime.WaitingPollCount);
         Assert.False(context.IsInitialized);
+    }
+
+    [Fact]
+    public async Task QueueSubmissionWaitsForDeviceRenderLock()
+    {
+        using var submitStarting = new ManualResetEventSlim();
+        using var queueEntered = new ManualResetEventSlim();
+        using var releaseQueue = new ManualResetEventSlim();
+        using var api = new BrowserWebGpuApi(_ =>
+        {
+            queueEntered.Set();
+            Assert.True(releaseQueue.Wait(TimeSpan.FromSeconds(5)));
+        });
+        var lifetime = new RecordingExternalDeviceLifetime();
+        using var context = new WgpuContext();
+        unsafe
+        {
+            context.InitializeExternalNativeDevice(
+                api,
+                lifetime,
+                BrowserWebGpuApi.DeviceHandle,
+                BrowserWebGpuApi.QueueHandle,
+                TextureFormat.Bgra8Unorm);
+        }
+
+        Task submitTask;
+        System.Threading.Monitor.Enter(context.RenderLock);
+        try
+        {
+            submitTask = Task.Run(() =>
+            {
+                submitStarting.Set();
+                unsafe
+                {
+                    var commandBuffer = (CommandBuffer*)1;
+                    context.Submit(1, &commandBuffer);
+                }
+            });
+            Assert.True(submitStarting.Wait(TimeSpan.FromSeconds(5)));
+            Assert.False(queueEntered.Wait(TimeSpan.FromMilliseconds(250)));
+        }
+        finally
+        {
+            System.Threading.Monitor.Exit(context.RenderLock);
+            releaseQueue.Set();
+        }
+
+        await submitTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(queueEntered.IsSet);
     }
 
     [Fact]

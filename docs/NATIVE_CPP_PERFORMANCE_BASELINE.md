@@ -2979,3 +2979,58 @@ the final run and PNG SHA-256 values are respectively
 `11ad381e90b25261cc2a4b6b663914e80d926a52c8598dfadd6b37d378ab1dfe`,
 `6ac74aec5d0a6560b6f29d1de2f4aaa1fe637c361cfcb370c6bf8504a27537c7`,
 and `a44d89b517aca672857b29a985adf7ec9313f49230cfb487622b1f0e1d5a0e05`.
+
+## Process-wide WebGPU synchronization checkpoint
+
+Parallel managed renderers previously owned independent outer locks even though
+their wgpu-native devices entered one process-wide internal resource-lock
+graph. A captured deadlock placed queue submission, buffer destruction, and
+texture creation on different native lock edges. The managed backend now shares
+one process synchronization domain for Silk/wgpu-native contexts, includes
+submission and resource lifetime in that domain, and creates a persistent
+texture bind group outside the managed cache lock before race-safe publication.
+Browser and externally provided Dawn devices keep independent domains.
+
+The native C++ renderer receives the same applicable optimization rather than a
+reduced fix: every non-Dawn dispatch owns one process-wide recursive scope.
+Recursion preserves nested renderer/resource helpers while serializing complete
+wgpu-native operations across native engines. The C++ retained resource model
+has no managed bind-group dictionary, so the dictionary lock-order change is
+not applicable there; its equivalent resource-lifetime boundary is covered by
+the dispatch scope. This conclusion was checked against public wgpu device
+locking and queue-polling reports and the public wgpu device implementation,
+including [wgpu discussion 4814](https://github.com/gfx-rs/wgpu/discussions/4814),
+[wgpu issue 5279](https://github.com/gfx-rs/wgpu/issues/5279), and
+[the public device source](https://github.com/gfx-rs/wgpu/blob/trunk/wgpu/src/api/device.rs).
+
+Six alternating fresh-process Apple M3 Pro/Metal Release runs used 384 public-
+picture primitives, 60 warm-ups, and 300 measurements. Median-of-run results
+show no measurable regression:
+
+| Metric | Baseline | Synchronized candidate | Delta |
+|---|---:|---:|---:|
+| Native CPU submission p50 | 0.08775 ms | 0.08440 ms | -3.82% |
+| Managed CPU submission p50 | 0.51930 ms | 0.51825 ms | -0.20% |
+| Native GPU-complete total p50 | 1.61735 ms | 1.60715 ms | -0.63% |
+| Managed GPU-complete total p50 | 2.54845 ms | 2.45995 ms | -3.47% |
+| Stable managed allocation/frame | 0 bytes | 0 bytes | equal |
+
+The deterministic differential retained the existing quality band: maximum
+channel difference was 11/255, three pixels exceeded 3/255, and mean absolute
+channel difference was approximately 0.000311/255. Matched direct-apphost Time
+Profiler captures measured 3.1999 ms/frame baseline and 3.2080 ms/frame
+candidate (+0.25%, treated as noise). Matched Metal System Trace captures
+measured 3.1664 and 3.1677 ms/frame (+0.04%) with exactly 8,434 submissions in
+each run; peak and final tracked Metal allocation were identical. Allocation/
+VM Tracker could not qualify the unsigned direct apphost because the process
+was suspended before recording, so no Instruments native-allocation claim is
+made. The benchmark's own stable managed counter remains the stated zero-byte
+evidence.
+
+Correctness gates include 3,786 managed tests, 240 headless tests, nine native
+CTest executables, the complete native/managed differential matrix, Svg.Skia
+resvg 927/964 with 37 reviewed skips, the unchanged W3C inventory (native
+530/533; ProGPU 486/533 with 44 reviewed differences; three skips in each), the
+remaining 1,147/1,147 lane, and ten explicitly ProGPU-backed parallel passes of
+1,146/1,146 after excluding one unrelated external-font network test. The
+cross-context deadlock did not recur.

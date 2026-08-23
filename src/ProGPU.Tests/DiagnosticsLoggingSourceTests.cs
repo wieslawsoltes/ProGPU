@@ -6,6 +6,42 @@ using Xunit;
 
 public class DiagnosticsLoggingSourceTests
 {
+    [Fact]
+    public void PersistentTextureBindGroupCreationStaysOutsideCacheLock()
+    {
+        string source = ReadSource("src", "ProGPU.Scene", "Compositor.cs");
+        int helperStart = source.IndexOf(
+            "private CachedBindGroup GetOrCreatePersistentTextureBindGroup(",
+            StringComparison.Ordinal);
+        int helperEnd = source.IndexOf(
+            "private void HandleTextureDisposed(",
+            helperStart,
+            StringComparison.Ordinal);
+        Assert.True(helperStart >= 0 && helperEnd > helperStart);
+        string helper = source[helperStart..helperEnd];
+
+        int initialCacheLock = helper.IndexOf(
+            "lock (_persistentTextureBindGroups)",
+            StringComparison.Ordinal);
+        int nativeCreate = helper.IndexOf(
+            "_context.Api.DeviceCreateBindGroup(",
+            StringComparison.Ordinal);
+        int publishCacheLock = helper.IndexOf(
+            "lock (_persistentTextureBindGroups)",
+            nativeCreate,
+            StringComparison.Ordinal);
+
+        Assert.True(initialCacheLock >= 0);
+        Assert.Contains(
+            "}\n\n        var entries = stackalloc BindGroupEntry[2];",
+            helper[initialCacheLock..nativeCreate],
+            StringComparison.Ordinal);
+        Assert.True(nativeCreate > initialCacheLock);
+        Assert.True(publishCacheLock > nativeCreate);
+        Assert.Contains("redundantBindGroup = created.BindGroupPtr;", helper, StringComparison.Ordinal);
+        Assert.Contains("QueueBindGroupRelease(redundantBindGroup);", helper, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("src", "ProGPU.Backend", "WgpuContext.cs", "ProGpuBackendDiagnostics.WriteLine(", "Configuring SwapChain", "Console.WriteLine($\"[WebGPU Context] Configuring SwapChain")]
     [InlineData("src", "ProGPU.Scene", "Extensions/ShaderToyExtensionPipeline.cs", "ProGpuSceneDiagnostics.WriteLine(", "ShaderToy Render", "Console.WriteLine(")]
