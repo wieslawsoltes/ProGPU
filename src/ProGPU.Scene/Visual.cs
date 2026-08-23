@@ -1526,7 +1526,8 @@ public class BlurEffect : EffectBase
 
 public class DropShadowEffect : EffectBase
 {
-    private float _blurRadius;
+    private float _blurRadiusX;
+    private float _blurRadiusY;
     private Vector2 _offset;
     private Vector4 _color;
     private bool _drawSource = true;
@@ -1534,12 +1535,47 @@ public class DropShadowEffect : EffectBase
 
     public float BlurRadius
     {
-        get => _blurRadius;
+        get => MathF.Max(_blurRadiusX, _blurRadiusY);
         set
         {
-            if (_blurRadius != value)
+            if (_blurRadiusX != value || _blurRadiusY != value)
             {
-                _blurRadius = value;
+                _blurRadiusX = value;
+                _blurRadiusY = value;
+                Invalidate();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the horizontal Gaussian standard deviation. Setting
+    /// <see cref="BlurRadius"/> assigns both axes for scalar compatibility.
+    /// </summary>
+    public float BlurRadiusX
+    {
+        get => _blurRadiusX;
+        set
+        {
+            if (_blurRadiusX != value)
+            {
+                _blurRadiusX = value;
+                Invalidate();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the vertical Gaussian standard deviation. Setting
+    /// <see cref="BlurRadius"/> assigns both axes for scalar compatibility.
+    /// </summary>
+    public float BlurRadiusY
+    {
+        get => _blurRadiusY;
+        set
+        {
+            if (_blurRadiusY != value)
+            {
+                _blurRadiusY = value;
                 Invalidate();
             }
         }
@@ -1610,6 +1646,18 @@ public class DropShadowEffect : EffectBase
     public DropShadowEffect(float blurRadius = 5f, Vector2 offset = default, Vector4 color = default)
     {
         BlurRadius = blurRadius;
+        Offset = offset;
+        Color = color == default ? new Vector4(0f, 0f, 0f, 0.5f) : color;
+    }
+
+    public DropShadowEffect(
+        float blurRadiusX,
+        float blurRadiusY,
+        Vector2 offset = default,
+        Vector4 color = default)
+    {
+        _blurRadiusX = blurRadiusX;
+        _blurRadiusY = blurRadiusY;
         Offset = offset;
         Color = color == default ? new Vector4(0f, 0f, 0f, 0.5f) : color;
     }

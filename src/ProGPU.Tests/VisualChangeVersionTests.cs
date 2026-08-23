@@ -188,6 +188,33 @@ public sealed class VisualChangeVersionTests
     }
 
     [Fact]
+    public void DropShadowAxesPreserveScalarCompatibilityAndInvalidation()
+    {
+        var effect = new DropShadowEffect(2f, 4f);
+
+        Assert.Equal(2f, effect.BlurRadiusX);
+        Assert.Equal(4f, effect.BlurRadiusY);
+        Assert.Equal(4f, effect.BlurRadius);
+
+        var version = effect.ChangeVersion;
+        effect.BlurRadiusX = 3f;
+        Assert.True(effect.ChangeVersion > version);
+        Assert.Equal(3f, effect.BlurRadiusX);
+        Assert.Equal(4f, effect.BlurRadiusY);
+
+        version = effect.ChangeVersion;
+        effect.BlurRadius = 5f;
+        Assert.True(effect.ChangeVersion > version);
+        Assert.Equal(5f, effect.BlurRadiusX);
+        Assert.Equal(5f, effect.BlurRadiusY);
+        Assert.Equal(5f, effect.BlurRadius);
+
+        version = effect.ChangeVersion;
+        effect.BlurRadius = 5f;
+        Assert.Equal(version, effect.ChangeVersion);
+    }
+
+    [Fact]
     public void EffectPropertyChangesInvalidateOwnerAndCachedAncestor()
     {
         var parent = new ContainerVisual { CacheAsLayer = true };

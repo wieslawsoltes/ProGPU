@@ -1,11 +1,10 @@
 // Algorithm: Horizontally blur source alpha and pack four scalar coverages into one RGBA8 texel.
-// Time complexity: O(4R) per packed texel, equivalent to O(R) per source texel for blur radius R; weights use two transcendental evaluations plus an O(R) recurrence.
+// Time complexity: O(4R) per packed texel, equivalent to O(R) per source texel for blur radius R; a zero horizontal sigma performs four direct alpha loads with no transcendental work.
 // Space complexity: O(1) local storage with exactly 4(2R+1) reads and one RGBA8 output per four source texels.
 struct Params {
     offset: vec2<f32>,
     color: vec4<f32>,
-    blurRadius: f32,
-    padding: f32,
+    blurRadius: vec2<f32>,
     sourceSize: vec2<f32>,
     padding1: vec4<f32>,
 };
@@ -18,9 +17,16 @@ fn blur_coverage(x: i32, y: i32, size: vec2<u32>) -> f32 {
     if (x >= i32(size.x)) {
         return 0.0;
     }
-    let sigma = max(params.blurRadius, 0.5);
+    let requestedSigma = params.blurRadius.x;
+    let sourceX = clamp(x, 0, i32(size.x) - 1);
+    let sourceAlpha = textureLoad(inputTex, vec2<i32>(sourceX, y), 0).a;
+    if (requestedSigma <= 0.01) {
+        return sourceAlpha;
+    }
+
+    let sigma = max(requestedSigma, 0.5);
     let radius = min(i32(ceil(sigma * 3.0)), 64);
-    var alphaSum = textureLoad(inputTex, vec2<i32>(clamp(x, 0, i32(size.x) - 1), y), 0).a;
+    var alphaSum = sourceAlpha;
     var weightSum = 1.0;
     let inverseVariance = 0.5 / (sigma * sigma);
     var weight = exp(-inverseVariance);

@@ -627,15 +627,39 @@ public class NativeRendererInteropTests
     {
         var effect = NativeGroupEffect.DropShadow(
             3.5f,
+            1.25f,
             new Vector2(7f, -2f),
             new Vector4(0.1f, 0.2f, 0.3f, 0.75f),
             29U);
 
         Assert.Equal(NativeGroupEffectKind.DropShadow, effect.Kind);
         Assert.Equal(3.5f, effect.SigmaX);
+        Assert.Equal(1.25f, effect.SigmaY);
         Assert.Equal(new Vector2(7f, -2f), effect.Offset);
         Assert.Equal(new Vector4(0.1f, 0.2f, 0.3f, 0.75f), effect.Color);
         Assert.Equal(29U, effect.Revision);
+    }
+
+    [Fact]
+    public void PublicSemanticSceneCarriesTypedDropShadowEffectAxes()
+    {
+        var effect = NativeSceneEffect.DropShadow(
+            2.75f,
+            0.5f,
+            new Vector2(-3f, 6f),
+            new Vector4(0.4f, 0.3f, 0.2f, 0.8f),
+            31U);
+
+        Assert.Equal(NativeGroupEffectKind.DropShadow, effect.Kind);
+        Assert.Equal(2.75f, effect.SigmaX);
+        Assert.Equal(0.5f, effect.SigmaY);
+        Assert.Equal(-3f, effect.OffsetX);
+        Assert.Equal(6f, effect.OffsetY);
+        Assert.Equal(0.4f, effect.ColorR);
+        Assert.Equal(0.3f, effect.ColorG);
+        Assert.Equal(0.2f, effect.ColorB);
+        Assert.Equal(0.8f, effect.ColorA);
+        Assert.Equal(31U, effect.Revision);
     }
 
     [Fact]
