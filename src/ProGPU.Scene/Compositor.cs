@@ -15418,8 +15418,11 @@ SceneStateUploadComplete:
                     new Vector2(logicalWidth, logicalHeight));
                 DrawTextureOnMain(cachedTextures.Destination!, shadowRect, compositeTransform, fe.HitTestId);
 
-                // Draw original source on top (shifted back by padding)
-                DrawTextureOnMain(cachedTextures.Source, paddedRect, compositeTransform, fe.HitTestId);
+                if (sEff.DrawSource)
+                {
+                    // Draw original source on top (shifted back by padding).
+                    DrawTextureOnMain(cachedTextures.Source, paddedRect, compositeTransform, fe.HitTestId);
+                }
             }
             else if (fe.Effect is WpfShaderEffect shaderEffect)
             {

@@ -232,6 +232,34 @@ public sealed class VisualEffectRenderTests
     }
 
     [Fact]
+    public void DropShadowCanRenderWithoutCompositingItsSource()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(100, 60);
+        window.Content = new ExplicitShadowBoundsVisual(drawSource: false);
+
+        try
+        {
+            window.Render();
+
+            var pixels = window.ReadPixels();
+            var omittedSource = ReadPixel(pixels, window.Width, x: 44, y: 24);
+            var shadow = ReadPixel(pixels, window.Width, x: 56, y: 24);
+
+            Assert.InRange(omittedSource.R, 0, 50);
+            Assert.InRange(omittedSource.G, 0, 50);
+            Assert.InRange(omittedSource.B, 0, 50);
+            Assert.InRange(shadow.R, 0, 10);
+            Assert.InRange(shadow.G, 0, 10);
+            Assert.InRange(shadow.B, 245, 255);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
     public void DetachedEffectTexturesDoNotBlockTheNextSceneCache()
     {
         var window = HeadlessWindow.Shared;
@@ -406,12 +434,13 @@ public sealed class VisualEffectRenderTests
         private readonly SolidColorBrush _red =
             new(new Vector4(1f, 0f, 0f, 1f));
 
-        public ExplicitShadowBoundsVisual()
+        public ExplicitShadowBoundsVisual(bool drawSource = true)
         {
             Effect = new DropShadowEffect(0f)
             {
                 Offset = new Vector2(8f, 0f),
-                Color = new Vector4(0f, 0f, 1f, 1f)
+                Color = new Vector4(0f, 0f, 1f, 1f),
+                DrawSource = drawSource
             };
             EffectContentBounds = new Rect(40f, 20f, 12f, 8f);
             EffectRasterPadding = 0f;
