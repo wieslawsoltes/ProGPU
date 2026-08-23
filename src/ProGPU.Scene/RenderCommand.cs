@@ -868,6 +868,38 @@ public struct RenderCommand
     public int IntParam;
     public float FloatParam;
     public object? DataParam;
+
+    internal readonly bool SupportsRetainedCompositionPicture =>
+        !UseGpuTransforms &&
+        Type != RenderCommandType.DrawVisual &&
+        IsIncrementalScenePageCommandSupported(Type);
+
+    internal static bool IsIncrementalScenePageCommandSupported(
+        RenderCommandType type) =>
+        type is
+            RenderCommandType.DrawRect or
+            RenderCommandType.DrawPath or
+            RenderCommandType.DrawText or
+            RenderCommandType.DrawTexture or
+            RenderCommandType.DrawPicture or
+            RenderCommandType.PushClip or
+            RenderCommandType.PopClip or
+            RenderCommandType.PushOpacity or
+            RenderCommandType.PopOpacity or
+            RenderCommandType.PushBlendMode or
+            RenderCommandType.PopBlendMode or
+            RenderCommandType.DrawLine or
+            RenderCommandType.DrawEllipse or
+            RenderCommandType.DrawCircle or
+            RenderCommandType.DrawRoundedRect or
+            RenderCommandType.DrawBezier or
+            RenderCommandType.DrawCubicBezier or
+            RenderCommandType.DrawPolyline or
+            RenderCommandType.FillTriangle or
+            RenderCommandType.FillQuad or
+            RenderCommandType.DrawGlyphRun or
+            RenderCommandType.DrawVertexMesh or
+            RenderCommandType.DrawPointBatch;
 }
 
 internal enum RetainedCommandDataKind : byte
@@ -1887,10 +1919,13 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
     private readonly Matrix4x4[] _transforms;
     private readonly Visual[] _embeddedVisuals;
 
+    internal bool SupportsRetainedCompositionPicture { get; }
+
     internal GpuPictureCommandCollection(ReadOnlySpan<RenderCommand> commands)
     {
         if (commands.IsEmpty)
         {
+            SupportsRetainedCompositionPicture = true;
             _order = [];
             _basic = [];
             _auxiliary = [];
@@ -1924,6 +1959,7 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
         int simpleRoundedRectangleCount = 0;
         int simpleVisualCount = 0;
         int embeddedVisualCount = 0;
+        bool supportsRetainedCompositionPicture = true;
         byte[] classifications =
             ArrayPool<byte>.Shared.Rent(commands.Length);
         int[] transformIndices =
@@ -1939,6 +1975,8 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
             int transformCount = 0;
             for (int index = 0; index < commands.Length; index++)
             {
+                supportsRetainedCompositionPicture &=
+                    commands[index].SupportsRetainedCompositionPicture;
                 RetainedCommandDataKind dataKind =
                     RetainedRenderCommand.Classify(in commands[index]);
                 classifications[index] = (byte)dataKind;
@@ -1998,6 +2036,9 @@ internal sealed class GpuPictureCommandCollection : IReadOnlyList<RenderCommand>
                     embeddedVisualCount++;
                 }
             }
+
+            SupportsRetainedCompositionPicture =
+                supportsRetainedCompositionPicture;
 
             _order = new uint[commands.Length];
             _basic = basicCount == 0
@@ -2498,6 +2539,8 @@ public class GpuPicture :
     internal int ImageEffectCount => _imageEffectBuffer.Length;
     internal GpuPictureCommandCollection RetainedCommands =>
         _retainedCommands;
+    internal bool SupportsRetainedCompositionPicture =>
+        _retainedCommands.SupportsRetainedCompositionPicture;
     internal long CommandStorageBytes =>
         _retainedCommands.ApproximateStorageBytes;
 

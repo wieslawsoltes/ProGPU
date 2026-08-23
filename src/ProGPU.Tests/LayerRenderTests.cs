@@ -443,6 +443,89 @@ public sealed class LayerRenderTests
     }
 
     [Fact]
+    public void RetainedPictureEligibilityIsPrecomputedForSupportedStream()
+    {
+        var options = CompositorOptions.Default with
+        {
+            EnableGpuHitTesting = false,
+            PrimarySampleCount = 1
+        };
+        using var window = new HeadlessWindow(64, 32, options);
+        using var visual = new RetainedPicturePlacementVisual(
+            includeEmbeddedVisual: false);
+        window.Content = visual;
+
+        try
+        {
+            Assert.True(visual.SupportsRetainedCompositionPicture);
+            window.Render();
+
+            visual.Offset = new Vector2(4f, 0f);
+            window.Render();
+
+            CompositorMetrics metrics = window.Compositor.Metrics;
+            Assert.Equal(1, metrics.RetainedCompositionPictureCompilations);
+            AssertGreen(ReadPixel(window.ReadPixels(), window.Width, 8, 8));
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void RetainedPictureEligibilityIsPrecomputedForRejectedStream()
+    {
+        var options = CompositorOptions.Default with
+        {
+            EnableGpuHitTesting = false,
+            PrimarySampleCount = 1
+        };
+        using var window = new HeadlessWindow(64, 32, options);
+        using var visual = new RetainedPicturePlacementVisual(
+            includeEmbeddedVisual: true);
+        window.Content = visual;
+
+        try
+        {
+            Assert.False(visual.SupportsRetainedCompositionPicture);
+            window.Render();
+
+            visual.Offset = new Vector2(4f, 0f);
+            window.Render();
+
+            CompositorMetrics metrics = window.Compositor.Metrics;
+            Assert.Equal(0, metrics.RetainedCompositionPictureCompilations);
+            AssertGreen(ReadPixel(window.ReadPixels(), window.Width, 8, 8));
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void RetainedPictureEligibilityRejectsGpuTransformStreamAndClone()
+    {
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    UseGpuTransforms = true
+                }
+            ],
+            [],
+            [],
+            [],
+            []);
+        using GpuPicture clone = picture.Clone();
+
+        Assert.False(picture.SupportsRetainedCompositionPicture);
+        Assert.False(clone.SupportsRetainedCompositionPicture);
+    }
+
+    [Fact]
     public void EmptyOwnedCommandCacheSkipsLookupAndStillRendersChildren()
     {
         using var window = new HeadlessWindow(64, 64);
@@ -1078,6 +1161,59 @@ public sealed class LayerRenderTests
             }
             return recorder.EndRecording();
         }
+    }
+
+    private sealed class RetainedPicturePlacementVisual : FrameworkElement,
+        IDisposable
+    {
+        private readonly GpuPicture _picture;
+        private readonly EmbeddedColorVisual? _embedded;
+
+        public RetainedPicturePlacementVisual(bool includeEmbeddedVisual)
+        {
+            Width = 64f;
+            Height = 32f;
+            var recorder = new GpuPictureRecorder();
+            DrawingContext context = recorder.BeginRecording(
+                new Rect(0f, 0f, 64f, 32f));
+            var green = new SolidColorBrush(
+                new Vector4(0f, 1f, 0f, 1f));
+            context.DrawRectangle(
+                green,
+                null,
+                new Rect(0f, 0f, 8f, 8f));
+            context.DrawRectangle(
+                green,
+                null,
+                new Rect(8f, 0f, 8f, 8f));
+            context.DrawRectangle(
+                green,
+                null,
+                new Rect(0f, 8f, 8f, 8f));
+            if (includeEmbeddedVisual)
+            {
+                _embedded = new EmbeddedColorVisual();
+                context.DrawVisual(
+                    _embedded,
+                    Matrix4x4.CreateTranslation(24f, 0f, 0f));
+            }
+            else
+            {
+                context.DrawRectangle(
+                    green,
+                    null,
+                    new Rect(8f, 8f, 8f, 8f));
+            }
+            _picture = recorder.EndRecording();
+        }
+
+        public override void OnRender(DrawingContext context) =>
+            context.DrawPicture(_picture);
+
+        public bool SupportsRetainedCompositionPicture =>
+            _picture.SupportsRetainedCompositionPicture;
+
+        public void Dispose() => _picture.Dispose();
     }
 
     private sealed class OwnedPageVisual : FrameworkElement,
