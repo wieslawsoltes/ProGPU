@@ -4462,6 +4462,102 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void TextureContentVersionTracksSuccessfulTextureMutations()
+    {
+        using var window = new HeadlessWindow(1, 1);
+        long beforeAllocation = window.Context.TextureContentVersion;
+        using var texture = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "Content Version Texture");
+
+        long afterAllocation = window.Context.TextureContentVersion;
+        Assert.Equal(beforeAllocation + 1, afterAllocation);
+
+        texture.WritePixels(new byte[] { 1, 2, 3, 255 });
+        Assert.Equal(afterAllocation + 1, window.Context.TextureContentVersion);
+
+        texture.NotifyExternalContentChanged();
+        Assert.Equal(afterAllocation + 2, window.Context.TextureContentVersion);
+
+        texture.MarkContentsDirty();
+        Assert.Equal(afterAllocation + 3, window.Context.TextureContentVersion);
+    }
+
+    [Fact]
+    public void TextureAlphaModeMutationTracksContentExactlyOnce()
+    {
+        using var window = new HeadlessWindow(1, 1);
+        using var texture = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "Alpha Mode Content Version Texture");
+        var textureGeneration = texture.Generation;
+        var contentVersion = window.Context.TextureContentVersion;
+
+        texture.AlphaMode = GpuTextureAlphaMode.Premultiplied;
+
+        Assert.Equal(textureGeneration + 1, texture.Generation);
+        Assert.Equal(contentVersion + 1, window.Context.TextureContentVersion);
+
+        texture.AlphaMode = GpuTextureAlphaMode.Premultiplied;
+
+        Assert.Equal(textureGeneration + 1, texture.Generation);
+        Assert.Equal(contentVersion + 1, window.Context.TextureContentVersion);
+    }
+
+    [Fact]
+    public void RejectedTextureMutationDoesNotAdvanceContentVersion()
+    {
+        using var window = new HeadlessWindow(1, 1);
+        using var texture = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "Rejected Content Version Texture");
+        long contentVersion = window.Context.TextureContentVersion;
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            texture.WritePixelsSubRect(
+                new byte[4],
+                x: 1,
+                y: 0,
+                subWidth: 1,
+                subHeight: 1));
+
+        Assert.Equal(contentVersion, window.Context.TextureContentVersion);
+    }
+
+    [Fact]
+    public void TextureContentVersionIsContextScoped()
+    {
+        using var firstWindow = new HeadlessWindow(1, 1);
+        using var secondWindow = new HeadlessWindow(1, 1);
+        using var texture = new GpuTexture(
+            firstWindow.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "Scoped Content Version Texture");
+        long firstVersion = firstWindow.Context.TextureContentVersion;
+        long secondVersion = secondWindow.Context.TextureContentVersion;
+
+        texture.MarkContentsDirty();
+
+        Assert.Equal(firstVersion + 1, firstWindow.Context.TextureContentVersion);
+        Assert.Equal(secondVersion, secondWindow.Context.TextureContentVersion);
+    }
+
+    [Fact]
     public void GpuTextureReadPixelsRejectsTextureWithoutCopySrcUsage()
     {
         using var window = new HeadlessWindow(1, 1);

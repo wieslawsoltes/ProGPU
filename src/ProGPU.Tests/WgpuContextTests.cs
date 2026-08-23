@@ -303,6 +303,42 @@ public sealed class WgpuContextTests
     }
 
     [Fact]
+    public unsafe void WrappedExternalTextureAdvancesContentVersionAfterViewCreation()
+    {
+        using var context = new WgpuContext();
+        context.Initialize(null);
+        var descriptor = new TextureDescriptor
+        {
+            Usage = TextureUsage.TextureBinding,
+            Dimension = TextureDimension.Dimension2D,
+            Size = new Extent3D
+            {
+                Width = 1,
+                Height = 1,
+                DepthOrArrayLayers = 1
+            },
+            Format = TextureFormat.Rgba8Unorm,
+            MipLevelCount = 1,
+            SampleCount = 1
+        };
+        Texture* nativeTexture = context.Api.DeviceCreateTexture(context.Device, &descriptor);
+        Assert.True(nativeTexture != null);
+        var contentVersion = context.TextureContentVersion;
+
+        using var texture = GpuTexture.WrapOwnedExternal(
+            context,
+            nativeTexture,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding);
+
+        Assert.Equal(1u, texture.Generation);
+        Assert.Equal(1u, texture.ViewGeneration);
+        Assert.Equal(contentVersion + 1, context.TextureContentVersion);
+    }
+
+    [Fact]
     public unsafe void ContextDisposalReleasesLiveExternalTextureOwner()
     {
         var context = new WgpuContext();

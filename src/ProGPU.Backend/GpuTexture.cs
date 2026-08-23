@@ -35,6 +35,7 @@ public unsafe class GpuTexture : IDisposable
     private IDisposable? _externalOwner;
     private bool _tracksContextDisposal;
     private string _label;
+    private GpuTextureAlphaMode _alphaMode;
 
     public ulong Id { get; }
     public WgpuContext Context => _context;
@@ -56,7 +57,23 @@ public unsafe class GpuTexture : IDisposable
     public TextureFormat Format { get; private set; }
     public TextureUsage Usage { get; private set; }
     public uint SampleCount { get; private set; } = 1;
-    public GpuTextureAlphaMode AlphaMode { get; set; }
+    public GpuTextureAlphaMode AlphaMode
+    {
+        get => _alphaMode;
+        set
+        {
+            if (_alphaMode == value)
+            {
+                return;
+            }
+
+            _alphaMode = value;
+            if (TexturePtr != null && ViewPtr != null)
+            {
+                AdvanceGeneration();
+            }
+        }
+    }
 
     private int _disposeState;
     public bool IsDisposed => Volatile.Read(ref _disposeState) != 0;
@@ -209,7 +226,7 @@ public unsafe class GpuTexture : IDisposable
         Usage = usage;
         _label = label;
         SampleCount = sampleCount;
-        AlphaMode = alphaMode;
+        _alphaMode = alphaMode;
 
         ValidateFormatCapability(context, format);
         if (SampleCount != 1 && MipLevelCount != 1)
@@ -284,10 +301,8 @@ public unsafe class GpuTexture : IDisposable
         Format = format;
         Usage = usage;
         _label = label;
-        AlphaMode = alphaMode;
+        _alphaMode = alphaMode;
         _externalOwner = externalOwner;
-        Generation = 1;
-        ViewGeneration = 1;
 
         ValidateFormatCapability(context, format);
         var viewDescriptor = new TextureViewDescriptor
@@ -325,12 +340,12 @@ public unsafe class GpuTexture : IDisposable
             WgpuContext.Disposing += OnContextDisposing;
             _tracksContextDisposal = true;
         }
+
+        AdvanceGeneration(viewChanged: true);
     }
 
     private void Allocate()
     {
-        Generation++;
-        ViewGeneration++;
         var labelPtr = SilkMarshal.StringToPtr(_label);
         
         var desc = new TextureDescriptor
@@ -377,6 +392,8 @@ public unsafe class GpuTexture : IDisposable
         {
             throw new InvalidOperationException($"Failed to create TextureView for GPU Texture {Width}x{Height}.");
         }
+
+        AdvanceGeneration(viewChanged: true);
     }
 
     public void Resize(uint width, uint height)
@@ -470,7 +487,7 @@ public unsafe class GpuTexture : IDisposable
             }
         }
 
-        Generation++;
+        AdvanceGeneration();
     }
 
     /// <summary>
@@ -489,7 +506,7 @@ public unsafe class GpuTexture : IDisposable
             throw new ObjectDisposedException(nameof(GpuTexture));
         }
 
-        Generation++;
+        AdvanceGeneration();
     }
 
     public void WritePixels<T>(ReadOnlySpan<T> pixels, uint mipLevel = 0) where T : unmanaged
@@ -536,7 +553,7 @@ public unsafe class GpuTexture : IDisposable
             _context.Api.QueueWriteTexture(_context.Queue, &destination, ptr, passedSize, &layout, &extent);
         }
 
-        Generation++;
+        AdvanceGeneration();
     }
 
     public void WritePbgra32(Pbgra32PixelBuffer pixels)
@@ -573,7 +590,7 @@ public unsafe class GpuTexture : IDisposable
         }
 
         WritePixelsSubRect(pixels.CopyCompactRows(), x, y, subWidth, subHeight);
-        AlphaMode = GpuTextureAlphaMode.Premultiplied;
+        _alphaMode = GpuTextureAlphaMode.Premultiplied;
     }
 
     public void WritePixelsSubRect<T>(
@@ -649,7 +666,7 @@ public unsafe class GpuTexture : IDisposable
             _context.Api.QueueWriteTexture(_context.Queue, &destination, ptr, passedSize, &layout, &extent);
         }
 
-        Generation++;
+        AdvanceGeneration();
     }
 
     public void WritePixelsVolume<T>(
@@ -733,14 +750,14 @@ public unsafe class GpuTexture : IDisposable
             _context.Api.QueueWriteTexture(_context.Queue, &destination, ptr, passedSize, &layout, &extent);
         }
 
-        Generation++;
+        AdvanceGeneration();
     }
 
     public void MarkContentsDirty()
     {
         if (IsDisposed) throw new ObjectDisposedException(nameof(GpuTexture));
 
-        Generation++;
+        AdvanceGeneration();
     }
 
     public void GenerateMipmaps2DLinear(
@@ -808,7 +825,7 @@ public unsafe class GpuTexture : IDisposable
             }
         }
 
-        Generation++;
+        AdvanceGeneration();
     }
 
     private void GenerateMipLevel2DLinear(
@@ -1254,8 +1271,8 @@ public unsafe class GpuTexture : IDisposable
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
 
-        AlphaMode = source.AlphaMode;
-        Generation++;
+        _alphaMode = source.AlphaMode;
+        AdvanceGeneration();
     }
 
     public void CopyBaseLevelFrom(GpuTexture source)
@@ -1335,8 +1352,8 @@ public unsafe class GpuTexture : IDisposable
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
 
-        AlphaMode = source.AlphaMode;
-        Generation++;
+        _alphaMode = source.AlphaMode;
+        AdvanceGeneration();
     }
 
     /// <summary>
@@ -1438,8 +1455,18 @@ public unsafe class GpuTexture : IDisposable
         _context.Api.CommandBufferRelease(commandBuffer);
         _context.Api.CommandEncoderRelease(encoder);
 
-        AlphaMode = source.AlphaMode;
+        _alphaMode = source.AlphaMode;
+        AdvanceGeneration();
+    }
+
+    private void AdvanceGeneration(bool viewChanged = false)
+    {
         Generation++;
+        if (viewChanged)
+        {
+            ViewGeneration++;
+        }
+        _context.NotifyTextureContentChanged();
     }
 
     private void EnsurePbgra32CompatibleFormat()
