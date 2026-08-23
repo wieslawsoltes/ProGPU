@@ -24,10 +24,17 @@ public sealed class LayerRenderTests
         {
             window.Render();
             Assert.False(window.Compositor.Metrics.SceneCacheHit);
+            Assert.True(window.Compositor.Metrics.RenderBundleRecorded);
+            Assert.False(window.Compositor.Metrics.RenderBundleCacheHit);
+            Assert.Equal(
+                window.Compositor.Metrics.DrawCallsCount,
+                window.Compositor.Metrics.RenderBundleDrawCallCount);
 
             window.Render();
 
             Assert.True(window.Compositor.Metrics.SceneCacheHit);
+            Assert.False(window.Compositor.Metrics.RenderBundleRecorded);
+            Assert.True(window.Compositor.Metrics.RenderBundleCacheHit);
             Assert.Equal(1, visual.RenderCount);
             AssertRed(ReadPixel(window.ReadPixels(), window.Width, 20, 20));
         }
@@ -35,6 +42,27 @@ public sealed class LayerRenderTests
         {
             window.Content = null;
         }
+    }
+
+    [Fact]
+    public void CompiledRenderBundleCanBeDisabledWithoutDisablingSceneCache()
+    {
+        var options = CompositorOptions.Default with
+        {
+            EnableCompiledRenderBundles = false,
+            PrimarySampleCount = 1
+        };
+        using var window = new HeadlessWindow(64, 64, options);
+        window.Content = new SceneCacheVisual();
+
+        window.Render();
+        window.Render();
+
+        Assert.True(window.Compositor.Metrics.SceneCacheHit);
+        Assert.False(window.Compositor.Metrics.RenderBundleRecorded);
+        Assert.False(window.Compositor.Metrics.RenderBundleCacheHit);
+        Assert.Equal(0, window.Compositor.Metrics.RenderBundleDrawCallCount);
+        AssertRed(ReadPixel(window.ReadPixels(), window.Width, 20, 20));
     }
 
     [Fact]
@@ -722,6 +750,8 @@ public sealed class LayerRenderTests
             window.Render();
 
             Assert.False(window.Compositor.Metrics.SceneCacheHit);
+            Assert.True(window.Compositor.Metrics.RenderBundleRecorded);
+            Assert.False(window.Compositor.Metrics.RenderBundleCacheHit);
             Assert.Equal(2, visual.RenderCount);
         }
         finally

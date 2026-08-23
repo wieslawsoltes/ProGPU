@@ -1305,6 +1305,26 @@ public sealed class SampleProjectSplitTests
         Assert.DoesNotContain("checked((int)handle.Value)", browserApi, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ManagedAndNativeRetainedScenesReplayRenderBundles()
+    {
+        var managed = Read("src", "ProGPU.Scene", "Compositor.cs");
+        var native = Read(
+            "src",
+            "ProGPU.Native",
+            "src",
+            "Scene",
+            "progpu_native_semantic_render_execution.cpp");
+
+        Assert.Contains("TryCreateCompiledRenderBundle", managed, StringComparison.Ordinal);
+        Assert.Contains("RenderPassEncoderExecuteBundles", managed, StringComparison.Ordinal);
+        Assert.Contains("ReleaseCompiledRenderBundle();", managed, StringComparison.Ordinal);
+        Assert.Contains("semantic_render_bundle_valid", native, StringComparison.Ordinal);
+        Assert.Contains("wgpuDeviceCreateRenderBundleEncoder", native, StringComparison.Ordinal);
+        Assert.Contains("wgpuRenderPassEncoderExecuteBundles", native, StringComparison.Ordinal);
+        Assert.Contains("wgpuRenderBundleRelease", native, StringComparison.Ordinal);
+    }
+
     private static FrameworkElement? FindByName(FrameworkElement element, string name)
     {
         if (element.Name == name) return element;
