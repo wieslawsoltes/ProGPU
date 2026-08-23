@@ -1381,6 +1381,8 @@ public unsafe partial class Compositor : IDisposable
     private readonly List<CompositorDrawCall> _drawCalls = new();
     private readonly List<RetainedResourceLease>
         _frameRetainedResources = new();
+    private readonly List<RetainedResourceLease>
+        _compiledSceneRetainedResources = new();
     private readonly List<CompiledVisualVersion> _compiledExternalLayers = new();
     private readonly List<CompiledLayerVersion> _compiledLayerOwners = new();
     private readonly Dictionary<TextureCacheKey, CachedBindGroup> _persistentTextureBindGroups = new();
@@ -2949,6 +2951,7 @@ public unsafe partial class Compositor : IDisposable
         if (!reuseCompiledScene)
         {
             ReleaseCompiledSceneAnalyticMaskResources();
+            ReleaseCompiledSceneRetainedResources();
             _currentSolidRoundedPrimitiveCount = 0;
             _activeBrushes.Clear();
             _activeTextStyles.Clear();
@@ -4054,10 +4057,8 @@ SceneStateUploadComplete:
         _compiledSceneCacheStateReason =
             !Options.EnableCompiledSceneCache ? "Compiled scene cache disabled" :
             hasDynamicDiagnostics ? "Dynamic diagnostics active" :
-            _frameRetainedResources.Count != 0 ? "Frame-owned resources active" :
             _compiledSceneContainsDrawingVisual ? "Drawing visuals active" :
             _maskRenderPasses.Count != 0 ? "Mask render passes active" :
-            _effectTextures.Count != 0 ? "Effects active" :
             string.Empty;
         _compiledSceneReusable = _compiledSceneCacheStateReason.Length == 0;
 
@@ -4072,6 +4073,9 @@ SceneStateUploadComplete:
         _compiledSceneAnalyticMaskResources.AddRange(
             _analyticMasksToReturnToPool);
         _analyticMasksToReturnToPool.Clear();
+        _compiledSceneRetainedResources.AddRange(
+            _frameRetainedResources);
+        _frameRetainedResources.Clear();
 
         _compiledSceneRoot = root;
         _compiledSceneRootVersion = root.ChangeVersion;
@@ -14175,6 +14179,8 @@ SceneStateUploadComplete:
 
             _atlas.Dispose();
             _pathAtlas.Dispose();
+            ReleaseFrameRetainedResources();
+            ReleaseCompiledSceneRetainedResources();
 
             lock (_registeredExtensions)
             {
@@ -19257,6 +19263,17 @@ SceneStateUploadComplete:
         _analyticMaskResourcePool.AddRange(
             _compiledSceneAnalyticMaskResources);
         _compiledSceneAnalyticMaskResources.Clear();
+    }
+
+    private void ReleaseCompiledSceneRetainedResources()
+    {
+        for (int index = 0;
+             index < _compiledSceneRetainedResources.Count;
+             index++)
+        {
+            _compiledSceneRetainedResources[index].Dispose();
+        }
+        _compiledSceneRetainedResources.Clear();
     }
 
     private void DisposeMaskBindGroupResource(
