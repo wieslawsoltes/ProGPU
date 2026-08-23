@@ -2438,6 +2438,112 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
     }
 
     [Fact]
+    public void GpuPictureRecorderFlattensSingleIdentityPicture()
+    {
+        var childRecorder = new GpuPictureRecorder();
+        DrawingContext childContext = childRecorder.BeginRecording(
+            new Rect(0f, 0f, 16f, 16f));
+        childContext.DrawRectangle(
+            new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+            null,
+            new Rect(0f, 0f, 16f, 16f));
+        using GpuPicture child = childRecorder.EndRecording();
+
+        var parentRecorder = new GpuPictureRecorder();
+        DrawingContext parentContext = parentRecorder.BeginRecording(
+            new Rect(0f, 0f, 16f, 16f));
+        parentContext.DrawPicture(child);
+        using GpuPicture parent = parentRecorder.EndRecording();
+
+        Assert.Equal(child.CommandCount, parent.CommandCount);
+        Assert.Equal(RenderCommandType.DrawRect, parent.GetCommand(0).Type);
+        Assert.True(parent.SharesRetainedCommandStorageWith(child));
+    }
+
+    [Fact]
+    public void FlattenedIdentityPicturePreservesRetainedResourceLifetime()
+    {
+        var resource = new CountingDisposable();
+        var childRecorder = new GpuPictureRecorder();
+        DrawingContext childContext = childRecorder.BeginRecording(
+            new Rect(0f, 0f, 16f, 16f));
+        childContext.RetainResource(resource);
+        childContext.DrawRectangle(
+            new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+            null,
+            new Rect(0f, 0f, 16f, 16f));
+        GpuPicture child = childRecorder.EndRecording();
+
+        var parentRecorder = new GpuPictureRecorder();
+        DrawingContext parentContext = parentRecorder.BeginRecording(
+            new Rect(0f, 0f, 16f, 16f));
+        parentContext.DrawPicture(child);
+        GpuPicture parent = parentRecorder.EndRecording();
+
+        Assert.Equal(1, parent.RetainedResourceCount);
+        child.Dispose();
+        Assert.True(parent.SharesRetainedCommandStorageWith(child));
+        Assert.Equal(0, resource.DisposeCount);
+        parent.Dispose();
+        Assert.Equal(1, resource.DisposeCount);
+    }
+
+    [Fact]
+    public void GpuPictureRecorderPreservesAdditionalParentResource()
+    {
+        var childRecorder = new GpuPictureRecorder();
+        DrawingContext childContext = childRecorder.BeginRecording(
+            new Rect(0f, 0f, 16f, 16f));
+        childContext.DrawRectangle(
+            new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+            null,
+            new Rect(0f, 0f, 16f, 16f));
+        using GpuPicture child = childRecorder.EndRecording();
+
+        var resource = new CountingDisposable();
+        var parentRecorder = new GpuPictureRecorder();
+        DrawingContext parentContext = parentRecorder.BeginRecording(
+            new Rect(0f, 0f, 16f, 16f));
+        parentContext.RetainResource(resource);
+        parentContext.DrawPicture(child);
+        GpuPicture parent = parentRecorder.EndRecording();
+
+        Assert.Equal(1, parent.CommandCount);
+        Assert.Equal(
+            RenderCommandType.DrawPicture,
+            parent.GetCommand(0).Type);
+        Assert.False(parent.SharesRetainedCommandStorageWith(child));
+        parent.Dispose();
+        Assert.Equal(1, resource.DisposeCount);
+    }
+
+    [Fact]
+    public void GpuPictureRecorderPreservesTransformedPictureWrapper()
+    {
+        var childRecorder = new GpuPictureRecorder();
+        DrawingContext childContext = childRecorder.BeginRecording(
+            new Rect(0f, 0f, 16f, 16f));
+        childContext.DrawRectangle(
+            new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+            null,
+            new Rect(0f, 0f, 16f, 16f));
+        using GpuPicture child = childRecorder.EndRecording();
+
+        Matrix4x4 transform = Matrix4x4.CreateTranslation(4f, 6f, 0f);
+        var parentRecorder = new GpuPictureRecorder();
+        DrawingContext parentContext = parentRecorder.BeginRecording(
+            new Rect(0f, 0f, 16f, 16f));
+        parentContext.DrawPictureTransformed(child, transform);
+        using GpuPicture parent = parentRecorder.EndRecording();
+
+        Assert.Equal(1, parent.CommandCount);
+        RenderCommand command = parent.GetCommand(0);
+        Assert.Equal(RenderCommandType.DrawPicture, command.Type);
+        Assert.Equal(transform, command.Transform);
+        Assert.False(parent.SharesRetainedCommandStorageWith(child));
+    }
+
+    [Fact]
     public void PictureOpacityMaskRetainsNestedPictureResources()
     {
         var resource = new CountingDisposable();
