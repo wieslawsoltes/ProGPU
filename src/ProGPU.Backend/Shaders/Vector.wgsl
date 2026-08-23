@@ -265,7 +265,10 @@ fn sample_gradient_color(brush: Brush, t: f32) -> vec4<f32> {
 
         let currentColor = get_gradient_stop_color(brush, i);
         let currentOffset = get_gradient_stop_offset(brush, i);
-        if (t <= currentOffset) {
+        // An exact offset belongs to the last stop at that offset. Besides
+        // matching Skia, this preserves hard transitions and ensures Pad
+        // selects the final color when duplicate stops sit at t = 1.
+        if (t < currentOffset) {
             let factor = (t - previousOffset) / max(currentOffset - previousOffset, 0.0001);
             return interpolate_gradient_color(brush, previousColor, currentColor, clamp(factor, 0.0, 1.0));
         }
