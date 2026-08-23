@@ -200,6 +200,36 @@ public sealed class WgpuContextTests
     }
 
     [Fact]
+    public unsafe void ExplicitQueueWaitResetsDeferredSubmissionWindow()
+    {
+        using var api = new BrowserWebGpuApi(_ => { });
+        var lifetime = new RecordingExternalDeviceLifetime();
+        using var context = new WgpuContext
+        {
+            MaximumDeferredQueueSubmissions = 2
+        };
+        context.InitializeExternalNativeDevice(
+            api,
+            lifetime,
+            BrowserWebGpuApi.DeviceHandle,
+            BrowserWebGpuApi.QueueHandle,
+            TextureFormat.Bgra8Unorm);
+
+        var commandBuffer = (CommandBuffer*)1;
+        context.Submit(1, &commandBuffer);
+        context.WaitIdle();
+        context.Submit(1, &commandBuffer);
+        context.CleanupPendingResources();
+
+        Assert.Equal(1, lifetime.WaitingPollCount);
+
+        context.Submit(1, &commandBuffer);
+        context.CleanupPendingResources();
+
+        Assert.Equal(2, lifetime.WaitingPollCount);
+    }
+
+    [Fact]
     public void Tier1TextureFormatsFailBeforeBackendAllocationWhenUnsupported()
     {
         using var context = new WgpuContext();

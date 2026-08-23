@@ -1930,15 +1930,40 @@ public unsafe class WgpuContext : IDisposable
                     Device,
                     wait ? 1u : 0u,
                     null);
+                if (wait)
+                {
+                    MarkSubmittedWorkDrained();
+                }
             }
             else if (BackendKind ==
                          WgpuBackendKind.DawnNative &&
                      Device != null &&
                      !_isDisposed)
             {
-                _externalDeviceLifetime?.Poll(wait);
+                IWebGpuExternalDeviceLifetime? lifetime =
+                    _externalDeviceLifetime;
+                if (lifetime is not null)
+                {
+                    lifetime.Poll(wait);
+                    if (wait)
+                    {
+                        MarkSubmittedWorkDrained();
+                    }
+                }
             }
         }
+    }
+
+    private void MarkSubmittedWorkDrained()
+    {
+        long submittedQueueWork =
+            Volatile.Read(ref _queueSubmissionCount);
+        Volatile.Write(
+            ref _drainedQueueSubmissionCount,
+            submittedQueueWork);
+        Volatile.Write(
+            ref _polledQueueSubmissionCount,
+            submittedQueueWork);
     }
 
     public bool TryCaptureNativeResourceSnapshot(out WgpuNativeResourceSnapshot snapshot)
