@@ -1048,7 +1048,19 @@ public sealed class LayerRenderTests
             context.DrawRectangle(
                 new SolidColorBrush(color),
                 null,
-                new Rect(index % 8 * 8f, index / 8 * 8f, 8f, 8f));
+                new Rect(index % 8 * 8f, index / 8 * 8f, 4f, 4f));
+            context.DrawRectangle(
+                new SolidColorBrush(color),
+                null,
+                new Rect(index % 8 * 8f + 4f, index / 8 * 8f, 4f, 4f));
+            context.DrawRectangle(
+                new SolidColorBrush(color),
+                null,
+                new Rect(index % 8 * 8f, index / 8 * 8f + 4f, 4f, 4f));
+            context.DrawRectangle(
+                new SolidColorBrush(color),
+                null,
+                new Rect(index % 8 * 8f + 4f, index / 8 * 8f + 4f, 4f, 4f));
             return recorder.EndRecording();
         }
 

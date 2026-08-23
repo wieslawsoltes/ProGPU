@@ -78,6 +78,13 @@ public sealed record CompositorOptions
     public int MaximumRetainedCompositionPictures { get; init; } = 4096;
 
     /// <summary>
+    /// Minimum immutable command count required before a picture is admitted.
+    /// Tiny analytic pictures are cheaper to compile than to hash and append
+    /// from a retained page.
+    /// </summary>
+    public int MinimumRetainedCompositionPictureCommands { get; init; } = 4;
+
+    /// <summary>
     /// Removes retained picture pages that have not been replayed for this
     /// many compositor frames.
     /// </summary>
@@ -171,6 +178,11 @@ public sealed record CompositorOptions
         {
             throw new ArgumentOutOfRangeException(
                 nameof(MaximumRetainedCompositionPictures));
+        }
+        if (MinimumRetainedCompositionPictureCommands <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(MinimumRetainedCompositionPictureCommands));
         }
         if (RetainedCompositionPictureRetentionFrames <= 0)
         {

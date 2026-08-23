@@ -75,6 +75,8 @@ public unsafe partial class Compositor
     {
         if (!Options.EnableRetainedCompositionPictures ||
             !Options.EnableIncrementalScenePages ||
+            picture.CommandCount <
+                Options.MinimumRetainedCompositionPictureCommands ||
             Options.EnableGpuHitTesting ||
             ActiveCompilationContext != null ||
             _maskStack.Count != 0 ||
