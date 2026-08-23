@@ -117,9 +117,7 @@ public unsafe class WgpuContext : IDisposable
 
     private PfnErrorCallback _errorCallback;
     private nint _devicePollAddress;
-    private nint _queueSubmitForIndexAddress;
     private nint _generateReportAddress;
-    private ulong _lastSubmissionIndex;
 
     private static readonly object s_silkNativeRenderLock = new();
 
@@ -218,44 +216,7 @@ public unsafe class WgpuContext : IDisposable
         lock (RenderLock)
         {
             ObjectDisposedException.ThrowIf(_isDisposed, this);
-            if (BackendKind == WgpuBackendKind.SilkNative)
-            {
-                if (_queueSubmitForIndexAddress == 0)
-                {
-                    _queueSubmitForIndexAddress =
-                        Wgpu.Context.GetProcAddress(
-                            "wgpuQueueSubmitForIndex");
-                }
-
-                if (_queueSubmitForIndexAddress != 0)
-                {
-                    var submitForIndex =
-                        (delegate* unmanaged[Cdecl]<
-                            Queue*,
-                            nuint,
-                            CommandBuffer**,
-                            ulong>)_queueSubmitForIndexAddress;
-                    _lastSubmissionIndex = submitForIndex(
-                        Queue,
-                        commandCount,
-                        commandBuffers);
-                }
-                else
-                {
-                    Api.QueueSubmit(
-                        Queue,
-                        commandCount,
-                        commandBuffers);
-                    _lastSubmissionIndex = 0;
-                }
-            }
-            else
-            {
-                Api.QueueSubmit(
-                    Queue,
-                    commandCount,
-                    commandBuffers);
-            }
+            Api.QueueSubmit(Queue, commandCount, commandBuffers);
             Interlocked.Increment(ref _queueSubmissionCount);
         }
     }
@@ -2013,20 +1974,11 @@ public unsafe class WgpuContext : IDisposable
                         uint,
                         void*,
                         uint>)_devicePollAddress;
-                WrappedSubmissionIndex wrappedSubmission = default;
-                void* wrappedSubmissionPointer = null;
-                if (_lastSubmissionIndex != 0)
-                {
-                    wrappedSubmission = new WrappedSubmissionIndex(
-                        Queue,
-                        _lastSubmissionIndex);
-                    wrappedSubmissionPointer = &wrappedSubmission;
-                }
-                var completed = poll(
+                _ = poll(
                     Device,
                     wait ? 1u : 0u,
-                    wrappedSubmissionPointer);
-                if (wait || completed != 0)
+                    null);
+                if (wait)
                 {
                     MarkSubmittedWorkDrained();
                 }
@@ -2060,21 +2012,6 @@ public unsafe class WgpuContext : IDisposable
         Volatile.Write(
             ref _polledQueueSubmissionCount,
             submittedQueueWork);
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private readonly struct WrappedSubmissionIndex
-    {
-        internal WrappedSubmissionIndex(
-            Queue* queue,
-            ulong submissionIndex)
-        {
-            Queue = queue;
-            SubmissionIndex = submissionIndex;
-        }
-
-        internal readonly Queue* Queue;
-        internal readonly ulong SubmissionIndex;
     }
 
     public bool TryCaptureNativeResourceSnapshot(out WgpuNativeResourceSnapshot snapshot)
