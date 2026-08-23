@@ -431,6 +431,7 @@ public sealed class LayerRenderTests
                 metrics.RetainedCompositionPictureCount,
                 31,
                 32);
+            Assert.Equal(2, metrics.DrawCallsCount);
 
             byte[] pixels = window.ReadPixels();
             AssertGreen(ReadPixel(pixels, window.Width, 4, 4));
