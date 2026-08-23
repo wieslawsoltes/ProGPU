@@ -13,6 +13,9 @@ internal interface INativeWindowPlatform : IDisposable
     bool SupportsManagedMove { get; }
     bool SupportsManagedResize { get; }
     bool SupportsSystemChromeExtension { get; }
+    bool IsInteractiveMoveResize { get; }
+    bool IsProcessingPromotedTouchMouse { get; }
+    Action<NativeTouchEvent>? TouchHandler { get; set; }
 
     bool ApplyChrome(in NativeWindowState state);
     bool SetTopMost(bool value);

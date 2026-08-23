@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Logging;
 using Avalonia.ProGpu;
 using ControlCatalog;
+using ProGpu.Avalonia.Integration;
 
 namespace ControlCatalog.Desktop
 {
@@ -43,6 +44,9 @@ namespace ControlCatalog.Desktop
                     : "ProGPU.SourceBuilt.SilkNet",
                 App.InitialPage,
                 useHarfBuzz ? "HarfBuzz" : "ProGPU");
+            using var inputTelemetry =
+                SilkNetInputTelemetrySession.TryStart(
+                    useNativeWindowing);
             AppBuilder builder = BuildAvaloniaApp(
                 useHarfBuzz,
                 requireNativeCompositionScene: !allowCompositionFallback,
@@ -50,7 +54,11 @@ namespace ControlCatalog.Desktop
                 requireDawnMetalPresentation:
                     useNativeWindowing &&
                     !allowDawnPresentationFallback);
-            builder.AfterSetup(_ => benchmark?.Attach());
+            builder.AfterSetup(_ =>
+            {
+                benchmark?.Attach();
+                inputTelemetry?.Attach();
+            });
             return builder.StartWithClassicDesktopLifetime(args);
         }
 

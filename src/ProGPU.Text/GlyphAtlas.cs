@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Silk.NET.WebGPU;
 using ProGPU.Backend;
@@ -64,7 +65,30 @@ public unsafe class GlyphAtlas : IDisposable
     private uint _nextShelfY = 2;
     private uint _nextColorShelfY = 2;
 
-    private readonly record struct GlyphKey(TtfFont Font, ushort GlyphIndex, float Size, byte SubpixelX);
+    internal readonly record struct GlyphKey(
+        TtfFont Font,
+        ushort GlyphIndex,
+        float Size,
+        byte SubpixelX);
+
+    /// <summary>
+    /// Opaque set of glyph-atlas entries referenced by retained compositor data.
+    /// The atlas owns the key representation so consumers cannot manufacture a
+    /// residency claim from texture coordinates that may have been recycled.
+    /// </summary>
+    public sealed class ResidencySet
+    {
+        internal ResidencySet()
+        {
+        }
+
+        internal GlyphKey[] Keys = Array.Empty<GlyphKey>();
+
+        public int Count { get; internal set; }
+
+        public long ByteSize =>
+            (long)Keys.Length * Unsafe.SizeOf<GlyphKey>();
+    }
 
     private struct CachedGlyph
     {
@@ -74,6 +98,8 @@ public unsafe class GlyphAtlas : IDisposable
     }
 
     private readonly Dictionary<GlyphKey, CachedGlyph> _glyphs = new();
+    private readonly List<GlyphKey> _batchGlyphUsages = new();
+    private readonly HashSet<GlyphKey> _glyphResidencyScratch = new();
     private sealed class FontGpuData
     {
         public Dictionary<ushort, uint> RecordSlots { get; } = new();
@@ -132,6 +158,7 @@ public unsafe class GlyphAtlas : IDisposable
         TrimGpuOutlineCache();
         _frameNumber++;
         _currentBatchNewGlyphCount = 0;
+        _batchGlyphUsages.Clear();
 
         CreateBatchEncoder();
     }
@@ -378,6 +405,81 @@ public unsafe class GlyphAtlas : IDisposable
     public ulong RasterComputePassCount { get; private set; }
 
     public int LastBatchNewGlyphCount { get; private set; }
+
+    /// <summary>
+    /// Current-frame glyph-use cursor for a retained compilation boundary.
+    /// </summary>
+    public int BatchUsageCount => _batchGlyphUsages.Count;
+
+    /// <summary>
+    /// Captures the distinct atlas entries used since <paramref name="startIndex"/>.
+    /// The returned opaque set may be reused by a retained compositor page.
+    /// </summary>
+    public ResidencySet CaptureBatchResidency(
+        int startIndex,
+        ResidencySet? reusable = null)
+    {
+        if ((uint)startIndex > (uint)_batchGlyphUsages.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(startIndex));
+        }
+
+        _glyphResidencyScratch.Clear();
+        for (int index = startIndex; index < _batchGlyphUsages.Count; index++)
+        {
+            _glyphResidencyScratch.Add(_batchGlyphUsages[index]);
+        }
+
+        ResidencySet result = reusable ?? new ResidencySet();
+        int count = _glyphResidencyScratch.Count;
+        if (result.Keys.Length != count)
+        {
+            result.Keys = count == 0
+                ? Array.Empty<GlyphKey>()
+                : new GlyphKey[count];
+        }
+
+        _glyphResidencyScratch.CopyTo(result.Keys);
+        result.Count = count;
+        return result;
+    }
+
+    /// <summary>
+    /// Protects the atlas entries referenced by retained vertices from eviction
+    /// for the remainder of the current frame. Returns false if any entry is no
+    /// longer resident, so the caller can recompile instead of sampling a reused
+    /// atlas region.
+    /// </summary>
+    public bool TryMarkRetainedGlyphReplay(ResidencySet residency)
+    {
+        ArgumentNullException.ThrowIfNull(residency);
+
+        for (int index = 0; index < residency.Count; index++)
+        {
+            GlyphKey key = residency.Keys[index];
+            if (!_glyphs.TryGetValue(key, out CachedGlyph cached) ||
+                cached.IsCapacityFallback ||
+                cached.Info.AtlasRegionWidth == 0 ||
+                cached.Info.AtlasRegionHeight == 0)
+            {
+                return false;
+            }
+        }
+
+        for (int index = 0; index < residency.Count; index++)
+        {
+            GlyphKey key = residency.Keys[index];
+            CachedGlyph cached = _glyphs[key];
+            if (cached.LastUsedFrame != _frameNumber)
+            {
+                cached.LastUsedFrame = _frameNumber;
+                _glyphs[key] = cached;
+            }
+            _batchGlyphUsages.Add(key);
+        }
+
+        return true;
+    }
 
     public ulong Generation { get; private set; }
 
@@ -675,6 +777,7 @@ public unsafe class GlyphAtlas : IDisposable
                     cached.LastUsedFrame = _frameNumber;
                     _glyphs[key] = cached;
                 }
+                RecordBatchGlyphUsage(key, cached.Info);
                 return cached.Info;
             }
 
@@ -686,6 +789,7 @@ public unsafe class GlyphAtlas : IDisposable
             if (TryCreateColorBitmapGlyph(font, glyphIdx, size, preferGlyphAtlas, out info))
             {
                 CacheGlyph(key, info);
+                RecordBatchGlyphUsage(key, info);
                 return info;
             }
             // Color vector glyphs are emitted as paths by the compositor.
@@ -1013,7 +1117,18 @@ public unsafe class GlyphAtlas : IDisposable
             CacheGlyph(key, info);
         }
 
+        RecordBatchGlyphUsage(key, info);
         return info;
+    }
+
+    private void RecordBatchGlyphUsage(in GlyphKey key, in GlyphInfo info)
+    {
+        if (_batchDepth > 0 &&
+            info.AtlasRegionWidth > 0 &&
+            info.AtlasRegionHeight > 0)
+        {
+            _batchGlyphUsages.Add(key);
+        }
     }
 
     private void CacheGlyph(GlyphKey key, GlyphInfo info, bool isCapacityFallback = false)
