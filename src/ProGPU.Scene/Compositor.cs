@@ -1381,8 +1381,11 @@ public unsafe partial class Compositor : IDisposable
     private readonly List<CompositorDrawCall> _drawCalls = new();
     private readonly List<RetainedResourceLease>
         _frameRetainedResources = new();
+    private readonly List<RetainedResourceLease>
+        _compiledSceneRetainedResources = new();
     private readonly List<CompiledVisualVersion> _compiledExternalLayers = new();
     private readonly List<CompiledLayerVersion> _compiledLayerOwners = new();
+    private readonly List<CompiledEffectVersion> _compiledEffectOwners = new();
     private readonly Dictionary<TextureCacheKey, CachedBindGroup> _persistentTextureBindGroups = new();
     private readonly List<GpuBrush> _activeBrushes = new();
     private readonly List<GpuTextStyle> _activeTextStyles = new();
@@ -1439,6 +1442,11 @@ public unsafe partial class Compositor : IDisposable
 
     private readonly record struct CompiledVisualVersion(Visual Visual, long ChangeVersion);
     private readonly record struct CompiledLayerVersion(Visual Visual, GpuTexture Texture);
+    private readonly record struct CompiledEffectVersion(
+        Visual Visual,
+        EffectBase Effect,
+        int CacheKey,
+        EffectTextureSet Textures);
     private readonly record struct TextLayoutCacheKey(
         string Text,
         TtfFont Font,
@@ -2949,6 +2957,7 @@ public unsafe partial class Compositor : IDisposable
         if (!reuseCompiledScene)
         {
             ReleaseCompiledSceneAnalyticMaskResources();
+            ReleaseCompiledSceneRetainedResources();
             _currentSolidRoundedPrimitiveCount = 0;
             _activeBrushes.Clear();
             _activeTextStyles.Clear();
@@ -4034,6 +4043,19 @@ SceneStateUploadComplete:
             }
         }
 
+        for (int i = 0; i < _compiledEffectOwners.Count; i++)
+        {
+            var compiled = _compiledEffectOwners[i];
+            if (!ReferenceEquals(compiled.Visual.Effect, compiled.Effect) ||
+                compiled.Effect.GetRenderCacheKey() != compiled.CacheKey ||
+                compiled.Textures.Source.IsDisposed ||
+                !_effectTextures.TryGetValue(compiled.Visual, out var textures) ||
+                !ReferenceEquals(compiled.Textures, textures))
+            {
+                return MissCompiledSceneCache("Effect changed");
+            }
+        }
+
         return true;
     }
 
@@ -4041,6 +4063,12 @@ SceneStateUploadComplete:
     {
         _currentSceneCacheMissReason = reason;
         return false;
+    }
+
+    internal void InvalidateCompiledScene(string reason)
+    {
+        _compiledSceneReusable = false;
+        _compiledSceneCacheStateReason = reason;
     }
 
     private void CaptureCompiledScene(
@@ -4054,10 +4082,8 @@ SceneStateUploadComplete:
         _compiledSceneCacheStateReason =
             !Options.EnableCompiledSceneCache ? "Compiled scene cache disabled" :
             hasDynamicDiagnostics ? "Dynamic diagnostics active" :
-            _frameRetainedResources.Count != 0 ? "Frame-owned resources active" :
             _compiledSceneContainsDrawingVisual ? "Drawing visuals active" :
             _maskRenderPasses.Count != 0 ? "Mask render passes active" :
-            _effectTextures.Count != 0 ? "Effects active" :
             string.Empty;
         _compiledSceneReusable = _compiledSceneCacheStateReason.Length == 0;
 
@@ -4066,12 +4092,16 @@ SceneStateUploadComplete:
             _compiledExternalLayers.Clear();
             _compiledEmbeddedVisuals.Clear();
             _compiledLayerOwners.Clear();
+            _compiledEffectOwners.Clear();
             return;
         }
 
         _compiledSceneAnalyticMaskResources.AddRange(
             _analyticMasksToReturnToPool);
         _analyticMasksToReturnToPool.Clear();
+        _compiledSceneRetainedResources.AddRange(
+            _frameRetainedResources);
+        _frameRetainedResources.Clear();
 
         _compiledSceneRoot = root;
         _compiledSceneRootVersion = root.ChangeVersion;
@@ -4109,6 +4139,22 @@ SceneStateUploadComplete:
             if (owner.LayerTexture is { IsDisposed: false } texture)
             {
                 _compiledLayerOwners.Add(new CompiledLayerVersion(owner, texture));
+            }
+        }
+
+        _compiledEffectOwners.Clear();
+        foreach (var entry in _effectTextures)
+        {
+            Visual owner = entry.Key;
+            if (owner.Effect is { } effect &&
+                _effectCacheKeys.TryGetValue(owner, out int cacheKey))
+            {
+                _compiledEffectOwners.Add(
+                    new CompiledEffectVersion(
+                        owner,
+                        effect,
+                        cacheKey,
+                        entry.Value));
             }
         }
     }
@@ -14175,6 +14221,8 @@ SceneStateUploadComplete:
 
             _atlas.Dispose();
             _pathAtlas.Dispose();
+            ReleaseFrameRetainedResources();
+            ReleaseCompiledSceneRetainedResources();
 
             lock (_registeredExtensions)
             {
@@ -19257,6 +19305,17 @@ SceneStateUploadComplete:
         _analyticMaskResourcePool.AddRange(
             _compiledSceneAnalyticMaskResources);
         _compiledSceneAnalyticMaskResources.Clear();
+    }
+
+    private void ReleaseCompiledSceneRetainedResources()
+    {
+        for (int index = 0;
+             index < _compiledSceneRetainedResources.Count;
+             index++)
+        {
+            _compiledSceneRetainedResources[index].Dispose();
+        }
+        _compiledSceneRetainedResources.Clear();
     }
 
     private void DisposeMaskBindGroupResource(

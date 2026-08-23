@@ -564,6 +564,26 @@ threaded regression proves recursive entry and cross-thread exclusion; the
 managed regressions prove shared wgpu-native domains, independent browser/Dawn
 domains, queue exclusion, and native-call/cache lock ordering.
 
+Stable managed effect scenes now apply the same ownership rule at the compiled
+draw-stream boundary. A cacheable compiled scene moves the drawing context's
+retained-resource leases into scene ownership, keeps persistent effect textures
+alive, and releases both when visual/resource generations invalidate the scene
+or the compositor is disposed. Reuse still submits the current target; it does
+not reuse populated target pixels. Effect mutation propagates through the
+visual change version, texture disposal invalidates the scene, and a focused
+real-device regression disposes the caller's original picture before replay to
+prove that the compiled lease is the sole valid owner until invalidation.
+
+No C++ renderer change is applicable for this ownership correction. Native
+semantic scenes already own pointer-free immutable resource records, fixed
+retained GPU slots, and generation-keyed effect outputs for the complete scene
+lifetime; they do not clone a managed `IDisposable` lease into a per-frame
+drawing context. Existing native real-device gates require a stable effect
+replay to execute one cached composite, zero content/effect passes, and zero
+retained upload, then reject reuse after scene, texture-generation, extent, or
+effect-operation changes. This is the concrete ownership distinction required
+by the parity rule, not a language-only exception.
+
 ## 6. Stable native engine ABI
 
 `include/progpu_native.h` is a C ABI so C++, C#, NativeAOT, V8, and other hosts

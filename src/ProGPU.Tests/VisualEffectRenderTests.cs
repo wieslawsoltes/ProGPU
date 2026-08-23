@@ -347,6 +347,56 @@ public sealed class VisualEffectRenderTests
     }
 
     [Fact]
+    public void StableEffectPictureReusesCompiledSceneAndRetainsResources()
+    {
+        using var window = new HeadlessWindow(48, 32);
+        var resource = new CountingDisposable();
+        var recorder = new GpuPictureRecorder();
+        DrawingContext pictureContext = recorder.BeginRecording(
+            new Rect(0f, 0f, 12f, 8f));
+        pictureContext.RetainResource(resource);
+        pictureContext.DrawRectangle(
+            new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f)),
+            pen: null,
+            new Rect(0f, 0f, 12f, 8f));
+        GpuPicture picture = recorder.EndRecording();
+        window.Content = new RetainedEffectPictureVisual(picture);
+
+        try
+        {
+            window.Render();
+            picture.Dispose();
+
+            Assert.Equal(0, resource.DisposeCount);
+
+            window.Render();
+
+            Assert.True(window.Compositor.Metrics.SceneCacheHit);
+            Assert.Null(window.Compositor.Metrics.SceneCacheMissReason);
+            Assert.Equal(0, resource.DisposeCount);
+            var retainedPixel = ReadPixel(
+                window.ReadPixels(),
+                window.Width,
+                x: 12,
+                y: 10);
+            Assert.InRange(retainedPixel.R, 245, 255);
+            Assert.InRange(retainedPixel.G, 0, 10);
+            Assert.InRange(retainedPixel.B, 0, 10);
+
+            window.Content = new PlainBoundsVisual();
+            window.Render();
+
+            Assert.False(window.Compositor.Metrics.SceneCacheHit);
+            Assert.Equal(1, resource.DisposeCount);
+        }
+        finally
+        {
+            picture.Dispose();
+            window.Content = null;
+        }
+    }
+
+    [Fact]
     public void ColorMatrixEffectTransformsTheIsolatedVisualOnGpu()
     {
         var window = HeadlessWindow.Shared;
@@ -724,6 +774,37 @@ public sealed class VisualEffectRenderTests
                 _red,
                 null,
                 new Rect(0f, 0f, 12f, 8f));
+        }
+    }
+
+    private sealed class RetainedEffectPictureVisual : FrameworkElement
+    {
+        private readonly GpuPicture _picture;
+
+        public RetainedEffectPictureVisual(GpuPicture picture)
+        {
+            _picture = picture;
+            Width = 12f;
+            Height = 8f;
+            Transform = Matrix4x4.CreateTranslation(8f, 6f, 0f);
+            Effect = new BlurEffect(0f);
+            EffectContentBounds = new Rect(0f, 0f, 12f, 8f);
+            EffectRasterPadding = 0f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawPicture(_picture);
+        }
+    }
+
+    private sealed class CountingDisposable : IDisposable
+    {
+        public int DisposeCount { get; private set; }
+
+        public void Dispose()
+        {
+            DisposeCount++;
         }
     }
 

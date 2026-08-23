@@ -3034,3 +3034,67 @@ resvg 927/964 with 37 reviewed skips, the unchanged W3C inventory (native
 remaining 1,147/1,147 lane, and ten explicitly ProGPU-backed parallel passes of
 1,146/1,146 after excluding one unrelated external-font network test. The
 cross-context deadlock did not recur.
+
+## Managed compiled effect-scene ownership checkpoint
+
+An external retained-UI integration exposed a managed-only lifetime mismatch:
+unchanged anisotropic shadow pictures retained correct GPU effect output, but
+their deferred picture leases were moved into a frame-owned list. The compiled
+scene therefore failed closed on every frame and rebuilt 257 draw calls even
+though visual, effect, texture, target, glyph-atlas, and path-atlas generations
+were unchanged. Median scene compilation was approximately `0.75 ms` in the
+original strict redraw capture.
+
+The managed compositor now transfers those leases into compiled-scene
+ownership. Any cache miss releases the old scene leases before compilation;
+successful capture atomically adopts the new leases; disposal releases both
+frame and compiled ownership. Persistent effect textures remain keyed by their
+visual and effect render revision. Stable replay renders the current target
+while skipping only unchanged scene compilation and effect materialization.
+
+The clean-room decision used current primary contracts:
+
+- [Skia `SkPicture`](https://api.skia.org/classSkPicture.html) retains a
+  replayable command sequence with reference-counted lifetime;
+- [Win2D `CacheOutput`](https://microsoft.github.io/Win2D/WinUI2/html/P_Microsoft_Graphics_Canvas_Effects_CompositeEffect_CacheOutput.htm)
+  explicitly retains an unchanged effect result;
+- [Direct2D command lists and effect caching](https://learn.microsoft.com/en-us/windows/win32/api/_direct2d/)
+  separate replayable image commands from cached transform output;
+- [WebRender's rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html#caching)
+  retains picture slices in invalidation-tracked texture-cache tiles;
+- [Vello's retained-scene direction](https://github.com/linebender/vello/blob/main/doc/vision.md#retained-scene-graph-fragments)
+  couples retained fragments with explicit GPU-resource ownership;
+- [HarfBuzz shape-plan caching](https://harfbuzz.github.io/shaping-plans-and-caching.html)
+  and [Skia shaped text](https://skia.org/docs/dev/design/text_shaper/) were
+  checked and are orthogonal because no shaping, glyph, font, or paragraph
+  identity changes in this correction.
+
+Three alternating fresh-process Apple M3 Pro/Metal pairs then rendered 128
+anisotropic shadows to retained 1280-by-720 BGRA8 GPU textures. The strict lane
+forced a current-target redraw, used 6 warmups, 100 synchronized samples, and
+seven 60-frame batches per process. Median-of-process medians were:
+
+| Metric | ProGPU managed | Skia/Metal reference | ProGPU result |
+|---|---:|---:|---:|
+| Completed batch throughput | 0.3884 ms/frame | 0.4578 ms/frame | 19.5% faster |
+| CPU frame | 0.3895 ms | 0.4538 ms | 16.5% faster |
+| GPU-completion wait | 0.4019 ms | 0.3092 ms | 30.0% higher |
+| Blocking total | 0.7962 ms | 0.7757 ms | 2.6% higher / near parity |
+| Managed scene compilation | 0.0024 ms | not exposed | 99.7% below the original capture |
+
+All 300 measured ProGPU frames report a compiled-scene hit, zero scene upload,
+and no populated-target reuse. The full strict 15-workload matrix is valid in
+all 90 process artifacts with zero unsupported operations: ProGPU wins every
+completed-batch comparison and 14 of 15 blocking-total comparisons. Per-backend
+pixel hashes are stable across all three pairs and the semantic-state hash is
+identical. The remaining shadow completion-fence difference is retained as a
+GPU scheduling investigation; it is not hidden by the stronger throughput and
+CPU results.
+
+Native C++ already satisfies the applicable algorithmic contract through its
+immutable scene/resource generations and retained effect-output cache. The
+real-device semantic effect gate proves one cached composite draw, zero child
+content/effect passes, zero stable upload/allocation, and invalidation on any
+scene/effect/extent/texture-generation change. Because native scenes never
+create the managed frame lease that caused this defect, adding a second C++
+lifetime layer would duplicate ownership rather than apply an optimization.
