@@ -656,7 +656,6 @@ public sealed unsafe class NativeCompositor : IDisposable
                 throw new NativeRendererException(status, ReadLastError());
             }
             target.NotifyExternalContentChanged();
-            _context.PollDevice(wait: false);
         }
         return new NativeSceneFrameMetrics(
             metrics.CommandCount,
@@ -774,7 +773,6 @@ public sealed unsafe class NativeCompositor : IDisposable
                     throw new NativeRendererException(status, ReadLastError());
                 }
                 target.NotifyExternalContentChanged();
-                _context.PollDevice(wait: false);
             }
             return new NativeFrameMetrics(
                 metrics.DrawCallCount,
@@ -848,7 +846,6 @@ public sealed unsafe class NativeCompositor : IDisposable
                     throw new NativeRendererException(status, ReadLastError());
                 }
                 target.NotifyExternalContentChanged();
-                _context.PollDevice(wait: false);
             }
             return new NativeAnalyticFrameMetrics(
                 metrics.DrawCallCount,
@@ -1031,7 +1028,6 @@ public sealed unsafe class NativeCompositor : IDisposable
                     throw new NativeRendererException(status, ReadLastError());
                 }
                 target.NotifyExternalContentChanged();
-                _context.PollDevice(wait: false);
             }
             return new NativeGeometryFrameMetrics(
                 metrics.DrawCallCount,
@@ -1123,7 +1119,6 @@ public sealed unsafe class NativeCompositor : IDisposable
                     throw new NativeRendererException(status, ReadLastError());
                 }
                 target.NotifyExternalContentChanged();
-                _context.PollDevice(wait: false);
             }
             return new NativePathFrameMetrics(
                 metrics.DrawCallCount,
@@ -1224,7 +1219,6 @@ public sealed unsafe class NativeCompositor : IDisposable
                     throw new NativeRendererException(status, ReadLastError());
                 }
                 target.NotifyExternalContentChanged();
-                _context.PollDevice(wait: false);
             }
             return new NativeGlyphFrameMetrics(
                 metrics.DrawCallCount,
@@ -1383,7 +1377,6 @@ public sealed unsafe class NativeCompositor : IDisposable
                     throw new NativeRendererException(status, ReadLastError());
                 }
                 target.NotifyExternalContentChanged();
-                _context.PollDevice(wait: false);
             }
             return new NativeImageFrameMetrics(
                 metrics.DrawCallCount,
@@ -1536,7 +1529,6 @@ public sealed unsafe class NativeCompositor : IDisposable
                 throw new NativeRendererException(status, ReadLastError());
             }
             target.NotifyExternalContentChanged();
-            _context.PollDevice(wait: false);
         }
         return new NativeImageFrameMetrics(
             metrics.DrawCallCount,
@@ -1693,7 +1685,6 @@ public sealed unsafe class NativeCompositor : IDisposable
                 throw new NativeRendererException(status, ReadLastError());
             }
             target.NotifyExternalContentChanged();
-            _context.PollDevice(wait: false);
         }
         return new NativeImageFrameMetrics(
             metrics.DrawCallCount,

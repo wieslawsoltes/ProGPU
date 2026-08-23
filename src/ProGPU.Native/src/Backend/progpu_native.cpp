@@ -574,14 +574,17 @@ progpu_native_status progpu_native_engine_poll_submission(
             PROGPU_NATIVE_STATUS_DEVICE_LOST,
             "Submissions from the lost native device cannot be polled.");
     }
-    *complete = progpu::native::webgpu::poll_submission(
+    const bool completed = progpu::native::webgpu::poll_submission(
         engine->instance,
         engine->device,
         engine->queue,
         submission_index,
-        wait != 0U)
-        ? 1U
-        : 0U;
+        wait != 0U);
+    *complete = completed ? 1U : 0U;
+    if (completed && submission_index == engine->last_submission_index) {
+        engine->submission_retirement.observe_latest_completion(
+            engine->submission_count);
+    }
     engine->last_error.clear();
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }
