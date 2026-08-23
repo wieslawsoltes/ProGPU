@@ -101,6 +101,14 @@ fn analytic_rounded_mask_alpha_for(
     if (sampling.options.x < 2.5) {
         return outerAlpha;
     }
+    if (sampling.options.x > 3.5) {
+        let innerAlpha = rounded_mask_alpha_local(
+            local,
+            vec4<f32>(sampling.coordinate0.w, sampling.coordinate1.w, sampling.options.z, sampling.options.w),
+            vec4<f32>(0.0),
+            vec4<f32>(0.0));
+        return outerAlpha * (1.0 - innerAlpha);
+    }
     let inset = sampling.options.z;
     let innerAlpha = rounded_mask_alpha_local(
         local,
