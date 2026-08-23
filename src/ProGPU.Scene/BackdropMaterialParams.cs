@@ -6,6 +6,8 @@ namespace ProGPU.Scene;
 
 public sealed class BackdropMaterialParams
 {
+    internal GpuTexture? CapturedHostBackdropTexture { get; set; }
+
     public Rect Rect { get; set; }
     public Vector4 CornerRadiiX { get; set; }
     public Vector4 CornerRadiiY { get; set; }

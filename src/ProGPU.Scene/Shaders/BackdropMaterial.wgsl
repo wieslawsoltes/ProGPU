@@ -197,12 +197,17 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let hasSource = material.flags0.x > 0.5;
     let hasMask = material.flags0.y > 0.5;
     let sourceIsPremultiplied = material.flags0.z > 0.5;
+    let sourceIsCapturedHostBackdrop = material.flags0.w > 0.5;
     let useFallback = material.material1.w > 0.5;
     let kind = material.material1.z;
 
     var backdrop = vec4<f32>(0.0);
     if (hasSource) {
-        backdrop = sample_backdrop(input.texCoord);
+        let backdropUv = select(
+            input.texCoord,
+            input.position.xy / max(material.geometry0.zw, vec2<f32>(1.0)),
+            sourceIsCapturedHostBackdrop);
+        backdrop = sample_backdrop(backdropUv);
         if (sourceIsPremultiplied && backdrop.a > 0.00001) {
             backdrop = vec4<f32>(backdrop.rgb / backdrop.a, backdrop.a);
         }

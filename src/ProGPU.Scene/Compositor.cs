@@ -14381,6 +14381,37 @@ SceneStateUploadComplete:
             (targetTexture.Usage & TextureUsage.TextureBinding) != 0;
     }
 
+    private static bool IsHostBackdropDrawCall(in CompositorDrawCall drawCall)
+    {
+        return drawCall.Type == DrawCallType.Extension &&
+            drawCall.ExtensionId == CompositorBuiltInExtensions.BackdropMaterial &&
+            drawCall.DataParam is BackdropMaterialParams
+            {
+                Source: BackdropMaterialSource.HostBackdrop,
+                SourceTexture: null,
+                UseFallback: false
+            };
+    }
+
+    private bool HasHostBackdropDrawCall(GpuTexture targetTexture)
+    {
+        if ((targetTexture.Usage & TextureUsage.TextureBinding) == 0)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < _drawCalls.Count; i++)
+        {
+            var drawCall = _drawCalls[i];
+            if (IsHostBackdropDrawCall(in drawCall))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private bool TryGetAdvancedBlendSourceBounds(
         in CompositorDrawCall drawCall,
         uint targetWidth,
@@ -16361,17 +16392,19 @@ SceneStateUploadComplete:
         byte? currentVectorPipelineKind = null;
         var textureEntries = stackalloc BindGroupEntry[2];
         _advancedBlendPassResourceCount = 0;
-        if (TryGetAdvancedBlendSourceCapacity(
+        bool hasHostBackdrop = HasHostBackdropDrawCall(targetTexture);
+        bool hasAdvancedBlend = TryGetAdvancedBlendSourceCapacity(
                 targetTexture,
                 out uint advancedBlendSourceWidth,
-                out uint advancedBlendSourceHeight))
+                out uint advancedBlendSourceHeight);
+        if (hasHostBackdrop || hasAdvancedBlend)
         {
             _advancedBlendLastUsedFrame = _frameNumber;
             EnsureAdvancedBlendResources(
                 targetTexture.Width,
                 targetTexture.Height,
-                advancedBlendSourceWidth,
-                advancedBlendSourceHeight,
+                Math.Max(1u, advancedBlendSourceWidth),
+                Math.Max(1u, advancedBlendSourceHeight),
                 targetTexture.Format);
         }
         else
@@ -16383,6 +16416,69 @@ SceneStateUploadComplete:
         for (var drawCallIndex = 0; drawCallIndex < drawCallCount; drawCallIndex++)
         {
             var dc = _drawCalls[drawCallIndex];
+            if (IsHostBackdropDrawCall(in dc) &&
+                dc.DataParam is BackdropMaterialParams backdropParameters &&
+                _advancedBlendScratchTexture != null)
+            {
+                _context.Api.RenderPassEncoderEnd(pass);
+                _context.Api.RenderPassEncoderRelease(pass);
+
+                var output = ReferenceEquals(currentRenderTarget, targetTexture)
+                    ? _advancedBlendScratchTexture
+                    : targetTexture;
+                var targetBounds = new MaskPixelBounds(
+                    0,
+                    0,
+                    targetTexture.Width,
+                    targetTexture.Height);
+                var copyPassResource = AcquireAdvancedBlendPassResource(
+                    targetBounds,
+                    currentRenderTarget,
+                    GpuBlendMode.Src);
+                EncodeAdvancedBlendFullscreen(
+                    encoder,
+                    currentRenderTarget,
+                    currentRenderTarget,
+                    output,
+                    copyPassResource);
+                currentRenderTarget = output;
+
+                pass = BeginOffscreenTexturePass(
+                    encoder,
+                    currentRenderTarget,
+                    LoadOp.Load,
+                    new Color());
+                currentType = null;
+                currentBlendMode = null;
+                currentMaskBindGroup = null;
+                currentPipelineHasMask = null;
+                currentVectorPipelineKind = null;
+
+                if (ApplyDrawCallScissor(pass, dc, useRenderTargetViewport: false))
+                {
+                    var pipeline = GetExtension(dc.ExtensionId);
+                    if (pipeline != null)
+                    {
+                        backdropParameters.CapturedHostBackdropTexture =
+                            ReferenceEquals(currentRenderTarget, targetTexture)
+                                ? _advancedBlendScratchTexture
+                                : targetTexture;
+                        try
+                        {
+                            var localDc = dc;
+                            pipeline.Render(this, pass, isOffscreen: true, in localDc);
+                        }
+                        finally
+                        {
+                            backdropParameters.CapturedHostBackdropTexture = null;
+                        }
+                    }
+                }
+
+                currentType = DrawCallType.Extension;
+                continue;
+            }
+
             if (CanEncodeAdvancedBlend(in dc, targetTexture) &&
                 TryGetAdvancedBlendSourceBounds(
                     in dc,

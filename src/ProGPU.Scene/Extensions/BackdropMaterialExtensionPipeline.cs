@@ -185,7 +185,8 @@ public sealed unsafe class BackdropMaterialExtensionPipeline : ICompositorExtens
         }
 
         EnsureLayouts(compositor);
-        var requestedTexture = parameters.SourceTexture;
+        var capturedHostBackdrop = parameters.CapturedHostBackdropTexture;
+        var requestedTexture = parameters.SourceTexture ?? capturedHostBackdrop;
         if (requestedTexture != null &&
             !requestedTexture.Context.SharesDeviceWith(compositor.Context))
         {
@@ -203,10 +204,7 @@ public sealed unsafe class BackdropMaterialExtensionPipeline : ICompositorExtens
         var hasSource = requestedTexture != null && parameters.Source != BackdropMaterialSource.None;
         var useFallback = parameters.UseFallback ||
             (parameters.Source == BackdropMaterialSource.Texture && requestedTexture == null);
-        var effectiveMask = drawCall.MaskTexture;
         bool hasEffectiveMask = Compositor.HasMask(drawCall);
-        var maskWidth = effectiveMask?.Width ?? compositor.CurrentCanvasPixelWidth;
-        var maskHeight = effectiveMask?.Height ?? compositor.CurrentCanvasPixelHeight;
         var sourceUvRect = GetSourceUvRect(parameters, sourceTexture);
 
         var gpuResources = GetGpuResources(compositor);
@@ -229,15 +227,15 @@ public sealed unsafe class BackdropMaterialExtensionPipeline : ICompositorExtens
             Geometry0 = new Vector4(
                 MathF.Max(0.0001f, MathF.Abs(parameters.Rect.Width)),
                 MathF.Max(0.0001f, MathF.Abs(parameters.Rect.Height)),
-                MathF.Max(1f, maskWidth),
-                MathF.Max(1f, maskHeight)),
+                MathF.Max(1f, compositor.CurrentCanvasPixelWidth),
+                MathF.Max(1f, compositor.CurrentCanvasPixelHeight)),
             RadiiX = ClampRadii(parameters.CornerRadiiX),
             RadiiY = ClampRadii(parameters.CornerRadiiY),
             Flags0 = new Vector4(
                 hasSource ? 1f : 0f,
                 hasEffectiveMask ? 1f : 0f,
                 sourceTexture.AlphaMode == GpuTextureAlphaMode.Premultiplied ? 1f : 0f,
-                0f),
+                capturedHostBackdrop != null ? 1f : 0f),
             SourceUvRect = sourceUvRect
         });
 

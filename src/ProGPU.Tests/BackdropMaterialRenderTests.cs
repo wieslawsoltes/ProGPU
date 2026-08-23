@@ -75,6 +75,45 @@ public sealed class BackdropMaterialRenderTests
     }
 
     [Fact]
+    public void HostBackdropCapturesPreviouslyRenderedTargetContent()
+    {
+        var window = HeadlessWindow.Shared;
+        using var target = new GpuTexture(
+            window.Context,
+            32,
+            32,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+                TextureUsage.TextureBinding |
+                TextureUsage.CopySrc,
+            "Host Backdrop Target",
+            alphaMode: GpuTextureAlphaMode.Premultiplied);
+        var visual = new HostBackdropVisual();
+
+        window.Compositor.RenderOffscreen(
+            visual,
+            32,
+            32,
+            target,
+            0f,
+            1f,
+            Vector4.Zero);
+
+        var pixels = target.ReadPixels();
+        var outsideLeft = ReadPixel(pixels, target.Width, 4, 16);
+        var blurredBoundary = ReadPixel(pixels, target.Width, 16, 12);
+        var foreground = ReadPixel(pixels, target.Width, 15, 15);
+
+        Assert.InRange(outsideLeft.R, 247, 255);
+        Assert.InRange(outsideLeft.B, 0, 8);
+        Assert.InRange(blurredBoundary.R, 24, 224);
+        Assert.InRange(blurredBoundary.B, 24, 224);
+        Assert.InRange(foreground.R, 0, 8);
+        Assert.InRange(foreground.G, 247, 255);
+        Assert.InRange(foreground.B, 0, 8);
+    }
+
+    [Fact]
     public void AppendTranslatesBackdropMaterialWithoutChangingSourceRect()
     {
         var parameters = new BackdropMaterialParams
@@ -181,6 +220,29 @@ public sealed class BackdropMaterialRenderTests
                 _material,
                 new Rect(0f, 0f, 32f, 32f),
                 sourceTexture: _source);
+        }
+    }
+
+    private sealed class HostBackdropVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _red = new(new Vector4(1f, 0f, 0f, 1f));
+        private readonly SolidColorBrush _blue = new(new Vector4(0f, 0f, 1f, 1f));
+        private readonly SolidColorBrush _green = new(new Vector4(0f, 1f, 0f, 1f));
+        private readonly BackdropMaterialBrush _material = new()
+        {
+            Kind = BackdropMaterialKind.Blur,
+            Source = BackdropMaterialSource.HostBackdrop,
+            NoiseOpacity = 0f,
+            BlurRadius = 12f,
+            Saturation = 1f
+        };
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(_red, null, new Rect(0f, 0f, 16f, 32f));
+            context.DrawRectangle(_blue, null, new Rect(16f, 0f, 16f, 32f));
+            context.DrawBackdropMaterial(_material, new Rect(8f, 8f, 16f, 16f));
+            context.DrawRectangle(_green, null, new Rect(14f, 14f, 4f, 4f));
         }
     }
 }
