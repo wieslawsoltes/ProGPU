@@ -156,6 +156,45 @@ public sealed class BackdropMaterialRenderTests
     }
 
     [Fact]
+    public void ScaledNestedHostBackdropCoversItsFullHeight()
+    {
+        var window = HeadlessWindow.Shared;
+        using var target = new GpuTexture(
+            window.Context,
+            600,
+            900,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment |
+                TextureUsage.TextureBinding |
+                TextureUsage.CopySrc,
+            "Scaled Host Backdrop Target",
+            alphaMode: GpuTextureAlphaMode.Premultiplied);
+
+        var visual = new ScaledNestedHostBackdropVisual();
+        for (var frame = 0; frame < 6; frame++)
+        {
+            window.Compositor.RenderOffscreen(
+                visual,
+                600,
+                900,
+                target,
+                0f,
+                1f,
+                Vector4.One);
+        }
+
+        var pixels = target.ReadPixels();
+        foreach (var y in new[] { 300, 500, 700, 850 })
+        {
+            var covered = ReadPixel(pixels, target.Width, 450, y);
+            Assert.InRange(covered.R, 209, 217);
+            Assert.InRange(covered.G, 209, 217);
+            Assert.InRange(covered.B, 209, 217);
+            Assert.Equal(255, covered.A);
+        }
+    }
+
+    [Fact]
     public void AppendTranslatesBackdropMaterialWithoutChangingSourceRect()
     {
         var parameters = new BackdropMaterialParams
@@ -335,6 +374,88 @@ public sealed class BackdropMaterialRenderTests
                 new Rect(0f, 0f, 32f, 32f));
             context.PopGeometryClip();
             context.PopGeometryClip();
+            context.PopGeometryClip();
+        }
+    }
+
+    private sealed class ScaledNestedHostBackdropVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _white =
+            new(Vector4.One);
+        private readonly SolidColorBrush _black =
+            new(new Vector4(0f, 0f, 0f, 1f));
+        private readonly BackdropMaterialBrush _material = new()
+        {
+            Kind = BackdropMaterialKind.Acrylic,
+            Source = BackdropMaterialSource.HostBackdrop,
+            TintColor = new Vector4(0.988f, 0.988f, 0.988f, 0f),
+            LuminosityColor = new Vector4(0.988f, 0.988f, 0.988f, 0.847f),
+            NoiseOpacity = 0f,
+            BlurRadius = 0f,
+            Saturation = 1f
+        };
+        private readonly Matrix4x4 _outerTransform =
+            Matrix4x4.CreateScale(2f, 2f, 1f) *
+            Matrix4x4.CreateTranslation(8f, 210f, 0f);
+        private readonly Matrix4x4 _innerTransform =
+            Matrix4x4.CreateTranslation(1f, 1f, 0f);
+        private readonly GpuPicture _popup;
+
+        public ScaledNestedHostBackdropVisual()
+        {
+            var recorder = new GpuPictureRecorder();
+            var popup = recorder.BeginRecording(
+                new Rect(0f, 0f, 600f, 900f));
+            popup.PushGeometryClip(
+                PrimitivePathGeometry.CreateRoundedRectangle(
+                    1f,
+                    1f,
+                    270f,
+                    324f,
+                    7.5f,
+                    7.5f),
+                Matrix4x4.Identity);
+            popup.PushGeometryClip(
+                PrimitivePathGeometry.CreateRoundedRectangle(
+                    0f,
+                    0f,
+                    270f,
+                    324f,
+                    7.5f,
+                    7.5f),
+                _innerTransform);
+            popup.DrawBackdropMaterial(
+                _material,
+                new Rect(1f, 1f, 269f, 323f));
+            popup.PopGeometryClip();
+            popup.PopGeometryClip();
+            _popup = recorder.EndRecording();
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                _white,
+                null,
+                new Rect(0f, 0f, 600f, 900f));
+            foreach (var y in new[] { 300f, 500f, 700f, 850f })
+            {
+                context.DrawRectangle(
+                    _black,
+                    null,
+                    new Rect(400f, y - 4f, 100f, 8f));
+            }
+
+            context.PushGeometryClip(
+                PrimitivePathGeometry.CreateRoundedRectangle(
+                    0f,
+                    0f,
+                    272f,
+                    326f,
+                    8.5f,
+                    8.5f),
+                _outerTransform);
+            context.DrawPictureTransformed(_popup, _outerTransform);
             context.PopGeometryClip();
         }
     }
