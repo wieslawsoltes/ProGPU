@@ -165,6 +165,21 @@ public sealed class VisualChangeVersionTests
         var shaderVersion = shader.ChangeVersion;
         shader.Padding = 6f;
         Assert.True(shader.ChangeVersion > shaderVersion);
+
+        var colorMatrix = new ColorMatrixEffect(new ImageEffectColorMatrix(
+            Vector4.UnitX,
+            Vector4.UnitY,
+            Vector4.UnitZ,
+            Vector4.UnitW,
+            Vector4.Zero));
+        var colorMatrixVersion = colorMatrix.ChangeVersion;
+        colorMatrix.ColorMatrix = new ImageEffectColorMatrix(
+            Vector4.UnitZ,
+            Vector4.UnitY,
+            Vector4.UnitX,
+            Vector4.UnitW,
+            Vector4.Zero);
+        Assert.True(colorMatrix.ChangeVersion > colorMatrixVersion);
     }
 
     [Fact]

@@ -285,6 +285,54 @@ public sealed class VisualEffectRenderTests
         }
     }
 
+    [Fact]
+    public void ColorMatrixEffectTransformsTheIsolatedVisualOnGpu()
+    {
+        var window = HeadlessWindow.Shared;
+        window.Resize(48, 32);
+        var effect = new ColorMatrixEffect(
+            new ImageEffectColorMatrix(
+                new Vector4(0f, 0f, 1f, 0f),
+                Vector4.UnitY,
+                new Vector4(1f, 0f, 0f, 0f),
+                Vector4.UnitW,
+                Vector4.Zero));
+        var visual = new ColorMatrixVisual(effect);
+        visual.Transform = Matrix4x4.CreateTranslation(8f, 6f, 0f);
+        window.Content = visual;
+
+        try
+        {
+            window.Render();
+
+            var transformed = ReadPixel(window.ReadPixels(), window.Width, 12, 10);
+            Assert.InRange(transformed.R, 0, 10);
+            Assert.InRange(transformed.G, 0, 10);
+            Assert.InRange(transformed.B, 245, 255);
+            Assert.Equal(255, transformed.A);
+            Assert.Equal(12u * 8u * 4u, window.Compositor.Metrics.EffectTextureBytes);
+
+            effect.ColorMatrix = new ImageEffectColorMatrix(
+                Vector4.UnitX,
+                Vector4.UnitY,
+                Vector4.UnitZ,
+                Vector4.UnitW,
+                Vector4.Zero);
+            window.Render();
+
+            var restored = ReadPixel(window.ReadPixels(), window.Width, 12, 10);
+            Assert.InRange(restored.R, 245, 255);
+            Assert.InRange(restored.G, 0, 10);
+            Assert.InRange(restored.B, 0, 10);
+            Assert.Equal(255, restored.A);
+            Assert.False(window.Compositor.Metrics.SceneCacheHit);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
     private static RgbaPixel ReadPixel(byte[] pixels, uint width, int x, int y)
     {
         var index = ((y * (int)width) + x) * 4;
@@ -472,6 +520,29 @@ public sealed class VisualEffectRenderTests
                 _green,
                 null,
                 new Rect(20f, 10f, 60f, 40f));
+        }
+    }
+
+    private sealed class ColorMatrixVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _red =
+            new(new Vector4(1f, 0f, 0f, 1f));
+
+        public ColorMatrixVisual(ColorMatrixEffect effect)
+        {
+            Width = 12f;
+            Height = 8f;
+            Effect = effect;
+            EffectContentBounds = new Rect(0f, 0f, 12f, 8f);
+            EffectRasterPadding = 0f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                _red,
+                null,
+                new Rect(0f, 0f, 12f, 8f));
         }
     }
 }
