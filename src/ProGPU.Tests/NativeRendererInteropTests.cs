@@ -4331,6 +4331,14 @@ public class NativeRendererInteropTests
             StringComparison.Ordinal);
         Assert.Contains("--managed-picture", nativeBuild, StringComparison.Ordinal);
         Assert.Contains("--managed-picture", windowsBuild, StringComparison.Ordinal);
+        Assert.Contains(
+            "adapter=Parallels Display Adapter",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--managed-picture --profile-native-only --rectangles 384",
+            windowsBuild,
+            StringComparison.Ordinal);
 
         using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(
             FindRepoFile("eng", "progpu-native-dawn.version.json")));
