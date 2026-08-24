@@ -128,12 +128,16 @@ bool request_device(
     WGPUAdapter& adapter,
     WGPUDevice& device,
     WGPUQueue& queue) {
+    std::cerr << "[ProGPUNative] enumerating platform adapters."
+              << std::endl;
     WGPUInstanceEnumerateAdapterOptions adapter_options{};
     adapter_options.backends = platform_backends();
     const std::size_t adapter_count = wgpuInstanceEnumerateAdapters(
         instance,
         &adapter_options,
         nullptr);
+    std::cerr << "[ProGPUNative] adapter count=" << adapter_count << '.'
+              << std::endl;
     if (adapter_count == 0U) {
         std::cerr << "No requested WebGPU backend adapter was found.\n";
         return false;
@@ -143,6 +147,8 @@ bool request_device(
         instance,
         &adapter_options,
         adapters.data());
+    std::cerr << "[ProGPUNative] enumerated " << written << " adapter(s)."
+              << std::endl;
     if (written == 0U || adapters[0] == nullptr) {
         std::cerr << "WebGPU adapter enumeration failed.\n";
         return false;
@@ -157,11 +163,13 @@ bool request_device(
     descriptor.defaultQueue.label = "ProGPU native sample queue";
     descriptor.deviceLostCallback = on_device_lost;
     device_request request{};
+    std::cerr << "[ProGPUNative] requesting WebGPU device." << std::endl;
     wgpuAdapterRequestDevice(
         adapter,
         &descriptor,
         on_device_requested,
         &request);
+    std::cerr << "[ProGPUNative] device request returned." << std::endl;
     if (!request.complete.load(std::memory_order_acquire) ||
         request.device == nullptr) {
         std::cerr << "The wgpu-native ABI did not complete the device request.\n";
@@ -347,7 +355,10 @@ int main(int argc, char** argv) {
     extras.flags = WGPUInstanceFlag_Validation;
     WGPUInstanceDescriptor instance_descriptor{};
     instance_descriptor.nextInChain = &extras.chain;
+    std::cerr << "[ProGPUNative] creating WebGPU instance." << std::endl;
     WGPUInstance instance = wgpuCreateInstance(&instance_descriptor);
+    std::cerr << "[ProGPUNative] WebGPU instance creation returned."
+              << std::endl;
     if (instance == nullptr) {
         std::cerr << "Could not create the wgpu-native instance.\n";
         return EXIT_FAILURE;
@@ -377,9 +388,9 @@ int main(int argc, char** argv) {
                   << backend_name(adapter_properties.backendType) << ".\n";
         return EXIT_FAILURE;
     }
-    std::cout << "[ProGPUNative] selected "
+    std::cerr << "[ProGPUNative] selected "
               << backend_name(adapter_properties.backendType)
-              << " adapter '" << adapter_name << "'.\n";
+              << " adapter '" << adapter_name << "'." << std::endl;
 
     constexpr std::uint32_t width = 640U;
     constexpr std::uint32_t height = 360U;
@@ -803,7 +814,8 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
     if (!defer_software_d3d12_hit_test) {
-        std::cout << "[ProGPUNative] executing retained GPU hit test.\n";
+        std::cerr << "[ProGPUNative] executing retained GPU hit test."
+                  << std::endl;
     }
     if (!defer_software_d3d12_hit_test &&
         !verify_retained_gpu_hit_test(engine, device)) {
@@ -834,7 +846,7 @@ int main(int argc, char** argv) {
     frame.clear_color = {0.02F, 0.025F, 0.04F, 1.0F};
     progpu_native_scene_frame_metrics metrics{};
     metrics.struct_size = sizeof(metrics);
-    std::cout << "[ProGPUNative] rendering retained scene.\n";
+    std::cerr << "[ProGPUNative] rendering retained scene." << std::endl;
     const progpu_native_status render_status =
         progpu_native_engine_render_scene(engine, &frame, &metrics);
     if (render_status != PROGPU_NATIVE_STATUS_SUCCESS) {
@@ -846,7 +858,8 @@ int main(int argc, char** argv) {
         std::cerr << "Native render failed: " << error.data() << '\n';
         return EXIT_FAILURE;
     }
-    std::cout << "[ProGPUNative] retained scene rendered; reading pixels.\n";
+    std::cerr << "[ProGPUNative] retained scene rendered; reading pixels."
+              << std::endl;
 
     const std::uint32_t row_bytes = align_row_bytes(width * 4U);
     const std::uint64_t readback_size =
@@ -884,6 +897,8 @@ int main(int argc, char** argv) {
         readback_size,
         on_buffer_mapped,
         &mapped);
+    std::cerr << "[ProGPUNative] waiting for native sample readback."
+              << std::endl;
     const bool map_completed = wait_for_gpu_callback(
         device,
         mapped.complete,
