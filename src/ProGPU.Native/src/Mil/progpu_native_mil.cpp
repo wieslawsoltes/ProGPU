@@ -541,6 +541,7 @@ struct channel::implementation {
         std::uint32_t content_handle,
         double offset_x,
         double offset_y,
+        double base_opacity,
         native::semantic_scene_builder& builder,
         std::unordered_map<std::uint32_t, std::uint32_t>& brush_indices,
         scene_metrics& metrics) const {
@@ -552,13 +553,60 @@ struct channel::implementation {
 
         batch_reader reader(resource->second.render_data);
         command_view view{};
+        double current_opacity = base_opacity;
+        std::vector<double> scope_opacities;
         for (;;) {
             const status read_status = reader.next(view);
             if (read_status == status::end_of_batch) {
-                return status::success;
+                return scope_opacities.empty()
+                    ? status::success
+                    : status::invalid_graph;
             }
             if (read_status != status::success) {
                 return read_status;
+            }
+
+            if (view.kind == command::push_opacity) {
+                double opacity = 0.0;
+                if (!has_exact_size(view, 12U) ||
+                    !read_at(view.packet, 4U, opacity)) {
+                    return status::malformed_batch;
+                }
+                if (!std::isfinite(opacity) || opacity < 0.0 ||
+                    opacity > 1.0) {
+                    return status::malformed_batch;
+                }
+                const double combined_opacity = current_opacity * opacity;
+                if (!std::isfinite(combined_opacity) ||
+                    combined_opacity < 0.0 || combined_opacity > 1.0) {
+                    return status::invalid_graph;
+                }
+                auto state = native::semantic_scene_builder::identity_state();
+                state.transform.m31 = static_cast<float>(offset_x);
+                state.transform.m32 = static_cast<float>(offset_y);
+                state.opacity = static_cast<float>(combined_opacity);
+                std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (!builder.add_state(state, state_index) ||
+                    !builder.save(state_index)) {
+                    return status::invalid_graph;
+                }
+                scope_opacities.push_back(current_opacity);
+                current_opacity = combined_opacity;
+                continue;
+            }
+            if (view.kind == command::pop) {
+                if (!has_exact_size(view, 4U)) {
+                    return status::malformed_batch;
+                }
+                if (scope_opacities.empty()) {
+                    return status::invalid_graph;
+                }
+                if (!builder.restore()) {
+                    return status::invalid_graph;
+                }
+                current_opacity = scope_opacities.back();
+                scope_opacities.pop_back();
+                continue;
             }
             if (view.kind != command::draw_rectangle) {
                 return status::unsupported_command;
@@ -686,6 +734,7 @@ struct channel::implementation {
                 visual->second.content_handle,
                 offset_x,
                 offset_y,
+                opacity,
                 builder,
                 brush_indices,
                 metrics);

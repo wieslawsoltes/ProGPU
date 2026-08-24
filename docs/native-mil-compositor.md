@@ -87,14 +87,17 @@ The first Stage 1 vertical slice is implemented in the typed C++ API, the
 size-versioned C ABI, and `NativeMilChannel.CompileScene(...)`. It
 decodes the exact WPF `MILCMD_SOLIDCOLORBRUSH` record and nested
 `MILCMD_DRAW_RECTANGLE` record, applies retained visual offsets and opacity,
-walks the target's visual tree with cycle/depth validation, and emits the
-shared pointer-free ProGPU semantic scene stream. Animated/transform brushes,
-rectangle pens, and other nested commands deliberately fail closed until their
-typed resources are implemented. The slice is covered by a byte-level fixture
-that checks semantic brush, state, primitive, scene identity, generation, and
-tree metrics. The C ABI supports an explicit required-size query and writes
-into caller-owned storage; the managed owner returns the completed semantic
-stream with typed compilation metrics for direct native compositor submission.
+supports balanced nested `MILCMD_PUSH_OPACITY`/`MILCMD_POP` scopes, walks the
+target's visual tree with cycle/depth validation, and emits the shared pointer-
+free ProGPU semantic scene stream. Scope opacity is composed with retained
+visual opacity in native semantic state; malformed opacity and over/underflowed
+scope stacks fail closed. Animated/transform brushes, rectangle pens, and other
+nested commands deliberately fail closed until their typed resources are
+implemented. The slice is covered by byte-level fixtures that check semantic
+brush, state, primitive, nested scope, scene identity, generation, and tree
+metrics. The C ABI supports an explicit required-size query and writes into
+caller-owned storage; the managed owner returns the completed semantic stream
+with typed compilation metrics for direct native compositor submission.
 `NativeMilBatchBuilder` and `NativeMilRenderDataBuilder` provide the matching
 managed producer for this supported subset. They write the canonical WPF
 framing and packed field offsets directly into reusable buffer writers, expose

@@ -224,6 +224,23 @@ public sealed class NativeMilRenderDataBuilder
 
     public void Clear() => _writer.Clear();
 
+    public void PushOpacity(double opacity)
+    {
+        if (!double.IsFinite(opacity) || opacity < 0.0 || opacity > 1.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(opacity));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PushOpacity, 12);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, opacity);
+    }
+
+    public void Pop()
+    {
+        _ = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.Pop, 4);
+    }
+
     public void DrawRectangle(
         double x,
         double y,
@@ -281,5 +298,7 @@ internal static class NativeMilCommand
     internal const uint TargetSetRoot = 0x35;
     internal const uint TargetSetClearColor = 0x36;
     internal const uint DrawRectangle = 0x40;
+    internal const uint PushOpacity = 0x4f;
+    internal const uint Pop = 0x56;
     internal const uint SolidColorBrush = 0x7e;
 }
