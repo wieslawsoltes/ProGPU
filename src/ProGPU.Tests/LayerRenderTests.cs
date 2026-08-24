@@ -3,6 +3,7 @@ using System.Linq;
 using System.Numerics;
 using Microsoft.UI.Xaml;
 using ProGPU.Backend;
+using ProGPU.Backend.Dawn;
 using ProGPU.Scene;
 using ProGPU.Tests.Headless;
 using ProGPU.Vector;
@@ -13,6 +14,47 @@ namespace ProGPU.Tests;
 
 public sealed class LayerRenderTests
 {
+    [Fact]
+    public unsafe void DawnReplaysCompiledRenderBundle()
+    {
+        if (!OperatingSystem.IsMacOS())
+        {
+            return;
+        }
+
+        using var dawn = DawnGpuContext.CreateMetalPresentation();
+        using var compositor = new Compositor(
+            dawn.Context,
+            TextureFormat.Rgba8Unorm,
+            CompositorOptions.Default with
+            {
+                EnableGpuHitTesting = false,
+                PrimarySampleCount = 1
+            });
+        using var target = new GpuTexture(
+            dawn.Context,
+            64,
+            64,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc,
+            "Dawn retained bundle test target");
+        var visual = new SceneCacheVisual();
+        visual.Measure(new Vector2(64f, 64f));
+        visual.Arrange(new Rect(0f, 0f, 64f, 64f));
+
+        compositor.RenderScene(visual, 64, 64, target.ViewPtr);
+
+        Assert.True(compositor.Metrics.RenderBundleRecorded);
+        Assert.False(compositor.Metrics.RenderBundleCacheHit);
+
+        compositor.RenderScene(visual, 64, 64, target.ViewPtr);
+
+        Assert.True(compositor.Metrics.SceneCacheHit);
+        Assert.False(compositor.Metrics.RenderBundleRecorded);
+        Assert.True(compositor.Metrics.RenderBundleCacheHit);
+        AssertRed(ReadPixel(target.ReadPixels(), 64, 20, 20));
+    }
+
     [Fact]
     public void UnchangedSceneReusesCompiledGpuBuffers()
     {

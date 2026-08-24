@@ -19,6 +19,7 @@ namespace ProGPU.Backend.Dawn;
 /// </remarks>
 public sealed unsafe class DawnWebGpuApi :
     IWebGpuApi,
+    IWebGpuRenderBundleApi,
     IWebGpuExternalSurfaceApi
 {
     private const int MaxDescriptorItems = 256;
@@ -155,6 +156,37 @@ public sealed unsafe class DawnWebGpuApi :
         };
         return Pointer(
             DeviceHandle(device).CreateCommandEncoder(&native));
+    }
+
+    public SW.RenderBundleEncoder* DeviceCreateRenderBundleEncoder(
+        SW.Device* device,
+        SW.RenderBundleEncoderDescriptor* descriptor)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        int colorFormatCount = DescriptorCount(
+            descriptor->ColorFormatCount,
+            "render bundle color format count");
+        W.TextureFormat* colorFormats =
+            stackalloc W.TextureFormat[colorFormatCount];
+        for (int index = 0; index < colorFormatCount; index++)
+        {
+            colorFormats[index] = TextureFormat(
+                descriptor->ColorFormats[index]);
+        }
+
+        var native = new DawnFfi.RenderBundleEncoderDescriptorFFI
+        {
+            Label = StringView(descriptor->Label),
+            ColorFormatCount = descriptor->ColorFormatCount,
+            ColorFormats = colorFormats,
+            DepthStencilFormat = TextureFormat(
+                descriptor->DepthStencilFormat),
+            SampleCount = descriptor->SampleCount,
+            DepthReadOnly = (bool)descriptor->DepthReadOnly,
+            StencilReadOnly = (bool)descriptor->StencilReadOnly
+        };
+        return Pointer(
+            DeviceHandle(device).CreateRenderBundleEncoder(&native));
     }
 
     public SW.ComputePipeline* DeviceCreateComputePipeline(
@@ -799,6 +831,104 @@ public sealed unsafe class DawnWebGpuApi :
             baseVertex,
             firstInstance);
 
+    public void RenderBundleEncoderSetPipeline(
+        SW.RenderBundleEncoder* encoder,
+        SW.RenderPipeline* pipeline) =>
+        RenderBundleEncoderHandle(encoder).SetPipeline(
+            RenderPipelineHandle(pipeline));
+
+    public void RenderBundleEncoderSetBindGroup(
+        SW.RenderBundleEncoder* encoder,
+        uint groupIndex,
+        SW.BindGroup* group,
+        nuint dynamicOffsetCount,
+        uint* dynamicOffsets) =>
+        RenderBundleEncoderHandle(encoder).SetBindGroup(
+            groupIndex,
+            BindGroupHandle(group),
+            dynamicOffsetCount,
+            dynamicOffsets);
+
+    public void RenderBundleEncoderSetVertexBuffer(
+        SW.RenderBundleEncoder* encoder,
+        uint slot,
+        SilkBuffer* buffer,
+        ulong offset,
+        ulong size) =>
+        RenderBundleEncoderHandle(encoder).SetVertexBuffer(
+            slot,
+            BufferHandle(buffer),
+            offset,
+            size);
+
+    public void RenderBundleEncoderSetIndexBuffer(
+        SW.RenderBundleEncoder* encoder,
+        SilkBuffer* buffer,
+        SW.IndexFormat format,
+        ulong offset,
+        ulong size) =>
+        RenderBundleEncoderHandle(encoder).SetIndexBuffer(
+            BufferHandle(buffer),
+            IndexFormat(format),
+            offset,
+            size);
+
+    public void RenderBundleEncoderDraw(
+        SW.RenderBundleEncoder* encoder,
+        uint vertexCount,
+        uint instanceCount,
+        uint firstVertex,
+        uint firstInstance) =>
+        RenderBundleEncoderHandle(encoder).Draw(
+            vertexCount,
+            instanceCount,
+            firstVertex,
+            firstInstance);
+
+    public void RenderBundleEncoderDrawIndexed(
+        SW.RenderBundleEncoder* encoder,
+        uint indexCount,
+        uint instanceCount,
+        uint firstIndex,
+        int baseVertex,
+        uint firstInstance) =>
+        RenderBundleEncoderHandle(encoder).DrawIndexed(
+            indexCount,
+            instanceCount,
+            firstIndex,
+            baseVertex,
+            firstInstance);
+
+    public SW.RenderBundle* RenderBundleEncoderFinish(
+        SW.RenderBundleEncoder* encoder,
+        SW.RenderBundleDescriptor* descriptor)
+    {
+        var native = new DawnFfi.RenderBundleDescriptorFFI
+        {
+            Label = descriptor == null
+                ? DawnFfi.StringViewFFI.NullValue
+                : StringView(descriptor->Label)
+        };
+        return Pointer(RenderBundleEncoderHandle(encoder).Finish(&native));
+    }
+
+    public void RenderPassEncoderExecuteBundles(
+        SW.RenderPassEncoder* pass,
+        nuint bundleCount,
+        SW.RenderBundle** bundles)
+    {
+        int count = DescriptorCount(bundleCount, nameof(bundleCount));
+        DawnFfi.RenderBundleHandle* nativeBundles =
+            stackalloc DawnFfi.RenderBundleHandle[count];
+        for (int index = 0; index < count; index++)
+        {
+            nativeBundles[index] = RenderBundleHandle(bundles[index]);
+        }
+        RenderPassEncoderHandle(pass).ExecuteBundles(
+            bundleCount,
+            nativeBundles);
+    }
+
     public void RenderPassEncoderEnd(
         SW.RenderPassEncoder* pass) =>
         RenderPassEncoderHandle(pass).End();
@@ -1003,6 +1133,14 @@ public sealed unsafe class DawnWebGpuApi :
     public void RenderPassEncoderRelease(
         SW.RenderPassEncoder* value) =>
         RenderPassEncoderHandle(value).Release();
+
+    public void RenderBundleEncoderRelease(
+        SW.RenderBundleEncoder* value) =>
+        RenderBundleEncoderHandle(value).Release();
+
+    public void RenderBundleRelease(
+        SW.RenderBundle* value) =>
+        RenderBundleHandle(value).Release();
 
     public void RenderPipelineRelease(
         SW.RenderPipeline* value) =>
@@ -1627,6 +1765,11 @@ public sealed unsafe class DawnWebGpuApi :
     private static DawnFfi.RenderPassEncoderHandle
         RenderPassEncoderHandle(
             SW.RenderPassEncoder* value) => new((nuint)value);
+    private static DawnFfi.RenderBundleEncoderHandle
+        RenderBundleEncoderHandle(
+            SW.RenderBundleEncoder* value) => new((nuint)value);
+    private static DawnFfi.RenderBundleHandle RenderBundleHandle(
+        SW.RenderBundle* value) => new((nuint)value);
     private static DawnFfi.ComputePipelineHandle ComputePipelineHandle(
         SW.ComputePipeline* value) => new((nuint)value);
     private static DawnFfi.RenderPipelineHandle RenderPipelineHandle(
@@ -1658,6 +1801,12 @@ public sealed unsafe class DawnWebGpuApi :
     private static SW.RenderPassEncoder* Pointer(
         DawnFfi.RenderPassEncoderHandle value) =>
         (SW.RenderPassEncoder*)value.GetAddress();
+    private static SW.RenderBundleEncoder* Pointer(
+        DawnFfi.RenderBundleEncoderHandle value) =>
+        (SW.RenderBundleEncoder*)value.GetAddress();
+    private static SW.RenderBundle* Pointer(
+        DawnFfi.RenderBundleHandle value) =>
+        (SW.RenderBundle*)value.GetAddress();
     private static SW.ComputePipeline* Pointer(
         DawnFfi.ComputePipelineHandle value) =>
         (SW.ComputePipeline*)value.GetAddress();
