@@ -24,6 +24,8 @@ constexpr std::uint32_t type_hwnd_render_target = 46U;
 constexpr std::uint32_t type_generic_render_target = 47U;
 constexpr std::uint32_t type_matrix_transform = 66U;
 constexpr std::uint32_t type_line_geometry = 68U;
+constexpr std::uint32_t type_rectangle_geometry = 69U;
+constexpr std::uint32_t type_ellipse_geometry = 70U;
 constexpr std::uint32_t type_solid_color_brush = 75U;
 constexpr std::uint32_t type_dash_style = 84U;
 constexpr std::uint32_t type_pen = 85U;
@@ -318,11 +320,20 @@ struct channel::implementation {
 
     using matrix_transform_state = affine_2d_double;
 
-    struct line_geometry_state {
-        double start_x{};
-        double start_y{};
-        double end_x{};
-        double end_y{};
+    enum class fixed_geometry_kind : std::uint32_t {
+        line,
+        rectangle,
+        ellipse
+    };
+
+    struct fixed_geometry_state {
+        fixed_geometry_kind kind{fixed_geometry_kind::line};
+        double first{};
+        double second{};
+        double third{};
+        double fourth{};
+        double radius_x{};
+        double radius_y{};
         std::uint32_t transform_handle{};
     };
 
@@ -337,7 +348,7 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, target_state> targets;
     std::unordered_map<std::uint32_t, matrix_transform_state>
         matrix_transforms;
-    std::unordered_map<std::uint32_t, line_geometry_state> line_geometries;
+    std::unordered_map<std::uint32_t, fixed_geometry_state> fixed_geometries;
     std::unordered_map<std::uint32_t, solid_brush_state> solid_brushes;
     std::unordered_map<std::uint32_t, dash_style_state> dash_styles;
     std::unordered_map<std::uint32_t, pen_state> pens;
@@ -457,7 +468,7 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
             }
-            for (const auto& [geometry_handle, geometry] : line_geometries) {
+            for (const auto& [geometry_handle, geometry] : fixed_geometries) {
                 if (geometry_handle != handle &&
                     geometry.transform_handle == handle) {
                     return status::invalid_graph;
@@ -466,7 +477,7 @@ struct channel::implementation {
             visuals.erase(handle);
             targets.erase(handle);
             matrix_transforms.erase(handle);
-            line_geometries.erase(handle);
+            fixed_geometries.erase(handle);
             solid_brushes.erase(handle);
             dash_styles.erase(handle);
             pens.erase(handle);
@@ -766,15 +777,16 @@ struct channel::implementation {
             return status::success;
         }
         case command::line_geometry: {
-            line_geometry_state geometry{};
+            fixed_geometry_state geometry{};
+            geometry.kind = fixed_geometry_kind::line;
             std::uint32_t start_animations = 0U;
             std::uint32_t end_animations = 0U;
             if (!has_exact_size(view, 52U) ||
                 !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, geometry.start_x) ||
-                !read_at(view.packet, 16U, geometry.start_y) ||
-                !read_at(view.packet, 24U, geometry.end_x) ||
-                !read_at(view.packet, 32U, geometry.end_y) ||
+                !read_at(view.packet, 8U, geometry.first) ||
+                !read_at(view.packet, 16U, geometry.second) ||
+                !read_at(view.packet, 24U, geometry.third) ||
+                !read_at(view.packet, 32U, geometry.fourth) ||
                 !read_at(view.packet, 40U, geometry.transform_handle) ||
                 !read_at(view.packet, 44U, start_animations) ||
                 !read_at(view.packet, 48U, end_animations)) {
@@ -790,13 +802,100 @@ struct channel::implementation {
             if (start_animations != 0U || end_animations != 0U) {
                 return status::unsupported_command;
             }
-            if (!finite_double_as_float(geometry.start_x) ||
-                !finite_double_as_float(geometry.start_y) ||
-                !finite_double_as_float(geometry.end_x) ||
-                !finite_double_as_float(geometry.end_y)) {
+            if (!finite_double_as_float(geometry.first) ||
+                !finite_double_as_float(geometry.second) ||
+                !finite_double_as_float(geometry.third) ||
+                !finite_double_as_float(geometry.fourth)) {
                 return status::malformed_batch;
             }
-            line_geometries.insert_or_assign(handle, geometry);
+            fixed_geometries.insert_or_assign(handle, geometry);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::rectangle_geometry: {
+            fixed_geometry_state geometry{};
+            geometry.kind = fixed_geometry_kind::rectangle;
+            std::uint32_t radius_x_animations = 0U;
+            std::uint32_t radius_y_animations = 0U;
+            std::uint32_t rect_animations = 0U;
+            if (!has_exact_size(view, 72U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, geometry.radius_x) ||
+                !read_at(view.packet, 16U, geometry.radius_y) ||
+                !read_at(view.packet, 24U, geometry.first) ||
+                !read_at(view.packet, 32U, geometry.second) ||
+                !read_at(view.packet, 40U, geometry.third) ||
+                !read_at(view.packet, 48U, geometry.fourth) ||
+                !read_at(view.packet, 56U, geometry.transform_handle) ||
+                !read_at(view.packet, 60U, radius_x_animations) ||
+                !read_at(view.packet, 64U, radius_y_animations) ||
+                !read_at(view.packet, 68U, rect_animations)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_rectangle_geometry) ||
+                (geometry.transform_handle != 0U &&
+                 !require_resource(
+                     geometry.transform_handle,
+                     type_matrix_transform))) {
+                return status::invalid_handle;
+            }
+            if (radius_x_animations != 0U || radius_y_animations != 0U ||
+                rect_animations != 0U) {
+                return status::unsupported_command;
+            }
+            if (!finite_double_as_float(geometry.radius_x) ||
+                !finite_double_as_float(geometry.radius_y) ||
+                !finite_double_as_float(geometry.first) ||
+                !finite_double_as_float(geometry.second) ||
+                !finite_double_as_float(geometry.third) ||
+                !finite_double_as_float(geometry.fourth) ||
+                geometry.radius_x < 0.0 || geometry.radius_y < 0.0 ||
+                geometry.third < 0.0 || geometry.fourth < 0.0) {
+                return status::malformed_batch;
+            }
+            fixed_geometries.insert_or_assign(handle, geometry);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::ellipse_geometry: {
+            fixed_geometry_state geometry{};
+            geometry.kind = fixed_geometry_kind::ellipse;
+            std::uint32_t radius_x_animations = 0U;
+            std::uint32_t radius_y_animations = 0U;
+            std::uint32_t center_animations = 0U;
+            if (!has_exact_size(view, 56U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, geometry.third) ||
+                !read_at(view.packet, 16U, geometry.fourth) ||
+                !read_at(view.packet, 24U, geometry.first) ||
+                !read_at(view.packet, 32U, geometry.second) ||
+                !read_at(view.packet, 40U, geometry.transform_handle) ||
+                !read_at(view.packet, 44U, radius_x_animations) ||
+                !read_at(view.packet, 48U, radius_y_animations) ||
+                !read_at(view.packet, 52U, center_animations)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_ellipse_geometry) ||
+                (geometry.transform_handle != 0U &&
+                 !require_resource(
+                     geometry.transform_handle,
+                     type_matrix_transform))) {
+                return status::invalid_handle;
+            }
+            if (radius_x_animations != 0U || radius_y_animations != 0U ||
+                center_animations != 0U) {
+                return status::unsupported_command;
+            }
+            if (!finite_double_as_float(geometry.first) ||
+                !finite_double_as_float(geometry.second) ||
+                !finite_double_as_float(geometry.third) ||
+                !finite_double_as_float(geometry.fourth) ||
+                geometry.third < 0.0 || geometry.fourth < 0.0) {
+                return status::malformed_batch;
+            }
+            fixed_geometries.insert_or_assign(handle, geometry);
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -1269,9 +1368,20 @@ struct channel::implementation {
                 }
                 continue;
             }
+            bool is_geometry_shape = false;
+            bool is_rounded = false;
+            bool is_ellipse = false;
+            double first = 0.0;
+            double second = 0.0;
+            double third = 0.0;
+            double fourth = 0.0;
+            double radius_x = 0.0;
+            double radius_y = 0.0;
+            std::uint32_t brush_handle = 0U;
+            std::uint32_t pen_handle = 0U;
+            affine_2d_double local_transform{};
+            affine_2d_double effective_transform = current.transform;
             if (view.kind == command::draw_geometry) {
-                std::uint32_t brush_handle = 0U;
-                std::uint32_t pen_handle = 0U;
                 std::uint32_t geometry_handle = 0U;
                 std::uint32_t padding = 0U;
                 if (!has_exact_size(view, 20U) ||
@@ -1288,68 +1398,74 @@ struct channel::implementation {
                     !solid_brushes.contains(brush_handle)) {
                     return status::invalid_handle;
                 }
-                const auto geometry = line_geometries.find(geometry_handle);
-                if (geometry == line_geometries.end()) {
+                const auto geometry = fixed_geometries.find(geometry_handle);
+                if (geometry == fixed_geometries.end()) {
                     return status::invalid_handle;
                 }
-                affine_2d_double geometry_transform{};
                 if (geometry->second.transform_handle != 0U) {
                     const auto transform = matrix_transforms.find(
                         geometry->second.transform_handle);
                     if (transform == matrix_transforms.end()) {
                         return status::invalid_handle;
                     }
-                    geometry_transform = transform->second;
+                    local_transform = transform->second;
                 }
-                const affine_2d_double effective_transform = compose_affine(
-                    geometry_transform,
+                effective_transform = compose_affine(
+                    local_transform,
                     current.transform);
-                const status line_status = append_line_stroke(
-                    geometry->second.start_x,
-                    geometry->second.start_y,
-                    geometry->second.end_x,
-                    geometry->second.end_y,
-                    pen_handle,
-                    geometry_transform,
-                    effective_transform);
-                if (line_status != status::success) {
-                    return line_status;
+                if (geometry->second.kind == fixed_geometry_kind::line) {
+                    const status line_status = append_line_stroke(
+                        geometry->second.first,
+                        geometry->second.second,
+                        geometry->second.third,
+                        geometry->second.fourth,
+                        pen_handle,
+                        local_transform,
+                        effective_transform);
+                    if (line_status != status::success) {
+                        return line_status;
+                    }
+                    continue;
                 }
-                continue;
+                is_geometry_shape = true;
+                first = geometry->second.first;
+                second = geometry->second.second;
+                third = geometry->second.third;
+                fourth = geometry->second.fourth;
+                radius_x = geometry->second.radius_x;
+                radius_y = geometry->second.radius_y;
+                is_ellipse =
+                    geometry->second.kind == fixed_geometry_kind::ellipse;
+                is_rounded = !is_ellipse &&
+                    (radius_x != 0.0 || radius_y != 0.0);
             }
-            if (view.kind != command::draw_rectangle &&
-                view.kind != command::draw_rounded_rectangle &&
-                view.kind != command::draw_ellipse) {
-                return status::unsupported_command;
-            }
-
-            const bool is_rounded =
-                view.kind == command::draw_rounded_rectangle;
-            double first = 0.0;
-            double second = 0.0;
-            double third = 0.0;
-            double fourth = 0.0;
-            double radius_x = 0.0;
-            double radius_y = 0.0;
-            std::uint32_t brush_handle = 0U;
-            std::uint32_t pen_handle = 0U;
-            if (!has_exact_size(view, is_rounded ? 60U : 44U) ||
-                !read_at(view.packet, 4U, first) ||
-                !read_at(view.packet, 12U, second) ||
-                !read_at(view.packet, 20U, third) ||
-                !read_at(view.packet, 28U, fourth)) {
-                return status::malformed_batch;
-            }
-            if (is_rounded) {
-                if (!read_at(view.packet, 36U, radius_x) ||
-                    !read_at(view.packet, 44U, radius_y) ||
-                    !read_at(view.packet, 52U, brush_handle) ||
-                    !read_at(view.packet, 56U, pen_handle)) {
+            if (!is_geometry_shape) {
+                if (view.kind != command::draw_rectangle &&
+                    view.kind != command::draw_rounded_rectangle &&
+                    view.kind != command::draw_ellipse) {
+                    return status::unsupported_command;
+                }
+                is_rounded =
+                    view.kind == command::draw_rounded_rectangle;
+                is_ellipse = view.kind == command::draw_ellipse;
+                if (!has_exact_size(view, is_rounded ? 60U : 44U) ||
+                    !read_at(view.packet, 4U, first) ||
+                    !read_at(view.packet, 12U, second) ||
+                    !read_at(view.packet, 20U, third) ||
+                    !read_at(view.packet, 28U, fourth)) {
                     return status::malformed_batch;
                 }
-            } else if (!read_at(view.packet, 36U, brush_handle) ||
-                !read_at(view.packet, 40U, pen_handle)) {
-                return status::malformed_batch;
+                if (is_rounded) {
+                    if (!read_at(view.packet, 36U, radius_x) ||
+                        !read_at(view.packet, 44U, radius_y) ||
+                        !read_at(view.packet, 52U, brush_handle) ||
+                        !read_at(view.packet, 56U, pen_handle)) {
+                        return status::malformed_batch;
+                    }
+                } else if (!read_at(view.packet, 36U, brush_handle) ||
+                    !read_at(view.packet, 40U, pen_handle)) {
+                    return status::malformed_batch;
+                }
             }
             if (!finite_double_as_float(first) ||
                 !finite_double_as_float(second) ||
@@ -1367,7 +1483,6 @@ struct channel::implementation {
             if (is_rounded && radius_x != radius_y) {
                 return status::unsupported_command;
             }
-            const bool is_ellipse = view.kind == command::draw_ellipse;
             const double x = is_ellipse ? first - third : first;
             const double y = is_ellipse ? second - fourth : second;
             const double width = is_ellipse ? third * 2.0 : third;
@@ -1380,6 +1495,12 @@ struct channel::implementation {
             if (brush_handle == 0U && pen_handle == 0U) {
                 continue;
             }
+            progpu_native_affine_2d native_local_transform{};
+            if (!try_to_native_affine(
+                    local_transform,
+                    native_local_transform)) {
+                return status::invalid_graph;
+            }
             if (brush_handle != 0U) {
                 progpu_native_image_rect fill_bounds{};
                 if (!try_transform_bounds(
@@ -1387,7 +1508,7 @@ struct channel::implementation {
                         y,
                         width,
                         height,
-                        current.transform,
+                        effective_transform,
                         fill_bounds)) {
                     return status::invalid_graph;
                 }
@@ -1414,7 +1535,7 @@ struct channel::implementation {
                         static_cast<float>(radius_x),
                         0.0F,
                         {1.0F, 1.0F, 1.0F, 1.0F},
-                        native::semantic_scene_builder::identity_transform()}};
+                        native_local_transform}};
                 const std::array brushes{brush_index};
                 if (!builder.draw_analytic(
                         primitive,
@@ -1449,7 +1570,7 @@ struct channel::implementation {
                             y - half_thickness,
                             width + pen->second.thickness,
                             height + pen->second.thickness,
-                            current.transform,
+                            effective_transform,
                             stroke_bounds)) {
                         return status::invalid_graph;
                     }
@@ -1477,8 +1598,7 @@ struct channel::implementation {
                                 static_cast<float>(pen->second.thickness),
                                 0.0F,
                                 {1.0F, 1.0F, 1.0F, 1.0F},
-                                native::semantic_scene_builder::
-                                    identity_transform()}};
+                                native_local_transform}};
                         const std::array brushes{pen_brush_index};
                         if (!builder.draw_geometry(
                                 primitive,
@@ -1508,8 +1628,7 @@ struct channel::implementation {
                                 static_cast<float>(radius_x),
                                 static_cast<float>(pen->second.thickness),
                                 {1.0F, 1.0F, 1.0F, 1.0F},
-                                native::semantic_scene_builder::
-                                    identity_transform()}};
+                                native_local_transform}};
                         const std::array brushes{pen_brush_index};
                         if (!builder.draw_analytic(
                                 primitive,
@@ -1537,7 +1656,7 @@ struct channel::implementation {
                             true,
                             pen_brush_index,
                             stroke_bounds,
-                            native::semantic_scene_builder::identity_transform());
+                            native_local_transform);
                         if (stroke_status != status::success) {
                             return stroke_status;
                         }

@@ -140,13 +140,15 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
-    public void NativeMilBuildersWriteCanonicalLineGeometryPackets()
+    public void NativeMilBuildersWriteCanonicalPrimitiveGeometryPackets()
     {
         var batch = new NativeMilBatchBuilder();
         batch.SetLineGeometry(9, 1, 2, 5, 8, 6);
+        batch.SetRectangleGeometry(10, 2, 3, 20, 12, 4, 5, 6);
+        batch.SetEllipseGeometry(11, 8, 9, 6, 7, 6);
         byte[] encoded = batch.ToArray();
 
-        Assert.Equal(56, encoded.Length);
+        Assert.Equal(192, encoded.Length);
         Assert.Equal(56U, ReadUInt32(encoded, 0));
         Assert.Equal(0x78U, ReadUInt32(encoded, 4));
         Assert.Equal(9U, ReadUInt32(encoded, 8));
@@ -157,6 +159,28 @@ public class NativeRendererInteropTests
         Assert.Equal(6U, ReadUInt32(encoded, 44));
         Assert.Equal(0U, ReadUInt32(encoded, 48));
         Assert.Equal(0U, ReadUInt32(encoded, 52));
+
+        Assert.Equal(76U, ReadUInt32(encoded, 56));
+        Assert.Equal(0x79U, ReadUInt32(encoded, 60));
+        Assert.Equal(10U, ReadUInt32(encoded, 64));
+        Assert.Equal(4.0, ReadDouble(encoded, 68));
+        Assert.Equal(5.0, ReadDouble(encoded, 76));
+        Assert.Equal(2.0, ReadDouble(encoded, 84));
+        Assert.Equal(3.0, ReadDouble(encoded, 92));
+        Assert.Equal(20.0, ReadDouble(encoded, 100));
+        Assert.Equal(12.0, ReadDouble(encoded, 108));
+        Assert.Equal(6U, ReadUInt32(encoded, 116));
+        Assert.Equal(0U, ReadUInt32(encoded, 128));
+
+        Assert.Equal(60U, ReadUInt32(encoded, 132));
+        Assert.Equal(0x7aU, ReadUInt32(encoded, 136));
+        Assert.Equal(11U, ReadUInt32(encoded, 140));
+        Assert.Equal(6.0, ReadDouble(encoded, 144));
+        Assert.Equal(7.0, ReadDouble(encoded, 152));
+        Assert.Equal(8.0, ReadDouble(encoded, 160));
+        Assert.Equal(9.0, ReadDouble(encoded, 168));
+        Assert.Equal(6U, ReadUInt32(encoded, 176));
+        Assert.Equal(0U, ReadUInt32(encoded, 188));
 
         var renderData = new NativeMilRenderDataBuilder();
         renderData.DrawGeometry(4, 5, 9);

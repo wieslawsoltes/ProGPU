@@ -1200,6 +1200,113 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     PROGPU_REQUIRE(
         state.resource_generation(line_geometry) == geometry_generation);
 
+    constexpr std::uint32_t rectangle_geometry = 10U;
+    constexpr std::uint32_t ellipse_geometry = 11U;
+    std::vector<std::byte> primitive_geometry_batch;
+    append_create(primitive_geometry_batch, rectangle_geometry, 69U);
+    append_create(primitive_geometry_batch, ellipse_geometry, 70U);
+    append_command(
+        primitive_geometry_batch,
+        command::rectangle_geometry,
+        rectangle_geometry,
+        2.0,
+        2.0,
+        3.0,
+        4.0,
+        12.0,
+        8.0,
+        transform,
+        0U,
+        0U,
+        0U);
+    append_command(
+        primitive_geometry_batch,
+        command::ellipse_geometry,
+        ellipse_geometry,
+        4.0,
+        3.0,
+        9.0,
+        8.0,
+        transform,
+        0U,
+        0U,
+        0U);
+    std::vector<std::byte> primitive_geometry_draw;
+    append_command(
+        primitive_geometry_draw,
+        command::draw_geometry,
+        brush,
+        solid_pen,
+        rectangle_geometry,
+        0U);
+    append_command(
+        primitive_geometry_draw,
+        command::draw_geometry,
+        brush,
+        solid_pen,
+        ellipse_geometry,
+        0U);
+    append_render_data(
+        primitive_geometry_batch,
+        content,
+        primitive_geometry_draw);
+    PROGPU_REQUIRE(
+        state.apply(primitive_geometry_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 9U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rounded_rectangle_count == 1U);
+    PROGPU_REQUIRE(metrics.ellipse_count == 1U);
+    const auto primitive_geometry_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t transformed_analytic_count = 0U;
+    for (std::uint32_t index = 0U;
+        index < primitive_geometry_header.resource_count;
+        ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            primitive_geometry_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH) {
+            continue;
+        }
+        const auto primitive = read_value<progpu_native_analytic_primitive>(
+            stream,
+            record.payload_offset);
+        if (primitive.kind != PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE &&
+            primitive.kind != PROGPU_NATIVE_PRIMITIVE_ELLIPSE) {
+            continue;
+        }
+        PROGPU_REQUIRE(primitive.transform.m11 == 2.0F);
+        PROGPU_REQUIRE(primitive.transform.m22 == 2.0F);
+        ++transformed_analytic_count;
+    }
+    PROGPU_REQUIRE(transformed_analytic_count >= 3U);
+
+    const auto rectangle_generation =
+        state.resource_generation(rectangle_geometry);
+    std::vector<std::byte> animated_rectangle_geometry;
+    append_command(
+        animated_rectangle_geometry,
+        command::rectangle_geometry,
+        rectangle_geometry,
+        2.0,
+        2.0,
+        3.0,
+        4.0,
+        12.0,
+        8.0,
+        transform,
+        1U,
+        0U,
+        0U);
+    PROGPU_REQUIRE(
+        state.apply(animated_rectangle_geometry) ==
+        status::unsupported_command);
+    PROGPU_REQUIRE(
+        state.resource_generation(rectangle_geometry) ==
+        rectangle_generation);
+
     std::vector<std::byte> invalid_cap;
     append_command(
         invalid_cap,

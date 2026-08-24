@@ -159,13 +159,16 @@ dash metadata are preserved. Nonempty dash patterns on curved corners,
 non-uniform radii, and degenerate rounded-rectangle strokes fail closed until
 their exact curve semantics are available.
 
-The first retained geometry-resource slice implements the exact fixed-size
-`MILCMD_LINEGEOMETRY` update and nested `MILCMD_DRAW_GEOMETRY`. Line resources
-retain start/end points plus an optional typed matrix-transform handle; fills
-remain empty as required for line geometry, while solid and dashed pens reuse
-the same cap, dash, affine-bound, and backend-neutral stroke paths as
-`MILCMD_DRAW_LINE`. Point animations, uninitialized/wrong-type resources, and
-all not-yet-implemented geometry resource kinds fail closed transactionally.
+The retained fixed-geometry slice implements the exact fixed-size
+`MILCMD_LINEGEOMETRY`, `MILCMD_RECTANGLEGEOMETRY`, and
+`MILCMD_ELLIPSEGEOMETRY` updates plus nested `MILCMD_DRAW_GEOMETRY`. Each
+resource retains its primitive state and optional typed matrix-transform
+handle. Line fills remain empty while solid and dashed pens reuse the same
+stroke path as `MILCMD_DRAW_LINE`. Rectangle and ellipse resources reuse the
+native analytic fill/stroke lowering used by their immediate draw commands,
+including uniform rounded rectangles and geometry-local affine transforms.
+Animated fields, non-uniform rounded-rectangle radii, uninitialized or
+wrong-type resources, and arbitrary path geometry fail closed transactionally.
 
 `NativeMilBatchBuilder` and `NativeMilRenderDataBuilder` provide the matching
 managed producer for this supported subset. They write the canonical WPF
@@ -176,7 +179,7 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds, geometry,
-  beyond fixed line resources, curved-path dashes, remaining pen draws,
+  beyond fixed primitive resources, curved-path dashes, remaining pen draws,
   brushes, drawings, images, glyph runs, caches, guidelines, effects, and
   complete render-data decoding.
 - Lower every supported update to stable semantic resource identities and
