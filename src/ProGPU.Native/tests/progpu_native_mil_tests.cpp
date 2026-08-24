@@ -33,6 +33,15 @@ void append_value(std::vector<std::byte>& bytes, const T& value) {
     std::memcpy(bytes.data() + previous, &value, sizeof(T));
 }
 
+template<typename T>
+T read_value(const std::vector<std::byte>& bytes, std::size_t offset) {
+    T value{};
+    PROGPU_REQUIRE(offset <= bytes.size());
+    PROGPU_REQUIRE(sizeof(T) <= bytes.size() - offset);
+    std::memcpy(&value, bytes.data() + offset, sizeof(T));
+    return value;
+}
+
 template<typename... T>
 void append_command(
     std::vector<std::byte>& batch,
@@ -53,6 +62,22 @@ void append_create(
     std::uint32_t handle,
     std::uint32_t type) {
     append_command(batch, command::channel_create_resource, handle, type);
+}
+
+void append_render_data(
+    std::vector<std::byte>& batch,
+    std::uint32_t handle,
+    const std::vector<std::byte>& render_data) {
+    std::vector<std::byte> packet;
+    append_value(packet, static_cast<std::uint32_t>(command::render_data));
+    append_value(packet, handle);
+    append_value(packet, static_cast<std::uint32_t>(render_data.size()));
+    packet.insert(packet.end(), render_data.begin(), render_data.end());
+    const auto item_size = static_cast<std::uint32_t>(
+        (packet.size() + sizeof(std::uint32_t) + 3U) & ~std::size_t{3U});
+    append_value(batch, item_size);
+    batch.insert(batch.end(), packet.begin(), packet.end());
+    batch.resize(batch.size() + item_size - sizeof(std::uint32_t) - packet.size());
 }
 
 bool channel_retains_visual_target_graph() {
@@ -153,6 +178,155 @@ bool failed_batches_roll_back() {
     return true;
 }
 
+bool invalid_visual_graphs_fail_closed() {
+    channel state;
+    std::vector<std::byte> seed;
+    for (std::uint32_t handle = 1U; handle <= 3U; ++handle) {
+        append_create(seed, handle, 39U);
+        append_command(seed, command::visual_create, handle);
+    }
+    append_command(seed, command::visual_insert_child_at, 1U, 2U, 0U);
+    PROGPU_REQUIRE(state.apply(seed) == status::success);
+
+    std::vector<std::byte> cycle;
+    append_command(cycle, command::visual_insert_child_at, 2U, 1U, 0U);
+    PROGPU_REQUIRE(state.apply(cycle) == status::invalid_graph);
+
+    std::vector<std::byte> second_parent;
+    append_command(
+        second_parent, command::visual_insert_child_at, 3U, 2U, 0U);
+    PROGPU_REQUIRE(state.apply(second_parent) == status::invalid_graph);
+    progpu::native::mil::visual_snapshot root{};
+    progpu::native::mil::visual_snapshot second{};
+    PROGPU_REQUIRE(state.try_get_visual(1U, root));
+    PROGPU_REQUIRE(state.try_get_visual(3U, second));
+    PROGPU_REQUIRE(root.child_count == 1U);
+    PROGPU_REQUIRE(second.child_count == 0U);
+    return true;
+}
+
+bool solid_rectangle_compiles_to_semantic_scene() {
+    constexpr std::uint32_t visual_type = 39U;
+    constexpr std::uint32_t render_data_type = 43U;
+    constexpr std::uint32_t target_type = 47U;
+    constexpr std::uint32_t solid_brush_type = 75U;
+    constexpr std::uint32_t root = 1U;
+    constexpr std::uint32_t child = 2U;
+    constexpr std::uint32_t content = 3U;
+    constexpr std::uint32_t target = 4U;
+    constexpr std::uint32_t brush = 5U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, root, visual_type);
+    append_create(batch, child, visual_type);
+    append_create(batch, content, render_data_type);
+    append_create(batch, target, target_type);
+    append_create(batch, brush, solid_brush_type);
+    append_command(batch, command::visual_create, root);
+    append_command(batch, command::visual_create, child);
+    append_command(batch, command::visual_set_offset, root, 10.0, 20.0);
+    append_command(batch, command::visual_set_alpha, root, 0.8);
+    append_command(batch, command::visual_set_offset, child, 3.0, 4.0);
+    append_command(batch, command::visual_set_alpha, child, 0.5);
+    append_command(batch, command::visual_set_content, child, content);
+    append_command(batch, command::visual_insert_child_at, root, child, 0U);
+
+    const progpu_native_color color{0.25F, 0.5F, 0.75F, 0.9F};
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        0.75,
+        color,
+        0U,
+        0U,
+        0U,
+        0U);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_rectangle,
+        2.0,
+        6.0,
+        30.0,
+        40.0,
+        brush,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        640U,
+        480U,
+        0U);
+    append_command(batch, command::target_set_root, target, root);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9001U, 7U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.visual_count == 2U);
+    PROGPU_REQUIRE(metrics.rectangle_count == 1U);
+    PROGPU_REQUIRE(metrics.brush_count == 1U);
+    PROGPU_REQUIRE(metrics.maximum_visual_depth == 2U);
+    PROGPU_REQUIRE(metrics.stream_bytes == stream.size());
+
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    PROGPU_REQUIRE(header.scene_id == 9001U);
+    PROGPU_REQUIRE(header.generation == 7U);
+    PROGPU_REQUIRE(header.command_count == 5U);
+    PROGPU_REQUIRE(header.resource_count == 4U);
+
+    bool found_child_state = false;
+    bool found_rectangle = false;
+    bool found_brush = false;
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind == PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            const auto scene_state = read_value<progpu_native_scene_state>(
+                stream, record.payload_offset);
+            if (scene_state.transform.m31 == 13.0F &&
+                scene_state.transform.m32 == 24.0F) {
+                PROGPU_REQUIRE(scene_state.opacity == 0.4F);
+                found_child_state = true;
+            }
+        } else if (
+            record.kind == PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH) {
+            const auto rectangle =
+                read_value<progpu_native_analytic_primitive>(
+                    stream, record.payload_offset);
+            PROGPU_REQUIRE(rectangle.kind == PROGPU_NATIVE_PRIMITIVE_RECTANGLE);
+            PROGPU_REQUIRE(rectangle.x == 2.0F);
+            PROGPU_REQUIRE(rectangle.y == 6.0F);
+            PROGPU_REQUIRE(rectangle.width == 30.0F);
+            PROGPU_REQUIRE(rectangle.height == 40.0F);
+            found_rectangle = true;
+        } else if (record.kind == PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE) {
+            const auto scene_brush = read_value<progpu_native_scene_brush>(
+                stream, record.payload_offset);
+            PROGPU_REQUIRE(scene_brush.opacity == 0.75F);
+            PROGPU_REQUIRE(scene_brush.colors[0].r == color.r);
+            PROGPU_REQUIRE(scene_brush.colors[0].g == color.g);
+            PROGPU_REQUIRE(scene_brush.colors[0].b == color.b);
+            PROGPU_REQUIRE(scene_brush.colors[0].a == color.a);
+            found_brush = true;
+        }
+    }
+    PROGPU_REQUIRE(found_child_state);
+    PROGPU_REQUIRE(found_rectangle);
+    PROGPU_REQUIRE(found_brush);
+    return true;
+}
+
 bool malformed_and_unsupported_packets_fail_closed() {
     channel state;
     const std::array malformed{
@@ -215,6 +389,8 @@ bool c_abi_is_typed_and_size_versioned() {
 int main() {
     PROGPU_REQUIRE(channel_retains_visual_target_graph());
     PROGPU_REQUIRE(failed_batches_roll_back());
+    PROGPU_REQUIRE(invalid_visual_graphs_fail_closed());
+    PROGPU_REQUIRE(solid_rectangle_compiles_to_semantic_scene());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());
     PROGPU_REQUIRE(c_abi_is_typed_and_size_versioned());
     return 0;

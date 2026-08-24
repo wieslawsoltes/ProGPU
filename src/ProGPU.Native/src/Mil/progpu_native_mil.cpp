@@ -1,11 +1,14 @@
 #include "progpu_native_mil.hpp"
+#include "progpu_native_scene_builder.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <limits>
 #include <new>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -18,7 +21,9 @@ constexpr std::uint32_t type_render_data = 43U;
 constexpr std::uint32_t type_render_target = 45U;
 constexpr std::uint32_t type_hwnd_render_target = 46U;
 constexpr std::uint32_t type_generic_render_target = 47U;
+constexpr std::uint32_t type_solid_color_brush = 75U;
 constexpr std::uint32_t type_last = 98U;
+constexpr std::uint32_t maximum_visual_depth = 256U;
 
 template<typename T>
 bool read_at(
@@ -45,6 +50,12 @@ bool is_visual_type(std::uint32_t type) noexcept {
 bool is_target_type(std::uint32_t type) noexcept {
     return type == type_render_target || type == type_hwnd_render_target ||
         type == type_generic_render_target;
+}
+
+bool finite_double_as_float(double value) noexcept {
+    constexpr auto maximum =
+        static_cast<double>(std::numeric_limits<float>::max());
+    return std::isfinite(value) && value >= -maximum && value <= maximum;
 }
 
 } // namespace
@@ -109,6 +120,11 @@ struct channel::implementation {
         std::uint32_t flags{};
     };
 
+    struct solid_brush_state {
+        double opacity{1.0};
+        progpu_native_color color{};
+    };
+
     struct resource_state {
         std::uint32_t type{};
         std::uint64_t generation{1U};
@@ -118,6 +134,7 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, resource_state> resources;
     std::unordered_map<std::uint32_t, visual_state> visuals;
     std::unordered_map<std::uint32_t, target_state> targets;
+    std::unordered_map<std::uint32_t, solid_brush_state> solid_brushes;
 
     bool require_resource(
         std::uint32_t handle,
@@ -137,6 +154,31 @@ struct channel::implementation {
         const auto found = resources.find(handle);
         return found != resources.end() && is_target_type(found->second.type) &&
             targets.contains(handle);
+    }
+
+    bool visual_reaches(
+        std::uint32_t start,
+        std::uint32_t destination) const {
+        std::vector<std::uint32_t> pending{start};
+        std::unordered_set<std::uint32_t> visited;
+        while (!pending.empty()) {
+            const auto current = pending.back();
+            pending.pop_back();
+            if (current == destination) {
+                return true;
+            }
+            if (!visited.insert(current).second) {
+                continue;
+            }
+            const auto found = visuals.find(current);
+            if (found != visuals.end()) {
+                pending.insert(
+                    pending.end(),
+                    found->second.children.begin(),
+                    found->second.children.end());
+            }
+        }
+        return false;
     }
 
     void increment_generation(std::uint32_t handle) noexcept {
@@ -203,6 +245,7 @@ struct channel::implementation {
             }
             visuals.erase(handle);
             targets.erase(handle);
+            solid_brushes.erase(handle);
             resources.erase(found);
             ++metrics.deleted_resource_count;
             return status::success;
@@ -329,8 +372,16 @@ struct channel::implementation {
             }
             auto& children = visuals.at(handle).children;
             if (index > children.size() ||
-                std::ranges::find(children, child) != children.end()) {
+                std::ranges::find(children, child) != children.end() ||
+                visual_reaches(child, handle)) {
                 return status::invalid_graph;
+            }
+            for (const auto& [parent_handle, parent] : visuals) {
+                if (parent_handle != handle &&
+                    std::ranges::find(parent.children, child) !=
+                        parent.children.end()) {
+                    return status::invalid_graph;
+                }
             }
             children.insert(children.begin() + index, child);
             increment_generation(handle);
@@ -444,10 +495,223 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         }
+        case command::solid_color_brush: {
+            double opacity = 0.0;
+            progpu_native_color color{};
+            std::uint32_t opacity_animations = 0U;
+            std::uint32_t transform = 0U;
+            std::uint32_t relative_transform = 0U;
+            std::uint32_t color_animations = 0U;
+            if (!has_exact_size(view, 48U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, opacity) ||
+                !read_at(view.packet, 16U, color) ||
+                !read_at(view.packet, 32U, opacity_animations) ||
+                !read_at(view.packet, 36U, transform) ||
+                !read_at(view.packet, 40U, relative_transform) ||
+                !read_at(view.packet, 44U, color_animations)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_solid_color_brush)) {
+                return status::invalid_handle;
+            }
+            if (opacity_animations != 0U || transform != 0U ||
+                relative_transform != 0U || color_animations != 0U) {
+                return status::unsupported_command;
+            }
+            if (!std::isfinite(opacity) || opacity < 0.0 || opacity > 1.0 ||
+                !std::isfinite(color.r) || !std::isfinite(color.g) ||
+                !std::isfinite(color.b) || !std::isfinite(color.a)) {
+                return status::malformed_batch;
+            }
+            solid_brushes.insert_or_assign(
+                handle, solid_brush_state{opacity, color});
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
         default:
             ++metrics.unsupported_command_count;
             return status::unsupported_command;
         }
+    }
+
+
+    status append_render_data(
+        std::uint32_t content_handle,
+        double offset_x,
+        double offset_y,
+        native::semantic_scene_builder& builder,
+        std::unordered_map<std::uint32_t, std::uint32_t>& brush_indices,
+        scene_metrics& metrics) const {
+        const auto resource = resources.find(content_handle);
+        if (resource == resources.end() ||
+            resource->second.type != type_render_data) {
+            return status::invalid_handle;
+        }
+
+        batch_reader reader(resource->second.render_data);
+        command_view view{};
+        for (;;) {
+            const status read_status = reader.next(view);
+            if (read_status == status::end_of_batch) {
+                return status::success;
+            }
+            if (read_status != status::success) {
+                return read_status;
+            }
+            if (view.kind != command::draw_rectangle) {
+                return status::unsupported_command;
+            }
+
+            double x = 0.0;
+            double y = 0.0;
+            double width = 0.0;
+            double height = 0.0;
+            std::uint32_t brush_handle = 0U;
+            std::uint32_t pen_handle = 0U;
+            if (!has_exact_size(view, 44U) ||
+                !read_at(view.packet, 4U, x) ||
+                !read_at(view.packet, 12U, y) ||
+                !read_at(view.packet, 20U, width) ||
+                !read_at(view.packet, 28U, height) ||
+                !read_at(view.packet, 36U, brush_handle) ||
+                !read_at(view.packet, 40U, pen_handle)) {
+                return status::malformed_batch;
+            }
+            if (brush_handle == 0U || pen_handle != 0U) {
+                return status::unsupported_command;
+            }
+            if (!finite_double_as_float(x) || !finite_double_as_float(y) ||
+                !finite_double_as_float(width) ||
+                !finite_double_as_float(height) || width < 0.0 ||
+                height < 0.0 || !finite_double_as_float(x + offset_x) ||
+                !finite_double_as_float(y + offset_y)) {
+                return status::malformed_batch;
+            }
+
+            const auto brush = solid_brushes.find(brush_handle);
+            if (brush == solid_brushes.end()) {
+                return status::invalid_handle;
+            }
+            auto brush_index = brush_indices.find(brush_handle);
+            if (brush_index == brush_indices.end()) {
+                std::uint32_t added = PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (!builder.add_solid_brush(
+                        brush->second.color,
+                        static_cast<float>(brush->second.opacity),
+                        added)) {
+                    return status::invalid_graph;
+                }
+                brush_index = brush_indices.emplace(brush_handle, added).first;
+            }
+
+            const std::array primitive{
+                progpu_native_analytic_primitive{
+                    PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+                    0U,
+                    static_cast<float>(x),
+                    static_cast<float>(y),
+                    static_cast<float>(width),
+                    static_cast<float>(height),
+                    0.0F,
+                    0.0F,
+                    {1.0F, 1.0F, 1.0F, 1.0F},
+                    native::semantic_scene_builder::identity_transform()}};
+            const std::array brushes{brush_index->second};
+            if (!builder.draw_analytic(
+                    primitive,
+                    brushes,
+                    {static_cast<float>(x + offset_x),
+                     static_cast<float>(y + offset_y),
+                     static_cast<float>(width),
+                     static_cast<float>(height)})) {
+                return status::invalid_graph;
+            }
+            ++metrics.rectangle_count;
+        }
+    }
+
+    status append_visual(
+        std::uint32_t handle,
+        double parent_offset_x,
+        double parent_offset_y,
+        double parent_opacity,
+        std::uint32_t depth,
+        native::semantic_scene_builder& builder,
+        std::unordered_map<std::uint32_t, std::uint32_t>& brush_indices,
+        std::unordered_set<std::uint32_t>& active_visuals,
+        scene_metrics& metrics) const {
+        if (depth == 0U || depth > maximum_visual_depth ||
+            !active_visuals.insert(handle).second) {
+            return status::invalid_graph;
+        }
+        const auto visual = visuals.find(handle);
+        if (visual == visuals.end()) {
+            active_visuals.erase(handle);
+            return status::invalid_handle;
+        }
+        const double offset_x = parent_offset_x + visual->second.offset_x;
+        const double offset_y = parent_offset_y + visual->second.offset_y;
+        const double opacity = parent_opacity * visual->second.opacity;
+        if (!finite_double_as_float(offset_x) ||
+            !finite_double_as_float(offset_y) || !std::isfinite(opacity) ||
+            opacity < 0.0 || opacity > 1.0) {
+            active_visuals.erase(handle);
+            return status::invalid_graph;
+        }
+
+        auto state = native::semantic_scene_builder::identity_state();
+        state.transform = {
+            1.0F,
+            0.0F,
+            0.0F,
+            1.0F,
+            static_cast<float>(offset_x),
+            static_cast<float>(offset_y)};
+        state.opacity = static_cast<float>(opacity);
+        std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder.add_state(state, state_index) ||
+            !builder.save(state_index)) {
+            active_visuals.erase(handle);
+            return status::invalid_graph;
+        }
+
+        ++metrics.visual_count;
+        metrics.maximum_visual_depth =
+            std::max(metrics.maximum_visual_depth, depth);
+        status result = status::success;
+        if (visual->second.content_handle != 0U) {
+            result = append_render_data(
+                visual->second.content_handle,
+                offset_x,
+                offset_y,
+                builder,
+                brush_indices,
+                metrics);
+        }
+        if (result == status::success) {
+            for (const auto child : visual->second.children) {
+                result = append_visual(
+                    child,
+                    offset_x,
+                    offset_y,
+                    opacity,
+                    depth + 1U,
+                    builder,
+                    brush_indices,
+                    active_visuals,
+                    metrics);
+                if (result != status::success) {
+                    break;
+                }
+            }
+        }
+        if (!builder.restore() && result == status::success) {
+            result = status::invalid_graph;
+        }
+        active_visuals.erase(handle);
+        return result;
     }
 };
 
@@ -575,6 +839,56 @@ bool channel::try_get_target(
         found->second.clear_alpha,
         found->second.flags};
     return true;
+}
+
+status channel::build_scene(
+    std::uint32_t target_handle,
+    std::uint64_t scene_id,
+    std::uint64_t generation,
+    std::vector<std::byte>& stream,
+    scene_metrics* metrics) const noexcept {
+    scene_metrics local_metrics{};
+    const auto target = implementation_->targets.find(target_handle);
+    if (scene_id == 0U || generation == 0U) {
+        return status::invalid_argument;
+    }
+    if (target == implementation_->targets.end()) {
+        return status::invalid_handle;
+    }
+    try {
+        native::semantic_scene_builder builder(scene_id, generation);
+        std::unordered_map<std::uint32_t, std::uint32_t> brush_indices;
+        std::unordered_set<std::uint32_t> active_visuals;
+        if (target->second.root_handle != 0U) {
+            const status append_status = implementation_->append_visual(
+                target->second.root_handle,
+                0.0,
+                0.0,
+                1.0,
+                1U,
+                builder,
+                brush_indices,
+                active_visuals,
+                local_metrics);
+            if (append_status != status::success) {
+                return append_status;
+            }
+        }
+        native::scene_build_metrics builder_metrics{};
+        std::vector<std::byte> candidate;
+        if (!builder.build(candidate, &builder_metrics)) {
+            return status::invalid_graph;
+        }
+        local_metrics.brush_count = builder_metrics.brush_count;
+        local_metrics.stream_bytes = builder_metrics.stream_bytes;
+        stream = std::move(candidate);
+        if (metrics != nullptr) {
+            *metrics = local_metrics;
+        }
+        return status::success;
+    } catch (const std::bad_alloc&) {
+        return status::invalid_argument;
+    }
 }
 
 } // namespace progpu::native::mil
