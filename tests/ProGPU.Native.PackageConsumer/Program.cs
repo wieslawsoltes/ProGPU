@@ -37,7 +37,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
         NativeMilCompiledScene scene = mil.CompileScene(42, 701, 1);
-        if (milMetrics.CommandCount != 36 || mil.ResourceCount != 15 ||
+        if (milMetrics.CommandCount != 38 || mil.ResourceCount != 16 ||
             !mil.TryGetVisual(41, out NativeMilVisualSnapshot visual) ||
             visual.Handle != 41 || scene.Stream.Length == 0 ||
             scene.Metrics.VisualCount != 1 ||
@@ -57,7 +57,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
         NativeMilCompiledScene scene = dawnMil.CompileScene(42, 702, 1);
-        if (milMetrics.CommandCount != 36 || dawnMil.ResourceCount != 15 ||
+        if (milMetrics.CommandCount != 38 || dawnMil.ResourceCount != 16 ||
             scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
             scene.Metrics.RectangleCount != 1 ||
             scene.Metrics.EllipseCount != 2 ||
@@ -175,6 +175,7 @@ static byte[] CreateMilSeedBatch()
     renderData.DrawGeometry(44, 0, 52);
     renderData.DrawGeometry(44, 0, 54);
     renderData.DrawGeometry(44, 0, 55);
+    renderData.DrawGeometry(0, 46, 56);
     renderData.Pop();
     var batch = new NativeMilBatchBuilder();
     batch.CreateResource(41, NativeMilResourceType.Visual);
@@ -192,6 +193,7 @@ static byte[] CreateMilSeedBatch()
     batch.CreateResource(53, NativeMilResourceType.PathGeometry);
     batch.CreateResource(54, NativeMilResourceType.GeometryGroup);
     batch.CreateResource(55, NativeMilResourceType.CombinedGeometry);
+    batch.CreateResource(56, NativeMilResourceType.PathGeometry);
     batch.CreateVisual(41);
     batch.SetVisualOffset(41, 1, 2);
     batch.SetMatrixTransform(
@@ -231,11 +233,38 @@ static byte[] CreateMilSeedBatch()
         52,
         53,
         45);
+    batch.SetPathGeometry(
+        56,
+        CreateMilLineStrokePath(),
+        45);
     batch.SetRenderData(43, renderData);
     batch.CreateGenericTarget(42, 64, 64);
     batch.SetTargetClearColor(42, new NativeMilColor(0, 0, 0, 1));
     batch.SetTargetRoot(42, 41);
     return batch.ToArray();
+}
+
+static NativeMilPathGeometry CreateMilLineStrokePath()
+{
+    return new NativeMilPathGeometry(
+        NativeMilPathFillRule.EvenOdd,
+        4,
+        4,
+        60,
+        60,
+        [
+            new NativeMilPathFigure(
+                new NativeMilPoint(4, 4),
+                IsFilled: false,
+                IsClosed: true,
+                [
+                    NativeMilPathSegment.Line(
+                        new NativeMilPoint(60, 4),
+                        isStroked: false),
+                    NativeMilPathSegment.Line(new NativeMilPoint(60, 60)),
+                    NativeMilPathSegment.Line(new NativeMilPoint(4, 60))
+                ])
+        ]);
 }
 
 static NativeMilPathGeometry CreateMilPath(double offsetX)
