@@ -6,6 +6,23 @@ public enum NativeMilBackend : byte
     Dawn
 }
 
+public enum NativeMilResourceType : uint
+{
+    Visual = 39,
+    Viewport3DVisual = 40,
+    RenderData = 43,
+    RenderTarget = 45,
+    HwndRenderTarget = 46,
+    GenericRenderTarget = 47,
+    SolidColorBrush = 75
+}
+
+public readonly record struct NativeMilColor(
+    float Red,
+    float Green,
+    float Blue,
+    float Alpha);
+
 public enum NativeMilStatus : uint
 {
     Success,

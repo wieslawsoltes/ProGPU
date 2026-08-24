@@ -1,5 +1,4 @@
 using System.Numerics;
-using System.Buffers.Binary;
 using ProGPU.Backend;
 using ProGPU.Backend.Native;
 using Silk.NET.WebGPU;
@@ -18,10 +17,12 @@ using (var mil = new NativeMilChannel())
 {
     NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
     NativeMilCompiledScene scene = mil.CompileScene(42, 701, 1);
-    if (milMetrics.CommandCount != 5 || mil.ResourceCount != 2 ||
+    if (milMetrics.CommandCount != 13 || mil.ResourceCount != 4 ||
         !mil.TryGetVisual(41, out NativeMilVisualSnapshot visual) ||
         visual.Handle != 41 || scene.Stream.Length == 0 ||
-        scene.Metrics.VisualCount != 1)
+        scene.Metrics.VisualCount != 1 ||
+        scene.Metrics.RectangleCount != 1 ||
+        scene.Metrics.BrushCount != 1)
     {
         throw new InvalidOperationException(
             "The packaged wgpu-native MIL channel is incomplete.");
@@ -31,8 +32,10 @@ using (var dawnMil = new NativeMilChannel(NativeMilBackend.Dawn))
 {
     NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
     NativeMilCompiledScene scene = dawnMil.CompileScene(42, 702, 1);
-    if (milMetrics.CommandCount != 5 || dawnMil.ResourceCount != 2 ||
-        scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1)
+    if (milMetrics.CommandCount != 13 || dawnMil.ResourceCount != 4 ||
+        scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
+        scene.Metrics.RectangleCount != 1 ||
+        scene.Metrics.BrushCount != 1)
     {
         throw new InvalidOperationException(
             "The packaged Dawn MIL channel is incomplete.");
@@ -101,26 +104,21 @@ Console.WriteLine(
 
 static byte[] CreateMilSeedBatch()
 {
-    byte[] batch = new byte[100];
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(0, 4), 16);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(4, 4), 0x07);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(8, 4), 41);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(12, 4), 39);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(16, 4), 12);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(20, 4), 0x1a);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(24, 4), 41);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(28, 4), 16);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(32, 4), 0x07);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(36, 4), 42);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(40, 4), 47);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(44, 4), 40);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(48, 4), 0x34);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(52, 4), 42);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(72, 4), 64);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(76, 4), 64);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(84, 4), 16);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(88, 4), 0x35);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(92, 4), 42);
-    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(96, 4), 41);
-    return batch;
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.DrawRectangle(8, 8, 48, 48, 44);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(41, NativeMilResourceType.Visual);
+    batch.CreateResource(42, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(43, NativeMilResourceType.RenderData);
+    batch.CreateResource(44, NativeMilResourceType.SolidColorBrush);
+    batch.CreateVisual(41);
+    batch.SetVisualOffset(41, 1, 2);
+    batch.SetVisualOpacity(41, 0.9);
+    batch.SetVisualContent(41, 43);
+    batch.SetSolidColorBrush(44, new NativeMilColor(1, 0.25f, 0.1f, 1));
+    batch.SetRenderData(43, renderData);
+    batch.CreateGenericTarget(42, 64, 64);
+    batch.SetTargetClearColor(42, new NativeMilColor(0, 0, 0, 1));
+    batch.SetTargetRoot(42, 41);
+    return batch.ToArray();
 }

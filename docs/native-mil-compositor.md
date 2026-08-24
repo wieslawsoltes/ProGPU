@@ -95,6 +95,11 @@ that checks semantic brush, state, primitive, scene identity, generation, and
 tree metrics. The C ABI supports an explicit required-size query and writes
 into caller-owned storage; the managed owner returns the completed semantic
 stream with typed compilation metrics for direct native compositor submission.
+`NativeMilBatchBuilder` and `NativeMilRenderDataBuilder` provide the matching
+managed producer for this supported subset. They write the canonical WPF
+framing and packed field offsets directly into reusable buffer writers, expose
+only typed resource/color/primitive inputs, and are shared by package smoke
+tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
