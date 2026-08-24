@@ -129,8 +129,18 @@ Null pen handles and zero-width/null-brush pens are no-op draws. Thickness and
 dash-offset animation, invalid dash values/enums, unresolved handles, nonzero
 padding, and non-flat degenerate line caps fail closed transactionally. The
 size-stable MIL scene metrics ABI now publishes `line_count` in its former
-reserved tail field. Pens on analytic rectangles/ellipses remain closed until
-their join and outline semantics can be preserved exactly.
+reserved tail field. Pens on rounded rectangles and ellipses remain closed
+until their curved-outline semantics can be preserved exactly.
+
+Axis-aligned `MILCMD_DRAW_RECTANGLE` records now accept independent fill and
+pen handles. Rectangle pens lower to closed four-point semantic polylines, so
+solid and dashed outlines share ProGPU's native join, miter-limit, dash-cap,
+offset, odd-pattern, transform, and backend execution rules. Fill-only,
+stroke-only, and fill-plus-stroke records remain distinct draws with one shared
+brush table; stroke culling expands the local rectangle by half the pen width
+before the four-corner affine bounds transform. Zero-width or zero-height
+rectangle strokes still fail closed pending exact WPF collapse semantics.
+Rounded-rectangle and ellipse pens remain unsupported in this checkpoint.
 `NativeMilBatchBuilder` and `NativeMilRenderDataBuilder` provide the matching
 managed producer for this supported subset. They write the canonical WPF
 framing and packed field offsets directly into reusable buffer writers, expose

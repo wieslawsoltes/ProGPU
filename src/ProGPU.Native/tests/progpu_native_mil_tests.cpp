@@ -885,6 +885,66 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     PROGPU_REQUIRE(
         state.apply(delete_referenced_dash) == status::invalid_graph);
 
+    std::vector<std::byte> rectangle_batch;
+    std::vector<std::byte> dashed_rectangle;
+    append_command(
+        dashed_rectangle,
+        command::draw_rectangle,
+        1.0,
+        2.0,
+        4.0,
+        6.0,
+        brush,
+        pen);
+    append_render_data(rectangle_batch, content, dashed_rectangle);
+    PROGPU_REQUIRE(state.apply(rectangle_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 3U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rectangle_count == 1U);
+    PROGPU_REQUIRE(metrics.line_count == 0U);
+    const auto rectangle_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_closed_rectangle = false;
+    for (std::uint32_t index = 0U;
+        index < rectangle_header.resource_count;
+        ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            rectangle_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
+            continue;
+        }
+        const auto stroke = read_value<progpu_native_scene_stroke>(
+            stream,
+            record.payload_offset);
+        PROGPU_REQUIRE(
+            (stroke.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U);
+        PROGPU_REQUIRE(stroke.point_count == 4U);
+        PROGPU_REQUIRE(stroke.dash_interval_count == 2U);
+        found_closed_rectangle = true;
+    }
+    PROGPU_REQUIRE(found_closed_rectangle);
+    bool found_rectangle_stroke_bounds = false;
+    for (std::uint32_t index = 0U;
+        index < rectangle_header.command_count;
+        ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            rectangle_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH) {
+            continue;
+        }
+        PROGPU_REQUIRE(record.bounds_x == 10.0F);
+        PROGPU_REQUIRE(record.bounds_y == 22.0F);
+        PROGPU_REQUIRE(record.bounds_width == 12.0F);
+        PROGPU_REQUIRE(record.bounds_height == 16.0F);
+        found_rectangle_stroke_bounds = true;
+    }
+    PROGPU_REQUIRE(found_rectangle_stroke_bounds);
+
     std::vector<std::byte> invalid_cap;
     append_command(
         invalid_cap,

@@ -934,6 +934,53 @@ struct channel::implementation {
             result = added;
             return status::success;
         };
+        const auto append_polyline_stroke = [
+            this,
+            &builder](
+            const pen_state& pen,
+            std::span<const progpu_native_point> points,
+            bool closed,
+            std::uint32_t brush_index,
+            progpu_native_image_rect bounds) noexcept {
+            std::span<const double> intervals;
+            double dash_offset = 0.0;
+            if (pen.dash_style_handle != 0U) {
+                const auto dash = dash_styles.find(pen.dash_style_handle);
+                if (dash == dash_styles.end()) {
+                    return status::invalid_handle;
+                }
+                intervals = dash->second.intervals;
+                dash_offset = dash->second.offset;
+            }
+            progpu_native_scene_stroke stroke{};
+            stroke.struct_size = sizeof(stroke);
+            stroke.kind = PROGPU_NATIVE_SCENE_STROKE_POLYLINE;
+            stroke.flags = closed
+                ? PROGPU_NATIVE_POLYLINE_FLAG_CLOSED
+                : 0U;
+            stroke.point_count = points.size();
+            stroke.dash_interval_count = intervals.size();
+            stroke.color = {1.0F, 1.0F, 1.0F, 1.0F};
+            stroke.transform =
+                native::semantic_scene_builder::identity_transform();
+            stroke.stroke_thickness = static_cast<float>(pen.thickness);
+            stroke.miter_limit =
+                static_cast<float>(std::max(1.0, pen.miter_limit));
+            stroke.dash_offset = dash_offset;
+            stroke.start_cap = pen.start_line_cap;
+            stroke.end_cap = pen.end_line_cap;
+            stroke.line_join = pen.line_join;
+            stroke.dash_cap = pen.dash_cap;
+            const std::array brushes{brush_index};
+            return builder.draw_strokes(
+                    std::span<const progpu_native_scene_stroke>(&stroke, 1U),
+                    points,
+                    intervals,
+                    brushes,
+                    bounds)
+                ? status::success
+                : status::invalid_graph;
+        };
         for (;;) {
             const status read_status = reader.next(view);
             if (read_status == status::end_of_batch) {
@@ -1115,54 +1162,21 @@ struct channel::implementation {
                         return status::invalid_graph;
                     }
                 } else {
-                    const auto dash = dash_styles.find(
-                        pen->second.dash_style_handle);
-                    if (dash == dash_styles.end()) {
-                        return status::invalid_handle;
-                    }
-                    if (dash->second.intervals.empty()) {
-                        if (!builder.draw_geometry(
-                                primitives,
-                                brushes,
-                                transformed_bounds)) {
-                            return status::invalid_graph;
-                        }
-                    } else {
-                        const std::array points{
-                            progpu_native_point{
-                                static_cast<float>(x0),
-                                static_cast<float>(y0)},
-                            progpu_native_point{
-                                static_cast<float>(x1),
-                                static_cast<float>(y1)}};
-                        progpu_native_scene_stroke stroke{};
-                        stroke.struct_size = sizeof(stroke);
-                        stroke.kind = PROGPU_NATIVE_SCENE_STROKE_POLYLINE;
-                        stroke.point_count = points.size();
-                        stroke.dash_interval_count =
-                            dash->second.intervals.size();
-                        stroke.color = {1.0F, 1.0F, 1.0F, 1.0F};
-                        stroke.transform =
-                            native::semantic_scene_builder::identity_transform();
-                        stroke.stroke_thickness =
-                            static_cast<float>(pen->second.thickness);
-                        stroke.miter_limit = static_cast<float>(
-                            std::max(1.0, pen->second.miter_limit));
-                        stroke.dash_offset = dash->second.offset;
-                        stroke.start_cap = pen->second.start_line_cap;
-                        stroke.end_cap = pen->second.end_line_cap;
-                        stroke.line_join = pen->second.line_join;
-                        stroke.dash_cap = pen->second.dash_cap;
-                        if (!builder.draw_strokes(
-                                std::span<const progpu_native_scene_stroke>(
-                                    &stroke,
-                                    1U),
-                                points,
-                                dash->second.intervals,
-                                brushes,
-                                transformed_bounds)) {
-                            return status::invalid_graph;
-                        }
+                    const std::array points{
+                        progpu_native_point{
+                            static_cast<float>(x0),
+                            static_cast<float>(y0)},
+                        progpu_native_point{
+                            static_cast<float>(x1),
+                            static_cast<float>(y1)}};
+                    const status stroke_status = append_polyline_stroke(
+                        pen->second,
+                        points,
+                        false,
+                        brush_index,
+                        transformed_bounds);
+                    if (stroke_status != status::success) {
+                        return stroke_status;
                     }
                 }
                 ++metrics.line_count;
@@ -1202,9 +1216,6 @@ struct channel::implementation {
                 !read_at(view.packet, 40U, pen_handle)) {
                 return status::malformed_batch;
             }
-            if (brush_handle == 0U || pen_handle != 0U) {
-                return status::unsupported_command;
-            }
             if (!finite_double_as_float(first) ||
                 !finite_double_as_float(second) ||
                 !finite_double_as_float(third) ||
@@ -1231,48 +1242,108 @@ struct channel::implementation {
                 !finite_double_as_float(height)) {
                 return status::malformed_batch;
             }
-            progpu_native_image_rect transformed_bounds{};
-            if (!try_transform_bounds(
-                    x,
-                    y,
-                    width,
-                    height,
-                    current.transform,
-                    transformed_bounds)) {
-                return status::invalid_graph;
+            if (brush_handle == 0U && pen_handle == 0U) {
+                continue;
             }
-
-            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            const status brush_status = resolve_brush_index(
-                brush_handle,
-                brush_index);
-            if (brush_status != status::success) {
-                return brush_status;
+            if (brush_handle != 0U) {
+                progpu_native_image_rect fill_bounds{};
+                if (!try_transform_bounds(
+                        x,
+                        y,
+                        width,
+                        height,
+                        current.transform,
+                        fill_bounds)) {
+                    return status::invalid_graph;
+                }
+                std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                const status brush_status = resolve_brush_index(
+                    brush_handle,
+                    brush_index);
+                if (brush_status != status::success) {
+                    return brush_status;
+                }
+                const std::array primitive{
+                    progpu_native_analytic_primitive{
+                        static_cast<std::uint32_t>(
+                            is_ellipse
+                                ? PROGPU_NATIVE_PRIMITIVE_ELLIPSE
+                                : is_rounded
+                                    ? PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE
+                                    : PROGPU_NATIVE_PRIMITIVE_RECTANGLE),
+                        0U,
+                        static_cast<float>(x),
+                        static_cast<float>(y),
+                        static_cast<float>(width),
+                        static_cast<float>(height),
+                        static_cast<float>(radius_x),
+                        0.0F,
+                        {1.0F, 1.0F, 1.0F, 1.0F},
+                        native::semantic_scene_builder::identity_transform()}};
+                const std::array brushes{brush_index};
+                if (!builder.draw_analytic(
+                        primitive,
+                        brushes,
+                        fill_bounds)) {
+                    return status::invalid_graph;
+                }
             }
-
-            const std::array primitive{
-                progpu_native_analytic_primitive{
-                    static_cast<std::uint32_t>(
-                        is_ellipse
-                            ? PROGPU_NATIVE_PRIMITIVE_ELLIPSE
-                            : is_rounded
-                                ? PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE
-                                : PROGPU_NATIVE_PRIMITIVE_RECTANGLE),
-                    0U,
-                    static_cast<float>(x),
-                    static_cast<float>(y),
-                    static_cast<float>(width),
-                    static_cast<float>(height),
-                    static_cast<float>(radius_x),
-                    0.0F,
-                    {1.0F, 1.0F, 1.0F, 1.0F},
-                    native::semantic_scene_builder::identity_transform()}};
-            const std::array brushes{brush_index};
-            if (!builder.draw_analytic(
-                    primitive,
-                    brushes,
-                    transformed_bounds)) {
-                return status::invalid_graph;
+            if (pen_handle != 0U) {
+                const auto pen = pens.find(pen_handle);
+                if (pen == pens.end()) {
+                    return status::invalid_handle;
+                }
+                if (pen->second.brush_handle != 0U &&
+                    pen->second.thickness > 0.0) {
+                    if (is_ellipse || is_rounded) {
+                        return status::unsupported_command;
+                    }
+                    if (width == 0.0 || height == 0.0) {
+                        return status::unsupported_command;
+                    }
+                    std::uint32_t pen_brush_index =
+                        PROGPU_NATIVE_SCENE_NO_INDEX;
+                    const status brush_status = resolve_brush_index(
+                        pen->second.brush_handle,
+                        pen_brush_index);
+                    if (brush_status != status::success) {
+                        return brush_status;
+                    }
+                    const double half_thickness =
+                        pen->second.thickness * 0.5;
+                    progpu_native_image_rect stroke_bounds{};
+                    if (!try_transform_bounds(
+                            x - half_thickness,
+                            y - half_thickness,
+                            width + pen->second.thickness,
+                            height + pen->second.thickness,
+                            current.transform,
+                            stroke_bounds)) {
+                        return status::invalid_graph;
+                    }
+                    const std::array points{
+                        progpu_native_point{
+                            static_cast<float>(x),
+                            static_cast<float>(y)},
+                        progpu_native_point{
+                            static_cast<float>(x + width),
+                            static_cast<float>(y)},
+                        progpu_native_point{
+                            static_cast<float>(x + width),
+                            static_cast<float>(y + height)},
+                        progpu_native_point{
+                            static_cast<float>(x),
+                            static_cast<float>(y + height)}};
+                    const status stroke_status = append_polyline_stroke(
+                        pen->second,
+                        points,
+                        true,
+                        pen_brush_index,
+                        stroke_bounds);
+                    if (stroke_status != status::success) {
+                        return stroke_status;
+                    }
+                }
             }
             if (is_ellipse) {
                 ++metrics.ellipse_count;
