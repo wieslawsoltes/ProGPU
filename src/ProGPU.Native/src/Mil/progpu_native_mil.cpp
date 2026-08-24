@@ -7,6 +7,7 @@
 #include <cstring>
 #include <limits>
 #include <new>
+#include <numbers>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -1295,7 +1296,7 @@ struct channel::implementation {
                 }
                 if (pen->second.brush_handle != 0U &&
                     pen->second.thickness > 0.0) {
-                    if (is_ellipse || is_rounded) {
+                    if (is_rounded) {
                         return status::unsupported_command;
                     }
                     if (width == 0.0 || height == 0.0) {
@@ -1321,27 +1322,62 @@ struct channel::implementation {
                             stroke_bounds)) {
                         return status::invalid_graph;
                     }
-                    const std::array points{
-                        progpu_native_point{
-                            static_cast<float>(x),
-                            static_cast<float>(y)},
-                        progpu_native_point{
-                            static_cast<float>(x + width),
-                            static_cast<float>(y)},
-                        progpu_native_point{
-                            static_cast<float>(x + width),
-                            static_cast<float>(y + height)},
-                        progpu_native_point{
-                            static_cast<float>(x),
-                            static_cast<float>(y + height)}};
-                    const status stroke_status = append_polyline_stroke(
-                        pen->second,
-                        points,
-                        true,
-                        pen_brush_index,
-                        stroke_bounds);
-                    if (stroke_status != status::success) {
-                        return stroke_status;
+                    if (is_ellipse) {
+                        if (pen->second.dash_style_handle != 0U) {
+                            const auto dash = dash_styles.find(
+                                pen->second.dash_style_handle);
+                            if (dash == dash_styles.end()) {
+                                return status::invalid_handle;
+                            }
+                            if (!dash->second.intervals.empty()) {
+                                return status::unsupported_command;
+                            }
+                        }
+                        const std::array primitive{
+                            progpu_native_geometry_primitive{
+                                PROGPU_NATIVE_GEOMETRY_ARC,
+                                0U,
+                                {static_cast<float>(first),
+                                    static_cast<float>(second)},
+                                {static_cast<float>(third), 0.0F},
+                                {0.0F, static_cast<float>(fourth)},
+                                {0.0F,
+                                    std::numbers::pi_v<float> * 2.0F},
+                                static_cast<float>(pen->second.thickness),
+                                0.0F,
+                                {1.0F, 1.0F, 1.0F, 1.0F},
+                                native::semantic_scene_builder::
+                                    identity_transform()}};
+                        const std::array brushes{pen_brush_index};
+                        if (!builder.draw_geometry(
+                                primitive,
+                                brushes,
+                                stroke_bounds)) {
+                            return status::invalid_graph;
+                        }
+                    } else {
+                        const std::array points{
+                            progpu_native_point{
+                                static_cast<float>(x),
+                                static_cast<float>(y)},
+                            progpu_native_point{
+                                static_cast<float>(x + width),
+                                static_cast<float>(y)},
+                            progpu_native_point{
+                                static_cast<float>(x + width),
+                                static_cast<float>(y + height)},
+                            progpu_native_point{
+                                static_cast<float>(x),
+                                static_cast<float>(y + height)}};
+                        const status stroke_status = append_polyline_stroke(
+                            pen->second,
+                            points,
+                            true,
+                            pen_brush_index,
+                            stroke_bounds);
+                        if (stroke_status != status::success) {
+                            return stroke_status;
+                        }
                     }
                 }
             }

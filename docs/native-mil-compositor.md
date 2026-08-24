@@ -104,10 +104,9 @@ parent transform, and then nested drawing scopes. Draw culling bounds are the
 axis-aligned bounds of all four transformed primitive corners. Animation
 handles, missing/wrong-type nonzero transforms, nonzero packet padding, and
 unbalanced scopes fail closed transactionally; transform handle zero retains
-WPF's defined balanced no-op scope. Animated brushes and pens, non-line pen
-draws, and other nested commands deliberately fail closed until
-their typed resources are implemented. The slice is covered by byte-level
-fixtures that check semantic
+WPF's defined balanced no-op scope. Animated brushes and pens and other nested
+commands deliberately fail closed until their typed resources are implemented.
+The slice is covered by byte-level fixtures that check semantic
 brush, transform/opacity state, rectangle, ellipse and rounded-rectangle
 primitives, transformed bounds, nested scope, rollback, scene identity,
 generation, and tree metrics. The C ABI supports an explicit required-size
@@ -129,8 +128,8 @@ Null pen handles and zero-width/null-brush pens are no-op draws. Thickness and
 dash-offset animation, invalid dash values/enums, unresolved handles, nonzero
 padding, and non-flat degenerate line caps fail closed transactionally. The
 size-stable MIL scene metrics ABI now publishes `line_count` in its former
-reserved tail field. Pens on rounded rectangles and ellipses remain closed
-until their curved-outline semantics can be preserved exactly.
+reserved tail field. Pens on rounded rectangles remain closed until their
+curved-corner semantics can be preserved exactly.
 
 Axis-aligned `MILCMD_DRAW_RECTANGLE` records now accept independent fill and
 pen handles. Rectangle pens lower to closed four-point semantic polylines, so
@@ -140,7 +139,16 @@ stroke-only, and fill-plus-stroke records remain distinct draws with one shared
 brush table; stroke culling expands the local rectangle by half the pen width
 before the four-corner affine bounds transform. Zero-width or zero-height
 rectangle strokes still fail closed pending exact WPF collapse semantics.
-Rounded-rectangle and ellipse pens remain unsupported in this checkpoint.
+
+`MILCMD_DRAW_ELLIPSE` records likewise accept independent fill and pen handles.
+Solid ellipse pens lower to ProGPU's exact analytic full-ellipse arc primitive,
+including non-uniform radii and affine semantic-state execution. Fill-only,
+stroke-only, and fill-plus-stroke records share the native brush table; stroke
+culling expands the local ellipse bounds by half the pen width before the
+four-corner affine bounds transform. A nonempty dash pattern on an ellipse
+fails closed until the native curve path can preserve phase continuously around
+the full circumference. Degenerate ellipse strokes and rounded-rectangle pens
+also remain unsupported in this checkpoint rather than being approximated.
 `NativeMilBatchBuilder` and `NativeMilRenderDataBuilder` provide the matching
 managed producer for this supported subset. They write the canonical WPF
 framing and packed field offsets directly into reusable buffer writers, expose

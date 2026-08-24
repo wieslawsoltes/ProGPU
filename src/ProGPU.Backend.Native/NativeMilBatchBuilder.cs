@@ -404,7 +404,6 @@ public sealed class NativeMilRenderDataBuilder
         {
             throw new ArgumentOutOfRangeException(nameof(radiusX));
         }
-        ArgumentOutOfRangeException.ThrowIfZero(brushHandle);
         Span<byte> packet = NativeMilBatchEncoding.Allocate(
             _writer, NativeMilCommand.DrawEllipse, 44);
         NativeMilBatchBuilder.WriteDouble(packet, 4, centerX);
