@@ -921,37 +921,59 @@ public unsafe class WgpuContext : IDisposable
 
         // 3. Request Adapter (synchronously)
         SafeLog("[WGPUCONTEXT] Requesting Adapter\n");
-        using var adapterSignal = new ManualResetEventSlim(false);
-        var adapterState = new AdapterRequestState(adapterSignal);
-        var adapterStateHandle = GCHandle.Alloc(adapterState);
+        if (Surface == null &&
+            OperatingSystem.IsWindows() &&
+            RuntimeInformation.ProcessArchitecture == Architecture.Arm64)
+        {
+            Adapter = EnumerateWindowsArm64D3D12Adapter(Wgpu, Instance);
+            SafeLog(
+                $"[WGPUCONTEXT] EnumerateAdapters finished, " +
+                $"adapter={(nint)Adapter:X}\n");
+        }
+        else
+        {
+            using var adapterSignal = new ManualResetEventSlim(false);
+            var adapterState = new AdapterRequestState(adapterSignal);
+            var adapterStateHandle = GCHandle.Alloc(adapterState);
 
-        var requestAdapterOptions = new RequestAdapterOptions
-        {
-            CompatibleSurface = Surface,
-            PowerPreference = PowerPreference.HighPerformance
-        };
+            var requestAdapterOptions = new RequestAdapterOptions
+            {
+                CompatibleSurface = Surface,
+                PowerPreference = PowerPreference.HighPerformance
+            };
 
-        try
-        {
-            var onAdapterReceived = new PfnRequestAdapterCallback(&OnAdapterRequested);
-            Wgpu.InstanceRequestAdapter(
-                Instance,
-                &requestAdapterOptions,
-                onAdapterReceived,
-                (void*)GCHandle.ToIntPtr(adapterStateHandle));
-            adapterSignal.Wait();
+            try
+            {
+                var onAdapterReceived = new PfnRequestAdapterCallback(
+                    &OnAdapterRequested);
+                Wgpu.InstanceRequestAdapter(
+                    Instance,
+                    &requestAdapterOptions,
+                    onAdapterReceived,
+                    (void*)GCHandle.ToIntPtr(adapterStateHandle));
+                adapterSignal.Wait();
+            }
+            finally
+            {
+                adapterStateHandle.Free();
+            }
+
+            SafeLog(
+                $"[WGPUCONTEXT] RequestAdapter finished, " +
+                $"adapter={adapterState.Result:X}\n");
+            if (adapterState.Result == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to obtain WebGPU Adapter. {adapterState.Error}");
+            }
+            Adapter = (WgpuAdapter*)adapterState.Result;
         }
-        finally
+
+        if (Adapter == null)
         {
-            adapterStateHandle.Free();
+            throw new InvalidOperationException(
+                "Failed to enumerate the Windows ARM64 D3D12 adapter.");
         }
-        
-        SafeLog($"[WGPUCONTEXT] RequestAdapter finished, adapter={adapterState.Result:X}\n");
-        if (adapterState.Result == 0)
-        {
-            throw new InvalidOperationException($"Failed to obtain WebGPU Adapter. {adapterState.Error}");
-        }
-        Adapter = (WgpuAdapter*)adapterState.Result;
 
         var adapterProperties = new AdapterProperties();
         Wgpu.AdapterGetProperties(Adapter, &adapterProperties);
@@ -1260,6 +1282,62 @@ public unsafe class WgpuContext : IDisposable
             ? WindowsArm64DeviceGetQueue(device)
             : wgpu.DeviceGetQueue(device);
     }
+
+    private static WgpuAdapter* EnumerateWindowsArm64D3D12Adapter(
+        WebGPU wgpu,
+        Instance* instance)
+    {
+        var options = new NativeInstanceEnumerateAdapterOptions
+        {
+            Backends = NativeInstanceEnumerateAdapterOptions.D3D12Backend
+        };
+        nuint count = WindowsArm64InstanceEnumerateAdapters(
+            instance,
+            &options,
+            null);
+        if (count == 0 || count > 32)
+        {
+            return null;
+        }
+
+        WgpuAdapter** adapters = stackalloc WgpuAdapter*[(int)count];
+        nuint written = WindowsArm64InstanceEnumerateAdapters(
+            instance,
+            &options,
+            adapters);
+        if (written == 0 || written > count || adapters[0] == null)
+        {
+            return null;
+        }
+
+        WgpuAdapter* selected = adapters[0];
+        for (nuint index = 1; index < written; index++)
+        {
+            if (adapters[index] != null)
+            {
+                wgpu.AdapterRelease(adapters[index]);
+            }
+        }
+        return selected;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeInstanceEnumerateAdapterOptions
+    {
+        public const uint D3D12Backend = 1u << 3;
+
+        public ChainedStruct* NextInChain;
+        public uint Backends;
+    }
+
+    [DllImport(
+        "wgpu_native",
+        EntryPoint = "wgpuInstanceEnumerateAdapters",
+        CallingConvention = CallingConvention.Cdecl)]
+    private static extern nuint WindowsArm64InstanceEnumerateAdapters(
+        Instance* instance,
+        NativeInstanceEnumerateAdapterOptions* options,
+        WgpuAdapter** adapters);
 
     [DllImport(
         "wgpu_native",
