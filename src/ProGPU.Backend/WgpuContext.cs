@@ -54,10 +54,9 @@ public unsafe class WgpuContext : IDisposable
     public BackendType AdapterBackendType { get; private set; } = BackendType.Undefined;
     public string AdapterName { get; private set; } = string.Empty;
     /// <summary>
-    /// Gets whether expensive glyph coverage compute work must be serialized to
-    /// stay below the adapter's bounded D3D12 execution window.
+    /// Gets whether glyph coverage must avoid the adapter's compute shader.
     /// </summary>
-    public bool RequiresSerializedGlyphRasterization =>
+    public bool RequiresGlyphComputeFallback =>
         AdapterBackendType == BackendType.D3D12 &&
         AdapterName.Contains(
             "Parallels Display Adapter",

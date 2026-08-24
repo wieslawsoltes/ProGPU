@@ -827,11 +827,11 @@ typedef struct progpu_native_engine_options {
 
 typedef enum progpu_native_engine_flag {
     /*
-     * Submit and await each cold glyph coverage dispatch independently. This
-     * is a narrow driver profile for virtual D3D12 adapters with a bounded
-     * compute execution window; retained glyph replay remains unchanged.
+     * Rasterize cold monochrome glyph coverage on the CPU and upload it to the
+     * retained atlas. This is a narrow driver profile for virtual D3D12
+     * adapters that cannot safely execute the shared glyph compute shader.
      */
-    PROGPU_NATIVE_ENGINE_SERIALIZE_GLYPH_RASTERIZATION = 1ULL << 0U
+    PROGPU_NATIVE_ENGINE_GLYPH_COMPUTE_FALLBACK = 1ULL << 0U
 } progpu_native_engine_flag;
 
 /*

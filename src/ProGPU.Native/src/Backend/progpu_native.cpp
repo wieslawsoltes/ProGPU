@@ -255,7 +255,7 @@ progpu_native_status progpu_native_engine_create(
         options->device == 0U || options->queue == 0U ||
         (options->flags &
             ~static_cast<std::uint64_t>(
-                PROGPU_NATIVE_ENGINE_SERIALIZE_GLYPH_RASTERIZATION)) != 0U ||
+                PROGPU_NATIVE_ENGINE_GLYPH_COMPUTE_FALLBACK)) != 0U ||
         texture_format(options->target_format) == WGPUTextureFormat_Undefined) {
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     }
@@ -308,7 +308,10 @@ progpu_native_status progpu_native_dawn_engine_create(
             PROGPU_NATIVE_DAWN_ADAPTER_ABI_VERSION ||
         options->provider_abi_version !=
             PROGPU_NATIVE_DAWN_REQUIRED_PROVIDER_ABI_VERSION ||
-        options->reserved != 0U || options->flags != 0U ||
+        options->reserved != 0U ||
+        (options->flags &
+            ~static_cast<std::uint64_t>(
+                PROGPU_NATIVE_ENGINE_GLYPH_COMPUTE_FALLBACK)) != 0U ||
         options->resolver_context == nullptr ||
         options->resolve_proc == nullptr ||
         options->instance == 0U || options->device == 0U ||

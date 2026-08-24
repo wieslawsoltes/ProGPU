@@ -2,6 +2,266 @@
 
 namespace progpu::native::execution {
 
+namespace {
+
+struct cpu_roots {
+    std::array<float, 3U> values{};
+    std::uint32_t count = 0U;
+};
+
+cpu_roots solve_quadratic_cpu(float a, float b, float c) noexcept {
+    cpu_roots result{};
+    if (std::abs(a) < 0.00001F) {
+        if (std::abs(b) > 0.00001F) {
+            result.values[0] = -c / b;
+            result.count = 1U;
+        }
+        return result;
+    }
+    const float discriminant = b * b - 4.0F * a * c;
+    if (discriminant == 0.0F) {
+        result.values[0] = -b / (2.0F * a);
+        result.count = 1U;
+    } else if (discriminant > 0.0F) {
+        const float root = std::sqrt(discriminant);
+        result.values[0] = (-b - root) / (2.0F * a);
+        result.values[1] = (-b + root) / (2.0F * a);
+        result.count = 2U;
+    }
+    return result;
+}
+
+float shader_cbrt_cpu(float value) noexcept {
+    return value < 0.0F
+        ? -std::pow(-value, 1.0F / 3.0F)
+        : std::pow(value, 1.0F / 3.0F);
+}
+
+cpu_roots solve_cubic_cpu(
+    float a_in,
+    float b_in,
+    float c_in,
+    float d_in) noexcept {
+    if (std::abs(a_in) < 0.00001F) {
+        return solve_quadratic_cpu(b_in, c_in, d_in);
+    }
+    cpu_roots result{};
+    const float a = b_in / a_in;
+    const float b = c_in / a_in;
+    const float c = d_in / a_in;
+    const float p = b - a * a / 3.0F;
+    const float q = c - a * b / 3.0F +
+        2.0F * a * a * a / 27.0F;
+    const float discriminant = q * q / 4.0F + p * p * p / 27.0F;
+    if (discriminant > 0.0F) {
+        const float root = std::sqrt(discriminant);
+        const float u = shader_cbrt_cpu(-q / 2.0F + root);
+        const float v = shader_cbrt_cpu(-q / 2.0F - root);
+        result.values[0] = u + v - a / 3.0F;
+        result.count = 1U;
+    } else if (p < 0.0F) {
+        constexpr float pi = 3.14159265359F;
+        const float radius = 2.0F * std::sqrt(-p / 3.0F);
+        const float ratio = std::clamp(
+            -q / (2.0F * std::sqrt(-p * p * p / 27.0F)),
+            -1.0F,
+            1.0F);
+        const float theta = std::acos(ratio);
+        result.values[0] = radius * std::cos(theta / 3.0F) - a / 3.0F;
+        result.values[1] = radius *
+            std::cos((theta + 2.0F * pi) / 3.0F) - a / 3.0F;
+        result.values[2] = radius *
+            std::cos((theta + 4.0F * pi) / 3.0F) - a / 3.0F;
+        result.count = 3U;
+    } else {
+        result.values[0] = -a / 3.0F;
+        result.count = 1U;
+    }
+    return result;
+}
+
+bool is_winding_root_valid(
+    float t,
+    float derivative_y,
+    float sample_y,
+    float start_y,
+    float end_y) noexcept {
+    if (t < 0.005F) {
+        return derivative_y > 0.0F
+            ? sample_y >= start_y
+            : derivative_y < 0.0F && sample_y < start_y;
+    }
+    if (t > 0.995F) {
+        return derivative_y > 0.0F
+            ? sample_y < end_y
+            : derivative_y < 0.0F && sample_y >= end_y;
+    }
+    return true;
+}
+
+int glyph_winding_cpu(
+    float sample_x,
+    float sample_y,
+    const gpu_glyph_record& record,
+    const progpu_native_path_segment* segments) noexcept {
+    int winding = 0;
+    const std::uint32_t end = record.start_segment + record.segment_count;
+    for (std::uint32_t index = record.start_segment;
+         index < end;
+         ++index) {
+        const auto& segment = segments[index];
+        const auto& a = segment.p0;
+        const auto& b = segment.p1;
+        if (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE) {
+            if (a.y == b.y) {
+                continue;
+            }
+            if (a.y <= sample_y && b.y > sample_y) {
+                const float t = (sample_y - a.y) / (b.y - a.y);
+                const float crossing_x = a.x + t * (b.x - a.x);
+                winding += sample_x < crossing_x ? 1 : 0;
+            } else if (a.y > sample_y && b.y <= sample_y) {
+                const float t = (sample_y - a.y) / (b.y - a.y);
+                const float crossing_x = a.x + t * (b.x - a.x);
+                winding -= sample_x < crossing_x ? 1 : 0;
+            }
+            continue;
+        }
+
+        const auto& c = segment.p2;
+        if (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC) {
+            const float qa = a.y - 2.0F * b.y + c.y;
+            const float qb = 2.0F * (b.y - a.y);
+            const float qc = a.y - sample_y;
+            const cpu_roots roots = solve_quadratic_cpu(qa, qb, qc);
+            for (std::uint32_t root_index = 0U;
+                 root_index < roots.count;
+                 ++root_index) {
+                const float t = roots.values[root_index];
+                if (t < -0.01F || t > 1.01F) {
+                    continue;
+                }
+                const float evaluated_t = std::clamp(
+                    t, 0.00001F, 0.99999F);
+                const float evaluated_one_minus_t = 1.0F - evaluated_t;
+                const float derivative_y =
+                    2.0F * evaluated_one_minus_t * (b.y - a.y) +
+                    2.0F * evaluated_t * (c.y - b.y);
+                if (!is_winding_root_valid(
+                        t, derivative_y, sample_y, a.y, c.y)) {
+                    continue;
+                }
+                const float clamped_t = std::clamp(t, 0.0F, 1.0F);
+                const float one_minus_t = 1.0F - clamped_t;
+                const float crossing_x =
+                    one_minus_t * one_minus_t * a.x +
+                    2.0F * one_minus_t * clamped_t * b.x +
+                    clamped_t * clamped_t * c.x;
+                winding += sample_x < crossing_x
+                    ? derivative_y > 0.0F ? 1 : derivative_y < 0.0F ? -1 : 0
+                    : 0;
+            }
+            continue;
+        }
+
+        const auto& d = segment.p3;
+        const float ca = -a.y + 3.0F * b.y - 3.0F * c.y + d.y;
+        const float cb = 3.0F * a.y - 6.0F * b.y + 3.0F * c.y;
+        const float cc = -3.0F * a.y + 3.0F * b.y;
+        const float cd = a.y - sample_y;
+        const cpu_roots roots = solve_cubic_cpu(ca, cb, cc, cd);
+        for (std::uint32_t root_index = 0U;
+             root_index < roots.count;
+             ++root_index) {
+            const float t = roots.values[root_index];
+            if (t < -0.01F || t > 1.01F) {
+                continue;
+            }
+            const float evaluated_t = std::clamp(t, 0.00001F, 0.99999F);
+            const float derivative_y = 3.0F * ca * evaluated_t * evaluated_t +
+                2.0F * cb * evaluated_t + cc;
+            if (!is_winding_root_valid(
+                    t, derivative_y, sample_y, a.y, d.y)) {
+                continue;
+            }
+            const float clamped_t = std::clamp(t, 0.0F, 1.0F);
+            const float one_minus_t = 1.0F - clamped_t;
+            const float crossing_x =
+                one_minus_t * one_minus_t * one_minus_t * a.x +
+                3.0F * one_minus_t * one_minus_t * clamped_t * b.x +
+                3.0F * one_minus_t * clamped_t * clamped_t * c.x +
+                clamped_t * clamped_t * clamped_t * d.x;
+            winding += sample_x < crossing_x
+                ? derivative_y > 0.0F ? 1 : derivative_y < 0.0F ? -1 : 0
+                : 0;
+        }
+    }
+    return winding;
+}
+
+bool rasterize_glyph_coverage_cpu(
+    const progpu_native_glyph_frame& frame,
+    const std::vector<gpu_glyph_record>& records,
+    const std::vector<gpu_glyph_uniforms>& uniforms,
+    const std::vector<native_glyph_raster>& rasters,
+    std::uint64_t coverage_size,
+    std::vector<std::byte>& coverage) {
+    try {
+        coverage.assign(static_cast<std::size_t>(coverage_size), std::byte{});
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+    for (std::size_t glyph_index = 0U;
+         glyph_index < rasters.size();
+         ++glyph_index) {
+        const auto& uniform = uniforms[glyph_index];
+        const auto& raster = rasters[glyph_index];
+        const auto& record = records[uniform.glyph_index];
+        for (std::uint32_t y = 0U; y < raster.height; ++y) {
+            for (std::uint32_t x = 0U; x < raster.width; ++x) {
+                std::uint32_t covered_samples = 0U;
+                const float pixel_x = uniform.x_start +
+                    static_cast<float>(x);
+                const float pixel_y = uniform.y_start +
+                    static_cast<float>(y);
+                for (std::uint32_t sample_y = 0U;
+                     sample_y < 8U;
+                     ++sample_y) {
+                    const float glyph_y = -(
+                        pixel_y + 0.0625F +
+                        static_cast<float>(sample_y) * 0.125F) /
+                        uniform.scale;
+                    for (std::uint32_t sample_x = 0U;
+                         sample_x < 8U;
+                         ++sample_x) {
+                        const float glyph_x = (
+                            pixel_x + 0.0625F +
+                            static_cast<float>(sample_x) * 0.125F -
+                            uniform.subpixel_x) / uniform.scale;
+                        covered_samples += glyph_winding_cpu(
+                            glyph_x,
+                            glyph_y,
+                            record,
+                            frame.segments) != 0
+                            ? 1U
+                            : 0U;
+                    }
+                }
+                const auto value = static_cast<std::uint32_t>(std::round(
+                    static_cast<float>(covered_samples) * 3.984375F));
+                const std::size_t offset = raster.output_offset +
+                    static_cast<std::size_t>(y) *
+                        raster.output_bytes_per_row + x;
+                coverage[offset] = static_cast<std::byte>(
+                    std::min(value, 255U));
+            }
+        }
+    }
+    return true;
+}
+
+} // namespace
+
 progpu_native_status render_glyphs(
     progpu_native_engine* engine,
     const progpu_native_glyph_frame* frame,
@@ -488,7 +748,48 @@ progpu_native_status render_glyphs(
     }
     path_raster_resources temporary;
     std::vector<std::byte> uniform_bytes;
+    std::vector<std::byte> cpu_coverage;
+    const bool glyph_compute_fallback =
+        (engine->engine_flags &
+            PROGPU_NATIVE_ENGINE_GLYPH_COMPUTE_FALLBACK) != 0U;
     if (!compiled_payload_hit && frame->outline_count != 0U) {
+        if (glyph_compute_fallback) {
+            if (!rasterize_glyph_coverage_cpu(
+                    *frame,
+                    records,
+                    uniforms,
+                    engine->glyph_rasters,
+                    coverage_staging_bytes,
+                    cpu_coverage)) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                    "The native CPU glyph coverage arena could not be allocated.");
+            }
+            for (const auto& raster : engine->glyph_rasters) {
+                progpu::native::webgpu::image_copy_texture destination{};
+                destination.texture = engine->glyph_atlas_texture;
+                destination.origin = {raster.atlas_x, raster.atlas_y, 0U};
+                destination.aspect = WGPUTextureAspect_All;
+                progpu::native::webgpu::texture_data_layout layout{};
+                layout.bytesPerRow = raster.output_bytes_per_row;
+                layout.rowsPerImage = raster.height;
+                const WGPUExtent3D extent{
+                    raster.width,
+                    raster.height,
+                    1U};
+                const std::size_t source_bytes =
+                    static_cast<std::size_t>(raster.output_bytes_per_row) *
+                        (raster.height - 1U) + raster.width;
+                wgpuQueueWriteTexture(
+                    engine->queue,
+                    &destination,
+                    cpu_coverage.data() + raster.output_offset,
+                    source_bytes,
+                    &layout,
+                    &extent);
+            }
+            outline_upload_bytes = coverage_staging_bytes;
+        } else {
         try {
             uniform_bytes.resize(frame->outline_count * 256U);
         } catch (const std::bad_alloc&) {
@@ -581,143 +882,6 @@ progpu_native_status render_glyphs(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The native glyph raster bind group could not be created.");
         }
-    }
-
-    const bool serialize_glyph_rasterization =
-        temporary.bind_group != nullptr &&
-        (engine->engine_flags &
-            PROGPU_NATIVE_ENGINE_SERIALIZE_GLYPH_RASTERIZATION) != 0U;
-    if (serialize_glyph_rasterization) {
-        for (std::uint32_t index = 0U;
-             index < engine->glyph_rasters.size();
-             ++index) {
-            const std::array<WGPUBindGroupEntry, 4U> serialized_entries{{
-                {nullptr, 0U, temporary.uniforms,
-                    static_cast<std::uint64_t>(index) * 256U,
-                    sizeof(gpu_glyph_uniforms), nullptr, nullptr},
-                {nullptr, 1U, temporary.records, 0U,
-                    records.size() * sizeof(gpu_glyph_record),
-                    nullptr, nullptr},
-                {nullptr, 2U, temporary.segments, 0U,
-                    frame->segment_count *
-                        sizeof(progpu_native_path_segment),
-                    nullptr, nullptr},
-                {nullptr, 3U, temporary.coverage, 0U,
-                    coverage_staging_bytes, nullptr, nullptr}
-            }};
-            WGPUBindGroupDescriptor serialized_bind_group_descriptor{};
-            serialized_bind_group_descriptor.label =
-                progpu::native::webgpu::string_view(
-                    "ProGPU serialized native glyph raster bind group");
-            serialized_bind_group_descriptor.layout =
-                engine->glyph_raster_layout;
-            serialized_bind_group_descriptor.entryCount =
-                serialized_entries.size();
-            serialized_bind_group_descriptor.entries =
-                serialized_entries.data();
-            WGPUBindGroup serialized_bind_group = wgpuDeviceCreateBindGroup(
-                engine->device,
-                &serialized_bind_group_descriptor);
-            if (serialized_bind_group == nullptr) {
-                return engine->fail(
-                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-                    "A serialized native glyph bind group could not be created.");
-            }
-
-            WGPUCommandEncoderDescriptor raster_encoder_descriptor{};
-            raster_encoder_descriptor.label =
-                progpu::native::webgpu::string_view(
-                    "ProGPU serialized native glyph raster encoder");
-            WGPUCommandEncoder raster_encoder = wgpuDeviceCreateCommandEncoder(
-                engine->device,
-                &raster_encoder_descriptor);
-            if (raster_encoder == nullptr) {
-                wgpuBindGroupRelease(serialized_bind_group);
-                return engine->fail(
-                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-                    "A serialized native glyph raster encoder could not be created.");
-            }
-
-            WGPUComputePassDescriptor compute_descriptor{};
-            compute_descriptor.label =
-                progpu::native::webgpu::string_view(
-                    "ProGPU serialized native glyph coverage pass");
-            WGPUComputePassEncoder compute_pass =
-                wgpuCommandEncoderBeginComputePass(
-                    raster_encoder,
-                    &compute_descriptor);
-            if (compute_pass == nullptr) {
-                wgpuCommandEncoderRelease(raster_encoder);
-                wgpuBindGroupRelease(serialized_bind_group);
-                return engine->fail(
-                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-                    "A serialized native glyph compute pass could not be created.");
-            }
-            wgpuComputePassEncoderSetPipeline(
-                compute_pass,
-                engine->glyph_raster_pipeline);
-            const std::uint32_t dynamic_offset = 0U;
-            wgpuComputePassEncoderSetBindGroup(
-                compute_pass,
-                0U,
-                serialized_bind_group,
-                1U,
-                &dynamic_offset);
-            const auto& raster = engine->glyph_rasters[index];
-            wgpuComputePassEncoderDispatchWorkgroups(
-                compute_pass,
-                (raster.width + 63U) / 64U,
-                (raster.height + 15U) / 16U,
-                1U);
-            wgpuComputePassEncoderEnd(compute_pass);
-            wgpuComputePassEncoderRelease(compute_pass);
-
-            progpu::native::webgpu::image_copy_buffer source{};
-            source.buffer = temporary.coverage;
-            source.layout.offset = raster.output_offset;
-            source.layout.bytesPerRow = raster.output_bytes_per_row;
-            source.layout.rowsPerImage = raster.height;
-            progpu::native::webgpu::image_copy_texture destination{};
-            destination.texture = engine->glyph_atlas_texture;
-            destination.origin = {raster.atlas_x, raster.atlas_y, 0U};
-            destination.aspect = WGPUTextureAspect_All;
-            const WGPUExtent3D extent{raster.width, raster.height, 1U};
-            wgpuCommandEncoderCopyBufferToTexture(
-                raster_encoder,
-                &source,
-                &destination,
-                &extent);
-
-            WGPUCommandBufferDescriptor raster_command_descriptor{};
-            raster_command_descriptor.label =
-                progpu::native::webgpu::string_view(
-                    "ProGPU serialized native glyph raster commands");
-            WGPUCommandBuffer raster_command = wgpuCommandEncoderFinish(
-                raster_encoder,
-                &raster_command_descriptor);
-            wgpuCommandEncoderRelease(raster_encoder);
-            if (raster_command == nullptr) {
-                wgpuBindGroupRelease(serialized_bind_group);
-                return engine->fail(
-                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-                    "Serialized native glyph raster commands could not be finished.");
-            }
-            engine->submit(raster_command);
-            wgpuCommandBufferRelease(raster_command);
-#if !defined(PROGPU_NATIVE_BROWSER)
-            if (!progpu::native::webgpu::poll_submission(
-                    engine->instance,
-                    engine->device,
-                    engine->queue,
-                    engine->last_submission_index,
-                    true)) {
-                wgpuBindGroupRelease(serialized_bind_group);
-                return engine->fail(
-                    PROGPU_NATIVE_STATUS_DEVICE_LOST,
-                    "A serialized native glyph raster submission did not complete.");
-            }
-#endif
-            wgpuBindGroupRelease(serialized_bind_group);
         }
     }
 
@@ -735,7 +899,7 @@ progpu_native_status render_glyphs(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The native positioned glyph command encoder could not be created.");
     }
-    if (temporary.bind_group != nullptr && !serialize_glyph_rasterization) {
+    if (temporary.bind_group != nullptr) {
         WGPUComputePassDescriptor compute_descriptor{};
         compute_descriptor.label = progpu::native::webgpu::string_view("ProGPU native glyph coverage pass");
         WGPUComputePassEncoder compute_pass =

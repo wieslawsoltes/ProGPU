@@ -118,6 +118,7 @@ public sealed unsafe class NativeCompositor : IDisposable
         }
 
         var options = CreateDawnOptions(
+            context,
             targetFormat,
             instance,
             device,
@@ -244,6 +245,7 @@ public sealed unsafe class NativeCompositor : IDisposable
         }
 
         var options = CreateDawnOptions(
+            replacementContext,
             _targetFormat,
             instance,
             device,
@@ -1953,6 +1955,7 @@ public sealed unsafe class NativeCompositor : IDisposable
     }
 
     private static NativeDawnMethods.EngineOptions CreateDawnOptions(
+        WgpuContext context,
         TextureFormat targetFormat,
         nuint instance,
         nuint device,
@@ -1969,7 +1972,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             ResolveProc = resolveProc,
             Instance = instance,
             Device = device,
-            Queue = queue
+            Queue = queue,
+            Flags = GetEngineFlags(context)
         };
 
     private static NativeRendererTextureFormat ToNativeFormat(
@@ -2050,8 +2054,8 @@ public sealed unsafe class NativeCompositor : IDisposable
     }
 
     private static ulong GetEngineFlags(WgpuContext context) =>
-        context.RequiresSerializedGlyphRasterization
-            ? NativeMethods.EngineSerializeGlyphRasterization
+        context.RequiresGlyphComputeFallback
+            ? NativeMethods.EngineGlyphComputeFallback
             : 0UL;
 
     private static NativeMethods.GroupEffect CreateGroupEffect(

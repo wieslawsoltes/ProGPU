@@ -706,6 +706,16 @@ public unsafe class GlyphAtlas : IDisposable
             }
             else
             {
+                if (_context.RequiresGlyphComputeFallback)
+                {
+                    // This adapter profile cannot safely execute the shared
+                    // glyph coverage compute shader. A stable empty atlas
+                    // entry routes compositor callers to retained vector
+                    // glyph rendering without retrying unsafe GPU work.
+                    info = CreateEmptyGlyphInfo(font, glyphIdx, size);
+                    CacheGlyph(key, info);
+                    return info;
+                }
                 var outline = font.GetGlyphOutline(glyphIdx);
 
                 // Handle empty glyphs such as font-owned space outlines.
@@ -903,18 +913,6 @@ public unsafe class GlyphAtlas : IDisposable
 
                                 _ringOffset += alignedSize;
                                 _coverageRingOffset += coverageBytes;
-                                if (_context.RequiresSerializedGlyphRasterization)
-                                {
-                                    // Parallels' virtual D3D12 adapter loses the
-                                    // device when several expensive coverage
-                                    // dispatches share one execution window. A
-                                    // completed cold-glyph submission preserves
-                                    // the retained steady-state cache while keeping
-                                    // each compute unit below that driver bound.
-                                    FlushBatchEncoder();
-                                    _context.PollDevice(wait: true);
-                                    CreateBatchEncoder();
-                                }
                             }
                             else
                             {
