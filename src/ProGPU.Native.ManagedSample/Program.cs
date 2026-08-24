@@ -230,8 +230,23 @@ NativeSceneFrameMetrics metrics = compositor.RenderScene(
     new Vector4(0.02f, 0.025f, 0.04f, 1f));
 context.WaitIdle();
 Console.WriteLine(
-    "[ProGPUNativeManaged] first retained frame submitted; " +
-    "validating post-build readback.");
+    $"[ProGPUNativeManaged] first retained frame submitted " +
+    $"({metrics.SubmissionCount} native submissions, " +
+    $"{metrics.VertexUploadBytes} vertex bytes, " +
+    $"{metrics.CoverageStagingBytes} coverage bytes); " +
+    "validating post-build buffer allocation.");
+using (var allocationProbe = new GpuBuffer(
+    context,
+    4,
+    BufferUsage.CopySrc | BufferUsage.CopyDst,
+    "ProGPU managed post-native-render allocation probe"))
+{
+    allocationProbe.WriteBytes([1, 2, 3, 4]);
+    context.PollDevice(wait: false);
+}
+Console.WriteLine(
+    "[ProGPUNativeManaged] post-build general buffer allocation passed; " +
+    "validating readback heap allocation.");
 _ = target.ReadPixels();
 Console.WriteLine("[ProGPUNativeManaged] post-build readback passed.");
 metrics = compositor.RenderScene(
