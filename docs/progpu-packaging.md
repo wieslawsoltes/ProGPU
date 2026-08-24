@@ -5,16 +5,16 @@ Avalonia 11 version lanes:
 
 | Avalonia lane | Package | Assembly | Purpose |
 | --- | --- | --- | --- |
-| 12.0.5 | `ProGPU.Avalonia.Rendering` `12.0.5-preview.55` | `Avalonia.ProGpu` | ProGPU/WebGPU rendering backend |
-| 12.0.5 | `ProGPU.Avalonia.SilkNet` `12.0.5-preview.55` | `Avalonia.SilkNet` | Cross-platform Silk.NET windowing backend |
-| 11.3.18 | `ProGPU.Avalonia.Rendering` `11.3.18-preview.55` | `Avalonia.ProGpu` | Shared-source ProGPU/WebGPU rendering backend |
-| 11.3.18 | `ProGPU.Avalonia.SilkNet` `11.3.18-preview.55` | `Avalonia.SilkNet` | Shared-source Silk.NET windowing backend |
-| native ABI | `ProGPU.Backend.Native` `0.1.0-preview.55` | `ProGPU.Backend.Native` | Experimental typed C++ renderer host with isolated wgpu-native and provider-resolved Dawn binaries for Linux, macOS, and Windows x64/arm64 |
-| native ABI | `ProGPU.Backend.Dawn` `0.1.0-preview.55` | `ProGPU.Backend.Dawn` | Exact-ABI Dawn device, IOSurface shared memory, and timeline fences |
+| 12.0.5 | `ProGPU.Avalonia.Rendering` `12.0.5-preview.56` | `Avalonia.ProGpu` | ProGPU/WebGPU rendering backend |
+| 12.0.5 | `ProGPU.Avalonia.SilkNet` `12.0.5-preview.56` | `Avalonia.SilkNet` | Cross-platform Silk.NET windowing backend |
+| 11.3.18 | `ProGPU.Avalonia.Rendering` `11.3.18-preview.56` | `Avalonia.ProGpu` | Shared-source ProGPU/WebGPU rendering backend |
+| 11.3.18 | `ProGPU.Avalonia.SilkNet` `11.3.18-preview.56` | `Avalonia.SilkNet` | Shared-source Silk.NET windowing backend |
+| native ABI | `ProGPU.Backend.Native` `0.1.0-preview.56` | `ProGPU.Backend.Native` | Experimental typed C++ renderer host with isolated wgpu-native and provider-resolved Dawn binaries for Linux, macOS, and Windows x64/arm64 |
+| native ABI | `ProGPU.Backend.Dawn` `0.1.0-preview.56` | `ProGPU.Backend.Dawn` | Exact-ABI Dawn device, IOSurface shared memory, and timeline fences |
 
 The Avalonia 12 packages are built against exactly Avalonia `12.0.5`; the
 Avalonia 11 packages are built against exactly Avalonia `11.3.18`. Both lanes
-use ProGPU `0.1.0-preview.55`. They intentionally use `ProGPU.*` package IDs;
+use ProGPU `0.1.0-preview.56`. They intentionally use `ProGPU.*` package IDs;
 no `Avalonia.*` package ID is published by the normal NuGet.org release lane.
 The separately gated private/local replacement lane described below produces
 an exact-identity `Avalonia` package and must never be pushed to NuGet.org.
@@ -223,7 +223,7 @@ in
 
 ## Pack locally
 
-Pack the ProGPU `0.1.0-preview.55` portable runtime packages first, then pack
+Pack the ProGPU `0.1.0-preview.56` portable runtime packages first, then pack
 both integration lanes:
 
 ```bash
@@ -327,11 +327,11 @@ unset NUGET_API_KEY
 
 Release order:
 
-1. Tag and publish ProGPU `0.1.0-preview.55`.
+1. Tag and publish ProGPU `0.1.0-preview.56`.
 2. Confirm the required ProGPU packages are available from NuGet.org.
 3. Pack and test both Avalonia integration lanes.
-4. Publish the two `12.0.5-preview.55` packages and the two
-   `11.3.18-preview.55` packages.
+4. Publish the two `12.0.5-preview.56` packages and the two
+   `11.3.18-preview.56` packages.
 
 ## Consume the packages
 
@@ -339,8 +339,8 @@ Release order:
 <ItemGroup>
   <PackageReference Include="Avalonia" Version="12.0.5" />
   <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.5" />
-  <PackageReference Include="ProGPU.Avalonia.Rendering" Version="12.0.5-preview.55" />
-  <PackageReference Include="ProGPU.Avalonia.SilkNet" Version="12.0.5-preview.55" />
+  <PackageReference Include="ProGPU.Avalonia.Rendering" Version="12.0.5-preview.56" />
+  <PackageReference Include="ProGPU.Avalonia.SilkNet" Version="12.0.5-preview.56" />
 </ItemGroup>
 ```
 
@@ -369,7 +369,7 @@ lease lifetime and package-facing API contract are documented in
 `docs/progpu-package-readme.md`.
 
 For Avalonia 11 applications, use the same package IDs with
-`11.3.18-preview.55` and pin the Avalonia packages to `11.3.18`.
+`11.3.18-preview.56` and pin the Avalonia packages to `11.3.18`.
 
 The cross-engine design review and validation evidence are recorded in
 `docs/progpu-avalonia-rendering-research.md`.
