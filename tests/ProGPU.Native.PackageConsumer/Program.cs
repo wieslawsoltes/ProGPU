@@ -29,6 +29,7 @@ if (info.AbiVersion != 3 ||
 
 bool milOnly = args.Contains("--mil-only", StringComparer.Ordinal);
 bool renderOnly = args.Contains("--render-only", StringComparer.Ordinal);
+byte[]? compiledMilStream = null;
 if (!renderOnly)
 {
     byte[] milBatch = CreateMilSeedBatch();
@@ -36,7 +37,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
         NativeMilCompiledScene scene = mil.CompileScene(42, 701, 1);
-        if (milMetrics.CommandCount != 28 || mil.ResourceCount != 11 ||
+        if (milMetrics.CommandCount != 30 || mil.ResourceCount != 12 ||
             !mil.TryGetVisual(41, out NativeMilVisualSnapshot visual) ||
             visual.Handle != 41 || scene.Stream.Length == 0 ||
             scene.Metrics.VisualCount != 1 ||
@@ -49,13 +50,14 @@ if (!renderOnly)
             throw new InvalidOperationException(
                 "The packaged wgpu-native MIL channel is incomplete.");
         }
+        compiledMilStream = scene.Stream;
     }
     Console.WriteLine("package-consumer: wgpu-native MIL");
     using (var dawnMil = new NativeMilChannel(NativeMilBackend.Dawn))
     {
         NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
         NativeMilCompiledScene scene = dawnMil.CompileScene(42, 702, 1);
-        if (milMetrics.CommandCount != 28 || dawnMil.ResourceCount != 11 ||
+        if (milMetrics.CommandCount != 30 || dawnMil.ResourceCount != 12 ||
             scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
             scene.Metrics.RectangleCount != 1 ||
             scene.Metrics.EllipseCount != 2 ||
@@ -99,6 +101,27 @@ using var target = new GpuTexture(
     "Native package consumer target",
     alphaMode: GpuTextureAlphaMode.Premultiplied);
 using var compositor = new NativeCompositor(context, TextureFormat.Rgba8Unorm);
+if (compiledMilStream is not null)
+{
+    NativeSceneUpdateMetrics update = compositor.UpdateScene(compiledMilStream);
+    NativeSceneFrameMetrics retainedMetrics = compositor.RenderScene(
+        target,
+        1f,
+        701,
+        1,
+        new Vector4(0f, 0f, 0f, 1f));
+    byte[] retainedPixels = target.ReadPixels();
+    if (update.ResourceCount == 0 || update.DrawCount == 0 ||
+        retainedMetrics.DrawCallCount == 0 ||
+        !ContainsNonBlackPixel(retainedPixels))
+    {
+        throw new InvalidOperationException(
+            "The packaged native renderer did not render the compiled retained MIL path scene.");
+    }
+    Console.WriteLine(
+        $"package-consumer: retained MIL render " +
+        $"resources={update.ResourceCount}, draws={retainedMetrics.DrawCallCount}");
+}
 NativeFrameMetrics metrics = compositor.Render(
     target,
     1f,
@@ -149,6 +172,7 @@ static byte[] CreateMilSeedBatch()
     renderData.DrawGeometry(0, 48, 49);
     renderData.DrawGeometry(44, 48, 50);
     renderData.DrawGeometry(44, 48, 51);
+    renderData.DrawGeometry(44, 0, 52);
     renderData.Pop();
     var batch = new NativeMilBatchBuilder();
     batch.CreateResource(41, NativeMilResourceType.Visual);
@@ -162,6 +186,7 @@ static byte[] CreateMilSeedBatch()
     batch.CreateResource(49, NativeMilResourceType.LineGeometry);
     batch.CreateResource(50, NativeMilResourceType.RectangleGeometry);
     batch.CreateResource(51, NativeMilResourceType.EllipseGeometry);
+    batch.CreateResource(52, NativeMilResourceType.PathGeometry);
     batch.CreateVisual(41);
     batch.SetVisualOffset(41, 1, 2);
     batch.SetMatrixTransform(
@@ -184,9 +209,49 @@ static byte[] CreateMilSeedBatch()
     batch.SetLineGeometry(49, 8, 56, 56, 8, 45);
     batch.SetRectangleGeometry(50, 12, 16, 40, 32, 8, 8, 45);
     batch.SetEllipseGeometry(51, 32, 32, 16, 12, 45);
+    batch.SetPathGeometry(
+        52,
+        new NativeMilPathGeometry(
+            NativeMilPathFillRule.Nonzero,
+            8,
+            4,
+            42,
+            46,
+            [
+                new NativeMilPathFigure(
+                    new NativeMilPoint(10, 48),
+                    IsFilled: true,
+                    IsClosed: true,
+                    [
+                        NativeMilPathSegment.Line(new NativeMilPoint(10, 16)),
+                        NativeMilPathSegment.QuadraticBezier(
+                            new NativeMilPoint(32, 4),
+                            new NativeMilPoint(48, 16)),
+                        NativeMilPathSegment.Arc(
+                            new NativeMilPoint(10, 48),
+                            24,
+                            20,
+                            15,
+                            isLargeArc: false,
+                            isClockwise: true)
+                    ])
+            ]),
+        45);
     batch.SetRenderData(43, renderData);
     batch.CreateGenericTarget(42, 64, 64);
     batch.SetTargetClearColor(42, new NativeMilColor(0, 0, 0, 1));
     batch.SetTargetRoot(42, 41);
     return batch.ToArray();
+}
+
+static bool ContainsNonBlackPixel(ReadOnlySpan<byte> pixels)
+{
+    for (int index = 0; index + 3 < pixels.Length; index += 4)
+    {
+        if (pixels[index] != 0 || pixels[index + 1] != 0 || pixels[index + 2] != 0)
+        {
+            return true;
+        }
+    }
+    return false;
 }
