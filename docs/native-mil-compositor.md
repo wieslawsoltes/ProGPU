@@ -159,6 +159,14 @@ dash metadata are preserved. Nonempty dash patterns on curved corners,
 non-uniform radii, and degenerate rounded-rectangle strokes fail closed until
 their exact curve semantics are available.
 
+The first retained geometry-resource slice implements the exact fixed-size
+`MILCMD_LINEGEOMETRY` update and nested `MILCMD_DRAW_GEOMETRY`. Line resources
+retain start/end points plus an optional typed matrix-transform handle; fills
+remain empty as required for line geometry, while solid and dashed pens reuse
+the same cap, dash, affine-bound, and backend-neutral stroke paths as
+`MILCMD_DRAW_LINE`. Point animations, uninitialized/wrong-type resources, and
+all not-yet-implemented geometry resource kinds fail closed transactionally.
+
 `NativeMilBatchBuilder` and `NativeMilRenderDataBuilder` provide the matching
 managed producer for this supported subset. They write the canonical WPF
 framing and packed field offsets directly into reusable buffer writers, expose
@@ -168,8 +176,9 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds, geometry,
-  curved-path dashes, remaining pen draws, brushes, drawings, images, glyph
-  runs, caches, guidelines, effects, and complete render-data decoding.
+  beyond fixed line resources, curved-path dashes, remaining pen draws,
+  brushes, drawings, images, glyph runs, caches, guidelines, effects, and
+  complete render-data decoding.
 - Lower every supported update to stable semantic resource identities and
   generation numbers; unchanged resources must not be rebuilt.
 - Add fixture capture/replay comparison against WPF's `CMilDataStreamReader`

@@ -140,6 +140,37 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWriteCanonicalLineGeometryPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetLineGeometry(9, 1, 2, 5, 8, 6);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(56, encoded.Length);
+        Assert.Equal(56U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x78U, ReadUInt32(encoded, 4));
+        Assert.Equal(9U, ReadUInt32(encoded, 8));
+        Assert.Equal(1.0, ReadDouble(encoded, 12));
+        Assert.Equal(2.0, ReadDouble(encoded, 20));
+        Assert.Equal(5.0, ReadDouble(encoded, 28));
+        Assert.Equal(8.0, ReadDouble(encoded, 36));
+        Assert.Equal(6U, ReadUInt32(encoded, 44));
+        Assert.Equal(0U, ReadUInt32(encoded, 48));
+        Assert.Equal(0U, ReadUInt32(encoded, 52));
+
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.DrawGeometry(4, 5, 9);
+        byte[] nested = renderData.WrittenSpan.ToArray();
+        Assert.Equal(24, nested.Length);
+        Assert.Equal(24U, ReadUInt32(nested, 0));
+        Assert.Equal(0x46U, ReadUInt32(nested, 4));
+        Assert.Equal(4U, ReadUInt32(nested, 8));
+        Assert.Equal(5U, ReadUInt32(nested, 12));
+        Assert.Equal(9U, ReadUInt32(nested, 16));
+        Assert.Equal(0U, ReadUInt32(nested, 20));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalDashStylePackets()
     {
         var batch = new NativeMilBatchBuilder();
