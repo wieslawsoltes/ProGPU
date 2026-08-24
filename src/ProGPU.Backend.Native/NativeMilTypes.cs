@@ -69,6 +69,7 @@ public readonly record struct NativeMilSceneMetrics(
     uint VisualCount,
     uint RectangleCount,
     uint EllipseCount,
+    uint RoundedRectangleCount,
     uint BrushCount,
     uint MaximumVisualDepth,
     ulong StreamBytes);

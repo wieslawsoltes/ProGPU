@@ -609,22 +609,36 @@ struct channel::implementation {
                 continue;
             }
             if (view.kind != command::draw_rectangle &&
+                view.kind != command::draw_rounded_rectangle &&
                 view.kind != command::draw_ellipse) {
                 return status::unsupported_command;
             }
 
+            const bool is_rounded =
+                view.kind == command::draw_rounded_rectangle;
             double first = 0.0;
             double second = 0.0;
             double third = 0.0;
             double fourth = 0.0;
+            double radius_x = 0.0;
+            double radius_y = 0.0;
             std::uint32_t brush_handle = 0U;
             std::uint32_t pen_handle = 0U;
-            if (!has_exact_size(view, 44U) ||
+            if (!has_exact_size(view, is_rounded ? 60U : 44U) ||
                 !read_at(view.packet, 4U, first) ||
                 !read_at(view.packet, 12U, second) ||
                 !read_at(view.packet, 20U, third) ||
-                !read_at(view.packet, 28U, fourth) ||
-                !read_at(view.packet, 36U, brush_handle) ||
+                !read_at(view.packet, 28U, fourth)) {
+                return status::malformed_batch;
+            }
+            if (is_rounded) {
+                if (!read_at(view.packet, 36U, radius_x) ||
+                    !read_at(view.packet, 44U, radius_y) ||
+                    !read_at(view.packet, 52U, brush_handle) ||
+                    !read_at(view.packet, 56U, pen_handle)) {
+                    return status::malformed_batch;
+                }
+            } else if (!read_at(view.packet, 36U, brush_handle) ||
                 !read_at(view.packet, 40U, pen_handle)) {
                 return status::malformed_batch;
             }
@@ -637,6 +651,15 @@ struct channel::implementation {
                 !finite_double_as_float(fourth) || third < 0.0 ||
                 fourth < 0.0) {
                 return status::malformed_batch;
+            }
+            if (is_rounded &&
+                (!finite_double_as_float(radius_x) ||
+                 !finite_double_as_float(radius_y) || radius_x < 0.0 ||
+                 radius_y < 0.0)) {
+                return status::malformed_batch;
+            }
+            if (is_rounded && radius_x != radius_y) {
+                return status::unsupported_command;
             }
             const bool is_ellipse = view.kind == command::draw_ellipse;
             const double x = is_ellipse ? first - third : first;
@@ -671,13 +694,15 @@ struct channel::implementation {
                 progpu_native_analytic_primitive{
                     is_ellipse
                         ? PROGPU_NATIVE_PRIMITIVE_ELLIPSE
-                        : PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+                        : is_rounded
+                            ? PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE
+                            : PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
                     0U,
                     static_cast<float>(x),
                     static_cast<float>(y),
                     static_cast<float>(width),
                     static_cast<float>(height),
-                    0.0F,
+                    static_cast<float>(radius_x),
                     0.0F,
                     {1.0F, 1.0F, 1.0F, 1.0F},
                     native::semantic_scene_builder::identity_transform()}};
@@ -693,6 +718,8 @@ struct channel::implementation {
             }
             if (is_ellipse) {
                 ++metrics.ellipse_count;
+            } else if (is_rounded) {
+                ++metrics.rounded_rectangle_count;
             } else {
                 ++metrics.rectangle_count;
             }

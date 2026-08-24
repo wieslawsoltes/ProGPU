@@ -262,6 +262,17 @@ bool solid_rectangle_compiles_to_semantic_scene() {
         11.0,
         brush,
         0U);
+    append_command(
+        nested,
+        command::draw_rounded_rectangle,
+        1.0,
+        3.0,
+        20.0,
+        30.0,
+        4.0,
+        4.0,
+        brush,
+        0U);
     append_command(nested, command::pop);
     append_render_data(batch, content, nested);
     append_command(
@@ -285,6 +296,7 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     PROGPU_REQUIRE(metrics.visual_count == 2U);
     PROGPU_REQUIRE(metrics.rectangle_count == 1U);
     PROGPU_REQUIRE(metrics.ellipse_count == 1U);
+    PROGPU_REQUIRE(metrics.rounded_rectangle_count == 1U);
     PROGPU_REQUIRE(metrics.brush_count == 1U);
     PROGPU_REQUIRE(metrics.maximum_visual_depth == 2U);
     PROGPU_REQUIRE(metrics.stream_bytes == stream.size());
@@ -292,13 +304,14 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     const auto header = read_value<progpu_native_scene_header>(stream, 0U);
     PROGPU_REQUIRE(header.scene_id == 9001U);
     PROGPU_REQUIRE(header.generation == 7U);
-    PROGPU_REQUIRE(header.command_count == 8U);
-    PROGPU_REQUIRE(header.resource_count == 6U);
+    PROGPU_REQUIRE(header.command_count == 9U);
+    PROGPU_REQUIRE(header.resource_count == 7U);
 
     bool found_child_state = false;
     bool found_nested_opacity_state = false;
     bool found_rectangle = false;
     bool found_ellipse = false;
+    bool found_rounded_rectangle = false;
     bool found_brush = false;
     for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
         const auto record = read_value<progpu_native_scene_resource>(
@@ -333,6 +346,15 @@ bool solid_rectangle_compiles_to_semantic_scene() {
                 PROGPU_REQUIRE(primitive.width == 14.0F);
                 PROGPU_REQUIRE(primitive.height == 22.0F);
                 found_ellipse = true;
+            } else if (
+                primitive.kind ==
+                PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE) {
+                PROGPU_REQUIRE(primitive.x == 1.0F);
+                PROGPU_REQUIRE(primitive.y == 3.0F);
+                PROGPU_REQUIRE(primitive.width == 20.0F);
+                PROGPU_REQUIRE(primitive.height == 30.0F);
+                PROGPU_REQUIRE(primitive.corner_radius == 4.0F);
+                found_rounded_rectangle = true;
             } else {
                 PROGPU_REQUIRE(false);
             }
@@ -351,6 +373,7 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     PROGPU_REQUIRE(found_nested_opacity_state);
     PROGPU_REQUIRE(found_rectangle);
     PROGPU_REQUIRE(found_ellipse);
+    PROGPU_REQUIRE(found_rounded_rectangle);
     PROGPU_REQUIRE(found_brush);
 
     progpu_native_mil_channel* native_channel = nullptr;
@@ -378,6 +401,35 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     PROGPU_REQUIRE(abi_metrics.visual_count == 2U);
     PROGPU_REQUIRE(abi_metrics.rectangle_count == 1U);
     PROGPU_REQUIRE(abi_metrics.ellipse_count == 1U);
+    PROGPU_REQUIRE(abi_metrics.rounded_rectangle_count == 1U);
+    alignas(progpu_native_mil_scene_metrics)
+        std::array<std::byte, sizeof(progpu_native_mil_scene_metrics)>
+            legacy_metrics_storage{};
+    legacy_metrics_storage.fill(std::byte{0x5a});
+    constexpr std::uint32_t legacy_metrics_size = 32U;
+    std::memcpy(
+        legacy_metrics_storage.data(),
+        &legacy_metrics_size,
+        sizeof(legacy_metrics_size));
+    std::size_t legacy_required_bytes = 0U;
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_build_scene(
+            native_channel,
+            target,
+            9001U,
+            7U,
+            nullptr,
+            0U,
+            &legacy_required_bytes,
+            reinterpret_cast<progpu_native_mil_scene_metrics*>(
+                legacy_metrics_storage.data())) ==
+        PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(legacy_required_bytes == stream.size());
+    for (std::size_t index = legacy_metrics_size;
+         index < legacy_metrics_storage.size();
+         ++index) {
+        PROGPU_REQUIRE(legacy_metrics_storage[index] == std::byte{0x5a});
+    }
     std::vector<std::byte> abi_stream(required_bytes);
     std::size_t written_bytes = 0U;
     PROGPU_REQUIRE(
@@ -445,6 +497,25 @@ bool render_data_scope_errors_fail_closed() {
     PROGPU_REQUIRE(
         state.build_scene(target, 1U, 2U, stream) ==
         status::invalid_graph);
+
+    std::vector<std::byte> unequal_batch;
+    std::vector<std::byte> unequal_radius;
+    append_command(
+        unequal_radius,
+        command::draw_rounded_rectangle,
+        0.0,
+        0.0,
+        10.0,
+        10.0,
+        2.0,
+        3.0,
+        visual,
+        0U);
+    append_render_data(unequal_batch, content, unequal_radius);
+    PROGPU_REQUIRE(state.apply(unequal_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 1U, 3U, stream) ==
+        status::unsupported_command);
     return true;
 }
 
