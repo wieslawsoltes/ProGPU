@@ -24,7 +24,8 @@ source_app="$repo_root/integration/AvaloniaSourceControlCatalog/bin/Release/net1
 avalonia_source_root="${PROGPU_AVALONIA_ROOT:-$repo_root/.worktrees/avalonia-12.1.1}"
 analyzer_project="$repo_root/tools/ProGPU.SampleMemoryProfiler/ProGPU.SampleMemoryProfiler.csproj"
 analyzer_app="$repo_root/tools/ProGPU.SampleMemoryProfiler/bin/Release/net10.0/ProGPU.SampleMemoryProfiler.dll"
-page_source="$avalonia_source_root/samples/ControlCatalog/MainView.xaml"
+page_list_source="$avalonia_source_root/samples/ControlCatalog/ViewModels/MainWindowViewModel_PageList.cs"
+page_xaml_source="$avalonia_source_root/samples/ControlCatalog/MainView.xaml"
 failure_path="$output_root/failures.tsv"
 host_kernel="$(uname -s)"
 if command -v rg >/dev/null 2>&1; then
@@ -153,12 +154,18 @@ if [[ "${PROGPU_AVALONIA_BUILD_ONLY:-0}" == "1" ]]; then
 fi
 
 pages=()
-while IFS= read -r page; do
-  pages+=("$page")
-done < <(sed -n 's/^[[:space:]]*<TabItem Header="\([^"]*\)".*/\1/p' "$page_source")
+if [[ -f "$page_list_source" ]]; then
+  while IFS= read -r page; do
+    pages+=("$page")
+  done < <(sed -n 's/^[[:space:]]*new PageItem("\([^"]*\)".*/\1/p' "$page_list_source")
+elif [[ -f "$page_xaml_source" ]]; then
+  while IFS= read -r page; do
+    pages+=("$page")
+  done < <(sed -n 's/^[[:space:]]*<TabItem Header="\([^"]*\)".*/\1/p' "$page_xaml_source")
+fi
 
 if [[ ${#pages[@]} -eq 0 ]]; then
-  echo "No ControlCatalog pages were discovered in $page_source" >&2
+  echo "No ControlCatalog pages were discovered under $avalonia_source_root/samples/ControlCatalog" >&2
   exit 3
 fi
 
