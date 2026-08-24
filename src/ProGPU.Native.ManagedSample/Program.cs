@@ -228,7 +228,7 @@ NativeSceneFrameMetrics metrics = compositor.RenderScene(
     sceneId,
     sceneGeneration,
     new Vector4(0.02f, 0.025f, 0.04f, 1f));
-context.PollDevice(wait: false);
+context.WaitIdle();
 Console.WriteLine(
     "[ProGPUNativeManaged] first retained frame submitted; " +
     "validating post-build readback.");
