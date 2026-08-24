@@ -183,6 +183,32 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 56, 0);
     }
 
+    public void SetLineGeometry(
+        uint handle,
+        double startX,
+        double startY,
+        double endX,
+        double endY,
+        uint transformHandle = 0)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(startX) || !double.IsFinite(startY) ||
+            !double.IsFinite(endX) || !double.IsFinite(endY))
+        {
+            throw new ArgumentOutOfRangeException(nameof(startX));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.LineGeometry, 52);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, startX);
+        WriteDouble(packet, 16, startY);
+        WriteDouble(packet, 24, endX);
+        WriteDouble(packet, 32, endY);
+        WriteUInt32(packet, 40, transformHandle);
+        WriteUInt32(packet, 44, 0);
+        WriteUInt32(packet, 48, 0);
+    }
+
     public void SetPen(uint handle, NativeMilPen pen)
     {
         ValidateHandle(handle);
@@ -366,6 +392,20 @@ public sealed class NativeMilRenderDataBuilder
         NativeMilBatchBuilder.WriteUInt32(packet, 36, penHandle);
     }
 
+    public void DrawGeometry(
+        uint brushHandle,
+        uint penHandle,
+        uint geometryHandle)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(geometryHandle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawGeometry, 20);
+        NativeMilBatchBuilder.WriteUInt32(packet, 4, brushHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 8, penHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 12, geometryHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 16, 0);
+    }
+
     public void DrawRectangle(
         double x,
         double y,
@@ -479,10 +519,12 @@ internal static class NativeMilCommand
     internal const uint DrawRectangle = 0x40;
     internal const uint DrawRoundedRectangle = 0x42;
     internal const uint DrawEllipse = 0x44;
+    internal const uint DrawGeometry = 0x46;
     internal const uint PushOpacity = 0x4f;
     internal const uint PushTransform = 0x51;
     internal const uint Pop = 0x56;
     internal const uint MatrixTransform = 0x77;
+    internal const uint LineGeometry = 0x78;
     internal const uint SolidColorBrush = 0x7e;
     internal const uint DashStyle = 0x85;
     internal const uint Pen = 0x86;

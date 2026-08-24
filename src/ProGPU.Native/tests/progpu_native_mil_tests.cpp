@@ -1130,6 +1130,76 @@ bool solid_pen_line_compiles_to_geometry_scene() {
         state.build_scene(target, 7002U, 7U, stream, &metrics) ==
         status::unsupported_command);
 
+    constexpr std::uint32_t line_geometry = 9U;
+    std::vector<std::byte> geometry_batch;
+    append_create(geometry_batch, line_geometry, 68U);
+    append_command(
+        geometry_batch,
+        command::line_geometry,
+        line_geometry,
+        1.0,
+        2.0,
+        5.0,
+        8.0,
+        transform,
+        0U,
+        0U);
+    std::vector<std::byte> geometry_draw;
+    append_command(
+        geometry_draw,
+        command::draw_geometry,
+        brush,
+        solid_pen,
+        line_geometry,
+        0U);
+    append_render_data(geometry_batch, content, geometry_draw);
+    PROGPU_REQUIRE(state.apply(geometry_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 8U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.line_count == 1U);
+    const auto geometry_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_transformed_line_geometry = false;
+    for (std::uint32_t index = 0U;
+        index < geometry_header.resource_count;
+        ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            geometry_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            continue;
+        }
+        const auto primitive = read_value<progpu_native_geometry_primitive>(
+            stream,
+            record.payload_offset);
+        PROGPU_REQUIRE(primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE);
+        PROGPU_REQUIRE(primitive.transform.m11 == 2.0F);
+        PROGPU_REQUIRE(primitive.transform.m22 == 2.0F);
+        found_transformed_line_geometry = true;
+    }
+    PROGPU_REQUIRE(found_transformed_line_geometry);
+
+    const auto geometry_generation =
+        state.resource_generation(line_geometry);
+    std::vector<std::byte> animated_geometry;
+    append_command(
+        animated_geometry,
+        command::line_geometry,
+        line_geometry,
+        1.0,
+        2.0,
+        5.0,
+        8.0,
+        transform,
+        1U,
+        0U);
+    PROGPU_REQUIRE(
+        state.apply(animated_geometry) == status::unsupported_command);
+    PROGPU_REQUIRE(
+        state.resource_generation(line_geometry) == geometry_generation);
+
     std::vector<std::byte> invalid_cap;
     append_command(
         invalid_cap,
