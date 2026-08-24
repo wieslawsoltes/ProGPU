@@ -2,6 +2,7 @@ using System;
 using Avalonia.Media;
 using Avalonia.Rendering.SceneGraph;
 using Avalonia.Skia;
+using ProGPU.Scene;
 using SkiaSharp;
 using Xunit;
 
@@ -80,6 +81,104 @@ public sealed class SkiaSharpApiLeaseContractTests
             context.GetFeature(typeof(IProGpuApiLeaseFeature)));
         Assert.IsAssignableFrom<ISkiaSharpApiLeaseFeature>(
             context.GetFeature(typeof(ISkiaSharpApiLeaseFeature)));
+    }
+
+    [Fact]
+    public void SkiaSharpLeaseRestoresUnbalancedCanvasScopes()
+    {
+        using var context = new DrawingContextImpl(
+            new DrawingContextImpl.CreateInfo
+            {
+                Size = new PixelSize(64, 48),
+                Dpi = new Vector(96, 96),
+                PreserveRecordedCommandsOnDispose = true
+            });
+        var feature = Assert.IsAssignableFrom<
+            ISkiaSharpApiLeaseFeature>(
+                context.GetFeature(
+                    typeof(ISkiaSharpApiLeaseFeature)));
+
+        using var pathBuilder = new SKPathBuilder();
+        pathBuilder.MoveTo(4, 4);
+        pathBuilder.LineTo(28, 4);
+        pathBuilder.LineTo(16, 28);
+        pathBuilder.Close();
+        using SKPath path = pathBuilder.Detach();
+        using (ISkiaSharpApiLease lease = feature.Lease())
+        using (var paint = new SKPaint { Color = SKColors.Red })
+        {
+            lease.SkCanvas.ClipRect(new SKRect(2, 3, 40, 41));
+            lease.SkCanvas.ClipPath(path);
+            lease.SkCanvas.DrawRect(4, 5, 8, 9, paint);
+        }
+
+        context.DrawRectangle(
+            Brushes.Blue,
+            null,
+            new RoundedRect(new Rect(0, 0, 4, 4)));
+
+        Assert.Collection(
+            context.DrawingContext.Commands,
+            command => Assert.Equal(
+                RenderCommandType.PushClip,
+                command.Type),
+            command => Assert.Equal(
+                RenderCommandType.PushGeometryClip,
+                command.Type),
+            command => Assert.Equal(
+                RenderCommandType.DrawRect,
+                command.Type),
+            command => Assert.Equal(
+                RenderCommandType.PopGeometryClip,
+                command.Type),
+            command => Assert.Equal(
+                RenderCommandType.PopClip,
+                command.Type),
+            command => Assert.Equal(
+                RenderCommandType.DrawRect,
+                command.Type));
+    }
+
+    [Fact]
+    public void SkiaSharpLeaseSeedsActiveAvaloniaClipForQueries()
+    {
+        using var context = new DrawingContextImpl(
+            new DrawingContextImpl.CreateInfo
+            {
+                Size = new PixelSize(80, 60),
+                Dpi = new Vector(96, 96),
+                PreserveRecordedCommandsOnDispose = true
+            });
+        context.PushClip(new Rect(10.2, 8.2, 50, 40));
+        context.PushClip(
+            new RoundedRect(
+                new Rect(20.2, 15.2, 15.1, 10.1),
+                radius: 2));
+        var feature = Assert.IsAssignableFrom<
+            ISkiaSharpApiLeaseFeature>(
+                context.GetFeature(
+                    typeof(ISkiaSharpApiLeaseFeature)));
+
+        using (ISkiaSharpApiLease lease = feature.Lease())
+        {
+            Assert.Equal(
+                new SKRectI(20, 15, 36, 26),
+                lease.SkCanvas.DeviceClipBounds);
+            Assert.Equal(
+                new SKRect(19, 14, 37, 27),
+                lease.SkCanvas.LocalClipBounds);
+            Assert.True(
+                lease.SkCanvas.QuickReject(
+                    new SKRect(0, 0, 4, 4)));
+            Assert.False(
+                lease.SkCanvas.QuickReject(
+                    new SKRect(22, 17, 24, 19)));
+        }
+
+        Assert.Equal(2, context.DrawingContext.Commands.Count);
+        context.PopClip();
+        context.PopClip();
+        Assert.Equal(4, context.DrawingContext.Commands.Count);
     }
 
     private sealed class ExistingCustomDrawOperation :

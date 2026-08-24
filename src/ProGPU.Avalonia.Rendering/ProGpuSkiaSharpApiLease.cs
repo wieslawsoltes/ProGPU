@@ -11,10 +11,13 @@ internal sealed class ProGpuSkiaSharpApiLease :
     Avalonia.Skia.ISkiaSharpApiLease
 {
     private readonly int _threadId;
+    private readonly int _canvasRestoreCount;
     private IProGpuApiLease? _lease;
     private SkiaSharp.SKCanvas? _canvas;
 
-    internal ProGpuSkiaSharpApiLease(IProGpuApiLease lease)
+    internal ProGpuSkiaSharpApiLease(
+        IProGpuApiLease lease,
+        AvaloniaSkiaClipState clipState)
     {
         _threadId = Environment.CurrentManagedThreadId;
         _lease = lease;
@@ -26,11 +29,23 @@ internal sealed class ProGpuSkiaSharpApiLease :
                 lease.PixelSize.Height,
                 lease.WgpuContext);
             _canvas.SetMatrix(ToSkiaMatrix(lease.CurrentTransform));
+            _canvas.InitializeDeviceClipBounds(
+                clipState.DeviceBounds,
+                clipState.IsRect);
+            _canvasRestoreCount = _canvas.Save();
         }
         catch
         {
-            lease.Dispose();
-            _lease = null;
+            try
+            {
+                _canvas?.Dispose();
+            }
+            finally
+            {
+                lease.Dispose();
+                _canvas = null;
+                _lease = null;
+            }
             throw;
         }
     }
@@ -82,7 +97,17 @@ internal sealed class ProGpuSkiaSharpApiLease :
         _lease = null;
         try
         {
-            canvas?.Dispose();
+            if (canvas is not null)
+            {
+                try
+                {
+                    canvas.RestoreToCount(_canvasRestoreCount);
+                }
+                finally
+                {
+                    canvas.Dispose();
+                }
+            }
         }
         finally
         {

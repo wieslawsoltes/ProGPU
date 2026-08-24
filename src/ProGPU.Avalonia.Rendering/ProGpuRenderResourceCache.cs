@@ -544,6 +544,7 @@ internal sealed class AvaloniaDrawingState
 
     internal readonly Stack<double> OpacityFrames = new();
     internal readonly Stack<bool> GeometryClipFrames = new();
+    internal readonly Stack<AvaloniaSkiaClipState> SkiaClipFrames = new();
     internal readonly Stack<RenderOptions> RenderOptionFrames = new();
     internal readonly Stack<RenderCommandPresentationDependencies>
         RenderOptionDependencyFrames = new();
@@ -556,6 +557,7 @@ internal sealed class AvaloniaDrawingState
     internal bool CanRetain =>
         OpacityFrames.EnsureCapacity(0) <= MaximumRetainedCapacity &&
         GeometryClipFrames.EnsureCapacity(0) <= MaximumRetainedCapacity &&
+        SkiaClipFrames.EnsureCapacity(0) <= MaximumRetainedCapacity &&
         RenderOptionFrames.EnsureCapacity(0) <= MaximumRetainedCapacity &&
         RenderOptionDependencyFrames.EnsureCapacity(0) <= MaximumRetainedCapacity
 #if !AVALONIA11
@@ -568,6 +570,7 @@ internal sealed class AvaloniaDrawingState
     {
         OpacityFrames.Clear();
         GeometryClipFrames.Clear();
+        SkiaClipFrames.Clear();
         RenderOptionFrames.Clear();
         RenderOptionDependencyFrames.Clear();
 #if !AVALONIA11

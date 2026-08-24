@@ -3212,7 +3212,7 @@ public class SKCanvas : SKObject
             ? new ClipState(new SKRectI(left, top, right, bottom), IsRect: true)
             : new ClipState(SKRectI.Empty, IsRect: false);
 
-    private static SKRectI ToDeviceBounds(SKRect bounds, bool roundToNearest)
+    internal static SKRectI ToDeviceBounds(SKRect bounds, bool roundToNearest)
     {
         if (!IsFiniteNonEmpty(bounds))
         {
@@ -3230,6 +3230,30 @@ public class SKCanvas : SKObject
                 FloorDeviceCoordinate(bounds.Top),
                 CeilingDeviceCoordinate(bounds.Right),
                 CeilingDeviceCoordinate(bounds.Bottom));
+    }
+
+    internal void InitializeDeviceClipBounds(
+        SKRectI deviceBounds,
+        bool isRect)
+    {
+        if (_savedStateCount != 0 || _pushedScopes.Count != 0)
+        {
+            throw new InvalidOperationException(
+                "Initial clip bounds can only be set on a fresh canvas.");
+        }
+
+        SKRectI canvasBounds = new(
+            0,
+            0,
+            ToCanvasExtent(_width),
+            ToCanvasExtent(_height));
+        SKRectI intersection = SKRectI.Intersect(
+            canvasBounds,
+            deviceBounds);
+        _clipState = intersection.Right > intersection.Left &&
+            intersection.Bottom > intersection.Top
+                ? new ClipState(intersection, isRect)
+                : new ClipState(SKRectI.Empty, IsRect: false);
     }
 
     private static bool IsFiniteNonEmpty(SKRect bounds) =>
