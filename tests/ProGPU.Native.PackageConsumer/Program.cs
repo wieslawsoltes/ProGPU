@@ -1,11 +1,17 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
 using ProGPU.Backend;
 using ProGPU.Backend.Native;
 using Silk.NET.WebGPU;
 
 if (args.Contains("--webgpu-init-only", StringComparer.Ordinal))
 {
+    Console.WriteLine(
+        $"package-consumer: WebGPU init " +
+        $"arch={RuntimeInformation.ProcessArchitecture}, " +
+        $"temp={Path.GetTempPath()}");
     using var probeContext = new WgpuContext();
+    Console.WriteLine("package-consumer: WebGPU context constructed");
     probeContext.Initialize(window: null);
     Console.WriteLine("ProGPU.Backend WebGPU initialization smoke passed.");
     return;
