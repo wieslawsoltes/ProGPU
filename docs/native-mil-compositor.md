@@ -83,7 +83,8 @@ compositor.
 
 ### Stage 1 — complete retained 2D resources
 
-The first Stage 1 vertical slice is implemented in the typed C++ API. It
+The first Stage 1 vertical slice is implemented in the typed C++ API, the
+size-versioned C ABI, and `NativeMilChannel.CompileScene(...)`. It
 decodes the exact WPF `MILCMD_SOLIDCOLORBRUSH` record and nested
 `MILCMD_DRAW_RECTANGLE` record, applies retained visual offsets and opacity,
 walks the target's visual tree with cycle/depth validation, and emits the
@@ -91,7 +92,9 @@ shared pointer-free ProGPU semantic scene stream. Animated/transform brushes,
 rectangle pens, and other nested commands deliberately fail closed until their
 typed resources are implemented. The slice is covered by a byte-level fixture
 that checks semantic brush, state, primitive, scene identity, generation, and
-tree metrics.
+tree metrics. The C ABI supports an explicit required-size query and writes
+into caller-owned storage; the managed owner returns the completed semantic
+stream with typed compilation metrics for direct native compositor submission.
 
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.

@@ -159,6 +159,71 @@ public sealed unsafe class NativeMilChannel : IDisposable
         return found != 0;
     }
 
+    /// <summary>
+    /// Compiles a retained MIL target into the semantic scene stream accepted
+    /// by the ProGPU native compositor selected for this channel.
+    /// </summary>
+    public NativeMilCompiledScene CompileScene(
+        uint targetHandle,
+        ulong sceneId,
+        ulong generation)
+    {
+        nint channel = GetChannel();
+        var nativeMetrics = new NativeMilMethods.SceneMetrics
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeMilMethods.SceneMetrics>()
+        };
+        nuint requiredBytes = 0;
+        NativeMilStatus status = BuildScene(
+            channel,
+            targetHandle,
+            sceneId,
+            generation,
+            null,
+            0,
+            &requiredBytes,
+            &nativeMetrics);
+        ThrowSceneFailure(status, targetHandle);
+        if (requiredBytes > int.MaxValue)
+        {
+            throw new NativeMilException(
+                NativeMilStatus.CapacityExceeded,
+                $"The semantic scene for MIL target {targetHandle} exceeds the managed buffer limit.");
+        }
+
+        byte[] stream = GC.AllocateUninitializedArray<byte>((int)requiredBytes);
+        nativeMetrics.StructSize =
+            (uint)Unsafe.SizeOf<NativeMilMethods.SceneMetrics>();
+        nuint writtenBytes = 0;
+        fixed (byte* destination = stream)
+        {
+            status = BuildScene(
+                channel,
+                targetHandle,
+                sceneId,
+                generation,
+                destination,
+                (nuint)stream.Length,
+                &writtenBytes,
+                &nativeMetrics);
+        }
+        ThrowSceneFailure(status, targetHandle);
+        if (writtenBytes != requiredBytes)
+        {
+            throw new NativeMilException(
+                NativeMilStatus.InvalidGraph,
+                $"The retained MIL target {targetHandle} changed while its semantic scene was compiled.");
+        }
+        return new NativeMilCompiledScene(
+            stream,
+            new NativeMilSceneMetrics(
+                nativeMetrics.VisualCount,
+                nativeMetrics.RectangleCount,
+                nativeMetrics.BrushCount,
+                nativeMetrics.MaximumVisualDepth,
+                nativeMetrics.StreamBytes));
+    }
+
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposeState, 1) != 0)
@@ -185,5 +250,49 @@ public sealed unsafe class NativeMilChannel : IDisposable
         nint channel = Volatile.Read(ref _channel);
         ObjectDisposedException.ThrowIf(channel == 0, this);
         return channel;
+    }
+
+
+    private NativeMilStatus BuildScene(
+        nint channel,
+        uint targetHandle,
+        ulong sceneId,
+        ulong generation,
+        void* destination,
+        nuint destinationSize,
+        nuint* bytesWritten,
+        NativeMilMethods.SceneMetrics* metrics)
+    {
+        return _backend == NativeMilBackend.Dawn
+            ? NativeMilDawnMethods.BuildScene(
+                channel,
+                targetHandle,
+                sceneId,
+                generation,
+                destination,
+                destinationSize,
+                bytesWritten,
+                metrics)
+            : NativeMilMethods.BuildScene(
+                channel,
+                targetHandle,
+                sceneId,
+                generation,
+                destination,
+                destinationSize,
+                bytesWritten,
+                metrics);
+    }
+
+    private static void ThrowSceneFailure(
+        NativeMilStatus status,
+        uint targetHandle)
+    {
+        if (status != NativeMilStatus.Success)
+        {
+            throw new NativeMilException(
+                status,
+                $"The retained MIL target {targetHandle} could not be compiled to a semantic scene.");
+        }
     }
 }

@@ -43,6 +43,17 @@ internal static unsafe partial class NativeMilMethods
         internal uint Flags;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SceneMetrics
+    {
+        internal uint StructSize;
+        internal uint VisualCount;
+        internal uint RectangleCount;
+        internal uint BrushCount;
+        internal uint MaximumVisualDepth;
+        internal ulong StreamBytes;
+    }
+
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_create")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus Create(nint* channel);
@@ -96,6 +107,18 @@ internal static unsafe partial class NativeMilMethods
         nint channel,
         uint handle,
         TargetSnapshot* snapshot);
+
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_build_scene")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus BuildScene(
+        nint channel,
+        uint targetHandle,
+        ulong sceneId,
+        ulong generation,
+        void* destination,
+        nuint destinationSize,
+        nuint* bytesWritten,
+        SceneMetrics* metrics);
 }
 
 internal static unsafe partial class NativeMilDawnMethods
@@ -153,4 +176,16 @@ internal static unsafe partial class NativeMilDawnMethods
         nint channel,
         uint handle,
         NativeMilMethods.TargetSnapshot* snapshot);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_build_scene")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus BuildScene(
+        nint channel,
+        uint targetHandle,
+        ulong sceneId,
+        ulong generation,
+        void* destination,
+        nuint destinationSize,
+        nuint* bytesWritten,
+        NativeMilMethods.SceneMetrics* metrics);
 }

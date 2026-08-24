@@ -19,7 +19,8 @@ typedef enum progpu_native_mil_status {
     PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE = 7,
     PROGPU_NATIVE_MIL_STATUS_INVALID_RESOURCE_TYPE = 8,
     PROGPU_NATIVE_MIL_STATUS_RESOURCE_TYPE_MISMATCH = 9,
-    PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH = 10
+    PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH = 10,
+    PROGPU_NATIVE_MIL_STATUS_CAPACITY_EXCEEDED = 11
 } progpu_native_mil_status;
 
 typedef struct progpu_native_mil_batch_metrics {
@@ -54,6 +55,15 @@ typedef struct progpu_native_mil_target_snapshot {
     uint32_t flags;
 } progpu_native_mil_target_snapshot;
 
+typedef struct progpu_native_mil_scene_metrics {
+    uint32_t struct_size;
+    uint32_t visual_count;
+    uint32_t rectangle_count;
+    uint32_t brush_count;
+    uint32_t maximum_visual_depth;
+    uint64_t stream_bytes;
+} progpu_native_mil_scene_metrics;
+
 PROGPU_NATIVE_API progpu_native_mil_status progpu_native_mil_channel_create(
     progpu_native_mil_channel** channel);
 PROGPU_NATIVE_API void progpu_native_mil_channel_destroy(
@@ -87,6 +97,21 @@ PROGPU_NATIVE_API uint8_t progpu_native_mil_channel_get_target(
     const progpu_native_mil_channel* channel,
     uint32_t handle,
     progpu_native_mil_target_snapshot* snapshot);
+/*
+ * Compiles a target to the shared ProGPU semantic scene stream. Pass a null
+ * destination and zero capacity to query the required byte count. A short
+ * destination returns CAPACITY_EXCEEDED and still reports the required count.
+ */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_build_scene(
+    const progpu_native_mil_channel* channel,
+    uint32_t target_handle,
+    uint64_t scene_id,
+    uint64_t generation,
+    void* destination,
+    size_t destination_size,
+    size_t* bytes_written,
+    progpu_native_mil_scene_metrics* metrics);
 
 #ifdef __cplusplus
 }

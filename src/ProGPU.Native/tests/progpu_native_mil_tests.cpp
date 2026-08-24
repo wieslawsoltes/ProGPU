@@ -324,6 +324,56 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     PROGPU_REQUIRE(found_child_state);
     PROGPU_REQUIRE(found_rectangle);
     PROGPU_REQUIRE(found_brush);
+
+    progpu_native_mil_channel* native_channel = nullptr;
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_create(&native_channel) ==
+        PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_apply(
+            native_channel, batch.data(), batch.size(), nullptr) ==
+        PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    progpu_native_mil_scene_metrics abi_metrics{};
+    abi_metrics.struct_size = sizeof(abi_metrics);
+    std::size_t required_bytes = 0U;
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_build_scene(
+            native_channel,
+            target,
+            9001U,
+            7U,
+            nullptr,
+            0U,
+            &required_bytes,
+            &abi_metrics) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(required_bytes == stream.size());
+    PROGPU_REQUIRE(abi_metrics.visual_count == 2U);
+    PROGPU_REQUIRE(abi_metrics.rectangle_count == 1U);
+    std::vector<std::byte> abi_stream(required_bytes);
+    std::size_t written_bytes = 0U;
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_build_scene(
+            native_channel,
+            target,
+            9001U,
+            7U,
+            abi_stream.data(),
+            abi_stream.size() - 1U,
+            &written_bytes,
+            nullptr) == PROGPU_NATIVE_MIL_STATUS_CAPACITY_EXCEEDED);
+    PROGPU_REQUIRE(written_bytes == required_bytes);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_build_scene(
+            native_channel,
+            target,
+            9001U,
+            7U,
+            abi_stream.data(),
+            abi_stream.size(),
+            &written_bytes,
+            nullptr) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(abi_stream == stream);
+    progpu_native_mil_channel_destroy(native_channel);
     return true;
 }
 
