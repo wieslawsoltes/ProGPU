@@ -944,6 +944,18 @@ internal partial class DrawingContextImpl :
         Rect localBounds,
         bool isGeometryClip)
     {
+        Rect deviceBounds = localBounds.TransformToAABB(CommandTransform);
+        bool isDeviceRect = !isGeometryClip &&
+            IsAxisAlignedSkiaClipTransform(CommandTransform);
+        PushSkiaDeviceClipState(
+            ToLocalRect(deviceBounds),
+            isDeviceRect);
+    }
+
+    private void PushSkiaDeviceClipState(
+        SceneRect deviceBounds,
+        bool isDeviceRect)
+    {
         _skiaClipFrames.Push(_skiaClipState);
         if (_skiaClipState.DeviceBounds.Right <=
                 _skiaClipState.DeviceBounds.Left ||
@@ -953,15 +965,12 @@ internal partial class DrawingContextImpl :
             return;
         }
 
-        Rect deviceBounds = localBounds.TransformToAABB(CommandTransform);
-        bool isDeviceRect = !isGeometryClip &&
-            IsAxisAlignedSkiaClipTransform(CommandTransform);
         SKRectI incoming = SKCanvas.ToDeviceBounds(
             new SKRect(
-                (float)deviceBounds.Left,
-                (float)deviceBounds.Top,
-                (float)deviceBounds.Right,
-                (float)deviceBounds.Bottom),
+                deviceBounds.X,
+                deviceBounds.Y,
+                deviceBounds.Right,
+                deviceBounds.Bottom),
             roundToNearest: isDeviceRect);
         SKRectI intersection = SKRectI.Intersect(
             _skiaClipState.DeviceBounds,

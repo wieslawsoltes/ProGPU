@@ -2,6 +2,7 @@ using System;
 using Avalonia.Media;
 using Avalonia.Rendering.SceneGraph;
 using Avalonia.Skia;
+using ProGPU.Backend;
 using ProGPU.Scene;
 using SkiaSharp;
 using Xunit;
@@ -180,6 +181,89 @@ public sealed class SkiaSharpApiLeaseContractTests
         context.PopClip();
         Assert.Equal(4, context.DrawingContext.Commands.Count);
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SkiaSharpLeaseUsesRecordedDeviceSpaceEffectClip(
+        bool retainedEffect)
+    {
+        using var context = new DrawingContextImpl(
+            new DrawingContextImpl.CreateInfo
+            {
+                Size = new PixelSize(80, 60),
+                Dpi = new Vector(96, 96),
+                PreserveRecordedCommandsOnDispose = true
+            });
+        context.Transform = new Matrix(
+            1,
+            0.5,
+            0.25,
+            1,
+            10.3,
+            7.3);
+        IEffect effect = retainedEffect
+            ? new ImmutableBlurEffect(2)
+            : new BlendEffect(GpuBlendMode.Multiply);
+        context.PushEffect(
+            new Rect(2.2, 3.2, 8.2, 6.2),
+            effect);
+        var feature = Assert.IsAssignableFrom<
+            ISkiaSharpApiLeaseFeature>(
+                context.GetFeature(
+                    typeof(ISkiaSharpApiLeaseFeature)));
+
+        SKRectI reportedBounds;
+        using (ISkiaSharpApiLease lease = feature.Lease())
+        {
+            Assert.True(lease.SkCanvas.IsClipRect);
+            reportedBounds = lease.SkCanvas.DeviceClipBounds;
+        }
+
+        context.PopEffect();
+        RenderCommand clipCommand = Assert.Single(
+            context.DrawingContext.Commands,
+            command => command.Type == RenderCommandType.PushClip);
+        Assert.Equal(
+            new SKRectI(
+                RoundDeviceCoordinate(clipCommand.Rect.X),
+                RoundDeviceCoordinate(clipCommand.Rect.Y),
+                RoundDeviceCoordinate(clipCommand.Rect.Right),
+                RoundDeviceCoordinate(clipCommand.Rect.Bottom)),
+            reportedBounds);
+    }
+
+    [Fact]
+    public void SkiaSharpLeaseInvalidatesBorrowedGrContext()
+    {
+        using var context = new DrawingContextImpl(
+            new DrawingContextImpl.CreateInfo
+            {
+                Size = new PixelSize(16, 16),
+                Dpi = new Vector(96, 96),
+                PreserveRecordedCommandsOnDispose = true
+            });
+        var feature = Assert.IsAssignableFrom<
+            ISkiaSharpApiLeaseFeature>(
+                context.GetFeature(
+                    typeof(ISkiaSharpApiLeaseFeature)));
+        ISkiaSharpApiLease lease = feature.Lease();
+        GRContext grContext = Assert.IsType<GRContext>(lease.GrContext);
+
+        lease.Dispose();
+
+        Assert.True(grContext.IsAbandoned);
+        Assert.Throws<ObjectDisposedException>(() => grContext.Submit());
+        Assert.Throws<ObjectDisposedException>(
+            () => grContext.PurgeResources());
+        Assert.Throws<ObjectDisposedException>(() =>
+        {
+            _ = grContext.Context;
+        });
+    }
+
+    private static int RoundDeviceCoordinate(float value) =>
+        (int)MathF.Round(value, MidpointRounding.AwayFromZero);
 
     private sealed class ExistingCustomDrawOperation :
         ICustomDrawOperation

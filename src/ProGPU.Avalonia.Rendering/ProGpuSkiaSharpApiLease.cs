@@ -14,6 +14,7 @@ internal sealed class ProGpuSkiaSharpApiLease :
     private readonly int _canvasRestoreCount;
     private IProGpuApiLease? _lease;
     private SkiaSharp.SKCanvas? _canvas;
+    private SkiaSharp.GRContext? _grContext;
 
     internal ProGpuSkiaSharpApiLease(
         IProGpuApiLease lease,
@@ -28,6 +29,7 @@ internal sealed class ProGpuSkiaSharpApiLease :
                 lease.PixelSize.Width,
                 lease.PixelSize.Height,
                 lease.WgpuContext);
+            _grContext = _canvas.Context as SkiaSharp.GRContext;
             _canvas.SetMatrix(ToSkiaMatrix(lease.CurrentTransform));
             _canvas.InitializeDeviceClipBounds(
                 clipState.DeviceBounds,
@@ -42,9 +44,17 @@ internal sealed class ProGpuSkiaSharpApiLease :
             }
             finally
             {
-                lease.Dispose();
-                _canvas = null;
-                _lease = null;
+                try
+                {
+                    _grContext?.Dispose();
+                }
+                finally
+                {
+                    lease.Dispose();
+                    _grContext = null;
+                    _canvas = null;
+                    _lease = null;
+                }
             }
             throw;
         }
@@ -55,8 +65,14 @@ internal sealed class ProGpuSkiaSharpApiLease :
         throw new ObjectDisposedException(
             nameof(Avalonia.Skia.ISkiaSharpApiLease));
 
-    public SkiaSharp.GRContext? GrContext =>
-        SkCanvas.Context as SkiaSharp.GRContext;
+    public SkiaSharp.GRContext? GrContext
+    {
+        get
+        {
+            _ = SkCanvas;
+            return _grContext;
+        }
+    }
 
     public SkiaSharp.SKSurface? SkSurface
     {
@@ -93,7 +109,9 @@ internal sealed class ProGpuSkiaSharpApiLease :
         }
 
         SkiaSharp.SKCanvas? canvas = _canvas;
+        SkiaSharp.GRContext? grContext = _grContext;
         _canvas = null;
+        _grContext = null;
         _lease = null;
         try
         {
@@ -105,8 +123,19 @@ internal sealed class ProGpuSkiaSharpApiLease :
                 }
                 finally
                 {
-                    canvas.Dispose();
+                    try
+                    {
+                        canvas.Dispose();
+                    }
+                    finally
+                    {
+                        grContext?.Dispose();
+                    }
                 }
+            }
+            else
+            {
+                grContext?.Dispose();
             }
         }
         finally

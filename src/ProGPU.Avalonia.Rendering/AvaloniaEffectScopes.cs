@@ -102,9 +102,9 @@ partial class DrawingContextImpl
             DrawingContext = retained.Context;
             if (clipRect is { } subtreeClip)
             {
-                PushSkiaClipState(
-                    subtreeClip,
-                    isGeometryClip: false);
+                PushSkiaDeviceClipState(
+                    ToProGpuRect(subtreeClip),
+                    isDeviceRect: true);
             }
             PushAvaloniaEffectFrame(
                 new AvaloniaEffectFrame(
@@ -158,8 +158,9 @@ partial class DrawingContextImpl
     {
         if (clipRect is not { } clip)
             return false;
-        DrawingContext.PushClip(ToProGpuRect(clip));
-        PushSkiaClipState(clip, isGeometryClip: false);
+        ProGPU.Scene.Rect deviceClip = ToProGpuRect(clip);
+        DrawingContext.PushClip(deviceClip);
+        PushSkiaDeviceClipState(deviceClip, isDeviceRect: true);
         return true;
     }
 
