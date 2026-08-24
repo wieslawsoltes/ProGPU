@@ -128,8 +128,7 @@ Null pen handles and zero-width/null-brush pens are no-op draws. Thickness and
 dash-offset animation, invalid dash values/enums, unresolved handles, nonzero
 padding, and non-flat degenerate line caps fail closed transactionally. The
 size-stable MIL scene metrics ABI now publishes `line_count` in its former
-reserved tail field. Pens on rounded rectangles remain closed until their
-curved-corner semantics can be preserved exactly.
+reserved tail field.
 
 Axis-aligned `MILCMD_DRAW_RECTANGLE` records now accept independent fill and
 pen handles. Rectangle pens lower to closed four-point semantic polylines, so
@@ -147,8 +146,19 @@ stroke-only, and fill-plus-stroke records share the native brush table; stroke
 culling expands the local ellipse bounds by half the pen width before the
 four-corner affine bounds transform. A nonempty dash pattern on an ellipse
 fails closed until the native curve path can preserve phase continuously around
-the full circumference. Degenerate ellipse strokes and rounded-rectangle pens
-also remain unsupported in this checkpoint rather than being approximated.
+the full circumference. Degenerate ellipse strokes remain unsupported in this
+checkpoint rather than being approximated.
+
+Uniform-radius `MILCMD_DRAW_ROUNDED_RECTANGLE` records now accept independent
+fill and pen handles. Positive-radius solid outlines lower to ProGPU's exact
+rounded-rectangle analytic primitive with native stroke thickness, including
+affine semantic-state execution and bounds expanded by half the pen width.
+Fill-only, stroke-only, and fill-plus-stroke records share the native brush
+table. A zero radius keeps the closed-polyline rectangle path so WPF join and
+dash metadata are preserved. Nonempty dash patterns on curved corners,
+non-uniform radii, and degenerate rounded-rectangle strokes fail closed until
+their exact curve semantics are available.
+
 `NativeMilBatchBuilder` and `NativeMilRenderDataBuilder` provide the matching
 managed producer for this supported subset. They write the canonical WPF
 framing and packed field offsets directly into reusable buffer writers, expose
@@ -158,8 +168,8 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds, geometry,
-  remaining pen draws, brushes, drawings, images, glyph runs,
-  caches, guidelines, effects, and complete render-data decoding.
+  curved-path dashes, remaining pen draws, brushes, drawings, images, glyph
+  runs, caches, guidelines, effects, and complete render-data decoding.
 - Lower every supported update to stable semantic resource identities and
   generation numbers; unchanged resources must not be rebuilt.
 - Add fixture capture/replay comparison against WPF's `CMilDataStreamReader`

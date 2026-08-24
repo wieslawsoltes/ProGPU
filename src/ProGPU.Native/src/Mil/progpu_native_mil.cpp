@@ -1296,9 +1296,6 @@ struct channel::implementation {
                 }
                 if (pen->second.brush_handle != 0U &&
                     pen->second.thickness > 0.0) {
-                    if (is_rounded) {
-                        return status::unsupported_command;
-                    }
                     if (width == 0.0 || height == 0.0) {
                         return status::unsupported_command;
                     }
@@ -1350,6 +1347,37 @@ struct channel::implementation {
                                     identity_transform()}};
                         const std::array brushes{pen_brush_index};
                         if (!builder.draw_geometry(
+                                primitive,
+                                brushes,
+                                stroke_bounds)) {
+                            return status::invalid_graph;
+                        }
+                    } else if (is_rounded && radius_x > 0.0) {
+                        if (pen->second.dash_style_handle != 0U) {
+                            const auto dash = dash_styles.find(
+                                pen->second.dash_style_handle);
+                            if (dash == dash_styles.end()) {
+                                return status::invalid_handle;
+                            }
+                            if (!dash->second.intervals.empty()) {
+                                return status::unsupported_command;
+                            }
+                        }
+                        const std::array primitive{
+                            progpu_native_analytic_primitive{
+                                PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE,
+                                0U,
+                                static_cast<float>(x),
+                                static_cast<float>(y),
+                                static_cast<float>(width),
+                                static_cast<float>(height),
+                                static_cast<float>(radius_x),
+                                static_cast<float>(pen->second.thickness),
+                                {1.0F, 1.0F, 1.0F, 1.0F},
+                                native::semantic_scene_builder::
+                                    identity_transform()}};
+                        const std::array brushes{pen_brush_index};
+                        if (!builder.draw_analytic(
                                 primitive,
                                 brushes,
                                 stroke_bounds)) {
