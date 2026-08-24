@@ -5,12 +5,13 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 It also builds the separately versioned Avalonia 11 and 12 integration packages
 from `scripts/progpu-package-list.sh`.
 
-Preview.50 adds a framework-neutral portable WPF window-icon contract on top
-of the successfully published preview.49 boundary. Portable window state can
-carry an opaque, framework-owned icon source, and activation callbacks can
-update or clear that source after host creation. The interop package does not
-take a WPF or Silk.NET dependency; conversion and native ownership remain the
-responsibility of the consuming host.
+Preview.56 advances the successfully published preview.55 boundary with
+retained-scene submission, effect, clipping, picture-cache, and resource-
+lifetime improvements. Eligible stable managed and native scenes can replay
+retained WebGPU render bundles, compatible texture draws are batched, and
+submission-retirement polling remains bounded. The managed renderer also adds
+GPU color-matrix and isolated blend effects plus anisotropic drop shadows with
+matched native contracts.
 
 WinUI remains at 4,952 exact of 16,579 official declarations with 11,627
 remaining, and the XAML compiler remains pre-MVP. These are continuation
@@ -18,15 +19,17 @@ ledgers rather than behavioral-completion claims. Detailed remaining work is
 pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 `docs/xaml-compiler/ROADMAP.md`.
 
-## Preview.50 closure and continuation
+## Preview.56 closure and continuation
 
-The release boundary is intentionally narrow: it contains the portable window
-icon state and activation callback contract plus focused contract tests. It
-does not implement framework-specific icon discovery, pixel conversion, or
-native-window behavior, and it does not change rendering semantics or native
-ABI ownership.
+The release includes analytic rectangular and rounded-ring difference clips,
+ordered host-backdrop capture, retained picture admission and reuse, texture-
+content generation stamps, stable effect-scene reuse, and serialized wgpu-
+native lifetime operations. Render-bundle replay fails closed for mutable,
+upload-dependent, masked, or effect scenes, and releases bundles before every
+captured resource generation. Optional managed WinRT geometry contracts do not
+change rendering or the native ABI.
 
-The next WinUI parity branch starts from the immutable preview.55 tag. It must
+The next WinUI parity branch starts from the immutable preview.56 tag. It must
 retain the official NuGet metadata comparator and proceed through API-contract
 markers, retained WebGPU Composition families, behavior-complete XAML control
 and property-system clusters, removal of accidental ProGPU-only declarations,
@@ -34,7 +37,7 @@ and matched rendering/performance validation. The exact baseline remains 4,952
 of 16,579 declarations; behavior, accessibility, device-loss, and rendering
 quality remain independently gated.
 
-The XAML compiler remains pre-MVP. Preview.50 retains automatic projection of
+The XAML compiler remains pre-MVP. Preview.56 retains automatic projection of
 changed stable XAML identities to detached Roslyn metadata diagnostic origins.
 The five remaining product blockers are runtime capability adapters; atomic
 metadata apply, XAML publication, joint commit, and recovery;
@@ -43,20 +46,18 @@ stress, performance, visual, accessibility, and collectible-context gates; and
 published-feed host and productization evidence.
 
 SkiaSharp's official metadata ledger remains closed at 4,222/4,222 with zero
-missing. The stroke compiler keeps common indexed polyline and spline recording
-free of geometry-graph allocation; direct bounded polyline compilation is
-`O(N)`, while spline tessellation adapts to the current device transform rather
-than forcing 100 segments for every replay. Fixed-device and framebuffer
-hairlines are expanded after the full affine centerline transform, while normal
-strokes preserve exact source-local outline semantics. This release makes no
-universal performance-superiority claim; performance and pixel correctness
-remain one contract.
+missing. The release preserves the established Svg.Skia image-difference
+inventory while extending retained scene behavior beneath the compatibility
+surface. Rendering performance and pixel correctness remain one contract; no
+universal performance-superiority claim is made.
 
-The exact PR #90 head passed all nine checks across Ubuntu, macOS, and Windows
-build/test lanes, portable and mobile packaging, retained Avalonia composition,
-native Dawn, and upstream text contracts. Its focused adapter-diagnostics tests
-pass for both external-native and browser-hosted contexts, and the full Release
-test project builds without warnings or errors.
+The preview.56 implementation boundary passed the managed renderer and headless
+suites at 3,796 and 240 tests, the native C++ 9-suite CTest matrix, a byte-exact
+managed/native rectangle differential, real Dawn/Metal retained-bundle replay,
+and the repository's Build, Docs, Browser Pages, and Svg.Skia parity workflows.
+Design, lifetime, complexity, cross-engine research, and matched performance
+evidence are recorded in `docs/RETAINED_GPU_SUBMISSION_OPTIMIZATION.md` and
+`docs/NATIVE_CPP_PERFORMANCE_BASELINE.md`.
 
 ## NuGet Packages
 
@@ -106,19 +107,19 @@ test project builds without warnings or errors.
 
 ## Avalonia Integration Packages
 
-- `ProGPU.Avalonia.Rendering` `12.0.5-preview.55`
-- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.55`
-- `ProGPU.Avalonia.Rendering` `11.3.18-preview.55`
-- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.55`
+- `ProGPU.Avalonia.Rendering` `12.0.5-preview.56`
+- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.56`
+- `ProGPU.Avalonia.Rendering` `11.3.18-preview.56`
+- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.56`
 
 These packages are packed on the portable runner and published after the
-`0.1.0-preview.55` runtime package set so their exact ProGPU dependencies are
+`0.1.0-preview.56` runtime package set so their exact ProGPU dependencies are
 available first.
 
 ## Local Package Build
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.55 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.56 ./eng/progpu-pack.sh
 PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
 ```
 
@@ -136,7 +137,7 @@ release workflow combines and re-verifies both outputs before publishing.
 ```bash
 read -rsp "NuGet API key: " NUGET_API_KEY
 export NUGET_API_KEY
-PROGPU_PACKAGE_VERSION=0.1.0-preview.55 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.56 ./eng/progpu-publish.sh
 ./scripts/progpu-publish.sh
 unset NUGET_API_KEY
 ```
@@ -154,7 +155,7 @@ feed.
 - `Release` validates and packs portable packages and the Avalonia integration lanes on Linux, packs mobile packages on macOS, verifies the combined runtime dependency closure, publishes runtime packages followed by Avalonia packages, and creates a tag-driven GitHub Release.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
-for example `v0.1.0-preview.55`.
+for example `v0.1.0-preview.56`.
 
 ## NuGet Publishing
 
