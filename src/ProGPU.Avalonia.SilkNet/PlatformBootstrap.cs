@@ -1,5 +1,6 @@
 using System;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Platform;
 using Avalonia.Rendering;
 using Avalonia.Rendering.Composition;
@@ -48,6 +49,7 @@ public static class SilkNetPlatform
         var eventLoop = new SilkNetEventLoop(framesPerSecond);
         var renderTimer = new SilkNetRenderTimer(framesPerSecond);
         var clipboard = new SilkNetClipboard();
+        RegisterPlatformSettings();
         AvaloniaLocator.CurrentMutable
             .Bind<IRenderTimer>().ToConstant(renderTimer)
             .Bind<IKeyboardDevice>().ToConstant(new KeyboardDevice());
@@ -87,6 +89,25 @@ public static class SilkNetPlatform
         GlfwWindowing.RegisterPlatform();
         GlfwInput.RegisterPlatform();
     }
+
+    internal static void RegisterPlatformSettings()
+    {
+        var hotkeys = CreateHotkeyConfiguration(
+            OperatingSystem.IsMacOS());
+
+        AvaloniaLocator.CurrentMutable
+            .Bind<PlatformHotkeyConfiguration>()
+            .ToConstant(hotkeys)
+            .Bind<IPlatformSettings>()
+            .ToConstant(new DefaultPlatformSettings());
+    }
+
+    internal static PlatformHotkeyConfiguration CreateHotkeyConfiguration(
+        bool isMacOS) =>
+        new(
+            isMacOS ? KeyModifiers.Meta : KeyModifiers.Control,
+            KeyModifiers.Shift,
+            isMacOS ? KeyModifiers.Alt : KeyModifiers.Control);
 
     internal static void RaiseFramePreparing() =>
         FramePreparing?.Invoke();
