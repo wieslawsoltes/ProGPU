@@ -3,15 +3,58 @@ using System.Linq;
 using System.Numerics;
 using Microsoft.UI.Xaml;
 using ProGPU.Backend;
+using ProGPU.Backend.Dawn;
 using ProGPU.Scene;
 using ProGPU.Tests.Headless;
 using ProGPU.Vector;
+using Silk.NET.WebGPU;
 using Xunit;
 
 namespace ProGPU.Tests;
 
 public sealed class LayerRenderTests
 {
+    [Fact]
+    public unsafe void DawnReplaysCompiledRenderBundle()
+    {
+        if (!OperatingSystem.IsMacOS())
+        {
+            return;
+        }
+
+        using var dawn = DawnGpuContext.CreateMetalPresentation();
+        using var compositor = new Compositor(
+            dawn.Context,
+            TextureFormat.Rgba8Unorm,
+            CompositorOptions.Default with
+            {
+                EnableGpuHitTesting = false,
+                PrimarySampleCount = 1
+            });
+        using var target = new GpuTexture(
+            dawn.Context,
+            64,
+            64,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc,
+            "Dawn retained bundle test target");
+        var visual = new SceneCacheVisual();
+        visual.Measure(new Vector2(64f, 64f));
+        visual.Arrange(new Rect(0f, 0f, 64f, 64f));
+
+        compositor.RenderScene(visual, 64, 64, target.ViewPtr);
+
+        Assert.True(compositor.Metrics.RenderBundleRecorded);
+        Assert.False(compositor.Metrics.RenderBundleCacheHit);
+
+        compositor.RenderScene(visual, 64, 64, target.ViewPtr);
+
+        Assert.True(compositor.Metrics.SceneCacheHit);
+        Assert.False(compositor.Metrics.RenderBundleRecorded);
+        Assert.True(compositor.Metrics.RenderBundleCacheHit);
+        AssertRed(ReadPixel(target.ReadPixels(), 64, 20, 20));
+    }
+
     [Fact]
     public void UnchangedSceneReusesCompiledGpuBuffers()
     {
@@ -23,10 +66,17 @@ public sealed class LayerRenderTests
         {
             window.Render();
             Assert.False(window.Compositor.Metrics.SceneCacheHit);
+            Assert.True(window.Compositor.Metrics.RenderBundleRecorded);
+            Assert.False(window.Compositor.Metrics.RenderBundleCacheHit);
+            Assert.Equal(
+                window.Compositor.Metrics.DrawCallsCount,
+                window.Compositor.Metrics.RenderBundleDrawCallCount);
 
             window.Render();
 
             Assert.True(window.Compositor.Metrics.SceneCacheHit);
+            Assert.False(window.Compositor.Metrics.RenderBundleRecorded);
+            Assert.True(window.Compositor.Metrics.RenderBundleCacheHit);
             Assert.Equal(1, visual.RenderCount);
             AssertRed(ReadPixel(window.ReadPixels(), window.Width, 20, 20));
         }
@@ -34,6 +84,27 @@ public sealed class LayerRenderTests
         {
             window.Content = null;
         }
+    }
+
+    [Fact]
+    public void CompiledRenderBundleCanBeDisabledWithoutDisablingSceneCache()
+    {
+        var options = CompositorOptions.Default with
+        {
+            EnableCompiledRenderBundles = false,
+            PrimarySampleCount = 1
+        };
+        using var window = new HeadlessWindow(64, 64, options);
+        window.Content = new SceneCacheVisual();
+
+        window.Render();
+        window.Render();
+
+        Assert.True(window.Compositor.Metrics.SceneCacheHit);
+        Assert.False(window.Compositor.Metrics.RenderBundleRecorded);
+        Assert.False(window.Compositor.Metrics.RenderBundleCacheHit);
+        Assert.Equal(0, window.Compositor.Metrics.RenderBundleDrawCallCount);
+        AssertRed(ReadPixel(window.ReadPixels(), window.Width, 20, 20));
     }
 
     [Fact]
@@ -105,6 +176,53 @@ public sealed class LayerRenderTests
             Assert.Equal(2, window.Compositor.Metrics.IncrementalScenePageCount);
             Assert.True(
                 window.Compositor.Metrics.IncrementalScenePageReusedArrays > 0);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void IncrementalPagesMergeCompatibleRetainedTextureDraws()
+    {
+        var options = CompositorOptions.Default with
+        {
+            EnableGpuHitTesting = false,
+            PrimarySampleCount = 1
+        };
+        using var window = new HeadlessWindow(64, 32, options);
+        using var texture = new GpuTexture(
+            window.Context,
+            1,
+            1,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.TextureBinding | TextureUsage.CopyDst,
+            "Incremental texture page batch input",
+            alphaMode: GpuTextureAlphaMode.Straight);
+        texture.WritePixels<byte>([33, 211, 97, 255]);
+        var first = new OwnedTexturePageVisual(texture, new Vector2(0f, 0f));
+        var second = new OwnedTexturePageVisual(texture, new Vector2(20f, 0f));
+        window.Content = new IncrementalPageHost(first, second);
+
+        try
+        {
+            window.Render();
+            Assert.Equal(2, window.Compositor.Metrics.IncrementalScenePageCount);
+            Assert.Equal(1, window.Compositor.TextureDrawCallCount);
+
+            first.Transform = Matrix4x4.CreateTranslation(4f, 0f, 0f);
+            window.Render();
+
+            Assert.Equal(1, window.Compositor.Metrics.IncrementalScenePageHits);
+            Assert.Equal(1, window.Compositor.TextureDrawCallCount);
+            byte[] pixels = window.ReadPixels();
+            Assert.Equal(
+                new RgbaPixel(33, 211, 97, 255),
+                ReadPixel(pixels, window.Width, 8, 8));
+            Assert.Equal(
+                new RgbaPixel(33, 211, 97, 255),
+                ReadPixel(pixels, window.Width, 28, 8));
         }
         finally
         {
@@ -674,6 +792,8 @@ public sealed class LayerRenderTests
             window.Render();
 
             Assert.False(window.Compositor.Metrics.SceneCacheHit);
+            Assert.True(window.Compositor.Metrics.RenderBundleRecorded);
+            Assert.False(window.Compositor.Metrics.RenderBundleCacheHit);
             Assert.Equal(2, visual.RenderCount);
         }
         finally
@@ -1234,6 +1354,22 @@ public sealed class LayerRenderTests
                 new SolidColorBrush(color),
                 null,
                 new Rect(0f, 0f, 20f, 20f));
+        }
+
+        public DrawingContext GetOrUpdateRenderCommandCache() => _commands;
+    }
+
+    private sealed class OwnedTexturePageVisual : FrameworkElement,
+        IIncrementalRenderCommandCache
+    {
+        private readonly DrawingContext _commands = new();
+
+        public OwnedTexturePageVisual(GpuTexture texture, Vector2 offset)
+        {
+            Width = 16f;
+            Height = 16f;
+            Transform = Matrix4x4.CreateTranslation(offset.X, offset.Y, 0f);
+            _commands.DrawTexture(texture, new Rect(0f, 0f, 16f, 16f));
         }
 
         public DrawingContext GetOrUpdateRenderCommandCache() => _commands;

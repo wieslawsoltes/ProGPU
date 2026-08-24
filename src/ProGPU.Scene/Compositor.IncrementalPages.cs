@@ -24,6 +24,7 @@ public unsafe partial class Compositor
     private int _incrementalScenePageCompilations;
     private int _incrementalScenePageReusedArrays;
     private long _incrementalScenePageBytes;
+    private int _activeIncrementalScenePageDrawCallStart = -1;
     private string? _incrementalScenePageRejectReason;
     private string? _incrementalScenePageMissReason;
 
@@ -150,6 +151,7 @@ public unsafe partial class Compositor
         _incrementalScenePageReusedArrays = 0;
         _incrementalScenePageRejectReason = null;
         _incrementalScenePageMissReason = null;
+        _activeIncrementalScenePageDrawCallStart = -1;
         ResetIncrementalSceneUploadFrameMetrics();
     }
 
@@ -428,6 +430,7 @@ public unsafe partial class Compositor
             _activeClipRect,
             _activeOpacity,
             _activeBlendMode);
+        _activeIncrementalScenePageDrawCallStart = boundary.DrawCallStart;
         return true;
     }
 
@@ -437,6 +440,7 @@ public unsafe partial class Compositor
         in IncrementalScenePageBoundary boundary)
     {
         CommitPendingDrawCalls();
+        _activeIncrementalScenePageDrawCallStart = -1;
         if (_maskRenderPasses.Count != boundary.MaskRenderPassStart)
         {
             _incrementalScenePageRejectReason ??=
@@ -1115,6 +1119,13 @@ public unsafe partial class Compositor
         ref CompositorDrawCall previous = ref
             CollectionsMarshal.AsSpan(_drawCalls)[previousIndex];
         uint indexStart = current.IndexStart + indexBase;
+        if (previous.Type == DrawCallType.Texture &&
+            current.Type == DrawCallType.Texture)
+        {
+            CompositorDrawCall expanded = current.Expand(indexBase);
+            return TryMergeTextureDrawCall(ref previous, expanded);
+        }
+
         if (previous.Type != current.Type ||
             previous.Type is not (DrawCallType.Vector or DrawCallType.Text) ||
             previous.IndexStart + previous.IndexCount != indexStart ||
@@ -1137,6 +1148,12 @@ public unsafe partial class Compositor
     {
         ref CompositorDrawCall previous = ref
             CollectionsMarshal.AsSpan(_drawCalls)[previousIndex];
+        if (previous.Type == DrawCallType.Texture &&
+            current.Type == DrawCallType.Texture)
+        {
+            return TryMergeTextureDrawCall(ref previous, current);
+        }
+
         if (previous.Type != current.Type ||
             previous.Type is not (DrawCallType.Vector or DrawCallType.Text) ||
             previous.IndexStart + previous.IndexCount != current.IndexStart ||

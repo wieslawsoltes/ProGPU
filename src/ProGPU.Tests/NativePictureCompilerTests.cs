@@ -1087,6 +1087,109 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerBatchesConsecutiveCompatibleTexturesIntoOneNativeDraw()
+    {
+        using GpuTexture texture = CreateUnbackedTexture(16U, 8U);
+        using var picture = new GpuPicture(
+            [
+                CreateTextureCommand(texture, new Rect(0f, 0f, 8f, 8f)),
+                CreateTextureCommand(texture, new Rect(8f, 0f, 8f, 8f)),
+                CreateTextureCommand(texture, new Rect(16f, 0f, 8f, 8f))
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            127U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(3, compiled.SourceCommandCount);
+        Assert.Equal(1, compiled.NativeCommandCount);
+        Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(1, compiled.ExternalImages.Length);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        NativeMethods.SceneCommand command =
+            MemoryMarshal.Read<NativeMethods.SceneCommand>(
+                compiled.Stream.Slice(checked((int)header.CommandOffset)));
+        int payloadOffset = checked((int)command.PayloadOffset);
+        NativeSceneImageDraw draw = MemoryMarshal.Read<NativeSceneImageDraw>(
+            compiled.Stream.Slice(payloadOffset));
+        Assert.Equal(NativeSceneImageFlags.PatchBatch, draw.Flags);
+        int batchOffset = payloadOffset + Unsafe.SizeOf<NativeSceneImageDraw>();
+        NativeSceneImagePatchBatch batch =
+            MemoryMarshal.Read<NativeSceneImagePatchBatch>(
+                compiled.Stream.Slice(batchOffset));
+        Assert.Equal(3U, batch.PatchCount);
+        ReadOnlySpan<NativeSceneImagePatch> patches =
+            MemoryMarshal.Cast<byte, NativeSceneImagePatch>(
+                compiled.Stream.Slice(
+                    batchOffset + Unsafe.SizeOf<NativeSceneImagePatchBatch>(),
+                    3 * Unsafe.SizeOf<NativeSceneImagePatch>()));
+        Assert.All(
+            patches.ToArray(),
+            static patch => Assert.Equal(
+                NativeSceneImagePatchKind.Texture,
+                patch.Kind));
+        Assert.Equal(0f, patches[0].DestinationRect.X);
+        Assert.Equal(8f, patches[1].DestinationRect.X);
+        Assert.Equal(16f, patches[2].DestinationRect.X);
+        Assert.Equal(new NativeImageRect(0f, 0f, 24f, 8f), command.Bounds);
+    }
+
+    [Fact]
+    public void CompilerPreservesTextureBatchStateBoundaries()
+    {
+        using GpuTexture first = CreateUnbackedTexture(16U, 8U);
+        using GpuTexture second = CreateUnbackedTexture(16U, 8U);
+        RenderCommand nearest = CreateTextureCommand(
+            first,
+            new Rect(8f, 0f, 8f, 8f));
+        nearest.TextureSamplingMode = TextureSamplingMode.Nearest;
+        using var picture = new GpuPicture(
+            [
+                CreateTextureCommand(first, new Rect(0f, 0f, 8f, 8f)),
+                nearest,
+                CreateTextureCommand(second, new Rect(16f, 0f, 8f, 8f))
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            128U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(3, compiled.NativeDrawCount);
+        Assert.Equal(3, compiled.ExternalImages.Length);
+    }
+
+    private static RenderCommand CreateTextureCommand(
+        GpuTexture texture,
+        Rect destination) =>
+        new()
+        {
+            Type = RenderCommandType.DrawTexture,
+            Texture = texture,
+            Rect = destination,
+            SrcRect = new Rect(0f, 0f, 16f, 8f),
+            TextureSamplingMode = TextureSamplingMode.Linear,
+            Transform = Matrix4x4.Identity
+        };
+
+    [Fact]
     public void CompilerLowersAndBatchesSupportedImmutablePictureCommands()
     {
         var red = new SolidColorBrush(new Vector4(1f, 0f, 0f, 1f));

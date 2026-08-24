@@ -1305,6 +1305,40 @@ public sealed class SampleProjectSplitTests
         Assert.DoesNotContain("checked((int)handle.Value)", browserApi, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ManagedAndNativeRetainedScenesReplayRenderBundles()
+    {
+        var api = Read("src", "ProGPU.Backend", "IWebGpuApi.cs");
+        var managed = Read("src", "ProGPU.Scene", "Compositor.cs");
+        var dawn = Read(
+            "src",
+            "ProGPU.Backend.Dawn",
+            "DawnWebGpuApi.cs");
+        var browser = Read(
+            "src",
+            "ProGPU.Browser",
+            "BrowserWebGpuApi.cs");
+        var native = Read(
+            "src",
+            "ProGPU.Native",
+            "src",
+            "Scene",
+            "progpu_native_semantic_render_execution.cpp");
+
+        Assert.Contains("interface IWebGpuRenderBundleApi", api, StringComparison.Ordinal);
+        Assert.Contains("TryCreateCompiledRenderBundle", managed, StringComparison.Ordinal);
+        Assert.Contains("RenderPassEncoderExecuteBundles", managed, StringComparison.Ordinal);
+        Assert.Contains("ReleaseCompiledRenderBundle();", managed, StringComparison.Ordinal);
+        Assert.Contains("IWebGpuRenderBundleApi", dawn, StringComparison.Ordinal);
+        Assert.Contains("DeviceCreateRenderBundleEncoder", dawn, StringComparison.Ordinal);
+        Assert.Contains("RenderPassEncoderExecuteBundles", dawn, StringComparison.Ordinal);
+        Assert.DoesNotContain("IWebGpuRenderBundleApi", browser, StringComparison.Ordinal);
+        Assert.Contains("semantic_render_bundle_valid", native, StringComparison.Ordinal);
+        Assert.Contains("wgpuDeviceCreateRenderBundleEncoder", native, StringComparison.Ordinal);
+        Assert.Contains("wgpuRenderPassEncoderExecuteBundles", native, StringComparison.Ordinal);
+        Assert.Contains("wgpuRenderBundleRelease", native, StringComparison.Ordinal);
+    }
+
     private static FrameworkElement? FindByName(FrameworkElement element, string name)
     {
         if (element.Name == name) return element;

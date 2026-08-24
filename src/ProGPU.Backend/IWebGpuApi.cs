@@ -83,6 +83,66 @@ public unsafe interface IWebGpuApi
 }
 
 /// <summary>
+/// Optional render-bundle operations for providers that can retain encoded
+/// draw state across otherwise identical frames.
+/// </summary>
+/// <remarks>
+/// The core renderer continues to use <see cref="IWebGpuApi"/> when this
+/// capability is unavailable. Render bundles retain the buffers, bind groups,
+/// and pipelines referenced while recording, so callers must release a bundle
+/// before replacing any captured scene resource.
+/// </remarks>
+public unsafe interface IWebGpuRenderBundleApi
+{
+    RenderBundleEncoder* DeviceCreateRenderBundleEncoder(
+        Device* device,
+        RenderBundleEncoderDescriptor* descriptor);
+    void RenderBundleEncoderSetPipeline(
+        RenderBundleEncoder* encoder,
+        RenderPipeline* pipeline);
+    void RenderBundleEncoderSetBindGroup(
+        RenderBundleEncoder* encoder,
+        uint groupIndex,
+        BindGroup* group,
+        nuint dynamicOffsetCount,
+        uint* dynamicOffsets);
+    void RenderBundleEncoderSetVertexBuffer(
+        RenderBundleEncoder* encoder,
+        uint slot,
+        WgpuBuffer* buffer,
+        ulong offset,
+        ulong size);
+    void RenderBundleEncoderSetIndexBuffer(
+        RenderBundleEncoder* encoder,
+        WgpuBuffer* buffer,
+        IndexFormat format,
+        ulong offset,
+        ulong size);
+    void RenderBundleEncoderDraw(
+        RenderBundleEncoder* encoder,
+        uint vertexCount,
+        uint instanceCount,
+        uint firstVertex,
+        uint firstInstance);
+    void RenderBundleEncoderDrawIndexed(
+        RenderBundleEncoder* encoder,
+        uint indexCount,
+        uint instanceCount,
+        uint firstIndex,
+        int baseVertex,
+        uint firstInstance);
+    RenderBundle* RenderBundleEncoderFinish(
+        RenderBundleEncoder* encoder,
+        RenderBundleDescriptor* descriptor);
+    void RenderBundleEncoderRelease(RenderBundleEncoder* encoder);
+    void RenderPassEncoderExecuteBundles(
+        RenderPassEncoder* pass,
+        nuint bundleCount,
+        RenderBundle** bundles);
+    void RenderBundleRelease(RenderBundle* bundle);
+}
+
+/// <summary>
 /// Optional native-presentation contract for an exact-ABI external WebGPU
 /// backend. It lets a host resize an already selected external device without
 /// routing surface descriptors through a second ABI.
@@ -114,7 +174,7 @@ public interface IWebGpuExternalDeviceLifetime : IDisposable
 
 internal unsafe sealed class SilkWebGpuApi(
     WebGPU api,
-    object synchronizationRoot) : IWebGpuApi
+    object synchronizationRoot) : IWebGpuApi, IWebGpuRenderBundleApi
 {
     private sealed class MapCompletion
     {
@@ -196,6 +256,10 @@ internal unsafe sealed class SilkWebGpuApi(
     {
         lock (synchronizationRoot) return api.CommandEncoderBeginRenderPass(e, x);
     }
+    public RenderBundleEncoder* DeviceCreateRenderBundleEncoder(Device* d, RenderBundleEncoderDescriptor* x)
+    {
+        lock (synchronizationRoot) return api.DeviceCreateRenderBundleEncoder(d, x);
+    }
     public void CommandEncoderCopyBufferToBuffer(CommandEncoder* e, WgpuBuffer* s, ulong so, WgpuBuffer* d, ulong @do, ulong z) => api.CommandEncoderCopyBufferToBuffer(e, s, so, d, @do, z);
     public void CommandEncoderCopyBufferToTexture(CommandEncoder* e, ImageCopyBuffer* s, ImageCopyTexture* d, Extent3D* z) => api.CommandEncoderCopyBufferToTexture(e, s, d, z);
     public void CommandEncoderCopyTextureToBuffer(CommandEncoder* e, ImageCopyTexture* s, ImageCopyBuffer* d, Extent3D* z) => api.CommandEncoderCopyTextureToBuffer(e, s, d, z);
@@ -218,6 +282,17 @@ internal unsafe sealed class SilkWebGpuApi(
     public void RenderPassEncoderDraw(RenderPassEncoder* p, uint v, uint i, uint fv, uint fi) => api.RenderPassEncoderDraw(p, v, i, fv, fi);
     public void RenderPassEncoderDrawIndexed(RenderPassEncoder* p, uint i, uint c, uint f, int b, uint fi) => api.RenderPassEncoderDrawIndexed(p, i, c, f, b, fi);
     public void RenderPassEncoderEnd(RenderPassEncoder* p) => api.RenderPassEncoderEnd(p);
+    public void RenderBundleEncoderSetPipeline(RenderBundleEncoder* e, RenderPipeline* p) => api.RenderBundleEncoderSetPipeline(e, p);
+    public void RenderBundleEncoderSetBindGroup(RenderBundleEncoder* e, uint i, BindGroup* g, nuint c, uint* o) => api.RenderBundleEncoderSetBindGroup(e, i, g, c, o);
+    public void RenderBundleEncoderSetVertexBuffer(RenderBundleEncoder* e, uint s, WgpuBuffer* b, ulong o, ulong z) => api.RenderBundleEncoderSetVertexBuffer(e, s, b, o, z);
+    public void RenderBundleEncoderSetIndexBuffer(RenderBundleEncoder* e, WgpuBuffer* b, IndexFormat f, ulong o, ulong z) => api.RenderBundleEncoderSetIndexBuffer(e, b, f, o, z);
+    public void RenderBundleEncoderDraw(RenderBundleEncoder* e, uint v, uint i, uint fv, uint fi) => api.RenderBundleEncoderDraw(e, v, i, fv, fi);
+    public void RenderBundleEncoderDrawIndexed(RenderBundleEncoder* e, uint i, uint c, uint f, int b, uint fi) => api.RenderBundleEncoderDrawIndexed(e, i, c, f, b, fi);
+    public RenderBundle* RenderBundleEncoderFinish(RenderBundleEncoder* e, RenderBundleDescriptor* d)
+    {
+        lock (synchronizationRoot) return api.RenderBundleEncoderFinish(e, d);
+    }
+    public void RenderPassEncoderExecuteBundles(RenderPassEncoder* p, nuint c, RenderBundle** b) => api.RenderPassEncoderExecuteBundles(p, c, b);
     public void QueueWriteBuffer(Queue* q, WgpuBuffer* b, ulong o, void* d, nuint z)
     {
         lock (synchronizationRoot) api.QueueWriteBuffer(q, b, o, d, z);
@@ -324,6 +399,14 @@ internal unsafe sealed class SilkWebGpuApi(
     public void RenderPassEncoderRelease(RenderPassEncoder* v)
     {
         lock (synchronizationRoot) api.RenderPassEncoderRelease(v);
+    }
+    public void RenderBundleEncoderRelease(RenderBundleEncoder* v)
+    {
+        lock (synchronizationRoot) api.RenderBundleEncoderRelease(v);
+    }
+    public void RenderBundleRelease(RenderBundle* v)
+    {
+        lock (synchronizationRoot) api.RenderBundleRelease(v);
     }
     public void RenderPipelineRelease(RenderPipeline* v)
     {

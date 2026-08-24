@@ -304,6 +304,9 @@ public struct CompositorMetrics
     public ulong MsaaTextureBytes;
     public ulong TrackedIntermediateTextureBytes;
     public bool SceneCacheHit;
+    public bool RenderBundleCacheHit;
+    public bool RenderBundleRecorded;
+    public int RenderBundleDrawCallCount;
     public bool GpuHitTestingEnabled;
     public string? SceneCacheMissReason;
 }
@@ -1397,6 +1400,8 @@ public unsafe partial class Compositor : IDisposable
     private GpuBuffer _gradientStopsStorageBuffer;
     private ulong _frameNumber = 0;
     private bool _compiledSceneReusable;
+    private RenderBundle* _compiledRenderBundle;
+    private int _compiledRenderBundleDrawCallCount;
     private string _compiledSceneCacheStateReason = "No compiled scene";
     private string? _currentSceneCacheMissReason;
     private Visual? _compiledSceneRoot;
@@ -2956,6 +2961,7 @@ public unsafe partial class Compositor : IDisposable
         // 2. Clear CPU collection batch lists and active brushes
         if (!reuseCompiledScene)
         {
+            ReleaseCompiledRenderBundle();
             ReleaseCompiledSceneAnalyticMaskResources();
             ReleaseCompiledSceneRetainedResources();
             _currentSolidRoundedPrimitiveCount = 0;
@@ -2991,6 +2997,7 @@ public unsafe partial class Compositor : IDisposable
         bool glyphBatchActive = false;
         CommandEncoder* encoder = null;
         int preparedExtensionDrawCallRestoreStart = -1;
+        bool renderBundleRecorded = false;
         System.Diagnostics.Stopwatch uploadSw = null!;
         System.Diagnostics.Stopwatch passSw = null!;
         try
@@ -3404,6 +3411,17 @@ DynamicBufferUploadComplete:
 
 SceneStateUploadComplete:
         RefreshAtlasBindGroupsIfNeeded();
+        if (_compiledRenderBundle == null &&
+            _compiledSceneReusable &&
+            TryCreateCompiledRenderBundle(
+                renderWidth,
+                renderHeight,
+                out var compiledRenderBundle))
+        {
+            _compiledRenderBundle = compiledRenderBundle;
+            _compiledRenderBundleDrawCallCount = _drawCalls.Count;
+            renderBundleRecorded = true;
+        }
         uploadSw.Stop();
         passSw = System.Diagnostics.Stopwatch.StartNew();
 
@@ -3470,16 +3488,30 @@ SceneStateUploadComplete:
         byte? currentVectorPipelineKind = null;
 
         var drawCallCount = _drawCalls.Count;
-        for (var drawCallIndex = 0; drawCallIndex < drawCallCount; drawCallIndex++)
+        if (_compiledRenderBundle != null)
         {
-            var dc = _drawCalls[drawCallIndex];
-            if (!ApplyDrawCallScissor(pass, dc, useRenderTargetViewport: true))
+            _context.Api.RenderPassEncoderSetScissorRect(
+                pass,
+                CurrentCanvasPixelXUInt,
+                CurrentCanvasPixelYUInt,
+                CurrentCanvasPixelWidthUInt,
+                CurrentCanvasPixelHeightUInt);
+            var bundle = _compiledRenderBundle;
+            ((IWebGpuRenderBundleApi)_context.Api)
+                .RenderPassEncoderExecuteBundles(pass, 1, &bundle);
+        }
+        else
+        {
+            for (var drawCallIndex = 0; drawCallIndex < drawCallCount; drawCallIndex++)
             {
-                continue;
-            }
+                var dc = _drawCalls[drawCallIndex];
+                if (!ApplyDrawCallScissor(pass, dc, useRenderTargetViewport: true))
+                {
+                    continue;
+                }
 
-            if (dc.Type == DrawCallType.Vector)
-            {
+                if (dc.Type == DrawCallType.Vector)
+                {
                 var hasMask = HasMask(dc);
                 var vectorPipelineKind = GetVectorPipelineKind(dc);
                 var activePipeline = GetVectorPipeline(
@@ -3689,6 +3721,7 @@ SceneStateUploadComplete:
                         currentType = DrawCallType.Extension;
                     }
                 }
+                }
             }
         }
 
@@ -3769,10 +3802,6 @@ SceneStateUploadComplete:
 
         _context.Api.CommandBufferRelease(cmdBuffer);
         _context.Api.CommandEncoderRelease(encoder);
-        // Native wgpu backends reclaim completed command buffers and their
-        // transient driver resources while polling. Keep this non-blocking:
-        // frame pacing must remain queue-driven rather than waiting for the GPU.
-        _context.PollDevice(wait: false);
 
         ReturnPendingMaskTexturesToPool();
 
@@ -3940,6 +3969,11 @@ SceneStateUploadComplete:
                 (_sceneMappedUploadRing?.AllocatedBytes ?? 0UL) +
                 (_sceneUploadStagingBuffer?.AllocatedSize ?? 0U),
             SceneCacheHit = reuseCompiledScene,
+            RenderBundleCacheHit = reuseCompiledScene &&
+                _compiledRenderBundle != null,
+            RenderBundleRecorded = renderBundleRecorded,
+            RenderBundleDrawCallCount =
+                _compiledRenderBundleDrawCallCount,
             GpuHitTestingEnabled = Options.EnableGpuHitTesting,
             SceneCacheMissReason = reuseCompiledScene ? null : _currentSceneCacheMissReason
         };
@@ -13675,7 +13709,7 @@ SceneStateUploadComplete:
             return;
         }
 
-        _drawCalls.Add(new CompositorDrawCall
+        var drawCall = new CompositorDrawCall
         {
             Type = DrawCallType.Texture,
             IndexStart = (uint)indexStart,
@@ -13688,7 +13722,49 @@ SceneStateUploadComplete:
             TextureSamplingMode = cmd.TextureSamplingMode,
             TextureMaxAnisotropy = cmd.TextureMaxAnisotropy,
             TextureAlphaMode = cmd.Texture.AlphaMode
-        });
+        };
+        AppendOrMergeTextureDrawCall(drawCall);
+    }
+
+    private void AppendOrMergeTextureDrawCall(in CompositorDrawCall drawCall)
+    {
+        if (_drawCalls.Count != 0 &&
+            (_activeIncrementalScenePageDrawCallStart < 0 ||
+                _drawCalls.Count > _activeIncrementalScenePageDrawCallStart))
+        {
+            ref CompositorDrawCall previous = ref
+                CollectionsMarshal.AsSpan(_drawCalls)[_drawCalls.Count - 1];
+            if (TryMergeTextureDrawCall(ref previous, drawCall))
+            {
+                return;
+            }
+        }
+
+        _drawCalls.Add(drawCall);
+    }
+
+    private static bool TryMergeTextureDrawCall(
+        ref CompositorDrawCall previous,
+        in CompositorDrawCall current)
+    {
+        if (previous.Type != DrawCallType.Texture ||
+            current.Type != DrawCallType.Texture ||
+            previous.IndexStart + previous.IndexCount != current.IndexStart ||
+            !ReferenceEquals(previous.Texture, current.Texture) ||
+            previous.ClipRect != current.ClipRect ||
+            !ReferenceEquals(previous.MaskTexture, current.MaskTexture) ||
+            previous.MaskBindGroupOverride != current.MaskBindGroupOverride ||
+            previous.BlendMode != current.BlendMode ||
+            previous.TextureSamplingMode != current.TextureSamplingMode ||
+            previous.TextureMaxAnisotropy != current.TextureMaxAnisotropy ||
+            previous.TextureAlphaMode != current.TextureAlphaMode ||
+            previous.HasImageEffect || current.HasImageEffect)
+        {
+            return false;
+        }
+
+        previous.IndexCount += current.IndexCount;
+        return true;
     }
 
     private void AppendTextureQuad(
@@ -14189,6 +14265,7 @@ SceneStateUploadComplete:
 
         lock (_context.RenderLock)
         {
+            ReleaseCompiledRenderBundle();
             _wavefrontEngine?.Dispose();
             _wavefrontEngine = null;
             _wavefrontColorTexture?.Dispose();
@@ -15101,6 +15178,189 @@ SceneStateUploadComplete:
             var vertex = vertices[index];
             vertex.Position = ClampToClip(vertex.Position);
             vertices[index] = vertex;
+        }
+    }
+
+    private unsafe bool TryCreateCompiledRenderBundle(
+        uint renderWidth,
+        uint renderHeight,
+        out RenderBundle* bundle)
+    {
+        bundle = null;
+        if (!Options.EnableCompiledRenderBundles ||
+            _context.Api is not IWebGpuRenderBundleApi bundleApi ||
+            _drawCalls.Count == 0 ||
+            renderWidth == 0 ||
+            renderHeight == 0 ||
+            _maskRenderPasses.Count != 0)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < _drawCalls.Count; index++)
+        {
+            var drawCall = _drawCalls[index];
+            if (drawCall.ClipRect.HasValue ||
+                HasMask(drawCall) ||
+                drawCall.HasImageEffect ||
+                drawCall.Type is not (
+                    DrawCallType.Vector or
+                    DrawCallType.Text or
+                    DrawCallType.Texture) ||
+                (drawCall.Type == DrawCallType.Texture &&
+                    !IsTextureBindable(drawCall.Texture)))
+            {
+                return false;
+            }
+        }
+
+        var colorFormat = RenderFormat;
+        var descriptor = new RenderBundleEncoderDescriptor
+        {
+            ColorFormatCount = 1,
+            ColorFormats = &colorFormat,
+            DepthStencilFormat = TextureFormat.Undefined,
+            SampleCount = Options.PrimarySampleCount
+        };
+        var encoder = bundleApi.DeviceCreateRenderBundleEncoder(
+            _context.Device,
+            &descriptor);
+        if (encoder == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            for (int index = 0; index < _drawCalls.Count; index++)
+            {
+                var drawCall = _drawCalls[index];
+                if (drawCall.Type == DrawCallType.Vector)
+                {
+                    bundleApi.RenderBundleEncoderSetPipeline(
+                        encoder,
+                        GetVectorPipeline(
+                            drawCall,
+                            isOffscreen: false,
+                            hasMask: false));
+                    bundleApi.RenderBundleEncoderSetBindGroup(
+                        encoder, 0, _vectorUniformBindGroup, 0, null);
+                    bundleApi.RenderBundleEncoderSetBindGroup(
+                        encoder, 1, _pathAtlasBindGroup, 0, null);
+                    bundleApi.RenderBundleEncoderSetBindGroup(
+                        encoder, 2, _dummyMaskBindGroup, 0, null);
+                    bundleApi.RenderBundleEncoderSetVertexBuffer(
+                        encoder,
+                        0,
+                        _vectorVertexBuffer.BufferPtr,
+                        0,
+                        _vectorVertexBuffer.Size);
+                    bundleApi.RenderBundleEncoderSetIndexBuffer(
+                        encoder,
+                        _vectorIndexBuffer.BufferPtr,
+                        IndexFormat.Uint32,
+                        0,
+                        _vectorIndexBuffer.Size);
+                    bundleApi.RenderBundleEncoderDrawIndexed(
+                        encoder,
+                        drawCall.IndexCount,
+                        1,
+                        drawCall.IndexStart,
+                        0,
+                        0);
+                }
+                else if (drawCall.Type == DrawCallType.Text)
+                {
+                    bundleApi.RenderBundleEncoderSetPipeline(
+                        encoder,
+                        GetPipeline(
+                            DrawCallType.Text,
+                            drawCall.BlendMode,
+                            isOffscreen: false,
+                            hasMask: false));
+                    bundleApi.RenderBundleEncoderSetBindGroup(
+                        encoder, 0, _textUniformBindGroup, 0, null);
+                    bundleApi.RenderBundleEncoderSetBindGroup(
+                        encoder, 1, _atlasBindGroup, 0, null);
+                    bundleApi.RenderBundleEncoderSetBindGroup(
+                        encoder, 2, _dummyMaskBindGroup, 0, null);
+                    var textVertexOffset =
+                        (ulong)drawCall.IndexStart * GlyphInstanceStride;
+                    var textVertexSize =
+                        (ulong)drawCall.IndexCount * GlyphInstanceStride;
+                    bundleApi.RenderBundleEncoderSetVertexBuffer(
+                        encoder,
+                        0,
+                        _textVertexBuffer.BufferPtr,
+                        textVertexOffset,
+                        textVertexSize);
+                    bundleApi.RenderBundleEncoderDraw(
+                        encoder,
+                        6,
+                        drawCall.IndexCount,
+                        0,
+                        0);
+                }
+                else
+                {
+                    var texture = drawCall.Texture!;
+                    bundleApi.RenderBundleEncoderSetPipeline(
+                        encoder,
+                        GetPipeline(
+                            DrawCallType.Texture,
+                            drawCall.BlendMode,
+                            isOffscreen: false,
+                            textureAlphaMode:
+                                drawCall.TextureAlphaMode,
+                            hasMask: false));
+                    bundleApi.RenderBundleEncoderSetBindGroup(
+                        encoder, 0, _textureUniformBindGroup, 0, null);
+                    var cachedBindGroup =
+                        GetOrCreatePersistentTextureBindGroup(
+                            texture,
+                            isOffscreen: false,
+                            drawCall.TextureSamplingMode,
+                            drawCall.TextureMaxAnisotropy,
+                            _textureBindGroupLayout);
+                    bundleApi.RenderBundleEncoderSetBindGroup(
+                        encoder,
+                        1,
+                        (BindGroup*)cachedBindGroup.BindGroupPtr,
+                        0,
+                        null);
+                    bundleApi.RenderBundleEncoderSetBindGroup(
+                        encoder, 2, _dummyMaskBindGroup, 0, null);
+                    bundleApi.RenderBundleEncoderSetVertexBuffer(
+                        encoder,
+                        0,
+                        _textureVertexBuffer.BufferPtr,
+                        0,
+                        _textureVertexBuffer.Size);
+                    bundleApi.RenderBundleEncoderSetIndexBuffer(
+                        encoder,
+                        _textureIndexBuffer.BufferPtr,
+                        IndexFormat.Uint32,
+                        0,
+                        _textureIndexBuffer.Size);
+                    bundleApi.RenderBundleEncoderDrawIndexed(
+                        encoder,
+                        drawCall.IndexCount,
+                        1,
+                        drawCall.IndexStart,
+                        0,
+                        0);
+                }
+            }
+
+            var bundleDescriptor = new RenderBundleDescriptor();
+            bundle = bundleApi.RenderBundleEncoderFinish(
+                encoder,
+                &bundleDescriptor);
+            return bundle != null;
+        }
+        finally
+        {
+            bundleApi.RenderBundleEncoderRelease(encoder);
         }
     }
 
@@ -16977,9 +17237,6 @@ SceneStateUploadComplete:
 
         _context.Api.CommandBufferRelease(cmdBuffer);
         _context.Api.CommandEncoderRelease(encoder);
-        // Retire completed native submissions without introducing a CPU/GPU
-        // synchronization point. Browser WebGPU devices are polled by the host.
-        _context.PollDevice(wait: false);
         targetTexture.AlphaMode = GpuTextureAlphaMode.Premultiplied;
         targetTexture.MarkContentsDirty();
         long renderEndTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -19305,6 +19562,20 @@ SceneStateUploadComplete:
         _analyticMaskResourcePool.AddRange(
             _compiledSceneAnalyticMaskResources);
         _compiledSceneAnalyticMaskResources.Clear();
+    }
+
+    private void ReleaseCompiledRenderBundle()
+    {
+        if (_compiledRenderBundle == null)
+        {
+            _compiledRenderBundleDrawCallCount = 0;
+            return;
+        }
+
+        ((IWebGpuRenderBundleApi)_context.Api)
+            .RenderBundleRelease(_compiledRenderBundle);
+        _compiledRenderBundle = null;
+        _compiledRenderBundleDrawCallCount = 0;
     }
 
     private void ReleaseCompiledSceneRetainedResources()

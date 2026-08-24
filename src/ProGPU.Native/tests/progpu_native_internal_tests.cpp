@@ -76,6 +76,34 @@ void native_webgpu_scopes_share_one_process_lock() {
     second.join();
 }
 
+void native_submission_retirement_is_periodic_and_bounded() {
+    using progpu::native::webgpu::submission_retirement_action;
+    using progpu::native::webgpu::submission_retirement_tracker;
+
+    submission_retirement_tracker tracker;
+    for (std::uint64_t submission = 1U; submission < 64U; ++submission) {
+        const auto action = tracker.on_submission(submission);
+        require(action == (submission % 8U == 0U
+            ? submission_retirement_action::poll
+            : submission_retirement_action::none));
+    }
+    require(tracker.on_submission(64U) ==
+        submission_retirement_action::wait);
+    require(tracker.polled_count() == 64U);
+    require(tracker.retired_count() == 0U);
+
+    tracker.observe_latest_completion(64U);
+    require(tracker.retired_count() == 64U);
+    for (std::uint64_t submission = 65U; submission < 72U; ++submission) {
+        require(tracker.on_submission(submission) ==
+            submission_retirement_action::none);
+    }
+    require(tracker.on_submission(72U) ==
+        submission_retirement_action::poll);
+    tracker.observe_latest_completion(72U);
+    require(tracker.retired_count() == 72U);
+}
+
 void semantic_contiguous_draws_merge_without_reordering() {
     const auto vertex_stride =
         sizeof(progpu::native::vector_vertex);
@@ -853,6 +881,7 @@ void draw_state_resolution_is_cpu_only_and_bounded() {
 
 int main() {
     native_webgpu_scopes_share_one_process_lock();
+    native_submission_retirement_is_periodic_and_bounded();
     semantic_contiguous_draws_merge_without_reordering();
     effect_plan_uses_three_bounded_intermediates();
     semantic_budget_counts_effected_depth_once();
@@ -879,6 +908,8 @@ int main() {
         semantic_scene_builder_reuses_retained_images());
     require(progpu::native::tests::
         semantic_scene_builder_records_image_patch_batches());
+    require(progpu::native::tests::
+        semantic_scene_builder_batches_compatible_image_draws());
     require(progpu::native::tests::
         semantic_scene_builder_serializes_external_images_pointer_free());
     require(progpu::native::tests::

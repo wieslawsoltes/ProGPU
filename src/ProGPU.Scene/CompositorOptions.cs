@@ -41,6 +41,14 @@ public sealed record CompositorOptions
     public bool EnableCompiledSceneCache { get; init; } = true;
 
     /// <summary>
+    /// Records eligible cached scenes into a WebGPU render bundle so retained
+    /// frames replay one encoded command stream instead of re-encoding every
+    /// draw call. Providers without render-bundle support use the ordinary
+    /// render-pass path.
+    /// </summary>
+    public bool EnableCompiledRenderBundles { get; init; } = true;
+
+    /// <summary>
     /// Reuses immutable local command compilation pages when another visual in
     /// the retained tree changes. Unsupported composition scopes fail closed to
     /// ordinary compilation.

@@ -706,6 +706,100 @@ bool semantic_scene_builder_records_image_patch_batches() {
         invalid.last_error() == scene_build_error::invalid_argument;
 }
 
+bool semantic_scene_builder_batches_compatible_image_draws() {
+    semantic_scene_builder builder(716U, 1U);
+    std::uint32_t image_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_external_image(64U, 32U, image_index)) {
+        return false;
+    }
+    progpu_native_scene_image_draw image{};
+    image.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
+    image.image_width = 64U;
+    image.image_height = 32U;
+    image.row_bytes = 256U;
+    image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+    image.source_rect = {0.0F, 0.0F, 16.0F, 16.0F};
+    image.destination_rect = {0.0F, 0.0F, 16.0F, 16.0F};
+    image.transform = semantic_scene_builder::identity_transform();
+    image.opacity = 0.75F;
+    if (!builder.draw_image(
+            image_index, image, {0.0F, 0.0F, 16.0F, 16.0F})) {
+        return false;
+    }
+    image.destination_rect.x = 16.0F;
+    if (!builder.draw_image(
+            image_index, image, {16.0F, 0.0F, 16.0F, 16.0F})) {
+        return false;
+    }
+    image.destination_rect.x = 32.0F;
+    if (!builder.draw_image(
+            image_index, image, {32.0F, 0.0F, 16.0F, 16.0F})) {
+        return false;
+    }
+
+    std::vector<std::byte> stream;
+    scene_build_metrics metrics{};
+    if (!builder.build(stream, &metrics) || metrics.command_count != 1U) {
+        return false;
+    }
+    const auto validation = scene::validate(stream.data(), stream.size());
+    if (validation.status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        validation.draw_count != 1U) {
+        return false;
+    }
+    const auto command = read<progpu_native_scene_command>(
+        stream, validation.header.command_offset);
+    const auto retained_image = read<progpu_native_scene_image_draw>(
+        stream, command.payload_offset);
+    const auto batch = read<progpu_native_scene_image_patch_batch>(
+        stream, command.payload_offset + sizeof(retained_image));
+    const auto third_patch = read<progpu_native_scene_image_patch>(
+        stream,
+        command.payload_offset + sizeof(retained_image) + sizeof(batch) +
+            2U * sizeof(progpu_native_scene_image_patch));
+    if ((retained_image.flags &
+            PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH) == 0U ||
+        batch.patch_count != 3U ||
+        third_patch.destination_rect.x != 32.0F ||
+        command.bounds_x != 0.0F || command.bounds_y != 0.0F ||
+        command.bounds_width != 48.0F || command.bounds_height != 16.0F) {
+        return false;
+    }
+
+    semantic_scene_builder boundaries(717U, 1U);
+    std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    auto state = semantic_scene_builder::identity_state();
+    if (!boundaries.add_external_image(64U, 32U, image_index) ||
+        !boundaries.add_state(state, state_index)) {
+        return false;
+    }
+    image.destination_rect.x = 0.0F;
+    if (!boundaries.draw_image(
+            image_index, image, {0.0F, 0.0F, 16.0F, 16.0F})) {
+        return false;
+    }
+    image.destination_rect.x = 16.0F;
+    if (!boundaries.draw_image(
+            image_index,
+            image,
+            {16.0F, 0.0F, 16.0F, 16.0F},
+            state_index)) {
+        return false;
+    }
+    image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+    image.destination_rect.x = 32.0F;
+    if (!boundaries.draw_image(
+            image_index,
+            image,
+            {32.0F, 0.0F, 16.0F, 16.0F},
+            state_index)) {
+        return false;
+    }
+    scene_build_metrics boundary_metrics{};
+    return boundaries.build(stream, &boundary_metrics) &&
+        boundary_metrics.command_count == 3U;
+}
+
 bool semantic_scene_builder_serializes_external_images_pointer_free() {
     semantic_scene_builder builder(713U, 4U);
     std::uint32_t image_index = PROGPU_NATIVE_SCENE_NO_INDEX;

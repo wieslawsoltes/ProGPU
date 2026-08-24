@@ -467,6 +467,8 @@ struct progpu_native_engine {
     std::string last_error;
     std::uint64_t submission_count = 0;
     std::uint64_t last_submission_index = 0U;
+    progpu::native::webgpu::submission_retirement_tracker
+        submission_retirement;
     std::uint64_t device_loss_generation = 0U;
     bool device_lost = false;
 
@@ -476,6 +478,25 @@ struct progpu_native_engine {
             1U,
             &command);
         ++submission_count;
+#if !defined(PROGPU_NATIVE_BROWSER)
+        const auto retirement_action =
+            submission_retirement.on_submission(submission_count);
+        if (retirement_action !=
+            progpu::native::webgpu::submission_retirement_action::none) {
+            const bool completed =
+                progpu::native::webgpu::poll_submission(
+                    instance,
+                    device,
+                    queue,
+                    last_submission_index,
+                    retirement_action == progpu::native::webgpu::
+                        submission_retirement_action::wait);
+            if (completed) {
+                submission_retirement.observe_latest_completion(
+                    submission_count);
+            }
+        }
+#endif
     }
 
     bool upload_uniform_if_changed(

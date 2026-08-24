@@ -12,6 +12,50 @@ namespace Avalonia.ProGpu.UnitTests;
 public class NativeRendererInteropTests
 {
     [Fact]
+    public void ManagedAndNativeSubmissionRetirementStayBoundedAndEquivalent()
+    {
+        string managedContext = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Backend", "WgpuContext.cs"));
+        string managedNativeHost = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Backend.Native", "NativeCompositor.cs"));
+        string nativeSynchronization = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "Backend",
+            "progpu_native_webgpu_synchronization.hpp"));
+        string nativeEngine = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "Backend",
+            "progpu_native_engine.hpp"));
+
+        Assert.Contains(
+            "QueuePollSubmissionInterval = 8",
+            managedContext,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DefaultMaximumDeferredQueueSubmissions = 64",
+            managedContext,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "poll_interval = 8U",
+            nativeSynchronization,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "maximum_deferred_submissions = 64U",
+            nativeSynchronization,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "submission_retirement.on_submission(submission_count)",
+            nativeEngine,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "submission_retirement_action::wait",
+            nativeEngine,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "_context.PollDevice(wait: false)",
+            managedNativeHost,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PublicRectangleMatchesNativePodLayout()
     {
         Assert.Equal(32, Unsafe.SizeOf<NativeSolidRectangle>());
