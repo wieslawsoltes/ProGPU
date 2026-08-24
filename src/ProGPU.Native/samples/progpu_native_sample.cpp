@@ -265,7 +265,7 @@ bool verify_retained_gpu_hit_test(
                 engine,
                 token,
                 hits.data(),
-                hits.size(),
+                static_cast<std::uint32_t>(hits.size()),
                 &hit_count,
                 &summary,
                 &complete);
