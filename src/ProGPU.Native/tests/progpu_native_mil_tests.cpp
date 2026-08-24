@@ -80,6 +80,29 @@ void append_render_data(
     batch.resize(batch.size() + item_size - sizeof(std::uint32_t) - packet.size());
 }
 
+void append_dash_style(
+    std::vector<std::byte>& batch,
+    std::uint32_t handle,
+    double offset,
+    std::uint32_t offset_animations,
+    std::span<const double> intervals) {
+    std::vector<std::byte> packet;
+    append_value(packet, static_cast<std::uint32_t>(command::dash_style));
+    append_value(packet, handle);
+    append_value(packet, offset);
+    append_value(packet, offset_animations);
+    append_value(
+        packet,
+        static_cast<std::uint32_t>(intervals.size_bytes()));
+    for (const double interval : intervals) {
+        append_value(packet, interval);
+    }
+    append_value(
+        batch,
+        static_cast<std::uint32_t>(packet.size() + sizeof(std::uint32_t)));
+    batch.insert(batch.end(), packet.begin(), packet.end());
+}
+
 bool channel_retains_visual_target_graph() {
     constexpr std::uint32_t visual_type = 39U;
     constexpr std::uint32_t render_data_type = 43U;
@@ -637,6 +660,7 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     constexpr std::uint32_t brush = 4U;
     constexpr std::uint32_t pen = 5U;
     constexpr std::uint32_t transform = 6U;
+    constexpr std::uint32_t dash = 7U;
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
     append_create(batch, content, 43U);
@@ -787,6 +811,9 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     PROGPU_REQUIRE(state.resource_generation(pen) == pen_generation);
 
     std::vector<std::byte> dashed_pen;
+    append_create(dashed_pen, dash, 84U);
+    const std::array dash_intervals{2.0, 1.0};
+    append_dash_style(dashed_pen, dash, 0.5, 0U, dash_intervals);
     append_command(
         dashed_pen,
         command::pen,
@@ -799,9 +826,64 @@ bool solid_pen_line_compiles_to_geometry_scene() {
         0U,
         1U,
         0U,
-        99U);
-    PROGPU_REQUIRE(state.apply(dashed_pen) == status::unsupported_command);
-    PROGPU_REQUIRE(state.resource_generation(pen) == pen_generation);
+        dash);
+    PROGPU_REQUIRE(state.apply(dashed_pen) == status::success);
+    PROGPU_REQUIRE(state.resource_generation(pen) == pen_generation + 1U);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 2U, stream, &metrics) ==
+        status::success);
+    const auto dashed_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_dashed_line = false;
+    for (std::uint32_t index = 0U;
+        index < dashed_header.resource_count;
+        ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            dashed_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
+            continue;
+        }
+        const auto stroke = read_value<progpu_native_scene_stroke>(
+            stream,
+            record.payload_offset);
+        PROGPU_REQUIRE(stroke.kind == PROGPU_NATIVE_SCENE_STROKE_POLYLINE);
+        PROGPU_REQUIRE(stroke.point_count == 2U);
+        PROGPU_REQUIRE(stroke.dash_interval_count == 2U);
+        PROGPU_REQUIRE(stroke.dash_offset == 0.5);
+        PROGPU_REQUIRE(stroke.dash_cap == 1U);
+        PROGPU_REQUIRE(
+            read_value<double>(stream, record.auxiliary_offset + 16U) ==
+            2.0);
+        PROGPU_REQUIRE(
+            read_value<double>(stream, record.auxiliary_offset + 24U) ==
+            1.0);
+        found_dashed_line = true;
+    }
+    PROGPU_REQUIRE(found_dashed_line);
+
+    const auto dash_generation = state.resource_generation(dash);
+    std::vector<std::byte> animated_dash;
+    append_dash_style(animated_dash, dash, 0.0, 99U, dash_intervals);
+    PROGPU_REQUIRE(
+        state.apply(animated_dash) == status::unsupported_command);
+    PROGPU_REQUIRE(state.resource_generation(dash) == dash_generation);
+
+    std::vector<std::byte> invalid_dash;
+    const std::array invalid_intervals{2.0, -1.0};
+    append_dash_style(invalid_dash, dash, 0.0, 0U, invalid_intervals);
+    PROGPU_REQUIRE(state.apply(invalid_dash) == status::malformed_batch);
+    PROGPU_REQUIRE(state.resource_generation(dash) == dash_generation);
+
+    std::vector<std::byte> delete_referenced_dash;
+    append_command(
+        delete_referenced_dash,
+        command::channel_delete_resource,
+        dash,
+        84U);
+    PROGPU_REQUIRE(
+        state.apply(delete_referenced_dash) == status::invalid_graph);
 
     std::vector<std::byte> invalid_cap;
     append_command(
@@ -818,7 +900,7 @@ bool solid_pen_line_compiles_to_geometry_scene() {
         0U,
         0U);
     PROGPU_REQUIRE(state.apply(invalid_cap) == status::malformed_batch);
-    PROGPU_REQUIRE(state.resource_generation(pen) == pen_generation);
+    PROGPU_REQUIRE(state.resource_generation(pen) == pen_generation + 1U);
 
     std::vector<std::byte> null_pen_batch;
     std::vector<std::byte> null_pen;

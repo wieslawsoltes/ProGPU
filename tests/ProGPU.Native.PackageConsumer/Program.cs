@@ -17,7 +17,7 @@ using (var mil = new NativeMilChannel())
 {
     NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
     NativeMilCompiledScene scene = mil.CompileScene(42, 701, 1);
-    if (milMetrics.CommandCount != 18 || mil.ResourceCount != 6 ||
+    if (milMetrics.CommandCount != 20 || mil.ResourceCount != 7 ||
         !mil.TryGetVisual(41, out NativeMilVisualSnapshot visual) ||
         visual.Handle != 41 || scene.Stream.Length == 0 ||
         scene.Metrics.VisualCount != 1 ||
@@ -33,7 +33,7 @@ using (var dawnMil = new NativeMilChannel(NativeMilBackend.Dawn))
 {
     NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
     NativeMilCompiledScene scene = dawnMil.CompileScene(42, 702, 1);
-    if (milMetrics.CommandCount != 18 || dawnMil.ResourceCount != 6 ||
+    if (milMetrics.CommandCount != 20 || dawnMil.ResourceCount != 7 ||
         scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
         scene.Metrics.RectangleCount != 1 ||
         scene.Metrics.LineCount != 1 ||
@@ -118,6 +118,7 @@ static byte[] CreateMilSeedBatch()
     batch.CreateResource(44, NativeMilResourceType.SolidColorBrush);
     batch.CreateResource(45, NativeMilResourceType.MatrixTransform);
     batch.CreateResource(46, NativeMilResourceType.Pen);
+    batch.CreateResource(47, NativeMilResourceType.DashStyle);
     batch.CreateVisual(41);
     batch.SetVisualOffset(41, 1, 2);
     batch.SetMatrixTransform(
@@ -127,13 +128,15 @@ static byte[] CreateMilSeedBatch()
     batch.SetVisualOpacity(41, 0.9);
     batch.SetVisualContent(41, 43);
     batch.SetSolidColorBrush(44, new NativeMilColor(1, 0.25f, 0.1f, 1));
+    batch.SetDashStyle(47, 0.5, [2.0, 1.0]);
     batch.SetPen(
         46,
         new NativeMilPen(
             44,
             2,
             NativeMilPenLineCap.Square,
-            NativeMilPenLineCap.Round));
+            NativeMilPenLineCap.Round,
+            DashStyleHandle: 47));
     batch.SetRenderData(43, renderData);
     batch.CreateGenericTarget(42, 64, 64);
     batch.SetTargetClearColor(42, new NativeMilColor(0, 0, 0, 1));

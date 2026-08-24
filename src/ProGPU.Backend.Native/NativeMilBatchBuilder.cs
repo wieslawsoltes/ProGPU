@@ -205,6 +205,41 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 36, (uint)pen.EndLineCap);
         WriteUInt32(packet, 40, (uint)pen.DashCap);
         WriteUInt32(packet, 44, (uint)pen.LineJoin);
+        WriteUInt32(packet, 48, pen.DashStyleHandle);
+    }
+
+    public void SetDashStyle(
+        uint handle,
+        double offset,
+        ReadOnlySpan<double> intervals)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(offset))
+        {
+            throw new ArgumentOutOfRangeException(nameof(offset));
+        }
+        foreach (double interval in intervals)
+        {
+            if (!double.IsFinite(interval) || interval < 0.0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(intervals));
+            }
+        }
+        int intervalsSize = checked(intervals.Length * sizeof(double));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.DashStyle,
+            checked(24 + intervalsSize));
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, offset);
+        WriteUInt32(packet, 20, (uint)intervalsSize);
+        for (int index = 0; index < intervals.Length; ++index)
+        {
+            WriteDouble(
+                packet,
+                24 + index * sizeof(double),
+                intervals[index]);
+        }
     }
 
     public void SetRenderData(uint handle, NativeMilRenderDataBuilder renderData)
@@ -452,5 +487,6 @@ internal static class NativeMilCommand
     internal const uint Pop = 0x56;
     internal const uint MatrixTransform = 0x77;
     internal const uint SolidColorBrush = 0x7e;
+    internal const uint DashStyle = 0x85;
     internal const uint Pen = 0x86;
 }
