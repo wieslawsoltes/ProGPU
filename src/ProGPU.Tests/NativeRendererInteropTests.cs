@@ -63,8 +63,9 @@ public class NativeRendererInteropTests
             batch.SetMatrixTransform(
                 5,
                 matrix with { M11 = double.NaN }));
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
-            renderData.PushTransform(0));
+        renderData.Clear();
+        renderData.PushTransform(0);
+        Assert.Equal(0U, ReadUInt32(renderData.WrittenSpan.ToArray(), 8));
     }
 
     [Fact]

@@ -753,16 +753,20 @@ struct channel::implementation {
                     !read_at(view.packet, 8U, padding)) {
                     return status::malformed_batch;
                 }
-                if (transform_handle == 0U || padding != 0U) {
+                if (padding != 0U) {
                     return status::malformed_batch;
                 }
-                const auto transform =
-                    matrix_transforms.find(transform_handle);
-                if (transform == matrix_transforms.end()) {
-                    return status::invalid_handle;
+                affine_2d_double pushed_transform{};
+                if (transform_handle != 0U) {
+                    const auto transform =
+                        matrix_transforms.find(transform_handle);
+                    if (transform == matrix_transforms.end()) {
+                        return status::invalid_handle;
+                    }
+                    pushed_transform = transform->second;
                 }
                 const render_scope_state next{
-                    compose_affine(transform->second, current.transform),
+                    compose_affine(pushed_transform, current.transform),
                     current.opacity};
                 if (!save_state(next)) {
                     return status::invalid_graph;
