@@ -42,6 +42,11 @@ using var target = new GpuTexture(
     TextureFormat.Rgba8Unorm,
     TextureUsage.RenderAttachment | TextureUsage.CopySrc,
     "ProGPU native managed sample target");
+Console.WriteLine(
+    $"[ProGPUNativeManaged] adapter '{context.AdapterName}', " +
+    $"backend={context.AdapterBackendType}; validating pre-render readback.");
+_ = target.ReadPixels();
+Console.WriteLine("[ProGPUNativeManaged] pre-render readback passed.");
 using var compositor = dawnContext is null
     ? new NativeCompositor(context, TextureFormat.Rgba8Unorm)
     : NativeDawnAdapter.CreateCompositor(
