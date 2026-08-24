@@ -66,7 +66,7 @@ public sealed unsafe class NativeMilChannel : IDisposable
             {
                 throw new NativeMilException(
                     status,
-                    $"The MIL batch was rejected after {metrics.CommandCount} command(s) ({metrics.TotalBytes} bytes).");
+                    $"The MIL batch was rejected with {status} after {metrics.CommandCount} command(s) ({metrics.TotalBytes} bytes).");
             }
         }
         return new NativeMilBatchMetrics(
