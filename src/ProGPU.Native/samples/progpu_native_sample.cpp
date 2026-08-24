@@ -6,24 +6,49 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
 
 struct device_request {
     WGPUDevice device = nullptr;
-    bool complete = false;
+    std::atomic_bool complete{false};
 };
 
 struct map_request {
     WGPUBufferMapAsyncStatus status = WGPUBufferMapAsyncStatus_Unknown;
-    bool complete = false;
+    std::atomic_bool complete{false};
 };
+
+constexpr auto gpu_async_timeout = std::chrono::seconds(30);
+
+bool wait_for_gpu_callback(
+    WGPUDevice device,
+    const std::atomic_bool& complete,
+    const char* operation) {
+    const auto deadline = std::chrono::steady_clock::now() + gpu_async_timeout;
+    while (!complete.load(std::memory_order_acquire)) {
+        (void)wgpuDevicePoll(device, false, nullptr);
+        if (complete.load(std::memory_order_acquire)) {
+            return true;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            std::cerr << operation << " timed out after "
+                      << gpu_async_timeout.count() << " seconds.\n";
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return true;
+}
 
 void on_device_requested(
     WGPURequestDeviceStatus status,
@@ -38,7 +63,7 @@ void on_device_requested(
                   << (message == nullptr ? "unknown error" : message)
                   << '\n';
     }
-    request.complete = true;
+    request.complete.store(true, std::memory_order_release);
 }
 
 void on_device_lost(
@@ -62,7 +87,7 @@ void on_uncaptured_error(
 void on_buffer_mapped(WGPUBufferMapAsyncStatus status, void* userdata) {
     auto& request = *static_cast<map_request*>(userdata);
     request.status = status;
-    request.complete = true;
+    request.complete.store(true, std::memory_order_release);
 }
 
 WGPUInstanceBackendFlags platform_backends() {
@@ -137,7 +162,8 @@ bool request_device(
         &descriptor,
         on_device_requested,
         &request);
-    if (!request.complete || request.device == nullptr) {
+    if (!request.complete.load(std::memory_order_acquire) ||
+        request.device == nullptr) {
         std::cerr << "The wgpu-native ABI did not complete the device request.\n";
         return false;
     }
@@ -260,6 +286,7 @@ bool verify_retained_gpu_hit_test(
     progpu_native_hit_test_result summary{};
     std::uint32_t hit_count = 0U;
     std::uint8_t complete = 0U;
+    const auto deadline = std::chrono::steady_clock::now() + gpu_async_timeout;
     while (complete == 0U) {
         const auto poll_status = progpu_native_engine_poll_hit_test(
                 engine,
@@ -275,7 +302,13 @@ bool verify_retained_gpu_hit_test(
             return false;
         }
         if (complete == 0U) {
-            (void)wgpuDevicePoll(device, true, nullptr);
+            (void)wgpuDevicePoll(device, false, nullptr);
+            if (std::chrono::steady_clock::now() >= deadline) {
+                std::cerr << "GPU hit testing timed out after "
+                          << gpu_async_timeout.count() << " seconds.\n";
+                return false;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }
     const bool passed = summary.hit == 1U &&
@@ -344,6 +377,9 @@ int main(int argc, char** argv) {
                   << backend_name(adapter_properties.backendType) << ".\n";
         return EXIT_FAILURE;
     }
+    std::cout << "[ProGPUNative] selected "
+              << backend_name(adapter_properties.backendType)
+              << " adapter '" << adapter_name << "'.\n";
 
     constexpr std::uint32_t width = 640U;
     constexpr std::uint32_t height = 360U;
@@ -766,6 +802,9 @@ int main(int argc, char** argv) {
         std::cerr << "Could not install the native retained scene.\n";
         return EXIT_FAILURE;
     }
+    if (!defer_software_d3d12_hit_test) {
+        std::cout << "[ProGPUNative] executing retained GPU hit test.\n";
+    }
     if (!defer_software_d3d12_hit_test &&
         !verify_retained_gpu_hit_test(engine, device)) {
         std::array<char, 512U> error{};
@@ -795,6 +834,7 @@ int main(int argc, char** argv) {
     frame.clear_color = {0.02F, 0.025F, 0.04F, 1.0F};
     progpu_native_scene_frame_metrics metrics{};
     metrics.struct_size = sizeof(metrics);
+    std::cout << "[ProGPUNative] rendering retained scene.\n";
     const progpu_native_status render_status =
         progpu_native_engine_render_scene(engine, &frame, &metrics);
     if (render_status != PROGPU_NATIVE_STATUS_SUCCESS) {
@@ -806,6 +846,7 @@ int main(int argc, char** argv) {
         std::cerr << "Native render failed: " << error.data() << '\n';
         return EXIT_FAILURE;
     }
+    std::cout << "[ProGPUNative] retained scene rendered; reading pixels.\n";
 
     const std::uint32_t row_bytes = align_row_bytes(width * 4U);
     const std::uint64_t readback_size =
@@ -843,12 +884,17 @@ int main(int argc, char** argv) {
         readback_size,
         on_buffer_mapped,
         &mapped);
-    while (!mapped.complete) {
-        wgpuDevicePoll(device, true, nullptr);
-    }
-    const auto* pixels = static_cast<const std::uint8_t*>(
-        wgpuBufferGetConstMappedRange(readback, 0U, readback_size));
+    const bool map_completed = wait_for_gpu_callback(
+        device,
+        mapped.complete,
+        "Native sample readback");
+    const auto* pixels = map_completed &&
+            mapped.status == WGPUBufferMapAsyncStatus_Success
+        ? static_cast<const std::uint8_t*>(
+            wgpuBufferGetConstMappedRange(readback, 0U, readback_size))
+        : nullptr;
     bool passed =
+        map_completed &&
         mapped.status == WGPUBufferMapAsyncStatus_Success &&
         pixels != nullptr &&
         has_expected_colors(pixels, row_bytes, uses_decoded_glyph) &&
