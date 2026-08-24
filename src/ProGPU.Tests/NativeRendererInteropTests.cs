@@ -271,9 +271,15 @@ public class NativeRendererInteropTests
             NativeMilPathFillRule.EvenOdd,
             [11, 12],
             6);
+        batch.SetCombinedGeometry(
+            14,
+            NativeMilGeometryCombineMode.Exclude,
+            11,
+            12,
+            6);
         byte[] encoded = batch.ToArray();
 
-        Assert.Equal(32, encoded.Length);
+        Assert.Equal(60, encoded.Length);
         Assert.Equal(32U, ReadUInt32(encoded, 0));
         Assert.Equal(0x7bU, ReadUInt32(encoded, 4));
         Assert.Equal(13U, ReadUInt32(encoded, 8));
@@ -282,13 +288,26 @@ public class NativeRendererInteropTests
         Assert.Equal(8U, ReadUInt32(encoded, 20));
         Assert.Equal(11U, ReadUInt32(encoded, 24));
         Assert.Equal(12U, ReadUInt32(encoded, 28));
+        Assert.Equal(28U, ReadUInt32(encoded, 32));
+        Assert.Equal(0x7cU, ReadUInt32(encoded, 36));
+        Assert.Equal(14U, ReadUInt32(encoded, 40));
+        Assert.Equal(6U, ReadUInt32(encoded, 44));
+        Assert.Equal(3U, ReadUInt32(encoded, 48));
+        Assert.Equal(11U, ReadUInt32(encoded, 52));
+        Assert.Equal(12U, ReadUInt32(encoded, 56));
 
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             batch.SetGeometryGroup(
                 14,
                 NativeMilPathFillRule.Nonzero,
                 [0]));
-        Assert.Equal(32, batch.Length);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetCombinedGeometry(
+                15,
+                (NativeMilGeometryCombineMode)4,
+                11,
+                12));
+        Assert.Equal(60, batch.Length);
     }
 
     [Fact]

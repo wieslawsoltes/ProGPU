@@ -194,6 +194,17 @@ does. The group transform remains one native path transform. Fixed-geometry,
 transformed-child, nested-group, and meaningful-pen execution currently fail
 closed until their contours or strokes can be composed without approximation.
 
+Canonical fixed-size `MILCMD_COMBINEDGEOMETRY` state now retains the optional
+matrix transform, two geometry dependencies, and WPF Union/Intersect/Xor/
+Exclude operation. Null operands become explicit empty leaves. Identity-local
+`PathGeometry` operands lower to ProGPU's existing bounded three-instruction
+postfix boolean program, preserving each operand's own fill rule and executing
+the result in the native path atlas on every backend. Group/combined references
+share one cycle-checked geometry DAG; deletion and malformed operation updates
+fail transactionally. Fixed, transformed, group, nested-combined, and stroked
+operands remain fail closed until exact recursive contour lowering is shared by
+both resource kinds.
+
 `NativeMilBatchBuilder` and `NativeMilRenderDataBuilder` provide the matching
 managed producer for this supported subset. They write the canonical WPF
 framing and packed field offsets directly into reusable buffer writers, expose
@@ -202,8 +213,8 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
-- Implement scalar animation resources, remaining transform kinds, geometry
-  group child widening, path strokes, combined geometry, curved-path dashes,
+- Implement scalar animation resources, remaining transform kinds, recursive
+  group/combined child widening, path strokes, curved-path dashes,
   remaining pen draws,
   brushes, drawings, images, glyph runs, caches, guidelines, effects, and
   complete render-data decoding.

@@ -29,6 +29,7 @@ constexpr std::uint32_t type_line_geometry = 68U;
 constexpr std::uint32_t type_rectangle_geometry = 69U;
 constexpr std::uint32_t type_ellipse_geometry = 70U;
 constexpr std::uint32_t type_geometry_group = 71U;
+constexpr std::uint32_t type_combined_geometry = 72U;
 constexpr std::uint32_t type_path_geometry = 73U;
 constexpr std::uint32_t type_solid_color_brush = 75U;
 constexpr std::uint32_t type_dash_style = 84U;
@@ -358,6 +359,13 @@ struct channel::implementation {
         std::uint32_t fill_rule{};
     };
 
+    struct combined_geometry_state {
+        std::uint32_t transform_handle{};
+        std::uint32_t combine_mode{};
+        std::uint32_t geometry1_handle{};
+        std::uint32_t geometry2_handle{};
+    };
+
     struct resource_state {
         std::uint32_t type{};
         std::uint64_t generation{1U};
@@ -371,6 +379,8 @@ struct channel::implementation {
         matrix_transforms;
     std::unordered_map<std::uint32_t, fixed_geometry_state> fixed_geometries;
     std::unordered_map<std::uint32_t, geometry_group_state> geometry_groups;
+    std::unordered_map<std::uint32_t, combined_geometry_state>
+        combined_geometries;
     std::unordered_map<std::uint32_t, path_geometry_state> path_geometries;
     std::unordered_map<std::uint32_t, solid_brush_state> solid_brushes;
     std::unordered_map<std::uint32_t, dash_style_state> dash_styles;
@@ -403,10 +413,11 @@ struct channel::implementation {
              found->second.type == type_rectangle_geometry ||
              found->second.type == type_ellipse_geometry ||
              found->second.type == type_geometry_group ||
+             found->second.type == type_combined_geometry ||
              found->second.type == type_path_geometry);
     }
 
-    bool geometry_group_reaches(
+    bool geometry_reaches(
         std::uint32_t start,
         std::uint32_t destination) const {
         std::vector<std::uint32_t> pending{start};
@@ -426,6 +437,15 @@ struct channel::implementation {
                     pending.end(),
                     found->second.children.begin(),
                     found->second.children.end());
+            }
+            const auto combined = combined_geometries.find(current);
+            if (combined != combined_geometries.end()) {
+                if (combined->second.geometry1_handle != 0U) {
+                    pending.push_back(combined->second.geometry1_handle);
+                }
+                if (combined->second.geometry2_handle != 0U) {
+                    pending.push_back(combined->second.geometry2_handle);
+                }
             }
         }
         return false;
@@ -547,11 +567,21 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
             }
+            for (const auto& [geometry_handle, geometry] :
+                 combined_geometries) {
+                if (geometry_handle != handle &&
+                    (geometry.transform_handle == handle ||
+                     geometry.geometry1_handle == handle ||
+                     geometry.geometry2_handle == handle)) {
+                    return status::invalid_graph;
+                }
+            }
             visuals.erase(handle);
             targets.erase(handle);
             matrix_transforms.erase(handle);
             fixed_geometries.erase(handle);
             geometry_groups.erase(handle);
+            combined_geometries.erase(handle);
             path_geometries.erase(handle);
             solid_brushes.erase(handle);
             dash_styles.erase(handle);
@@ -1013,13 +1043,51 @@ struct channel::implementation {
                 if (child == 0U || !require_geometry(child)) {
                     return status::invalid_handle;
                 }
-                if (child == handle ||
-                    geometry_group_reaches(child, handle)) {
+                if (child == handle || geometry_reaches(child, handle)) {
                     return status::invalid_graph;
                 }
                 geometry.children.push_back(child);
             }
             geometry_groups.insert_or_assign(handle, std::move(geometry));
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::combined_geometry: {
+            combined_geometry_state geometry{};
+            if (!has_exact_size(view, 24U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, geometry.transform_handle) ||
+                !read_at(view.packet, 12U, geometry.combine_mode) ||
+                !read_at(view.packet, 16U, geometry.geometry1_handle) ||
+                !read_at(view.packet, 20U, geometry.geometry2_handle)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_combined_geometry) ||
+                (geometry.transform_handle != 0U &&
+                 !require_resource(
+                     geometry.transform_handle,
+                     type_matrix_transform))) {
+                return status::invalid_handle;
+            }
+            if (geometry.combine_mode > 3U) {
+                return status::malformed_batch;
+            }
+            const std::array operands{
+                geometry.geometry1_handle,
+                geometry.geometry2_handle};
+            for (const std::uint32_t operand : operands) {
+                if (operand == 0U) {
+                    continue;
+                }
+                if (!require_geometry(operand)) {
+                    return status::invalid_handle;
+                }
+                if (operand == handle || geometry_reaches(operand, handle)) {
+                    return status::invalid_graph;
+                }
+            }
+            combined_geometries.insert_or_assign(handle, geometry);
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -1935,10 +2003,13 @@ struct channel::implementation {
                 const auto geometry = fixed_geometries.find(geometry_handle);
                 const auto geometry_group = geometry_groups.find(
                     geometry_handle);
+                const auto combined_geometry = combined_geometries.find(
+                    geometry_handle);
                 const auto path_geometry = path_geometries.find(
                     geometry_handle);
                 if (geometry == fixed_geometries.end() &&
                     geometry_group == geometry_groups.end() &&
+                    combined_geometry == combined_geometries.end() &&
                     path_geometry == path_geometries.end()) {
                     return status::invalid_handle;
                 }
@@ -1947,7 +2018,9 @@ struct channel::implementation {
                         ? geometry->second.transform_handle
                         : geometry_group != geometry_groups.end()
                             ? geometry_group->second.transform_handle
-                            : path_geometry->second.transform_handle;
+                            : combined_geometry != combined_geometries.end()
+                                ? combined_geometry->second.transform_handle
+                                : path_geometry->second.transform_handle;
                 if (geometry_transform_handle != 0U) {
                     const auto transform = matrix_transforms.find(
                         geometry_transform_handle);
@@ -2061,6 +2134,163 @@ struct channel::implementation {
                             group_segments,
                             brushes,
                             path_bounds)) {
+                        return status::invalid_graph;
+                    }
+                    continue;
+                }
+                if (combined_geometry != combined_geometries.end()) {
+                    if (pen_handle != 0U) {
+                        const auto pen = pens.find(pen_handle);
+                        if (pen == pens.end()) {
+                            return status::invalid_handle;
+                        }
+                        if (pen->second.brush_handle != 0U &&
+                            pen->second.thickness > 0.0) {
+                            return status::unsupported_command;
+                        }
+                    }
+                    if (brush_handle == 0U) {
+                        continue;
+                    }
+                    std::vector<progpu_native_path_segment>
+                        combined_segments;
+                    std::array<progpu_native_scene_path_boolean_node, 3U>
+                        boolean_nodes{};
+                    bool has_combined_bounds = false;
+                    double combined_left = 0.0;
+                    double combined_top = 0.0;
+                    double combined_right = 0.0;
+                    double combined_bottom = 0.0;
+                    const std::array operands{
+                        combined_geometry->second.geometry1_handle,
+                        combined_geometry->second.geometry2_handle};
+                    for (std::size_t index = 0U;
+                         index < operands.size();
+                         ++index) {
+                        const std::uint32_t operand_handle = operands[index];
+                        if (operand_handle == 0U) {
+                            boolean_nodes[index].kind =
+                                PROGPU_NATIVE_PATH_BOOLEAN_EMPTY;
+                            continue;
+                        }
+                        const auto operand = path_geometries.find(
+                            operand_handle);
+                        if (operand == path_geometries.end() ||
+                            operand->second.transform_handle != 0U) {
+                            return status::unsupported_command;
+                        }
+                        if (operand->second.segments.empty()) {
+                            boolean_nodes[index].kind =
+                                PROGPU_NATIVE_PATH_BOOLEAN_EMPTY;
+                            continue;
+                        }
+                        auto& leaf = boolean_nodes[index];
+                        leaf.segment_offset = combined_segments.size();
+                        leaf.segment_count =
+                            operand->second.segments.size();
+                        leaf.min_x = static_cast<float>(
+                            operand->second.left);
+                        leaf.min_y = static_cast<float>(
+                            operand->second.top);
+                        leaf.max_x = static_cast<float>(
+                            operand->second.right);
+                        leaf.max_y = static_cast<float>(
+                            operand->second.bottom);
+                        leaf.fill_rule = static_cast<std::uint32_t>(
+                            operand->second.fill_rule == 0U
+                                ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                                : PROGPU_NATIVE_FILL_RULE_NON_ZERO);
+                        leaf.kind = PROGPU_NATIVE_PATH_BOOLEAN_LEAF;
+                        combined_segments.insert(
+                            combined_segments.end(),
+                            operand->second.segments.begin(),
+                            operand->second.segments.end());
+                        if (!has_combined_bounds) {
+                            combined_left = operand->second.left;
+                            combined_top = operand->second.top;
+                            combined_right = operand->second.right;
+                            combined_bottom = operand->second.bottom;
+                            has_combined_bounds = true;
+                        } else {
+                            combined_left = std::min(
+                                combined_left, operand->second.left);
+                            combined_top = std::min(
+                                combined_top, operand->second.top);
+                            combined_right = std::max(
+                                combined_right, operand->second.right);
+                            combined_bottom = std::max(
+                                combined_bottom, operand->second.bottom);
+                        }
+                    }
+                    if (combined_segments.empty() || !has_combined_bounds) {
+                        continue;
+                    }
+                    switch (combined_geometry->second.combine_mode) {
+                    case 0U:
+                        boolean_nodes[2U].kind =
+                            PROGPU_NATIVE_PATH_BOOLEAN_UNION;
+                        break;
+                    case 1U:
+                        boolean_nodes[2U].kind =
+                            PROGPU_NATIVE_PATH_BOOLEAN_INTERSECT;
+                        break;
+                    case 2U:
+                        boolean_nodes[2U].kind =
+                            PROGPU_NATIVE_PATH_BOOLEAN_XOR;
+                        break;
+                    case 3U:
+                        boolean_nodes[2U].kind =
+                            PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE;
+                        break;
+                    default:
+                        return status::invalid_graph;
+                    }
+                    std::uint32_t brush_index =
+                        PROGPU_NATIVE_SCENE_NO_INDEX;
+                    const status brush_status = resolve_brush_index(
+                        brush_handle,
+                        brush_index);
+                    if (brush_status != status::success) {
+                        return brush_status;
+                    }
+                    progpu_native_image_rect path_bounds{};
+                    if (!try_transform_bounds(
+                            combined_left,
+                            combined_top,
+                            combined_right - combined_left,
+                            combined_bottom - combined_top,
+                            effective_transform,
+                            path_bounds)) {
+                        return status::invalid_graph;
+                    }
+                    progpu_native_affine_2d native_local_transform{};
+                    if (!try_to_native_affine(
+                            local_transform,
+                            native_local_transform)) {
+                        return status::invalid_graph;
+                    }
+                    const std::array paths{
+                        progpu_native_scene_path_fill{
+                            0U,
+                            combined_segments.size(),
+                            0U,
+                            boolean_nodes.size(),
+                            static_cast<float>(combined_left),
+                            static_cast<float>(combined_top),
+                            static_cast<float>(combined_right),
+                            static_cast<float>(combined_bottom),
+                            {1.0F, 1.0F, 1.0F, 1.0F},
+                            native_local_transform,
+                            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+                            8U}};
+                    const std::array brushes{brush_index};
+                    if (!builder.draw_paths(
+                            paths,
+                            combined_segments,
+                            brushes,
+                            path_bounds,
+                            PROGPU_NATIVE_SCENE_NO_INDEX,
+                            boolean_nodes)) {
                         return status::invalid_graph;
                     }
                     continue;

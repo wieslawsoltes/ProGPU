@@ -1772,6 +1772,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     constexpr std::uint32_t path_b = 7U;
     constexpr std::uint32_t group = 8U;
     constexpr std::uint32_t nested_group = 9U;
+    constexpr std::uint32_t combined = 10U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -1783,6 +1784,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     append_create(batch, path_b, 73U);
     append_create(batch, group, 71U);
     append_create(batch, nested_group, 71U);
+    append_create(batch, combined, 72U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -1812,6 +1814,14 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     append_path_geometry(batch, path_b, 0U, 1U, figures_b);
     const std::array children{path_a, path_b};
     append_geometry_group(batch, group, transform, 0U, children);
+    append_command(
+        batch,
+        command::combined_geometry,
+        combined,
+        transform,
+        3U,
+        path_a,
+        path_b);
     std::vector<std::byte> nested;
     append_command(
         nested,
@@ -1819,6 +1829,13 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         brush,
         0U,
         group,
+        0U);
+    append_command(
+        nested,
+        command::draw_geometry,
+        brush,
+        0U,
+        combined,
         0U);
     append_render_data(batch, content, nested);
     append_command(
@@ -1839,6 +1856,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         state.build_scene(target, 7003U, 1U, stream) == status::success);
     const auto header = read_value<progpu_native_scene_header>(stream, 0U);
     bool found_group_path = false;
+    bool found_combined_path = false;
     for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
         const auto resource = read_value<progpu_native_scene_resource>(
             stream,
@@ -1851,16 +1869,46 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
             stream,
             resource.payload_offset);
         PROGPU_REQUIRE(path.segment_count == 8U);
-        PROGPU_REQUIRE(path.fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD);
         PROGPU_REQUIRE(path.transform.m11 == 1.5F);
         PROGPU_REQUIRE(path.transform.m22 == 1.5F);
         PROGPU_REQUIRE(path.transform.m31 == 2.0F);
         PROGPU_REQUIRE(path.transform.m32 == 3.0F);
         PROGPU_REQUIRE(path.min_x == 1.0F && path.min_y == 2.0F);
         PROGPU_REQUIRE(path.max_x == 15.0F && path.max_y == 12.0F);
-        found_group_path = true;
+        if (path.boolean_node_count == 0U) {
+            PROGPU_REQUIRE(
+                path.fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD);
+            found_group_path = true;
+            continue;
+        }
+        PROGPU_REQUIRE(path.boolean_node_count == 3U);
+        const std::size_t boolean_offset =
+            resource.auxiliary_offset +
+            8U * sizeof(progpu_native_path_segment);
+        const auto leaf_a =
+            read_value<progpu_native_scene_path_boolean_node>(
+                stream,
+                boolean_offset);
+        const auto leaf_b =
+            read_value<progpu_native_scene_path_boolean_node>(
+                stream,
+                boolean_offset + sizeof(leaf_a));
+        const auto operation =
+            read_value<progpu_native_scene_path_boolean_node>(
+                stream,
+                boolean_offset + 2U * sizeof(leaf_a));
+        PROGPU_REQUIRE(
+            leaf_a.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
+            leaf_a.segment_offset == 0U && leaf_a.segment_count == 4U);
+        PROGPU_REQUIRE(
+            leaf_b.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
+            leaf_b.segment_offset == 4U && leaf_b.segment_count == 4U);
+        PROGPU_REQUIRE(
+            operation.kind == PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE);
+        found_combined_path = true;
     }
     PROGPU_REQUIRE(found_group_path);
+    PROGPU_REQUIRE(found_combined_path);
 
     const auto generation = state.resource_generation(group);
     std::vector<std::byte> malformed;
@@ -1874,6 +1922,32 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         path_a);
     PROGPU_REQUIRE(state.apply(malformed) == status::malformed_batch);
     PROGPU_REQUIRE(state.resource_generation(group) == generation);
+
+    std::vector<std::byte> null_operand_update;
+    append_command(
+        null_operand_update,
+        command::combined_geometry,
+        combined,
+        transform,
+        3U,
+        path_a,
+        0U);
+    PROGPU_REQUIRE(state.apply(null_operand_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7003U, 2U, stream) == status::success);
+    const auto combined_generation = state.resource_generation(combined);
+    std::vector<std::byte> invalid_combine;
+    append_command(
+        invalid_combine,
+        command::combined_geometry,
+        combined,
+        transform,
+        4U,
+        path_a,
+        path_b);
+    PROGPU_REQUIRE(state.apply(invalid_combine) == status::malformed_batch);
+    PROGPU_REQUIRE(
+        state.resource_generation(combined) == combined_generation);
 
     std::vector<std::byte> delete_child;
     append_command(
@@ -1901,6 +1975,27 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         0U,
         nested_child);
     PROGPU_REQUIRE(state.apply(cyclic_update) == status::invalid_graph);
+    PROGPU_REQUIRE(state.resource_generation(group) == generation);
+
+    std::vector<std::byte> combined_group_update;
+    append_command(
+        combined_group_update,
+        command::combined_geometry,
+        combined,
+        transform,
+        0U,
+        group,
+        0U);
+    PROGPU_REQUIRE(state.apply(combined_group_update) == status::success);
+    std::vector<std::byte> cross_kind_cycle;
+    const std::array combined_child{combined};
+    append_geometry_group(
+        cross_kind_cycle,
+        group,
+        transform,
+        0U,
+        combined_child);
+    PROGPU_REQUIRE(state.apply(cross_kind_cycle) == status::invalid_graph);
     PROGPU_REQUIRE(state.resource_generation(group) == generation);
     return true;
 }

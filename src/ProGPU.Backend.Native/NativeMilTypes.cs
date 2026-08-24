@@ -19,6 +19,7 @@ public enum NativeMilResourceType : uint
     RectangleGeometry = 69,
     EllipseGeometry = 70,
     GeometryGroup = 71,
+    CombinedGeometry = 72,
     PathGeometry = 73,
     SolidColorBrush = 75,
     DashStyle = 84,
@@ -29,6 +30,14 @@ public enum NativeMilPathFillRule : uint
 {
     EvenOdd = 0,
     Nonzero = 1
+}
+
+public enum NativeMilGeometryCombineMode : uint
+{
+    Union = 0,
+    Intersect = 1,
+    Xor = 2,
+    Exclude = 3
 }
 
 public enum NativeMilPathSegmentKind : uint
