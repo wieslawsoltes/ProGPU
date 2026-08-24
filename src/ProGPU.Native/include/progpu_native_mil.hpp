@@ -167,7 +167,8 @@ enum class status : std::uint32_t {
     invalid_handle,
     invalid_resource_type,
     resource_type_mismatch,
-    invalid_graph
+    invalid_graph,
+    capacity_exceeded
 };
 
 struct command_view {

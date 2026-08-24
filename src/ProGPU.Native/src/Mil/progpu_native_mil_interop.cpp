@@ -2,6 +2,7 @@
 #include "progpu_native_mil.hpp"
 
 #include <cstddef>
+#include <cstring>
 #include <memory>
 #include <new>
 #include <span>
@@ -159,6 +160,56 @@ uint8_t progpu_native_mil_channel_get_target(
     snapshot->clear_alpha = source.clear_alpha;
     snapshot->flags = source.flags;
     return 1U;
+}
+
+progpu_native_mil_status progpu_native_mil_channel_build_scene(
+    const progpu_native_mil_channel* channel,
+    uint32_t target_handle,
+    uint64_t scene_id,
+    uint64_t generation,
+    void* destination,
+    size_t destination_size,
+    size_t* bytes_written,
+    progpu_native_mil_scene_metrics* metrics) {
+    if (channel == nullptr || bytes_written == nullptr ||
+        (destination == nullptr && destination_size != 0U) ||
+        (metrics != nullptr &&
+         metrics->struct_size < sizeof(progpu_native_mil_scene_metrics))) {
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    }
+    *bytes_written = 0U;
+    progpu::native::mil::scene_metrics native_metrics{};
+    std::vector<std::byte> stream;
+    const auto result = channel->state.build_scene(
+        target_handle,
+        scene_id,
+        generation,
+        stream,
+        metrics == nullptr ? nullptr : &native_metrics);
+    if (metrics != nullptr) {
+        *metrics = {};
+        metrics->struct_size = sizeof(*metrics);
+        metrics->visual_count = native_metrics.visual_count;
+        metrics->rectangle_count = native_metrics.rectangle_count;
+        metrics->brush_count = native_metrics.brush_count;
+        metrics->maximum_visual_depth =
+            native_metrics.maximum_visual_depth;
+        metrics->stream_bytes = native_metrics.stream_bytes;
+    }
+    if (result != progpu::native::mil::status::success) {
+        return to_abi(result);
+    }
+    *bytes_written = stream.size();
+    if (destination == nullptr && destination_size == 0U) {
+        return PROGPU_NATIVE_MIL_STATUS_SUCCESS;
+    }
+    if (destination_size < stream.size()) {
+        return PROGPU_NATIVE_MIL_STATUS_CAPACITY_EXCEEDED;
+    }
+    if (!stream.empty()) {
+        std::memcpy(destination, stream.data(), stream.size());
+    }
+    return PROGPU_NATIVE_MIL_STATUS_SUCCESS;
 }
 
 } // extern "C"

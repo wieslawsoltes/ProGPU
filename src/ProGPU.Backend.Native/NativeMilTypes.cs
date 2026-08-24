@@ -18,7 +18,8 @@ public enum NativeMilStatus : uint
     InvalidHandle,
     InvalidResourceType,
     ResourceTypeMismatch,
-    InvalidGraph
+    InvalidGraph,
+    CapacityExceeded
 }
 
 public readonly record struct NativeMilBatchMetrics(
@@ -46,6 +47,17 @@ public readonly record struct NativeMilTargetSnapshot(
     float ClearBlue,
     float ClearAlpha,
     uint Flags);
+
+public readonly record struct NativeMilSceneMetrics(
+    uint VisualCount,
+    uint RectangleCount,
+    uint BrushCount,
+    uint MaximumVisualDepth,
+    ulong StreamBytes);
+
+public sealed record NativeMilCompiledScene(
+    byte[] Stream,
+    NativeMilSceneMetrics Metrics);
 
 public sealed class NativeMilException : Exception
 {
