@@ -209,6 +209,68 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 48, 0);
     }
 
+    public void SetRectangleGeometry(
+        uint handle,
+        double x,
+        double y,
+        double width,
+        double height,
+        double radiusX = 0,
+        double radiusY = 0,
+        uint transformHandle = 0)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(x) || !double.IsFinite(y) ||
+            !double.IsFinite(width) || width < 0.0 ||
+            !double.IsFinite(height) || height < 0.0 ||
+            !double.IsFinite(radiusX) || radiusX < 0.0 ||
+            !double.IsFinite(radiusY) || radiusY < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.RectangleGeometry, 72);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, radiusX);
+        WriteDouble(packet, 16, radiusY);
+        WriteDouble(packet, 24, x);
+        WriteDouble(packet, 32, y);
+        WriteDouble(packet, 40, width);
+        WriteDouble(packet, 48, height);
+        WriteUInt32(packet, 56, transformHandle);
+        WriteUInt32(packet, 60, 0);
+        WriteUInt32(packet, 64, 0);
+        WriteUInt32(packet, 68, 0);
+    }
+
+    public void SetEllipseGeometry(
+        uint handle,
+        double centerX,
+        double centerY,
+        double radiusX,
+        double radiusY,
+        uint transformHandle = 0)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(centerX) || !double.IsFinite(centerY) ||
+            !double.IsFinite(radiusX) || radiusX < 0.0 ||
+            !double.IsFinite(radiusY) || radiusY < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(radiusX));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.EllipseGeometry, 56);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, radiusX);
+        WriteDouble(packet, 16, radiusY);
+        WriteDouble(packet, 24, centerX);
+        WriteDouble(packet, 32, centerY);
+        WriteUInt32(packet, 40, transformHandle);
+        WriteUInt32(packet, 44, 0);
+        WriteUInt32(packet, 48, 0);
+        WriteUInt32(packet, 52, 0);
+    }
+
     public void SetPen(uint handle, NativeMilPen pen)
     {
         ValidateHandle(handle);
@@ -525,6 +587,8 @@ internal static class NativeMilCommand
     internal const uint Pop = 0x56;
     internal const uint MatrixTransform = 0x77;
     internal const uint LineGeometry = 0x78;
+    internal const uint RectangleGeometry = 0x79;
+    internal const uint EllipseGeometry = 0x7a;
     internal const uint SolidColorBrush = 0x7e;
     internal const uint DashStyle = 0x85;
     internal const uint Pen = 0x86;

@@ -16,6 +16,8 @@ public enum NativeMilResourceType : uint
     GenericRenderTarget = 47,
     MatrixTransform = 66,
     LineGeometry = 68,
+    RectangleGeometry = 69,
+    EllipseGeometry = 70,
     SolidColorBrush = 75,
     DashStyle = 84,
     Pen = 85

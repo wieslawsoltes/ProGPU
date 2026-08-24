@@ -57,6 +57,16 @@ public sealed class LineGeometry : Geometry
         transform = Transform != null ? Transform.Value : Matrix4x4.Identity;
         return true;
     }
+
+    protected override bool TryGetPortablePrimitiveGeometryCore(
+        out ProGPU.Wpf.Interop.PortablePrimitiveGeometry geometry)
+    {
+        geometry = ProGPU.Wpf.Interop.PortablePrimitiveGeometry.Line(
+            new ProGPU.Wpf.Interop.PortablePoint(StartPoint.X, StartPoint.Y),
+            new ProGPU.Wpf.Interop.PortablePoint(EndPoint.X, EndPoint.Y),
+            GetPortableTransform());
+        return true;
+    }
 }
 
 public sealed class RectangleGeometry : Geometry
@@ -115,6 +125,22 @@ public sealed class RectangleGeometry : Geometry
             : CreatePathGeometry();
         transform = Transform != null ? Transform.Value : Matrix4x4.Identity;
         return true;
+    }
+
+    protected override bool TryGetPortablePrimitiveGeometryCore(
+        out ProGPU.Wpf.Interop.PortablePrimitiveGeometry geometry)
+    {
+        geometry = ProGPU.Wpf.Interop.PortablePrimitiveGeometry.Rectangle(
+            new ProGPU.Wpf.Interop.PortableRect(
+                Rect.X,
+                Rect.Y,
+                Rect.Width,
+                Rect.Height,
+                Rect.IsEmpty),
+            RadiusX,
+            RadiusY,
+            GetPortableTransform());
+        return !Rect.IsEmpty;
     }
 
     private VectorPathGeometry CreatePathGeometry()
@@ -203,6 +229,17 @@ public sealed class EllipseGeometry : Geometry
             (float)RadiusX,
             (float)RadiusY);
         transform = Transform != null ? Transform.Value : Matrix4x4.Identity;
+        return true;
+    }
+
+    protected override bool TryGetPortablePrimitiveGeometryCore(
+        out ProGPU.Wpf.Interop.PortablePrimitiveGeometry geometry)
+    {
+        geometry = ProGPU.Wpf.Interop.PortablePrimitiveGeometry.Ellipse(
+            new ProGPU.Wpf.Interop.PortablePoint(Center.X, Center.Y),
+            RadiusX,
+            RadiusY,
+            GetPortableTransform());
         return true;
     }
 }
