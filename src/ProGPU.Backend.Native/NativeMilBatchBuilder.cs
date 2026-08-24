@@ -490,6 +490,29 @@ public sealed class NativeMilBatchBuilder
         }
     }
 
+    public void SetCombinedGeometry(
+        uint handle,
+        NativeMilGeometryCombineMode combineMode,
+        uint geometry1Handle,
+        uint geometry2Handle,
+        uint transformHandle = 0)
+    {
+        ValidateHandle(handle);
+        if (combineMode > NativeMilGeometryCombineMode.Exclude)
+        {
+            throw new ArgumentOutOfRangeException(nameof(combineMode));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.CombinedGeometry,
+            24);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, transformHandle);
+        WriteUInt32(packet, 12, (uint)combineMode);
+        WriteUInt32(packet, 16, geometry1Handle);
+        WriteUInt32(packet, 20, geometry2Handle);
+    }
+
     private static int PathSegmentSize(NativeMilPathSegment segment) =>
         segment.Kind switch
         {
@@ -866,6 +889,7 @@ internal static class NativeMilCommand
     internal const uint RectangleGeometry = 0x79;
     internal const uint EllipseGeometry = 0x7a;
     internal const uint GeometryGroup = 0x7b;
+    internal const uint CombinedGeometry = 0x7c;
     internal const uint PathGeometry = 0x7d;
     internal const uint SolidColorBrush = 0x7e;
     internal const uint DashStyle = 0x85;
