@@ -275,7 +275,6 @@ public sealed class NativeMilRenderDataBuilder
 
     public void PushTransform(uint transformHandle)
     {
-        ArgumentOutOfRangeException.ThrowIfZero(transformHandle);
         Span<byte> packet = NativeMilBatchEncoding.Allocate(
             _writer, NativeMilCommand.PushTransform, 12);
         NativeMilBatchBuilder.WriteUInt32(packet, 4, transformHandle);

@@ -689,6 +689,19 @@ bool render_data_scope_errors_fail_closed() {
         state.build_scene(target, 1U, 3U, stream) ==
         status::unsupported_command);
 
+    std::vector<std::byte> null_transform_batch;
+    std::vector<std::byte> null_transform;
+    append_command(
+        null_transform,
+        command::push_transform,
+        0U,
+        0U);
+    append_command(null_transform, command::pop);
+    append_render_data(null_transform_batch, content, null_transform);
+    PROGPU_REQUIRE(state.apply(null_transform_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 1U, 4U, stream) == status::success);
+
     std::vector<std::byte> missing_transform_batch;
     std::vector<std::byte> missing_transform;
     append_command(
@@ -703,7 +716,7 @@ bool render_data_scope_errors_fail_closed() {
         missing_transform);
     PROGPU_REQUIRE(state.apply(missing_transform_batch) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 1U, 4U, stream) ==
+        state.build_scene(target, 1U, 5U, stream) ==
         status::invalid_handle);
 
     std::vector<std::byte> nonzero_padding_batch;
@@ -720,7 +733,7 @@ bool render_data_scope_errors_fail_closed() {
         nonzero_padding);
     PROGPU_REQUIRE(state.apply(nonzero_padding_batch) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 1U, 5U, stream) ==
+        state.build_scene(target, 1U, 6U, stream) ==
         status::malformed_batch);
     return true;
 }

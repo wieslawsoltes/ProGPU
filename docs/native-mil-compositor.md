@@ -102,8 +102,9 @@ the retained channel, are range-checked before lowering to the semantic ABI,
 and compose in WPF row-vector order as local visual transform, visual offset,
 parent transform, and then nested drawing scopes. Draw culling bounds are the
 axis-aligned bounds of all four transformed primitive corners. Animation
-handles, missing/wrong-type transforms, nonzero packet padding, and unbalanced
-scopes fail closed transactionally. Animated brushes, primitive pens, and
+handles, missing/wrong-type nonzero transforms, nonzero packet padding, and
+unbalanced scopes fail closed transactionally; transform handle zero retains
+WPF's defined balanced no-op scope. Animated brushes, primitive pens, and
 other nested commands deliberately fail closed until their typed resources are
 implemented. The slice is covered by byte-level fixtures that check semantic
 brush, transform/opacity state, rectangle, ellipse and rounded-rectangle
