@@ -253,6 +253,21 @@ had maximum channel delta 2/255 and zero pixels over 3/255. Timing is diagnostic
 for this VM, while the pass/fail contracts and recorded adapter identity are
 the qualification evidence.
 
+The solid-pen/line checkpoint at ProGPU commit `dadb26a5` was then qualified
+with that same complete command from a clean Windows checkout. Both native
+modules linked for ARM64, all 11 CTests passed (including cap mapping,
+cap-aware transformed bounds, line metrics, Dawn ABI, and transactional
+animated/dashed-pen rejection), and the live C++ and managed D3D12 samples
+again completed their readback and post-build allocation probes. The bounded
+mixed-picture differential remained at maximum delta 2/255 with zero pixels
+over 3/255; external/masked images, semantic scenes, mask/effect chains,
+vector clips, text shaping, Overlay, and ColorDodge remained inside their
+declared contracts. The run reached its normal completion marker and staged
+both `progpu_native.dll` and `progpu_native_dawn.dll` in the `win-arm64`
+package runtime. One eight-frame synchronized managed-picture native profile
+measured `0.6335 ms/frame`; VM timings remain diagnostic rather than release
+thresholds.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
