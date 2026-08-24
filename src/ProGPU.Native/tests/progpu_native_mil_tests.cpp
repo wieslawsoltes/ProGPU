@@ -945,6 +945,104 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     }
     PROGPU_REQUIRE(found_rectangle_stroke_bounds);
 
+    constexpr std::uint32_t solid_pen = 8U;
+    std::vector<std::byte> solid_pen_batch;
+    append_create(solid_pen_batch, solid_pen, 85U);
+    append_command(
+        solid_pen_batch,
+        command::pen,
+        solid_pen,
+        2.0,
+        10.0,
+        brush,
+        0U,
+        0U,
+        0U,
+        1U,
+        0U,
+        0U);
+    PROGPU_REQUIRE(state.apply(solid_pen_batch) == status::success);
+    std::vector<std::byte> ellipse_batch;
+    std::vector<std::byte> ellipse;
+    append_command(
+        ellipse,
+        command::draw_ellipse,
+        3.0,
+        4.0,
+        2.0,
+        1.0,
+        brush,
+        solid_pen);
+    append_render_data(ellipse_batch, content, ellipse);
+    PROGPU_REQUIRE(state.apply(ellipse_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 4U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.ellipse_count == 1U);
+    const auto ellipse_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_ellipse_arc = false;
+    for (std::uint32_t index = 0U;
+        index < ellipse_header.resource_count;
+        ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            ellipse_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            continue;
+        }
+        const auto primitive =
+            read_value<progpu_native_geometry_primitive>(
+                stream,
+                record.payload_offset);
+        if (primitive.kind != PROGPU_NATIVE_GEOMETRY_ARC) {
+            continue;
+        }
+        PROGPU_REQUIRE(primitive.p0.x == 3.0F);
+        PROGPU_REQUIRE(primitive.p0.y == 4.0F);
+        PROGPU_REQUIRE(primitive.p1.x == 2.0F);
+        PROGPU_REQUIRE(primitive.p2.y == 1.0F);
+        PROGPU_REQUIRE(primitive.stroke_thickness == 2.0F);
+        found_ellipse_arc = true;
+    }
+    PROGPU_REQUIRE(found_ellipse_arc);
+    bool found_ellipse_stroke_bounds = false;
+    for (std::uint32_t index = 0U;
+        index < ellipse_header.command_count;
+        ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            ellipse_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
+            continue;
+        }
+        PROGPU_REQUIRE(record.bounds_x == 10.0F);
+        PROGPU_REQUIRE(record.bounds_y == 24.0F);
+        PROGPU_REQUIRE(record.bounds_width == 12.0F);
+        PROGPU_REQUIRE(record.bounds_height == 8.0F);
+        found_ellipse_stroke_bounds = true;
+    }
+    PROGPU_REQUIRE(found_ellipse_stroke_bounds);
+
+    std::vector<std::byte> dashed_ellipse_batch;
+    std::vector<std::byte> dashed_ellipse;
+    append_command(
+        dashed_ellipse,
+        command::draw_ellipse,
+        3.0,
+        4.0,
+        2.0,
+        1.0,
+        brush,
+        pen);
+    append_render_data(dashed_ellipse_batch, content, dashed_ellipse);
+    PROGPU_REQUIRE(state.apply(dashed_ellipse_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 5U, stream, &metrics) ==
+        status::unsupported_command);
+
     std::vector<std::byte> invalid_cap;
     append_command(
         invalid_cap,
