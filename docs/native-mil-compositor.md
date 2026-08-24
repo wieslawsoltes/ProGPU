@@ -272,6 +272,17 @@ package runtime. One eight-frame synchronized managed-picture native profile
 measured `0.6335 ms/frame`; VM timings remain diagnostic rather than release
 thresholds.
 
+The retained-dash checkpoint at ProGPU commit `fca6c7a2` was qualified from a
+clean Windows checkout with a focused integration gate over the renderer
+already covered by the immediately preceding full matrix. ARM64 MSVC rebuilt
+both native modules and the MIL executable; the Windows MIL and Dawn contract
+tests passed 2/2. The project-reference package consumer then built with zero
+warnings and ran live on D3D12, compiling its retained dashed line through both
+wgpu-native and Dawn MIL channels before completing renderer readback (`draws=1`,
+16,384 pixels). This gate specifically covers variable packet decoding,
+thickness-relative intervals/offset, dash-cap semantic-stroke lowering,
+transactional validation, both exported ABIs, and managed package production.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
