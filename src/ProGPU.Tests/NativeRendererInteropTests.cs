@@ -54,6 +54,10 @@ public class NativeRendererInteropTests
             "poll_submission(",
             nativeGlyphExecution,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "const std::uint32_t dynamic_offset = 0U;",
+            nativeGlyphExecution,
+            StringComparison.Ordinal);
         Assert.DoesNotContain(
             "System.Reflection",
             managedAtlas,

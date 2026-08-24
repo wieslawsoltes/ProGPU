@@ -591,6 +591,39 @@ progpu_native_status render_glyphs(
         for (std::uint32_t index = 0U;
              index < engine->glyph_rasters.size();
              ++index) {
+            const std::array<WGPUBindGroupEntry, 4U> serialized_entries{{
+                {nullptr, 0U, temporary.uniforms,
+                    static_cast<std::uint64_t>(index) * 256U,
+                    sizeof(gpu_glyph_uniforms), nullptr, nullptr},
+                {nullptr, 1U, temporary.records, 0U,
+                    records.size() * sizeof(gpu_glyph_record),
+                    nullptr, nullptr},
+                {nullptr, 2U, temporary.segments, 0U,
+                    frame->segment_count *
+                        sizeof(progpu_native_path_segment),
+                    nullptr, nullptr},
+                {nullptr, 3U, temporary.coverage, 0U,
+                    coverage_staging_bytes, nullptr, nullptr}
+            }};
+            WGPUBindGroupDescriptor serialized_bind_group_descriptor{};
+            serialized_bind_group_descriptor.label =
+                progpu::native::webgpu::string_view(
+                    "ProGPU serialized native glyph raster bind group");
+            serialized_bind_group_descriptor.layout =
+                engine->glyph_raster_layout;
+            serialized_bind_group_descriptor.entryCount =
+                serialized_entries.size();
+            serialized_bind_group_descriptor.entries =
+                serialized_entries.data();
+            WGPUBindGroup serialized_bind_group = wgpuDeviceCreateBindGroup(
+                engine->device,
+                &serialized_bind_group_descriptor);
+            if (serialized_bind_group == nullptr) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                    "A serialized native glyph bind group could not be created.");
+            }
+
             WGPUCommandEncoderDescriptor raster_encoder_descriptor{};
             raster_encoder_descriptor.label =
                 progpu::native::webgpu::string_view(
@@ -599,6 +632,7 @@ progpu_native_status render_glyphs(
                 engine->device,
                 &raster_encoder_descriptor);
             if (raster_encoder == nullptr) {
+                wgpuBindGroupRelease(serialized_bind_group);
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                     "A serialized native glyph raster encoder could not be created.");
@@ -614,6 +648,7 @@ progpu_native_status render_glyphs(
                     &compute_descriptor);
             if (compute_pass == nullptr) {
                 wgpuCommandEncoderRelease(raster_encoder);
+                wgpuBindGroupRelease(serialized_bind_group);
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                     "A serialized native glyph compute pass could not be created.");
@@ -621,11 +656,11 @@ progpu_native_status render_glyphs(
             wgpuComputePassEncoderSetPipeline(
                 compute_pass,
                 engine->glyph_raster_pipeline);
-            const std::uint32_t dynamic_offset = index * 256U;
+            const std::uint32_t dynamic_offset = 0U;
             wgpuComputePassEncoderSetBindGroup(
                 compute_pass,
                 0U,
-                temporary.bind_group,
+                serialized_bind_group,
                 1U,
                 &dynamic_offset);
             const auto& raster = engine->glyph_rasters[index];
@@ -662,6 +697,7 @@ progpu_native_status render_glyphs(
                 &raster_command_descriptor);
             wgpuCommandEncoderRelease(raster_encoder);
             if (raster_command == nullptr) {
+                wgpuBindGroupRelease(serialized_bind_group);
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                     "Serialized native glyph raster commands could not be finished.");
@@ -675,11 +711,13 @@ progpu_native_status render_glyphs(
                     engine->queue,
                     engine->last_submission_index,
                     true)) {
+                wgpuBindGroupRelease(serialized_bind_group);
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_DEVICE_LOST,
                     "A serialized native glyph raster submission did not complete.");
             }
 #endif
+            wgpuBindGroupRelease(serialized_bind_group);
         }
     }
 
