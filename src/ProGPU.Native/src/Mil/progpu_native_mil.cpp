@@ -692,11 +692,12 @@ struct channel::implementation {
 
             const std::array primitive{
                 progpu_native_analytic_primitive{
-                    is_ellipse
-                        ? PROGPU_NATIVE_PRIMITIVE_ELLIPSE
-                        : is_rounded
-                            ? PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE
-                            : PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+                    static_cast<std::uint32_t>(
+                        is_ellipse
+                            ? PROGPU_NATIVE_PRIMITIVE_ELLIPSE
+                            : is_rounded
+                                ? PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE
+                                : PROGPU_NATIVE_PRIMITIVE_RECTANGLE),
                     0U,
                     static_cast<float>(x),
                     static_cast<float>(y),
