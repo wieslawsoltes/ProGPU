@@ -1050,7 +1050,7 @@ public unsafe class WgpuContext : IDisposable
 
         // 5. Retrieve Default Queue
         SafeLog("[WGPUCONTEXT] Getting Default Queue\n");
-        Queue = Wgpu.DeviceGetQueue(Device);
+        Queue = GetDefaultQueue(Wgpu, Device);
         _deviceResourceDomain = new WgpuDeviceResourceDomain(Api, Device);
         _sharedDeviceLifetime = new SharedDeviceLifetime(
             Wgpu,
@@ -1248,6 +1248,24 @@ public unsafe class WgpuContext : IDisposable
 
         return WebGPU.GetApi();
     }
+
+    private static Queue* GetDefaultQueue(WebGPU wgpu, Device* device)
+    {
+        // Silk.NET's dynamic DeviceGetQueue thunk currently faults in ntdll on
+        // Windows ARM64 after a successful device request. Calling the same
+        // stable WebGPU C export directly avoids the thunk; all other platforms
+        // retain Silk's native-context resolution, including static mobile ABIs.
+        return OperatingSystem.IsWindows() &&
+            RuntimeInformation.ProcessArchitecture == Architecture.Arm64
+            ? WindowsArm64DeviceGetQueue(device)
+            : wgpu.DeviceGetQueue(device);
+    }
+
+    [DllImport(
+        "wgpu_native",
+        EntryPoint = "wgpuDeviceGetQueue",
+        CallingConvention = CallingConvention.Cdecl)]
+    private static extern Queue* WindowsArm64DeviceGetQueue(Device* device);
 
     private static readonly object s_androidWebGpuLibraryLock = new();
     private static nint s_androidWebGpuLibrary;
