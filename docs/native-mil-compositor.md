@@ -309,6 +309,18 @@ run compiled a dashed line plus a dashed fill-and-stroke rectangle through both
 native MIL exports before completing readback (`draws=1`, 16,384 pixels). The
 Windows checkout was clean at the exact qualified commit.
 
+The solid-ellipse checkpoint at ProGPU commit `f24d715f` passed that focused
+lane from a clean Windows checkout. The MIL and Dawn contracts passed 2/2, and
+the package consumer compiled a fill-plus-solid-stroke ellipse through both
+native MIL exports before completing live D3D12 readback (`draws=1`, 16,384
+pixels). The same gate isolated and corrected Windows instance creation:
+managed `WgpuContext` now supplies wgpu-native's typed D3D12 instance extension
+instead of a backend-unspecified descriptor. WebGPU-init-only, render-only, and
+combined MIL/render processes all completed with exit code zero under the
+Parallels SYSTEM integration session. The C++ retained renderer independently
+selected the Parallels D3D12 adapter, rendered nine commands in five draws,
+uploaded 11,616 vertex bytes, and completed readback.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
