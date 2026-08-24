@@ -90,6 +90,22 @@ int main() {
     require(engine == nullptr);
 
     options = valid_options(state);
+    options.flags = 1ULL << 1U;
+    require(progpu_native_dawn_engine_create(&options, &engine) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    require(state.call_count == 0U);
+    require(engine == nullptr);
+
+    options = valid_options(state);
+    options.flags = PROGPU_NATIVE_ENGINE_GLYPH_COMPUTE_FALLBACK;
+    require(progpu_native_dawn_engine_create(&options, &engine) ==
+        PROGPU_NATIVE_STATUS_UNSUPPORTED);
+    require(state.call_count > 1U);
+    require(!state.invalid_name);
+    require(engine == nullptr);
+
+    state.call_count = 0U;
+    options = valid_options(state);
     require(progpu_native_dawn_engine_create(&options, &engine) ==
         PROGPU_NATIVE_STATUS_UNSUPPORTED);
     require(state.call_count > 1U);

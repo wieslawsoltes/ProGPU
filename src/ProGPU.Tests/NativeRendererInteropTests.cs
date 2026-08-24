@@ -12,7 +12,7 @@ namespace Avalonia.ProGpu.UnitTests;
 public class NativeRendererInteropTests
 {
     [Fact]
-    public void ParallelsD3D12GlyphRasterizationUsesTypedSerializedSubmissions()
+    public void ParallelsD3D12GlyphRasterizationUsesTypedComputeFallback()
     {
         string managedContext = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Backend", "WgpuContext.cs"));
@@ -27,7 +27,7 @@ public class NativeRendererInteropTests
             "progpu_native_glyph_execution.cpp"));
 
         Assert.Contains(
-            "RequiresSerializedGlyphRasterization",
+            "RequiresGlyphComputeFallback",
             managedContext,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -39,7 +39,7 @@ public class NativeRendererInteropTests
             managedContext,
             StringComparison.Ordinal);
         Assert.Contains(
-            "_context.RequiresSerializedGlyphRasterization",
+            "_context.RequiresGlyphComputeFallback",
             managedAtlas,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -47,15 +47,15 @@ public class NativeRendererInteropTests
             managedNativeHost,
             StringComparison.Ordinal);
         Assert.Contains(
-            "PROGPU_NATIVE_ENGINE_SERIALIZE_GLYPH_RASTERIZATION",
+            "Flags = GetEngineFlags(replacementContext)",
+            managedNativeHost,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_ENGINE_GLYPH_COMPUTE_FALLBACK",
             nativeContract,
             StringComparison.Ordinal);
         Assert.Contains(
-            "poll_submission(",
-            nativeGlyphExecution,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "const std::uint32_t dynamic_offset = 0U;",
+            "rasterize_glyph_coverage_cpu(",
             nativeGlyphExecution,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
