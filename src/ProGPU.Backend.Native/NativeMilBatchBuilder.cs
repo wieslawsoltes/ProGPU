@@ -380,7 +380,6 @@ public sealed class NativeMilRenderDataBuilder
         {
             throw new ArgumentOutOfRangeException(nameof(width));
         }
-        ArgumentOutOfRangeException.ThrowIfZero(brushHandle);
         Span<byte> packet = NativeMilBatchEncoding.Allocate(
             _writer, NativeMilCommand.DrawRectangle, 44);
         NativeMilBatchBuilder.WriteDouble(packet, 4, x);

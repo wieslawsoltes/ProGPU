@@ -108,7 +108,7 @@ static byte[] CreateMilSeedBatch()
 {
     var renderData = new NativeMilRenderDataBuilder();
     renderData.PushTransform(45);
-    renderData.DrawRectangle(8, 8, 48, 48, 44);
+    renderData.DrawRectangle(8, 8, 48, 48, 44, 46);
     renderData.DrawLine(8, 8, 56, 56, 46);
     renderData.Pop();
     var batch = new NativeMilBatchBuilder();
