@@ -362,6 +362,19 @@ before completing live D3D12 rendering/readback (`draws=1`, 16,384 pixels).
 The independent C++ retained renderer again completed its nine-command,
 five-draw, 11,616-vertex-byte D3D12 readback gate.
 
+The retained rectangle/ellipse-geometry checkpoint was qualified at exact
+ProGPU commit `a1c0fd81` (feature implementation `bc6b5029`) from a clean
+Windows checkout. ARM64 MSVC rebuilt `progpu_native.dll`,
+`progpu_native_dawn.dll`, and the MIL executable; the MIL/Dawn contracts passed
+2/2. The zero-warning project-reference package consumer compiled transformed
+retained line, uniform rounded-rectangle, and ellipse geometry resources
+through both native exports, then completed live Parallels D3D12
+rendering/readback (`draws=1`, 16,384 pixels). The independent C++ retained
+renderer again completed nine commands, five draws, 11,616 uploaded vertex
+bytes, and readback. The gate required the consumer's app-local native DLL
+hashes to match the freshly rebuilt modules after detecting and replacing an
+older incremental-build artifact.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
