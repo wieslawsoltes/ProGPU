@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -11,6 +12,61 @@ namespace Avalonia.ProGpu.UnitTests;
 
 public class NativeRendererInteropTests
 {
+    [Fact]
+    public void NativeMilBuildersWriteCanonicalTransformPackets()
+    {
+        var matrix = new NativeMilMatrix3x2(
+            1.25,
+            0.5,
+            -0.25,
+            2.0,
+            12.0,
+            -4.0);
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(5, NativeMilResourceType.MatrixTransform);
+        batch.SetMatrixTransform(5, matrix);
+        batch.SetVisualTransform(7, 5);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(96, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x07U, ReadUInt32(encoded, 4));
+        Assert.Equal(5U, ReadUInt32(encoded, 8));
+        Assert.Equal(66U, ReadUInt32(encoded, 12));
+
+        Assert.Equal(64U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x77U, ReadUInt32(encoded, 20));
+        Assert.Equal(5U, ReadUInt32(encoded, 24));
+        Assert.Equal(matrix.M11, ReadDouble(encoded, 28));
+        Assert.Equal(matrix.M12, ReadDouble(encoded, 36));
+        Assert.Equal(matrix.M21, ReadDouble(encoded, 44));
+        Assert.Equal(matrix.M22, ReadDouble(encoded, 52));
+        Assert.Equal(matrix.OffsetX, ReadDouble(encoded, 60));
+        Assert.Equal(matrix.OffsetY, ReadDouble(encoded, 68));
+        Assert.Equal(0U, ReadUInt32(encoded, 76));
+
+        Assert.Equal(16U, ReadUInt32(encoded, 80));
+        Assert.Equal(0x1cU, ReadUInt32(encoded, 84));
+        Assert.Equal(7U, ReadUInt32(encoded, 88));
+        Assert.Equal(5U, ReadUInt32(encoded, 92));
+
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.PushTransform(5);
+        byte[] nested = renderData.WrittenSpan.ToArray();
+        Assert.Equal(16, nested.Length);
+        Assert.Equal(16U, ReadUInt32(nested, 0));
+        Assert.Equal(0x51U, ReadUInt32(nested, 4));
+        Assert.Equal(5U, ReadUInt32(nested, 8));
+        Assert.Equal(0U, ReadUInt32(nested, 12));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetMatrixTransform(
+                5,
+                matrix with { M11 = double.NaN }));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderData.PushTransform(0));
+    }
+
     [Fact]
     public void ParallelsD3D12GlyphRasterizationUsesTypedComputeFallback()
     {
@@ -4584,6 +4640,12 @@ public class NativeRendererInteropTests
 
     private static int OffsetOf<T>(string fieldName) where T : struct =>
         checked((int)Marshal.OffsetOf<T>(fieldName));
+
+    private static uint ReadUInt32(byte[] bytes, int offset) =>
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(offset));
+
+    private static double ReadDouble(byte[] bytes, int offset) =>
+        BinaryPrimitives.ReadDoubleLittleEndian(bytes.AsSpan(offset));
 
     private static string FindRepoFile(params string[] pathParts)
     {

@@ -61,6 +61,15 @@ public sealed class NativeMilBatchBuilder
         WriteDouble(packet, 16, y);
     }
 
+    public void SetVisualTransform(uint handle, uint transformHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VisualSetTransform, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, transformHandle);
+    }
+
     public void SetVisualOpacity(uint handle, double opacity)
     {
         ValidateHandle(handle);
@@ -156,6 +165,24 @@ public sealed class NativeMilBatchBuilder
         WriteSingle(packet, 28, color.Alpha);
     }
 
+    public void SetMatrixTransform(
+        uint handle,
+        NativeMilMatrix3x2 matrix)
+    {
+        ValidateHandle(handle);
+        ValidateMatrix(matrix);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.MatrixTransform, 60);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, matrix.M11);
+        WriteDouble(packet, 16, matrix.M12);
+        WriteDouble(packet, 24, matrix.M21);
+        WriteDouble(packet, 32, matrix.M22);
+        WriteDouble(packet, 40, matrix.OffsetX);
+        WriteDouble(packet, 48, matrix.OffsetY);
+        WriteUInt32(packet, 56, 0);
+    }
+
     public void SetRenderData(uint handle, NativeMilRenderDataBuilder renderData)
     {
         ValidateHandle(handle);
@@ -189,6 +216,17 @@ public sealed class NativeMilBatchBuilder
             !float.IsFinite(color.Blue) || !float.IsFinite(color.Alpha))
         {
             throw new ArgumentOutOfRangeException(nameof(color));
+        }
+    }
+
+    internal static void ValidateMatrix(NativeMilMatrix3x2 matrix)
+    {
+        if (!double.IsFinite(matrix.M11) || !double.IsFinite(matrix.M12) ||
+            !double.IsFinite(matrix.M21) || !double.IsFinite(matrix.M22) ||
+            !double.IsFinite(matrix.OffsetX) ||
+            !double.IsFinite(matrix.OffsetY))
+        {
+            throw new ArgumentOutOfRangeException(nameof(matrix));
         }
     }
 
@@ -233,6 +271,14 @@ public sealed class NativeMilRenderDataBuilder
         Span<byte> packet = NativeMilBatchEncoding.Allocate(
             _writer, NativeMilCommand.PushOpacity, 12);
         NativeMilBatchBuilder.WriteDouble(packet, 4, opacity);
+    }
+
+    public void PushTransform(uint transformHandle)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(transformHandle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PushTransform, 12);
+        NativeMilBatchBuilder.WriteUInt32(packet, 4, transformHandle);
     }
 
     public void Pop()
@@ -346,6 +392,7 @@ internal static class NativeMilCommand
     internal const uint RenderData = 0x18;
     internal const uint VisualCreate = 0x1a;
     internal const uint VisualSetOffset = 0x1b;
+    internal const uint VisualSetTransform = 0x1c;
     internal const uint VisualSetAlpha = 0x20;
     internal const uint VisualSetContent = 0x22;
     internal const uint VisualInsertChildAt = 0x26;
@@ -356,6 +403,8 @@ internal static class NativeMilCommand
     internal const uint DrawRoundedRectangle = 0x42;
     internal const uint DrawEllipse = 0x44;
     internal const uint PushOpacity = 0x4f;
+    internal const uint PushTransform = 0x51;
     internal const uint Pop = 0x56;
+    internal const uint MatrixTransform = 0x77;
     internal const uint SolidColorBrush = 0x7e;
 }

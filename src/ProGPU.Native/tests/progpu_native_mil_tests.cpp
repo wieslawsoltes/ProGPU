@@ -458,6 +458,178 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     return true;
 }
 
+bool matrix_transform_scopes_compile_to_semantic_state() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t visual_transform = 5U;
+    constexpr std::uint32_t scope_transform = 6U;
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, visual_transform, 66U);
+    append_create(batch, scope_transform, 66U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_offset, visual, 10.0, 20.0);
+    append_command(
+        batch,
+        command::matrix_transform,
+        visual_transform,
+        2.0,
+        0.0,
+        0.0,
+        2.0,
+        1.0,
+        2.0,
+        0U);
+    append_command(
+        batch,
+        command::matrix_transform,
+        scope_transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        3.0,
+        4.0,
+        0U);
+    append_command(
+        batch,
+        command::visual_set_transform,
+        visual,
+        visual_transform);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{1.0F, 0.5F, 0.25F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::push_transform,
+        scope_transform,
+        0U);
+    append_command(nested, command::push_opacity, 0.5);
+    append_command(
+        nested,
+        command::draw_rectangle,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        brush,
+        0U);
+    append_command(nested, command::pop);
+    append_command(nested, command::pop);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7001U, 3U, stream) == status::success);
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    PROGPU_REQUIRE(header.command_count == 7U);
+    PROGPU_REQUIRE(header.resource_count == 5U);
+
+    bool found_visual_state = false;
+    bool found_transform_state = false;
+    bool found_opacity_state = false;
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind == PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            const auto scene_state = read_value<progpu_native_scene_state>(
+                stream,
+                record.payload_offset);
+            if (scene_state.transform.m11 == 2.0F &&
+                scene_state.transform.m22 == 2.0F &&
+                scene_state.transform.m31 == 11.0F &&
+                scene_state.transform.m32 == 22.0F &&
+                scene_state.opacity == 1.0F) {
+                found_visual_state = true;
+            }
+            if (scene_state.transform.m11 == 2.0F &&
+                scene_state.transform.m22 == 2.0F &&
+                scene_state.transform.m31 == 17.0F &&
+                scene_state.transform.m32 == 30.0F) {
+                if (scene_state.opacity == 1.0F) {
+                    found_transform_state = true;
+                } else if (scene_state.opacity == 0.5F) {
+                    found_opacity_state = true;
+                }
+            }
+        }
+    }
+    bool found_transformed_bounds = false;
+    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC) {
+            PROGPU_REQUIRE(record.bounds_x == 19.0F);
+            PROGPU_REQUIRE(record.bounds_y == 34.0F);
+            PROGPU_REQUIRE(record.bounds_width == 6.0F);
+            PROGPU_REQUIRE(record.bounds_height == 8.0F);
+            found_transformed_bounds = true;
+        }
+    }
+    PROGPU_REQUIRE(found_visual_state);
+    PROGPU_REQUIRE(found_transform_state);
+    PROGPU_REQUIRE(found_opacity_state);
+    PROGPU_REQUIRE(found_transformed_bounds);
+
+    const auto transform_generation =
+        state.resource_generation(scope_transform);
+    std::vector<std::byte> animated_update;
+    append_command(
+        animated_update,
+        command::matrix_transform,
+        scope_transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        99.0,
+        99.0,
+        1U);
+    PROGPU_REQUIRE(
+        state.apply(animated_update) == status::unsupported_command);
+    PROGPU_REQUIRE(
+        state.resource_generation(scope_transform) == transform_generation);
+
+    std::vector<std::byte> wrong_type;
+    append_command(
+        wrong_type,
+        command::visual_set_transform,
+        visual,
+        brush);
+    PROGPU_REQUIRE(state.apply(wrong_type) == status::invalid_handle);
+    return true;
+}
+
 bool render_data_scope_errors_fail_closed() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -516,6 +688,40 @@ bool render_data_scope_errors_fail_closed() {
     PROGPU_REQUIRE(
         state.build_scene(target, 1U, 3U, stream) ==
         status::unsupported_command);
+
+    std::vector<std::byte> missing_transform_batch;
+    std::vector<std::byte> missing_transform;
+    append_command(
+        missing_transform,
+        command::push_transform,
+        99U,
+        0U);
+    append_command(missing_transform, command::pop);
+    append_render_data(
+        missing_transform_batch,
+        content,
+        missing_transform);
+    PROGPU_REQUIRE(state.apply(missing_transform_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 1U, 4U, stream) ==
+        status::invalid_handle);
+
+    std::vector<std::byte> nonzero_padding_batch;
+    std::vector<std::byte> nonzero_padding;
+    append_command(
+        nonzero_padding,
+        command::push_transform,
+        1U,
+        1U);
+    append_command(nonzero_padding, command::pop);
+    append_render_data(
+        nonzero_padding_batch,
+        content,
+        nonzero_padding);
+    PROGPU_REQUIRE(state.apply(nonzero_padding_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 1U, 5U, stream) ==
+        status::malformed_batch);
     return true;
 }
 
@@ -583,6 +789,7 @@ int main() {
     PROGPU_REQUIRE(failed_batches_roll_back());
     PROGPU_REQUIRE(invalid_visual_graphs_fail_closed());
     PROGPU_REQUIRE(solid_rectangle_compiles_to_semantic_scene());
+    PROGPU_REQUIRE(matrix_transform_scopes_compile_to_semantic_state());
     PROGPU_REQUIRE(render_data_scope_errors_fail_closed());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());
     PROGPU_REQUIRE(c_abi_is_typed_and_size_versioned());

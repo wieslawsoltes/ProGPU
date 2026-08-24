@@ -96,10 +96,18 @@ both axes. Ellipse centers/radii are converted exactly to native analytic
 bounds, and every primitive kind is reported separately in typed scene metrics.
 Scope opacity is composed with retained visual opacity in native semantic
 state; malformed opacity and over/underflowed scope stacks fail closed.
-Animated/transform brushes, primitive pens, and other nested commands
-deliberately fail closed until their typed resources are implemented. The slice
-is covered by byte-level fixtures that check semantic brush, state, rectangle,
-ellipse and rounded-rectangle primitives, nested scope, scene identity,
+Typed `MILCMD_MATRIXTRANSFORM`, `MILCMD_VISUAL_SETTRANSFORM`, and nested
+`MILCMD_PUSH_TRANSFORM` are also implemented. Matrix values remain doubles in
+the retained channel, are range-checked before lowering to the semantic ABI,
+and compose in WPF row-vector order as local visual transform, visual offset,
+parent transform, and then nested drawing scopes. Draw culling bounds are the
+axis-aligned bounds of all four transformed primitive corners. Animation
+handles, missing/wrong-type transforms, nonzero packet padding, and unbalanced
+scopes fail closed transactionally. Animated brushes, primitive pens, and
+other nested commands deliberately fail closed until their typed resources are
+implemented. The slice is covered by byte-level fixtures that check semantic
+brush, transform/opacity state, rectangle, ellipse and rounded-rectangle
+primitives, transformed bounds, nested scope, rollback, scene identity,
 generation, and tree metrics. The C ABI supports an explicit required-size
 query, preserves the original 32-byte metrics caller contract when appending
 new metrics, and writes into caller-owned storage; the managed owner returns
@@ -113,9 +121,9 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
-- Implement scalar animation resources, transforms, geometry, brushes, pens,
-  drawings, images, glyph runs, caches, guidelines, effects, and complete
-  render-data decoding.
+- Implement scalar animation resources, remaining transform kinds, geometry,
+  brushes, pens, drawings, images, glyph runs, caches, guidelines, effects, and
+  complete render-data decoding.
 - Lower every supported update to stable semantic resource identities and
   generation numbers; unchanged resources must not be rebuilt.
 - Add fixture capture/replay comparison against WPF's `CMilDataStreamReader`
