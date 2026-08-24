@@ -1,8 +1,10 @@
 using System;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Platform;
 using Avalonia.SilkNet;
 using ProGPU.Backend;
+using Silk.NET.Maths;
 using Silk.NET.Windowing;
 using Xunit;
 
@@ -10,7 +12,72 @@ namespace ProGPU.Avalonia.SilkNet.ContractTests;
 
 public sealed class WindowChromeContractTests
 {
+#if AVALONIA11
+    [Theory]
+    [InlineData(ExtendClientAreaChromeHints.NoChrome, NativeWindowChromeHints.NoChrome)]
+    [InlineData(ExtendClientAreaChromeHints.SystemChrome, NativeWindowChromeHints.SystemChrome)]
+    [InlineData(ExtendClientAreaChromeHints.PreferSystemChrome, NativeWindowChromeHints.PreferSystemChrome)]
+    [InlineData(ExtendClientAreaChromeHints.OSXThickTitleBar, NativeWindowChromeHints.MacOsThickTitleBar)]
+    public void LegacyChromeHintsMapWithoutLoss(
+        ExtendClientAreaChromeHints source,
+        NativeWindowChromeHints expected)
+    {
+        Assert.Equal(
+            expected,
+            SilkNetWindowChrome.MapChromeHints(source));
+    }
+#endif
+
+    [Fact]
+    public void ProgrammaticResizeReasonIsPreservedForMatchingCallback()
+    {
+        var tracker = new SilkNetResizeReasonTracker();
+        var requested = new Vector2D<int>(1024, 768);
+
+        tracker.Begin(requested, WindowResizeReason.Application);
+
+        Assert.Equal(
+            WindowResizeReason.Application,
+            tracker.Resolve(requested));
+        Assert.Equal(
+            WindowResizeReason.User,
+            tracker.Resolve(requested));
+    }
+
+    [Fact]
+    public void MismatchedResizeCallbackCannotInheritStaleReason()
+    {
+        var tracker = new SilkNetResizeReasonTracker();
+        var requested = new Vector2D<int>(1024, 768);
+
+        tracker.Begin(requested, WindowResizeReason.DpiChange);
+
+        Assert.Equal(
+            WindowResizeReason.User,
+            tracker.Resolve(new Vector2D<int>(1000, 750)));
+        Assert.Equal(
+            WindowResizeReason.User,
+            tracker.Resolve(requested));
+    }
+
 #if !AVALONIA11
+    [Theory]
+    [InlineData(null, PlatformThemeVariant.Dark, NativeWindowTheme.Dark)]
+    [InlineData(null, PlatformThemeVariant.Light, NativeWindowTheme.Light)]
+    [InlineData(PlatformThemeVariant.Light, PlatformThemeVariant.Dark, NativeWindowTheme.Light)]
+    [InlineData(PlatformThemeVariant.Dark, PlatformThemeVariant.Light, NativeWindowTheme.Dark)]
+    public void FrameThemeUsesPlatformDefaultOnlyWhenUnspecified(
+        PlatformThemeVariant? requested,
+        PlatformThemeVariant platformDefault,
+        NativeWindowTheme expected)
+    {
+        Assert.Equal(
+            expected,
+            SilkNetWindowChrome.MapFrameTheme(
+                requested,
+                platformDefault));
+    }
+
     [Theory]
     [InlineData(
         NativeWindowKind.Win32,

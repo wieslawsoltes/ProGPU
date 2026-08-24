@@ -4,8 +4,10 @@ Audit date: 2026-08-24
 
 Supported Avalonia lanes:
 
-- Avalonia 12.1.1, the latest stable 12.x release at audit time.
-- Avalonia 11.3.20, the latest stable 11.x release at audit time.
+- [Avalonia 12.1.1](https://www.nuget.org/packages/Avalonia/12.1.1),
+  the latest stable 12.x release at audit time.
+- [Avalonia 11.3.20](https://www.nuget.org/packages/Avalonia/11.3.20),
+  the latest stable 11.x release at audit time.
 
 ## Incident and root cause
 
@@ -48,6 +50,23 @@ Avalonia 12 initializes `Dispatcher` and an `IRenderLoop`; Avalonia 11 binds
 two distinct contracts with compile-time conditionals. It does not use runtime
 reflection or assembly probing.
 
+## Required interface inventory
+
+| Surface | Version-specific contract | Silk.NET implementation |
+| --- | --- | --- |
+| `IWindowingPlatform` | V12 owns platform z-order; V11 requests it from each window | Native windows/popups, explicit unsupported embedding/tray results, stable topmost-aware z-order |
+| `ITopLevelImpl` | V12 uses typed render surfaces and nullable frame theme; V11 uses object surfaces and a non-null theme | Physical framebuffer surface, shared compositor, DPI transforms, paint/input/lifetime callbacks, resolved frame theme |
+| `IWindowBaseImpl` | Same required lifecycle, position, activation, sizing, and topmost surface | Lazy native creation, show/hide/activate, frame position, max-auto-size, constraints, enabled state, z-order |
+| `IWindowImpl` | V12 adds usable-state, requested-decoration, allowed-action, and reasoned resize members; V11 adds chrome hints and per-window z-order | State/action callbacks, reason-preserving resize, native/managed decoration policy, parent/taskbar/icon/chrome/state operations |
+| `IPopupImpl` | V11 additionally requires hit-test visibility | Managed popup positioning, focus, shadow hint, and GLFW mouse passthrough in V11 |
+| `IScreenImpl` | Same query/detail/change contract | Process monitor inventory, pre-show availability, stable handles, bounds/work area/scaling/primary/change notifications |
+| Dispatcher/render timer | V12 dispatcher initialization plus `IRenderLoop`; V11 locator-bound dispatcher and timer | One GLFW UI/native loop and one foreground render timer with bounded refresh-rate updates |
+| Keyboard/settings/clipboard | Both require platform conventions; V12 clipboard uses data-transfer ownership | Registered keyboard, settings, hotkeys, gesture formatting, and one ownership-correct clipboard facade |
+
+Compilation against both exact private API surfaces proves that no abstract
+member is omitted. The focused behavioral tests cover the members whose
+contract cannot be established by compilation alone.
+
 ## Window, display, input, and clipboard findings
 
 - `DesktopScaling` follows the native backend coordinate contract: it is 1 on
@@ -62,7 +81,18 @@ reflection or assembly probing.
   are read from the GLFW monitor API. Screen lookup uses exclusive right/bottom
   edges and maximum intersection, returning null when there is no match.
 - The GLFW monitor callback invalidates screen snapshots and updates the render
-  cadence. The previous process callback is chained.
+  cadence. It is attached when the windowing platform is created, after GLFW
+  initialization, so `MaxAutoSizeHint` and `Screens` work before the first
+  native window is shown. The previous process callback is chained.
+- GLFW resize callbacks do not include Avalonia's resize reason. A bounded,
+  allocation-free tracker correlates the expected native size with the next
+  callback, preserving application, layout, and DPI reasons without allowing
+  a later unrelated user resize to inherit stale state.
+- An unspecified Avalonia 12 frame theme now resolves through registered
+  platform settings, as Avalonia.Native and Win32 do. Native backend defaults
+  remain correct for direct controller users: Cocoa clears the explicit
+  appearance, Win32 reads the current app-theme preference, and X11 removes
+  `_GTK_THEME_VARIANT` instead of forcing a light frame.
 - Pointer exit is derived from GLFW's authoritative `Hovered` window attribute,
   preventing stale Avalonia pointer-over state. Disabled windows invoke
   `GotInputWhenDisabled` rather than silently discarding the notification.
@@ -70,6 +100,12 @@ reflection or assembly probing.
   GLFW 3.4 `GLFW_MOUSE_PASSTHROUGH`. The constant is used explicitly because
   Silk.NET 2.23 ships GLFW 3.4 while its generated setter enum predates that
   entry.
+- Avalonia 11's legacy extended-client-area chrome hints are preserved in the
+  shared native-window state. `NoChrome`, explicit system chrome, managed
+  fallback chrome, and macOS's thick toolbar title bar have distinct behavior;
+  the default remains managed fallback on Win32/X11 and native chrome on
+  Cocoa. Avalonia 12 expresses the same decision through requested drawn
+  decoration parts instead of this legacy setter.
 - Z-order is stable across the supplied Avalonia windows and reserves a tier
   for topmost windows. Unknown implementations receive the lowest value.
 - Clipboard ownership is preserved when the same transfer is assigned twice,
@@ -84,6 +120,10 @@ The GLFW behavior was checked against its public
 [window](https://www.glfw.org/docs/3.4/window_guide.html),
 [monitor](https://www.glfw.org/docs/3.4/monitor_guide.html), and
 [input](https://www.glfw.org/docs/3.4/input_guide.html) contracts.
+The V11 macOS thick-title-bar implementation uses AppKit's documented
+[`NSWindow.toolbar`](https://developer.apple.com/documentation/appkit/nswindow/toolbar)
+and [`NSToolbar`](https://developer.apple.com/documentation/appkit/nstoolbar)
+contracts.
 
 ## Optional capabilities
 
@@ -121,6 +161,22 @@ stream remains authoritative; ProGPU adds only its retained identity/revision
 contract. Upstream ControlCatalog's new typed lazy page factories replace the
 older ProGPU deferred-page host. The 12.1.1 patched Avalonia package build
 completed with zero warnings and zero errors.
+
+## Validation evidence
+
+- The shared Silk.NET contract suite passes in Debug and Release against both
+  exact lanes: 85 tests on Avalonia 12.1.1 and 72 tests on Avalonia 11.3.20.
+- Both windowing projects build in Release, and the focused backend windowing
+  presenter suite passes 17 tests.
+- Package validation produced both
+  `ProGPU.Avalonia.SilkNet.12.1.1-preview.56.nupkg` and
+  `ProGPU.Avalonia.SilkNet.11.3.20-preview.56.nupkg`; their nuspec dependencies
+  pin Avalonia exactly to 12.1.1 and 11.3.20 respectively.
+- The runtime-reflection audit passes for both `Avalonia.SilkNet.dll`
+  variants.
+- A package-backed Release smoke run on macOS rendered the Charting sample
+  through `ProGPU/Silk.NET + embedded ProGPU`, presented non-transparent output
+  through the same-device WebGPU texture path at 2x DPI, and exited normally.
 
 ## Managed/native applicability
 

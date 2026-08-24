@@ -66,7 +66,9 @@ internal sealed unsafe class X11NativeWindowPlatform : GlfwNativeWindowPlatform
         }
 
         nuint decorations = 0;
-        if (!state.ExtendClientArea)
+        if (!state.ExtendClientArea ||
+            SilkWindowController.UsesSystemChrome(
+                state.ChromeHints))
         {
             decorations = state.Decorations switch
             {
@@ -130,6 +132,13 @@ internal sealed unsafe class X11NativeWindowPlatform : GlfwNativeWindowPlatform
     public override bool SetTheme(NativeWindowTheme theme)
     {
         var atom = XInternAtom(_display, "_GTK_THEME_VARIANT", false);
+        if (theme == NativeWindowTheme.Default)
+        {
+            XDeleteProperty(_display, _window, atom);
+            XFlush(_display);
+            return true;
+        }
+
         var utf8 = XInternAtom(_display, "UTF8_STRING", false);
         var value = theme == NativeWindowTheme.Dark ? "dark" : "light";
         var bytes = System.Text.Encoding.UTF8.GetBytes(value);

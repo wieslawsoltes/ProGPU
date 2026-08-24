@@ -25,6 +25,7 @@ internal sealed class SilkNetWindowingPlatform : IWindowingPlatform
         _clipboard = clipboard;
         _compositor = compositor;
         _monitors.Changed += OnMonitorsChanged;
+        _monitors.Attach();
     }
 
     public IWindowImpl CreateWindow() =>

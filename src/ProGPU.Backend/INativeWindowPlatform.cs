@@ -12,6 +12,7 @@ internal interface INativeWindowPlatform : IDisposable
     double DefaultTitleBarHeight { get; }
     bool SupportsManagedMove { get; }
     bool SupportsManagedResize { get; }
+    bool SupportsSystemChromeExtension { get; }
 
     bool ApplyChrome(in NativeWindowState state);
     bool SetTopMost(bool value);
