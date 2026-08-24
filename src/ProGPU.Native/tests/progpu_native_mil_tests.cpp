@@ -1762,6 +1762,233 @@ bool retained_path_geometry_compiles_to_semantic_scene() {
     return true;
 }
 
+bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t pen = 5U;
+    constexpr std::uint32_t dash = 6U;
+    constexpr std::uint32_t transform = 7U;
+    constexpr std::uint32_t geometry = 8U;
+    constexpr std::uint32_t line_size = 32U;
+    constexpr std::uint32_t figure_size = 40U + 3U * line_size;
+    constexpr std::uint32_t figures_size = 48U + 2U * figure_size;
+
+    std::vector<std::byte> figures;
+    append_value(figures, figures_size);
+    append_value(figures, 0x02U);
+    append_value(figures, 0.0);
+    append_value(figures, 0.0);
+    append_value(figures, 32.0);
+    append_value(figures, 10.0);
+    append_value(figures, 2U);
+    append_value(figures, 0U);
+
+    const auto append_figure = [&figures, figure_size](
+        std::uint32_t back_size,
+        std::uint32_t flags,
+        double start_x,
+        double start_y,
+        const std::array<std::array<double, 2U>, 3U>& endpoints,
+        const std::array<std::uint32_t, 3U>& segment_flags) {
+        append_value(figures, back_size);
+        append_value(figures, flags);
+        append_value(figures, 3U);
+        append_value(figures, figure_size);
+        append_value(figures, start_x);
+        append_value(figures, start_y);
+        append_value(figures, 40U + 2U * line_size);
+        append_value(figures, 0U);
+        std::uint32_t previous_size = 0U;
+        for (std::size_t index = 0U; index < endpoints.size(); ++index) {
+            append_value(figures, 1U);
+            append_value(figures, segment_flags[index]);
+            append_value(figures, previous_size);
+            append_value(figures, 0U);
+            append_value(figures, endpoints[index][0]);
+            append_value(figures, endpoints[index][1]);
+            previous_size = line_size;
+        }
+    };
+    append_figure(
+        0U,
+        0x04U,
+        0.0,
+        0.0,
+        {{{10.0, 0.0}, {10.0, 10.0}, {0.0, 10.0}}},
+        {0U, 0U, 0U});
+    append_figure(
+        figure_size,
+        0x05U,
+        20.0,
+        0.0,
+        {{{24.0, 0.0}, {28.0, 0.0}, {32.0, 0.0}}},
+        {0x04U, 0U, 0U});
+    PROGPU_REQUIRE(figures.size() == figures_size);
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, pen, 85U);
+    append_create(batch, dash, 84U);
+    append_create(batch, transform, 66U);
+    append_create(batch, geometry, 73U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.2F, 0.4F, 0.8F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    const std::array dash_intervals{3.0, 1.0};
+    append_dash_style(batch, dash, 0.75, 0U, dash_intervals);
+    append_command(
+        batch,
+        command::pen,
+        pen,
+        2.0,
+        4.0,
+        brush,
+        0U,
+        1U,
+        2U,
+        3U,
+        1U,
+        dash);
+    append_command(
+        batch,
+        command::matrix_transform,
+        transform,
+        1.5,
+        0.0,
+        0.0,
+        1.5,
+        2.0,
+        3.0,
+        0U);
+    append_path_geometry(batch, geometry, transform, 0U, figures);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_geometry,
+        0U,
+        pen,
+        geometry,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 1U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.brush_count == 1U);
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t stroke_batch_count = 0U;
+    std::uint32_t closed_count = 0U;
+    std::uint32_t open_count = 0U;
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
+            continue;
+        }
+        const auto stroke = read_value<progpu_native_scene_stroke>(
+            stream,
+            record.payload_offset);
+        PROGPU_REQUIRE(stroke.kind == PROGPU_NATIVE_SCENE_STROKE_POLYLINE);
+        PROGPU_REQUIRE(stroke.stroke_thickness == 2.0F);
+        PROGPU_REQUIRE(stroke.miter_limit == 4.0F);
+        PROGPU_REQUIRE(stroke.dash_cap == 3U);
+        PROGPU_REQUIRE(stroke.line_join == 1U);
+        PROGPU_REQUIRE(stroke.dash_interval_count == 2U);
+        PROGPU_REQUIRE(stroke.dash_offset == 0.75);
+        PROGPU_REQUIRE(stroke.transform.m11 == 1.5F);
+        PROGPU_REQUIRE(stroke.transform.m22 == 1.5F);
+        PROGPU_REQUIRE(stroke.transform.m31 == 2.0F);
+        PROGPU_REQUIRE(stroke.transform.m32 == 3.0F);
+        if ((stroke.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U) {
+            PROGPU_REQUIRE(stroke.point_count == 4U);
+            PROGPU_REQUIRE(stroke.start_cap == 1U);
+            PROGPU_REQUIRE(stroke.end_cap == 2U);
+            ++closed_count;
+        } else {
+            PROGPU_REQUIRE(stroke.point_count == 4U);
+            PROGPU_REQUIRE(stroke.start_cap == 3U);
+            PROGPU_REQUIRE(stroke.end_cap == 3U);
+            ++open_count;
+        }
+        ++stroke_batch_count;
+    }
+    PROGPU_REQUIRE(stroke_batch_count == 2U);
+    PROGPU_REQUIRE(closed_count == 1U);
+    PROGPU_REQUIRE(open_count == 1U);
+
+    auto seam_dashed_figures = figures;
+    const std::uint32_t stroked = 0U;
+    const std::uint32_t gap = 0x04U;
+    std::memcpy(
+        seam_dashed_figures.data() + 228U,
+        &stroked,
+        sizeof(stroked));
+    std::memcpy(
+        seam_dashed_figures.data() + 260U,
+        &gap,
+        sizeof(gap));
+    std::vector<std::byte> seam_dashed_update;
+    append_path_geometry(
+        seam_dashed_update,
+        geometry,
+        transform,
+        0U,
+        seam_dashed_figures);
+    PROGPU_REQUIRE(state.apply(seam_dashed_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 2U, stream, &metrics) ==
+        status::unsupported_command);
+
+    auto smooth_figures = figures;
+    const std::uint32_t smooth_join = 0x08U;
+    std::memcpy(
+        smooth_figures.data() + 92U,
+        &smooth_join,
+        sizeof(smooth_join));
+    std::vector<std::byte> smooth_update;
+    append_path_geometry(
+        smooth_update,
+        geometry,
+        transform,
+        0U,
+        smooth_figures);
+    PROGPU_REQUIRE(state.apply(smooth_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 3U, stream, &metrics) ==
+        status::unsupported_command);
+    return true;
+}
+
 bool retained_geometry_group_compiles_to_one_semantic_path() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -2175,6 +2402,8 @@ int main() {
     PROGPU_REQUIRE(matrix_transform_scopes_compile_to_semantic_state());
     PROGPU_REQUIRE(solid_pen_line_compiles_to_geometry_scene());
     PROGPU_REQUIRE(retained_path_geometry_compiles_to_semantic_scene());
+    PROGPU_REQUIRE(
+        retained_line_path_stroke_preserves_closure_gaps_and_pen_state());
     PROGPU_REQUIRE(retained_geometry_group_compiles_to_one_semantic_path());
     PROGPU_REQUIRE(render_data_scope_errors_fail_closed());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());

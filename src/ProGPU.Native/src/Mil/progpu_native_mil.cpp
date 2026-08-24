@@ -343,14 +343,24 @@ struct channel::implementation {
         std::uint32_t transform_handle{};
     };
 
+    struct path_stroke_contour_state {
+        std::vector<progpu_native_point> points;
+        bool closed{};
+        bool start_uses_dash_cap{};
+        bool end_uses_dash_cap{};
+        bool crosses_closed_figure_start{};
+    };
+
     struct path_geometry_state {
         std::vector<progpu_native_path_segment> segments;
+        std::vector<path_stroke_contour_state> stroke_contours;
         double left{};
         double top{};
         double right{};
         double bottom{};
         std::uint32_t transform_handle{};
         std::uint32_t fill_rule{};
+        bool stroke_supported{true};
     };
 
     struct geometry_group_state {
@@ -1182,6 +1192,11 @@ struct channel::implementation {
                     static_cast<float>(y)};
                 return true;
             };
+            struct parsed_stroke_edge {
+                progpu_native_point start{};
+                progpu_native_point end{};
+                bool stroked{};
+            };
             std::size_t offset = 48U;
             std::uint32_t previous_figure_size = 0U;
             for (std::uint32_t figure_index = 0U;
@@ -1216,6 +1231,7 @@ struct channel::implementation {
                 std::uint32_t actual_last_segment_offset = 0U;
                 progpu_native_point current = start;
                 std::vector<progpu_native_path_segment> figure_segments;
+                std::vector<parsed_stroke_edge> stroke_edges;
                 for (std::uint32_t segment_index = 0U;
                     segment_index < segment_count;
                     ++segment_index) {
@@ -1232,6 +1248,10 @@ struct channel::implementation {
                         (segment_flags & ~0x3FU) != 0U) {
                         return status::malformed_batch;
                     }
+                    const bool segment_is_stroked =
+                        (segment_flags & 0x04U) == 0U;
+                    const bool segment_is_smooth_join =
+                        (segment_flags & 0x08U) != 0U;
                     std::uint32_t point_count = 0U;
                     std::size_t segment_size = 0U;
                     std::size_t points_offset = 0U;
@@ -1300,6 +1320,16 @@ struct channel::implementation {
                             !finite_double_as_float(rotation) ||
                             radius_x < 0.0 || radius_y < 0.0) {
                             return status::malformed_batch;
+                        }
+                        stroke_edges.push_back({
+                            current,
+                            end,
+                            segment_is_stroked});
+                        if (segment_is_stroked) {
+                            geometry.stroke_supported = false;
+                        }
+                        if (segment_is_stroked && segment_is_smooth_join) {
+                            geometry.stroke_supported = false;
                         }
                         const progpu::native::geometry::arc_point arc_start{
                             current.x,
@@ -1461,6 +1491,15 @@ struct channel::implementation {
                             include_bounds_point(segment.p2);
                             include_bounds_point(segment.p3);
                         }
+                        stroke_edges.push_back({
+                            segment.p0,
+                            current,
+                            segment_is_stroked});
+                        if (segment_is_stroked &&
+                            (native_kind != PROGPU_NATIVE_PATH_SEGMENT_LINE ||
+                             segment_is_smooth_join)) {
+                            geometry.stroke_supported = false;
+                        }
                         figure_segments.push_back(segment);
                     }
                     offset += segment_size;
@@ -1484,6 +1523,113 @@ struct channel::implementation {
                         closing.p1 = start;
                         closing.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
                         geometry.segments.push_back(closing);
+                    }
+                }
+                const bool figure_is_closed = (figure_flags & 0x04U) != 0U;
+                if (figure_is_closed &&
+                    (current.x != start.x || current.y != start.y)) {
+                    stroke_edges.push_back({current, start, true});
+                }
+                if (!stroke_edges.empty() && geometry.stroke_supported) {
+                    const auto append_open_run = [
+                        &geometry,
+                        &stroke_edges](
+                        std::size_t first,
+                        std::size_t count,
+                        bool start_uses_dash_cap,
+                        bool end_uses_dash_cap,
+                        bool crosses_closed_figure_start = false) {
+                        path_stroke_contour_state contour{};
+                        contour.start_uses_dash_cap = start_uses_dash_cap;
+                        contour.end_uses_dash_cap = end_uses_dash_cap;
+                        contour.crosses_closed_figure_start =
+                            crosses_closed_figure_start;
+                        contour.points.reserve(count + 1U);
+                        contour.points.push_back(
+                            stroke_edges[first % stroke_edges.size()].start);
+                        for (std::size_t index = 0U; index < count; ++index) {
+                            contour.points.push_back(
+                                stroke_edges[
+                                    (first + index) % stroke_edges.size()].end);
+                        }
+                        geometry.stroke_contours.push_back(
+                            std::move(contour));
+                    };
+                    const bool all_edges_stroked = std::ranges::all_of(
+                        stroke_edges,
+                        [](const parsed_stroke_edge& edge) {
+                            return edge.stroked;
+                        });
+                    if (figure_is_closed && all_edges_stroked) {
+                        path_stroke_contour_state contour{};
+                        contour.closed = true;
+                        contour.points.reserve(stroke_edges.size());
+                        contour.points.push_back(stroke_edges.front().start);
+                        for (std::size_t index = 0U;
+                             index + 1U < stroke_edges.size();
+                             ++index) {
+                            contour.points.push_back(stroke_edges[index].end);
+                        }
+                        geometry.stroke_contours.push_back(
+                            std::move(contour));
+                    } else if (figure_is_closed) {
+                        const auto gap = std::ranges::find_if(
+                            stroke_edges,
+                            [](const parsed_stroke_edge& edge) {
+                                return !edge.stroked;
+                            });
+                        const std::size_t first_after_gap =
+                            (static_cast<std::size_t>(
+                                std::distance(stroke_edges.begin(), gap)) +
+                             1U) % stroke_edges.size();
+                        std::size_t consumed = 0U;
+                        while (consumed < stroke_edges.size()) {
+                            while (consumed < stroke_edges.size() &&
+                                !stroke_edges[
+                                    (first_after_gap + consumed) %
+                                    stroke_edges.size()].stroked) {
+                                ++consumed;
+                            }
+                            const std::size_t first = consumed;
+                            while (consumed < stroke_edges.size() &&
+                                stroke_edges[
+                                    (first_after_gap + consumed) %
+                                    stroke_edges.size()].stroked) {
+                                ++consumed;
+                            }
+                            if (consumed != first) {
+                                append_open_run(
+                                    first_after_gap + first,
+                                    consumed - first,
+                                    true,
+                                    true,
+                                    first_after_gap + first <
+                                            stroke_edges.size() &&
+                                        first_after_gap + consumed >
+                                            stroke_edges.size());
+                            }
+                        }
+                    } else {
+                        std::size_t index = 0U;
+                        while (index < stroke_edges.size()) {
+                            while (index < stroke_edges.size() &&
+                                !stroke_edges[index].stroked) {
+                                ++index;
+                            }
+                            const std::size_t first = index;
+                            while (index < stroke_edges.size() &&
+                                stroke_edges[index].stroked) {
+                                ++index;
+                            }
+                            if (index != first) {
+                                append_open_run(
+                                    first,
+                                    index - first,
+                                    first != 0U,
+                                    index != stroke_edges.size(),
+                                    false);
+                            }
+                        }
                     }
                 }
                 previous_figure_size = figure_size;
@@ -1697,7 +1843,9 @@ struct channel::implementation {
             bool closed,
             std::uint32_t brush_index,
             progpu_native_image_rect bounds,
-            const progpu_native_affine_2d& local_transform) noexcept {
+            const progpu_native_affine_2d& local_transform,
+            std::uint32_t start_cap,
+            std::uint32_t end_cap) noexcept {
             std::span<const double> intervals;
             double dash_offset = 0.0;
             if (pen.dash_style_handle != 0U) {
@@ -1722,8 +1870,8 @@ struct channel::implementation {
             stroke.miter_limit =
                 static_cast<float>(std::max(1.0, pen.miter_limit));
             stroke.dash_offset = dash_offset;
-            stroke.start_cap = pen.start_line_cap;
-            stroke.end_cap = pen.end_line_cap;
+            stroke.start_cap = start_cap;
+            stroke.end_cap = end_cap;
             stroke.line_join = pen.line_join;
             stroke.dash_cap = pen.dash_cap;
             const std::array brushes{brush_index};
@@ -1846,12 +1994,129 @@ struct channel::implementation {
                     false,
                     brush_index,
                     transformed_bounds,
-                    native_local_transform);
+                    native_local_transform,
+                    pen->second.start_line_cap,
+                    pen->second.end_line_cap);
                 if (stroke_status != status::success) {
                     return stroke_status;
                 }
             }
             ++metrics.line_count;
+            return status::success;
+        };
+        const auto append_path_strokes = [
+            this,
+            &resolve_brush_index,
+            &append_polyline_stroke](
+            const path_geometry_state& geometry,
+            const pen_state& pen,
+            const affine_2d_double& local_transform,
+            const affine_2d_double& effective_transform) noexcept {
+            if (pen.brush_handle == 0U || pen.thickness == 0.0) {
+                return status::success;
+            }
+            if (!geometry.stroke_supported) {
+                return status::unsupported_command;
+            }
+            if (geometry.stroke_contours.empty()) {
+                return status::success;
+            }
+            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            const status brush_status = resolve_brush_index(
+                pen.brush_handle,
+                brush_index);
+            if (brush_status != status::success) {
+                return brush_status;
+            }
+            progpu_native_affine_2d native_local_transform{};
+            if (!try_to_native_affine(
+                    local_transform,
+                    native_local_transform)) {
+                return status::invalid_graph;
+            }
+            const double half_thickness = pen.thickness * 0.5;
+            const double expansion = half_thickness *
+                std::max(1.0, pen.miter_limit);
+            if (!finite_double_as_float(expansion)) {
+                return status::invalid_graph;
+            }
+            for (const auto& contour : geometry.stroke_contours) {
+                if (contour.crosses_closed_figure_start &&
+                    pen.dash_style_handle != 0U) {
+                    const auto dash = dash_styles.find(
+                        pen.dash_style_handle);
+                    if (dash == dash_styles.end()) {
+                        return status::invalid_handle;
+                    }
+                    if (!dash->second.intervals.empty()) {
+                        return status::unsupported_command;
+                    }
+                }
+                if (contour.points.size() < 2U) {
+                    if (pen.start_line_cap != 0U ||
+                        pen.end_line_cap != 0U) {
+                        return status::unsupported_command;
+                    }
+                    continue;
+                }
+                bool has_length = false;
+                double left = contour.points.front().x;
+                double top = contour.points.front().y;
+                double right = left;
+                double bottom = top;
+                for (std::size_t index = 0U;
+                     index < contour.points.size();
+                     ++index) {
+                    const auto point = contour.points[index];
+                    left = std::min(left, double{point.x});
+                    top = std::min(top, double{point.y});
+                    right = std::max(right, double{point.x});
+                    bottom = std::max(bottom, double{point.y});
+                    if (index != 0U &&
+                        (point.x != contour.points[index - 1U].x ||
+                         point.y != contour.points[index - 1U].y)) {
+                        has_length = true;
+                    }
+                }
+                if (contour.closed &&
+                    (contour.points.front().x != contour.points.back().x ||
+                     contour.points.front().y != contour.points.back().y)) {
+                    has_length = true;
+                }
+                if (!has_length) {
+                    if (pen.start_line_cap != 0U ||
+                        pen.end_line_cap != 0U) {
+                        return status::unsupported_command;
+                    }
+                    continue;
+                }
+                progpu_native_image_rect stroke_bounds{};
+                if (!try_transform_bounds(
+                        left - expansion,
+                        top - expansion,
+                        right - left + expansion * 2.0,
+                        bottom - top + expansion * 2.0,
+                        effective_transform,
+                        stroke_bounds)) {
+                    return status::invalid_graph;
+                }
+                const status stroke_status = append_polyline_stroke(
+                    pen,
+                    contour.points,
+                    contour.closed,
+                    brush_index,
+                    stroke_bounds,
+                    native_local_transform,
+                    contour.start_uses_dash_cap
+                        ? pen.dash_cap
+                        : pen.start_line_cap,
+                    contour.end_uses_dash_cap
+                        ? pen.dash_cap
+                        : pen.end_line_cap);
+                if (stroke_status != status::success) {
+                    return stroke_status;
+                }
+            }
             return status::success;
         };
         for (;;) {
@@ -2296,70 +2561,73 @@ struct channel::implementation {
                     continue;
                 }
                 if (path_geometry != path_geometries.end()) {
+                    if (brush_handle != 0U &&
+                        !path_geometry->second.segments.empty()) {
+                        std::uint32_t brush_index =
+                            PROGPU_NATIVE_SCENE_NO_INDEX;
+                        const status brush_status = resolve_brush_index(
+                            brush_handle,
+                            brush_index);
+                        if (brush_status != status::success) {
+                            return brush_status;
+                        }
+                        progpu_native_image_rect path_bounds{};
+                        if (!try_transform_bounds(
+                                path_geometry->second.left,
+                                path_geometry->second.top,
+                                path_geometry->second.right -
+                                    path_geometry->second.left,
+                                path_geometry->second.bottom -
+                                    path_geometry->second.top,
+                                effective_transform,
+                                path_bounds)) {
+                            return status::invalid_graph;
+                        }
+                        progpu_native_affine_2d native_local_transform{};
+                        if (!try_to_native_affine(
+                                local_transform,
+                                native_local_transform)) {
+                            return status::invalid_graph;
+                        }
+                        const std::array paths{
+                            progpu_native_scene_path_fill{
+                                0U,
+                                path_geometry->second.segments.size(),
+                                0U,
+                                0U,
+                                static_cast<float>(path_geometry->second.left),
+                                static_cast<float>(path_geometry->second.top),
+                                static_cast<float>(path_geometry->second.right),
+                                static_cast<float>(path_geometry->second.bottom),
+                                {1.0F, 1.0F, 1.0F, 1.0F},
+                                native_local_transform,
+                                static_cast<std::uint32_t>(
+                                    path_geometry->second.fill_rule == 0U
+                                        ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                                        : PROGPU_NATIVE_FILL_RULE_NON_ZERO),
+                                8U}};
+                        const std::array brushes{brush_index};
+                        if (!builder.draw_paths(
+                                paths,
+                                path_geometry->second.segments,
+                                brushes,
+                                path_bounds)) {
+                            return status::invalid_graph;
+                        }
+                    }
                     if (pen_handle != 0U) {
                         const auto pen = pens.find(pen_handle);
                         if (pen == pens.end()) {
                             return status::invalid_handle;
                         }
-                        if (pen->second.brush_handle != 0U &&
-                            pen->second.thickness > 0.0) {
-                            return status::unsupported_command;
-                        }
-                    }
-                    if (brush_handle == 0U ||
-                        path_geometry->second.segments.empty()) {
-                        continue;
-                    }
-                    std::uint32_t brush_index =
-                        PROGPU_NATIVE_SCENE_NO_INDEX;
-                    const status brush_status = resolve_brush_index(
-                        brush_handle,
-                        brush_index);
-                    if (brush_status != status::success) {
-                        return brush_status;
-                    }
-                    progpu_native_image_rect path_bounds{};
-                    if (!try_transform_bounds(
-                            path_geometry->second.left,
-                            path_geometry->second.top,
-                            path_geometry->second.right -
-                                path_geometry->second.left,
-                            path_geometry->second.bottom -
-                                path_geometry->second.top,
-                            effective_transform,
-                            path_bounds)) {
-                        return status::invalid_graph;
-                    }
-                    progpu_native_affine_2d native_local_transform{};
-                    if (!try_to_native_affine(
+                        const status stroke_status = append_path_strokes(
+                            path_geometry->second,
+                            pen->second,
                             local_transform,
-                            native_local_transform)) {
-                        return status::invalid_graph;
-                    }
-                    const std::array paths{
-                        progpu_native_scene_path_fill{
-                            0U,
-                            path_geometry->second.segments.size(),
-                            0U,
-                            0U,
-                            static_cast<float>(path_geometry->second.left),
-                            static_cast<float>(path_geometry->second.top),
-                            static_cast<float>(path_geometry->second.right),
-                            static_cast<float>(path_geometry->second.bottom),
-                            {1.0F, 1.0F, 1.0F, 1.0F},
-                            native_local_transform,
-                            static_cast<std::uint32_t>(
-                                path_geometry->second.fill_rule == 0U
-                                    ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
-                                    : PROGPU_NATIVE_FILL_RULE_NON_ZERO),
-                            8U}};
-                    const std::array brushes{brush_index};
-                    if (!builder.draw_paths(
-                            paths,
-                            path_geometry->second.segments,
-                            brushes,
-                            path_bounds)) {
-                        return status::invalid_graph;
+                            effective_transform);
+                        if (stroke_status != status::success) {
+                            return stroke_status;
+                        }
                     }
                     continue;
                 }
@@ -2606,7 +2874,9 @@ struct channel::implementation {
                             true,
                             pen_brush_index,
                             stroke_bounds,
-                            native_local_transform);
+                            native_local_transform,
+                            pen->second.start_line_cap,
+                            pen->second.end_line_cap);
                         if (stroke_status != status::success) {
                             return stroke_status;
                         }
