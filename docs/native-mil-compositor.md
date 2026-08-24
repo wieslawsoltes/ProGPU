@@ -390,6 +390,32 @@ bytes, and readback. The gate required the consumer's app-local native DLL
 hashes to match the freshly rebuilt modules after detecting and replacing an
 older incremental-build artifact.
 
+The retained general-path and endpoint-arc checkpoint was qualified at exact
+native implementation commit `51550b6e` from a clean Windows checkout with
+the complete ARM64 MSVC gate. Strict `/W4 /WX` first exposed an implicit
+fill-rule enum conversion in the semantic path resource; the implementation
+now keeps the C ABI field type explicit. Both native modules linked, all 11
+CTest contracts passed, and the live C++ and managed samples completed D3D12
+rendering/readback on the Parallels adapter. The managed sample lowered 16
+source commands to 13 native commands and six draws, uploading 27,464 vertex
+bytes plus 55,552 coverage bytes. The eight-frame native managed-picture
+stress measured `0.1235 ms/frame`; the bounded differential had maximum delta
+2/255, zero pixels above 3/255, and mean absolute delta `0.0000622`. Retained
+path-atlas qualification rasterized 49 paths with 4,112 path-upload bytes and
+727,552 coverage-staging bytes, remaining inside its independent-edge budget
+(maximum delta 46/255, 1,048 pixels over tolerance, mean `0.0171`). Exact
+Overlay and ColorDodge cases, image/mask/effect chains, vector/text contracts,
+and final `win-arm64` package staging also passed.
+
+Package-consumer commit `a11ad9fd` then exercised that exact staged native
+implementation rather than a source-only fixture. Its app-local SHA-256 hashes
+matched the newly staged `progpu_native.dll` and `progpu_native_dawn.dll`; the
+consumer built with zero warnings, compiled a transformed retained path with a
+quadratic segment and rotated WPF endpoint arc through both MIL exports,
+installed the wgpu-native semantic stream, rendered it live on D3D12, and read
+back 16,384 pixels. The installed scene reported 15 semantic resources and two
+draw calls before the independent renderer smoke completed.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
