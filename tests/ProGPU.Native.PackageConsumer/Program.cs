@@ -3,6 +3,7 @@ using ProGPU.Backend;
 using ProGPU.Backend.Native;
 using Silk.NET.WebGPU;
 
+Console.WriteLine("package-consumer: native ABI");
 NativeRendererInfo info = NativeCompositor.GetInfo();
 if (info.AbiVersion != 3 ||
     !info.Capabilities.HasFlag(NativeRendererCapabilities.ExternalImageMask) ||
@@ -30,6 +31,7 @@ using (var mil = new NativeMilChannel())
             "The packaged wgpu-native MIL channel is incomplete.");
     }
 }
+Console.WriteLine("package-consumer: wgpu-native MIL");
 using (var dawnMil = new NativeMilChannel(NativeMilBackend.Dawn))
 {
     NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
@@ -45,6 +47,7 @@ using (var dawnMil = new NativeMilChannel(NativeMilBackend.Dawn))
             "The packaged Dawn MIL channel is incomplete.");
     }
 }
+Console.WriteLine("package-consumer: Dawn MIL");
 
 NativeRendererInfo dawnInfo = NativeDawnAdapter.GetInfo();
 if (dawnInfo.AbiVersion != 3 ||
@@ -56,9 +59,11 @@ if (dawnInfo.AbiVersion != 3 ||
     throw new InvalidOperationException(
         "The packaged provider-resolved Dawn adapter is incomplete.");
 }
+Console.WriteLine("package-consumer: Dawn ABI");
 
 using var context = new WgpuContext();
 context.Initialize(window: null);
+Console.WriteLine("package-consumer: WebGPU context");
 using var target = new GpuTexture(
     context,
     64,
@@ -73,6 +78,7 @@ NativeFrameMetrics metrics = compositor.Render(
     1f,
     [new NativeSolidRectangle(8, 8, 48, 48, new Vector4(1f, 0.25f, 0.1f, 1f))],
     new Vector4(0f, 0f, 0f, 1f));
+Console.WriteLine("package-consumer: native render");
 NativeSubmissionToken submission = compositor.GetLastSubmissionToken();
 if (!submission.IsValid)
 {
