@@ -858,7 +858,7 @@ public unsafe class WgpuContext : IDisposable
         _window = window;
         Wgpu = CreateNativeWebGpuApi();
         Api = new SilkWebGpuApi(Wgpu, RenderLock);
-        
+
         // 1. Create WebGPU Instance (isolated per context)
         SafeLog("[WGPUCONTEXT] Creating WebGPU Instance\n");
         var instanceExtras = CreateNativeInstanceExtras();
@@ -921,59 +921,37 @@ public unsafe class WgpuContext : IDisposable
 
         // 3. Request Adapter (synchronously)
         SafeLog("[WGPUCONTEXT] Requesting Adapter\n");
-        if (Surface == null &&
-            OperatingSystem.IsWindows() &&
-            RuntimeInformation.ProcessArchitecture == Architecture.Arm64)
+        using var adapterSignal = new ManualResetEventSlim(false);
+        var adapterState = new AdapterRequestState(adapterSignal);
+        var adapterStateHandle = GCHandle.Alloc(adapterState);
+
+        var requestAdapterOptions = new RequestAdapterOptions
         {
-            Adapter = EnumerateWindowsArm64D3D12Adapter(Wgpu, Instance);
-            SafeLog(
-                $"[WGPUCONTEXT] EnumerateAdapters finished, " +
-                $"adapter={(nint)Adapter:X}\n");
+            CompatibleSurface = Surface,
+            PowerPreference = PowerPreference.HighPerformance
+        };
+
+        try
+        {
+            var onAdapterReceived = new PfnRequestAdapterCallback(&OnAdapterRequested);
+            Wgpu.InstanceRequestAdapter(
+                Instance,
+                &requestAdapterOptions,
+                onAdapterReceived,
+                (void*)GCHandle.ToIntPtr(adapterStateHandle));
+            adapterSignal.Wait();
         }
-        else
+        finally
         {
-            using var adapterSignal = new ManualResetEventSlim(false);
-            var adapterState = new AdapterRequestState(adapterSignal);
-            var adapterStateHandle = GCHandle.Alloc(adapterState);
-
-            var requestAdapterOptions = new RequestAdapterOptions
-            {
-                CompatibleSurface = Surface,
-                PowerPreference = PowerPreference.HighPerformance
-            };
-
-            try
-            {
-                var onAdapterReceived = new PfnRequestAdapterCallback(
-                    &OnAdapterRequested);
-                Wgpu.InstanceRequestAdapter(
-                    Instance,
-                    &requestAdapterOptions,
-                    onAdapterReceived,
-                    (void*)GCHandle.ToIntPtr(adapterStateHandle));
-                adapterSignal.Wait();
-            }
-            finally
-            {
-                adapterStateHandle.Free();
-            }
-
-            SafeLog(
-                $"[WGPUCONTEXT] RequestAdapter finished, " +
-                $"adapter={adapterState.Result:X}\n");
-            if (adapterState.Result == 0)
-            {
-                throw new InvalidOperationException(
-                    $"Failed to obtain WebGPU Adapter. {adapterState.Error}");
-            }
-            Adapter = (WgpuAdapter*)adapterState.Result;
+            adapterStateHandle.Free();
         }
 
-        if (Adapter == null)
+        SafeLog($"[WGPUCONTEXT] RequestAdapter finished, adapter={adapterState.Result:X}\n");
+        if (adapterState.Result == 0)
         {
-            throw new InvalidOperationException(
-                "Failed to enumerate the Windows ARM64 D3D12 adapter.");
+            throw new InvalidOperationException($"Failed to obtain WebGPU Adapter. {adapterState.Error}");
         }
+        Adapter = (WgpuAdapter*)adapterState.Result;
 
         var adapterProperties = new AdapterProperties();
         Wgpu.AdapterGetProperties(Adapter, &adapterProperties);
@@ -1072,7 +1050,7 @@ public unsafe class WgpuContext : IDisposable
 
         // 5. Retrieve Default Queue
         SafeLog("[WGPUCONTEXT] Getting Default Queue\n");
-        Queue = GetDefaultQueue(Wgpu, Device);
+        Queue = Wgpu.DeviceGetQueue(Device);
         _deviceResourceDomain = new WgpuDeviceResourceDomain(Api, Device);
         _sharedDeviceLifetime = new SharedDeviceLifetime(
             Wgpu,
@@ -1211,11 +1189,13 @@ public unsafe class WgpuContext : IDisposable
 
     private static NativeInstanceExtras CreateNativeInstanceExtras()
     {
-        uint backends = OperatingSystem.IsAndroid()
-            ? NativeInstanceExtras.VulkanBackend
-            : OperatingSystem.IsIOS()
-                ? NativeInstanceExtras.MetalBackend
-                : 0u;
+        uint backends = OperatingSystem.IsWindows()
+            ? NativeInstanceExtras.D3D12Backend
+            : OperatingSystem.IsAndroid()
+                ? NativeInstanceExtras.VulkanBackend
+                : OperatingSystem.IsIOS()
+                    ? NativeInstanceExtras.MetalBackend
+                    : 0u;
         return backends == 0u
             ? default
             : new NativeInstanceExtras
@@ -1234,6 +1214,7 @@ public unsafe class WgpuContext : IDisposable
         public const uint STypeValue = 0x00030006;
         public const uint VulkanBackend = 1u << 0;
         public const uint MetalBackend = 1u << 2;
+        public const uint D3D12Backend = 1u << 3;
 
         public ChainedStruct Chain;
         public uint Backends;
@@ -1270,80 +1251,6 @@ public unsafe class WgpuContext : IDisposable
 
         return WebGPU.GetApi();
     }
-
-    private static Queue* GetDefaultQueue(WebGPU wgpu, Device* device)
-    {
-        // Silk.NET's dynamic DeviceGetQueue thunk currently faults in ntdll on
-        // Windows ARM64 after a successful device request. Calling the same
-        // stable WebGPU C export directly avoids the thunk; all other platforms
-        // retain Silk's native-context resolution, including static mobile ABIs.
-        return OperatingSystem.IsWindows() &&
-            RuntimeInformation.ProcessArchitecture == Architecture.Arm64
-            ? WindowsArm64DeviceGetQueue(device)
-            : wgpu.DeviceGetQueue(device);
-    }
-
-    private static WgpuAdapter* EnumerateWindowsArm64D3D12Adapter(
-        WebGPU wgpu,
-        Instance* instance)
-    {
-        var options = new NativeInstanceEnumerateAdapterOptions
-        {
-            Backends = NativeInstanceEnumerateAdapterOptions.D3D12Backend
-        };
-        nuint count = WindowsArm64InstanceEnumerateAdapters(
-            instance,
-            &options,
-            null);
-        if (count == 0 || count > 32)
-        {
-            return null;
-        }
-
-        WgpuAdapter** adapters = stackalloc WgpuAdapter*[(int)count];
-        nuint written = WindowsArm64InstanceEnumerateAdapters(
-            instance,
-            &options,
-            adapters);
-        if (written == 0 || written > count || adapters[0] == null)
-        {
-            return null;
-        }
-
-        WgpuAdapter* selected = adapters[0];
-        for (nuint index = 1; index < written; index++)
-        {
-            if (adapters[index] != null)
-            {
-                wgpu.AdapterRelease(adapters[index]);
-            }
-        }
-        return selected;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativeInstanceEnumerateAdapterOptions
-    {
-        public const uint D3D12Backend = 1u << 3;
-
-        public ChainedStruct* NextInChain;
-        public uint Backends;
-    }
-
-    [DllImport(
-        "wgpu_native",
-        EntryPoint = "wgpuInstanceEnumerateAdapters",
-        CallingConvention = CallingConvention.Cdecl)]
-    private static extern nuint WindowsArm64InstanceEnumerateAdapters(
-        Instance* instance,
-        NativeInstanceEnumerateAdapterOptions* options,
-        WgpuAdapter** adapters);
-
-    [DllImport(
-        "wgpu_native",
-        EntryPoint = "wgpuDeviceGetQueue",
-        CallingConvention = CallingConvention.Cdecl)]
-    private static extern Queue* WindowsArm64DeviceGetQueue(Device* device);
 
     private static readonly object s_androidWebGpuLibraryLock = new();
     private static nint s_androidWebGpuLibrary;
