@@ -1,6 +1,7 @@
 #include "progpu_native_mil.h"
 #include "progpu_native_mil.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstring>
 #include <memory>
@@ -171,10 +172,14 @@ progpu_native_mil_status progpu_native_mil_channel_build_scene(
     size_t destination_size,
     size_t* bytes_written,
     progpu_native_mil_scene_metrics* metrics) {
+    constexpr std::size_t metrics_v1_size =
+        offsetof(progpu_native_mil_scene_metrics, stream_bytes) +
+        sizeof(std::uint64_t);
+    const std::size_t caller_metrics_size =
+        metrics == nullptr ? 0U : metrics->struct_size;
     if (channel == nullptr || bytes_written == nullptr ||
         (destination == nullptr && destination_size != 0U) ||
-        (metrics != nullptr &&
-         metrics->struct_size < sizeof(progpu_native_mil_scene_metrics))) {
+        (metrics != nullptr && caller_metrics_size < metrics_v1_size)) {
         return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
     }
     *bytes_written = 0U;
@@ -187,7 +192,10 @@ progpu_native_mil_status progpu_native_mil_channel_build_scene(
         stream,
         metrics == nullptr ? nullptr : &native_metrics);
     if (metrics != nullptr) {
-        *metrics = {};
+        std::memset(
+            metrics,
+            0,
+            std::min(caller_metrics_size, sizeof(*metrics)));
         metrics->struct_size = sizeof(*metrics);
         metrics->visual_count = native_metrics.visual_count;
         metrics->rectangle_count = native_metrics.rectangle_count;
@@ -196,6 +204,13 @@ progpu_native_mil_status progpu_native_mil_channel_build_scene(
             native_metrics.maximum_visual_depth;
         metrics->ellipse_count = native_metrics.ellipse_count;
         metrics->stream_bytes = native_metrics.stream_bytes;
+        if (caller_metrics_size >=
+            offsetof(
+                progpu_native_mil_scene_metrics,
+                rounded_rectangle_count) + sizeof(std::uint32_t)) {
+            metrics->rounded_rectangle_count =
+                native_metrics.rounded_rectangle_count;
+        }
     }
     if (result != progpu::native::mil::status::success) {
         return to_abi(result);

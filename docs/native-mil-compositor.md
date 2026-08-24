@@ -90,17 +90,21 @@ decodes the exact WPF `MILCMD_SOLIDCOLORBRUSH`, nested
 retained visual offsets and opacity, supports balanced nested
 `MILCMD_PUSH_OPACITY`/`MILCMD_POP` scopes, walks the target's visual tree with
 cycle/depth validation, and emits the shared pointer-free ProGPU semantic scene
-stream. Ellipse centers/radii are converted exactly to the native analytic
-ellipse bounds and reported separately in typed scene metrics. Scope opacity
-is composed with retained visual opacity in native semantic state; malformed
-opacity and over/underflowed scope stacks fail closed. Animated/transform
-brushes, primitive pens, and other nested commands deliberately fail closed
-until their typed resources are implemented. The slice is covered by byte-
-level fixtures that check semantic brush, state, rectangle/ellipse primitives,
-nested scope, scene identity, generation, and tree metrics. The C ABI supports
-an explicit required-size query and writes into caller-owned storage; the
-managed owner returns the completed semantic stream with typed compilation
-metrics for direct native compositor submission.
+stream. Uniform-radius `MILCMD_DRAW_ROUNDED_RECTANGLE` is also lowered exactly;
+non-uniform X/Y radii fail closed until the native analytic primitive carries
+both axes. Ellipse centers/radii are converted exactly to native analytic
+bounds, and every primitive kind is reported separately in typed scene metrics.
+Scope opacity is composed with retained visual opacity in native semantic
+state; malformed opacity and over/underflowed scope stacks fail closed.
+Animated/transform brushes, primitive pens, and other nested commands
+deliberately fail closed until their typed resources are implemented. The slice
+is covered by byte-level fixtures that check semantic brush, state, rectangle,
+ellipse and rounded-rectangle primitives, nested scope, scene identity,
+generation, and tree metrics. The C ABI supports an explicit required-size
+query, preserves the original 32-byte metrics caller contract when appending
+new metrics, and writes into caller-owned storage; the managed owner returns
+the completed semantic stream with typed compilation metrics for direct native
+compositor submission.
 `NativeMilBatchBuilder` and `NativeMilRenderDataBuilder` provide the matching
 managed producer for this supported subset. They write the canonical WPF
 framing and packed field offsets directly into reusable buffer writers, expose

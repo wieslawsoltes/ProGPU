@@ -63,6 +63,8 @@ typedef struct progpu_native_mil_scene_metrics {
     uint32_t maximum_visual_depth;
     uint32_t ellipse_count;
     uint64_t stream_bytes;
+    uint32_t rounded_rectangle_count;
+    uint32_t reserved;
 } progpu_native_mil_scene_metrics;
 
 PROGPU_NATIVE_API progpu_native_mil_status progpu_native_mil_channel_create(
