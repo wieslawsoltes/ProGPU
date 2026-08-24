@@ -437,6 +437,25 @@ installed the wgpu-native semantic stream, rendered it live on D3D12, and read
 back 16,384 pixels. The installed scene reported 15 semantic resources and two
 draw calls before the independent renderer smoke completed.
 
+The geometry-group/combined-geometry checkpoint at exact ProGPU commit
+`41af1e66` passed the complete Windows ARM64 MSVC gate from a clean checkout.
+Both native modules rebuilt under strict warnings and all 11 fresh CTests
+passed, including MIL geometry-DAG, boolean-program, null-operand, cycle,
+deletion, and transactional rollback cases plus the Dawn ABI contract. The
+independent C++ and managed samples completed live D3D12 rendering/readback;
+the managed sample again produced 13 native commands, six draws, 27,464 vertex
+bytes, and 55,552 coverage bytes with successful allocation probes. The
+bounded differential remained at maximum delta 2/255 with zero pixels above
+3/255 and mean `0.0000622`; vector, image, mask/effect, text, Overlay, and
+ColorDodge contracts also passed, and the package runtime was restaged.
+
+The updated zero-warning package consumer then verified exact SHA-256 matches
+for both freshly staged DLLs, compiled two retained paths plus an EvenOdd
+`GeometryGroup` and an Exclude `CombinedGeometry` through both MIL exports,
+installed the wgpu-native semantic stream, and completed live D3D12 readback.
+The installed graph reported 17 semantic resources and two draw calls before
+the independent immediate renderer smoke completed its 16,384-pixel readback.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
