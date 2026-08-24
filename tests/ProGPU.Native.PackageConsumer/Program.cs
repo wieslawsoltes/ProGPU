@@ -3,6 +3,14 @@ using ProGPU.Backend;
 using ProGPU.Backend.Native;
 using Silk.NET.WebGPU;
 
+if (args.Contains("--webgpu-init-only", StringComparer.Ordinal))
+{
+    using var probeContext = new WgpuContext();
+    probeContext.Initialize(window: null);
+    Console.WriteLine("ProGPU.Backend WebGPU initialization smoke passed.");
+    return;
+}
+
 Console.WriteLine("package-consumer: native ABI");
 NativeRendererInfo info = NativeCompositor.GetInfo();
 if (info.AbiVersion != 3 ||
