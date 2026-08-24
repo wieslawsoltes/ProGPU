@@ -293,6 +293,14 @@ wgpu-native and Dawn MIL channels before completing renderer readback (`draws=1`
 thickness-relative intervals/offset, dash-cap semantic-stroke lowering,
 transactional validation, both exported ABIs, and managed package production.
 
+The rectangle-pen checkpoint at ProGPU commit `89f0a838` passed the same
+focused Windows ARM64 integration lane. MSVC rebuilt both native modules and
+the MIL test executable, the MIL/Dawn contracts passed 2/2, and the updated
+project-reference package consumer built with zero warnings. Its live D3D12
+run compiled a dashed line plus a dashed fill-and-stroke rectangle through both
+native MIL exports before completing readback (`draws=1`, 16,384 pixels). The
+Windows checkout was clean at the exact qualified commit.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
