@@ -692,8 +692,12 @@ internal partial class DrawingContextImpl :
     public object? GetFeature(Type featureType)
     {
         ArgumentNullException.ThrowIfNull(featureType);
-        if (featureType == typeof(IProGpuApiLeaseFeature))
+        if (featureType == typeof(IProGpuApiLeaseFeature) ||
+            featureType ==
+                typeof(Avalonia.Skia.ISkiaSharpApiLeaseFeature))
+        {
             return new LeaseFeature(this);
+        }
 #if PROGPU_AVALONIA_SOURCE_COMPOSITOR
         if (featureType == typeof(ICompositionRenderDataDrawingContextFeature))
             return this;
@@ -967,7 +971,9 @@ internal partial class DrawingContextImpl :
 #endif
     }
 
-    private sealed class LeaseFeature : IProGpuApiLeaseFeature
+    private sealed class LeaseFeature :
+        IProGpuApiLeaseFeature,
+        Avalonia.Skia.ISkiaSharpApiLeaseFeature
     {
         private readonly DrawingContextImpl _owner;
 
@@ -977,6 +983,10 @@ internal partial class DrawingContextImpl :
         }
 
         public IProGpuApiLease Lease() => new Lease(_owner);
+
+        Avalonia.Skia.ISkiaSharpApiLease
+            Avalonia.Skia.ISkiaSharpApiLeaseFeature.Lease() =>
+                new ProGpuSkiaSharpApiLease(new Lease(_owner));
     }
 
     private sealed class Lease : IProGpuApiLease

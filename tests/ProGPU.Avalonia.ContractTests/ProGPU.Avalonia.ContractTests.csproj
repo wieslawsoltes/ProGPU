@@ -33,6 +33,7 @@
     <Compile Include="ProGpuExternalObjectsFeatureTests.cs" />
     <Compile Include="ProGpuTextShaperContractTests.cs" />
     <Compile Include="RenderTargetBitmapContractTests.cs" />
+    <Compile Include="SkiaSharpApiLeaseContractTests.cs" />
   </ItemGroup>
 
   <ItemGroup>

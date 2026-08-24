@@ -92,6 +92,39 @@ framebuffer surface.
 
 ## Use the ProGPU API lease
 
+### Keep existing Avalonia SkiaSharp custom draw operations
+
+`ProGPU.Avalonia.Rendering` exposes Avalonia's
+`ISkiaSharpApiLeaseFeature` source contract through the ProGPU SkiaSharp
+shim. Existing custom draw operation source can keep its backend probe and
+drawing code:
+
+```csharp
+using Avalonia.Skia;
+
+public void Render(ImmediateDrawingContext context)
+{
+    var feature = context.TryGetFeature<ISkiaSharpApiLeaseFeature>();
+    if (feature is null)
+        return;
+
+    using var lease = feature.Lease();
+    SKCanvas canvas = lease.SkCanvas;
+    RenderCore(canvas);
+}
+```
+
+The canvas already uses the active ProGPU recorder, WebGPU device, physical
+target size, Avalonia transform, clip, and opacity stack. Do not apply the
+Avalonia transform or current opacity again. `SkSurface` and
+`TryLeasePlatformGraphicsApi()` return `null` because the ProGPU recorder is
+not backed by an Avalonia Skia surface or platform graphics context.
+
+This compatibility is for source rebuilt against the ProGPU package set.
+Do not add the official `Avalonia.Skia` package: a precompiled library tied to
+the official `Avalonia.Skia` and native `SkiaSharp` assembly identities must
+be recompiled for ProGPU.
+
 Custom controls can submit ProGPU scene commands from an Avalonia custom draw operation. Acquire `IProGpuApiLeaseFeature` only inside `ICustomDrawOperation.Render`, dispose the lease before returning, and pass `CurrentTransform` to transform-aware ProGPU methods.
 
 ```csharp
