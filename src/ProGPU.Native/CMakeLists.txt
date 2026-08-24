@@ -836,6 +836,10 @@ target_compile_features(progpu_native_scene_builder PUBLIC cxx_std_20)
 target_include_directories(progpu_native_scene_builder
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
     PRIVATE ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})
+set_target_properties(progpu_native_scene_builder PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES)
 if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
     target_sources(progpu_native_scene_builder
         PUBLIC
