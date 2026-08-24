@@ -38,6 +38,7 @@ progpu_native_status create_engine(
     WGPUDevice device,
     WGPUQueue queue,
     WGPUTextureFormat target_format,
+    std::uint64_t engine_flags,
     const progpu::native::webgpu::dispatch& webgpu_dispatch,
     progpu_native_engine** engine) {
     try {
@@ -48,6 +49,7 @@ progpu_native_status create_engine(
         result->device = device;
         result->queue = queue;
         result->target_format = target_format;
+        result->engine_flags = engine_flags;
         const progpu::native::webgpu::dispatch_scope dispatch_scope(
             &result->webgpu_dispatch);
         if (result->instance != nullptr) {
@@ -130,6 +132,7 @@ progpu_native_status create_child_engine(
         parent.device,
         parent.queue,
         target_format,
+        parent.engine_flags,
         parent.webgpu_dispatch,
         child);
 }
@@ -250,6 +253,9 @@ progpu_native_status progpu_native_engine_create(
         options->backend_abi !=
             PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05 ||
         options->device == 0U || options->queue == 0U ||
+        (options->flags &
+            ~static_cast<std::uint64_t>(
+                PROGPU_NATIVE_ENGINE_SERIALIZE_GLYPH_RASTERIZATION)) != 0U ||
         texture_format(options->target_format) == WGPUTextureFormat_Undefined) {
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     }
@@ -259,6 +265,7 @@ progpu_native_status progpu_native_engine_create(
         reinterpret_cast<WGPUDevice>(options->device),
         reinterpret_cast<WGPUQueue>(options->queue),
         texture_format(options->target_format),
+        options->flags,
         webgpu_dispatch,
         engine);
 #endif
@@ -322,6 +329,7 @@ progpu_native_status progpu_native_dawn_engine_create(
         reinterpret_cast<WGPUDevice>(options->device),
         reinterpret_cast<WGPUQueue>(options->queue),
         texture_format(options->target_format),
+        options->flags,
         webgpu_dispatch,
         engine);
 }
@@ -376,6 +384,7 @@ progpu_native_status progpu_native_browser_engine_create(
         reinterpret_cast<WGPUDevice>(options->device),
         reinterpret_cast<WGPUQueue>(options->queue),
         texture_format(options->target_format),
+        options->flags,
         webgpu_dispatch,
         engine);
 }
