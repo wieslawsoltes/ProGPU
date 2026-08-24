@@ -28,6 +28,7 @@ constexpr std::uint32_t type_matrix_transform = 66U;
 constexpr std::uint32_t type_line_geometry = 68U;
 constexpr std::uint32_t type_rectangle_geometry = 69U;
 constexpr std::uint32_t type_ellipse_geometry = 70U;
+constexpr std::uint32_t type_geometry_group = 71U;
 constexpr std::uint32_t type_path_geometry = 73U;
 constexpr std::uint32_t type_solid_color_brush = 75U;
 constexpr std::uint32_t type_dash_style = 84U;
@@ -351,6 +352,12 @@ struct channel::implementation {
         std::uint32_t fill_rule{};
     };
 
+    struct geometry_group_state {
+        std::vector<std::uint32_t> children;
+        std::uint32_t transform_handle{};
+        std::uint32_t fill_rule{};
+    };
+
     struct resource_state {
         std::uint32_t type{};
         std::uint64_t generation{1U};
@@ -363,6 +370,7 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, matrix_transform_state>
         matrix_transforms;
     std::unordered_map<std::uint32_t, fixed_geometry_state> fixed_geometries;
+    std::unordered_map<std::uint32_t, geometry_group_state> geometry_groups;
     std::unordered_map<std::uint32_t, path_geometry_state> path_geometries;
     std::unordered_map<std::uint32_t, solid_brush_state> solid_brushes;
     std::unordered_map<std::uint32_t, dash_style_state> dash_styles;
@@ -386,6 +394,41 @@ struct channel::implementation {
         const auto found = resources.find(handle);
         return found != resources.end() && is_target_type(found->second.type) &&
             targets.contains(handle);
+    }
+
+    bool require_geometry(std::uint32_t handle) const noexcept {
+        const auto found = resources.find(handle);
+        return found != resources.end() &&
+            (found->second.type == type_line_geometry ||
+             found->second.type == type_rectangle_geometry ||
+             found->second.type == type_ellipse_geometry ||
+             found->second.type == type_geometry_group ||
+             found->second.type == type_path_geometry);
+    }
+
+    bool geometry_group_reaches(
+        std::uint32_t start,
+        std::uint32_t destination) const {
+        std::vector<std::uint32_t> pending{start};
+        std::unordered_set<std::uint32_t> visited;
+        while (!pending.empty()) {
+            const auto current = pending.back();
+            pending.pop_back();
+            if (current == destination) {
+                return true;
+            }
+            if (!visited.insert(current).second) {
+                continue;
+            }
+            const auto found = geometry_groups.find(current);
+            if (found != geometry_groups.end()) {
+                pending.insert(
+                    pending.end(),
+                    found->second.children.begin(),
+                    found->second.children.end());
+            }
+        }
+        return false;
     }
 
     bool visual_reaches(
@@ -495,10 +538,20 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
             }
+            for (const auto& [geometry_handle, geometry] : geometry_groups) {
+                if (geometry_handle != handle &&
+                    (geometry.transform_handle == handle ||
+                     std::ranges::find(
+                         geometry.children,
+                         handle) != geometry.children.end())) {
+                    return status::invalid_graph;
+                }
+            }
             visuals.erase(handle);
             targets.erase(handle);
             matrix_transforms.erase(handle);
             fixed_geometries.erase(handle);
+            geometry_groups.erase(handle);
             path_geometries.erase(handle);
             solid_brushes.erase(handle);
             dash_styles.erase(handle);
@@ -918,6 +971,55 @@ struct channel::implementation {
                 return status::malformed_batch;
             }
             fixed_geometries.insert_or_assign(handle, geometry);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::geometry_group: {
+            geometry_group_state geometry{};
+            std::uint32_t children_size = 0U;
+            if (view.packet.size() < 20U ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, geometry.transform_handle) ||
+                !read_at(view.packet, 12U, geometry.fill_rule) ||
+                !read_at(view.packet, 16U, children_size) ||
+                children_size % sizeof(std::uint32_t) != 0U ||
+                view.packet.size() != 20U + children_size) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_geometry_group) ||
+                (geometry.transform_handle != 0U &&
+                 !require_resource(
+                     geometry.transform_handle,
+                     type_matrix_transform))) {
+                return status::invalid_handle;
+            }
+            if (geometry.fill_rule > 1U ||
+                children_size / sizeof(std::uint32_t) >
+                    maximum_path_record_count) {
+                return status::malformed_batch;
+            }
+            const std::size_t child_count =
+                children_size / sizeof(std::uint32_t);
+            geometry.children.reserve(child_count);
+            for (std::size_t index = 0U; index < child_count; ++index) {
+                std::uint32_t child = 0U;
+                if (!read_at(
+                        view.packet,
+                        20U + index * sizeof(std::uint32_t),
+                        child)) {
+                    return status::malformed_batch;
+                }
+                if (child == 0U || !require_geometry(child)) {
+                    return status::invalid_handle;
+                }
+                if (child == handle ||
+                    geometry_group_reaches(child, handle)) {
+                    return status::invalid_graph;
+                }
+                geometry.children.push_back(child);
+            }
+            geometry_groups.insert_or_assign(handle, std::move(geometry));
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -1831,16 +1933,21 @@ struct channel::implementation {
                     return status::invalid_handle;
                 }
                 const auto geometry = fixed_geometries.find(geometry_handle);
+                const auto geometry_group = geometry_groups.find(
+                    geometry_handle);
                 const auto path_geometry = path_geometries.find(
                     geometry_handle);
                 if (geometry == fixed_geometries.end() &&
+                    geometry_group == geometry_groups.end() &&
                     path_geometry == path_geometries.end()) {
                     return status::invalid_handle;
                 }
                 const std::uint32_t geometry_transform_handle =
                     geometry != fixed_geometries.end()
                         ? geometry->second.transform_handle
-                        : path_geometry->second.transform_handle;
+                        : geometry_group != geometry_groups.end()
+                            ? geometry_group->second.transform_handle
+                            : path_geometry->second.transform_handle;
                 if (geometry_transform_handle != 0U) {
                     const auto transform = matrix_transforms.find(
                         geometry_transform_handle);
@@ -1852,6 +1959,112 @@ struct channel::implementation {
                 effective_transform = compose_affine(
                     local_transform,
                     current.transform);
+                if (geometry_group != geometry_groups.end()) {
+                    if (pen_handle != 0U) {
+                        const auto pen = pens.find(pen_handle);
+                        if (pen == pens.end()) {
+                            return status::invalid_handle;
+                        }
+                        if (pen->second.brush_handle != 0U &&
+                            pen->second.thickness > 0.0) {
+                            return status::unsupported_command;
+                        }
+                    }
+                    if (brush_handle == 0U ||
+                        geometry_group->second.children.empty()) {
+                        continue;
+                    }
+                    std::vector<progpu_native_path_segment> group_segments;
+                    bool has_group_bounds = false;
+                    double group_left = 0.0;
+                    double group_top = 0.0;
+                    double group_right = 0.0;
+                    double group_bottom = 0.0;
+                    for (const std::uint32_t child_handle :
+                         geometry_group->second.children) {
+                        const auto child = path_geometries.find(child_handle);
+                        if (child == path_geometries.end() ||
+                            child->second.transform_handle != 0U) {
+                            return status::unsupported_command;
+                        }
+                        if (child->second.segments.empty()) {
+                            continue;
+                        }
+                        group_segments.insert(
+                            group_segments.end(),
+                            child->second.segments.begin(),
+                            child->second.segments.end());
+                        if (!has_group_bounds) {
+                            group_left = child->second.left;
+                            group_top = child->second.top;
+                            group_right = child->second.right;
+                            group_bottom = child->second.bottom;
+                            has_group_bounds = true;
+                        } else {
+                            group_left = std::min(
+                                group_left, child->second.left);
+                            group_top = std::min(
+                                group_top, child->second.top);
+                            group_right = std::max(
+                                group_right, child->second.right);
+                            group_bottom = std::max(
+                                group_bottom, child->second.bottom);
+                        }
+                    }
+                    if (group_segments.empty() || !has_group_bounds) {
+                        continue;
+                    }
+                    std::uint32_t brush_index =
+                        PROGPU_NATIVE_SCENE_NO_INDEX;
+                    const status brush_status = resolve_brush_index(
+                        brush_handle,
+                        brush_index);
+                    if (brush_status != status::success) {
+                        return brush_status;
+                    }
+                    progpu_native_image_rect path_bounds{};
+                    if (!try_transform_bounds(
+                            group_left,
+                            group_top,
+                            group_right - group_left,
+                            group_bottom - group_top,
+                            effective_transform,
+                            path_bounds)) {
+                        return status::invalid_graph;
+                    }
+                    progpu_native_affine_2d native_local_transform{};
+                    if (!try_to_native_affine(
+                            local_transform,
+                            native_local_transform)) {
+                        return status::invalid_graph;
+                    }
+                    const std::array paths{
+                        progpu_native_scene_path_fill{
+                            0U,
+                            group_segments.size(),
+                            0U,
+                            0U,
+                            static_cast<float>(group_left),
+                            static_cast<float>(group_top),
+                            static_cast<float>(group_right),
+                            static_cast<float>(group_bottom),
+                            {1.0F, 1.0F, 1.0F, 1.0F},
+                            native_local_transform,
+                            static_cast<std::uint32_t>(
+                                geometry_group->second.fill_rule == 0U
+                                    ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                                    : PROGPU_NATIVE_FILL_RULE_NON_ZERO),
+                            8U}};
+                    const std::array brushes{brush_index};
+                    if (!builder.draw_paths(
+                            paths,
+                            group_segments,
+                            brushes,
+                            path_bounds)) {
+                        return status::invalid_graph;
+                    }
+                    continue;
+                }
                 if (path_geometry != path_geometries.end()) {
                     if (pen_handle != 0U) {
                         const auto pen = pens.find(pen_handle);

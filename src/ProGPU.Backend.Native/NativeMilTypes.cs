@@ -18,6 +18,7 @@ public enum NativeMilResourceType : uint
     LineGeometry = 68,
     RectangleGeometry = 69,
     EllipseGeometry = 70,
+    GeometryGroup = 71,
     PathGeometry = 73,
     SolidColorBrush = 75,
     DashStyle = 84,

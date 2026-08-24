@@ -184,6 +184,16 @@ Endpoint arcs reuse the neutral native arc resolver shared with SVG glyph
 paths, retain center/radii/sweep data in ProGPU's semantic arc record, and
 preserve the degenerate-to-line rule. Meaningful path pens remain fail-closed.
 
+The first retained `MILCMD_GEOMETRYGROUP` slice validates the canonical
+variable child-handle payload, group fill rule, optional matrix transform,
+typed geometry dependencies, and cycles transactionally. At execution, groups
+whose children are identity-local retained `PathGeometry` resources aggregate
+their contours into one semantic path batch, so the group's EvenOdd/Nonzero
+rule is applied across child overlap exactly as WPF's `CShape` aggregation
+does. The group transform remains one native path transform. Fixed-geometry,
+transformed-child, nested-group, and meaningful-pen execution currently fail
+closed until their contours or strokes can be composed without approximation.
+
 `NativeMilBatchBuilder` and `NativeMilRenderDataBuilder` provide the matching
 managed producer for this supported subset. They write the canonical WPF
 framing and packed field offsets directly into reusable buffer writers, expose
@@ -192,9 +202,9 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
-- Implement scalar animation resources, remaining transform kinds, geometry,
-  beyond retained path resources, path strokes, geometry groups/combined
-  geometry, curved-path dashes, remaining pen draws,
+- Implement scalar animation resources, remaining transform kinds, geometry
+  group child widening, path strokes, combined geometry, curved-path dashes,
+  remaining pen draws,
   brushes, drawings, images, glyph runs, caches, guidelines, effects, and
   complete render-data decoding.
 - Lower every supported update to stable semantic resource identities and
