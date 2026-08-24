@@ -1905,9 +1905,10 @@ struct channel::implementation {
                             static_cast<float>(path_geometry->second.bottom),
                             {1.0F, 1.0F, 1.0F, 1.0F},
                             native_local_transform,
-                            path_geometry->second.fill_rule == 0U
-                                ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
-                                : PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+                            static_cast<std::uint32_t>(
+                                path_geometry->second.fill_rule == 0U
+                                    ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                                    : PROGPU_NATIVE_FILL_RULE_NON_ZERO),
                             8U}};
                     const std::array brushes{brush_index};
                     if (!builder.draw_paths(
