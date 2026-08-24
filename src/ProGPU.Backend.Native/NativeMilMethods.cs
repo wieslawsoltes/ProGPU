@@ -54,7 +54,7 @@ internal static unsafe partial class NativeMilMethods
         internal uint EllipseCount;
         internal ulong StreamBytes;
         internal uint RoundedRectangleCount;
-        internal uint Reserved;
+        internal uint LineCount;
     }
 
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_create")]

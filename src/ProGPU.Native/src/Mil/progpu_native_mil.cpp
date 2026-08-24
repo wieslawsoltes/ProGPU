@@ -23,6 +23,7 @@ constexpr std::uint32_t type_hwnd_render_target = 46U;
 constexpr std::uint32_t type_generic_render_target = 47U;
 constexpr std::uint32_t type_matrix_transform = 66U;
 constexpr std::uint32_t type_solid_color_brush = 75U;
+constexpr std::uint32_t type_pen = 85U;
 constexpr std::uint32_t type_last = 98U;
 constexpr std::uint32_t maximum_visual_depth = 256U;
 
@@ -145,6 +146,89 @@ bool try_transform_bounds(
     return true;
 }
 
+bool try_line_stroke_bounds(
+    double x0,
+    double y0,
+    double x1,
+    double y1,
+    double thickness,
+    std::uint32_t start_cap,
+    std::uint32_t end_cap,
+    double& x,
+    double& y,
+    double& width,
+    double& height) noexcept {
+    const double delta_x = x1 - x0;
+    const double delta_y = y1 - y0;
+    const double length = std::hypot(delta_x, delta_y);
+    if (!std::isfinite(length) || length <= 0.0) {
+        return false;
+    }
+    const double half_thickness = thickness * 0.5;
+    const double unit_x = delta_x / length;
+    const double unit_y = delta_y / length;
+    const double normal_x = -unit_y * half_thickness;
+    const double normal_y = unit_x * half_thickness;
+    double minimum_x = std::numeric_limits<double>::infinity();
+    double minimum_y = std::numeric_limits<double>::infinity();
+    double maximum_x = -std::numeric_limits<double>::infinity();
+    double maximum_y = -std::numeric_limits<double>::infinity();
+    const auto include = [
+        &minimum_x,
+        &minimum_y,
+        &maximum_x,
+        &maximum_y](double point_x, double point_y) noexcept {
+        minimum_x = std::min(minimum_x, point_x);
+        minimum_y = std::min(minimum_y, point_y);
+        maximum_x = std::max(maximum_x, point_x);
+        maximum_y = std::max(maximum_y, point_y);
+    };
+    include(x0 - normal_x, y0 - normal_y);
+    include(x0 + normal_x, y0 + normal_y);
+    include(x1 - normal_x, y1 - normal_y);
+    include(x1 + normal_x, y1 + normal_y);
+    const auto include_cap = [
+        &include,
+        half_thickness,
+        normal_x,
+        normal_y,
+        unit_x,
+        unit_y](
+        double center_x,
+        double center_y,
+        double outward_sign,
+        std::uint32_t cap) noexcept {
+        if (cap == PROGPU_NATIVE_STROKE_CAP_ROUND) {
+            include(center_x - half_thickness, center_y - half_thickness);
+            include(center_x + half_thickness, center_y + half_thickness);
+            return;
+        }
+        if (cap == PROGPU_NATIVE_STROKE_CAP_SQUARE) {
+            const double outer_x =
+                center_x + outward_sign * unit_x * half_thickness;
+            const double outer_y =
+                center_y + outward_sign * unit_y * half_thickness;
+            include(outer_x - normal_x, outer_y - normal_y);
+            include(outer_x + normal_x, outer_y + normal_y);
+            return;
+        }
+        if (cap == PROGPU_NATIVE_STROKE_CAP_TRIANGLE) {
+            include(
+                center_x + outward_sign * unit_x * half_thickness,
+                center_y + outward_sign * unit_y * half_thickness);
+        }
+    };
+    include_cap(x0, y0, -1.0, start_cap);
+    include_cap(x1, y1, 1.0, end_cap);
+    x = minimum_x;
+    y = minimum_y;
+    width = maximum_x - minimum_x;
+    height = maximum_y - minimum_y;
+    return finite_double_as_float(x) && finite_double_as_float(y) &&
+        finite_double_as_float(width) && finite_double_as_float(height) &&
+        width >= 0.0 && height >= 0.0;
+}
+
 } // namespace
 
 batch_reader::batch_reader(std::span<const std::byte> bytes) noexcept
@@ -213,6 +297,16 @@ struct channel::implementation {
         progpu_native_color color{};
     };
 
+    struct pen_state {
+        double thickness{};
+        double miter_limit{10.0};
+        std::uint32_t brush_handle{};
+        std::uint32_t start_line_cap{};
+        std::uint32_t end_line_cap{};
+        std::uint32_t dash_cap{};
+        std::uint32_t line_join{};
+    };
+
     using matrix_transform_state = affine_2d_double;
 
     struct resource_state {
@@ -227,6 +321,7 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, matrix_transform_state>
         matrix_transforms;
     std::unordered_map<std::uint32_t, solid_brush_state> solid_brushes;
+    std::unordered_map<std::uint32_t, pen_state> pens;
 
     bool require_resource(
         std::uint32_t handle,
@@ -336,10 +431,16 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
             }
+            for (const auto& [pen_handle, pen] : pens) {
+                if (pen_handle != handle && pen.brush_handle == handle) {
+                    return status::invalid_graph;
+                }
+            }
             visuals.erase(handle);
             targets.erase(handle);
             matrix_transforms.erase(handle);
             solid_brushes.erase(handle);
+            pens.erase(handle);
             resources.erase(found);
             ++metrics.deleted_resource_count;
             return status::success;
@@ -670,6 +771,46 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         }
+        case command::pen: {
+            pen_state pen{};
+            std::uint32_t thickness_animations = 0U;
+            std::uint32_t dash_style = 0U;
+            if (!has_exact_size(view, 52U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, pen.thickness) ||
+                !read_at(view.packet, 16U, pen.miter_limit) ||
+                !read_at(view.packet, 24U, pen.brush_handle) ||
+                !read_at(view.packet, 28U, thickness_animations) ||
+                !read_at(view.packet, 32U, pen.start_line_cap) ||
+                !read_at(view.packet, 36U, pen.end_line_cap) ||
+                !read_at(view.packet, 40U, pen.dash_cap) ||
+                !read_at(view.packet, 44U, pen.line_join) ||
+                !read_at(view.packet, 48U, dash_style)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_pen) ||
+                (pen.brush_handle != 0U &&
+                 !require_resource(
+                     pen.brush_handle,
+                     type_solid_color_brush))) {
+                return status::invalid_handle;
+            }
+            if (thickness_animations != 0U || dash_style != 0U) {
+                return status::unsupported_command;
+            }
+            if (!finite_double_as_float(pen.thickness) ||
+                pen.thickness < 0.0 ||
+                !finite_double_as_float(pen.miter_limit) ||
+                pen.miter_limit < 0.0 || pen.start_line_cap > 3U ||
+                pen.end_line_cap > 3U || pen.dash_cap > 3U ||
+                pen.line_join > 2U) {
+                return status::malformed_batch;
+            }
+            pens.insert_or_assign(handle, pen);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
         default:
             ++metrics.unsupported_command_count;
             return status::unsupported_command;
@@ -708,6 +849,32 @@ struct channel::implementation {
             std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             return builder.add_state(state, state_index) &&
                 builder.save(state_index);
+        };
+        const auto resolve_brush_index = [
+            this,
+            &builder,
+            &brush_indices](
+            std::uint32_t brush_handle,
+            std::uint32_t& result) noexcept {
+            const auto brush = solid_brushes.find(brush_handle);
+            if (brush == solid_brushes.end()) {
+                return status::invalid_handle;
+            }
+            const auto existing = brush_indices.find(brush_handle);
+            if (existing != brush_indices.end()) {
+                result = existing->second;
+                return status::success;
+            }
+            std::uint32_t added = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!builder.add_solid_brush(
+                    brush->second.color,
+                    static_cast<float>(brush->second.opacity),
+                    added)) {
+                return status::invalid_graph;
+            }
+            brush_indices.emplace(brush_handle, added);
+            result = added;
+            return status::success;
         };
         for (;;) {
             const status read_status = reader.next(view);
@@ -789,6 +956,108 @@ struct channel::implementation {
                 scope_states.pop_back();
                 continue;
             }
+            if (view.kind == command::draw_line) {
+                double x0 = 0.0;
+                double y0 = 0.0;
+                double x1 = 0.0;
+                double y1 = 0.0;
+                std::uint32_t pen_handle = 0U;
+                std::uint32_t padding = 0U;
+                if (!has_exact_size(view, 44U) ||
+                    !read_at(view.packet, 4U, x0) ||
+                    !read_at(view.packet, 12U, y0) ||
+                    !read_at(view.packet, 20U, x1) ||
+                    !read_at(view.packet, 28U, y1) ||
+                    !read_at(view.packet, 36U, pen_handle) ||
+                    !read_at(view.packet, 40U, padding)) {
+                    return status::malformed_batch;
+                }
+                if (padding != 0U || !finite_double_as_float(x0) ||
+                    !finite_double_as_float(y0) ||
+                    !finite_double_as_float(x1) ||
+                    !finite_double_as_float(y1)) {
+                    return status::malformed_batch;
+                }
+                if (pen_handle == 0U) {
+                    continue;
+                }
+                const auto pen = pens.find(pen_handle);
+                if (pen == pens.end()) {
+                    return status::invalid_handle;
+                }
+                if (pen->second.brush_handle == 0U ||
+                    pen->second.thickness == 0.0) {
+                    continue;
+                }
+                if (x0 == x1 && y0 == y1) {
+                    if (pen->second.start_line_cap == 0U &&
+                        pen->second.end_line_cap == 0U) {
+                        continue;
+                    }
+                    return status::unsupported_command;
+                }
+                std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                const status brush_status = resolve_brush_index(
+                    pen->second.brush_handle,
+                    brush_index);
+                if (brush_status != status::success) {
+                    return brush_status;
+                }
+                double local_x = 0.0;
+                double local_y = 0.0;
+                double local_width = 0.0;
+                double local_height = 0.0;
+                if (!try_line_stroke_bounds(
+                        x0,
+                        y0,
+                        x1,
+                        y1,
+                        pen->second.thickness,
+                        pen->second.start_line_cap,
+                        pen->second.end_line_cap,
+                        local_x,
+                        local_y,
+                        local_width,
+                        local_height)) {
+                    return status::invalid_graph;
+                }
+                progpu_native_image_rect transformed_bounds{};
+                if (!try_transform_bounds(
+                        local_x,
+                        local_y,
+                        local_width,
+                        local_height,
+                        current.transform,
+                        transformed_bounds)) {
+                    return status::invalid_graph;
+                }
+                const std::uint32_t flags =
+                    (pen->second.start_line_cap <<
+                        PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT) |
+                    (pen->second.end_line_cap <<
+                        PROGPU_NATIVE_PRIMITIVE_END_CAP_SHIFT);
+                const std::array primitives{
+                    progpu_native_geometry_primitive{
+                        PROGPU_NATIVE_GEOMETRY_LINE,
+                        flags,
+                        {static_cast<float>(x0), static_cast<float>(y0)},
+                        {static_cast<float>(x1), static_cast<float>(y1)},
+                        {},
+                        {},
+                        static_cast<float>(pen->second.thickness),
+                        0.0F,
+                        {1.0F, 1.0F, 1.0F, 1.0F},
+                        native::semantic_scene_builder::identity_transform()}};
+                const std::array brushes{brush_index};
+                if (!builder.draw_geometry(
+                        primitives,
+                        brushes,
+                        transformed_bounds)) {
+                    return status::invalid_graph;
+                }
+                ++metrics.line_count;
+                continue;
+            }
             if (view.kind != command::draw_rectangle &&
                 view.kind != command::draw_rounded_rectangle &&
                 view.kind != command::draw_ellipse) {
@@ -863,20 +1132,12 @@ struct channel::implementation {
                 return status::invalid_graph;
             }
 
-            const auto brush = solid_brushes.find(brush_handle);
-            if (brush == solid_brushes.end()) {
-                return status::invalid_handle;
-            }
-            auto brush_index = brush_indices.find(brush_handle);
-            if (brush_index == brush_indices.end()) {
-                std::uint32_t added = PROGPU_NATIVE_SCENE_NO_INDEX;
-                if (!builder.add_solid_brush(
-                        brush->second.color,
-                        static_cast<float>(brush->second.opacity),
-                        added)) {
-                    return status::invalid_graph;
-                }
-                brush_index = brush_indices.emplace(brush_handle, added).first;
+            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            const status brush_status = resolve_brush_index(
+                brush_handle,
+                brush_index);
+            if (brush_status != status::success) {
+                return brush_status;
             }
 
             const std::array primitive{
@@ -896,7 +1157,7 @@ struct channel::implementation {
                     0.0F,
                     {1.0F, 1.0F, 1.0F, 1.0F},
                     native::semantic_scene_builder::identity_transform()}};
-            const std::array brushes{brush_index->second};
+            const std::array brushes{brush_index};
             if (!builder.draw_analytic(
                     primitive,
                     brushes,

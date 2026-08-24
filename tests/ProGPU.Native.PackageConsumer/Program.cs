@@ -17,11 +17,12 @@ using (var mil = new NativeMilChannel())
 {
     NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
     NativeMilCompiledScene scene = mil.CompileScene(42, 701, 1);
-    if (milMetrics.CommandCount != 16 || mil.ResourceCount != 5 ||
+    if (milMetrics.CommandCount != 18 || mil.ResourceCount != 6 ||
         !mil.TryGetVisual(41, out NativeMilVisualSnapshot visual) ||
         visual.Handle != 41 || scene.Stream.Length == 0 ||
         scene.Metrics.VisualCount != 1 ||
         scene.Metrics.RectangleCount != 1 ||
+        scene.Metrics.LineCount != 1 ||
         scene.Metrics.BrushCount != 1)
     {
         throw new InvalidOperationException(
@@ -32,9 +33,10 @@ using (var dawnMil = new NativeMilChannel(NativeMilBackend.Dawn))
 {
     NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
     NativeMilCompiledScene scene = dawnMil.CompileScene(42, 702, 1);
-    if (milMetrics.CommandCount != 16 || dawnMil.ResourceCount != 5 ||
+    if (milMetrics.CommandCount != 18 || dawnMil.ResourceCount != 6 ||
         scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
         scene.Metrics.RectangleCount != 1 ||
+        scene.Metrics.LineCount != 1 ||
         scene.Metrics.BrushCount != 1)
     {
         throw new InvalidOperationException(
@@ -107,6 +109,7 @@ static byte[] CreateMilSeedBatch()
     var renderData = new NativeMilRenderDataBuilder();
     renderData.PushTransform(45);
     renderData.DrawRectangle(8, 8, 48, 48, 44);
+    renderData.DrawLine(8, 8, 56, 56, 46);
     renderData.Pop();
     var batch = new NativeMilBatchBuilder();
     batch.CreateResource(41, NativeMilResourceType.Visual);
@@ -114,6 +117,7 @@ static byte[] CreateMilSeedBatch()
     batch.CreateResource(43, NativeMilResourceType.RenderData);
     batch.CreateResource(44, NativeMilResourceType.SolidColorBrush);
     batch.CreateResource(45, NativeMilResourceType.MatrixTransform);
+    batch.CreateResource(46, NativeMilResourceType.Pen);
     batch.CreateVisual(41);
     batch.SetVisualOffset(41, 1, 2);
     batch.SetMatrixTransform(
@@ -123,6 +127,13 @@ static byte[] CreateMilSeedBatch()
     batch.SetVisualOpacity(41, 0.9);
     batch.SetVisualContent(41, 43);
     batch.SetSolidColorBrush(44, new NativeMilColor(1, 0.25f, 0.1f, 1));
+    batch.SetPen(
+        46,
+        new NativeMilPen(
+            44,
+            2,
+            NativeMilPenLineCap.Square,
+            NativeMilPenLineCap.Round));
     batch.SetRenderData(43, renderData);
     batch.CreateGenericTarget(42, 64, 64);
     batch.SetTargetClearColor(42, new NativeMilColor(0, 0, 0, 1));

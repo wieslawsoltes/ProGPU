@@ -183,6 +183,30 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 56, 0);
     }
 
+    public void SetPen(uint handle, NativeMilPen pen)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(pen.Thickness) || pen.Thickness < 0.0 ||
+            !double.IsFinite(pen.MiterLimit) || pen.MiterLimit < 0.0 ||
+            pen.StartLineCap > NativeMilPenLineCap.Triangle ||
+            pen.EndLineCap > NativeMilPenLineCap.Triangle ||
+            pen.DashCap > NativeMilPenLineCap.Triangle ||
+            pen.LineJoin > NativeMilPenLineJoin.Round)
+        {
+            throw new ArgumentOutOfRangeException(nameof(pen));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.Pen, 52);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, pen.Thickness);
+        WriteDouble(packet, 16, pen.MiterLimit);
+        WriteUInt32(packet, 24, pen.BrushHandle);
+        WriteUInt32(packet, 32, (uint)pen.StartLineCap);
+        WriteUInt32(packet, 36, (uint)pen.EndLineCap);
+        WriteUInt32(packet, 40, (uint)pen.DashCap);
+        WriteUInt32(packet, 44, (uint)pen.LineJoin);
+    }
+
     public void SetRenderData(uint handle, NativeMilRenderDataBuilder renderData)
     {
         ValidateHandle(handle);
@@ -284,6 +308,27 @@ public sealed class NativeMilRenderDataBuilder
     {
         _ = NativeMilBatchEncoding.Allocate(
             _writer, NativeMilCommand.Pop, 4);
+    }
+
+    public void DrawLine(
+        double x0,
+        double y0,
+        double x1,
+        double y1,
+        uint penHandle)
+    {
+        if (!double.IsFinite(x0) || !double.IsFinite(y0) ||
+            !double.IsFinite(x1) || !double.IsFinite(y1))
+        {
+            throw new ArgumentOutOfRangeException(nameof(x0));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawLine, 44);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, x0);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, y0);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, x1);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, y1);
+        NativeMilBatchBuilder.WriteUInt32(packet, 36, penHandle);
     }
 
     public void DrawRectangle(
@@ -398,6 +443,7 @@ internal static class NativeMilCommand
     internal const uint GenericTargetCreate = 0x34;
     internal const uint TargetSetRoot = 0x35;
     internal const uint TargetSetClearColor = 0x36;
+    internal const uint DrawLine = 0x3e;
     internal const uint DrawRectangle = 0x40;
     internal const uint DrawRoundedRectangle = 0x42;
     internal const uint DrawEllipse = 0x44;
@@ -406,4 +452,5 @@ internal static class NativeMilCommand
     internal const uint Pop = 0x56;
     internal const uint MatrixTransform = 0x77;
     internal const uint SolidColorBrush = 0x7e;
+    internal const uint Pen = 0x86;
 }

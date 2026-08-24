@@ -211,6 +211,11 @@ progpu_native_mil_status progpu_native_mil_channel_build_scene(
             metrics->rounded_rectangle_count =
                 native_metrics.rounded_rectangle_count;
         }
+        if (caller_metrics_size >=
+            offsetof(progpu_native_mil_scene_metrics, line_count) +
+                sizeof(std::uint32_t)) {
+            metrics->line_count = native_metrics.line_count;
+        }
     }
     if (result != progpu::native::mil::status::success) {
         return to_abi(result);

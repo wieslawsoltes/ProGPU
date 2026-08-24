@@ -69,6 +69,50 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWriteCanonicalSolidPenAndLinePackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetPen(
+            5,
+            new NativeMilPen(
+                BrushHandle: 4,
+                Thickness: 2.5,
+                StartLineCap: NativeMilPenLineCap.Square,
+                EndLineCap: NativeMilPenLineCap.Round,
+                DashCap: NativeMilPenLineCap.Triangle,
+                LineJoin: NativeMilPenLineJoin.Bevel,
+                MiterLimit: 7.0));
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(56, encoded.Length);
+        Assert.Equal(56U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x86U, ReadUInt32(encoded, 4));
+        Assert.Equal(5U, ReadUInt32(encoded, 8));
+        Assert.Equal(2.5, ReadDouble(encoded, 12));
+        Assert.Equal(7.0, ReadDouble(encoded, 20));
+        Assert.Equal(4U, ReadUInt32(encoded, 28));
+        Assert.Equal(0U, ReadUInt32(encoded, 32));
+        Assert.Equal(1U, ReadUInt32(encoded, 36));
+        Assert.Equal(2U, ReadUInt32(encoded, 40));
+        Assert.Equal(3U, ReadUInt32(encoded, 44));
+        Assert.Equal(1U, ReadUInt32(encoded, 48));
+        Assert.Equal(0U, ReadUInt32(encoded, 52));
+
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.DrawLine(1, 2, 5, 8, 5);
+        byte[] nested = renderData.WrittenSpan.ToArray();
+        Assert.Equal(48, nested.Length);
+        Assert.Equal(48U, ReadUInt32(nested, 0));
+        Assert.Equal(0x3eU, ReadUInt32(nested, 4));
+        Assert.Equal(1.0, ReadDouble(nested, 8));
+        Assert.Equal(2.0, ReadDouble(nested, 16));
+        Assert.Equal(5.0, ReadDouble(nested, 24));
+        Assert.Equal(8.0, ReadDouble(nested, 32));
+        Assert.Equal(5U, ReadUInt32(nested, 40));
+        Assert.Equal(0U, ReadUInt32(nested, 44));
+    }
+
+    [Fact]
     public void ParallelsD3D12GlyphRasterizationUsesTypedComputeFallback()
     {
         string managedContext = File.ReadAllText(FindRepoFile(
