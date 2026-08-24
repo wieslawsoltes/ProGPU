@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <vector>
 
 namespace progpu::native::mil {
 
@@ -204,6 +205,14 @@ struct target_snapshot {
     std::uint32_t flags{};
 };
 
+struct scene_metrics {
+    std::uint32_t visual_count{};
+    std::uint32_t rectangle_count{};
+    std::uint32_t brush_count{};
+    std::uint32_t maximum_visual_depth{};
+    std::uint64_t stream_bytes{};
+};
+
 class batch_reader final {
 public:
     explicit batch_reader(std::span<const std::byte> bytes) noexcept;
@@ -245,6 +254,15 @@ public:
     bool try_get_target(
         std::uint32_t handle,
         target_snapshot& snapshot) const noexcept;
+
+    // Compiles one retained MIL target into the pointer-free semantic scene
+    // stream consumed by both the wgpu-native and Dawn renderers.
+    status build_scene(
+        std::uint32_t target_handle,
+        std::uint64_t scene_id,
+        std::uint64_t generation,
+        std::vector<std::byte>& stream,
+        scene_metrics* metrics = nullptr) const noexcept;
 
 private:
     struct implementation;

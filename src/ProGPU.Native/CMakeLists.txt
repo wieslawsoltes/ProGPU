@@ -852,6 +852,7 @@ target_compile_features(progpu_native_mil PUBLIC cxx_std_20)
 target_include_directories(progpu_native_mil PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+target_link_libraries(progpu_native_mil PUBLIC progpu_native_scene_builder)
 set_target_properties(progpu_native_mil PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     CXX_VISIBILITY_PRESET hidden
