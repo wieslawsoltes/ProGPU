@@ -13,41 +13,46 @@ if (info.AbiVersion != 3 ||
     throw new InvalidOperationException("The packaged native ABI is incomplete.");
 }
 
-byte[] milBatch = CreateMilSeedBatch();
-using (var mil = new NativeMilChannel())
+bool milOnly = args.Contains("--mil-only", StringComparer.Ordinal);
+bool renderOnly = args.Contains("--render-only", StringComparer.Ordinal);
+if (!renderOnly)
 {
-    NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
-    NativeMilCompiledScene scene = mil.CompileScene(42, 701, 1);
-    if (milMetrics.CommandCount != 22 || mil.ResourceCount != 8 ||
-        !mil.TryGetVisual(41, out NativeMilVisualSnapshot visual) ||
-        visual.Handle != 41 || scene.Stream.Length == 0 ||
-        scene.Metrics.VisualCount != 1 ||
-        scene.Metrics.RectangleCount != 1 ||
-        scene.Metrics.EllipseCount != 1 ||
-        scene.Metrics.LineCount != 1 ||
-        scene.Metrics.BrushCount != 1)
+    byte[] milBatch = CreateMilSeedBatch();
+    using (var mil = new NativeMilChannel())
     {
-        throw new InvalidOperationException(
-            "The packaged wgpu-native MIL channel is incomplete.");
+        NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
+        NativeMilCompiledScene scene = mil.CompileScene(42, 701, 1);
+        if (milMetrics.CommandCount != 22 || mil.ResourceCount != 8 ||
+            !mil.TryGetVisual(41, out NativeMilVisualSnapshot visual) ||
+            visual.Handle != 41 || scene.Stream.Length == 0 ||
+            scene.Metrics.VisualCount != 1 ||
+            scene.Metrics.RectangleCount != 1 ||
+            scene.Metrics.EllipseCount != 1 ||
+            scene.Metrics.LineCount != 1 ||
+            scene.Metrics.BrushCount != 1)
+        {
+            throw new InvalidOperationException(
+                "The packaged wgpu-native MIL channel is incomplete.");
+        }
     }
-}
-Console.WriteLine("package-consumer: wgpu-native MIL");
-using (var dawnMil = new NativeMilChannel(NativeMilBackend.Dawn))
-{
-    NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
-    NativeMilCompiledScene scene = dawnMil.CompileScene(42, 702, 1);
-    if (milMetrics.CommandCount != 22 || dawnMil.ResourceCount != 8 ||
-        scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
-        scene.Metrics.RectangleCount != 1 ||
-        scene.Metrics.EllipseCount != 1 ||
-        scene.Metrics.LineCount != 1 ||
-        scene.Metrics.BrushCount != 1)
+    Console.WriteLine("package-consumer: wgpu-native MIL");
+    using (var dawnMil = new NativeMilChannel(NativeMilBackend.Dawn))
     {
-        throw new InvalidOperationException(
-            "The packaged Dawn MIL channel is incomplete.");
+        NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
+        NativeMilCompiledScene scene = dawnMil.CompileScene(42, 702, 1);
+        if (milMetrics.CommandCount != 22 || dawnMil.ResourceCount != 8 ||
+            scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
+            scene.Metrics.RectangleCount != 1 ||
+            scene.Metrics.EllipseCount != 1 ||
+            scene.Metrics.LineCount != 1 ||
+            scene.Metrics.BrushCount != 1)
+        {
+            throw new InvalidOperationException(
+                "The packaged Dawn MIL channel is incomplete.");
+        }
     }
+    Console.WriteLine("package-consumer: Dawn MIL");
 }
-Console.WriteLine("package-consumer: Dawn MIL");
 
 NativeRendererInfo dawnInfo = NativeDawnAdapter.GetInfo();
 if (dawnInfo.AbiVersion != 3 ||
@@ -60,6 +65,11 @@ if (dawnInfo.AbiVersion != 3 ||
         "The packaged provider-resolved Dawn adapter is incomplete.");
 }
 Console.WriteLine("package-consumer: Dawn ABI");
+if (milOnly)
+{
+    Console.WriteLine("ProGPU.Backend.Native MIL-only package smoke passed.");
+    return;
+}
 
 using var context = new WgpuContext();
 context.Initialize(window: null);
