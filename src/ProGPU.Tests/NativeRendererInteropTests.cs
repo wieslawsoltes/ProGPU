@@ -43,6 +43,10 @@ public class NativeRendererInteropTests
             managedAtlas,
             StringComparison.Ordinal);
         Assert.Contains(
+            "RasterizeGlyphCoverageCpu(",
+            managedAtlas,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "Flags = GetEngineFlags(context)",
             managedNativeHost,
             StringComparison.Ordinal);
