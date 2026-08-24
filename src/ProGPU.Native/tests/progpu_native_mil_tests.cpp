@@ -630,6 +630,233 @@ bool matrix_transform_scopes_compile_to_semantic_state() {
     return true;
 }
 
+bool solid_pen_line_compiles_to_geometry_scene() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t pen = 5U;
+    constexpr std::uint32_t transform = 6U;
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, pen, 85U);
+    append_create(batch, transform, 66U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_offset, visual, 10.0, 20.0);
+    append_command(
+        batch,
+        command::matrix_transform,
+        transform,
+        2.0,
+        0.0,
+        0.0,
+        2.0,
+        0.0,
+        0.0,
+        0U);
+    append_command(
+        batch,
+        command::visual_set_transform,
+        visual,
+        transform);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.25F, 0.5F, 0.75F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::pen,
+        pen,
+        2.0,
+        10.0,
+        brush,
+        0U,
+        1U,
+        2U,
+        1U,
+        0U,
+        0U);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_line,
+        1.0,
+        2.0,
+        5.0,
+        8.0,
+        pen,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 1U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.line_count == 1U);
+    PROGPU_REQUIRE(metrics.brush_count == 1U);
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    PROGPU_REQUIRE(header.command_count == 3U);
+    PROGPU_REQUIRE(header.resource_count == 3U);
+
+    bool found_line = false;
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            continue;
+        }
+        const auto primitive =
+            read_value<progpu_native_geometry_primitive>(
+                stream,
+                record.payload_offset);
+        PROGPU_REQUIRE(primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE);
+        PROGPU_REQUIRE(primitive.p0.x == 1.0F);
+        PROGPU_REQUIRE(primitive.p0.y == 2.0F);
+        PROGPU_REQUIRE(primitive.p1.x == 5.0F);
+        PROGPU_REQUIRE(primitive.p1.y == 8.0F);
+        PROGPU_REQUIRE(primitive.stroke_thickness == 2.0F);
+        PROGPU_REQUIRE(
+            (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) ==
+            (1U << PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT));
+        PROGPU_REQUIRE(
+            (primitive.flags & PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK) ==
+            (2U << PROGPU_NATIVE_PRIMITIVE_END_CAP_SHIFT));
+        found_line = true;
+    }
+    PROGPU_REQUIRE(found_line);
+
+    bool found_bounds = false;
+    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
+            PROGPU_REQUIRE(std::abs(record.bounds_x - 9.226499F) < 0.0001F);
+            PROGPU_REQUIRE(std::abs(record.bounds_y - 21.2265F) < 0.0001F);
+            PROGPU_REQUIRE(
+                std::abs(record.bounds_width - 12.773501F) < 0.0001F);
+            PROGPU_REQUIRE(
+                std::abs(record.bounds_height - 16.7735F) < 0.0001F);
+            found_bounds = true;
+        }
+    }
+    PROGPU_REQUIRE(found_bounds);
+
+    const auto pen_generation = state.resource_generation(pen);
+    std::vector<std::byte> animated_pen;
+    append_command(
+        animated_pen,
+        command::pen,
+        pen,
+        3.0,
+        10.0,
+        brush,
+        1U,
+        0U,
+        0U,
+        1U,
+        0U,
+        0U);
+    PROGPU_REQUIRE(state.apply(animated_pen) == status::unsupported_command);
+    PROGPU_REQUIRE(state.resource_generation(pen) == pen_generation);
+
+    std::vector<std::byte> dashed_pen;
+    append_command(
+        dashed_pen,
+        command::pen,
+        pen,
+        2.0,
+        10.0,
+        brush,
+        0U,
+        0U,
+        0U,
+        1U,
+        0U,
+        99U);
+    PROGPU_REQUIRE(state.apply(dashed_pen) == status::unsupported_command);
+    PROGPU_REQUIRE(state.resource_generation(pen) == pen_generation);
+
+    std::vector<std::byte> invalid_cap;
+    append_command(
+        invalid_cap,
+        command::pen,
+        pen,
+        2.0,
+        10.0,
+        brush,
+        0U,
+        4U,
+        0U,
+        1U,
+        0U,
+        0U);
+    PROGPU_REQUIRE(state.apply(invalid_cap) == status::malformed_batch);
+    PROGPU_REQUIRE(state.resource_generation(pen) == pen_generation);
+
+    std::vector<std::byte> null_pen_batch;
+    std::vector<std::byte> null_pen;
+    append_command(
+        null_pen,
+        command::draw_line,
+        1.0,
+        2.0,
+        5.0,
+        8.0,
+        0U,
+        0U);
+    append_render_data(null_pen_batch, content, null_pen);
+    PROGPU_REQUIRE(state.apply(null_pen_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 2U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.line_count == 0U);
+
+    std::vector<std::byte> missing_pen_batch;
+    std::vector<std::byte> missing_pen;
+    append_command(
+        missing_pen,
+        command::draw_line,
+        1.0,
+        2.0,
+        5.0,
+        8.0,
+        99U,
+        0U);
+    append_render_data(missing_pen_batch, content, missing_pen);
+    PROGPU_REQUIRE(state.apply(missing_pen_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 3U, stream, &metrics) ==
+        status::invalid_handle);
+    return true;
+}
+
 bool render_data_scope_errors_fail_closed() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -803,6 +1030,7 @@ int main() {
     PROGPU_REQUIRE(invalid_visual_graphs_fail_closed());
     PROGPU_REQUIRE(solid_rectangle_compiles_to_semantic_scene());
     PROGPU_REQUIRE(matrix_transform_scopes_compile_to_semantic_state());
+    PROGPU_REQUIRE(solid_pen_line_compiles_to_geometry_scene());
     PROGPU_REQUIRE(render_data_scope_errors_fail_closed());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());
     PROGPU_REQUIRE(c_abi_is_typed_and_size_versioned());

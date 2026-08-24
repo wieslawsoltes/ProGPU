@@ -15,7 +15,8 @@ public enum NativeMilResourceType : uint
     HwndRenderTarget = 46,
     GenericRenderTarget = 47,
     MatrixTransform = 66,
-    SolidColorBrush = 75
+    SolidColorBrush = 75,
+    Pen = 85
 }
 
 public readonly record struct NativeMilMatrix3x2(
@@ -40,6 +41,30 @@ public readonly record struct NativeMilColor(
     float Green,
     float Blue,
     float Alpha);
+
+public enum NativeMilPenLineCap : uint
+{
+    Flat,
+    Square,
+    Round,
+    Triangle
+}
+
+public enum NativeMilPenLineJoin : uint
+{
+    Miter,
+    Bevel,
+    Round
+}
+
+public readonly record struct NativeMilPen(
+    uint BrushHandle,
+    double Thickness,
+    NativeMilPenLineCap StartLineCap = NativeMilPenLineCap.Flat,
+    NativeMilPenLineCap EndLineCap = NativeMilPenLineCap.Flat,
+    NativeMilPenLineCap DashCap = NativeMilPenLineCap.Square,
+    NativeMilPenLineJoin LineJoin = NativeMilPenLineJoin.Miter,
+    double MiterLimit = 10.0);
 
 public enum NativeMilStatus : uint
 {
@@ -88,6 +113,7 @@ public readonly record struct NativeMilSceneMetrics(
     uint RectangleCount,
     uint EllipseCount,
     uint RoundedRectangleCount,
+    uint LineCount,
     uint BrushCount,
     uint MaximumVisualDepth,
     ulong StreamBytes);

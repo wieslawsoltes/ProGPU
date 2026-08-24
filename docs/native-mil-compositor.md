@@ -104,9 +104,10 @@ parent transform, and then nested drawing scopes. Draw culling bounds are the
 axis-aligned bounds of all four transformed primitive corners. Animation
 handles, missing/wrong-type nonzero transforms, nonzero packet padding, and
 unbalanced scopes fail closed transactionally; transform handle zero retains
-WPF's defined balanced no-op scope. Animated brushes, primitive pens, and
-other nested commands deliberately fail closed until their typed resources are
-implemented. The slice is covered by byte-level fixtures that check semantic
+WPF's defined balanced no-op scope. Animated brushes, dashed or animated pens,
+non-line pen draws, and other nested commands deliberately fail closed until
+their typed resources are implemented. The slice is covered by byte-level
+fixtures that check semantic
 brush, transform/opacity state, rectangle, ellipse and rounded-rectangle
 primitives, transformed bounds, nested scope, rollback, scene identity,
 generation, and tree metrics. The C ABI supports an explicit required-size
@@ -114,6 +115,18 @@ query, preserves the original 32-byte metrics caller contract when appending
 new metrics, and writes into caller-owned storage; the managed owner returns
 the completed semantic stream with typed compilation metrics for direct native
 compositor submission.
+
+The next Stage 1 slice implements the exact 52-byte `MILCMD_PEN` resource and
+44-byte nested `MILCMD_DRAW_LINE` packet for unanimated solid pens. Flat,
+square, round, and triangle start/end caps map directly to the reusable ProGPU
+geometry-stroke flags; pen brushes share the semantic brush table, and line
+width/cap-conservative local bounds are transformed through the same four-
+corner affine path. Null pen handles and zero-width/null-brush pens are no-op
+draws. Thickness animation, dash-style resources, invalid enums, unresolved
+handles, nonzero padding, and non-flat degenerate line caps fail closed. The
+size-stable MIL scene metrics ABI now publishes `line_count` in its former
+reserved tail field. Pens on analytic rectangles/ellipses remain closed until
+their join and outline semantics can be preserved exactly.
 `NativeMilBatchBuilder` and `NativeMilRenderDataBuilder` provide the matching
 managed producer for this supported subset. They write the canonical WPF
 framing and packed field offsets directly into reusable buffer writers, expose
@@ -123,8 +136,8 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds, geometry,
-  brushes, pens, drawings, images, glyph runs, caches, guidelines, effects, and
-  complete render-data decoding.
+  dash styles and remaining pen draws, brushes, drawings, images, glyph runs,
+  caches, guidelines, effects, and complete render-data decoding.
 - Lower every supported update to stable semantic resource identities and
   generation numbers; unchanged resources must not be rebuilt.
 - Add fixture capture/replay comparison against WPF's `CMilDataStreamReader`
