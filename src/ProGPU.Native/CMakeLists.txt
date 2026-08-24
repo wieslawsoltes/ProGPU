@@ -567,8 +567,10 @@ set(PROGPU_NATIVE_SCENE_SOURCES
 set(PROGPU_NATIVE_RENDERER_SOURCES
     ${PROGPU_NATIVE_BACKEND_SOURCES}
     ${PROGPU_NATIVE_SCENE_SOURCES}
+    src/Mil/progpu_native_mil_interop.cpp
     src/Text/Interop/progpu_native_text_shaping_interop.cpp
-    include/progpu_native.h)
+    include/progpu_native.h
+    include/progpu_native_mil.h)
 
 # Mirror the managed ProGPU project boundaries in the native source tree while
 # keeping internal includes independent of a translation unit's physical folder.
@@ -850,6 +852,10 @@ target_compile_features(progpu_native_mil PUBLIC cxx_std_20)
 target_include_directories(progpu_native_mil PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+set_target_properties(progpu_native_mil PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES)
 progpu_native_enable_warnings(progpu_native_mil)
 progpu_native_enable_sanitizers(progpu_native_mil)
 
@@ -867,6 +873,7 @@ target_include_directories(progpu_native
 target_include_directories(progpu_native SYSTEM PRIVATE
     "${PROGPU_NATIVE_WEBGPU_INCLUDE_DIR}")
 target_link_libraries(progpu_native PRIVATE
+    progpu_native_mil
     progpu_native_text
     "${PROGPU_NATIVE_WEBGPU_LIBRARY}")
 progpu_native_enable_warnings(progpu_native)
@@ -903,7 +910,9 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
             "${generated_directory}")
     target_include_directories(progpu_native_dawn SYSTEM PRIVATE
         "${PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR}")
-    target_link_libraries(progpu_native_dawn PRIVATE progpu_native_text)
+    target_link_libraries(progpu_native_dawn PRIVATE
+        progpu_native_mil
+        progpu_native_text)
     progpu_native_enable_warnings(progpu_native_dawn)
     progpu_native_enable_sanitizers(progpu_native_dawn)
     set_target_properties(progpu_native_dawn PROPERTIES
@@ -1188,8 +1197,11 @@ endif()
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_executable(progpu_native_mil_tests
-        tests/progpu_native_mil_tests.cpp)
+        tests/progpu_native_mil_tests.cpp
+        src/Mil/progpu_native_mil_interop.cpp)
     target_compile_features(progpu_native_mil_tests PRIVATE cxx_std_20)
+    target_compile_definitions(progpu_native_mil_tests PRIVATE
+        PROGPU_NATIVE_BUILD=1)
     target_link_libraries(progpu_native_mil_tests PRIVATE progpu_native_mil)
     progpu_native_enable_warnings(progpu_native_mil_tests)
     progpu_native_enable_sanitizers(progpu_native_mil_tests)
@@ -1510,6 +1522,7 @@ if(NOT EMSCRIPTEN)
         include/progpu_native_compression.hpp
         include/progpu_native_hit_testing.hpp
         include/progpu_native_image.hpp
+        include/progpu_native_mil.h
         include/progpu_native_mil.hpp
         include/progpu_native_scene_builder.hpp
         include/progpu_native_text.hpp

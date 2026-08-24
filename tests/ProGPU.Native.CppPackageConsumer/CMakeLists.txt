@@ -9,4 +9,5 @@ target_link_libraries(progpu_native_cpp_package_consumer
     PRIVATE
         ProGPU::native_dawn
         ProGPU::native_hit_testing
+        ProGPU::native_mil
         ProGPU::native_scene_builder)
