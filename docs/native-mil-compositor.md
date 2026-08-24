@@ -228,6 +228,18 @@ Results:
   versus C++ text shaping also passed their declared parity contracts.
 - The staged package contains both native renderer variants for `win-arm64`.
 
+The affine-transform checkpoint at ProGPU commit `360a6f7e` was requalified
+with the same complete gate. ARM64 MSVC compiled the new matrix resource,
+visual-transform, and nested transform-scope paths; all 11 CTests passed,
+including transformed semantic-state/bounds fixtures, null no-op scopes, and
+transactional failure cases. Live retained rendering/readback, package staging,
+the managed-host allocation probes, effect/vector/text cases, and isolated
+stress/differential processes all completed. In that follow-up run the native
+384-command stress measured `0.1244 ms/frame`; the bounded differential again
+had maximum channel delta 2/255 and zero pixels over 3/255. Timing is diagnostic
+for this VM, while the pass/fail contracts and recorded adapter identity are
+the qualification evidence.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
