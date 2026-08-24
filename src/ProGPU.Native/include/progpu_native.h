@@ -825,6 +825,15 @@ typedef struct progpu_native_engine_options {
     uint64_t flags;
 } progpu_native_engine_options;
 
+typedef enum progpu_native_engine_flag {
+    /*
+     * Submit and await each cold glyph coverage dispatch independently. This
+     * is a narrow driver profile for virtual D3D12 adapters with a bounded
+     * compute execution window; retained glyph replay remains unchanged.
+     */
+    PROGPU_NATIVE_ENGINE_SERIALIZE_GLYPH_RASTERIZATION = 1ULL << 0U
+} progpu_native_engine_flag;
+
 /*
  * Same-device image views are bound outside the immutable pointer-free scene
  * stream. Flags carries progpu_native_scene_external_image_role. The engine

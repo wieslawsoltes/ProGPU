@@ -55,7 +55,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             BackendAbi = NativeMethods.WgpuNativeMay2024BackendAbi,
             TargetFormat = nativeFormat,
             Device = (nuint)context.Device,
-            Queue = (nuint)context.Queue
+            Queue = (nuint)context.Queue,
+            Flags = GetEngineFlags(context)
         };
 
         lock (context.RenderLock)
@@ -185,7 +186,8 @@ public sealed unsafe class NativeCompositor : IDisposable
             BackendAbi = NativeMethods.WgpuNativeMay2024BackendAbi,
             TargetFormat = ToNativeFormat(_targetFormat),
             Device = (nuint)replacementContext.Device,
-            Queue = (nuint)replacementContext.Queue
+            Queue = (nuint)replacementContext.Queue,
+            Flags = GetEngineFlags(replacementContext)
         };
 
         nint replacement = 0;
@@ -2046,6 +2048,11 @@ public sealed unsafe class NativeCompositor : IDisposable
             Reserved2 = 0U
         };
     }
+
+    private static ulong GetEngineFlags(WgpuContext context) =>
+        context.RequiresSerializedGlyphRasterization
+            ? NativeMethods.EngineSerializeGlyphRasterization
+            : 0UL;
 
     private static NativeMethods.GroupEffect CreateGroupEffect(
         NativeGroupEffect effect)

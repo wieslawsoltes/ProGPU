@@ -903,6 +903,18 @@ public unsafe class GlyphAtlas : IDisposable
 
                                 _ringOffset += alignedSize;
                                 _coverageRingOffset += coverageBytes;
+                                if (_context.RequiresSerializedGlyphRasterization)
+                                {
+                                    // Parallels' virtual D3D12 adapter loses the
+                                    // device when several expensive coverage
+                                    // dispatches share one execution window. A
+                                    // completed cold-glyph submission preserves
+                                    // the retained steady-state cache while keeping
+                                    // each compute unit below that driver bound.
+                                    FlushBatchEncoder();
+                                    _context.PollDevice(wait: true);
+                                    CreateBatchEncoder();
+                                }
                             }
                             else
                             {

@@ -583,6 +583,106 @@ progpu_native_status render_glyphs(
         }
     }
 
+    const bool serialize_glyph_rasterization =
+        temporary.bind_group != nullptr &&
+        (engine->engine_flags &
+            PROGPU_NATIVE_ENGINE_SERIALIZE_GLYPH_RASTERIZATION) != 0U;
+    if (serialize_glyph_rasterization) {
+        for (std::uint32_t index = 0U;
+             index < engine->glyph_rasters.size();
+             ++index) {
+            WGPUCommandEncoderDescriptor raster_encoder_descriptor{};
+            raster_encoder_descriptor.label =
+                progpu::native::webgpu::string_view(
+                    "ProGPU serialized native glyph raster encoder");
+            WGPUCommandEncoder raster_encoder = wgpuDeviceCreateCommandEncoder(
+                engine->device,
+                &raster_encoder_descriptor);
+            if (raster_encoder == nullptr) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                    "A serialized native glyph raster encoder could not be created.");
+            }
+
+            WGPUComputePassDescriptor compute_descriptor{};
+            compute_descriptor.label =
+                progpu::native::webgpu::string_view(
+                    "ProGPU serialized native glyph coverage pass");
+            WGPUComputePassEncoder compute_pass =
+                wgpuCommandEncoderBeginComputePass(
+                    raster_encoder,
+                    &compute_descriptor);
+            if (compute_pass == nullptr) {
+                wgpuCommandEncoderRelease(raster_encoder);
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                    "A serialized native glyph compute pass could not be created.");
+            }
+            wgpuComputePassEncoderSetPipeline(
+                compute_pass,
+                engine->glyph_raster_pipeline);
+            const std::uint32_t dynamic_offset = index * 256U;
+            wgpuComputePassEncoderSetBindGroup(
+                compute_pass,
+                0U,
+                temporary.bind_group,
+                1U,
+                &dynamic_offset);
+            const auto& raster = engine->glyph_rasters[index];
+            wgpuComputePassEncoderDispatchWorkgroups(
+                compute_pass,
+                (raster.width + 63U) / 64U,
+                (raster.height + 15U) / 16U,
+                1U);
+            wgpuComputePassEncoderEnd(compute_pass);
+            wgpuComputePassEncoderRelease(compute_pass);
+
+            progpu::native::webgpu::image_copy_buffer source{};
+            source.buffer = temporary.coverage;
+            source.layout.offset = raster.output_offset;
+            source.layout.bytesPerRow = raster.output_bytes_per_row;
+            source.layout.rowsPerImage = raster.height;
+            progpu::native::webgpu::image_copy_texture destination{};
+            destination.texture = engine->glyph_atlas_texture;
+            destination.origin = {raster.atlas_x, raster.atlas_y, 0U};
+            destination.aspect = WGPUTextureAspect_All;
+            const WGPUExtent3D extent{raster.width, raster.height, 1U};
+            wgpuCommandEncoderCopyBufferToTexture(
+                raster_encoder,
+                &source,
+                &destination,
+                &extent);
+
+            WGPUCommandBufferDescriptor raster_command_descriptor{};
+            raster_command_descriptor.label =
+                progpu::native::webgpu::string_view(
+                    "ProGPU serialized native glyph raster commands");
+            WGPUCommandBuffer raster_command = wgpuCommandEncoderFinish(
+                raster_encoder,
+                &raster_command_descriptor);
+            wgpuCommandEncoderRelease(raster_encoder);
+            if (raster_command == nullptr) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                    "Serialized native glyph raster commands could not be finished.");
+            }
+            engine->submit(raster_command);
+            wgpuCommandBufferRelease(raster_command);
+#if !defined(PROGPU_NATIVE_BROWSER)
+            if (!progpu::native::webgpu::poll_submission(
+                    engine->instance,
+                    engine->device,
+                    engine->queue,
+                    engine->last_submission_index,
+                    true)) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_DEVICE_LOST,
+                    "A serialized native glyph raster submission did not complete.");
+            }
+#endif
+        }
+    }
+
     const bool owns_encoder = engine->semantic_encoder == nullptr;
     WGPUCommandEncoder encoder = engine->semantic_encoder;
     WGPUCommandEncoderDescriptor encoder_descriptor{};
@@ -597,7 +697,7 @@ progpu_native_status render_glyphs(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The native positioned glyph command encoder could not be created.");
     }
-    if (temporary.bind_group != nullptr) {
+    if (temporary.bind_group != nullptr && !serialize_glyph_rasterization) {
         WGPUComputePassDescriptor compute_descriptor{};
         compute_descriptor.label = progpu::native::webgpu::string_view("ProGPU native glyph coverage pass");
         WGPUComputePassEncoder compute_pass =

@@ -12,6 +12,59 @@ namespace Avalonia.ProGpu.UnitTests;
 public class NativeRendererInteropTests
 {
     [Fact]
+    public void ParallelsD3D12GlyphRasterizationUsesTypedSerializedSubmissions()
+    {
+        string managedContext = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Backend", "WgpuContext.cs"));
+        string managedAtlas = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Text", "GlyphAtlas.cs"));
+        string managedNativeHost = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Backend.Native", "NativeCompositor.cs"));
+        string nativeContract = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "include", "progpu_native.h"));
+        string nativeGlyphExecution = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "Backend",
+            "progpu_native_glyph_execution.cpp"));
+
+        Assert.Contains(
+            "RequiresSerializedGlyphRasterization",
+            managedContext,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AdapterBackendType == BackendType.D3D12",
+            managedContext,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Parallels Display Adapter",
+            managedContext,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_context.RequiresSerializedGlyphRasterization",
+            managedAtlas,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Flags = GetEngineFlags(context)",
+            managedNativeHost,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_ENGINE_SERIALIZE_GLYPH_RASTERIZATION",
+            nativeContract,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "poll_submission(",
+            nativeGlyphExecution,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "System.Reflection",
+            managedAtlas,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "System.Reflection",
+            managedNativeHost,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ManagedAndNativeSubmissionRetirementStayBoundedAndEquivalent()
     {
         string managedContext = File.ReadAllText(FindRepoFile(

@@ -53,6 +53,15 @@ public unsafe class WgpuContext : IDisposable
     public bool SupportsTextureFormatsTier1 { get; private set; }
     public BackendType AdapterBackendType { get; private set; } = BackendType.Undefined;
     public string AdapterName { get; private set; } = string.Empty;
+    /// <summary>
+    /// Gets whether expensive glyph coverage compute work must be serialized to
+    /// stay below the adapter's bounded D3D12 execution window.
+    /// </summary>
+    public bool RequiresSerializedGlyphRasterization =>
+        AdapterBackendType == BackendType.D3D12 &&
+        AdapterName.Contains(
+            "Parallels Display Adapter",
+            StringComparison.OrdinalIgnoreCase);
     public WgpuAdapterSelectionDiagnostics AdapterSelectionDiagnostics { get; private set; } =
         WgpuAdapterSelectionDiagnostics.Unknown;
     public IProGpuExternalTextureImporter?
