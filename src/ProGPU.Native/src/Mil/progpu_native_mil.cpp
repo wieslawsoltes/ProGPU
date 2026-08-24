@@ -26,11 +26,13 @@ constexpr std::uint32_t type_matrix_transform = 66U;
 constexpr std::uint32_t type_line_geometry = 68U;
 constexpr std::uint32_t type_rectangle_geometry = 69U;
 constexpr std::uint32_t type_ellipse_geometry = 70U;
+constexpr std::uint32_t type_path_geometry = 73U;
 constexpr std::uint32_t type_solid_color_brush = 75U;
 constexpr std::uint32_t type_dash_style = 84U;
 constexpr std::uint32_t type_pen = 85U;
 constexpr std::uint32_t type_last = 98U;
 constexpr std::uint32_t maximum_visual_depth = 256U;
+constexpr std::uint32_t maximum_path_record_count = 1U << 20U;
 
 template<typename T>
 bool read_at(
@@ -337,6 +339,16 @@ struct channel::implementation {
         std::uint32_t transform_handle{};
     };
 
+    struct path_geometry_state {
+        std::vector<progpu_native_path_segment> segments;
+        double left{};
+        double top{};
+        double right{};
+        double bottom{};
+        std::uint32_t transform_handle{};
+        std::uint32_t fill_rule{};
+    };
+
     struct resource_state {
         std::uint32_t type{};
         std::uint64_t generation{1U};
@@ -349,6 +361,7 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, matrix_transform_state>
         matrix_transforms;
     std::unordered_map<std::uint32_t, fixed_geometry_state> fixed_geometries;
+    std::unordered_map<std::uint32_t, path_geometry_state> path_geometries;
     std::unordered_map<std::uint32_t, solid_brush_state> solid_brushes;
     std::unordered_map<std::uint32_t, dash_style_state> dash_styles;
     std::unordered_map<std::uint32_t, pen_state> pens;
@@ -474,10 +487,17 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
             }
+            for (const auto& [geometry_handle, geometry] : path_geometries) {
+                if (geometry_handle != handle &&
+                    geometry.transform_handle == handle) {
+                    return status::invalid_graph;
+                }
+            }
             visuals.erase(handle);
             targets.erase(handle);
             matrix_transforms.erase(handle);
             fixed_geometries.erase(handle);
+            path_geometries.erase(handle);
             solid_brushes.erase(handle);
             dash_styles.erase(handle);
             pens.erase(handle);
@@ -896,6 +916,248 @@ struct channel::implementation {
                 return status::malformed_batch;
             }
             fixed_geometries.insert_or_assign(handle, geometry);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::path_geometry: {
+            path_geometry_state geometry{};
+            std::uint32_t figures_size = 0U;
+            if (view.packet.size() < 20U ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, geometry.transform_handle) ||
+                !read_at(view.packet, 12U, geometry.fill_rule) ||
+                !read_at(view.packet, 16U, figures_size) ||
+                figures_size > view.packet.size() - 20U ||
+                view.packet.size() != 20U + figures_size) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_path_geometry) ||
+                (geometry.transform_handle != 0U &&
+                 !require_resource(
+                     geometry.transform_handle,
+                     type_matrix_transform))) {
+                return status::invalid_handle;
+            }
+            if (geometry.fill_rule > 1U || figures_size < 48U) {
+                return status::malformed_batch;
+            }
+            const auto figures = view.packet.subspan(20U, figures_size);
+            std::uint32_t declared_size = 0U;
+            std::uint32_t path_flags = 0U;
+            std::uint32_t figure_count = 0U;
+            std::uint32_t force_packing = 0U;
+            if (!read_at(figures, 0U, declared_size) ||
+                !read_at(figures, 4U, path_flags) ||
+                !read_at(figures, 8U, geometry.left) ||
+                !read_at(figures, 16U, geometry.top) ||
+                !read_at(figures, 24U, geometry.right) ||
+                !read_at(figures, 32U, geometry.bottom) ||
+                !read_at(figures, 40U, figure_count) ||
+                !read_at(figures, 44U, force_packing) ||
+                declared_size != figures_size || force_packing != 0U ||
+                (path_flags & ~0x1FU) != 0U ||
+                (path_flags & 0x02U) == 0U ||
+                !finite_double_as_float(geometry.left) ||
+                !finite_double_as_float(geometry.top) ||
+                !finite_double_as_float(geometry.right) ||
+                !finite_double_as_float(geometry.bottom) ||
+                geometry.right < geometry.left ||
+                geometry.bottom < geometry.top ||
+                figure_count > maximum_path_record_count) {
+                return status::malformed_batch;
+            }
+            const auto read_point = [&figures](
+                std::size_t offset,
+                progpu_native_point& point) noexcept {
+                double x = 0.0;
+                double y = 0.0;
+                if (!read_at(figures, offset, x) ||
+                    !read_at(figures, offset + 8U, y) ||
+                    !finite_double_as_float(x) ||
+                    !finite_double_as_float(y)) {
+                    return false;
+                }
+                point = {
+                    static_cast<float>(x),
+                    static_cast<float>(y)};
+                return true;
+            };
+            std::size_t offset = 48U;
+            std::uint32_t previous_figure_size = 0U;
+            for (std::uint32_t figure_index = 0U;
+                figure_index < figure_count;
+                ++figure_index) {
+                const std::size_t figure_offset = offset;
+                std::uint32_t back_size = 0U;
+                std::uint32_t figure_flags = 0U;
+                std::uint32_t segment_count = 0U;
+                std::uint32_t figure_size = 0U;
+                std::uint32_t last_segment_offset = 0U;
+                std::uint32_t figure_padding = 0U;
+                progpu_native_point start{};
+                if (figures.size() - std::min(figures.size(), offset) < 40U ||
+                    !read_at(figures, offset, back_size) ||
+                    !read_at(figures, offset + 4U, figure_flags) ||
+                    !read_at(figures, offset + 8U, segment_count) ||
+                    !read_at(figures, offset + 12U, figure_size) ||
+                    !read_point(offset + 16U, start) ||
+                    !read_at(figures, offset + 32U, last_segment_offset) ||
+                    !read_at(figures, offset + 36U, figure_padding) ||
+                    back_size != previous_figure_size ||
+                    (figure_flags & ~0x1FU) != 0U ||
+                    figure_padding != 0U || figure_size < 40U ||
+                    figure_size > figures.size() - offset ||
+                    segment_count > maximum_path_record_count) {
+                    return status::malformed_batch;
+                }
+                offset += 40U;
+                std::uint32_t previous_segment_size = 0U;
+                std::uint32_t actual_last_segment_offset = 0U;
+                progpu_native_point current = start;
+                std::vector<progpu_native_path_segment> figure_segments;
+                for (std::uint32_t segment_index = 0U;
+                    segment_index < segment_count;
+                    ++segment_index) {
+                    actual_last_segment_offset = static_cast<std::uint32_t>(
+                        offset - figure_offset);
+                    std::uint32_t segment_type = 0U;
+                    std::uint32_t segment_flags = 0U;
+                    std::uint32_t segment_back_size = 0U;
+                    if (figures.size() - std::min(figures.size(), offset) < 12U ||
+                        !read_at(figures, offset, segment_type) ||
+                        !read_at(figures, offset + 4U, segment_flags) ||
+                        !read_at(figures, offset + 8U, segment_back_size) ||
+                        segment_back_size != previous_segment_size ||
+                        (segment_flags & ~0x3FU) != 0U) {
+                        return status::malformed_batch;
+                    }
+                    std::uint32_t point_count = 0U;
+                    std::size_t segment_size = 0U;
+                    std::size_t points_offset = 0U;
+                    std::uint32_t point_stride = 1U;
+                    std::uint32_t native_kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                    if (segment_type >= 5U && segment_type <= 7U) {
+                        if (!read_at(figures, offset + 12U, point_count)) {
+                            return status::malformed_batch;
+                        }
+                        points_offset = offset + 16U;
+                        segment_size = 16U +
+                            static_cast<std::size_t>(point_count) * 16U;
+                        if (segment_type == 6U) {
+                            point_stride = 3U;
+                            native_kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
+                        } else if (segment_type == 7U) {
+                            point_stride = 2U;
+                            native_kind = PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC;
+                        }
+                    } else if (segment_type >= 1U && segment_type <= 3U) {
+                        point_count = segment_type == 1U
+                            ? 1U
+                            : segment_type == 2U ? 3U : 2U;
+                        point_stride = point_count;
+                        native_kind = segment_type == 1U
+                            ? PROGPU_NATIVE_PATH_SEGMENT_LINE
+                            : segment_type == 2U
+                                ? PROGPU_NATIVE_PATH_SEGMENT_CUBIC
+                                : PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC;
+                        points_offset = offset + 16U;
+                        segment_size = 16U +
+                            static_cast<std::size_t>(point_count) * 16U;
+                        std::uint32_t segment_padding = 0U;
+                        if (!read_at(figures, offset + 12U, segment_padding) ||
+                            segment_padding != 0U) {
+                            return status::malformed_batch;
+                        }
+                    } else if (segment_type == 4U) {
+                        return status::unsupported_command;
+                    } else {
+                        return status::malformed_batch;
+                    }
+                    const std::size_t figure_consumed =
+                        offset - figure_offset;
+                    if (point_count == 0U || point_count % point_stride != 0U ||
+                        figure_consumed > figure_size ||
+                        segment_size > figures.size() - offset ||
+                        segment_size > figure_size - figure_consumed) {
+                        return status::malformed_batch;
+                    }
+                    for (std::uint32_t point_index = 0U;
+                        point_index < point_count;
+                        point_index += point_stride) {
+                        progpu_native_path_segment segment{};
+                        segment.p0 = current;
+                        segment.kind = native_kind;
+                        if (native_kind == PROGPU_NATIVE_PATH_SEGMENT_LINE) {
+                            if (!read_point(
+                                    points_offset +
+                                        static_cast<std::size_t>(point_index) * 16U,
+                                    segment.p1)) {
+                                return status::malformed_batch;
+                            }
+                            current = segment.p1;
+                        } else if (
+                            native_kind ==
+                            PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC) {
+                            if (!read_point(
+                                    points_offset +
+                                        static_cast<std::size_t>(point_index) * 16U,
+                                    segment.p1) ||
+                                !read_point(
+                                    points_offset +
+                                        static_cast<std::size_t>(point_index + 1U) * 16U,
+                                    segment.p2)) {
+                                return status::malformed_batch;
+                            }
+                            current = segment.p2;
+                        } else {
+                            if (!read_point(
+                                    points_offset +
+                                        static_cast<std::size_t>(point_index) * 16U,
+                                    segment.p1) ||
+                                !read_point(
+                                    points_offset +
+                                        static_cast<std::size_t>(point_index + 1U) * 16U,
+                                    segment.p2) ||
+                                !read_point(
+                                    points_offset +
+                                        static_cast<std::size_t>(point_index + 2U) * 16U,
+                                    segment.p3)) {
+                                return status::malformed_batch;
+                            }
+                            current = segment.p3;
+                        }
+                        figure_segments.push_back(segment);
+                    }
+                    offset += segment_size;
+                    previous_segment_size = static_cast<std::uint32_t>(
+                        segment_size);
+                }
+                if (offset - figure_offset != figure_size ||
+                    (segment_count == 0U && last_segment_offset != 0U) ||
+                    (segment_count != 0U &&
+                     last_segment_offset != actual_last_segment_offset)) {
+                    return status::malformed_batch;
+                }
+                if ((figure_flags & 0x08U) != 0U) {
+                    geometry.segments.insert(
+                        geometry.segments.end(),
+                        figure_segments.begin(),
+                        figure_segments.end());
+                    if (current.x != start.x || current.y != start.y) {
+                        progpu_native_path_segment closing{};
+                        closing.p0 = current;
+                        closing.p1 = start;
+                        closing.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                        geometry.segments.push_back(closing);
+                    }
+                }
+                previous_figure_size = figure_size;
+            }
+            if (offset != figures.size()) {
+                return status::malformed_batch;
+            }
+            path_geometries.insert_or_assign(handle, std::move(geometry));
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -1399,12 +1661,19 @@ struct channel::implementation {
                     return status::invalid_handle;
                 }
                 const auto geometry = fixed_geometries.find(geometry_handle);
-                if (geometry == fixed_geometries.end()) {
+                const auto path_geometry = path_geometries.find(
+                    geometry_handle);
+                if (geometry == fixed_geometries.end() &&
+                    path_geometry == path_geometries.end()) {
                     return status::invalid_handle;
                 }
-                if (geometry->second.transform_handle != 0U) {
+                const std::uint32_t geometry_transform_handle =
+                    geometry != fixed_geometries.end()
+                        ? geometry->second.transform_handle
+                        : path_geometry->second.transform_handle;
+                if (geometry_transform_handle != 0U) {
                     const auto transform = matrix_transforms.find(
-                        geometry->second.transform_handle);
+                        geometry_transform_handle);
                     if (transform == matrix_transforms.end()) {
                         return status::invalid_handle;
                     }
@@ -1413,6 +1682,73 @@ struct channel::implementation {
                 effective_transform = compose_affine(
                     local_transform,
                     current.transform);
+                if (path_geometry != path_geometries.end()) {
+                    if (pen_handle != 0U) {
+                        const auto pen = pens.find(pen_handle);
+                        if (pen == pens.end()) {
+                            return status::invalid_handle;
+                        }
+                        if (pen->second.brush_handle != 0U &&
+                            pen->second.thickness > 0.0) {
+                            return status::unsupported_command;
+                        }
+                    }
+                    if (brush_handle == 0U ||
+                        path_geometry->second.segments.empty()) {
+                        continue;
+                    }
+                    std::uint32_t brush_index =
+                        PROGPU_NATIVE_SCENE_NO_INDEX;
+                    const status brush_status = resolve_brush_index(
+                        brush_handle,
+                        brush_index);
+                    if (brush_status != status::success) {
+                        return brush_status;
+                    }
+                    progpu_native_image_rect path_bounds{};
+                    if (!try_transform_bounds(
+                            path_geometry->second.left,
+                            path_geometry->second.top,
+                            path_geometry->second.right -
+                                path_geometry->second.left,
+                            path_geometry->second.bottom -
+                                path_geometry->second.top,
+                            effective_transform,
+                            path_bounds)) {
+                        return status::invalid_graph;
+                    }
+                    progpu_native_affine_2d native_local_transform{};
+                    if (!try_to_native_affine(
+                            local_transform,
+                            native_local_transform)) {
+                        return status::invalid_graph;
+                    }
+                    const std::array paths{
+                        progpu_native_scene_path_fill{
+                            0U,
+                            path_geometry->second.segments.size(),
+                            0U,
+                            0U,
+                            static_cast<float>(path_geometry->second.left),
+                            static_cast<float>(path_geometry->second.top),
+                            static_cast<float>(path_geometry->second.right),
+                            static_cast<float>(path_geometry->second.bottom),
+                            {1.0F, 1.0F, 1.0F, 1.0F},
+                            native_local_transform,
+                            path_geometry->second.fill_rule == 0U
+                                ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                                : PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+                            8U}};
+                    const std::array brushes{brush_index};
+                    if (!builder.draw_paths(
+                            paths,
+                            path_geometry->second.segments,
+                            brushes,
+                            path_bounds)) {
+                        return status::invalid_graph;
+                    }
+                    continue;
+                }
                 if (geometry->second.kind == fixed_geometry_kind::line) {
                     const status line_status = append_line_stroke(
                         geometry->second.first,

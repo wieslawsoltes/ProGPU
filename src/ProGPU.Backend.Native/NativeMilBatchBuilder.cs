@@ -271,6 +271,252 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 52, 0);
     }
 
+    public void SetPathGeometry(
+        uint handle,
+        NativeMilPathGeometry geometry,
+        uint transformHandle = 0)
+    {
+        ValidateHandle(handle);
+        ArgumentNullException.ThrowIfNull(geometry);
+        ArgumentNullException.ThrowIfNull(geometry.Figures);
+        double right = geometry.X + geometry.Width;
+        double bottom = geometry.Y + geometry.Height;
+        if (geometry.FillRule > NativeMilPathFillRule.Nonzero ||
+            !double.IsFinite(geometry.X) ||
+            !double.IsFinite(geometry.Y) ||
+            !double.IsFinite(geometry.Width) || geometry.Width < 0.0 ||
+            !double.IsFinite(geometry.Height) || geometry.Height < 0.0 ||
+            !double.IsFinite(right) ||
+            !double.IsFinite(bottom))
+        {
+            throw new ArgumentOutOfRangeException(nameof(geometry));
+        }
+
+        int figuresSize = 48;
+        foreach (NativeMilPathFigure figure in geometry.Figures)
+        {
+            ArgumentNullException.ThrowIfNull(figure);
+            ArgumentNullException.ThrowIfNull(figure.Segments);
+            ValidatePoint(figure.StartPoint, nameof(geometry));
+            figuresSize = checked(figuresSize + 40);
+            foreach (NativeMilPathSegment segment in figure.Segments)
+            {
+                ValidatePathSegment(segment, nameof(geometry));
+                figuresSize = checked(figuresSize + PathSegmentSize(segment));
+            }
+        }
+
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.PathGeometry,
+            checked(20 + figuresSize));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, transformHandle);
+        WriteUInt32(packet, 12, (uint)geometry.FillRule);
+        WriteUInt32(packet, 16, checked((uint)figuresSize));
+
+        const uint PathHasCurves = 0x01;
+        const uint PathBoundsValid = 0x02;
+        const uint PathHasGaps = 0x04;
+        const uint PathHasHollows = 0x08;
+        uint pathFlags = PathBoundsValid;
+        foreach (NativeMilPathFigure figure in geometry.Figures)
+        {
+            if (!figure.IsFilled)
+            {
+                pathFlags |= PathHasHollows;
+            }
+            foreach (NativeMilPathSegment segment in figure.Segments)
+            {
+                if (segment.Kind != NativeMilPathSegmentKind.Line)
+                {
+                    pathFlags |= PathHasCurves;
+                }
+                if (!segment.IsStroked)
+                {
+                    pathFlags |= PathHasGaps;
+                }
+            }
+        }
+
+        int offset = 20;
+        WriteUInt32(packet, offset, checked((uint)figuresSize));
+        WriteUInt32(packet, offset + 4, pathFlags);
+        WriteDouble(packet, offset + 8, geometry.X);
+        WriteDouble(packet, offset + 16, geometry.Y);
+        WriteDouble(packet, offset + 24, right);
+        WriteDouble(packet, offset + 32, bottom);
+        WriteUInt32(packet, offset + 40, checked((uint)geometry.Figures.Count));
+        WriteUInt32(packet, offset + 44, 0);
+        offset += 48;
+
+        uint previousFigureSize = 0;
+        foreach (NativeMilPathFigure figure in geometry.Figures)
+        {
+            int figureOffset = offset;
+            int figureSize = 40;
+            foreach (NativeMilPathSegment segment in figure.Segments)
+            {
+                figureSize = checked(figureSize + PathSegmentSize(segment));
+            }
+            uint figureFlags = 0;
+            if (figure.Segments.Any(static segment => !segment.IsStroked))
+            {
+                figureFlags |= 0x01;
+            }
+            if (figure.Segments.Any(
+                    static segment =>
+                        segment.Kind != NativeMilPathSegmentKind.Line))
+            {
+                figureFlags |= 0x02;
+            }
+            if (figure.IsClosed)
+            {
+                figureFlags |= 0x04;
+            }
+            if (figure.IsFilled)
+            {
+                figureFlags |= 0x08;
+            }
+            WriteUInt32(packet, offset, previousFigureSize);
+            WriteUInt32(packet, offset + 4, figureFlags);
+            WriteUInt32(
+                packet,
+                offset + 8,
+                checked((uint)figure.Segments.Count));
+            WriteUInt32(packet, offset + 12, checked((uint)figureSize));
+            WritePoint(packet, offset + 16, figure.StartPoint);
+            int lastSegmentOffset = 0;
+            int segmentOffset = offset + 40;
+            uint previousSegmentSize = 0;
+            foreach (NativeMilPathSegment segment in figure.Segments)
+            {
+                lastSegmentOffset = segmentOffset - figureOffset;
+                int segmentSize = PathSegmentSize(segment);
+                uint segmentFlags = 0;
+                if (!segment.IsStroked)
+                {
+                    segmentFlags |= 0x04;
+                }
+                if (segment.IsSmoothJoin)
+                {
+                    segmentFlags |= 0x08;
+                }
+                if (segment.Kind != NativeMilPathSegmentKind.Line)
+                {
+                    segmentFlags |= 0x20;
+                }
+                WriteUInt32(packet, segmentOffset, (uint)segment.Kind);
+                WriteUInt32(packet, segmentOffset + 4, segmentFlags);
+                WriteUInt32(packet, segmentOffset + 8, previousSegmentSize);
+                switch (segment.Kind)
+                {
+                    case NativeMilPathSegmentKind.Line:
+                        WriteUInt32(packet, segmentOffset + 12, 0);
+                        WritePoint(packet, segmentOffset + 16, segment.Point1);
+                        break;
+                    case NativeMilPathSegmentKind.QuadraticBezier:
+                        WriteUInt32(packet, segmentOffset + 12, 0);
+                        WritePoint(packet, segmentOffset + 16, segment.Point1);
+                        WritePoint(packet, segmentOffset + 32, segment.Point2);
+                        break;
+                    case NativeMilPathSegmentKind.CubicBezier:
+                        WriteUInt32(packet, segmentOffset + 12, 0);
+                        WritePoint(packet, segmentOffset + 16, segment.Point1);
+                        WritePoint(packet, segmentOffset + 32, segment.Point2);
+                        WritePoint(packet, segmentOffset + 48, segment.Point3);
+                        break;
+                    case NativeMilPathSegmentKind.Arc:
+                        WriteUInt32(
+                            packet,
+                            segmentOffset + 12,
+                            segment.IsLargeArc ? 1U : 0U);
+                        WritePoint(packet, segmentOffset + 16, segment.Point1);
+                        WriteDouble(packet, segmentOffset + 32, segment.RadiusX);
+                        WriteDouble(packet, segmentOffset + 40, segment.RadiusY);
+                        WriteDouble(
+                            packet,
+                            segmentOffset + 48,
+                            segment.RotationAngle);
+                        WriteUInt32(
+                            packet,
+                            segmentOffset + 56,
+                            segment.IsClockwise ? 1U : 0U);
+                        WriteUInt32(packet, segmentOffset + 60, 0);
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(geometry));
+                }
+                previousSegmentSize = checked((uint)segmentSize);
+                segmentOffset += segmentSize;
+            }
+            WriteUInt32(
+                packet,
+                offset + 32,
+                checked((uint)lastSegmentOffset));
+            WriteUInt32(packet, offset + 36, 0);
+            offset += figureSize;
+            previousFigureSize = checked((uint)figureSize);
+        }
+    }
+
+    private static int PathSegmentSize(NativeMilPathSegment segment) =>
+        segment.Kind switch
+        {
+            NativeMilPathSegmentKind.Line => 32,
+            NativeMilPathSegmentKind.QuadraticBezier => 48,
+            NativeMilPathSegmentKind.CubicBezier => 64,
+            NativeMilPathSegmentKind.Arc => 64,
+            _ => throw new ArgumentOutOfRangeException(nameof(segment))
+        };
+
+    private static void ValidatePathSegment(
+        NativeMilPathSegment segment,
+        string parameterName)
+    {
+        if (segment.Kind < NativeMilPathSegmentKind.Line ||
+            segment.Kind > NativeMilPathSegmentKind.Arc)
+        {
+            throw new ArgumentOutOfRangeException(parameterName);
+        }
+        ValidatePoint(segment.Point1, parameterName);
+        if (segment.Kind == NativeMilPathSegmentKind.QuadraticBezier ||
+            segment.Kind == NativeMilPathSegmentKind.CubicBezier)
+        {
+            ValidatePoint(segment.Point2, parameterName);
+        }
+        if (segment.Kind == NativeMilPathSegmentKind.CubicBezier)
+        {
+            ValidatePoint(segment.Point3, parameterName);
+        }
+        if (segment.Kind == NativeMilPathSegmentKind.Arc &&
+            (!double.IsFinite(segment.RadiusX) || segment.RadiusX < 0.0 ||
+             !double.IsFinite(segment.RadiusY) || segment.RadiusY < 0.0 ||
+             !double.IsFinite(segment.RotationAngle)))
+        {
+            throw new ArgumentOutOfRangeException(parameterName);
+        }
+    }
+
+    private static void ValidatePoint(
+        NativeMilPoint point,
+        string parameterName)
+    {
+        if (!double.IsFinite(point.X) || !double.IsFinite(point.Y))
+        {
+            throw new ArgumentOutOfRangeException(parameterName);
+        }
+    }
+
+    private static void WritePoint(
+        Span<byte> destination,
+        int offset,
+        NativeMilPoint point)
+    {
+        WriteDouble(destination, offset, point.X);
+        WriteDouble(destination, offset + 8, point.Y);
+    }
+
     public void SetPen(uint handle, NativeMilPen pen)
     {
         ValidateHandle(handle);
@@ -589,6 +835,7 @@ internal static class NativeMilCommand
     internal const uint LineGeometry = 0x78;
     internal const uint RectangleGeometry = 0x79;
     internal const uint EllipseGeometry = 0x7a;
+    internal const uint PathGeometry = 0x7d;
     internal const uint SolidColorBrush = 0x7e;
     internal const uint DashStyle = 0x85;
     internal const uint Pen = 0x86;
