@@ -37,7 +37,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
         NativeMilCompiledScene scene = mil.CompileScene(42, 701, 1);
-        if (milMetrics.CommandCount != 30 || mil.ResourceCount != 12 ||
+        if (milMetrics.CommandCount != 36 || mil.ResourceCount != 15 ||
             !mil.TryGetVisual(41, out NativeMilVisualSnapshot visual) ||
             visual.Handle != 41 || scene.Stream.Length == 0 ||
             scene.Metrics.VisualCount != 1 ||
@@ -57,7 +57,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
         NativeMilCompiledScene scene = dawnMil.CompileScene(42, 702, 1);
-        if (milMetrics.CommandCount != 30 || dawnMil.ResourceCount != 12 ||
+        if (milMetrics.CommandCount != 36 || dawnMil.ResourceCount != 15 ||
             scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
             scene.Metrics.RectangleCount != 1 ||
             scene.Metrics.EllipseCount != 2 ||
@@ -173,6 +173,8 @@ static byte[] CreateMilSeedBatch()
     renderData.DrawGeometry(44, 48, 50);
     renderData.DrawGeometry(44, 48, 51);
     renderData.DrawGeometry(44, 0, 52);
+    renderData.DrawGeometry(44, 0, 54);
+    renderData.DrawGeometry(44, 0, 55);
     renderData.Pop();
     var batch = new NativeMilBatchBuilder();
     batch.CreateResource(41, NativeMilResourceType.Visual);
@@ -187,6 +189,9 @@ static byte[] CreateMilSeedBatch()
     batch.CreateResource(50, NativeMilResourceType.RectangleGeometry);
     batch.CreateResource(51, NativeMilResourceType.EllipseGeometry);
     batch.CreateResource(52, NativeMilResourceType.PathGeometry);
+    batch.CreateResource(53, NativeMilResourceType.PathGeometry);
+    batch.CreateResource(54, NativeMilResourceType.GeometryGroup);
+    batch.CreateResource(55, NativeMilResourceType.CombinedGeometry);
     batch.CreateVisual(41);
     batch.SetVisualOffset(41, 1, 2);
     batch.SetMatrixTransform(
@@ -211,37 +216,56 @@ static byte[] CreateMilSeedBatch()
     batch.SetEllipseGeometry(51, 32, 32, 16, 12, 45);
     batch.SetPathGeometry(
         52,
-        new NativeMilPathGeometry(
-            NativeMilPathFillRule.Nonzero,
-            8,
-            4,
-            42,
-            46,
-            [
-                new NativeMilPathFigure(
-                    new NativeMilPoint(10, 48),
-                    IsFilled: true,
-                    IsClosed: true,
-                    [
-                        NativeMilPathSegment.Line(new NativeMilPoint(10, 16)),
-                        NativeMilPathSegment.QuadraticBezier(
-                            new NativeMilPoint(32, 4),
-                            new NativeMilPoint(48, 16)),
-                        NativeMilPathSegment.Arc(
-                            new NativeMilPoint(10, 48),
-                            24,
-                            20,
-                            15,
-                            isLargeArc: false,
-                            isClockwise: true)
-                    ])
-            ]),
+        CreateMilPath(0));
+    batch.SetPathGeometry(
+        53,
+        CreateMilPath(8));
+    batch.SetGeometryGroup(
+        54,
+        NativeMilPathFillRule.EvenOdd,
+        [52, 53],
+        45);
+    batch.SetCombinedGeometry(
+        55,
+        NativeMilGeometryCombineMode.Exclude,
+        52,
+        53,
         45);
     batch.SetRenderData(43, renderData);
     batch.CreateGenericTarget(42, 64, 64);
     batch.SetTargetClearColor(42, new NativeMilColor(0, 0, 0, 1));
     batch.SetTargetRoot(42, 41);
     return batch.ToArray();
+}
+
+static NativeMilPathGeometry CreateMilPath(double offsetX)
+{
+    return new NativeMilPathGeometry(
+        NativeMilPathFillRule.Nonzero,
+        8 + offsetX,
+        4,
+        42,
+        46,
+        [
+            new NativeMilPathFigure(
+                new NativeMilPoint(10 + offsetX, 48),
+                IsFilled: true,
+                IsClosed: true,
+                [
+                    NativeMilPathSegment.Line(
+                        new NativeMilPoint(10 + offsetX, 16)),
+                    NativeMilPathSegment.QuadraticBezier(
+                        new NativeMilPoint(32 + offsetX, 4),
+                        new NativeMilPoint(48 + offsetX, 16)),
+                    NativeMilPathSegment.Arc(
+                        new NativeMilPoint(10 + offsetX, 48),
+                        24,
+                        20,
+                        15,
+                        isLargeArc: false,
+                        isClockwise: true)
+                ])
+        ]);
 }
 
 static bool ContainsNonBlackPixel(ReadOnlySpan<byte> pixels)
