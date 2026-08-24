@@ -1,11 +1,42 @@
 using Avalonia;
 using Avalonia.SilkNet;
+using ProGPU.Backend;
 using Xunit;
 
 namespace ProGPU.Avalonia.SilkNet.ContractTests;
 
 public sealed class DisplayMetricsContractTests
 {
+    [Theory]
+    [InlineData(true, 2d, 1d)]
+    [InlineData(false, 2d, 2d)]
+    [InlineData(false, 0d, 1d)]
+    public void DesktopCoordinatesFollowBackendConventions(
+        bool isMacOS,
+        double renderScaling,
+        double expected)
+    {
+        Assert.Equal(
+            expected,
+            SilkNetDisplayMetrics.ResolveDesktopScaling(
+                isMacOS,
+                renderScaling));
+    }
+
+    [Fact]
+    public void FrameSizeIncludesNativeChromeInsets()
+    {
+        Size? frame = SilkNetDisplayMetrics.ResolveFrameSize(
+            new Size(800, 600),
+            new NativeWindowFrameInsets(8, 30, 8, 8));
+
+        Assert.Equal(new Size(816, 638), frame);
+        Assert.Null(
+            SilkNetDisplayMetrics.ResolveFrameSize(
+                new Size(800, 600),
+                frameInsets: null));
+    }
+
     [Fact]
     public void NativeScaleRepairsOneToOneSilkFramebufferReports()
     {

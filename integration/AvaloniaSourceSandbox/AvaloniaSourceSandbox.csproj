@@ -7,7 +7,7 @@
     <StartupObject>ProGpuAvaloniaSamples.SandboxHost.Program</StartupObject>
     <ProGpuDependencyMode>Source</ProGpuDependencyMode>
     <ProGpuSourceRoot>$(MSBuildThisFileDirectory)..\..</ProGpuSourceRoot>
-    <ProGpuAvaloniaSourceRoot Condition="'$(ProGpuAvaloniaSourceRoot)' == ''">$(ProGpuSourceRoot)\.worktrees\avalonia-12.0.5</ProGpuAvaloniaSourceRoot>
+    <ProGpuAvaloniaSourceRoot Condition="'$(ProGpuAvaloniaSourceRoot)' == ''">$(ProGpuSourceRoot)\.worktrees\avalonia-12.1.1</ProGpuAvaloniaSourceRoot>
     <UseSkiaSharpShim>true</UseSkiaSharpShim>
     <PackAvaloniaNative>false</PackAvaloniaNative>
     <AvaloniaSingleProject>false</AvaloniaSingleProject>

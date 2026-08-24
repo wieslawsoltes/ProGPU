@@ -32,21 +32,28 @@ internal sealed class SilkNetEventLoop : IControlledDispatcherImpl
     private readonly List<ISilkNetLoopParticipant> _windows = [];
     private ISilkNetLoopParticipant[] _snapshot = [];
     private readonly Stopwatch _clock = Stopwatch.StartNew();
-    private readonly long _framePeriodTicks;
+    private long _framePeriodTicks;
+    private int _framesPerSecond;
+    private int _cadenceVersion;
     private bool _signalPending;
     private long? _timerDueMilliseconds;
 
     internal SilkNetEventLoop(int framesPerSecond)
     {
-        _framePeriodTicks = Math.Max(
-            1,
-            Stopwatch.Frequency / framesPerSecond);
+        UpdateFramesPerSecond(framesPerSecond);
     }
+
+    internal int FramesPerSecond =>
+        Volatile.Read(ref _framesPerSecond);
 
     public bool CurrentThreadIsLoopThread =>
         Thread.CurrentThread == _thread;
 
-    public bool CanQueryPendingInput => true;
+    // Silk.NET owns the GLFW callback queue and doesn't expose a
+    // non-destructive pending-input probe. Reporting support here would let
+    // Dispatcher run background work ahead of native input that is waiting
+    // for the next PollEvents call.
+    public bool CanQueryPendingInput => false;
 
     public bool HasPendingInput => false;
 
@@ -80,8 +87,17 @@ internal sealed class SilkNetEventLoop : IControlledDispatcherImpl
         using CancellationTokenRegistration cancellation =
             token.Register(static state => ((AutoResetEvent)state!).Set(), _wake);
         long nextFrame = Stopwatch.GetTimestamp();
+        int cadenceVersion = Volatile.Read(ref _cadenceVersion);
         while (!token.IsCancellationRequested)
         {
+            int currentCadenceVersion =
+                Volatile.Read(ref _cadenceVersion);
+            if (currentCadenceVersion != cadenceVersion)
+            {
+                cadenceVersion = currentCadenceVersion;
+                nextFrame = Stopwatch.GetTimestamp();
+            }
+
             DispatchAvaloniaWork();
             DispatchAvaloniaTimer();
 
@@ -110,8 +126,10 @@ internal sealed class SilkNetEventLoop : IControlledDispatcherImpl
                         window.RenderNativeWindow();
                 }
 
+                long framePeriodTicks =
+                    Volatile.Read(ref _framePeriodTicks);
                 do
-                    nextFrame += _framePeriodTicks;
+                    nextFrame += framePeriodTicks;
                 while (nextFrame <= now);
             }
 
@@ -137,6 +155,20 @@ internal sealed class SilkNetEventLoop : IControlledDispatcherImpl
     }
 
     internal void Wake() => _wake.Set();
+
+    internal void UpdateFramesPerSecond(int framesPerSecond)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            framesPerSecond);
+        Volatile.Write(ref _framesPerSecond, framesPerSecond);
+        Volatile.Write(
+            ref _framePeriodTicks,
+            Math.Max(
+                1,
+                Stopwatch.Frequency / framesPerSecond));
+        Interlocked.Increment(ref _cadenceVersion);
+        _wake.Set();
+    }
 
     private int CaptureWindows()
     {

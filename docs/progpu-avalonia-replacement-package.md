@@ -1,15 +1,15 @@
 # ProGPU Avalonia replacement package
 
 This `Avalonia` package is a source-built, API-compatible replacement for
-official Avalonia 12.0.5. It is intended for a private or isolated local NuGet
+official Avalonia 12.1.1. It is intended for a private or isolated local NuGet
 feed where it replaces the official package with the same package identity.
 Do not publish it to NuGet.org.
 
 The package is built from official Avalonia commit
-`fee9c561ce036e8a3e8cee2397c75ca599b4790d` plus the reviewed clean-room ProGPU
+`e33eaed9c106846b200680751022385d9cc5dc6f` plus the reviewed clean-room ProGPU
 compositor seam. Its public assembly identities and runtime API are checked
 with strict .NET ApiCompat rules, and its packed reference facades are compared
-with the official 12.0.5 package before the artifact is accepted.
+with the official 12.1.1 package before the artifact is accepted.
 
 The replacement keeps Avalonia's public API contract while a context-owned
 internal `ICompositionServerBackend` gives the strongly typed

@@ -79,6 +79,9 @@ public sealed class WindowImpl :
     private bool _visible;
     private bool _paintQueued = true;
     private bool _disposedState;
+#if AVALONIA11
+    private bool _isHitTestVisible = true;
+#endif
     private int _closeCallback;
     private long _zOrder;
     private double _reportedScaling = 1d;
@@ -140,14 +143,20 @@ public sealed class WindowImpl :
                left.SharesDeviceWith(right);
     }
 
-    internal long ZOrder => Volatile.Read(ref _zOrder);
-    internal bool AcceptsInput => _enabled && !_disposedState;
+    internal long ZOrder =>
+        SilkNetWindowingPlatform.ResolveZOrder(
+            Volatile.Read(ref _zOrder),
+            _topmost);
+    internal SilkNetWindowingPlatform Platform => _platform;
     internal IWindow? NativeWindow => _window;
     internal NativeWindowHandle NativeParentHandle =>
         _windowController?.Parent ??
         NativeWindowHandle.Empty;
 
-    public double DesktopScaling => RenderScaling;
+    public double DesktopScaling =>
+        SilkNetDisplayMetrics.ResolveDesktopScaling(
+            OperatingSystem.IsMacOS(),
+            RenderScaling);
 
     public IPlatformHandle? Handle
     {
@@ -271,7 +280,12 @@ public sealed class WindowImpl :
     }
 #endif
 
-    public Size? FrameSize => ClientSize;
+    public Size? FrameSize =>
+        SilkNetDisplayMetrics.ResolveFrameSize(
+            ClientSize,
+            _windowController is { IsAttached: true } controller
+                ? controller.FrameInsets
+                : null);
 
     public PixelPoint Position
     {
@@ -451,11 +465,26 @@ public sealed class WindowImpl :
         }
     }
 
-    public void SetFrameThemeVariant(PlatformThemeVariant themeVariant)
+    public void SetFrameThemeVariant(
+#if AVALONIA11
+        PlatformThemeVariant themeVariant)
+#else
+        PlatformThemeVariant? themeVariant)
+#endif
     {
+#if AVALONIA11
         _theme = themeVariant == PlatformThemeVariant.Dark
             ? NativeWindowTheme.Dark
             : NativeWindowTheme.Light;
+#else
+        _theme = themeVariant switch
+        {
+            null => NativeWindowTheme.Default,
+            { } value when value == PlatformThemeVariant.Dark =>
+                NativeWindowTheme.Dark,
+            _ => NativeWindowTheme.Light
+        };
+#endif
         _windowController?.SetTheme(_theme);
     }
 
@@ -711,7 +740,12 @@ public sealed class WindowImpl :
         }
 
         for (int index = 0; index < zOrder.Length; index++)
-            zOrder[index] = index;
+        {
+            zOrder[index] =
+                windows[index].PlatformImpl is WindowImpl window
+                    ? window.ZOrder
+                    : long.MinValue;
+        }
     }
 #endif
 
@@ -738,6 +772,20 @@ public sealed class WindowImpl :
         _windowController?.SetWindowShadow(enabled);
     }
 
+#if AVALONIA11
+    public void SetHitTestVisible(bool isHitTestVisible)
+    {
+        _isHitTestVisible = isHitTestVisible;
+        IWindow? window = _window;
+        if (window is null || !window.IsInitialized)
+            return;
+
+        _platform.Monitors.SetMousePassthrough(
+            window.Handle,
+            !isHitTestVisible);
+    }
+#endif
+
     public void TakeFocus() => Activate();
 
     public void Dispose()
@@ -750,6 +798,7 @@ public sealed class WindowImpl :
         _platform.EventLoop.Unregister(this);
         _input?.Dispose();
         _input = null;
+        _screens.Dispose();
         _framebufferSurface.Dispose();
 
         WgpuContext? context = _webGpuContext;
@@ -805,10 +854,19 @@ public sealed class WindowImpl :
 
     internal void EmitInput(RawInputEventArgs input)
     {
+        ArgumentNullException.ThrowIfNull(input);
+        Input?.Invoke(input);
+    }
+
+    internal bool TryAcceptInput()
+    {
+        if (_disposedState)
+            return false;
         if (_enabled)
-            Input?.Invoke(input);
-        else
-            GotInputWhenDisabled?.Invoke();
+            return true;
+
+        GotInputWhenDisabled?.Invoke();
+        return false;
     }
 
     internal NativeWindowPoint ToNativeScreenPoint(
@@ -837,8 +895,13 @@ public sealed class WindowImpl :
     void ISilkNetLoopParticipant.PollNativeEvents() =>
         _window?.DoEvents();
 
-    void ISilkNetLoopParticipant.UpdateNativeWindow() =>
-        _window?.DoUpdate();
+    void ISilkNetLoopParticipant.UpdateNativeWindow()
+    {
+        IWindow? window = _window;
+        window?.DoUpdate();
+        if (window is not null)
+            _input?.ProcessNativeState(window);
+    }
 
     void ISilkNetLoopParticipant.RenderNativeWindow() =>
         _window?.DoRender();
@@ -877,13 +940,6 @@ public sealed class WindowImpl :
                     _transparentRequested,
                 TopMost = _topmost
             };
-        if (_desiredPosition is { } desired)
-        {
-            options.Position = new Vector2D<int>(
-                desired.X,
-                desired.Y);
-        }
-
         IWindow window =
             Silk.NET.Windowing.Window.Create(options);
         _window = window;
@@ -900,6 +956,8 @@ public sealed class WindowImpl :
         window.Closing += OnClosing;
         window.Initialize();
         NotifyScalingChanged();
+        if (_desiredPosition is { } desired)
+            Move(desired);
         _platform.EventLoop.Register(this);
         return window;
     }
@@ -908,7 +966,12 @@ public sealed class WindowImpl :
     {
         if (_window is null)
             return;
+        _platform.Monitors.Attach();
         _windowController?.Attach();
+#if AVALONIA11
+        if (!_isHitTestVisible)
+            SetHitTestVisible(false);
+#endif
         ApplyNativeParent();
         if (_extendClientArea)
         {

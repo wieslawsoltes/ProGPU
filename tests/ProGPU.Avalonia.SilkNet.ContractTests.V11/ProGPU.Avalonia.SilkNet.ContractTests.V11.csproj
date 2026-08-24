@@ -5,6 +5,7 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <DefineConstants>$(DefineConstants);AVALONIA11</DefineConstants>
     <AssemblyName>ProGPU.Avalonia.SilkNet.ContractTests</AssemblyName>
     <RootNamespace>ProGPU.Avalonia.SilkNet.ContractTests</RootNamespace>
     <AvaloniaAccessUnstablePrivateApis>true</AvaloniaAccessUnstablePrivateApis>
@@ -12,23 +13,17 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="ClipboardContractTests.cs" />
-    <Compile Include="DisplayMetricsContractTests.cs" />
-    <Compile Include="FramebufferStorageContractTests.cs" />
-    <Compile Include="InputAndCursorContractTests.cs" />
-    <Compile Include="PlatformSettingsContractTests.cs" />
-    <Compile Include="PlatformTimingContractTests.cs" />
-    <Compile Include="ScreenInventoryContractTests.cs" />
-    <Compile Include="SharedWebGpuDevicesContractTests.cs" />
-    <Compile Include="WindowChromeContractTests.cs" />
+    <Compile Include="..\ProGPU.Avalonia.SilkNet.ContractTests\*.cs"
+             Link="%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Avalonia" VersionOverride="11.3.20" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <ProjectReference Include="..\..\src\ProGPU.Avalonia.SilkNet\ProGPU.Avalonia.SilkNet.csproj" />
+    <ProjectReference Include="..\..\src\ProGPU.Avalonia.SilkNet.V11\ProGPU.Avalonia.SilkNet.V11.csproj" />
   </ItemGroup>
 </Project>

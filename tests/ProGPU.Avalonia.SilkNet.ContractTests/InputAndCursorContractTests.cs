@@ -9,6 +9,22 @@ namespace ProGPU.Avalonia.SilkNet.ContractTests;
 public sealed class InputAndCursorContractTests
 {
     [Theory]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, false)]
+    public void PointerLeaveIsRaisedOnlyForAnExitTransition(
+        bool wasInside,
+        bool isHovered,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            SilkNetInputRouter.ShouldEmitPointerLeave(
+                wasInside,
+                isHovered));
+    }
+
+    [Theory]
     [InlineData(SilkKey.A, Key.A, PhysicalKey.A)]
     [InlineData(SilkKey.Number7, Key.D7, PhysicalKey.Digit7)]
     [InlineData(SilkKey.KeypadEnter, Key.Enter, PhysicalKey.NumPadEnter)]

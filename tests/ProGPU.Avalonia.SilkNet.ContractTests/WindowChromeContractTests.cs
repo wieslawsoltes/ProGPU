@@ -10,6 +10,7 @@ namespace ProGPU.Avalonia.SilkNet.ContractTests;
 
 public sealed class WindowChromeContractTests
 {
+#if !AVALONIA11
     [Theory]
     [InlineData(
         NativeWindowKind.Win32,
@@ -136,6 +137,22 @@ public sealed class WindowChromeContractTests
             (int)SilkNetWindowChrome
                 .MapRequestedDrawnDecorations(
                     native));
+    }
+#endif
+
+    [Fact]
+    public void TopmostWindowsRemainAboveRecentlyActivatedNormalWindows()
+    {
+        long oldTopmost =
+            SilkNetWindowingPlatform.ResolveZOrder(
+                activationOrder: 1,
+                topmost: true);
+        long newerNormal =
+            SilkNetWindowingPlatform.ResolveZOrder(
+                activationOrder: 100,
+                topmost: false);
+
+        Assert.True(oldTopmost > newerNormal);
     }
 
     [Theory]

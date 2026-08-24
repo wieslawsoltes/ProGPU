@@ -21,7 +21,7 @@ skia_project="$repo_root/integration/AvaloniaSkiaControlCatalogReference/Avaloni
 skia_app="$repo_root/integration/AvaloniaSkiaControlCatalogReference/bin/Release/net10.0/AvaloniaSkiaControlCatalogReference.dll"
 source_project="$repo_root/integration/AvaloniaSourceControlCatalog/AvaloniaSourceControlCatalog.csproj"
 source_app="$repo_root/integration/AvaloniaSourceControlCatalog/bin/Release/net10.0/AvaloniaSourceControlCatalog.dll"
-avalonia_source_root="${PROGPU_AVALONIA_ROOT:-$repo_root/.worktrees/avalonia-12.0.5}"
+avalonia_source_root="${PROGPU_AVALONIA_ROOT:-$repo_root/.worktrees/avalonia-12.1.1}"
 analyzer_project="$repo_root/tools/ProGPU.SampleMemoryProfiler/ProGPU.SampleMemoryProfiler.csproj"
 analyzer_app="$repo_root/tools/ProGPU.SampleMemoryProfiler/bin/Release/net10.0/ProGPU.SampleMemoryProfiler.dll"
 page_source="$avalonia_source_root/samples/ControlCatalog/MainView.xaml"
@@ -90,7 +90,7 @@ if [[ "${PROGPU_AVALONIA_SKIP_BUILD:-0}" != "1" ]]; then
   for backend in "${backends[@]}"; do
     if [[ "$backend" == source-progpu* ]]; then
       if [[ "$source_built" == "0" ]]; then
-        "$repo_root/tools/prepare-avalonia-12.0.5-source.sh"
+        "$repo_root/tools/prepare-avalonia-12.1.1-source.sh"
         dotnet restore "$source_project" \
           -p:ProGpuDependencyMode=Source \
           -p:ProGpuSourceRoot="$repo_root" \
@@ -116,7 +116,7 @@ if [[ "${PROGPU_AVALONIA_SKIP_BUILD:-0}" != "1" ]]; then
       fi
     else
       if [[ "$skia_built" == "0" ]]; then
-        "$repo_root/tools/prepare-avalonia-12.0.5-source.sh"
+        "$repo_root/tools/prepare-avalonia-12.1.1-source.sh"
         dotnet restore "$skia_project" \
           -p:PackAvaloniaNative=false \
           -p:AvaloniaForkRoot="$avalonia_source_root"
