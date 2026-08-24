@@ -243,6 +243,7 @@ bool solid_rectangle_compiles_to_semantic_scene() {
         0U,
         0U);
     std::vector<std::byte> nested;
+    append_command(nested, command::push_opacity, 0.5);
     append_command(
         nested,
         command::draw_rectangle,
@@ -252,6 +253,7 @@ bool solid_rectangle_compiles_to_semantic_scene() {
         40.0,
         brush,
         0U);
+    append_command(nested, command::pop);
     append_render_data(batch, content, nested);
     append_command(
         batch,
@@ -280,10 +282,11 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     const auto header = read_value<progpu_native_scene_header>(stream, 0U);
     PROGPU_REQUIRE(header.scene_id == 9001U);
     PROGPU_REQUIRE(header.generation == 7U);
-    PROGPU_REQUIRE(header.command_count == 5U);
-    PROGPU_REQUIRE(header.resource_count == 4U);
+    PROGPU_REQUIRE(header.command_count == 7U);
+    PROGPU_REQUIRE(header.resource_count == 5U);
 
     bool found_child_state = false;
+    bool found_nested_opacity_state = false;
     bool found_rectangle = false;
     bool found_brush = false;
     for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
@@ -296,8 +299,11 @@ bool solid_rectangle_compiles_to_semantic_scene() {
                 stream, record.payload_offset);
             if (scene_state.transform.m31 == 13.0F &&
                 scene_state.transform.m32 == 24.0F) {
-                PROGPU_REQUIRE(scene_state.opacity == 0.4F);
-                found_child_state = true;
+                if (scene_state.opacity == 0.4F) {
+                    found_child_state = true;
+                } else if (scene_state.opacity == 0.2F) {
+                    found_nested_opacity_state = true;
+                }
             }
         } else if (
             record.kind == PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH) {
@@ -322,6 +328,7 @@ bool solid_rectangle_compiles_to_semantic_scene() {
         }
     }
     PROGPU_REQUIRE(found_child_state);
+    PROGPU_REQUIRE(found_nested_opacity_state);
     PROGPU_REQUIRE(found_rectangle);
     PROGPU_REQUIRE(found_brush);
 
@@ -374,6 +381,48 @@ bool solid_rectangle_compiles_to_semantic_scene() {
             nullptr) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
     PROGPU_REQUIRE(abi_stream == stream);
     progpu_native_mil_channel_destroy(native_channel);
+    return true;
+}
+
+bool render_data_scope_errors_fail_closed() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    std::vector<std::byte> nested;
+    append_command(nested, command::push_opacity, 0.5);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        16U,
+        16U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    PROGPU_REQUIRE(
+        state.build_scene(target, 1U, 1U, stream) ==
+        status::invalid_graph);
+
+    std::vector<std::byte> pop_batch;
+    std::vector<std::byte> unmatched_pop;
+    append_command(unmatched_pop, command::pop);
+    append_render_data(pop_batch, content, unmatched_pop);
+    PROGPU_REQUIRE(state.apply(pop_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 1U, 2U, stream) ==
+        status::invalid_graph);
     return true;
 }
 
@@ -441,6 +490,7 @@ int main() {
     PROGPU_REQUIRE(failed_batches_roll_back());
     PROGPU_REQUIRE(invalid_visual_graphs_fail_closed());
     PROGPU_REQUIRE(solid_rectangle_compiles_to_semantic_scene());
+    PROGPU_REQUIRE(render_data_scope_errors_fail_closed());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());
     PROGPU_REQUIRE(c_abi_is_typed_and_size_versioned());
     return 0;
