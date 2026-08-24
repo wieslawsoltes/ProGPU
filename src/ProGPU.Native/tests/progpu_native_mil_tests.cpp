@@ -253,6 +253,15 @@ bool solid_rectangle_compiles_to_semantic_scene() {
         40.0,
         brush,
         0U);
+    append_command(
+        nested,
+        command::draw_ellipse,
+        5.0,
+        9.0,
+        7.0,
+        11.0,
+        brush,
+        0U);
     append_command(nested, command::pop);
     append_render_data(batch, content, nested);
     append_command(
@@ -275,6 +284,7 @@ bool solid_rectangle_compiles_to_semantic_scene() {
         status::success);
     PROGPU_REQUIRE(metrics.visual_count == 2U);
     PROGPU_REQUIRE(metrics.rectangle_count == 1U);
+    PROGPU_REQUIRE(metrics.ellipse_count == 1U);
     PROGPU_REQUIRE(metrics.brush_count == 1U);
     PROGPU_REQUIRE(metrics.maximum_visual_depth == 2U);
     PROGPU_REQUIRE(metrics.stream_bytes == stream.size());
@@ -282,12 +292,13 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     const auto header = read_value<progpu_native_scene_header>(stream, 0U);
     PROGPU_REQUIRE(header.scene_id == 9001U);
     PROGPU_REQUIRE(header.generation == 7U);
-    PROGPU_REQUIRE(header.command_count == 7U);
-    PROGPU_REQUIRE(header.resource_count == 5U);
+    PROGPU_REQUIRE(header.command_count == 8U);
+    PROGPU_REQUIRE(header.resource_count == 6U);
 
     bool found_child_state = false;
     bool found_nested_opacity_state = false;
     bool found_rectangle = false;
+    bool found_ellipse = false;
     bool found_brush = false;
     for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
         const auto record = read_value<progpu_native_scene_resource>(
@@ -307,15 +318,24 @@ bool solid_rectangle_compiles_to_semantic_scene() {
             }
         } else if (
             record.kind == PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH) {
-            const auto rectangle =
+            const auto primitive =
                 read_value<progpu_native_analytic_primitive>(
                     stream, record.payload_offset);
-            PROGPU_REQUIRE(rectangle.kind == PROGPU_NATIVE_PRIMITIVE_RECTANGLE);
-            PROGPU_REQUIRE(rectangle.x == 2.0F);
-            PROGPU_REQUIRE(rectangle.y == 6.0F);
-            PROGPU_REQUIRE(rectangle.width == 30.0F);
-            PROGPU_REQUIRE(rectangle.height == 40.0F);
-            found_rectangle = true;
+            if (primitive.kind == PROGPU_NATIVE_PRIMITIVE_RECTANGLE) {
+                PROGPU_REQUIRE(primitive.x == 2.0F);
+                PROGPU_REQUIRE(primitive.y == 6.0F);
+                PROGPU_REQUIRE(primitive.width == 30.0F);
+                PROGPU_REQUIRE(primitive.height == 40.0F);
+                found_rectangle = true;
+            } else if (primitive.kind == PROGPU_NATIVE_PRIMITIVE_ELLIPSE) {
+                PROGPU_REQUIRE(primitive.x == -2.0F);
+                PROGPU_REQUIRE(primitive.y == -2.0F);
+                PROGPU_REQUIRE(primitive.width == 14.0F);
+                PROGPU_REQUIRE(primitive.height == 22.0F);
+                found_ellipse = true;
+            } else {
+                PROGPU_REQUIRE(false);
+            }
         } else if (record.kind == PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE) {
             const auto scene_brush = read_value<progpu_native_scene_brush>(
                 stream, record.payload_offset);
@@ -330,6 +350,7 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     PROGPU_REQUIRE(found_child_state);
     PROGPU_REQUIRE(found_nested_opacity_state);
     PROGPU_REQUIRE(found_rectangle);
+    PROGPU_REQUIRE(found_ellipse);
     PROGPU_REQUIRE(found_brush);
 
     progpu_native_mil_channel* native_channel = nullptr;
@@ -356,6 +377,7 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     PROGPU_REQUIRE(required_bytes == stream.size());
     PROGPU_REQUIRE(abi_metrics.visual_count == 2U);
     PROGPU_REQUIRE(abi_metrics.rectangle_count == 1U);
+    PROGPU_REQUIRE(abi_metrics.ellipse_count == 1U);
     std::vector<std::byte> abi_stream(required_bytes);
     std::size_t written_bytes = 0U;
     PROGPU_REQUIRE(

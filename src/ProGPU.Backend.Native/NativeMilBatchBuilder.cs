@@ -265,6 +265,31 @@ public sealed class NativeMilRenderDataBuilder
         NativeMilBatchBuilder.WriteUInt32(packet, 36, brushHandle);
         NativeMilBatchBuilder.WriteUInt32(packet, 40, penHandle);
     }
+
+    public void DrawEllipse(
+        double centerX,
+        double centerY,
+        double radiusX,
+        double radiusY,
+        uint brushHandle,
+        uint penHandle = 0)
+    {
+        if (!double.IsFinite(centerX) || !double.IsFinite(centerY) ||
+            !double.IsFinite(radiusX) || !double.IsFinite(radiusY) ||
+            radiusX < 0.0 || radiusY < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(radiusX));
+        }
+        ArgumentOutOfRangeException.ThrowIfZero(brushHandle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawEllipse, 44);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, centerX);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, centerY);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, radiusX);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, radiusY);
+        NativeMilBatchBuilder.WriteUInt32(packet, 36, brushHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 40, penHandle);
+    }
 }
 
 internal static class NativeMilBatchEncoding
@@ -298,6 +323,7 @@ internal static class NativeMilCommand
     internal const uint TargetSetRoot = 0x35;
     internal const uint TargetSetClearColor = 0x36;
     internal const uint DrawRectangle = 0x40;
+    internal const uint DrawEllipse = 0x44;
     internal const uint PushOpacity = 0x4f;
     internal const uint Pop = 0x56;
     internal const uint SolidColorBrush = 0x7e;

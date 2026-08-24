@@ -608,21 +608,22 @@ struct channel::implementation {
                 scope_opacities.pop_back();
                 continue;
             }
-            if (view.kind != command::draw_rectangle) {
+            if (view.kind != command::draw_rectangle &&
+                view.kind != command::draw_ellipse) {
                 return status::unsupported_command;
             }
 
-            double x = 0.0;
-            double y = 0.0;
-            double width = 0.0;
-            double height = 0.0;
+            double first = 0.0;
+            double second = 0.0;
+            double third = 0.0;
+            double fourth = 0.0;
             std::uint32_t brush_handle = 0U;
             std::uint32_t pen_handle = 0U;
             if (!has_exact_size(view, 44U) ||
-                !read_at(view.packet, 4U, x) ||
-                !read_at(view.packet, 12U, y) ||
-                !read_at(view.packet, 20U, width) ||
-                !read_at(view.packet, 28U, height) ||
+                !read_at(view.packet, 4U, first) ||
+                !read_at(view.packet, 12U, second) ||
+                !read_at(view.packet, 20U, third) ||
+                !read_at(view.packet, 28U, fourth) ||
                 !read_at(view.packet, 36U, brush_handle) ||
                 !read_at(view.packet, 40U, pen_handle)) {
                 return status::malformed_batch;
@@ -630,10 +631,22 @@ struct channel::implementation {
             if (brush_handle == 0U || pen_handle != 0U) {
                 return status::unsupported_command;
             }
+            if (!finite_double_as_float(first) ||
+                !finite_double_as_float(second) ||
+                !finite_double_as_float(third) ||
+                !finite_double_as_float(fourth) || third < 0.0 ||
+                fourth < 0.0) {
+                return status::malformed_batch;
+            }
+            const bool is_ellipse = view.kind == command::draw_ellipse;
+            const double x = is_ellipse ? first - third : first;
+            const double y = is_ellipse ? second - fourth : second;
+            const double width = is_ellipse ? third * 2.0 : third;
+            const double height = is_ellipse ? fourth * 2.0 : fourth;
             if (!finite_double_as_float(x) || !finite_double_as_float(y) ||
                 !finite_double_as_float(width) ||
-                !finite_double_as_float(height) || width < 0.0 ||
-                height < 0.0 || !finite_double_as_float(x + offset_x) ||
+                !finite_double_as_float(height) ||
+                !finite_double_as_float(x + offset_x) ||
                 !finite_double_as_float(y + offset_y)) {
                 return status::malformed_batch;
             }
@@ -656,7 +669,9 @@ struct channel::implementation {
 
             const std::array primitive{
                 progpu_native_analytic_primitive{
-                    PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+                    is_ellipse
+                        ? PROGPU_NATIVE_PRIMITIVE_ELLIPSE
+                        : PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
                     0U,
                     static_cast<float>(x),
                     static_cast<float>(y),
@@ -676,7 +691,11 @@ struct channel::implementation {
                      static_cast<float>(height)})) {
                 return status::invalid_graph;
             }
-            ++metrics.rectangle_count;
+            if (is_ellipse) {
+                ++metrics.ellipse_count;
+            } else {
+                ++metrics.rectangle_count;
+            }
         }
     }
 

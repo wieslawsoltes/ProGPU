@@ -68,6 +68,7 @@ public readonly record struct NativeMilTargetSnapshot(
 public readonly record struct NativeMilSceneMetrics(
     uint VisualCount,
     uint RectangleCount,
+    uint EllipseCount,
     uint BrushCount,
     uint MaximumVisualDepth,
     ulong StreamBytes);

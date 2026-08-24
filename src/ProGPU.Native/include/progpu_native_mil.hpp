@@ -209,6 +209,7 @@ struct target_snapshot {
 struct scene_metrics {
     std::uint32_t visual_count{};
     std::uint32_t rectangle_count{};
+    std::uint32_t ellipse_count{};
     std::uint32_t brush_count{};
     std::uint32_t maximum_visual_depth{};
     std::uint64_t stream_bytes{};
