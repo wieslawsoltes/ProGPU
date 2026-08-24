@@ -1,8 +1,10 @@
 #include "progpu_native_mil.hpp"
 #include "progpu_native_scene_builder.hpp"
+#include "../Geometry/progpu_native_arc.hpp"
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -957,16 +959,43 @@ struct channel::implementation {
                 !read_at(figures, 44U, force_packing) ||
                 declared_size != figures_size || force_packing != 0U ||
                 (path_flags & ~0x1FU) != 0U ||
-                (path_flags & 0x02U) == 0U ||
-                !finite_double_as_float(geometry.left) ||
-                !finite_double_as_float(geometry.top) ||
-                !finite_double_as_float(geometry.right) ||
-                !finite_double_as_float(geometry.bottom) ||
-                geometry.right < geometry.left ||
-                geometry.bottom < geometry.top ||
                 figure_count > maximum_path_record_count) {
                 return status::malformed_batch;
             }
+            const bool packet_bounds_valid = (path_flags & 0x02U) != 0U;
+            if (packet_bounds_valid &&
+                (!finite_double_as_float(geometry.left) ||
+                 !finite_double_as_float(geometry.top) ||
+                 !finite_double_as_float(geometry.right) ||
+                 !finite_double_as_float(geometry.bottom) ||
+                 geometry.right < geometry.left ||
+                 geometry.bottom < geometry.top)) {
+                return status::malformed_batch;
+            }
+            bool has_computed_bounds = false;
+            double computed_left = 0.0;
+            double computed_top = 0.0;
+            double computed_right = 0.0;
+            double computed_bottom = 0.0;
+            const auto include_bounds_point = [
+                &has_computed_bounds,
+                &computed_left,
+                &computed_top,
+                &computed_right,
+                &computed_bottom](progpu_native_point point) noexcept {
+                if (!has_computed_bounds) {
+                    computed_left = point.x;
+                    computed_top = point.y;
+                    computed_right = point.x;
+                    computed_bottom = point.y;
+                    has_computed_bounds = true;
+                    return;
+                }
+                computed_left = std::min(computed_left, double{point.x});
+                computed_top = std::min(computed_top, double{point.y});
+                computed_right = std::max(computed_right, double{point.x});
+                computed_bottom = std::max(computed_bottom, double{point.y});
+            };
             const auto read_point = [&figures](
                 std::size_t offset,
                 progpu_native_point& point) noexcept {
@@ -1012,6 +1041,7 @@ struct channel::implementation {
                     return status::malformed_batch;
                 }
                 offset += 40U;
+                include_bounds_point(start);
                 std::uint32_t previous_segment_size = 0U;
                 std::uint32_t actual_last_segment_offset = 0U;
                 progpu_native_point current = start;
@@ -1070,7 +1100,132 @@ struct channel::implementation {
                             return status::malformed_batch;
                         }
                     } else if (segment_type == 4U) {
-                        return status::unsupported_command;
+                        constexpr std::size_t arc_segment_size = 64U;
+                        const std::size_t figure_consumed =
+                            offset - figure_offset;
+                        std::uint32_t large_arc = 0U;
+                        std::uint32_t sweep = 0U;
+                        std::uint32_t segment_padding = 0U;
+                        progpu_native_point end{};
+                        double radius_x = 0.0;
+                        double radius_y = 0.0;
+                        double rotation = 0.0;
+                        if (figure_consumed > figure_size ||
+                            arc_segment_size > figures.size() - offset ||
+                            arc_segment_size > figure_size - figure_consumed ||
+                            !read_at(figures, offset + 12U, large_arc) ||
+                            !read_point(offset + 16U, end) ||
+                            !read_at(figures, offset + 32U, radius_x) ||
+                            !read_at(figures, offset + 40U, radius_y) ||
+                            !read_at(figures, offset + 48U, rotation) ||
+                            !read_at(figures, offset + 56U, sweep) ||
+                            !read_at(
+                                figures,
+                                offset + 60U,
+                                segment_padding) ||
+                            large_arc > 1U || sweep > 1U ||
+                            segment_padding != 0U ||
+                            !finite_double_as_float(radius_x) ||
+                            !finite_double_as_float(radius_y) ||
+                            !finite_double_as_float(rotation) ||
+                            radius_x < 0.0 || radius_y < 0.0) {
+                            return status::malformed_batch;
+                        }
+                        const progpu::native::geometry::arc_point arc_start{
+                            current.x,
+                            current.y};
+                        const progpu::native::geometry::arc_point arc_end{
+                            end.x,
+                            end.y};
+                        progpu::native::geometry::arc_point center{};
+                        float theta1 = 0.0F;
+                        float delta_theta = 0.0F;
+                        float resolved_radius_x = 0.0F;
+                        float resolved_radius_y = 0.0F;
+                        if (progpu::native::geometry::resolve_arc(
+                                arc_start,
+                                arc_end,
+                                {static_cast<float>(radius_x),
+                                 static_cast<float>(radius_y)},
+                                static_cast<float>(rotation),
+                                large_arc != 0U,
+                                sweep != 0U,
+                                center,
+                                theta1,
+                                delta_theta,
+                                resolved_radius_x,
+                                resolved_radius_y)) {
+                            progpu_native_path_segment segment{};
+                            segment.p0 = current;
+                            segment.p1 = end;
+                            segment.p2 = {center.x, center.y};
+                            segment.p3 = {
+                                resolved_radius_x,
+                                resolved_radius_y};
+                            segment.kind = PROGPU_NATIVE_PATH_SEGMENT_ARC;
+                            segment.pad0 = std::bit_cast<std::uint32_t>(
+                                theta1);
+                            segment.pad1 = std::bit_cast<std::uint32_t>(
+                                delta_theta);
+                            segment.pad2 = std::bit_cast<std::uint32_t>(
+                                static_cast<float>(rotation) *
+                                std::numbers::pi_v<float> / 180.0F);
+                            figure_segments.push_back(segment);
+                            include_bounds_point(segment.p0);
+                            include_bounds_point(segment.p1);
+                            const float rotation_degrees =
+                                static_cast<float>(rotation);
+                            const float rotation_radians =
+                                rotation_degrees *
+                                std::numbers::pi_v<float> / 180.0F;
+                            const float cosine_rotation =
+                                std::cos(rotation_radians);
+                            const float sine_rotation =
+                                std::sin(rotation_radians);
+                            const float x_extrema = std::atan2(
+                                -resolved_radius_y * sine_rotation,
+                                resolved_radius_x * cosine_rotation);
+                            const float y_extrema = std::atan2(
+                                resolved_radius_y * cosine_rotation,
+                                resolved_radius_x * sine_rotation);
+                            const float arc_extrema[4]{
+                                x_extrema,
+                                x_extrema + std::numbers::pi_v<float>,
+                                y_extrema,
+                                y_extrema + std::numbers::pi_v<float>};
+                            for (const float theta : arc_extrema) {
+                                if (!progpu::native::geometry::
+                                        angle_within_sweep(
+                                            theta,
+                                            theta1,
+                                            delta_theta)) {
+                                    continue;
+                                }
+                                const auto point =
+                                    progpu::native::geometry::evaluate_arc(
+                                        center,
+                                        resolved_radius_x,
+                                        resolved_radius_y,
+                                        rotation_degrees,
+                                        theta);
+                                include_bounds_point({point.x, point.y});
+                            }
+                        } else if (!progpu::native::geometry::equal(
+                                arc_start,
+                                arc_end)) {
+                            progpu_native_path_segment segment{};
+                            segment.p0 = current;
+                            segment.p1 = end;
+                            segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                            figure_segments.push_back(segment);
+                            include_bounds_point(segment.p0);
+                            include_bounds_point(segment.p1);
+                        }
+                        current = end;
+                        offset += arc_segment_size;
+                        previous_segment_size = static_cast<std::uint32_t>(
+                            arc_segment_size);
+                        continue;
                     } else {
                         return status::malformed_batch;
                     }
@@ -1096,6 +1251,8 @@ struct channel::implementation {
                                 return status::malformed_batch;
                             }
                             current = segment.p1;
+                            include_bounds_point(segment.p0);
+                            include_bounds_point(segment.p1);
                         } else if (
                             native_kind ==
                             PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC) {
@@ -1110,6 +1267,9 @@ struct channel::implementation {
                                 return status::malformed_batch;
                             }
                             current = segment.p2;
+                            include_bounds_point(segment.p0);
+                            include_bounds_point(segment.p1);
+                            include_bounds_point(segment.p2);
                         } else {
                             if (!read_point(
                                     points_offset +
@@ -1126,6 +1286,10 @@ struct channel::implementation {
                                 return status::malformed_batch;
                             }
                             current = segment.p3;
+                            include_bounds_point(segment.p0);
+                            include_bounds_point(segment.p1);
+                            include_bounds_point(segment.p2);
+                            include_bounds_point(segment.p3);
                         }
                         figure_segments.push_back(segment);
                     }
@@ -1156,6 +1320,12 @@ struct channel::implementation {
             }
             if (offset != figures.size()) {
                 return status::malformed_batch;
+            }
+            if (!packet_bounds_valid) {
+                geometry.left = has_computed_bounds ? computed_left : 0.0;
+                geometry.top = has_computed_bounds ? computed_top : 0.0;
+                geometry.right = has_computed_bounds ? computed_right : 0.0;
+                geometry.bottom = has_computed_bounds ? computed_bottom : 0.0;
             }
             path_geometries.insert_or_assign(handle, std::move(geometry));
             increment_generation(handle);

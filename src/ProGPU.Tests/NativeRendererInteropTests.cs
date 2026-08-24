@@ -168,13 +168,20 @@ public class NativeRendererInteropTests
                             NativeMilPathSegment.CubicBezier(
                                 new NativeMilPoint(11, 4),
                                 new NativeMilPoint(13, 12),
-                                new NativeMilPoint(15, 6))
+                                new NativeMilPoint(15, 6)),
+                            NativeMilPathSegment.Arc(
+                                new NativeMilPoint(1, 2),
+                                8,
+                                6,
+                                30,
+                                isLargeArc: false,
+                                isClockwise: true)
                         ])
                 ]),
             6);
         byte[] encoded = batch.ToArray();
 
-        Assert.Equal(448, encoded.Length);
+        Assert.Equal(512, encoded.Length);
         Assert.Equal(56U, ReadUInt32(encoded, 0));
         Assert.Equal(0x78U, ReadUInt32(encoded, 4));
         Assert.Equal(9U, ReadUInt32(encoded, 8));
@@ -208,13 +215,13 @@ public class NativeRendererInteropTests
         Assert.Equal(6U, ReadUInt32(encoded, 176));
         Assert.Equal(0U, ReadUInt32(encoded, 188));
 
-        Assert.Equal(256U, ReadUInt32(encoded, 192));
+        Assert.Equal(320U, ReadUInt32(encoded, 192));
         Assert.Equal(0x7dU, ReadUInt32(encoded, 196));
         Assert.Equal(12U, ReadUInt32(encoded, 200));
         Assert.Equal(6U, ReadUInt32(encoded, 204));
         Assert.Equal(1U, ReadUInt32(encoded, 208));
-        Assert.Equal(232U, ReadUInt32(encoded, 212));
-        Assert.Equal(232U, ReadUInt32(encoded, 216));
+        Assert.Equal(296U, ReadUInt32(encoded, 212));
+        Assert.Equal(296U, ReadUInt32(encoded, 216));
         Assert.Equal(3U, ReadUInt32(encoded, 220));
         Assert.Equal(1.0, ReadDouble(encoded, 224));
         Assert.Equal(2.0, ReadDouble(encoded, 232));
@@ -222,9 +229,9 @@ public class NativeRendererInteropTests
         Assert.Equal(32.0, ReadDouble(encoded, 248));
         Assert.Equal(1U, ReadUInt32(encoded, 256));
         Assert.Equal(14U, ReadUInt32(encoded, 268));
-        Assert.Equal(3U, ReadUInt32(encoded, 272));
-        Assert.Equal(184U, ReadUInt32(encoded, 276));
-        Assert.Equal(120U, ReadUInt32(encoded, 296));
+        Assert.Equal(4U, ReadUInt32(encoded, 272));
+        Assert.Equal(248U, ReadUInt32(encoded, 276));
+        Assert.Equal(184U, ReadUInt32(encoded, 296));
         Assert.Equal(1U, ReadUInt32(encoded, 304));
         Assert.Equal(3U, ReadUInt32(encoded, 336));
         Assert.Equal(32U, ReadUInt32(encoded, 344));
@@ -232,6 +239,16 @@ public class NativeRendererInteropTests
         Assert.Equal(48U, ReadUInt32(encoded, 392));
         Assert.Equal(15.0, ReadDouble(encoded, 432));
         Assert.Equal(6.0, ReadDouble(encoded, 440));
+        Assert.Equal(4U, ReadUInt32(encoded, 448));
+        Assert.Equal(64U, ReadUInt32(encoded, 456));
+        Assert.Equal(0U, ReadUInt32(encoded, 460));
+        Assert.Equal(1.0, ReadDouble(encoded, 464));
+        Assert.Equal(2.0, ReadDouble(encoded, 472));
+        Assert.Equal(8.0, ReadDouble(encoded, 480));
+        Assert.Equal(6.0, ReadDouble(encoded, 488));
+        Assert.Equal(30.0, ReadDouble(encoded, 496));
+        Assert.Equal(1U, ReadUInt32(encoded, 504));
+        Assert.Equal(0U, ReadUInt32(encoded, 508));
 
         var renderData = new NativeMilRenderDataBuilder();
         renderData.DrawGeometry(4, 5, 9);

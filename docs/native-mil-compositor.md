@@ -173,15 +173,16 @@ wrong-type resources fail closed transactionally.
 The first retained general-path slice implements canonical variable-size
 `MILCMD_PATHGEOMETRY` updates and nested fill-only `MILCMD_DRAW_GEOMETRY`.
 The native channel validates WPF's `MIL_PATHGEOMETRY`, `MIL_PATHFIGURE`, fixed
-line/quadratic/cubic segments, and poly-line/poly-quadratic/poly-cubic record
-links and sizes before committing retained state. Filled contours lower to one
+line/quadratic/cubic/arc segments, and poly-line/poly-quadratic/poly-cubic
+record links and sizes before committing retained state. Filled contours lower to one
 backend-independent ProGPU semantic path batch with EvenOdd/Nonzero fill,
-geometry-local affine transforms, exact caller-supplied local bounds, and WPF's
-implicit fill closure for open figures. Malformed back-links, sizes, padding,
+geometry-local affine transforms, exact validated cached local bounds when
+present, conservative native bounds when WPF leaves `BoundsValid` clear, and
+WPF's implicit fill closure for open figures. Malformed back-links, sizes, padding,
 flags, counts, bounds, transforms, and handles roll back transactionally.
-Arc execution and meaningful path pens remain fail-closed; the managed producer
-can already serialize the canonical fixed arc record so transport and execution
-can advance independently.
+Endpoint arcs reuse the neutral native arc resolver shared with SVG glyph
+paths, retain center/radii/sweep data in ProGPU's semantic arc record, and
+preserve the degenerate-to-line rule. Meaningful path pens remain fail-closed.
 
 `NativeMilBatchBuilder` and `NativeMilRenderDataBuilder` provide the matching
 managed producer for this supported subset. They write the canonical WPF
@@ -192,7 +193,7 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds, geometry,
-  beyond retained path resources, path arcs/strokes, geometry groups/combined
+  beyond retained path resources, path strokes, geometry groups/combined
   geometry, curved-path dashes, remaining pen draws,
   brushes, drawings, images, glyph runs, caches, guidelines, effects, and
   complete render-data decoding.
