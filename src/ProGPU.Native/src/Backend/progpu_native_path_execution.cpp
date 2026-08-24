@@ -545,6 +545,9 @@ progpu_native_status render_paths(
         WGPUBufferDescriptor descriptor{};
         descriptor.label = progpu::native::webgpu::string_view(label);
         descriptor.size = std::max<std::uint64_t>(size, 4U);
+        if (descriptor.size > engine->max_buffer_size) {
+            return nullptr;
+        }
         descriptor.usage = usage;
         return wgpuDeviceCreateBuffer(engine->device, &descriptor);
     };

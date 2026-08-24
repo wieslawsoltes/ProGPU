@@ -609,13 +609,14 @@ bool ensure_semantic_layer_vertex_buffer(
             required_bytes <= engine.semantic_layer_vertex_buffer_size)) {
         return true;
     }
-    std::uint64_t capacity = std::max<std::uint64_t>(256U,
-        engine.semantic_layer_vertex_buffer_size);
-    while (capacity < required_bytes) {
-        if (capacity > std::numeric_limits<std::uint64_t>::max() / 2U) {
-            return false;
-        }
-        capacity *= 2U;
+    std::uint64_t capacity = 0U;
+    if (!progpu::native::try_calculate_buffer_capacity(
+            engine.semantic_layer_vertex_buffer_size,
+            required_bytes,
+            256U,
+            engine.max_buffer_size,
+            capacity)) {
+        return false;
     }
     WGPUBufferDescriptor descriptor{};
     descriptor.label = ::progpu::native::webgpu::string_view(
