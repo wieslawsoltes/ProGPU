@@ -14,7 +14,7 @@ index 05f9fe0..5e18408 100644
      _target.setNoAddRef(new AvnMetalRenderTarget(_layer, _device));
      return self;
 diff --git a/packages/Avalonia/Avalonia.csproj b/packages/Avalonia/Avalonia.csproj
-index f86a031..ec16088 100644
+index f86a031..1b12b9a 100644
 --- a/packages/Avalonia/Avalonia.csproj
 +++ b/packages/Avalonia/Avalonia.csproj
 @@ -3,6 +3,17 @@
@@ -147,24 +147,6 @@ index 1d39290..dc25ef6 100644
      <InternalsVisibleTo Include="Avalonia.Controls.ColorPicker, PublicKey=$(AvaloniaPublicKey)" />
      <InternalsVisibleTo Include="Avalonia.Controls.DataGrid, PublicKey=$(AvaloniaPublicKey)" />
      <InternalsVisibleTo Include="Avalonia.Headless, PublicKey=$(AvaloniaPublicKey)" />
-diff --git a/src/Avalonia.Base/Platform/IPlatformRenderInterfaceNativeSurfaceFeature.cs b/src/Avalonia.Base/Platform/IPlatformRenderInterfaceNativeSurfaceFeature.cs
-new file mode 100644
-index 0000000..c5a430c
---- /dev/null
-+++ b/src/Avalonia.Base/Platform/IPlatformRenderInterfaceNativeSurfaceFeature.cs
-@@ -0,0 +1,12 @@
-+namespace Avalonia.Platform;
-+
-+/// <summary>
-+/// Describes native-window surface constraints imposed by a rendering backend.
-+/// </summary>
-+internal interface IPlatformRenderInterfaceNativeSurfaceFeature
-+{
-+    /// <summary>
-+    /// Gets whether native window surfaces must use an opaque-capable visual.
-+    /// </summary>
-+    bool RequiresOpaqueSurface { get; }
-+}
 diff --git a/src/Avalonia.Base/Platform/Internal/AssetDescriptor.cs b/src/Avalonia.Base/Platform/Internal/AssetDescriptor.cs
 index 52f8f5e..49d9e29 100644
 --- a/src/Avalonia.Base/Platform/Internal/AssetDescriptor.cs
@@ -230,23 +212,6 @@ index 86a8dd5..291d022 100644
 +        throw new InvalidOperationException(
 +            $"Could not find manifest resource stream '{ResourceName}'.");
 +}
-diff --git a/src/Avalonia.Base/Rendering/Composition/Drawing/ICompositionRenderDataDrawingContextFeature.cs b/src/Avalonia.Base/Rendering/Composition/Drawing/ICompositionRenderDataDrawingContextFeature.cs
-new file mode 100644
-index 0000000..03f8c34
---- /dev/null
-+++ b/src/Avalonia.Base/Rendering/Composition/Drawing/ICompositionRenderDataDrawingContextFeature.cs
-@@ -0,0 +1,11 @@
-+namespace Avalonia.Rendering.Composition.Drawing;
-+
-+/// <summary>
-+/// Optional typed bridge for platform drawing contexts that can retain and
-+/// replay an immutable server composition draw list without invoking every
-+/// render-data node on each frame.
-+/// </summary>
-+internal interface ICompositionRenderDataDrawingContextFeature
-+{
-+    bool TryRender(ServerCompositionRenderData renderData);
-+}
 diff --git a/src/Avalonia.Base/Rendering/Composition/Drawing/ServerCompositionRenderData.cs b/src/Avalonia.Base/Rendering/Composition/Drawing/ServerCompositionRenderData.cs
 index 8c1b5a2..997b8da 100644
 --- a/src/Avalonia.Base/Rendering/Composition/Drawing/ServerCompositionRenderData.cs
@@ -290,57 +255,6 @@ index 8c1b5a2..997b8da 100644
          base.DependencyQueuedInvalidate(sender);
      }
  
-diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ICompositionServerBackend.cs b/src/Avalonia.Base/Rendering/Composition/Server/ICompositionServerBackend.cs
-new file mode 100644
-index 0000000..bb85aeb
---- /dev/null
-+++ b/src/Avalonia.Base/Rendering/Composition/Server/ICompositionServerBackend.cs
-@@ -0,0 +1,21 @@
-+using Avalonia.Platform;
-+
-+namespace Avalonia.Rendering.Composition.Server;
-+
-+/// <summary>
-+/// Typed render-thread composition backend owned by one platform render
-+/// interface context. The backend retains target scene state across drawing
-+/// contexts and is released with the owning graphics context.
-+/// </summary>
-+internal interface ICompositionServerBackend
-+{
-+    bool TryRender(
-+        ServerCompositionTarget target,
-+        ServerCompositionVisual root,
-+        IDrawingContextImpl context,
-+        LtrbRect clip,
-+        out int visitedVisuals,
-+        out int renderedVisuals);
-+
-+    void ReleaseTarget(long targetId);
-+}
-diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ICompositionVisualTreeDrawingContextFeature.cs b/src/Avalonia.Base/Rendering/Composition/Server/ICompositionVisualTreeDrawingContextFeature.cs
-new file mode 100644
-index 0000000..b7f58c4
---- /dev/null
-+++ b/src/Avalonia.Base/Rendering/Composition/Server/ICompositionVisualTreeDrawingContextFeature.cs
-@@ -0,0 +1,18 @@
-+using Avalonia.Platform;
-+
-+namespace Avalonia.Rendering.Composition.Server;
-+
-+/// <summary>
-+/// Optional typed bridge for drawing contexts that own a retained visual scene.
-+/// Implementations return false when the current tree contains a composition
-+/// feature that requires Avalonia's built-in traversal.
-+/// </summary>
-+internal interface ICompositionVisualTreeDrawingContextFeature
-+{
-+    bool TryRender(
-+        ServerCompositionTarget target,
-+        ServerCompositionVisual root,
-+        LtrbRect clip,
-+        out int visitedVisuals,
-+        out int renderedVisuals);
-+}
 diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionDrawListVisual.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionDrawListVisual.cs
 index 98fd9e4..1ad29db 100644
 --- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionDrawListVisual.cs
@@ -1334,22 +1248,6 @@ index 5e1b91f..1610c42 100644
          }
      }
  }
-diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisualCollection.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisualCollection.cs
-new file mode 100644
-index 0000000..b9231b6
---- /dev/null
-+++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisualCollection.cs
-@@ -0,0 +1,10 @@
-+namespace Avalonia.Rendering.Composition.Server;
-+
-+partial class ServerCompositionVisualCollection
-+{
-+    private ServerCompositionVisual? _owner;
-+
-+    internal void SetOwner(ServerCompositionVisual owner) => _owner = owner;
-+
-+    protected override void OnListChanged() => _owner?.NotifyRetainedTopologyChanged();
-+}
 diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositor.UserApis.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositor.UserApis.cs
 index d85695d..b2eebfb 100644
 --- a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositor.UserApis.cs
@@ -1530,6 +1428,325 @@ index 1ed6124..d0660ff 100644
                  visualInfo = _x11.TransparentVisualInfo;
  
              var visual = IntPtr.Zero;
+diff --git a/tests/Avalonia.Skia.UnitTests/Avalonia.Skia.UnitTests.csproj b/tests/Avalonia.Skia.UnitTests/Avalonia.Skia.UnitTests.csproj
+index 5ee6d2b..1836e8d 100644
+--- a/tests/Avalonia.Skia.UnitTests/Avalonia.Skia.UnitTests.csproj
++++ b/tests/Avalonia.Skia.UnitTests/Avalonia.Skia.UnitTests.csproj
+@@ -3,6 +3,7 @@
+     <TargetFramework>$(AvsCurrentTargetFramework)</TargetFramework>
+     <OutputType>Exe</OutputType>
+     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
++    <DefineConstants Condition="'$(ProGpuTextShaperTests)' == 'true'">$(DefineConstants);PROGPU_TEXT_SHAPER_TESTS</DefineConstants>
+   </PropertyGroup>
+   <Import Project="..\..\build\UnitTests.NetCore.targets" />
+   <Import Project="..\..\build\XUnit.props" />
+@@ -18,12 +19,26 @@
+     <None Remove="Fonts\**\*.ttf" />
+     <EmbeddedResource Include="Fonts\**\*.ttf" />
+   </ItemGroup>
++  <ItemGroup Condition="'$(ProGpuTextShaperTests)' == 'true'">
++    <Compile Remove="**\*.cs" />
++    <Compile Include="Media\GlyphRunTests.cs" />
++    <Compile Include="$(ProGpuSourceRoot)\eng\avalonia\12.1.1\TextShapingTestBackend.cs"
++             Link="Media\TextShapingTestBackend.cs" />
++    <Compile Include="Media\TextFormatting\**\*.cs" />
++    <Compile Include="Properties\AssemblyInfo.cs" />
++    <Compile Include="Win32Fact.cs" />
++    <Compile Include="Win32Theory.cs" />
++  </ItemGroup>
+   <ItemGroup>
+     <ProjectReference Include="..\..\src\Avalonia.Base\Avalonia.Base.csproj" />
+     <ProjectReference Include="..\..\src\Avalonia.Controls\Avalonia.Controls.csproj" />
+     <ProjectReference Include="..\..\src\Avalonia.Fonts.Inter\Avalonia.Fonts.Inter.csproj" />
+-    <ProjectReference Include="..\..\src\Skia\Avalonia.Skia\Avalonia.Skia.csproj" />
++    <ProjectReference Condition="'$(ProGpuTextShaperTests)' != 'true'"
++                      Include="..\..\src\Skia\Avalonia.Skia\Avalonia.Skia.csproj" />
+     <ProjectReference Include="..\Avalonia.UnitTests\Avalonia.UnitTests.csproj" />
++    <ProjectReference Condition="'$(ProGpuTextShaperTests)' == 'true'"
++                      Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.Rendering\ProGPU.Avalonia.Rendering.csproj"
++                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(MSBuildThisFileDirectory)..\.." />
+   </ItemGroup>
+   <ItemGroup>
+     <EmbeddedResource Update="..\Avalonia.RenderTests\Assets\Inter-Regular.ttf">
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/GlyphRunTests.cs b/tests/Avalonia.Skia.UnitTests/Media/GlyphRunTests.cs
+index 4aaaa9b..89de4f5 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/GlyphRunTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/GlyphRunTests.cs
+@@ -169,7 +169,9 @@ public void Similar_Runs_Have_Same_InkBounds_After_Blob_Creation()
+ 
+                 var glyphRun1 = CreateGlyphRun(shapedBuffer);
+                 var bounds1 = glyphRun1.InkBounds;
++#if !PROGPU_TEXT_SHAPER_TESTS
+                 ((GlyphRunImpl)glyphRun1.PlatformImpl.Item).GetTextBlob(new TextOptions { TextRenderingMode = TextRenderingMode.SubpixelAntialias }, default);
++#endif
+ 
+                 var bounds2 = CreateGlyphRun(shapedBuffer).InkBounds;
+ 
+@@ -466,8 +468,9 @@ private static GlyphRun CreateGlyphRun(ShapedBuffer shapedBuffer)
+         private static IDisposable Start()
+         {
+             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface(),
+-                    fontManagerImpl: new CustomFontManagerImpl()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+ 
+             return disposable;
+         }
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapedBufferSharedStorageTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapedBufferSharedStorageTests.cs
+index ae98e79..5cb13dc 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapedBufferSharedStorageTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapedBufferSharedStorageTests.cs
+@@ -2,7 +2,9 @@
+ using System.Globalization;
+ using Avalonia.Media;
+ using Avalonia.Media.TextFormatting;
++#if !PROGPU_TEXT_SHAPER_TESTS
+ using Avalonia.Skia;
++#endif
+ using Avalonia.UnitTests;
+ using Xunit;
+ 
+@@ -290,8 +292,9 @@ private static ShapedBuffer ShapeAscii(string text)
+         private static IDisposable Start()
+         {
+             return UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface(null),
+-                    fontManagerImpl: new CustomFontManagerImpl()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+         }
+     }
+ }
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapingCapabilityFallbackTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapingCapabilityFallbackTests.cs
+index 310e820..c4da4ea 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapingCapabilityFallbackTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapingCapabilityFallbackTests.cs
+@@ -77,9 +77,10 @@ private static string ResolveArabicRunFamily(params string[] fontResourceNames)
+         private static IDisposable Start(string[] fontResourceNames)
+         {
+             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+ 
+-            var fontManagerImpl = new CustomFontManagerImpl();
++            var fontManagerImpl = TextShapingTestBackend.CreateFontManager();
+ 
+             AvaloniaLocator.CurrentMutable
+                 .Bind<IFontManagerImpl>().ToConstant(fontManagerImpl);
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextCharactersTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextCharactersTests.cs
+index f58ee3b..089d32c 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextCharactersTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextCharactersTests.cs
+@@ -273,9 +273,10 @@ public void GetShapeableCharacters_Does_Not_Pin_Previous_Region_Font_Across_A_Cu
+         private static IDisposable Start(params string[] fontResourceNames)
+         {
+             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+ 
+-            var fontManagerImpl = new CustomFontManagerImpl();
++            var fontManagerImpl = TextShapingTestBackend.CreateFontManager();
+ 
+             AvaloniaLocator.CurrentMutable
+                 .Bind<IFontManagerImpl>().ToConstant(fontManagerImpl);
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextFormatterTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextFormatterTests.cs
+index 182c633..37c58c7 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextFormatterTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextFormatterTests.cs
+@@ -1351,9 +1351,10 @@ public InvisibleRun(int length)
+         public static IDisposable Start()
+         {
+             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+ 
+-            var customFontManagerImpl = new CustomFontManagerImpl();
++            var customFontManagerImpl = TextShapingTestBackend.CreateFontManager();
+ 
+             AvaloniaLocator.CurrentMutable
+                 .Bind<IFontManagerImpl>().ToConstant(customFontManagerImpl);
+@@ -1363,7 +1364,8 @@ public static IDisposable Start()
+             AvaloniaLocator.CurrentMutable
+                 .Bind<FontManager>().ToConstant(fontManager);
+ 
+-            fontManager.AddFontCollection(customFontManagerImpl.SystemFonts);
++            fontManager.AddFontCollection(
++                TextShapingTestBackend.GetSystemFonts(customFontManagerImpl));
+ 
+             return disposable;
+         }
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutTests.cs
+index 1c8ad72..b7d3830 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutTests.cs
+@@ -1818,8 +1818,9 @@ public void Width_Excludes_Only_The_Lines_True_Trailing_Whitespace()
+         private static IDisposable Start()
+         {
+             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface(null),
+-                    fontManagerImpl: new CustomFontManagerImpl()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+ 
+             return disposable;
+         }
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs
+index 1ec027a..79ac974 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs
+@@ -2528,8 +2528,9 @@ public FixedRunsTextSource(IReadOnlyList<TextRun> textRuns)
+         private static IDisposable Start()
+         {
+             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface(null),
+-                    fontManagerImpl: new CustomFontManagerImpl()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+ 
+             return disposable;
+         }
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextRunCacheTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextRunCacheTests.cs
+index 4ef8199..a3872cf 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextRunCacheTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextRunCacheTests.cs
+@@ -585,8 +585,9 @@ public void TextLayout_With_Cache_Matches_Without()
+         private static IDisposable Start()
+         {
+             return UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface(null),
+-                    fontManagerImpl: new CustomFontManagerImpl()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+         }
+     }
+ }
+diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextShaperTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextShaperTests.cs
+index 8f039a9..6c18d15 100644
+--- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextShaperTests.cs
++++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextShaperTests.cs
+@@ -271,8 +271,9 @@ public void ClusterCache_SimpleMode_TrimmingHelpers_Survive_Split()
+         private static IDisposable Start()
+         {
+             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
+-                .With(renderInterface: new PlatformRenderInterface(null),
+-                    fontManagerImpl: new CustomFontManagerImpl()));
++                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
++                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
++                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
+ 
+             return disposable;
+         }
+diff --git a/src/Avalonia.Base/Platform/IPlatformRenderInterfaceNativeSurfaceFeature.cs b/src/Avalonia.Base/Platform/IPlatformRenderInterfaceNativeSurfaceFeature.cs
+new file mode 100644
+index 0000000..c5a430c
+--- /dev/null
++++ b/src/Avalonia.Base/Platform/IPlatformRenderInterfaceNativeSurfaceFeature.cs
+@@ -0,0 +1,12 @@
++namespace Avalonia.Platform;
++
++/// <summary>
++/// Describes native-window surface constraints imposed by a rendering backend.
++/// </summary>
++internal interface IPlatformRenderInterfaceNativeSurfaceFeature
++{
++    /// <summary>
++    /// Gets whether native window surfaces must use an opaque-capable visual.
++    /// </summary>
++    bool RequiresOpaqueSurface { get; }
++}
+diff --git a/src/Avalonia.Base/Rendering/Composition/Drawing/ICompositionRenderDataDrawingContextFeature.cs b/src/Avalonia.Base/Rendering/Composition/Drawing/ICompositionRenderDataDrawingContextFeature.cs
+new file mode 100644
+index 0000000..03f8c34
+--- /dev/null
++++ b/src/Avalonia.Base/Rendering/Composition/Drawing/ICompositionRenderDataDrawingContextFeature.cs
+@@ -0,0 +1,11 @@
++namespace Avalonia.Rendering.Composition.Drawing;
++
++/// <summary>
++/// Optional typed bridge for platform drawing contexts that can retain and
++/// replay an immutable server composition draw list without invoking every
++/// render-data node on each frame.
++/// </summary>
++internal interface ICompositionRenderDataDrawingContextFeature
++{
++    bool TryRender(ServerCompositionRenderData renderData);
++}
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ICompositionServerBackend.cs b/src/Avalonia.Base/Rendering/Composition/Server/ICompositionServerBackend.cs
+new file mode 100644
+index 0000000..bb85aeb
+--- /dev/null
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ICompositionServerBackend.cs
+@@ -0,0 +1,21 @@
++using Avalonia.Platform;
++
++namespace Avalonia.Rendering.Composition.Server;
++
++/// <summary>
++/// Typed render-thread composition backend owned by one platform render
++/// interface context. The backend retains target scene state across drawing
++/// contexts and is released with the owning graphics context.
++/// </summary>
++internal interface ICompositionServerBackend
++{
++    bool TryRender(
++        ServerCompositionTarget target,
++        ServerCompositionVisual root,
++        IDrawingContextImpl context,
++        LtrbRect clip,
++        out int visitedVisuals,
++        out int renderedVisuals);
++
++    void ReleaseTarget(long targetId);
++}
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ICompositionVisualTreeDrawingContextFeature.cs b/src/Avalonia.Base/Rendering/Composition/Server/ICompositionVisualTreeDrawingContextFeature.cs
+new file mode 100644
+index 0000000..b7f58c4
+--- /dev/null
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ICompositionVisualTreeDrawingContextFeature.cs
+@@ -0,0 +1,18 @@
++using Avalonia.Platform;
++
++namespace Avalonia.Rendering.Composition.Server;
++
++/// <summary>
++/// Optional typed bridge for drawing contexts that own a retained visual scene.
++/// Implementations return false when the current tree contains a composition
++/// feature that requires Avalonia's built-in traversal.
++/// </summary>
++internal interface ICompositionVisualTreeDrawingContextFeature
++{
++    bool TryRender(
++        ServerCompositionTarget target,
++        ServerCompositionVisual root,
++        LtrbRect clip,
++        out int visitedVisuals,
++        out int renderedVisuals);
++}
+diff --git a/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisualCollection.cs b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisualCollection.cs
+new file mode 100644
+index 0000000..b9231b6
+--- /dev/null
++++ b/src/Avalonia.Base/Rendering/Composition/Server/ServerCompositionVisualCollection.cs
+@@ -0,0 +1,10 @@
++namespace Avalonia.Rendering.Composition.Server;
++
++partial class ServerCompositionVisualCollection
++{
++    private ServerCompositionVisual? _owner;
++
++    internal void SetOwner(ServerCompositionVisual owner) => _owner = owner;
++
++    protected override void OnListChanged() => _owner?.NotifyRetainedTopologyChanged();
++}
 diff --git a/tests/Avalonia.Base.UnitTests/Composition/RetainedCompositionRevisionTests.cs b/tests/Avalonia.Base.UnitTests/Composition/RetainedCompositionRevisionTests.cs
 new file mode 100644
 index 0000000..e5f39a3
@@ -2464,186 +2681,3 @@ index 0000000..3230ee0
 +            Times.Exactly(2));
 +    }
 +}
-diff --git a/tests/Avalonia.Skia.UnitTests/Avalonia.Skia.UnitTests.csproj b/tests/Avalonia.Skia.UnitTests/Avalonia.Skia.UnitTests.csproj
-index 5ee6d2b..1836e8d 100644
---- a/tests/Avalonia.Skia.UnitTests/Avalonia.Skia.UnitTests.csproj
-+++ b/tests/Avalonia.Skia.UnitTests/Avalonia.Skia.UnitTests.csproj
-@@ -3,6 +3,7 @@
-     <TargetFramework>$(AvsCurrentTargetFramework)</TargetFramework>
-     <OutputType>Exe</OutputType>
-     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-+    <DefineConstants Condition="'$(ProGpuTextShaperTests)' == 'true'">$(DefineConstants);PROGPU_TEXT_SHAPER_TESTS</DefineConstants>
-   </PropertyGroup>
-   <Import Project="..\..\build\UnitTests.NetCore.targets" />
-   <Import Project="..\..\build\XUnit.props" />
-@@ -18,12 +19,26 @@
-     <None Remove="Fonts\**\*.ttf" />
-     <EmbeddedResource Include="Fonts\**\*.ttf" />
-   </ItemGroup>
-+  <ItemGroup Condition="'$(ProGpuTextShaperTests)' == 'true'">
-+    <Compile Remove="**\*.cs" />
-+    <Compile Include="Media\GlyphRunTests.cs" />
-+    <Compile Include="$(ProGpuSourceRoot)\eng\avalonia\12.1.1\TextShapingTestBackend.cs"
-+             Link="Media\TextShapingTestBackend.cs" />
-+    <Compile Include="Media\TextFormatting\**\*.cs" />
-+    <Compile Include="Properties\AssemblyInfo.cs" />
-+    <Compile Include="Win32Fact.cs" />
-+    <Compile Include="Win32Theory.cs" />
-+  </ItemGroup>
-   <ItemGroup>
-     <ProjectReference Include="..\..\src\Avalonia.Base\Avalonia.Base.csproj" />
-     <ProjectReference Include="..\..\src\Avalonia.Controls\Avalonia.Controls.csproj" />
-     <ProjectReference Include="..\..\src\Avalonia.Fonts.Inter\Avalonia.Fonts.Inter.csproj" />
--    <ProjectReference Include="..\..\src\Skia\Avalonia.Skia\Avalonia.Skia.csproj" />
-+    <ProjectReference Condition="'$(ProGpuTextShaperTests)' != 'true'"
-+                      Include="..\..\src\Skia\Avalonia.Skia\Avalonia.Skia.csproj" />
-     <ProjectReference Include="..\Avalonia.UnitTests\Avalonia.UnitTests.csproj" />
-+    <ProjectReference Condition="'$(ProGpuTextShaperTests)' == 'true'"
-+                      Include="$(ProGpuSourceRoot)\src\ProGPU.Avalonia.Rendering\ProGPU.Avalonia.Rendering.csproj"
-+                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(MSBuildThisFileDirectory)..\.." />
-   </ItemGroup>
-   <ItemGroup>
-     <EmbeddedResource Update="..\Avalonia.RenderTests\Assets\Inter-Regular.ttf">
-diff --git a/tests/Avalonia.Skia.UnitTests/Media/GlyphRunTests.cs b/tests/Avalonia.Skia.UnitTests/Media/GlyphRunTests.cs
-index 4aaaa9b..89de4f5 100644
---- a/tests/Avalonia.Skia.UnitTests/Media/GlyphRunTests.cs
-+++ b/tests/Avalonia.Skia.UnitTests/Media/GlyphRunTests.cs
-@@ -169,7 +169,9 @@ public void Similar_Runs_Have_Same_InkBounds_After_Blob_Creation()
- 
-                 var glyphRun1 = CreateGlyphRun(shapedBuffer);
-                 var bounds1 = glyphRun1.InkBounds;
-+#if !PROGPU_TEXT_SHAPER_TESTS
-                 ((GlyphRunImpl)glyphRun1.PlatformImpl.Item).GetTextBlob(new TextOptions { TextRenderingMode = TextRenderingMode.SubpixelAntialias }, default);
-+#endif
- 
-                 var bounds2 = CreateGlyphRun(shapedBuffer).InkBounds;
- 
-@@ -466,8 +468,9 @@ private static GlyphRun CreateGlyphRun(ShapedBuffer shapedBuffer)
-         private static IDisposable Start()
-         {
-             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
--                .With(renderInterface: new PlatformRenderInterface(),
--                    fontManagerImpl: new CustomFontManagerImpl()));
-+                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
-+                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
-+                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
- 
-             return disposable;
-         }
-diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapedBufferSharedStorageTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapedBufferSharedStorageTests.cs
-index ae98e79..5cb13dc 100644
---- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapedBufferSharedStorageTests.cs
-+++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/ShapedBufferSharedStorageTests.cs
-@@ -2,7 +2,9 @@
- using System.Globalization;
- using Avalonia.Media;
- using Avalonia.Media.TextFormatting;
-+#if !PROGPU_TEXT_SHAPER_TESTS
- using Avalonia.Skia;
-+#endif
- using Avalonia.UnitTests;
- using Xunit;
- 
-@@ -290,8 +292,9 @@ private static ShapedBuffer ShapeAscii(string text)
-         private static IDisposable Start()
-         {
-             return UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
--                .With(renderInterface: new PlatformRenderInterface(null),
--                    fontManagerImpl: new CustomFontManagerImpl()));
-+                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
-+                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
-+                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
-         }
-     }
- }
-diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextFormatterTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextFormatterTests.cs
-index 182c633..37c58c7 100644
---- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextFormatterTests.cs
-+++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextFormatterTests.cs
-@@ -1351,9 +1351,10 @@ public InvisibleRun(int length)
-         public static IDisposable Start()
-         {
-             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
--                .With(renderInterface: new PlatformRenderInterface()));
-+                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
-+                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
- 
--            var customFontManagerImpl = new CustomFontManagerImpl();
-+            var customFontManagerImpl = TextShapingTestBackend.CreateFontManager();
- 
-             AvaloniaLocator.CurrentMutable
-                 .Bind<IFontManagerImpl>().ToConstant(customFontManagerImpl);
-@@ -1363,7 +1364,8 @@ public static IDisposable Start()
-             AvaloniaLocator.CurrentMutable
-                 .Bind<FontManager>().ToConstant(fontManager);
- 
--            fontManager.AddFontCollection(customFontManagerImpl.SystemFonts);
-+            fontManager.AddFontCollection(
-+                TextShapingTestBackend.GetSystemFonts(customFontManagerImpl));
- 
-             return disposable;
-         }
-diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutTests.cs
-index 1c8ad72..b7d3830 100644
---- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutTests.cs
-+++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLayoutTests.cs
-@@ -1818,8 +1818,9 @@ public void Width_Excludes_Only_The_Lines_True_Trailing_Whitespace()
-         private static IDisposable Start()
-         {
-             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
--                .With(renderInterface: new PlatformRenderInterface(null),
--                    fontManagerImpl: new CustomFontManagerImpl()));
-+                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
-+                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
-+                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
- 
-             return disposable;
-         }
-diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs
-index 1ec027a..79ac974 100644
---- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs
-+++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextLineTests.cs
-@@ -2528,8 +2528,9 @@ public FixedRunsTextSource(IReadOnlyList<TextRun> textRuns)
-         private static IDisposable Start()
-         {
-             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
--                .With(renderInterface: new PlatformRenderInterface(null),
--                    fontManagerImpl: new CustomFontManagerImpl()));
-+                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
-+                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
-+                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
- 
-             return disposable;
-         }
-diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextRunCacheTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextRunCacheTests.cs
-index 4ef8199..a3872cf 100644
---- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextRunCacheTests.cs
-+++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextRunCacheTests.cs
-@@ -585,8 +585,9 @@ public void TextLayout_With_Cache_Matches_Without()
-         private static IDisposable Start()
-         {
-             return UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
--                .With(renderInterface: new PlatformRenderInterface(null),
--                    fontManagerImpl: new CustomFontManagerImpl()));
-+                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
-+                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
-+                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
-         }
-     }
- }
-diff --git a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextShaperTests.cs b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextShaperTests.cs
-index 8f039a9..6c18d15 100644
---- a/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextShaperTests.cs
-+++ b/tests/Avalonia.Skia.UnitTests/Media/TextFormatting/TextShaperTests.cs
-@@ -271,8 +271,9 @@ public void ClusterCache_SimpleMode_TrimmingHelpers_Survive_Split()
-         private static IDisposable Start()
-         {
-             var disposable = UnitTestApplication.Start(TestServices.MockPlatformRenderInterface
--                .With(renderInterface: new PlatformRenderInterface(null),
--                    fontManagerImpl: new CustomFontManagerImpl()));
-+                .With(renderInterface: TextShapingTestBackend.CreateRenderInterface(),
-+                    fontManagerImpl: TextShapingTestBackend.CreateFontManager(),
-+                    textShaperImpl: TextShapingTestBackend.CreateTextShaper()));
- 
-             return disposable;
-         }
