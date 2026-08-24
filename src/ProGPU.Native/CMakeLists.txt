@@ -843,6 +843,16 @@ endif()
 progpu_native_enable_warnings(progpu_native_scene_builder)
 progpu_native_enable_sanitizers(progpu_native_scene_builder)
 
+add_library(progpu_native_mil STATIC
+    include/progpu_native_mil.hpp
+    src/Mil/progpu_native_mil.cpp)
+target_compile_features(progpu_native_mil PUBLIC cxx_std_20)
+target_include_directories(progpu_native_mil PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+progpu_native_enable_warnings(progpu_native_mil)
+progpu_native_enable_sanitizers(progpu_native_mil)
+
 if(NOT EMSCRIPTEN AND PROGPU_NATIVE_BUILD_WGPU_TARGET)
 add_library(progpu_native SHARED
     ${PROGPU_NATIVE_RENDERER_SOURCES})
@@ -1177,6 +1187,15 @@ endif()
 endif()
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
+    add_executable(progpu_native_mil_tests
+        tests/progpu_native_mil_tests.cpp)
+    target_compile_features(progpu_native_mil_tests PRIVATE cxx_std_20)
+    target_link_libraries(progpu_native_mil_tests PRIVATE progpu_native_mil)
+    progpu_native_enable_warnings(progpu_native_mil_tests)
+    progpu_native_enable_sanitizers(progpu_native_mil_tests)
+    add_test(NAME progpu_native_mil_tests COMMAND progpu_native_mil_tests)
+    set_tests_properties(progpu_native_mil_tests PROPERTIES TIMEOUT 60)
+
     if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
         add_executable(progpu_native_compression_module_tests
             tests/progpu_native_compression_module_tests.cpp)
@@ -1481,6 +1500,7 @@ if(NOT EMSCRIPTEN)
         progpu_native_compression
         progpu_native_hit_testing
         progpu_native_image
+        progpu_native_mil
         progpu_native_text
         progpu_native_scene_builder
         ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
@@ -1490,6 +1510,7 @@ if(NOT EMSCRIPTEN)
         include/progpu_native_compression.hpp
         include/progpu_native_hit_testing.hpp
         include/progpu_native_image.hpp
+        include/progpu_native_mil.hpp
         include/progpu_native_scene_builder.hpp
         include/progpu_native_text.hpp
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
