@@ -2,6 +2,7 @@
 #include "progpu_native_mil.h"
 
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -1390,7 +1391,7 @@ bool retained_path_geometry_compiles_to_semantic_scene() {
     constexpr std::uint32_t geometry = 6U;
 
     std::vector<std::byte> figures;
-    append_value(figures, 232U);
+    append_value(figures, 296U);
     append_value(figures, 0x03U);
     append_value(figures, 1.0);
     append_value(figures, 2.0);
@@ -1401,11 +1402,11 @@ bool retained_path_geometry_compiles_to_semantic_scene() {
 
     append_value(figures, 0U);
     append_value(figures, 0x0eU);
-    append_value(figures, 3U);
-    append_value(figures, 184U);
+    append_value(figures, 4U);
+    append_value(figures, 248U);
     append_value(figures, 1.0);
     append_value(figures, 2.0);
-    append_value(figures, 120U);
+    append_value(figures, 184U);
     append_value(figures, 0U);
 
     append_value(figures, 1U);
@@ -1434,7 +1435,19 @@ bool retained_path_geometry_compiles_to_semantic_scene() {
     append_value(figures, 12.0);
     append_value(figures, 15.0);
     append_value(figures, 6.0);
-    PROGPU_REQUIRE(figures.size() == 232U);
+
+    append_value(figures, 4U);
+    append_value(figures, 0x20U);
+    append_value(figures, 64U);
+    append_value(figures, 0U);
+    append_value(figures, 1.0);
+    append_value(figures, 2.0);
+    append_value(figures, 8.0);
+    append_value(figures, 6.0);
+    append_value(figures, 30.0);
+    append_value(figures, 1U);
+    append_value(figures, 0U);
+    PROGPU_REQUIRE(figures.size() == 296U);
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -1521,7 +1534,7 @@ bool retained_path_geometry_compiles_to_semantic_scene() {
         const auto cubic = read_value<progpu_native_path_segment>(
             stream,
             resource.auxiliary_offset + 2U * sizeof(line));
-        const auto closing = read_value<progpu_native_path_segment>(
+        const auto arc = read_value<progpu_native_path_segment>(
             stream,
             resource.auxiliary_offset + 3U * sizeof(line));
         PROGPU_REQUIRE(line.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE);
@@ -1533,11 +1546,65 @@ bool retained_path_geometry_compiles_to_semantic_scene() {
             quadratic.p1.x == 7.0F && quadratic.p2.x == 9.0F);
         PROGPU_REQUIRE(cubic.kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC);
         PROGPU_REQUIRE(cubic.p1.x == 11.0F && cubic.p3.x == 15.0F);
-        PROGPU_REQUIRE(closing.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE);
-        PROGPU_REQUIRE(closing.p0.x == 15.0F && closing.p1.x == 1.0F);
+        PROGPU_REQUIRE(arc.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC);
+        PROGPU_REQUIRE(arc.p0.x == 15.0F && arc.p0.y == 6.0F);
+        PROGPU_REQUIRE(arc.p1.x == 1.0F && arc.p1.y == 2.0F);
+        PROGPU_REQUIRE(std::isfinite(arc.p2.x) && std::isfinite(arc.p2.y));
+        PROGPU_REQUIRE(arc.p3.x >= 8.0F && arc.p3.y >= 6.0F);
+        PROGPU_REQUIRE(std::bit_cast<float>(arc.pad1) > 0.0F);
         found_path = true;
     }
     PROGPU_REQUIRE(found_path);
+
+    auto uncached_bounds_figures = figures;
+    const std::uint32_t uncached_path_flags = 0x01U;
+    const double uncached_bound = 0.0;
+    std::memcpy(
+        uncached_bounds_figures.data() + 4U,
+        &uncached_path_flags,
+        sizeof(uncached_path_flags));
+    for (std::size_t bounds_offset = 8U;
+        bounds_offset <= 32U;
+        bounds_offset += sizeof(double)) {
+        std::memcpy(
+            uncached_bounds_figures.data() + bounds_offset,
+            &uncached_bound,
+            sizeof(uncached_bound));
+    }
+    std::vector<std::byte> uncached_bounds_update;
+    append_path_geometry(
+        uncached_bounds_update,
+        geometry,
+        transform,
+        1U,
+        uncached_bounds_figures);
+    PROGPU_REQUIRE(state.apply(uncached_bounds_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 2U, stream, &metrics) ==
+        status::success);
+    const auto uncached_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_computed_bounds = false;
+    for (std::uint32_t index = 0U;
+        index < uncached_header.resource_count;
+        ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            uncached_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            continue;
+        }
+        const auto path = read_value<progpu_native_scene_path_fill>(
+            stream,
+            resource.payload_offset);
+        PROGPU_REQUIRE(path.min_x < path.max_x);
+        PROGPU_REQUIRE(path.min_y < path.max_y);
+        PROGPU_REQUIRE(path.min_x <= 1.0F);
+        PROGPU_REQUIRE(path.max_x >= 15.0F);
+        found_computed_bounds = true;
+    }
+    PROGPU_REQUIRE(found_computed_bounds);
 
     const auto generation = state.resource_generation(geometry);
     auto malformed_figures = figures;
@@ -1557,6 +1624,65 @@ bool retained_path_geometry_compiles_to_semantic_scene() {
         state.apply(malformed_update) == status::malformed_batch);
     PROGPU_REQUIRE(state.resource_generation(geometry) == generation);
 
+    auto invalid_sweep_figures = figures;
+    const std::uint32_t invalid_sweep = 2U;
+    std::memcpy(
+        invalid_sweep_figures.data() + 288U,
+        &invalid_sweep,
+        sizeof(invalid_sweep));
+    std::vector<std::byte> invalid_sweep_update;
+    append_path_geometry(
+        invalid_sweep_update,
+        geometry,
+        transform,
+        1U,
+        invalid_sweep_figures);
+    PROGPU_REQUIRE(
+        state.apply(invalid_sweep_update) == status::malformed_batch);
+    PROGPU_REQUIRE(state.resource_generation(geometry) == generation);
+
+    auto degenerate_arc_figures = figures;
+    const double zero_radius = 0.0;
+    std::memcpy(
+        degenerate_arc_figures.data() + 264U,
+        &zero_radius,
+        sizeof(zero_radius));
+    std::vector<std::byte> degenerate_arc_update;
+    append_path_geometry(
+        degenerate_arc_update,
+        geometry,
+        transform,
+        1U,
+        degenerate_arc_figures);
+    PROGPU_REQUIRE(state.apply(degenerate_arc_update) == status::success);
+    PROGPU_REQUIRE(state.resource_generation(geometry) == generation + 1U);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 3U, stream, &metrics) ==
+        status::success);
+    const auto degenerate_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_degenerate_path = false;
+    for (std::uint32_t index = 0U;
+        index < degenerate_header.resource_count;
+        ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            degenerate_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            continue;
+        }
+        const auto last_segment = read_value<progpu_native_path_segment>(
+            stream,
+            resource.auxiliary_offset +
+                3U * sizeof(progpu_native_path_segment));
+        PROGPU_REQUIRE(last_segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE);
+        PROGPU_REQUIRE(
+            last_segment.p0.x == 15.0F && last_segment.p1.x == 1.0F);
+        found_degenerate_path = true;
+    }
+    PROGPU_REQUIRE(found_degenerate_path);
+
     std::vector<std::byte> delete_transform;
     append_command(
         delete_transform,
@@ -1564,7 +1690,7 @@ bool retained_path_geometry_compiles_to_semantic_scene() {
         transform,
         66U);
     PROGPU_REQUIRE(state.apply(delete_transform) == status::invalid_graph);
-    PROGPU_REQUIRE(state.resource_generation(geometry) == generation);
+    PROGPU_REQUIRE(state.resource_generation(geometry) == generation + 1U);
     return true;
 }
 

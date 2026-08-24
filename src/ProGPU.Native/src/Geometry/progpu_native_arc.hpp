@@ -1,19 +1,41 @@
-#include "progpu_native_svg_path_internal.hpp"
+#pragma once
 
 #include <algorithm>
 #include <cmath>
 #include <numbers>
 
-// Direct native port provenance: ProGPU-owned
-// ArcSegmentGeometry.TryGetArcCenter/bounds at checkpoint 8bf3cd44. This fixed
-// work unit resolves SVG endpoint arcs once for the retained path ABI.
-namespace progpu::native::text::svg_path_detail {
-namespace {
+namespace progpu::native::geometry {
 
-constexpr float epsilon = 0.00001F;
-constexpr float two_pi = 2.0F * std::numbers::pi_v<float>;
+// Shared native port of ProGPU ArcSegmentGeometry.TryGetArcCenter/bounds at
+// checkpoint 8bf3cd44. SVG glyphs and retained MIL paths intentionally consume
+// the same endpoint-arc resolution and sweep rules.
+struct arc_point final {
+    float x = 0.0F;
+    float y = 0.0F;
+};
 
-float normalize_radians(float angle) noexcept {
+inline arc_point operator+(arc_point left, arc_point right) noexcept {
+    return {left.x + right.x, left.y + right.y};
+}
+
+inline arc_point operator-(arc_point left, arc_point right) noexcept {
+    return {left.x - right.x, left.y - right.y};
+}
+
+inline arc_point operator*(arc_point value, float scale) noexcept {
+    return {value.x * scale, value.y * scale};
+}
+
+inline bool equal(arc_point left, arc_point right) noexcept {
+    return left.x == right.x && left.y == right.y;
+}
+
+inline bool finite(arc_point value) noexcept {
+    return std::isfinite(value.x) && std::isfinite(value.y);
+}
+
+inline float normalize_radians(float angle) noexcept {
+    constexpr float two_pi = 2.0F * std::numbers::pi_v<float>;
     float normalized = std::fmod(angle, two_pi);
     if (normalized < 0.0F) {
         normalized += two_pi;
@@ -21,12 +43,12 @@ float normalize_radians(float angle) noexcept {
     return normalized;
 }
 
-} // namespace
-
-bool angle_within_sweep(
+inline bool angle_within_sweep(
     float theta,
     float theta1,
     float delta_theta) noexcept {
+    constexpr float epsilon = 0.00001F;
+    constexpr float two_pi = 2.0F * std::numbers::pi_v<float>;
     if (!std::isfinite(theta) || !std::isfinite(theta1) ||
         !std::isfinite(delta_theta) || std::abs(delta_theta) <= epsilon) {
         return false;
@@ -40,8 +62,8 @@ bool angle_within_sweep(
     return distance <= std::abs(delta_theta) + epsilon;
 }
 
-point evaluate_arc(
-    point center,
+inline arc_point evaluate_arc(
+    arc_point center,
     float radius_x,
     float radius_y,
     float rotation_degrees,
@@ -59,24 +81,26 @@ point evaluate_arc(
             radius_y * sine_theta * cosine_phi + center.y};
 }
 
-bool resolve_arc(
-    point start,
-    point end,
-    point radii,
+inline bool resolve_arc(
+    arc_point start,
+    arc_point end,
+    arc_point radii,
     float rotation_degrees,
     bool large_arc,
     bool clockwise,
-    point& center,
+    arc_point& center,
     float& theta1,
     float& delta_theta,
     float& radius_x,
     float& radius_y) noexcept {
+    constexpr float epsilon = 0.00001F;
+    constexpr float two_pi = 2.0F * std::numbers::pi_v<float>;
     center = {};
     theta1 = 0.0F;
     delta_theta = 0.0F;
     radius_x = std::abs(radii.x);
     radius_y = std::abs(radii.y);
-    const point chord = start - end;
+    const arc_point chord = start - end;
     if (!finite(start) || !finite(end) || !finite(radii) ||
         !std::isfinite(rotation_degrees) ||
         chord.x * chord.x + chord.y * chord.y <= epsilon * epsilon ||
@@ -151,4 +175,4 @@ bool resolve_arc(
         std::isfinite(radius_y);
 }
 
-} // namespace progpu::native::text::svg_path_detail
+} // namespace progpu::native::geometry
