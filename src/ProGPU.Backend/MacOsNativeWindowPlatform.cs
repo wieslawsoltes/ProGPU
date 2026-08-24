@@ -48,6 +48,15 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
         switch (state.Decorations)
         {
             case NativeWindowDecorations.None:
+                if (state.IsPopup)
+                {
+                    // Popup surfaces (ComboBox/ContextMenu/ToolTip drop-downs) must be truly
+                    // borderless: NSWindowStyleMaskTitled forces the OS-drawn rounded window
+                    // corners even with the title bar hidden/transparent, which real WPF popups
+                    // never have. Leave styleMask cleared (NSWindowStyleMaskBorderless = 0) so
+                    // the popup renders as a plain rectangle, matching Win32 popup chrome.
+                    break;
+                }
                 style |= StyleTitled | StyleFullSizeContentView;
                 if (nativeResizable)
                 {

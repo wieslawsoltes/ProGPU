@@ -203,7 +203,8 @@ internal readonly record struct NativeWindowState(
     NativeWindowSize MaximumSize,
     NativeWindowTheme Theme,
     NativeWindowBackdrop Backdrop,
-    NativeWindowHandle Parent)
+    NativeWindowHandle Parent,
+    bool IsPopup = false)
 {
     public static NativeWindowState Default => new(
         NativeWindowDecorations.Full,
@@ -220,5 +221,6 @@ internal readonly record struct NativeWindowState(
         MaximumSize: NativeWindowSize.Unbounded,
         Theme: NativeWindowTheme.Default,
         Backdrop: NativeWindowBackdrop.None,
-        Parent: NativeWindowHandle.Empty);
+        Parent: NativeWindowHandle.Empty,
+        IsPopup: false);
 }
