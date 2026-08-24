@@ -182,7 +182,32 @@ WPF's implicit fill closure for open figures. Malformed back-links, sizes, paddi
 flags, counts, bounds, transforms, and handles roll back transactionally.
 Endpoint arcs reuse the neutral native arc resolver shared with SVG glyph
 paths, retain center/radii/sweep data in ProGPU's semantic arc record, and
-preserve the degenerate-to-line rule. Meaningful path pens remain fail-closed.
+preserve the degenerate-to-line rule. Fill compilation remains independent of
+the separately retained stroke topology described below.
+
+The first retained path-pen slice now keeps WPF stroke topology separately
+from fill topology while decoding the same canonical figure stream. Line and
+poly-line segments lower to ProGPU semantic polylines with the retained pen's
+thickness, miter limit, start/end/dash caps, join, thickness-relative dash
+intervals/offset, brush, and geometry-local affine transform. `SegIsAGap`
+splits open figures into independent runs, using the pen's dash cap at each
+gap boundary and preserving the figure start/end caps only at true open-figure
+endpoints. Each run restarts the dash sequence as WPF's `CDasher::StartFigure`
+does after a geometry gap. For closed figures the
+decoder rotates after a gap and joins the stroked tail, implicit closing edge,
+and stroked head into one open run, avoiding a false cap at the original figure
+start while retaining dash caps at the actual gap. Fully stroked closed figures
+remain one closed contour, and open figures
+are never implicitly closed for stroking even though WPF fill closure remains
+unchanged. A nonempty dash pattern on a closed gapped figure whose continuous
+run crosses the original figure start fails closed: WPF resets dash phase at
+that start yet joins the two widened pieces, which cannot be represented by
+one current semantic polyline without changing phase or join shape. Stroked
+quadratic/cubic/arc segments, `SegSmoothJoin`, and
+non-flat-cap zero-length runs fail closed until reusable native curved and
+per-join stroke primitives can preserve those semantics exactly. Unstroked
+curves remain valid topology gaps and do not prevent neighboring line runs
+from using the native path-pen lane.
 
 The first retained `MILCMD_GEOMETRYGROUP` slice validates the canonical
 variable child-handle payload, group fill rule, optional matrix transform,
@@ -214,7 +239,8 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds, recursive
-  group/combined child widening, path strokes, curved-path dashes,
+  group/combined child widening, curved path strokes/dashes and per-segment
+  smooth joins,
   remaining pen draws,
   brushes, drawings, images, glyph runs, caches, guidelines, effects, and
   complete render-data decoding.
