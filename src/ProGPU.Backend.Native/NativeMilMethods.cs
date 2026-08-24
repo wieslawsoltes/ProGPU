@@ -1,0 +1,156 @@
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+
+namespace ProGPU.Backend.Native;
+
+internal static unsafe partial class NativeMilMethods
+{
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct BatchMetrics
+    {
+        internal uint StructSize;
+        internal uint CommandCount;
+        internal uint SupportedCommandCount;
+        internal uint UnsupportedCommandCount;
+        internal uint CreatedResourceCount;
+        internal uint DeletedResourceCount;
+        internal uint UpdatedResourceCount;
+        internal uint TotalBytes;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct VisualSnapshot
+    {
+        internal uint StructSize;
+        internal uint Handle;
+        internal double OffsetX;
+        internal double OffsetY;
+        internal double Opacity;
+        internal uint ContentHandle;
+        internal uint ChildCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct TargetSnapshot
+    {
+        internal uint StructSize;
+        internal uint Handle;
+        internal uint RootHandle;
+        internal float ClearRed;
+        internal float ClearGreen;
+        internal float ClearBlue;
+        internal float ClearAlpha;
+        internal uint Flags;
+    }
+
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_create")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus Create(nint* channel);
+
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_destroy")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial void Destroy(nint channel);
+
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_apply")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus Apply(
+        nint channel,
+        void* batch,
+        nuint batchSize,
+        BatchMetrics* metrics);
+
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_get_resource_count")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial nuint GetResourceCount(nint channel);
+
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_has_resource")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial byte HasResource(nint channel, uint handle);
+
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_get_resource_type")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial uint GetResourceType(nint channel, uint handle);
+
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_get_resource_generation")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ulong GetResourceGeneration(nint channel, uint handle);
+
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_get_visual")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial byte GetVisual(
+        nint channel,
+        uint handle,
+        VisualSnapshot* snapshot);
+
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_get_visual_child")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial byte GetVisualChild(
+        nint channel,
+        uint handle,
+        uint index,
+        uint* childHandle);
+
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_get_target")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial byte GetTarget(
+        nint channel,
+        uint handle,
+        TargetSnapshot* snapshot);
+}
+
+internal static unsafe partial class NativeMilDawnMethods
+{
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_create")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus Create(nint* channel);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_destroy")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial void Destroy(nint channel);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_apply")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus Apply(
+        nint channel,
+        void* batch,
+        nuint batchSize,
+        NativeMilMethods.BatchMetrics* metrics);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_get_resource_count")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial nuint GetResourceCount(nint channel);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_has_resource")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial byte HasResource(nint channel, uint handle);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_get_resource_type")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial uint GetResourceType(nint channel, uint handle);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_get_resource_generation")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ulong GetResourceGeneration(nint channel, uint handle);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_get_visual")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial byte GetVisual(
+        nint channel,
+        uint handle,
+        NativeMilMethods.VisualSnapshot* snapshot);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_get_visual_child")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial byte GetVisualChild(
+        nint channel,
+        uint handle,
+        uint index,
+        uint* childHandle);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_get_target")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial byte GetTarget(
+        nint channel,
+        uint handle,
+        NativeMilMethods.TargetSnapshot* snapshot);
+}

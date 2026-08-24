@@ -427,7 +427,8 @@ public enum NativeRendererCapabilities : ulong
     SemanticImageMipmapSampling = 1UL << 48,
     ImageFrameMipmapSampling = 1UL << 49,
     SemanticVectorClipMask = 1UL << 50,
-    RetainedGpuHitTesting = 1UL << 51
+    RetainedGpuHitTesting = 1UL << 51,
+    WpfMilChannel = 1UL << 52
 }
 
 public enum NativeSceneResourceKind : uint

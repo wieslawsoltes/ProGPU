@@ -1,4 +1,5 @@
 #include "progpu_native_mil.hpp"
+#include "progpu_native_mil.h"
 
 #include <array>
 #include <cstddef>
@@ -173,11 +174,48 @@ bool malformed_and_unsupported_packets_fail_closed() {
     return true;
 }
 
+bool c_abi_is_typed_and_size_versioned() {
+    progpu_native_mil_channel* native_channel = nullptr;
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_create(&native_channel) ==
+        PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(native_channel != nullptr);
+
+    std::vector<std::byte> batch;
+    append_create(batch, 17U, 39U);
+    append_command(batch, command::visual_create, 17U);
+    append_command(batch, command::visual_set_offset, 17U, 2.0, 4.0);
+    progpu_native_mil_batch_metrics metrics{};
+    metrics.struct_size = sizeof(metrics);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_apply(
+            native_channel,
+            batch.data(),
+            batch.size(),
+            &metrics) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(metrics.command_count == 3U);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_get_resource_count(native_channel) == 1U);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_get_resource_type(native_channel, 17U) ==
+        39U);
+    progpu_native_mil_visual_snapshot snapshot{};
+    snapshot.struct_size = sizeof(snapshot);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_get_visual(
+            native_channel, 17U, &snapshot) == 1U);
+    PROGPU_REQUIRE(snapshot.offset_x == 2.0);
+    PROGPU_REQUIRE(snapshot.offset_y == 4.0);
+    progpu_native_mil_channel_destroy(native_channel);
+    return true;
+}
+
 } // namespace
 
 int main() {
     PROGPU_REQUIRE(channel_retains_visual_target_graph());
     PROGPU_REQUIRE(failed_batches_roll_back());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());
+    PROGPU_REQUIRE(c_abi_is_typed_and_size_versioned());
     return 0;
 }

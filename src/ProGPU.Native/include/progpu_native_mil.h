@@ -1,0 +1,93 @@
+#pragma once
+
+#include "progpu_native.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct progpu_native_mil_channel progpu_native_mil_channel;
+
+typedef enum progpu_native_mil_status {
+    PROGPU_NATIVE_MIL_STATUS_SUCCESS = 0,
+    PROGPU_NATIVE_MIL_STATUS_END_OF_BATCH = 1,
+    PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT = 2,
+    PROGPU_NATIVE_MIL_STATUS_MALFORMED_BATCH = 3,
+    PROGPU_NATIVE_MIL_STATUS_UNKNOWN_COMMAND = 4,
+    PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND = 5,
+    PROGPU_NATIVE_MIL_STATUS_DUPLICATE_HANDLE = 6,
+    PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE = 7,
+    PROGPU_NATIVE_MIL_STATUS_INVALID_RESOURCE_TYPE = 8,
+    PROGPU_NATIVE_MIL_STATUS_RESOURCE_TYPE_MISMATCH = 9,
+    PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH = 10
+} progpu_native_mil_status;
+
+typedef struct progpu_native_mil_batch_metrics {
+    uint32_t struct_size;
+    uint32_t command_count;
+    uint32_t supported_command_count;
+    uint32_t unsupported_command_count;
+    uint32_t created_resource_count;
+    uint32_t deleted_resource_count;
+    uint32_t updated_resource_count;
+    uint32_t total_bytes;
+} progpu_native_mil_batch_metrics;
+
+typedef struct progpu_native_mil_visual_snapshot {
+    uint32_t struct_size;
+    uint32_t handle;
+    double offset_x;
+    double offset_y;
+    double opacity;
+    uint32_t content_handle;
+    uint32_t child_count;
+} progpu_native_mil_visual_snapshot;
+
+typedef struct progpu_native_mil_target_snapshot {
+    uint32_t struct_size;
+    uint32_t handle;
+    uint32_t root_handle;
+    float clear_red;
+    float clear_green;
+    float clear_blue;
+    float clear_alpha;
+    uint32_t flags;
+} progpu_native_mil_target_snapshot;
+
+PROGPU_NATIVE_API progpu_native_mil_status progpu_native_mil_channel_create(
+    progpu_native_mil_channel** channel);
+PROGPU_NATIVE_API void progpu_native_mil_channel_destroy(
+    progpu_native_mil_channel* channel);
+PROGPU_NATIVE_API progpu_native_mil_status progpu_native_mil_channel_apply(
+    progpu_native_mil_channel* channel,
+    const void* batch,
+    size_t batch_size,
+    progpu_native_mil_batch_metrics* metrics);
+PROGPU_NATIVE_API size_t progpu_native_mil_channel_get_resource_count(
+    const progpu_native_mil_channel* channel);
+PROGPU_NATIVE_API uint8_t progpu_native_mil_channel_has_resource(
+    const progpu_native_mil_channel* channel,
+    uint32_t handle);
+PROGPU_NATIVE_API uint32_t progpu_native_mil_channel_get_resource_type(
+    const progpu_native_mil_channel* channel,
+    uint32_t handle);
+PROGPU_NATIVE_API uint64_t progpu_native_mil_channel_get_resource_generation(
+    const progpu_native_mil_channel* channel,
+    uint32_t handle);
+PROGPU_NATIVE_API uint8_t progpu_native_mil_channel_get_visual(
+    const progpu_native_mil_channel* channel,
+    uint32_t handle,
+    progpu_native_mil_visual_snapshot* snapshot);
+PROGPU_NATIVE_API uint8_t progpu_native_mil_channel_get_visual_child(
+    const progpu_native_mil_channel* channel,
+    uint32_t handle,
+    uint32_t index,
+    uint32_t* child_handle);
+PROGPU_NATIVE_API uint8_t progpu_native_mil_channel_get_target(
+    const progpu_native_mil_channel* channel,
+    uint32_t handle,
+    progpu_native_mil_target_snapshot* snapshot);
+
+#ifdef __cplusplus
+}
+#endif

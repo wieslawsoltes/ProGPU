@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Buffers.Binary;
 using ProGPU.Backend;
 using ProGPU.Backend.Native;
 using Silk.NET.WebGPU;
@@ -6,9 +7,32 @@ using Silk.NET.WebGPU;
 NativeRendererInfo info = NativeCompositor.GetInfo();
 if (info.AbiVersion != 3 ||
     !info.Capabilities.HasFlag(NativeRendererCapabilities.ExternalImageMask) ||
-    !info.Capabilities.HasFlag(NativeRendererCapabilities.ExplicitQueueTimeline))
+    !info.Capabilities.HasFlag(NativeRendererCapabilities.ExplicitQueueTimeline) ||
+    !info.Capabilities.HasFlag(NativeRendererCapabilities.WpfMilChannel))
 {
     throw new InvalidOperationException("The packaged native ABI is incomplete.");
+}
+
+byte[] milBatch = CreateMilSeedBatch();
+using (var mil = new NativeMilChannel())
+{
+    NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
+    if (milMetrics.CommandCount != 2 || mil.ResourceCount != 1 ||
+        !mil.TryGetVisual(41, out NativeMilVisualSnapshot visual) ||
+        visual.Handle != 41)
+    {
+        throw new InvalidOperationException(
+            "The packaged wgpu-native MIL channel is incomplete.");
+    }
+}
+using (var dawnMil = new NativeMilChannel(NativeMilBackend.Dawn))
+{
+    NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
+    if (milMetrics.CommandCount != 2 || dawnMil.ResourceCount != 1)
+    {
+        throw new InvalidOperationException(
+            "The packaged Dawn MIL channel is incomplete.");
+    }
 }
 
 NativeRendererInfo dawnInfo = NativeDawnAdapter.GetInfo();
@@ -70,3 +94,16 @@ Console.WriteLine(
     $"ProGPU.Backend.Native package smoke passed: ABI {info.AbiVersion}, " +
     $"Dawn ABI {NativeDawnAdapter.AdapterAbiVersion}, " +
     $"draws={metrics.DrawCallCount}, pixels={pixels.Length}.");
+
+static byte[] CreateMilSeedBatch()
+{
+    byte[] batch = new byte[28];
+    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(0, 4), 16);
+    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(4, 4), 0x07);
+    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(8, 4), 41);
+    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(12, 4), 39);
+    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(16, 4), 12);
+    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(20, 4), 0x1a);
+    BinaryPrimitives.WriteUInt32LittleEndian(batch.AsSpan(24, 4), 41);
+    return batch;
+}

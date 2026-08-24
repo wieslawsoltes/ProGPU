@@ -1,0 +1,164 @@
+#include "progpu_native_mil.h"
+#include "progpu_native_mil.hpp"
+
+#include <cstddef>
+#include <memory>
+#include <new>
+#include <span>
+
+struct progpu_native_mil_channel {
+    progpu::native::mil::channel state;
+};
+
+namespace {
+
+progpu_native_mil_status to_abi(
+    progpu::native::mil::status value) noexcept {
+    return static_cast<progpu_native_mil_status>(value);
+}
+
+} // namespace
+
+extern "C" {
+
+progpu_native_mil_status progpu_native_mil_channel_create(
+    progpu_native_mil_channel** channel) {
+    if (channel == nullptr) {
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    }
+    *channel = nullptr;
+    try {
+        auto result = std::make_unique<progpu_native_mil_channel>();
+        *channel = result.release();
+        return PROGPU_NATIVE_MIL_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) {
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    } catch (...) {
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    }
+}
+
+void progpu_native_mil_channel_destroy(
+    progpu_native_mil_channel* channel) {
+    delete channel;
+}
+
+progpu_native_mil_status progpu_native_mil_channel_apply(
+    progpu_native_mil_channel* channel,
+    const void* batch,
+    size_t batch_size,
+    progpu_native_mil_batch_metrics* metrics) {
+    if (channel == nullptr || (batch == nullptr && batch_size != 0U) ||
+        (metrics != nullptr &&
+         metrics->struct_size < sizeof(progpu_native_mil_batch_metrics))) {
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    }
+    progpu::native::mil::batch_metrics native_metrics{};
+    const auto result = channel->state.apply(
+        std::span<const std::byte>{
+            static_cast<const std::byte*>(batch), batch_size},
+        metrics == nullptr ? nullptr : &native_metrics);
+    if (metrics != nullptr) {
+        *metrics = {};
+        metrics->struct_size = sizeof(*metrics);
+        metrics->command_count = native_metrics.command_count;
+        metrics->supported_command_count =
+            native_metrics.supported_command_count;
+        metrics->unsupported_command_count =
+            native_metrics.unsupported_command_count;
+        metrics->created_resource_count =
+            native_metrics.created_resource_count;
+        metrics->deleted_resource_count =
+            native_metrics.deleted_resource_count;
+        metrics->updated_resource_count =
+            native_metrics.updated_resource_count;
+        metrics->total_bytes = native_metrics.total_bytes;
+    }
+    return to_abi(result);
+}
+
+size_t progpu_native_mil_channel_get_resource_count(
+    const progpu_native_mil_channel* channel) {
+    return channel == nullptr ? 0U : channel->state.resource_count();
+}
+
+uint8_t progpu_native_mil_channel_has_resource(
+    const progpu_native_mil_channel* channel,
+    uint32_t handle) {
+    return channel != nullptr && channel->state.has_resource(handle) ? 1U : 0U;
+}
+
+uint32_t progpu_native_mil_channel_get_resource_type(
+    const progpu_native_mil_channel* channel,
+    uint32_t handle) {
+    return channel == nullptr ? 0U : channel->state.resource_type(handle);
+}
+
+uint64_t progpu_native_mil_channel_get_resource_generation(
+    const progpu_native_mil_channel* channel,
+    uint32_t handle) {
+    return channel == nullptr
+        ? 0U
+        : channel->state.resource_generation(handle);
+}
+
+uint8_t progpu_native_mil_channel_get_visual(
+    const progpu_native_mil_channel* channel,
+    uint32_t handle,
+    progpu_native_mil_visual_snapshot* snapshot) {
+    if (channel == nullptr || snapshot == nullptr ||
+        snapshot->struct_size < sizeof(*snapshot)) {
+        return 0U;
+    }
+    progpu::native::mil::visual_snapshot source{};
+    if (!channel->state.try_get_visual(handle, source)) {
+        return 0U;
+    }
+    *snapshot = {};
+    snapshot->struct_size = sizeof(*snapshot);
+    snapshot->handle = source.handle;
+    snapshot->offset_x = source.offset_x;
+    snapshot->offset_y = source.offset_y;
+    snapshot->opacity = source.opacity;
+    snapshot->content_handle = source.content_handle;
+    snapshot->child_count = source.child_count;
+    return 1U;
+}
+
+uint8_t progpu_native_mil_channel_get_visual_child(
+    const progpu_native_mil_channel* channel,
+    uint32_t handle,
+    uint32_t index,
+    uint32_t* child_handle) {
+    if (channel == nullptr || child_handle == nullptr) {
+        return 0U;
+    }
+    return channel->state.try_get_visual_child(
+        handle, index, *child_handle) ? 1U : 0U;
+}
+
+uint8_t progpu_native_mil_channel_get_target(
+    const progpu_native_mil_channel* channel,
+    uint32_t handle,
+    progpu_native_mil_target_snapshot* snapshot) {
+    if (channel == nullptr || snapshot == nullptr ||
+        snapshot->struct_size < sizeof(*snapshot)) {
+        return 0U;
+    }
+    progpu::native::mil::target_snapshot source{};
+    if (!channel->state.try_get_target(handle, source)) {
+        return 0U;
+    }
+    *snapshot = {};
+    snapshot->struct_size = sizeof(*snapshot);
+    snapshot->handle = source.handle;
+    snapshot->root_handle = source.root_handle;
+    snapshot->clear_red = source.clear_red;
+    snapshot->clear_green = source.clear_green;
+    snapshot->clear_blue = source.clear_blue;
+    snapshot->clear_alpha = source.clear_alpha;
+    snapshot->flags = source.flags;
+    return 1U;
+}
+
+} // extern "C"

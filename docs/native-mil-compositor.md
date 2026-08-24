@@ -75,6 +75,8 @@ compositor.
 - Zero-copy, bounds-checked batch reader.
 - Transactional channel state: a rejected batch cannot partially mutate the
   live graph.
+- Size-versioned C ABI exported by both native renderer modules and a typed
+  allocation-free .NET batch submission owner in `ProGPU.Backend.Native`.
 - Initial typed resource, visual, generic-target, and opaque render-data state.
 - Strict failure for unknown commands, unsupported commands, invalid handles,
   type mismatches, invalid graph operations, and malformed sizes.
