@@ -263,6 +263,35 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuilderWritesCanonicalGeometryGroupPacket()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetGeometryGroup(
+            13,
+            NativeMilPathFillRule.EvenOdd,
+            [11, 12],
+            6);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(32, encoded.Length);
+        Assert.Equal(32U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x7bU, ReadUInt32(encoded, 4));
+        Assert.Equal(13U, ReadUInt32(encoded, 8));
+        Assert.Equal(6U, ReadUInt32(encoded, 12));
+        Assert.Equal(0U, ReadUInt32(encoded, 16));
+        Assert.Equal(8U, ReadUInt32(encoded, 20));
+        Assert.Equal(11U, ReadUInt32(encoded, 24));
+        Assert.Equal(12U, ReadUInt32(encoded, 28));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetGeometryGroup(
+                14,
+                NativeMilPathFillRule.Nonzero,
+                [0]));
+        Assert.Equal(32, batch.Length);
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalDashStylePackets()
     {
         var batch = new NativeMilBatchBuilder();

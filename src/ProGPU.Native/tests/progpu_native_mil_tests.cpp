@@ -101,6 +101,74 @@ void append_path_geometry(
     batch.resize(batch.size() + item_size - sizeof(std::uint32_t) - packet.size());
 }
 
+void append_geometry_group(
+    std::vector<std::byte>& batch,
+    std::uint32_t handle,
+    std::uint32_t transform_handle,
+    std::uint32_t fill_rule,
+    std::span<const std::uint32_t> children) {
+    std::vector<std::byte> packet;
+    append_value(packet, static_cast<std::uint32_t>(command::geometry_group));
+    append_value(packet, handle);
+    append_value(packet, transform_handle);
+    append_value(packet, fill_rule);
+    append_value(
+        packet,
+        static_cast<std::uint32_t>(children.size_bytes()));
+    for (const std::uint32_t child : children) {
+        append_value(packet, child);
+    }
+    append_value(
+        batch,
+        static_cast<std::uint32_t>(packet.size() + sizeof(std::uint32_t)));
+    batch.insert(batch.end(), packet.begin(), packet.end());
+}
+
+std::vector<std::byte> make_rectangle_path_figures(
+    double left,
+    double top,
+    double right,
+    double bottom) {
+    constexpr std::uint32_t line_size = 32U;
+    constexpr std::uint32_t figure_size = 40U + 3U * line_size;
+    constexpr std::uint32_t figures_size = 48U + figure_size;
+    std::vector<std::byte> figures;
+    append_value(figures, figures_size);
+    append_value(figures, 0x02U);
+    append_value(figures, left);
+    append_value(figures, top);
+    append_value(figures, right);
+    append_value(figures, bottom);
+    append_value(figures, 1U);
+    append_value(figures, 0U);
+
+    append_value(figures, 0U);
+    append_value(figures, 0x0cU);
+    append_value(figures, 3U);
+    append_value(figures, figure_size);
+    append_value(figures, left);
+    append_value(figures, top);
+    append_value(figures, 40U + 2U * line_size);
+    append_value(figures, 0U);
+
+    const std::array endpoints{
+        std::array{right, top},
+        std::array{right, bottom},
+        std::array{left, bottom}};
+    std::uint32_t previous_size = 0U;
+    for (const auto& endpoint : endpoints) {
+        append_value(figures, 1U);
+        append_value(figures, 0U);
+        append_value(figures, previous_size);
+        append_value(figures, 0U);
+        append_value(figures, endpoint[0]);
+        append_value(figures, endpoint[1]);
+        previous_size = line_size;
+    }
+    PROGPU_REQUIRE(figures.size() == figures_size);
+    return figures;
+}
+
 void append_dash_style(
     std::vector<std::byte>& batch,
     std::uint32_t handle,
@@ -1694,6 +1762,149 @@ bool retained_path_geometry_compiles_to_semantic_scene() {
     return true;
 }
 
+bool retained_geometry_group_compiles_to_one_semantic_path() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t transform = 5U;
+    constexpr std::uint32_t path_a = 6U;
+    constexpr std::uint32_t path_b = 7U;
+    constexpr std::uint32_t group = 8U;
+    constexpr std::uint32_t nested_group = 9U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, transform, 66U);
+    append_create(batch, path_a, 73U);
+    append_create(batch, path_b, 73U);
+    append_create(batch, group, 71U);
+    append_create(batch, nested_group, 71U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.75F, 0.25F, 0.5F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::matrix_transform,
+        transform,
+        1.5,
+        0.0,
+        0.0,
+        1.5,
+        2.0,
+        3.0,
+        0U);
+    const auto figures_a = make_rectangle_path_figures(1.0, 2.0, 9.0, 10.0);
+    const auto figures_b = make_rectangle_path_figures(6.0, 4.0, 15.0, 12.0);
+    append_path_geometry(batch, path_a, 0U, 1U, figures_a);
+    append_path_geometry(batch, path_b, 0U, 1U, figures_b);
+    const std::array children{path_a, path_b};
+    append_geometry_group(batch, group, transform, 0U, children);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_geometry,
+        brush,
+        0U,
+        group,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7003U, 1U, stream) == status::success);
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_group_path = false;
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            continue;
+        }
+        const auto path = read_value<progpu_native_scene_path_fill>(
+            stream,
+            resource.payload_offset);
+        PROGPU_REQUIRE(path.segment_count == 8U);
+        PROGPU_REQUIRE(path.fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD);
+        PROGPU_REQUIRE(path.transform.m11 == 1.5F);
+        PROGPU_REQUIRE(path.transform.m22 == 1.5F);
+        PROGPU_REQUIRE(path.transform.m31 == 2.0F);
+        PROGPU_REQUIRE(path.transform.m32 == 3.0F);
+        PROGPU_REQUIRE(path.min_x == 1.0F && path.min_y == 2.0F);
+        PROGPU_REQUIRE(path.max_x == 15.0F && path.max_y == 12.0F);
+        found_group_path = true;
+    }
+    PROGPU_REQUIRE(found_group_path);
+
+    const auto generation = state.resource_generation(group);
+    std::vector<std::byte> malformed;
+    append_command(
+        malformed,
+        command::geometry_group,
+        group,
+        transform,
+        0U,
+        8U,
+        path_a);
+    PROGPU_REQUIRE(state.apply(malformed) == status::malformed_batch);
+    PROGPU_REQUIRE(state.resource_generation(group) == generation);
+
+    std::vector<std::byte> delete_child;
+    append_command(
+        delete_child,
+        command::channel_delete_resource,
+        path_a,
+        73U);
+    PROGPU_REQUIRE(state.apply(delete_child) == status::invalid_graph);
+
+    std::vector<std::byte> nested_update;
+    const std::array group_child{group};
+    append_geometry_group(
+        nested_update,
+        nested_group,
+        0U,
+        1U,
+        group_child);
+    PROGPU_REQUIRE(state.apply(nested_update) == status::success);
+    std::vector<std::byte> cyclic_update;
+    const std::array nested_child{nested_group};
+    append_geometry_group(
+        cyclic_update,
+        group,
+        transform,
+        0U,
+        nested_child);
+    PROGPU_REQUIRE(state.apply(cyclic_update) == status::invalid_graph);
+    PROGPU_REQUIRE(state.resource_generation(group) == generation);
+    return true;
+}
+
 bool render_data_scope_errors_fail_closed() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -1869,6 +2080,7 @@ int main() {
     PROGPU_REQUIRE(matrix_transform_scopes_compile_to_semantic_state());
     PROGPU_REQUIRE(solid_pen_line_compiles_to_geometry_scene());
     PROGPU_REQUIRE(retained_path_geometry_compiles_to_semantic_scene());
+    PROGPU_REQUIRE(retained_geometry_group_compiles_to_one_semantic_path());
     PROGPU_REQUIRE(render_data_scope_errors_fail_closed());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());
     PROGPU_REQUIRE(c_abi_is_typed_and_size_versioned());

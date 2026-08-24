@@ -460,6 +460,36 @@ public sealed class NativeMilBatchBuilder
         }
     }
 
+    public void SetGeometryGroup(
+        uint handle,
+        NativeMilPathFillRule fillRule,
+        ReadOnlySpan<uint> childHandles,
+        uint transformHandle = 0)
+    {
+        ValidateHandle(handle);
+        if (fillRule > NativeMilPathFillRule.Nonzero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(fillRule));
+        }
+        foreach (uint childHandle in childHandles)
+        {
+            ValidateHandle(childHandle);
+        }
+        int childrenSize = checked(childHandles.Length * sizeof(uint));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.GeometryGroup,
+            checked(20 + childrenSize));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, transformHandle);
+        WriteUInt32(packet, 12, (uint)fillRule);
+        WriteUInt32(packet, 16, checked((uint)childrenSize));
+        for (int index = 0; index < childHandles.Length; index++)
+        {
+            WriteUInt32(packet, 20 + index * sizeof(uint), childHandles[index]);
+        }
+    }
+
     private static int PathSegmentSize(NativeMilPathSegment segment) =>
         segment.Kind switch
         {
@@ -835,6 +865,7 @@ internal static class NativeMilCommand
     internal const uint LineGeometry = 0x78;
     internal const uint RectangleGeometry = 0x79;
     internal const uint EllipseGeometry = 0x7a;
+    internal const uint GeometryGroup = 0x7b;
     internal const uint PathGeometry = 0x7d;
     internal const uint SolidColorBrush = 0x7e;
     internal const uint DashStyle = 0x85;
