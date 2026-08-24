@@ -29,7 +29,7 @@ public struct GlyphInfo
     internal uint AtlasRegionHeight;
 }
 
-public unsafe class GlyphAtlas : IDisposable
+public unsafe partial class GlyphAtlas : IDisposable
 {
     public const uint DefaultUniformRingBufferSize = 64 * 1024;
     public const uint DefaultCoverageRingBufferSize = 256 * 1024;
@@ -706,16 +706,6 @@ public unsafe class GlyphAtlas : IDisposable
             }
             else
             {
-                if (_context.RequiresGlyphComputeFallback)
-                {
-                    // This adapter profile cannot safely execute the shared
-                    // glyph coverage compute shader. A stable empty atlas
-                    // entry routes compositor callers to retained vector
-                    // glyph rendering without retrying unsafe GPU work.
-                    info = CreateEmptyGlyphInfo(font, glyphIdx, size);
-                    CacheGlyph(key, info);
-                    return info;
-                }
                 var outline = font.GetGlyphOutline(glyphIdx);
 
                 // Handle empty glyphs such as font-owned space outlines.
@@ -825,6 +815,35 @@ public unsafe class GlyphAtlas : IDisposable
                                 info = CreateEmptyGlyphInfo(font, glyphIdx, size);
                                 CacheGlyph(key, info, isCapacityFallback: true);
                                 return info;
+                            }
+
+                            if (_context.RequiresGlyphComputeFallback)
+                            {
+                                // This adapter profile cannot safely execute the shared
+                                // glyph compute pipeline. Rasterize the same typed outline
+                                // on the CPU and publish normal retained atlas coverage.
+                                _glyphSegmentScratch.Clear();
+                                GpuGlyphRecord cpuRecord = font.AppendGpuOutlineData(
+                                    glyphIdx,
+                                    _glyphSegmentScratch);
+                                byte[] cpuCoverage = RasterizeGlyphCoverageCpu(
+                                    CollectionsMarshal.AsSpan(_glyphSegmentScratch),
+                                    cpuRecord,
+                                    xStart,
+                                    yStart,
+                                    scale,
+                                    subpixelX * 0.25f,
+                                    gW,
+                                    gH);
+                                _atlasTexture.WritePixelsSubRect(
+                                    cpuCoverage,
+                                    posX,
+                                    posY,
+                                    gW,
+                                    gH);
+                                _glyphSegmentScratch.Clear();
+                                _currentBatchNewGlyphCount++;
+                                goto RasterizationComplete;
                             }
 
                             // Keep the indexed record table stable, but expand and upload only
