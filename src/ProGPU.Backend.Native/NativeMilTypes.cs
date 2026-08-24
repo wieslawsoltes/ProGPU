@@ -16,6 +16,7 @@ public enum NativeMilResourceType : uint
     GenericRenderTarget = 47,
     MatrixTransform = 66,
     SolidColorBrush = 75,
+    DashStyle = 84,
     Pen = 85
 }
 
@@ -64,7 +65,8 @@ public readonly record struct NativeMilPen(
     NativeMilPenLineCap EndLineCap = NativeMilPenLineCap.Flat,
     NativeMilPenLineCap DashCap = NativeMilPenLineCap.Square,
     NativeMilPenLineJoin LineJoin = NativeMilPenLineJoin.Miter,
-    double MiterLimit = 10.0);
+    double MiterLimit = 10.0,
+    uint DashStyleHandle = 0);
 
 public enum NativeMilStatus : uint
 {

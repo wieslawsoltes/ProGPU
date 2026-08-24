@@ -113,6 +113,38 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWriteCanonicalDashStylePackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetDashStyle(7, 0.5, [2.0, 1.0]);
+        batch.SetPen(
+            5,
+            new NativeMilPen(
+                BrushHandle: 4,
+                Thickness: 2.5,
+                DashCap: NativeMilPenLineCap.Round,
+                DashStyleHandle: 7));
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(100, encoded.Length);
+        Assert.Equal(44U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x85U, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(0.5, ReadDouble(encoded, 12));
+        Assert.Equal(0U, ReadUInt32(encoded, 20));
+        Assert.Equal(16U, ReadUInt32(encoded, 24));
+        Assert.Equal(2.0, ReadDouble(encoded, 28));
+        Assert.Equal(1.0, ReadDouble(encoded, 36));
+        Assert.Equal(56U, ReadUInt32(encoded, 44));
+        Assert.Equal(0x86U, ReadUInt32(encoded, 48));
+        Assert.Equal(7U, ReadUInt32(encoded, 96));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetDashStyle(8, 0, [1.0, -1.0]));
+        Assert.Equal(100, batch.Length);
+    }
+
+    [Fact]
     public void ParallelsD3D12GlyphRasterizationUsesTypedComputeFallback()
     {
         string managedContext = File.ReadAllText(FindRepoFile(

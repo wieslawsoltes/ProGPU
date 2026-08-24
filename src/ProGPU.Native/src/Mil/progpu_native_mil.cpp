@@ -23,6 +23,7 @@ constexpr std::uint32_t type_hwnd_render_target = 46U;
 constexpr std::uint32_t type_generic_render_target = 47U;
 constexpr std::uint32_t type_matrix_transform = 66U;
 constexpr std::uint32_t type_solid_color_brush = 75U;
+constexpr std::uint32_t type_dash_style = 84U;
 constexpr std::uint32_t type_pen = 85U;
 constexpr std::uint32_t type_last = 98U;
 constexpr std::uint32_t maximum_visual_depth = 256U;
@@ -305,6 +306,12 @@ struct channel::implementation {
         std::uint32_t end_line_cap{};
         std::uint32_t dash_cap{};
         std::uint32_t line_join{};
+        std::uint32_t dash_style_handle{};
+    };
+
+    struct dash_style_state {
+        double offset{};
+        std::vector<double> intervals;
     };
 
     using matrix_transform_state = affine_2d_double;
@@ -321,6 +328,7 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, matrix_transform_state>
         matrix_transforms;
     std::unordered_map<std::uint32_t, solid_brush_state> solid_brushes;
+    std::unordered_map<std::uint32_t, dash_style_state> dash_styles;
     std::unordered_map<std::uint32_t, pen_state> pens;
 
     bool require_resource(
@@ -432,7 +440,9 @@ struct channel::implementation {
                 }
             }
             for (const auto& [pen_handle, pen] : pens) {
-                if (pen_handle != handle && pen.brush_handle == handle) {
+                if (pen_handle != handle &&
+                    (pen.brush_handle == handle ||
+                     pen.dash_style_handle == handle)) {
                     return status::invalid_graph;
                 }
             }
@@ -440,6 +450,7 @@ struct channel::implementation {
             targets.erase(handle);
             matrix_transforms.erase(handle);
             solid_brushes.erase(handle);
+            dash_styles.erase(handle);
             pens.erase(handle);
             resources.erase(found);
             ++metrics.deleted_resource_count;
@@ -771,6 +782,50 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         }
+        case command::dash_style: {
+            dash_style_state dash{};
+            std::uint32_t offset_animations = 0U;
+            std::uint32_t dashes_size = 0U;
+            if (view.packet.size() < 24U ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, dash.offset) ||
+                !read_at(view.packet, 16U, offset_animations) ||
+                !read_at(view.packet, 20U, dashes_size) ||
+                dashes_size % sizeof(double) != 0U ||
+                view.packet.size() != 24U + dashes_size) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_dash_style)) {
+                return status::invalid_handle;
+            }
+            if (offset_animations != 0U) {
+                return status::unsupported_command;
+            }
+            if (!finite_double_as_float(dash.offset)) {
+                return status::malformed_batch;
+            }
+            const std::size_t dash_count =
+                dashes_size / sizeof(double);
+            try {
+                dash.intervals.resize(dash_count);
+            } catch (const std::bad_alloc&) {
+                return status::capacity_exceeded;
+            }
+            for (std::size_t index = 0U; index < dash_count; ++index) {
+                if (!read_at(
+                        view.packet,
+                        24U + index * sizeof(double),
+                        dash.intervals[index]) ||
+                    !finite_double_as_float(dash.intervals[index]) ||
+                    dash.intervals[index] < 0.0) {
+                    return status::malformed_batch;
+                }
+            }
+            dash_styles.insert_or_assign(handle, std::move(dash));
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
         case command::pen: {
             pen_state pen{};
             std::uint32_t thickness_animations = 0U;
@@ -788,14 +843,17 @@ struct channel::implementation {
                 !read_at(view.packet, 48U, dash_style)) {
                 return status::malformed_batch;
             }
+            pen.dash_style_handle = dash_style;
             if (!require_resource(handle, type_pen) ||
                 (pen.brush_handle != 0U &&
                  !require_resource(
                      pen.brush_handle,
-                     type_solid_color_brush))) {
+                     type_solid_color_brush)) ||
+                (dash_style != 0U &&
+                 !require_resource(dash_style, type_dash_style))) {
                 return status::invalid_handle;
             }
-            if (thickness_animations != 0U || dash_style != 0U) {
+            if (thickness_animations != 0U) {
                 return status::unsupported_command;
             }
             if (!finite_double_as_float(pen.thickness) ||
@@ -1049,11 +1107,63 @@ struct channel::implementation {
                         {1.0F, 1.0F, 1.0F, 1.0F},
                         native::semantic_scene_builder::identity_transform()}};
                 const std::array brushes{brush_index};
-                if (!builder.draw_geometry(
-                        primitives,
-                        brushes,
-                        transformed_bounds)) {
-                    return status::invalid_graph;
+                if (pen->second.dash_style_handle == 0U) {
+                    if (!builder.draw_geometry(
+                            primitives,
+                            brushes,
+                            transformed_bounds)) {
+                        return status::invalid_graph;
+                    }
+                } else {
+                    const auto dash = dash_styles.find(
+                        pen->second.dash_style_handle);
+                    if (dash == dash_styles.end()) {
+                        return status::invalid_handle;
+                    }
+                    if (dash->second.intervals.empty()) {
+                        if (!builder.draw_geometry(
+                                primitives,
+                                brushes,
+                                transformed_bounds)) {
+                            return status::invalid_graph;
+                        }
+                    } else {
+                        const std::array points{
+                            progpu_native_point{
+                                static_cast<float>(x0),
+                                static_cast<float>(y0)},
+                            progpu_native_point{
+                                static_cast<float>(x1),
+                                static_cast<float>(y1)}};
+                        progpu_native_scene_stroke stroke{};
+                        stroke.struct_size = sizeof(stroke);
+                        stroke.kind = PROGPU_NATIVE_SCENE_STROKE_POLYLINE;
+                        stroke.point_count = points.size();
+                        stroke.dash_interval_count =
+                            dash->second.intervals.size();
+                        stroke.color = {1.0F, 1.0F, 1.0F, 1.0F};
+                        stroke.transform =
+                            native::semantic_scene_builder::identity_transform();
+                        stroke.stroke_thickness =
+                            static_cast<float>(pen->second.thickness);
+                        stroke.miter_limit = static_cast<float>(
+                            std::max(1.0, pen->second.miter_limit));
+                        stroke.dash_offset = dash->second.offset;
+                        stroke.start_cap = pen->second.start_line_cap;
+                        stroke.end_cap = pen->second.end_line_cap;
+                        stroke.line_join = pen->second.line_join;
+                        stroke.dash_cap = pen->second.dash_cap;
+                        if (!builder.draw_strokes(
+                                std::span<const progpu_native_scene_stroke>(
+                                    &stroke,
+                                    1U),
+                                points,
+                                dash->second.intervals,
+                                brushes,
+                                transformed_bounds)) {
+                            return status::invalid_graph;
+                        }
+                    }
                 }
                 ++metrics.line_count;
                 continue;

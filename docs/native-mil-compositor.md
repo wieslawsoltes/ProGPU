@@ -104,8 +104,8 @@ parent transform, and then nested drawing scopes. Draw culling bounds are the
 axis-aligned bounds of all four transformed primitive corners. Animation
 handles, missing/wrong-type nonzero transforms, nonzero packet padding, and
 unbalanced scopes fail closed transactionally; transform handle zero retains
-WPF's defined balanced no-op scope. Animated brushes, dashed or animated pens,
-non-line pen draws, and other nested commands deliberately fail closed until
+WPF's defined balanced no-op scope. Animated brushes and pens, non-line pen
+draws, and other nested commands deliberately fail closed until
 their typed resources are implemented. The slice is covered by byte-level
 fixtures that check semantic
 brush, transform/opacity state, rectangle, ellipse and rounded-rectangle
@@ -116,14 +116,18 @@ new metrics, and writes into caller-owned storage; the managed owner returns
 the completed semantic stream with typed compilation metrics for direct native
 compositor submission.
 
-The next Stage 1 slice implements the exact 52-byte `MILCMD_PEN` resource and
-44-byte nested `MILCMD_DRAW_LINE` packet for unanimated solid pens. Flat,
+The current Stage 1 slice implements the exact 52-byte `MILCMD_PEN` resource,
+variable-size `MILCMD_DASHSTYLE` resource, and 44-byte nested
+`MILCMD_DRAW_LINE` packet for unanimated solid-brush pens. Flat,
 square, round, and triangle start/end caps map directly to the reusable ProGPU
 geometry-stroke flags; pen brushes share the semantic brush table, and line
 width/cap-conservative local bounds are transformed through the same four-
-corner affine path. Null pen handles and zero-width/null-brush pens are no-op
-draws. Thickness animation, dash-style resources, invalid enums, unresolved
-handles, nonzero padding, and non-flat degenerate line caps fail closed. The
+corner affine path. Nonempty dash resources route through ProGPU's reusable
+semantic connected-stroke engine, preserving thickness-relative intervals,
+offset, dash cap, odd-pattern repetition, and backend-independent execution.
+Null pen handles and zero-width/null-brush pens are no-op draws. Thickness and
+dash-offset animation, invalid dash values/enums, unresolved handles, nonzero
+padding, and non-flat degenerate line caps fail closed transactionally. The
 size-stable MIL scene metrics ABI now publishes `line_count` in its former
 reserved tail field. Pens on analytic rectangles/ellipses remain closed until
 their join and outline semantics can be preserved exactly.
@@ -136,7 +140,7 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds, geometry,
-  dash styles and remaining pen draws, brushes, drawings, images, glyph runs,
+  remaining pen draws, brushes, drawings, images, glyph runs,
   caches, guidelines, effects, and complete render-data decoding.
 - Lower every supported update to stable semantic resource identities and
   generation numbers; unchanged resources must not be rebuilt.
