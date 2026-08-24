@@ -14,7 +14,25 @@ public enum NativeMilResourceType : uint
     RenderTarget = 45,
     HwndRenderTarget = 46,
     GenericRenderTarget = 47,
+    MatrixTransform = 66,
     SolidColorBrush = 75
+}
+
+public readonly record struct NativeMilMatrix3x2(
+    double M11,
+    double M12,
+    double M21,
+    double M22,
+    double OffsetX,
+    double OffsetY)
+{
+    public static NativeMilMatrix3x2 Identity { get; } = new(
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0);
 }
 
 public readonly record struct NativeMilColor(

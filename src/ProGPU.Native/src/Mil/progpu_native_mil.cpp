@@ -21,6 +21,7 @@ constexpr std::uint32_t type_render_data = 43U;
 constexpr std::uint32_t type_render_target = 45U;
 constexpr std::uint32_t type_hwnd_render_target = 46U;
 constexpr std::uint32_t type_generic_render_target = 47U;
+constexpr std::uint32_t type_matrix_transform = 66U;
 constexpr std::uint32_t type_solid_color_brush = 75U;
 constexpr std::uint32_t type_last = 98U;
 constexpr std::uint32_t maximum_visual_depth = 256U;
@@ -56,6 +57,92 @@ bool finite_double_as_float(double value) noexcept {
     constexpr auto maximum =
         static_cast<double>(std::numeric_limits<float>::max());
     return std::isfinite(value) && value >= -maximum && value <= maximum;
+}
+
+struct affine_2d_double {
+    double m11{1.0};
+    double m12{};
+    double m21{};
+    double m22{1.0};
+    double m31{};
+    double m32{};
+};
+
+affine_2d_double compose_affine(
+    const affine_2d_double& first,
+    const affine_2d_double& second) noexcept {
+    return {
+        first.m11 * second.m11 + first.m12 * second.m21,
+        first.m11 * second.m12 + first.m12 * second.m22,
+        first.m21 * second.m11 + first.m22 * second.m21,
+        first.m21 * second.m12 + first.m22 * second.m22,
+        first.m31 * second.m11 + first.m32 * second.m21 + second.m31,
+        first.m31 * second.m12 + first.m32 * second.m22 + second.m32};
+}
+
+bool try_to_native_affine(
+    const affine_2d_double& source,
+    progpu_native_affine_2d& destination) noexcept {
+    if (!finite_double_as_float(source.m11) ||
+        !finite_double_as_float(source.m12) ||
+        !finite_double_as_float(source.m21) ||
+        !finite_double_as_float(source.m22) ||
+        !finite_double_as_float(source.m31) ||
+        !finite_double_as_float(source.m32)) {
+        return false;
+    }
+    destination = {
+        static_cast<float>(source.m11),
+        static_cast<float>(source.m12),
+        static_cast<float>(source.m21),
+        static_cast<float>(source.m22),
+        static_cast<float>(source.m31),
+        static_cast<float>(source.m32)};
+    return true;
+}
+
+bool try_transform_bounds(
+    double x,
+    double y,
+    double width,
+    double height,
+    const affine_2d_double& transform,
+    progpu_native_image_rect& bounds) noexcept {
+    const auto transform_point = [&transform](
+        double point_x,
+        double point_y,
+        double& result_x,
+        double& result_y) noexcept {
+        result_x = point_x * transform.m11 +
+            point_y * transform.m21 + transform.m31;
+        result_y = point_x * transform.m12 +
+            point_y * transform.m22 + transform.m32;
+    };
+    std::array<double, 4U> xs{};
+    std::array<double, 4U> ys{};
+    transform_point(x, y, xs[0], ys[0]);
+    transform_point(x + width, y, xs[1], ys[1]);
+    transform_point(x + width, y + height, xs[2], ys[2]);
+    transform_point(x, y + height, xs[3], ys[3]);
+    const auto [minimum_x, maximum_x] =
+        std::ranges::minmax_element(xs);
+    const auto [minimum_y, maximum_y] =
+        std::ranges::minmax_element(ys);
+    const double transformed_width = *maximum_x - *minimum_x;
+    const double transformed_height = *maximum_y - *minimum_y;
+    if (!finite_double_as_float(*minimum_x) ||
+        !finite_double_as_float(*minimum_y) ||
+        !finite_double_as_float(transformed_width) ||
+        !finite_double_as_float(transformed_height) ||
+        transformed_width < 0.0 || transformed_height < 0.0) {
+        return false;
+    }
+    bounds = {
+        static_cast<float>(*minimum_x),
+        static_cast<float>(*minimum_y),
+        static_cast<float>(transformed_width),
+        static_cast<float>(transformed_height)};
+    return true;
 }
 
 } // namespace
@@ -107,6 +194,7 @@ struct channel::implementation {
         double offset_x{};
         double offset_y{};
         double opacity{1.0};
+        std::uint32_t transform_handle{};
         std::uint32_t content_handle{};
         std::vector<std::uint32_t> children;
     };
@@ -125,6 +213,8 @@ struct channel::implementation {
         progpu_native_color color{};
     };
 
+    using matrix_transform_state = affine_2d_double;
+
     struct resource_state {
         std::uint32_t type{};
         std::uint64_t generation{1U};
@@ -134,6 +224,8 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, resource_state> resources;
     std::unordered_map<std::uint32_t, visual_state> visuals;
     std::unordered_map<std::uint32_t, target_state> targets;
+    std::unordered_map<std::uint32_t, matrix_transform_state>
+        matrix_transforms;
     std::unordered_map<std::uint32_t, solid_brush_state> solid_brushes;
 
     bool require_resource(
@@ -232,7 +324,8 @@ struct channel::implementation {
             }
             for (const auto& [visual_handle, visual] : visuals) {
                 if (visual_handle != handle &&
-                    (visual.content_handle == handle ||
+                    (visual.transform_handle == handle ||
+                     visual.content_handle == handle ||
                      std::ranges::find(visual.children, handle) !=
                         visual.children.end())) {
                     return status::invalid_graph;
@@ -245,6 +338,7 @@ struct channel::implementation {
             }
             visuals.erase(handle);
             targets.erase(handle);
+            matrix_transforms.erase(handle);
             solid_brushes.erase(handle);
             resources.erase(found);
             ++metrics.deleted_resource_count;
@@ -285,6 +379,23 @@ struct channel::implementation {
             auto& visual = visuals.at(handle);
             visual.offset_x = x;
             visual.offset_y = y;
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::visual_set_transform: {
+            std::uint32_t transform = 0U;
+            if (!has_exact_size(view, 12U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, transform)) {
+                return status::malformed_batch;
+            }
+            if (!require_visual(handle) ||
+                (transform != 0U &&
+                 !require_resource(transform, type_matrix_transform))) {
+                return status::invalid_handle;
+            }
+            visuals.at(handle).transform_handle = transform;
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -495,6 +606,35 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         }
+        case command::matrix_transform: {
+            matrix_transform_state matrix{};
+            std::uint32_t animations = 0U;
+            if (!has_exact_size(view, 60U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, matrix.m11) ||
+                !read_at(view.packet, 16U, matrix.m12) ||
+                !read_at(view.packet, 24U, matrix.m21) ||
+                !read_at(view.packet, 32U, matrix.m22) ||
+                !read_at(view.packet, 40U, matrix.m31) ||
+                !read_at(view.packet, 48U, matrix.m32) ||
+                !read_at(view.packet, 56U, animations)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_matrix_transform)) {
+                return status::invalid_handle;
+            }
+            if (animations != 0U) {
+                return status::unsupported_command;
+            }
+            progpu_native_affine_2d native_matrix{};
+            if (!try_to_native_affine(matrix, native_matrix)) {
+                return status::malformed_batch;
+            }
+            matrix_transforms.insert_or_assign(handle, matrix);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
         case command::solid_color_brush: {
             double opacity = 0.0;
             progpu_native_color color{};
@@ -539,8 +679,7 @@ struct channel::implementation {
 
     status append_render_data(
         std::uint32_t content_handle,
-        double offset_x,
-        double offset_y,
+        const affine_2d_double& base_transform,
         double base_opacity,
         native::semantic_scene_builder& builder,
         std::unordered_map<std::uint32_t, std::uint32_t>& brush_indices,
@@ -553,12 +692,27 @@ struct channel::implementation {
 
         batch_reader reader(resource->second.render_data);
         command_view view{};
-        double current_opacity = base_opacity;
-        std::vector<double> scope_opacities;
+        struct render_scope_state {
+            affine_2d_double transform;
+            double opacity{1.0};
+        };
+        render_scope_state current{base_transform, base_opacity};
+        std::vector<render_scope_state> scope_states;
+        const auto save_state = [&builder](
+            const render_scope_state& source) noexcept {
+            auto state = native::semantic_scene_builder::identity_state();
+            if (!try_to_native_affine(source.transform, state.transform)) {
+                return false;
+            }
+            state.opacity = static_cast<float>(source.opacity);
+            std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            return builder.add_state(state, state_index) &&
+                builder.save(state_index);
+        };
         for (;;) {
             const status read_status = reader.next(view);
             if (read_status == status::end_of_batch) {
-                return scope_opacities.empty()
+                return scope_states.empty()
                     ? status::success
                     : status::invalid_graph;
             }
@@ -576,36 +730,59 @@ struct channel::implementation {
                     opacity > 1.0) {
                     return status::malformed_batch;
                 }
-                const double combined_opacity = current_opacity * opacity;
+                const double combined_opacity = current.opacity * opacity;
                 if (!std::isfinite(combined_opacity) ||
                     combined_opacity < 0.0 || combined_opacity > 1.0) {
                     return status::invalid_graph;
                 }
-                auto state = native::semantic_scene_builder::identity_state();
-                state.transform.m31 = static_cast<float>(offset_x);
-                state.transform.m32 = static_cast<float>(offset_y);
-                state.opacity = static_cast<float>(combined_opacity);
-                std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-                if (!builder.add_state(state, state_index) ||
-                    !builder.save(state_index)) {
+                const render_scope_state next{
+                    current.transform,
+                    combined_opacity};
+                if (!save_state(next)) {
                     return status::invalid_graph;
                 }
-                scope_opacities.push_back(current_opacity);
-                current_opacity = combined_opacity;
+                scope_states.push_back(current);
+                current = next;
+                continue;
+            }
+            if (view.kind == command::push_transform) {
+                std::uint32_t transform_handle = 0U;
+                std::uint32_t padding = 0U;
+                if (!has_exact_size(view, 12U) ||
+                    !read_at(view.packet, 4U, transform_handle) ||
+                    !read_at(view.packet, 8U, padding)) {
+                    return status::malformed_batch;
+                }
+                if (transform_handle == 0U || padding != 0U) {
+                    return status::malformed_batch;
+                }
+                const auto transform =
+                    matrix_transforms.find(transform_handle);
+                if (transform == matrix_transforms.end()) {
+                    return status::invalid_handle;
+                }
+                const render_scope_state next{
+                    compose_affine(transform->second, current.transform),
+                    current.opacity};
+                if (!save_state(next)) {
+                    return status::invalid_graph;
+                }
+                scope_states.push_back(current);
+                current = next;
                 continue;
             }
             if (view.kind == command::pop) {
                 if (!has_exact_size(view, 4U)) {
                     return status::malformed_batch;
                 }
-                if (scope_opacities.empty()) {
+                if (scope_states.empty()) {
                     return status::invalid_graph;
                 }
                 if (!builder.restore()) {
                     return status::invalid_graph;
                 }
-                current_opacity = scope_opacities.back();
-                scope_opacities.pop_back();
+                current = scope_states.back();
+                scope_states.pop_back();
                 continue;
             }
             if (view.kind != command::draw_rectangle &&
@@ -668,10 +845,18 @@ struct channel::implementation {
             const double height = is_ellipse ? fourth * 2.0 : fourth;
             if (!finite_double_as_float(x) || !finite_double_as_float(y) ||
                 !finite_double_as_float(width) ||
-                !finite_double_as_float(height) ||
-                !finite_double_as_float(x + offset_x) ||
-                !finite_double_as_float(y + offset_y)) {
+                !finite_double_as_float(height)) {
                 return status::malformed_batch;
+            }
+            progpu_native_image_rect transformed_bounds{};
+            if (!try_transform_bounds(
+                    x,
+                    y,
+                    width,
+                    height,
+                    current.transform,
+                    transformed_bounds)) {
+                return status::invalid_graph;
             }
 
             const auto brush = solid_brushes.find(brush_handle);
@@ -711,10 +896,7 @@ struct channel::implementation {
             if (!builder.draw_analytic(
                     primitive,
                     brushes,
-                    {static_cast<float>(x + offset_x),
-                     static_cast<float>(y + offset_y),
-                     static_cast<float>(width),
-                     static_cast<float>(height)})) {
+                    transformed_bounds)) {
                 return status::invalid_graph;
             }
             if (is_ellipse) {
@@ -729,8 +911,7 @@ struct channel::implementation {
 
     status append_visual(
         std::uint32_t handle,
-        double parent_offset_x,
-        double parent_offset_y,
+        const affine_2d_double& parent_transform,
         double parent_opacity,
         std::uint32_t depth,
         native::semantic_scene_builder& builder,
@@ -746,24 +927,38 @@ struct channel::implementation {
             active_visuals.erase(handle);
             return status::invalid_handle;
         }
-        const double offset_x = parent_offset_x + visual->second.offset_x;
-        const double offset_y = parent_offset_y + visual->second.offset_y;
+        affine_2d_double local_transform{};
+        if (visual->second.transform_handle != 0U) {
+            const auto transform = matrix_transforms.find(
+                visual->second.transform_handle);
+            if (transform == matrix_transforms.end()) {
+                active_visuals.erase(handle);
+                return status::invalid_handle;
+            }
+            local_transform = transform->second;
+        }
+        const affine_2d_double offset_transform{
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            visual->second.offset_x,
+            visual->second.offset_y};
+        const affine_2d_double transform = compose_affine(
+            compose_affine(local_transform, offset_transform),
+            parent_transform);
         const double opacity = parent_opacity * visual->second.opacity;
-        if (!finite_double_as_float(offset_x) ||
-            !finite_double_as_float(offset_y) || !std::isfinite(opacity) ||
+        if (!std::isfinite(opacity) ||
             opacity < 0.0 || opacity > 1.0) {
             active_visuals.erase(handle);
             return status::invalid_graph;
         }
 
         auto state = native::semantic_scene_builder::identity_state();
-        state.transform = {
-            1.0F,
-            0.0F,
-            0.0F,
-            1.0F,
-            static_cast<float>(offset_x),
-            static_cast<float>(offset_y)};
+        if (!try_to_native_affine(transform, state.transform)) {
+            active_visuals.erase(handle);
+            return status::invalid_graph;
+        }
         state.opacity = static_cast<float>(opacity);
         std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         if (!builder.add_state(state, state_index) ||
@@ -779,8 +974,7 @@ struct channel::implementation {
         if (visual->second.content_handle != 0U) {
             result = append_render_data(
                 visual->second.content_handle,
-                offset_x,
-                offset_y,
+                transform,
                 opacity,
                 builder,
                 brush_indices,
@@ -790,8 +984,7 @@ struct channel::implementation {
             for (const auto child : visual->second.children) {
                 result = append_visual(
                     child,
-                    offset_x,
-                    offset_y,
+                    transform,
                     opacity,
                     depth + 1U,
                     builder,
@@ -958,8 +1151,7 @@ status channel::build_scene(
         if (target->second.root_handle != 0U) {
             const status append_status = implementation_->append_visual(
                 target->second.root_handle,
-                0.0,
-                0.0,
+                affine_2d_double{},
                 1.0,
                 1U,
                 builder,
