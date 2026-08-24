@@ -350,6 +350,15 @@ exports, and then completed managed D3D12 rendering/readback (`draws=1`,
 Parallels D3D12 adapter and completed its nine-command, five-draw,
 11,616-vertex-byte readback gate.
 
+The retained line-geometry checkpoint at exact ProGPU commit `5c4757c0`
+passed the focused Windows ARM64 lane from a clean checkout. ARM64 MSVC rebuilt
+both native modules and the MIL executable, and the MIL/Dawn contracts passed
+2/2. The zero-warning project-reference package consumer compiled a typed,
+transformed `LineGeometry`/`DrawGeometry` pen through both native MIL exports
+before completing live D3D12 rendering/readback (`draws=1`, 16,384 pixels).
+The independent C++ retained renderer again completed its nine-command,
+five-draw, 11,616-vertex-byte D3D12 readback gate.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
