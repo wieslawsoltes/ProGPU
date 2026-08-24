@@ -18,10 +18,112 @@ public enum NativeMilResourceType : uint
     LineGeometry = 68,
     RectangleGeometry = 69,
     EllipseGeometry = 70,
+    PathGeometry = 73,
     SolidColorBrush = 75,
     DashStyle = 84,
     Pen = 85
 }
+
+public enum NativeMilPathFillRule : uint
+{
+    EvenOdd = 0,
+    Nonzero = 1
+}
+
+public enum NativeMilPathSegmentKind : uint
+{
+    Line = 1,
+    CubicBezier = 2,
+    QuadraticBezier = 3,
+    Arc = 4
+}
+
+public readonly record struct NativeMilPoint(double X, double Y);
+
+public readonly record struct NativeMilPathSegment(
+    NativeMilPathSegmentKind Kind,
+    NativeMilPoint Point1,
+    NativeMilPoint Point2,
+    NativeMilPoint Point3,
+    double RadiusX = 0,
+    double RadiusY = 0,
+    double RotationAngle = 0,
+    bool IsLargeArc = false,
+    bool IsClockwise = false,
+    bool IsStroked = true,
+    bool IsSmoothJoin = false)
+{
+    public static NativeMilPathSegment Line(
+        NativeMilPoint point,
+        bool isStroked = true,
+        bool isSmoothJoin = false) => new(
+            NativeMilPathSegmentKind.Line,
+            point,
+            default,
+            default,
+            IsStroked: isStroked,
+            IsSmoothJoin: isSmoothJoin);
+
+    public static NativeMilPathSegment QuadraticBezier(
+        NativeMilPoint control,
+        NativeMilPoint point,
+        bool isStroked = true,
+        bool isSmoothJoin = false) => new(
+            NativeMilPathSegmentKind.QuadraticBezier,
+            control,
+            point,
+            default,
+            IsStroked: isStroked,
+            IsSmoothJoin: isSmoothJoin);
+
+    public static NativeMilPathSegment CubicBezier(
+        NativeMilPoint control1,
+        NativeMilPoint control2,
+        NativeMilPoint point,
+        bool isStroked = true,
+        bool isSmoothJoin = false) => new(
+            NativeMilPathSegmentKind.CubicBezier,
+            control1,
+            control2,
+            point,
+            IsStroked: isStroked,
+            IsSmoothJoin: isSmoothJoin);
+
+    public static NativeMilPathSegment Arc(
+        NativeMilPoint point,
+        double radiusX,
+        double radiusY,
+        double rotationAngle,
+        bool isLargeArc,
+        bool isClockwise,
+        bool isStroked = true,
+        bool isSmoothJoin = false) => new(
+            NativeMilPathSegmentKind.Arc,
+            point,
+            default,
+            default,
+            radiusX,
+            radiusY,
+            rotationAngle,
+            isLargeArc,
+            isClockwise,
+            isStroked,
+            isSmoothJoin);
+}
+
+public sealed record NativeMilPathFigure(
+    NativeMilPoint StartPoint,
+    bool IsFilled,
+    bool IsClosed,
+    IReadOnlyList<NativeMilPathSegment> Segments);
+
+public sealed record NativeMilPathGeometry(
+    NativeMilPathFillRule FillRule,
+    double X,
+    double Y,
+    double Width,
+    double Height,
+    IReadOnlyList<NativeMilPathFigure> Figures);
 
 public readonly record struct NativeMilMatrix3x2(
     double M11,

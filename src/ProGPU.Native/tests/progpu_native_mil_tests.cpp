@@ -80,6 +80,26 @@ void append_render_data(
     batch.resize(batch.size() + item_size - sizeof(std::uint32_t) - packet.size());
 }
 
+void append_path_geometry(
+    std::vector<std::byte>& batch,
+    std::uint32_t handle,
+    std::uint32_t transform_handle,
+    std::uint32_t fill_rule,
+    const std::vector<std::byte>& figures) {
+    std::vector<std::byte> packet;
+    append_value(packet, static_cast<std::uint32_t>(command::path_geometry));
+    append_value(packet, handle);
+    append_value(packet, transform_handle);
+    append_value(packet, fill_rule);
+    append_value(packet, static_cast<std::uint32_t>(figures.size()));
+    packet.insert(packet.end(), figures.begin(), figures.end());
+    const auto item_size = static_cast<std::uint32_t>(
+        (packet.size() + sizeof(std::uint32_t) + 3U) & ~std::size_t{3U});
+    append_value(batch, item_size);
+    batch.insert(batch.end(), packet.begin(), packet.end());
+    batch.resize(batch.size() + item_size - sizeof(std::uint32_t) - packet.size());
+}
+
 void append_dash_style(
     std::vector<std::byte>& batch,
     std::uint32_t handle,
@@ -1361,6 +1381,193 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     return true;
 }
 
+bool retained_path_geometry_compiles_to_semantic_scene() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t transform = 5U;
+    constexpr std::uint32_t geometry = 6U;
+
+    std::vector<std::byte> figures;
+    append_value(figures, 232U);
+    append_value(figures, 0x03U);
+    append_value(figures, 1.0);
+    append_value(figures, 2.0);
+    append_value(figures, 21.0);
+    append_value(figures, 32.0);
+    append_value(figures, 1U);
+    append_value(figures, 0U);
+
+    append_value(figures, 0U);
+    append_value(figures, 0x0eU);
+    append_value(figures, 3U);
+    append_value(figures, 184U);
+    append_value(figures, 1.0);
+    append_value(figures, 2.0);
+    append_value(figures, 120U);
+    append_value(figures, 0U);
+
+    append_value(figures, 1U);
+    append_value(figures, 0U);
+    append_value(figures, 0U);
+    append_value(figures, 0U);
+    append_value(figures, 5.0);
+    append_value(figures, 8.0);
+
+    append_value(figures, 3U);
+    append_value(figures, 0x20U);
+    append_value(figures, 32U);
+    append_value(figures, 0U);
+    append_value(figures, 7.0);
+    append_value(figures, 3.0);
+    append_value(figures, 9.0);
+    append_value(figures, 10.0);
+
+    append_value(figures, 2U);
+    append_value(figures, 0x20U);
+    append_value(figures, 48U);
+    append_value(figures, 0U);
+    append_value(figures, 11.0);
+    append_value(figures, 4.0);
+    append_value(figures, 13.0);
+    append_value(figures, 12.0);
+    append_value(figures, 15.0);
+    append_value(figures, 6.0);
+    PROGPU_REQUIRE(figures.size() == 232U);
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, transform, 66U);
+    append_create(batch, geometry, 73U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.25F, 0.5F, 0.75F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::matrix_transform,
+        transform,
+        2.0,
+        0.0,
+        0.0,
+        2.0,
+        0.0,
+        0.0,
+        0U);
+    append_path_geometry(batch, geometry, transform, 1U, figures);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_geometry,
+        brush,
+        0U,
+        geometry,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 1U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.brush_count == 1U);
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_path = false;
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            continue;
+        }
+        const auto path = read_value<progpu_native_scene_path_fill>(
+            stream,
+            resource.payload_offset);
+        PROGPU_REQUIRE(path.segment_count == 4U);
+        PROGPU_REQUIRE(path.fill_rule == PROGPU_NATIVE_FILL_RULE_NON_ZERO);
+        PROGPU_REQUIRE(path.transform.m11 == 2.0F);
+        PROGPU_REQUIRE(path.transform.m22 == 2.0F);
+        const auto line = read_value<progpu_native_path_segment>(
+            stream,
+            resource.auxiliary_offset);
+        const auto quadratic = read_value<progpu_native_path_segment>(
+            stream,
+            resource.auxiliary_offset + sizeof(line));
+        const auto cubic = read_value<progpu_native_path_segment>(
+            stream,
+            resource.auxiliary_offset + 2U * sizeof(line));
+        const auto closing = read_value<progpu_native_path_segment>(
+            stream,
+            resource.auxiliary_offset + 3U * sizeof(line));
+        PROGPU_REQUIRE(line.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE);
+        PROGPU_REQUIRE(line.p0.x == 1.0F && line.p0.y == 2.0F);
+        PROGPU_REQUIRE(line.p1.x == 5.0F && line.p1.y == 8.0F);
+        PROGPU_REQUIRE(
+            quadratic.kind == PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC);
+        PROGPU_REQUIRE(
+            quadratic.p1.x == 7.0F && quadratic.p2.x == 9.0F);
+        PROGPU_REQUIRE(cubic.kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC);
+        PROGPU_REQUIRE(cubic.p1.x == 11.0F && cubic.p3.x == 15.0F);
+        PROGPU_REQUIRE(closing.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE);
+        PROGPU_REQUIRE(closing.p0.x == 15.0F && closing.p1.x == 1.0F);
+        found_path = true;
+    }
+    PROGPU_REQUIRE(found_path);
+
+    const auto generation = state.resource_generation(geometry);
+    auto malformed_figures = figures;
+    const std::uint32_t malformed_figure_size = 183U;
+    std::memcpy(
+        malformed_figures.data() + 60U,
+        &malformed_figure_size,
+        sizeof(malformed_figure_size));
+    std::vector<std::byte> malformed_update;
+    append_path_geometry(
+        malformed_update,
+        geometry,
+        transform,
+        1U,
+        malformed_figures);
+    PROGPU_REQUIRE(
+        state.apply(malformed_update) == status::malformed_batch);
+    PROGPU_REQUIRE(state.resource_generation(geometry) == generation);
+
+    std::vector<std::byte> delete_transform;
+    append_command(
+        delete_transform,
+        command::channel_delete_resource,
+        transform,
+        66U);
+    PROGPU_REQUIRE(state.apply(delete_transform) == status::invalid_graph);
+    PROGPU_REQUIRE(state.resource_generation(geometry) == generation);
+    return true;
+}
+
 bool render_data_scope_errors_fail_closed() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -1535,6 +1742,7 @@ int main() {
     PROGPU_REQUIRE(solid_rectangle_compiles_to_semantic_scene());
     PROGPU_REQUIRE(matrix_transform_scopes_compile_to_semantic_state());
     PROGPU_REQUIRE(solid_pen_line_compiles_to_geometry_scene());
+    PROGPU_REQUIRE(retained_path_geometry_compiles_to_semantic_scene());
     PROGPU_REQUIRE(render_data_scope_errors_fail_closed());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());
     PROGPU_REQUIRE(c_abi_is_typed_and_size_versioned());

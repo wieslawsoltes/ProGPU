@@ -168,7 +168,20 @@ stroke path as `MILCMD_DRAW_LINE`. Rectangle and ellipse resources reuse the
 native analytic fill/stroke lowering used by their immediate draw commands,
 including uniform rounded rectangles and geometry-local affine transforms.
 Animated fields, non-uniform rounded-rectangle radii, uninitialized or
-wrong-type resources, and arbitrary path geometry fail closed transactionally.
+wrong-type resources fail closed transactionally.
+
+The first retained general-path slice implements canonical variable-size
+`MILCMD_PATHGEOMETRY` updates and nested fill-only `MILCMD_DRAW_GEOMETRY`.
+The native channel validates WPF's `MIL_PATHGEOMETRY`, `MIL_PATHFIGURE`, fixed
+line/quadratic/cubic segments, and poly-line/poly-quadratic/poly-cubic record
+links and sizes before committing retained state. Filled contours lower to one
+backend-independent ProGPU semantic path batch with EvenOdd/Nonzero fill,
+geometry-local affine transforms, exact caller-supplied local bounds, and WPF's
+implicit fill closure for open figures. Malformed back-links, sizes, padding,
+flags, counts, bounds, transforms, and handles roll back transactionally.
+Arc execution and meaningful path pens remain fail-closed; the managed producer
+can already serialize the canonical fixed arc record so transport and execution
+can advance independently.
 
 `NativeMilBatchBuilder` and `NativeMilRenderDataBuilder` provide the matching
 managed producer for this supported subset. They write the canonical WPF
@@ -179,7 +192,8 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds, geometry,
-  beyond fixed primitive resources, curved-path dashes, remaining pen draws,
+  beyond retained path resources, path arcs/strokes, geometry groups/combined
+  geometry, curved-path dashes, remaining pen draws,
   brushes, drawings, images, glyph runs, caches, guidelines, effects, and
   complete render-data decoding.
 - Lower every supported update to stable semantic resource identities and
