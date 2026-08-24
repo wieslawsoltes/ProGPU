@@ -194,6 +194,7 @@ progpu_native_mil_status progpu_native_mil_channel_build_scene(
         metrics->brush_count = native_metrics.brush_count;
         metrics->maximum_visual_depth =
             native_metrics.maximum_visual_depth;
+        metrics->ellipse_count = native_metrics.ellipse_count;
         metrics->stream_bytes = native_metrics.stream_bytes;
     }
     if (result != progpu::native::mil::status::success) {

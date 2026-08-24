@@ -51,6 +51,7 @@ internal static unsafe partial class NativeMilMethods
         internal uint RectangleCount;
         internal uint BrushCount;
         internal uint MaximumVisualDepth;
+        internal uint EllipseCount;
         internal ulong StreamBytes;
     }
 

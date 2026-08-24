@@ -219,6 +219,7 @@ public sealed unsafe class NativeMilChannel : IDisposable
             new NativeMilSceneMetrics(
                 nativeMetrics.VisualCount,
                 nativeMetrics.RectangleCount,
+                nativeMetrics.EllipseCount,
                 nativeMetrics.BrushCount,
                 nativeMetrics.MaximumVisualDepth,
                 nativeMetrics.StreamBytes));
