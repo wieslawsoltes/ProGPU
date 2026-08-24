@@ -176,6 +176,59 @@ Tests use deterministic scenes, pixel tolerances, semantic stream hashes,
 resource-generation/damage metrics, GPU validation output, and process lifetime
 checks. A screenshot alone is not a parity result.
 
+### Windows ARM64 qualification evidence — 2026-08-24
+
+The current branch was qualified in the Parallels Windows 11 ARM64 guest with
+OS build `26200.9168`, .NET SDK `10.0.400` / runtime `10.0.11`, Visual Studio
+Build Tools `17.14.39`, ARM64 MSVC `19.44`, CMake `3.31.6`, and Ninja `1.12.1`.
+The live adapter was `Parallels Display Adapter (WDDM)`, driver
+`20.18.2641.57516`, using the D3D12 backend. The complete bounded gate was:
+
+```powershell
+.\eng\build-progpu-native-windows.ps1 `
+  -Rid win-arm64 `
+  -Compiler MSVC `
+  -Generator Ninja `
+  -BenchmarkProfile Smoke
+```
+
+Results:
+
+- Both provider-resolved Dawn and wgpu-native renderer modules built with the
+  ARM64 MSVC toolchain; all 11 native tests passed, including the MIL channel
+  and Dawn ABI contracts.
+- The live C++ sample rendered nine retained commands in five draw calls,
+  uploaded 11,616 vertex bytes, completed a D3D12 readback, and emitted its PPM
+  plus backend evidence file.
+- The managed native-host sample lowered 16 source commands to 13 native
+  commands and six draws, uploaded 27,464 vertex bytes plus 55,552 coverage
+  bytes, and passed pre-render, post-render general-buffer, and readback-heap
+  allocation probes before completing its readback.
+- Two- and sixteen-positioned-glyph retained scenes passed exact native versus
+  managed pixel parity with zero differing pixels and zero steady-frame
+  managed allocations. The Parallels D3D12 profile uses a typed CPU R8 coverage
+  atlas fallback in both implementations; normal adapters keep the shared GPU
+  compute rasterizer. The 16-glyph native submission measured `0.5108 ms`
+  versus `1.2558 ms` for the managed submission in the one-frame diagnostic.
+- The 384-command mixed-picture native-only stress completed eight synchronized
+  frames at `0.2721 ms/frame`. A separate live differential scene stayed within
+  the independent-AA budget (maximum channel delta 2/255, zero pixels over
+  3/255, mean absolute delta `0.0000622`). Solid/group opacity, external and
+  masked images, semantic mixed scenes, semantic mask/effect chains, retained
+  vector clips, blur/drop-shadow, Overlay and ColorDodge blending, and managed
+  versus C++ text shaping also passed their declared parity contracts.
+- The staged package contains both native renderer variants for `win-arm64`.
+
+Two adapter-specific limitations remain explicit. Retained GPU hit-test
+readback is deferred on the Parallels display adapter because its blocking
+readback path stalls, although the retained D3D12 render/readback sample passes.
+The legacy managed renderer also removes the Parallels D3D12 device on the
+dense 384-command mixed-picture workload; the same workload passes through the
+C++ renderer, so this adapter's gate keeps full native stress and a bounded
+managed differential as separate processes. Neither limitation is evidence of
+full DirectX/MIL parity; Stages 1–5 remain open until their listed protocol and
+integration surfaces are implemented.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
