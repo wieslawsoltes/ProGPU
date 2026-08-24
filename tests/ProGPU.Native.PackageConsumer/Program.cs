@@ -42,6 +42,7 @@ if (!renderOnly)
             scene.Metrics.VisualCount != 1 ||
             scene.Metrics.RectangleCount != 1 ||
             scene.Metrics.EllipseCount != 1 ||
+            scene.Metrics.RoundedRectangleCount != 1 ||
             scene.Metrics.LineCount != 1 ||
             scene.Metrics.BrushCount != 1)
         {
@@ -58,6 +59,7 @@ if (!renderOnly)
             scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
             scene.Metrics.RectangleCount != 1 ||
             scene.Metrics.EllipseCount != 1 ||
+            scene.Metrics.RoundedRectangleCount != 1 ||
             scene.Metrics.LineCount != 1 ||
             scene.Metrics.BrushCount != 1)
         {
@@ -143,6 +145,7 @@ static byte[] CreateMilSeedBatch()
     renderData.DrawRectangle(8, 8, 48, 48, 44, 46);
     renderData.DrawLine(8, 8, 56, 56, 46);
     renderData.DrawEllipse(32, 32, 16, 12, 44, 48);
+    renderData.DrawRoundedRectangle(12, 16, 40, 32, 8, 8, 0, 48);
     renderData.Pop();
     var batch = new NativeMilBatchBuilder();
     batch.CreateResource(41, NativeMilResourceType.Visual);

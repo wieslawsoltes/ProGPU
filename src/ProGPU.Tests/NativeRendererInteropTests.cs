@@ -113,6 +113,33 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWritePenOnlyClosedPrimitivePackets()
+    {
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.DrawRectangle(1, 2, 5, 8, 0, 5);
+        renderData.DrawEllipse(4, 6, 3, 2, 0, 5);
+        renderData.DrawRoundedRectangle(2, 3, 8, 6, 2, 2, 0, 5);
+        byte[] nested = renderData.WrittenSpan.ToArray();
+
+        Assert.Equal(160, nested.Length);
+
+        Assert.Equal(48U, ReadUInt32(nested, 0));
+        Assert.Equal(0x40U, ReadUInt32(nested, 4));
+        Assert.Equal(0U, ReadUInt32(nested, 40));
+        Assert.Equal(5U, ReadUInt32(nested, 44));
+
+        Assert.Equal(48U, ReadUInt32(nested, 48));
+        Assert.Equal(0x44U, ReadUInt32(nested, 52));
+        Assert.Equal(0U, ReadUInt32(nested, 88));
+        Assert.Equal(5U, ReadUInt32(nested, 92));
+
+        Assert.Equal(64U, ReadUInt32(nested, 96));
+        Assert.Equal(0x42U, ReadUInt32(nested, 100));
+        Assert.Equal(0U, ReadUInt32(nested, 152));
+        Assert.Equal(5U, ReadUInt32(nested, 156));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalDashStylePackets()
     {
         var batch = new NativeMilBatchBuilder();

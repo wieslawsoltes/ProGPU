@@ -1026,6 +1026,74 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     }
     PROGPU_REQUIRE(found_ellipse_stroke_bounds);
 
+    std::vector<std::byte> rounded_batch;
+    std::vector<std::byte> rounded;
+    append_command(
+        rounded,
+        command::draw_rounded_rectangle,
+        2.0,
+        3.0,
+        8.0,
+        6.0,
+        2.0,
+        2.0,
+        0U,
+        solid_pen);
+    append_render_data(rounded_batch, content, rounded);
+    PROGPU_REQUIRE(state.apply(rounded_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 5U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rounded_rectangle_count == 1U);
+    const auto rounded_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_rounded_stroke = false;
+    for (std::uint32_t index = 0U;
+        index < rounded_header.resource_count;
+        ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            rounded_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH) {
+            continue;
+        }
+        const auto primitive =
+            read_value<progpu_native_analytic_primitive>(
+                stream,
+                record.payload_offset);
+        if (primitive.kind !=
+            PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE) {
+            continue;
+        }
+        PROGPU_REQUIRE(primitive.x == 2.0F);
+        PROGPU_REQUIRE(primitive.y == 3.0F);
+        PROGPU_REQUIRE(primitive.width == 8.0F);
+        PROGPU_REQUIRE(primitive.height == 6.0F);
+        PROGPU_REQUIRE(primitive.corner_radius == 2.0F);
+        PROGPU_REQUIRE(primitive.stroke_thickness == 2.0F);
+        found_rounded_stroke = true;
+    }
+    PROGPU_REQUIRE(found_rounded_stroke);
+    bool found_rounded_stroke_bounds = false;
+    for (std::uint32_t index = 0U;
+        index < rounded_header.command_count;
+        ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            rounded_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC) {
+            continue;
+        }
+        PROGPU_REQUIRE(record.bounds_x == 12.0F);
+        PROGPU_REQUIRE(record.bounds_y == 24.0F);
+        PROGPU_REQUIRE(record.bounds_width == 20.0F);
+        PROGPU_REQUIRE(record.bounds_height == 16.0F);
+        found_rounded_stroke_bounds = true;
+    }
+    PROGPU_REQUIRE(found_rounded_stroke_bounds);
+
     std::vector<std::byte> dashed_ellipse_batch;
     std::vector<std::byte> dashed_ellipse;
     append_command(
@@ -1040,7 +1108,26 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     append_render_data(dashed_ellipse_batch, content, dashed_ellipse);
     PROGPU_REQUIRE(state.apply(dashed_ellipse_batch) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7002U, 5U, stream, &metrics) ==
+        state.build_scene(target, 7002U, 6U, stream, &metrics) ==
+        status::unsupported_command);
+
+    std::vector<std::byte> dashed_rounded_batch;
+    std::vector<std::byte> dashed_rounded;
+    append_command(
+        dashed_rounded,
+        command::draw_rounded_rectangle,
+        2.0,
+        3.0,
+        8.0,
+        6.0,
+        2.0,
+        2.0,
+        0U,
+        pen);
+    append_render_data(dashed_rounded_batch, content, dashed_rounded);
+    PROGPU_REQUIRE(state.apply(dashed_rounded_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 7U, stream, &metrics) ==
         status::unsupported_command);
 
     std::vector<std::byte> invalid_cap;
