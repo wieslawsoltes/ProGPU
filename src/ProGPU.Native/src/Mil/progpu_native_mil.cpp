@@ -2978,11 +2978,6 @@ struct channel::implementation {
                         contour.end_uses_dash_cap
                             ? pen.dash_cap
                             : pen.end_line_cap;
-                    if (!contour.closed &&
-                        (start_cap != PROGPU_NATIVE_STROKE_CAP_FLAT ||
-                         end_cap != PROGPU_NATIVE_STROKE_CAP_FLAT)) {
-                        return status::unsupported_command;
-                    }
                     const auto segment_end = [](
                         const progpu_native_path_segment& segment) noexcept {
                         return segment.kind ==
@@ -3127,8 +3122,41 @@ struct channel::implementation {
                     };
                     std::vector<progpu_native_geometry_primitive> primitives;
                     std::vector<std::uint32_t> brushes;
-                    primitives.reserve(contour.segments.size() * 2U);
-                    brushes.reserve(contour.segments.size() * 2U);
+                    primitives.reserve(contour.segments.size() * 2U + 2U);
+                    brushes.reserve(contour.segments.size() * 2U + 2U);
+                    const auto append_cap = [
+                        &primitives,
+                        &brushes,
+                        &try_tangent,
+                        &segment_end,
+                        &native_local_transform,
+                        &pen,
+                        brush_index](
+                        const progpu_native_path_segment& segment,
+                        std::uint32_t cap,
+                        bool at_start) {
+                        if (cap == PROGPU_NATIVE_STROKE_CAP_FLAT) {
+                            return true;
+                        }
+                        progpu_native_point tangent{};
+                        if (!try_tangent(segment, at_start, tangent)) {
+                            return false;
+                        }
+                        progpu_native_geometry_primitive primitive{};
+                        primitive.kind = PROGPU_NATIVE_GEOMETRY_PATH_CAP;
+                        primitive.flags = cap <<
+                            PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+                        primitive.p0 = at_start ? segment.p0 : segment_end(segment);
+                        primitive.p1 = tangent;
+                        primitive.p2.x = at_start ? 1.0F : 0.0F;
+                        primitive.stroke_thickness =
+                            static_cast<float>(pen.thickness);
+                        primitive.color = {1.0F, 1.0F, 1.0F, 1.0F};
+                        primitive.transform = native_local_transform;
+                        primitives.push_back(primitive);
+                        brushes.push_back(brush_index);
+                        return true;
+                    };
                     const auto append_join = [
                         &primitives,
                         &brushes,
@@ -3172,6 +3200,12 @@ struct channel::implementation {
                         brushes.push_back(brush_index);
                         return true;
                     };
+                    if (!contour.closed && !append_cap(
+                            contour.segments.front(),
+                            start_cap,
+                            true)) {
+                        return status::unsupported_command;
+                    }
                     for (std::size_t segment_index = 0U;
                          segment_index < contour.segments.size();
                          ++segment_index) {
@@ -3193,6 +3227,12 @@ struct channel::implementation {
                     if (contour.closed && !append_join(
                             contour.segments.back(),
                             contour.segments.front())) {
+                        return status::unsupported_command;
+                    }
+                    if (!contour.closed && !append_cap(
+                            contour.segments.back(),
+                            end_cap,
+                            false)) {
                         return status::unsupported_command;
                     }
                     if (!builder.draw_geometry(
