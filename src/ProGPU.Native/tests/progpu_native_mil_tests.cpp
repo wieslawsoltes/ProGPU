@@ -1912,6 +1912,65 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     PROGPU_REQUIRE(nonuniform_stroke_arc_count == 4U);
     PROGPU_REQUIRE(nonuniform_round_join_count == 8U);
 
+    std::vector<std::byte> zero_axis_rounded_batch;
+    std::vector<std::byte> zero_axis_rounded;
+    append_command(
+        zero_axis_rounded,
+        command::draw_rounded_rectangle,
+        2.0,
+        3.0,
+        8.0,
+        6.0,
+        0.0,
+        3.0,
+        brush,
+        solid_pen);
+    append_render_data(
+        zero_axis_rounded_batch,
+        content,
+        zero_axis_rounded);
+    PROGPU_REQUIRE(
+        state.apply(zero_axis_rounded_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 63U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rounded_rectangle_count == 1U);
+    const auto zero_axis_rounded_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t zero_axis_rectangle_fill_count = 0U;
+    std::uint32_t zero_axis_rectangle_stroke_count = 0U;
+    for (std::uint32_t index = 0U;
+         index < zero_axis_rounded_header.resource_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            zero_axis_rounded_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        PROGPU_REQUIRE(record.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH);
+        if (record.kind == PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH) {
+            const auto primitive =
+                read_value<progpu_native_analytic_primitive>(
+                    stream,
+                    record.payload_offset);
+            PROGPU_REQUIRE(
+                primitive.kind == PROGPU_NATIVE_PRIMITIVE_RECTANGLE);
+            ++zero_axis_rectangle_fill_count;
+        } else if (record.kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
+            const auto stroke = read_value<progpu_native_scene_stroke>(
+                stream,
+                record.payload_offset);
+            PROGPU_REQUIRE(
+                stroke.kind == PROGPU_NATIVE_SCENE_STROKE_POLYLINE);
+            PROGPU_REQUIRE(
+                (stroke.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U);
+            PROGPU_REQUIRE(stroke.point_count == 4U);
+            ++zero_axis_rectangle_stroke_count;
+        }
+    }
+    PROGPU_REQUIRE(zero_axis_rectangle_fill_count == 1U);
+    PROGPU_REQUIRE(zero_axis_rectangle_stroke_count == 1U);
+
     std::vector<std::byte> dashed_ellipse_batch;
     std::vector<std::byte> dashed_ellipse;
     append_command(
@@ -2179,6 +2238,73 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     }
     PROGPU_REQUIRE(retained_nonuniform_path_count == 1U);
     PROGPU_REQUIRE(retained_nonuniform_arc_count == 4U);
+
+    std::vector<std::byte> zero_axis_rectangle_geometry_update;
+    append_command(
+        zero_axis_rectangle_geometry_update,
+        command::rectangle_geometry,
+        rectangle_geometry,
+        0.0,
+        3.0,
+        4.0,
+        4.0,
+        12.0,
+        8.0,
+        transform,
+        0U,
+        0U,
+        0U);
+    std::vector<std::byte> zero_axis_rectangle_geometry_draw;
+    append_command(
+        zero_axis_rectangle_geometry_draw,
+        command::draw_geometry,
+        brush,
+        solid_pen,
+        rectangle_geometry,
+        0U);
+    append_render_data(
+        zero_axis_rectangle_geometry_update,
+        content,
+        zero_axis_rectangle_geometry_draw);
+    PROGPU_REQUIRE(
+        state.apply(zero_axis_rectangle_geometry_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 64U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rounded_rectangle_count == 1U);
+    const auto zero_axis_rectangle_geometry_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t retained_zero_axis_fill_count = 0U;
+    std::uint32_t retained_zero_axis_stroke_count = 0U;
+    for (std::uint32_t index = 0U;
+         index < zero_axis_rectangle_geometry_header.resource_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            zero_axis_rectangle_geometry_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind == PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH) {
+            const auto primitive =
+                read_value<progpu_native_analytic_primitive>(
+                    stream,
+                    record.payload_offset);
+            PROGPU_REQUIRE(
+                primitive.kind == PROGPU_NATIVE_PRIMITIVE_RECTANGLE);
+            PROGPU_REQUIRE(primitive.transform.m11 == 2.0F);
+            PROGPU_REQUIRE(primitive.transform.m22 == 2.0F);
+            ++retained_zero_axis_fill_count;
+        } else if (record.kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
+            const auto stroke = read_value<progpu_native_scene_stroke>(
+                stream,
+                record.payload_offset);
+            PROGPU_REQUIRE(stroke.transform.m11 == 2.0F);
+            PROGPU_REQUIRE(stroke.transform.m22 == 2.0F);
+            ++retained_zero_axis_stroke_count;
+        }
+    }
+    PROGPU_REQUIRE(retained_zero_axis_fill_count == 1U);
+    PROGPU_REQUIRE(retained_zero_axis_stroke_count == 1U);
 
     std::vector<std::byte> degenerate_ellipse_geometry_update;
     append_command(
@@ -4833,7 +4959,7 @@ bool render_data_scope_errors_fail_closed() {
         command::draw_rounded_rectangle,
         0.0,
         0.0,
-        10.0,
+        0.0,
         10.0,
         0.0,
         3.0,

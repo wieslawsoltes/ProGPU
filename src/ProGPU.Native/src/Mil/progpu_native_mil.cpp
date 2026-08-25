@@ -4839,9 +4839,11 @@ struct channel::implementation {
                 !finite_double_as_float(height)) {
                 return status::malformed_batch;
             }
+            const bool has_rounded_corners = is_rounded &&
+                radius_x > 0.0 && radius_y > 0.0;
             if (is_rounded && radius_x != radius_y &&
-                (width == 0.0 || height == 0.0 ||
-                 radius_x == 0.0 || radius_y == 0.0)) {
+                (radius_x == 0.0 || radius_y == 0.0) &&
+                (width == 0.0 || height == 0.0)) {
                 return status::unsupported_command;
             }
             if (brush_handle == 0U && pen_handle == 0U) {
@@ -4879,7 +4881,7 @@ struct channel::implementation {
                     return brush_status;
                 }
                 const std::array brushes{brush_index};
-                if (is_rounded && radius_x != radius_y) {
+                if (has_rounded_corners && radius_x != radius_y) {
                     const auto rounded_geometry =
                         make_rounded_rectangle_geometry(
                             x,
@@ -4915,7 +4917,7 @@ struct channel::implementation {
                             static_cast<std::uint32_t>(
                                 is_ellipse
                                     ? PROGPU_NATIVE_PRIMITIVE_ELLIPSE
-                                    : is_rounded
+                                    : has_rounded_corners
                                         ? PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE
                                         : PROGPU_NATIVE_PRIMITIVE_RECTANGLE),
                             0U,
@@ -4957,7 +4959,7 @@ struct channel::implementation {
                                   y,
                                   width,
                                   height,
-                                  is_rounded ? radius_x : 0.0,
+                                  has_rounded_corners ? radius_x : 0.0,
                                   pen->second,
                                   local_transform,
                                   effective_transform);
@@ -5018,8 +5020,7 @@ struct channel::implementation {
                                     stroke_bounds)) {
                                 return status::invalid_graph;
                             }
-                        } else if (is_rounded &&
-                            (radius_x > 0.0 || radius_y > 0.0)) {
+                        } else if (has_rounded_corners) {
                             if (pen->second.dash_style_handle != 0U) {
                                 const auto dash = dash_styles.find(
                                     pen->second.dash_style_handle);
