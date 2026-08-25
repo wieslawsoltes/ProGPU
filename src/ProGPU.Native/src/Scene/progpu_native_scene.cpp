@@ -84,7 +84,7 @@ bool span_lives_in_arena(
 
 bool is_known_resource(std::uint32_t kind) noexcept {
     return kind >= PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH &&
-        kind <= PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX;
+        kind <= PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET;
 }
 
 bool is_known_command(std::uint32_t kind) noexcept {
