@@ -10,6 +10,7 @@ public enum NativeMilResourceType : uint
 {
     Visual = 39,
     Viewport3DVisual = 40,
+    GlyphRun = 42,
     RenderData = 43,
     RenderTarget = 45,
     HwndRenderTarget = 46,
@@ -35,10 +36,41 @@ public enum NativeMilResourceType : uint
     DashStyle = 84,
     Pen = 85,
     GeometryDrawing = 87,
+    GlyphRunDrawing = 88,
     ImageDrawing = 89,
     DrawingGroup = 91,
     BitmapSource = 95
 }
+
+[Flags]
+public enum NativeMilGlyphStyleSimulations : uint
+{
+    None = 0,
+    Bold = 1U << 0,
+    Italic = 1U << 1
+}
+
+public enum NativeMilTextMeasuringMethod : ushort
+{
+    Natural,
+    GdiClassic,
+    GdiNatural
+}
+
+public readonly record struct NativeMilRect(
+    double X,
+    double Y,
+    double Width,
+    double Height);
+
+public readonly record struct NativeMilGlyphRun(
+    NativeMilPoint Origin,
+    float EmSize,
+    NativeMilRect ManagedBounds,
+    ushort BidiLevel = 0,
+    NativeMilTextMeasuringMethod MeasuringMethod =
+        NativeMilTextMeasuringMethod.Natural,
+    bool IsSideways = false);
 
 public enum NativeMilPathFillRule : uint
 {

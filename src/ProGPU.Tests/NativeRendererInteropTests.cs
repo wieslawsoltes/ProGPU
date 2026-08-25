@@ -177,6 +177,79 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWriteCanonicalGlyphRunPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetGlyphRun(
+            7,
+            new NativeMilGlyphRun(
+                new NativeMilPoint(10, 20),
+                18,
+                new NativeMilRect(8, 4, 42, 24),
+                BidiLevel: 1,
+                MeasuringMethod: NativeMilTextMeasuringMethod.GdiNatural),
+            [3, 4],
+            [7.5f, 8.5f],
+            [new NativeMilPoint(1, -2), new NativeMilPoint(0.5, 3)]);
+        batch.CreateResource(8, NativeMilResourceType.GlyphRunDrawing);
+        batch.SetGlyphRunDrawing(8, 7, 9);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(144, encoded.Length);
+        Assert.Equal(108U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x3aU, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(0UL, ReadUInt64(encoded, 12));
+        Assert.Equal(0x10U, ReadUInt16(encoded, 20));
+        Assert.Equal(10f, ReadSingle(encoded, 24));
+        Assert.Equal(20f, ReadSingle(encoded, 28));
+        Assert.Equal(18f, ReadSingle(encoded, 32));
+        Assert.Equal(8.0, ReadDouble(encoded, 36));
+        Assert.Equal(4.0, ReadDouble(encoded, 44));
+        Assert.Equal(42.0, ReadDouble(encoded, 52));
+        Assert.Equal(24.0, ReadDouble(encoded, 60));
+        Assert.Equal(2U, ReadUInt16(encoded, 68));
+        Assert.Equal(1U, ReadUInt16(encoded, 72));
+        Assert.Equal(2U, ReadUInt16(encoded, 76));
+        Assert.Equal(3U, ReadUInt16(encoded, 80));
+        Assert.Equal(4U, ReadUInt16(encoded, 82));
+        Assert.Equal(7.5f, ReadSingle(encoded, 84));
+        Assert.Equal(8.5f, ReadSingle(encoded, 88));
+        Assert.Equal(1f, ReadSingle(encoded, 92));
+        Assert.Equal(-2f, ReadSingle(encoded, 96));
+        Assert.Equal(0.5f, ReadSingle(encoded, 100));
+        Assert.Equal(3f, ReadSingle(encoded, 104));
+        Assert.Equal(16U, ReadUInt32(encoded, 108));
+        Assert.Equal(0x07U, ReadUInt32(encoded, 112));
+        Assert.Equal(8U, ReadUInt32(encoded, 116));
+        Assert.Equal(88U, ReadUInt32(encoded, 120));
+        Assert.Equal(20U, ReadUInt32(encoded, 124));
+        Assert.Equal(0x88U, ReadUInt32(encoded, 128));
+        Assert.Equal(8U, ReadUInt32(encoded, 132));
+        Assert.Equal(7U, ReadUInt32(encoded, 136));
+        Assert.Equal(9U, ReadUInt32(encoded, 140));
+
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.DrawGlyphRun(9, 7);
+        byte[] nested = renderData.WrittenSpan.ToArray();
+        Assert.Equal(16, nested.Length);
+        Assert.Equal(16U, ReadUInt32(nested, 0));
+        Assert.Equal(0x49U, ReadUInt32(nested, 4));
+        Assert.Equal(9U, ReadUInt32(nested, 8));
+        Assert.Equal(7U, ReadUInt32(nested, 12));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetGlyphRun(
+                7,
+                new NativeMilGlyphRun(
+                    new NativeMilPoint(0, 0),
+                    0,
+                    new NativeMilRect(0, 0, 1, 1)),
+                [1],
+                [1f]));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalDrawingGroupPackets()
     {
         var batch = new NativeMilBatchBuilder();
@@ -5099,6 +5172,15 @@ public class NativeRendererInteropTests
 
     private static uint ReadUInt32(byte[] bytes, int offset) =>
         BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(offset));
+
+    private static ushort ReadUInt16(byte[] bytes, int offset) =>
+        BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset));
+
+    private static ulong ReadUInt64(byte[] bytes, int offset) =>
+        BinaryPrimitives.ReadUInt64LittleEndian(bytes.AsSpan(offset));
+
+    private static float ReadSingle(byte[] bytes, int offset) =>
+        BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(offset));
 
     private static double ReadDouble(byte[] bytes, int offset) =>
         BinaryPrimitives.ReadDoubleLittleEndian(bytes.AsSpan(offset));

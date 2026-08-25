@@ -1,5 +1,6 @@
 #include "progpu_native_mil.hpp"
 #include "progpu_native_mil.h"
+#include "progpu_native_text.hpp"
 #include "../src/Geometry/progpu_native_arc.hpp"
 
 #include <array>
@@ -8,6 +9,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <vector>
 
@@ -43,6 +46,16 @@ T read_value(const std::vector<std::byte>& bytes, std::size_t offset) {
     PROGPU_REQUIRE(sizeof(T) <= bytes.size() - offset);
     std::memcpy(&value, bytes.data() + offset, sizeof(T));
     return value;
+}
+
+template<typename T>
+void write_value(
+    std::vector<std::byte>& bytes,
+    std::size_t offset,
+    const T& value) {
+    PROGPU_REQUIRE(offset <= bytes.size());
+    PROGPU_REQUIRE(sizeof(T) <= bytes.size() - offset);
+    std::memcpy(bytes.data() + offset, &value, sizeof(T));
 }
 
 template<typename... T>
@@ -81,6 +94,85 @@ void append_render_data(
     append_value(batch, item_size);
     batch.insert(batch.end(), packet.begin(), packet.end());
     batch.resize(batch.size() + item_size - sizeof(std::uint32_t) - packet.size());
+}
+
+void append_glyph_run_create(
+    std::vector<std::byte>& batch,
+    std::uint32_t handle,
+    float origin_x,
+    float origin_y,
+    float em_size,
+    std::span<const std::uint16_t> glyph_indices,
+    std::span<const float> advances,
+    std::span<const progpu_native_point> offsets,
+    double bounds_x,
+    double bounds_y,
+    double bounds_width,
+    double bounds_height) {
+    PROGPU_REQUIRE(!glyph_indices.empty());
+    PROGPU_REQUIRE(glyph_indices.size() == advances.size());
+    PROGPU_REQUIRE(offsets.empty() || offsets.size() == glyph_indices.size());
+    constexpr std::size_t fixed_size = 76U;
+    const std::size_t payload_size = glyph_indices.size_bytes() +
+        advances.size_bytes() + offsets.size_bytes();
+    std::vector<std::byte> packet(fixed_size + payload_size);
+    write_value(packet, 0U, static_cast<std::uint32_t>(
+        command::glyph_run_create));
+    write_value(packet, 4U, handle);
+    write_value(packet, 16U, static_cast<std::uint16_t>(
+        offsets.empty() ? 0U : 0x10U));
+    write_value(packet, 20U, origin_x);
+    write_value(packet, 24U, origin_y);
+    write_value(packet, 28U, em_size);
+    write_value(packet, 32U, bounds_x);
+    write_value(packet, 40U, bounds_y);
+    write_value(packet, 48U, bounds_width);
+    write_value(packet, 56U, bounds_height);
+    write_value(packet, 64U, static_cast<std::uint16_t>(
+        glyph_indices.size()));
+    write_value(packet, 68U, std::uint16_t{0U});
+    write_value(packet, 72U, std::uint16_t{0U});
+    std::size_t payload_offset = fixed_size;
+    std::memcpy(
+        packet.data() + payload_offset,
+        glyph_indices.data(),
+        glyph_indices.size_bytes());
+    payload_offset += glyph_indices.size_bytes();
+    std::memcpy(
+        packet.data() + payload_offset,
+        advances.data(),
+        advances.size_bytes());
+    payload_offset += advances.size_bytes();
+    if (!offsets.empty()) {
+        std::memcpy(
+            packet.data() + payload_offset,
+            offsets.data(),
+            offsets.size_bytes());
+    }
+    const auto item_size = static_cast<std::uint32_t>(
+        (packet.size() + sizeof(std::uint32_t) + 3U) & ~std::size_t{3U});
+    append_value(batch, item_size);
+    batch.insert(batch.end(), packet.begin(), packet.end());
+    batch.resize(
+        batch.size() + item_size - sizeof(std::uint32_t) - packet.size());
+}
+
+std::vector<std::byte> load_inter_test_font() {
+    const auto source = std::filesystem::absolute(
+        std::filesystem::path(__FILE__));
+    const auto font_path = source.parent_path().parent_path().parent_path() /
+        "ProGPU.Fonts.Inter" / "Fonts" / "Inter-Regular.ttf";
+    std::ifstream stream(font_path, std::ios::binary | std::ios::ate);
+    PROGPU_REQUIRE(stream.good());
+    const auto length = stream.tellg();
+    PROGPU_REQUIRE(length > 0);
+    std::vector<std::byte> bytes(static_cast<std::size_t>(length));
+    stream.seekg(0, std::ios::beg);
+    stream.read(
+        reinterpret_cast<char*>(bytes.data()),
+        static_cast<std::streamsize>(bytes.size()));
+    PROGPU_REQUIRE(stream.good());
+    return bytes;
 }
 
 struct mil_gradient_stop {
@@ -4418,6 +4510,148 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
     return true;
 }
 
+bool retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t glyph_run = 5U;
+    constexpr std::uint32_t drawing = 6U;
+
+    const std::vector<std::byte> font_bytes = load_inter_test_font();
+    progpu::native::text::sfnt_font_view font{};
+    progpu::native::text::font_error font_error =
+        progpu::native::text::font_error::none;
+    PROGPU_REQUIRE(progpu::native::text::sfnt_font_view::try_create(
+        font_bytes, 0U, font, &font_error));
+    std::uint16_t glyph_index = 0U;
+    PROGPU_REQUIRE(font.try_get_glyph_index('A', glyph_index));
+    PROGPU_REQUIRE(glyph_index != 0U);
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, drawing, 88U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        0.75,
+        progpu_native_color{0.2F, 0.4F, 0.8F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    const std::array glyph_indices{glyph_index};
+    const std::array advances{28.0F};
+    const std::array offsets{progpu_native_point{2.0F, -1.0F}};
+    append_glyph_run_create(
+        batch,
+        glyph_run,
+        10.0F,
+        38.0F,
+        24.0F,
+        glyph_indices,
+        advances,
+        offsets,
+        10.0,
+        10.0,
+        36.0,
+        36.0);
+    append_command(
+        batch,
+        command::glyph_run_drawing,
+        drawing,
+        glyph_run,
+        brush);
+    std::vector<std::byte> nested;
+    append_command(nested, command::draw_drawing, drawing, 0U);
+    append_command(nested, command::draw_glyph_run, brush, glyph_run);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    batch_metrics applied{};
+    PROGPU_REQUIRE(state.apply(batch, &applied) == status::success);
+    PROGPU_REQUIRE(state.resource_type(glyph_run) == 42U);
+    PROGPU_REQUIRE(applied.created_resource_count == 6U);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7006U, 1U, stream, &metrics) ==
+        status::invalid_handle);
+    PROGPU_REQUIRE(
+        state.set_glyph_run_font_sfnt(
+            glyph_run, 0U, 0x03U, font_bytes) == status::success);
+    PROGPU_REQUIRE(state.resource_generation(glyph_run) == 2U);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7006U, 2U, stream, &metrics) ==
+        status::success);
+
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t glyph_draw_count = 0U;
+    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
+            continue;
+        }
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                record.resource_index * sizeof(progpu_native_scene_resource));
+        const auto draw = read_value<progpu_native_scene_glyph_draw>(
+            stream, record.payload_offset);
+        const auto positioned = read_value<progpu_native_positioned_glyph>(
+            stream,
+            record.payload_offset + sizeof(progpu_native_scene_glyph_draw));
+        PROGPU_REQUIRE(
+            resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN);
+        PROGPU_REQUIRE(resource.payload_size ==
+            sizeof(progpu_native_scene_glyph_outline));
+        PROGPU_REQUIRE(draw.glyph_count == 2U);
+        PROGPU_REQUIRE(positioned.position.x == 12.0F);
+        PROGPU_REQUIRE(positioned.position.y == 37.0F);
+        PROGPU_REQUIRE(positioned.italic_skew == 0.22F);
+        PROGPU_REQUIRE(record.bounds_x == 10.0F);
+        PROGPU_REQUIRE(record.bounds_y == 10.0F);
+        PROGPU_REQUIRE(record.bounds_width == 36.0F);
+        PROGPU_REQUIRE(record.bounds_height == 36.0F);
+        ++glyph_draw_count;
+    }
+    PROGPU_REQUIRE(glyph_draw_count == 2U);
+
+    std::vector<std::byte> delete_glyph;
+    append_command(
+        delete_glyph,
+        command::channel_delete_resource,
+        glyph_run,
+        42U);
+    PROGPU_REQUIRE(state.apply(delete_glyph) == status::invalid_graph);
+    PROGPU_REQUIRE(
+        state.set_glyph_run_font_sfnt(target, 0U, 0U, font_bytes) ==
+        status::invalid_handle);
+    PROGPU_REQUIRE(
+        state.set_glyph_run_font_sfnt(glyph_run, 0U, 0x04U, font_bytes) ==
+        status::invalid_argument);
+    return true;
+}
+
 bool retained_geometry_group_compiles_to_one_semantic_path() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -6118,6 +6352,8 @@ int main() {
         retained_drawing_group_composes_children_transform_and_opacity());
     PROGPU_REQUIRE(
         retained_image_drawing_uses_pointer_free_bitmap_sideband());
+    PROGPU_REQUIRE(
+        retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband());
     PROGPU_REQUIRE(retained_geometry_group_compiles_to_one_semantic_path());
     PROGPU_REQUIRE(
         retained_gradient_brushes_compile_with_wpf_mapping_and_animation());

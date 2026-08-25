@@ -836,6 +836,115 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 16, geometryHandle);
     }
 
+    /// <summary>
+    /// Writes canonical MilCmdGlyphRunCreate state. The embedded DirectWrite
+    /// pointer is deliberately zero; bind SFNT bytes with
+    /// <see cref="NativeMilChannel.SetGlyphRunFontSfnt"/> before compilation.
+    /// </summary>
+    public void SetGlyphRun(
+        uint handle,
+        NativeMilGlyphRun glyphRun,
+        ReadOnlySpan<ushort> glyphIndices,
+        ReadOnlySpan<float> advances,
+        ReadOnlySpan<NativeMilPoint> offsets = default)
+    {
+        ValidateHandle(handle);
+        if (glyphIndices.IsEmpty || glyphIndices.Length > ushort.MaxValue ||
+            advances.Length != glyphIndices.Length ||
+            (!offsets.IsEmpty && offsets.Length != glyphIndices.Length) ||
+            !float.IsFinite(glyphRun.EmSize) || glyphRun.EmSize <= 0 ||
+            glyphRun.MeasuringMethod > NativeMilTextMeasuringMethod.GdiNatural ||
+            !double.IsFinite(glyphRun.ManagedBounds.X) ||
+            !double.IsFinite(glyphRun.ManagedBounds.Y) ||
+            !double.IsFinite(glyphRun.ManagedBounds.Width) ||
+            !double.IsFinite(glyphRun.ManagedBounds.Height) ||
+            glyphRun.ManagedBounds.Width < 0 ||
+            glyphRun.ManagedBounds.Height < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(glyphRun));
+        }
+        float originX = ToFiniteSingle(glyphRun.Origin.X, nameof(glyphRun));
+        float originY = ToFiniteSingle(glyphRun.Origin.Y, nameof(glyphRun));
+        foreach (float advance in advances)
+        {
+            if (!float.IsFinite(advance))
+            {
+                throw new ArgumentOutOfRangeException(nameof(advances));
+            }
+        }
+        foreach (NativeMilPoint offset in offsets)
+        {
+            _ = ToFiniteSingle(offset.X, nameof(offsets));
+            _ = ToFiniteSingle(offset.Y, nameof(offsets));
+        }
+        int payloadSize = checked(
+            glyphIndices.Length * sizeof(ushort) +
+            advances.Length * sizeof(float) +
+            offsets.Length * sizeof(float) * 2);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.GlyphRunCreate,
+            checked(76 + payloadSize));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt64(packet, 8, 0);
+        ushort flags = 0;
+        if (glyphRun.IsSideways)
+        {
+            flags |= 0x0001;
+        }
+        if (!offsets.IsEmpty)
+        {
+            flags |= 0x0010;
+        }
+        WriteUInt16(packet, 16, flags);
+        WriteSingle(packet, 20, originX);
+        WriteSingle(packet, 24, originY);
+        WriteSingle(packet, 28, glyphRun.EmSize);
+        WriteDouble(packet, 32, glyphRun.ManagedBounds.X);
+        WriteDouble(packet, 40, glyphRun.ManagedBounds.Y);
+        WriteDouble(packet, 48, glyphRun.ManagedBounds.Width);
+        WriteDouble(packet, 56, glyphRun.ManagedBounds.Height);
+        WriteUInt16(packet, 64, checked((ushort)glyphIndices.Length));
+        WriteUInt16(packet, 68, glyphRun.BidiLevel);
+        WriteUInt16(packet, 72, (ushort)glyphRun.MeasuringMethod);
+        int writeOffset = 76;
+        foreach (ushort glyphIndex in glyphIndices)
+        {
+            WriteUInt16(packet, writeOffset, glyphIndex);
+            writeOffset += sizeof(ushort);
+        }
+        foreach (float advance in advances)
+        {
+            WriteSingle(packet, writeOffset, advance);
+            writeOffset += sizeof(float);
+        }
+        foreach (NativeMilPoint glyphOffset in offsets)
+        {
+            WriteSingle(
+                packet,
+                writeOffset,
+                ToFiniteSingle(glyphOffset.X, nameof(offsets)));
+            WriteSingle(
+                packet,
+                writeOffset + sizeof(float),
+                ToFiniteSingle(glyphOffset.Y, nameof(offsets)));
+            writeOffset += sizeof(float) * 2;
+        }
+    }
+
+    public void SetGlyphRunDrawing(
+        uint handle,
+        uint glyphRunHandle,
+        uint foregroundBrushHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.GlyphRunDrawing, 16);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, glyphRunHandle);
+        WriteUInt32(packet, 12, foregroundBrushHandle);
+    }
+
     public void SetImageDrawing(
         uint handle,
         double x,
@@ -1045,6 +1154,9 @@ public sealed class NativeMilBatchBuilder
     internal static void WriteUInt32(Span<byte> packet, int offset, uint value) =>
         BinaryPrimitives.WriteUInt32LittleEndian(packet[offset..], value);
 
+    internal static void WriteUInt16(Span<byte> packet, int offset, ushort value) =>
+        BinaryPrimitives.WriteUInt16LittleEndian(packet[offset..], value);
+
     internal static void WriteUInt64(Span<byte> packet, int offset, ulong value) =>
         BinaryPrimitives.WriteUInt64LittleEndian(packet[offset..], value);
 
@@ -1053,6 +1165,16 @@ public sealed class NativeMilBatchBuilder
 
     internal static void WriteSingle(Span<byte> packet, int offset, float value) =>
         WriteUInt32(packet, offset, BitConverter.SingleToUInt32Bits(value));
+
+    private static float ToFiniteSingle(double value, string parameterName)
+    {
+        float result = (float)value;
+        if (!double.IsFinite(value) || !float.IsFinite(result))
+        {
+            throw new ArgumentOutOfRangeException(parameterName);
+        }
+        return result;
+    }
 }
 
 /// <summary>
@@ -1148,6 +1270,14 @@ public sealed class NativeMilRenderDataBuilder
             _writer, NativeMilCommand.DrawDrawing, 12);
         NativeMilBatchBuilder.WriteUInt32(packet, 4, drawingHandle);
         NativeMilBatchBuilder.WriteUInt32(packet, 8, 0);
+    }
+
+    public void DrawGlyphRun(uint foregroundBrushHandle, uint glyphRunHandle)
+    {
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawGlyphRun, 12);
+        NativeMilBatchBuilder.WriteUInt32(packet, 4, foregroundBrushHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 8, glyphRunHandle);
     }
 
     public void DrawRectangle(
@@ -1262,11 +1392,13 @@ internal static class NativeMilCommand
     internal const uint GenericTargetCreate = 0x34;
     internal const uint TargetSetRoot = 0x35;
     internal const uint TargetSetClearColor = 0x36;
+    internal const uint GlyphRunCreate = 0x3a;
     internal const uint DrawLine = 0x3e;
     internal const uint DrawRectangle = 0x40;
     internal const uint DrawRoundedRectangle = 0x42;
     internal const uint DrawEllipse = 0x44;
     internal const uint DrawGeometry = 0x46;
+    internal const uint DrawGlyphRun = 0x49;
     internal const uint DrawDrawing = 0x4a;
     internal const uint PushClip = 0x4d;
     internal const uint PushOpacity = 0x4f;
@@ -1290,6 +1422,7 @@ internal static class NativeMilCommand
     internal const uint DashStyle = 0x85;
     internal const uint Pen = 0x86;
     internal const uint GeometryDrawing = 0x87;
+    internal const uint GlyphRunDrawing = 0x88;
     internal const uint ImageDrawing = 0x89;
     internal const uint DrawingGroup = 0x8b;
 }
