@@ -2976,7 +2976,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
             continue;
         }
         std::size_t arc_count = 0U;
-        std::size_t cubic_count = 0U;
+        std::size_t line_count = 0U;
         for (std::size_t segment_index = 0U;
              segment_index < path.segment_count;
              ++segment_index) {
@@ -2987,12 +2987,12 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
             arc_count += segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC
                 ? 1U
                 : 0U;
-            cubic_count += segment.kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC
+            line_count += segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE
                 ? 1U
                 : 0U;
         }
         PROGPU_REQUIRE(arc_count == 0U);
-        PROGPU_REQUIRE(cubic_count >= 2U);
+        PROGPU_REQUIRE(line_count >= 20U);
         found_expanded_group_arcs = true;
     }
     PROGPU_REQUIRE(found_expanded_group_arcs);

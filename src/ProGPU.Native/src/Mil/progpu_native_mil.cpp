@@ -300,7 +300,7 @@ bool try_transform_arc_segment(
     return true;
 }
 
-bool append_arc_cubic_segments(
+bool append_arc_line_segments(
     const progpu_native_path_segment& source,
     std::vector<progpu_native_path_segment>& destination) {
     if (source.kind != PROGPU_NATIVE_PATH_SEGMENT_ARC) {
@@ -312,12 +312,12 @@ bool append_arc_cubic_segments(
     const double radius_x = source.p3.x;
     const double radius_y = source.p3.y;
     constexpr double maximum_piece_sweep =
-        std::numbers::pi_v<double> * 0.5;
+        std::numbers::pi_v<double> / 32.0;
     const double piece_count_value =
         std::ceil(std::abs(delta_theta) / maximum_piece_sweep);
     if (!std::isfinite(theta1) || !std::isfinite(delta_theta) ||
         !std::isfinite(rotation) || radius_x <= 0.0 || radius_y <= 0.0 ||
-        piece_count_value < 1.0 || piece_count_value > 4.0) {
+        piece_count_value < 1.0 || piece_count_value > 64.0) {
         return false;
     }
     const auto piece_count = static_cast<std::uint32_t>(piece_count_value);
@@ -332,49 +332,38 @@ bool append_arc_cubic_segments(
         sine_rotation](double theta) noexcept {
         const double cosine_theta = std::cos(theta);
         const double sine_theta = std::sin(theta);
-        return std::array<double, 4U>{
+        return std::array<double, 2U>{
             source.p2.x + radius_x * cosine_theta * cosine_rotation -
                 radius_y * sine_theta * sine_rotation,
             source.p2.y + radius_x * cosine_theta * sine_rotation +
-                radius_y * sine_theta * cosine_rotation,
-            -radius_x * sine_theta * cosine_rotation -
-                radius_y * cosine_theta * sine_rotation,
-            -radius_x * sine_theta * sine_rotation +
-                radius_y * cosine_theta * cosine_rotation};
+                radius_y * sine_theta * cosine_rotation};
     };
     for (std::uint32_t piece = 0U; piece < piece_count; ++piece) {
         const double start_theta = theta1 + piece * piece_sweep;
         const double end_theta = start_theta + piece_sweep;
         const auto start = evaluate(start_theta);
         const auto end = evaluate(end_theta);
-        const double alpha = 4.0 / 3.0 * std::tan(piece_sweep * 0.25);
-        const std::array<double, 8U> values{
+        const std::array<double, 4U> values{
             start[0],
             start[1],
-            start[0] + alpha * start[2],
-            start[1] + alpha * start[3],
-            end[0] - alpha * end[2],
-            end[1] - alpha * end[3],
             end[0],
             end[1]};
         if (!std::ranges::all_of(values, finite_double_as_float)) {
             return false;
         }
-        progpu_native_path_segment cubic{};
-        cubic.p0 = {
-            static_cast<float>(values[0]),
-            static_cast<float>(values[1])};
-        cubic.p1 = {
-            static_cast<float>(values[2]),
-            static_cast<float>(values[3])};
-        cubic.p2 = {
-            static_cast<float>(values[4]),
-            static_cast<float>(values[5])};
-        cubic.p3 = {
-            static_cast<float>(values[6]),
-            static_cast<float>(values[7])};
-        cubic.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
-        destination.push_back(cubic);
+        progpu_native_path_segment line{};
+        line.p0 = piece == 0U
+            ? source.p0
+            : progpu_native_point{
+                static_cast<float>(values[0]),
+                static_cast<float>(values[1])};
+        line.p1 = piece + 1U == piece_count
+            ? source.p1
+            : progpu_native_point{
+                static_cast<float>(values[2]),
+                static_cast<float>(values[3])};
+        line.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+        destination.push_back(line);
     }
     return true;
 }
@@ -3140,7 +3129,7 @@ struct channel::implementation {
                         std::vector<progpu_native_path_segment>
                             expanded_group_segments;
                         expanded_group_segments.reserve(
-                            group_segments.size() + group_arc_count * 3U);
+                            group_segments.size() + group_arc_count * 63U);
                         std::vector<shallow_fill_leaf> expanded_group_leaves;
                         expanded_group_leaves.reserve(group_leaves.size());
                         std::size_t covered_segment_count = 0U;
@@ -3163,7 +3152,7 @@ struct channel::implementation {
                                     group_segments[segment_index];
                                 if (segment.kind ==
                                     PROGPU_NATIVE_PATH_SEGMENT_ARC) {
-                                    if (!append_arc_cubic_segments(
+                                    if (!append_arc_line_segments(
                                             segment,
                                             expanded_group_segments)) {
                                         return status::unsupported_command;
