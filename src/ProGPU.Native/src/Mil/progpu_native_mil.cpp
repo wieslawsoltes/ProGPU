@@ -489,6 +489,7 @@ struct channel::implementation {
     struct path_stroke_contour_state {
         std::vector<progpu_native_point> points;
         std::vector<progpu_native_path_segment> segments;
+        std::vector<std::uint8_t> smooth_joins;
         bool closed{};
         bool start_uses_dash_cap{};
         bool end_uses_dash_cap{};
@@ -504,7 +505,6 @@ struct channel::implementation {
         double bottom{};
         std::uint32_t transform_handle{};
         std::uint32_t fill_rule{};
-        bool stroke_supported{true};
     };
 
     struct geometry_group_state {
@@ -1465,9 +1465,6 @@ struct channel::implementation {
                             radius_x < 0.0 || radius_y < 0.0) {
                             return status::malformed_batch;
                         }
-                        if (segment_is_stroked && segment_is_smooth_join) {
-                            geometry.stroke_supported = false;
-                        }
                         progpu_native_path_segment stroke_segment{};
                         stroke_segment.p0 = current;
                         stroke_segment.p1 = end;
@@ -1642,9 +1639,6 @@ struct channel::implementation {
                             segment,
                             segment_is_stroked,
                             segment_is_smooth_join});
-                        if (segment_is_stroked && segment_is_smooth_join) {
-                            geometry.stroke_supported = false;
-                        }
                         figure_segments.push_back(segment);
                     }
                     offset += segment_size;
@@ -1679,7 +1673,7 @@ struct channel::implementation {
                     closing.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
                     stroke_edges.push_back({closing, true, false});
                 }
-                if (!stroke_edges.empty() && geometry.stroke_supported) {
+                if (!stroke_edges.empty()) {
                     const auto append_open_run = [
                         &geometry,
                         &stroke_edges](
@@ -1697,6 +1691,7 @@ struct channel::implementation {
                         contour.points.push_back(
                             stroke_edges[first % stroke_edges.size()].segment.p0);
                         contour.segments.reserve(count);
+                        contour.smooth_joins.reserve(count);
                         for (std::size_t index = 0U; index < count; ++index) {
                             const auto& edge = stroke_edges[
                                 (first + index) % stroke_edges.size()];
@@ -1709,6 +1704,8 @@ struct channel::implementation {
                                         ? edge.segment.p3
                                         : edge.segment.p1);
                             contour.segments.push_back(edge.segment);
+                            contour.smooth_joins.push_back(
+                                edge.smooth_join ? 1U : 0U);
                         }
                         geometry.stroke_contours.push_back(
                             std::move(contour));
@@ -1723,6 +1720,7 @@ struct channel::implementation {
                         contour.closed = true;
                         contour.points.reserve(stroke_edges.size());
                         contour.segments.reserve(stroke_edges.size());
+                        contour.smooth_joins.reserve(stroke_edges.size());
                         contour.points.push_back(
                             stroke_edges.front().segment.p0);
                         for (std::size_t index = 0U;
@@ -1740,6 +1738,8 @@ struct channel::implementation {
                         }
                         for (const auto& edge : stroke_edges) {
                             contour.segments.push_back(edge.segment);
+                            contour.smooth_joins.push_back(
+                                edge.smooth_join ? 1U : 0U);
                         }
                         geometry.stroke_contours.push_back(
                             std::move(contour));
@@ -2868,9 +2868,6 @@ struct channel::implementation {
             if (pen.brush_handle == 0U || pen.thickness == 0.0) {
                 return status::success;
             }
-            if (!geometry.stroke_supported) {
-                return status::unsupported_command;
-            }
             if (geometry.stroke_contours.empty()) {
                 return status::success;
             }
@@ -2899,6 +2896,14 @@ struct channel::implementation {
                     [](const progpu_native_path_segment& segment) {
                         return segment.kind !=
                             PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                    });
+                if (contour.smooth_joins.size() != contour.segments.size()) {
+                    return status::invalid_graph;
+                }
+                const bool has_smooth_joins = std::ranges::any_of(
+                    contour.smooth_joins,
+                    [](std::uint8_t smooth_join) {
+                        return smooth_join != 0U;
                     });
                 if (contour.crosses_closed_figure_start &&
                     pen.dash_style_handle != 0U) {
@@ -2959,7 +2964,7 @@ struct channel::implementation {
                         stroke_bounds)) {
                     return status::invalid_graph;
                 }
-                if (has_curves) {
+                if (has_curves || has_smooth_joins) {
                     if (pen.dash_style_handle != 0U) {
                         const auto dash = dash_styles.find(
                             pen.dash_style_handle);
@@ -3166,7 +3171,8 @@ struct channel::implementation {
                         &pen,
                         brush_index](
                         const progpu_native_path_segment& incoming,
-                        const progpu_native_path_segment& outgoing) {
+                        const progpu_native_path_segment& outgoing,
+                        bool smooth_join) {
                         const auto join_point = segment_end(incoming);
                         if (join_point.x != outgoing.p0.x ||
                             join_point.y != outgoing.p0.y) {
@@ -3186,7 +3192,9 @@ struct channel::implementation {
                         }
                         progpu_native_geometry_primitive join{};
                         join.kind = PROGPU_NATIVE_GEOMETRY_PATH_JOIN;
-                        join.flags = pen.line_join <<
+                        join.flags = (smooth_join
+                                ? PROGPU_NATIVE_STROKE_JOIN_ROUND
+                                : pen.line_join) <<
                             PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
                         join.p0 = join_point;
                         join.p1 = incoming_tangent;
@@ -3212,7 +3220,8 @@ struct channel::implementation {
                         if (segment_index != 0U &&
                             !append_join(
                                 contour.segments[segment_index - 1U],
-                                contour.segments[segment_index])) {
+                                contour.segments[segment_index],
+                                contour.smooth_joins[segment_index - 1U] != 0U)) {
                             return status::unsupported_command;
                         }
                         progpu_native_geometry_primitive primitive{};
@@ -3226,7 +3235,8 @@ struct channel::implementation {
                     }
                     if (contour.closed && !append_join(
                             contour.segments.back(),
-                            contour.segments.front())) {
+                            contour.segments.front(),
+                            contour.smooth_joins.back() != 0U)) {
                         return status::unsupported_command;
                     }
                     if (!contour.closed && !append_cap(
