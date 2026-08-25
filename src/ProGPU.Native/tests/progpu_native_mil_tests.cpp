@@ -2000,6 +2000,11 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     constexpr std::uint32_t group = 8U;
     constexpr std::uint32_t nested_group = 9U;
     constexpr std::uint32_t combined = 10U;
+    constexpr std::uint32_t child_transform = 11U;
+    constexpr std::uint32_t rectangle = 12U;
+    constexpr std::uint32_t ellipse = 13U;
+    constexpr std::uint32_t line = 14U;
+    constexpr std::uint32_t rounded_rectangle = 15U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -2012,6 +2017,11 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     append_create(batch, group, 71U);
     append_create(batch, nested_group, 71U);
     append_create(batch, combined, 72U);
+    append_create(batch, child_transform, 66U);
+    append_create(batch, rectangle, 69U);
+    append_create(batch, ellipse, 70U);
+    append_create(batch, line, 68U);
+    append_create(batch, rounded_rectangle, 69U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -2035,11 +2045,79 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         2.0,
         3.0,
         0U);
+    append_command(
+        batch,
+        command::matrix_transform,
+        child_transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        20.0,
+        5.0,
+        0U);
+    append_command(
+        batch,
+        command::rectangle_geometry,
+        rectangle,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        4.0,
+        3.0,
+        child_transform,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::ellipse_geometry,
+        ellipse,
+        2.0,
+        1.0,
+        30.0,
+        6.0,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::line_geometry,
+        line,
+        40.0,
+        4.0,
+        44.0,
+        8.0,
+        child_transform,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::rectangle_geometry,
+        rounded_rectangle,
+        3.0,
+        2.0,
+        16.0,
+        0.0,
+        10.0,
+        8.0,
+        0U,
+        0U,
+        0U,
+        0U);
     const auto figures_a = make_rectangle_path_figures(1.0, 2.0, 9.0, 10.0);
     const auto figures_b = make_rectangle_path_figures(6.0, 4.0, 15.0, 12.0);
     append_path_geometry(batch, path_a, 0U, 1U, figures_a);
     append_path_geometry(batch, path_b, 0U, 1U, figures_b);
-    const std::array children{path_a, path_b};
+    const std::array children{
+        path_a,
+        path_b,
+        rectangle,
+        ellipse,
+        line,
+        rounded_rectangle};
     append_geometry_group(batch, group, transform, 0U, children);
     append_command(
         batch,
@@ -2095,19 +2173,55 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         const auto path = read_value<progpu_native_scene_path_fill>(
             stream,
             resource.payload_offset);
-        PROGPU_REQUIRE(path.segment_count == 8U);
         PROGPU_REQUIRE(path.transform.m11 == 1.5F);
         PROGPU_REQUIRE(path.transform.m22 == 1.5F);
         PROGPU_REQUIRE(path.transform.m31 == 2.0F);
         PROGPU_REQUIRE(path.transform.m32 == 3.0F);
-        PROGPU_REQUIRE(path.min_x == 1.0F && path.min_y == 2.0F);
-        PROGPU_REQUIRE(path.max_x == 15.0F && path.max_y == 12.0F);
         if (path.boolean_node_count == 0U) {
+            PROGPU_REQUIRE(path.segment_count == 24U);
+            PROGPU_REQUIRE(path.min_x == 1.0F && path.min_y == 0.0F);
+            PROGPU_REQUIRE(path.max_x == 32.0F && path.max_y == 12.0F);
             PROGPU_REQUIRE(
                 path.fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD);
+            const auto rectangle_line =
+                read_value<progpu_native_path_segment>(
+                    stream,
+                    resource.auxiliary_offset +
+                        8U * sizeof(progpu_native_path_segment));
+            const auto ellipse_cubic =
+                read_value<progpu_native_path_segment>(
+                    stream,
+                    resource.auxiliary_offset +
+                        12U * sizeof(progpu_native_path_segment));
+            const auto rounded_cubic =
+                read_value<progpu_native_path_segment>(
+                    stream,
+                    resource.auxiliary_offset +
+                        16U * sizeof(progpu_native_path_segment));
+            PROGPU_REQUIRE(
+                rectangle_line.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE &&
+                rectangle_line.p0.x == 20.0F &&
+                rectangle_line.p0.y == 5.0F &&
+                rectangle_line.p1.x == 24.0F &&
+                rectangle_line.p1.y == 5.0F);
+            PROGPU_REQUIRE(
+                ellipse_cubic.kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC &&
+                ellipse_cubic.p0.x == 32.0F &&
+                ellipse_cubic.p0.y == 6.0F &&
+                ellipse_cubic.p3.x == 30.0F &&
+                ellipse_cubic.p3.y == 7.0F);
+            PROGPU_REQUIRE(
+                rounded_cubic.kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC &&
+                rounded_cubic.p0.x == 16.0F &&
+                rounded_cubic.p0.y == 2.0F &&
+                rounded_cubic.p3.x == 19.0F &&
+                rounded_cubic.p3.y == 0.0F);
             found_group_path = true;
             continue;
         }
+        PROGPU_REQUIRE(path.segment_count == 8U);
+        PROGPU_REQUIRE(path.min_x == 1.0F && path.min_y == 2.0F);
+        PROGPU_REQUIRE(path.max_x == 15.0F && path.max_y == 12.0F);
         PROGPU_REQUIRE(path.boolean_node_count == 3U);
         const std::size_t boolean_offset =
             resource.auxiliary_offset +
