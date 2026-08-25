@@ -3,6 +3,7 @@ using ProGPU.Backend;
 using ProGPU.DirectX;
 using ProGPU.Scene;
 using ProGPU.Text;
+using SkiaSharp;
 using ProGpuPathGeometry = ProGPU.Vector.PathGeometry;
 using WpfBrush = System.Windows.Media.Brush;
 using WpfPoint = System.Windows.Point;
@@ -39,5 +40,18 @@ public sealed class StrongNameSigningTests
             Assert.NotNull(token);
             Assert.Equal(ExpectedPublicKeyToken, token);
         }
+    }
+
+    [Fact]
+    public void SkiaSharpShimUsesOfficialCompatibilityIdentity()
+    {
+        var identity = typeof(SKCanvas).Assembly.GetName();
+
+        Assert.Equal("SkiaSharp", identity.Name);
+        Assert.Equal(new Version(4, 151, 0, 0), identity.Version);
+        Assert.Equal(
+            "0738eb9f132ed756",
+            Convert.ToHexString(identity.GetPublicKeyToken() ?? [])
+                .ToLowerInvariant());
     }
 }

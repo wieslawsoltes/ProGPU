@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <ProGpuAvaloniaLane Condition="'$(ProGpuAvaloniaLane)' == ''">12</ProGpuAvaloniaLane>
+    <ProGpuAvaloniaSkiaPackageVersion Condition="'$(ProGpuAvaloniaSkiaPackageVersion)' == '' And '$(ProGpuAvaloniaLane)' == '11'">11.3.20</ProGpuAvaloniaSkiaPackageVersion>
+    <ProGpuAvaloniaSkiaPackageVersion Condition="'$(ProGpuAvaloniaSkiaPackageVersion)' == ''">12.1.1</ProGpuAvaloniaSkiaPackageVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\ProGPU.Avalonia.Rendering\ProGPU.Avalonia.Rendering.csproj"
+                      Condition="'$(ProGpuAvaloniaLane)' == '12'" />
+    <ProjectReference Include="..\..\..\src\ProGPU.Avalonia.Rendering.V11\ProGPU.Avalonia.Rendering.V11.csproj"
+                      Condition="'$(ProGpuAvaloniaLane)' == '11'" />
+    <ProjectReference Include="..\..\..\src\ProGPU.Avalonia.Skia.BinaryCompatibility\ProGPU.Avalonia.Skia.BinaryCompatibility.csproj"
+                      Condition="'$(ProGpuBinaryCompatibilityPackageVersion)' == '' And '$(ProGpuAvaloniaLane)' == '12'" />
+    <ProjectReference Include="..\..\..\src\ProGPU.Avalonia.Skia.BinaryCompatibility.V11\ProGPU.Avalonia.Skia.BinaryCompatibility.V11.csproj"
+                      Condition="'$(ProGpuBinaryCompatibilityPackageVersion)' == '' And '$(ProGpuAvaloniaLane)' == '11'" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(ProGpuBinaryCompatibilityPackageVersion)' != ''">
+    <PackageReference Include="Avalonia.Skia"
+                      Version="$(ProGpuAvaloniaSkiaPackageVersion)" />
+    <PackageReference Include="SkiaSharp" Version="4.151.1" />
+    <PackageReference Include="ProGPU.BinaryCompatibility"
+                      Version="$(ProGpuBinaryCompatibilityPackageVersion)" />
+  </ItemGroup>
+
+  <Target Name="ValidateBinaryCompatibilityHostLane"
+          BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(ProGpuAvaloniaLane)' != '11' And '$(ProGpuAvaloniaLane)' != '12'"
+           Text="ProGpuAvaloniaLane must be 11 or 12." />
+  </Target>
+</Project>

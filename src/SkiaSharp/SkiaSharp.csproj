@@ -6,6 +6,10 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>SkiaSharp</AssemblyName>
     <RootNamespace>SkiaSharp</RootNamespace>
+    <AssemblyVersion>4.151.0.0</AssemblyVersion>
+    <FileVersion>4.151.0.0</FileVersion>
+    <PublicSign>true</PublicSign>
+    <AssemblyOriginatorKeyFile>..\..\eng\SkiaSharp.public.snk</AssemblyOriginatorKeyFile>
     <PackageId>ProGPU.SkiaSharp</PackageId>
     <Description>ProGPU-backed portable SkiaSharp compatibility shim.</Description>
     <PackageTags>progpu;skiasharp;compatibility;cross-platform</PackageTags>

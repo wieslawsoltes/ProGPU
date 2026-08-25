@@ -98,6 +98,21 @@ for package_id in "${selected_package_ids[@]}"; do
         exit 1
       fi
     done
+  elif [[ "${package_id}" == "ProGPU.BinaryCompatibility" ]]; then
+    if [[ -f "${symbols}" ]]; then
+      echo "Asset-only package must not produce a symbol package: ${symbols}" >&2
+      exit 1
+    fi
+    for compatibility_entry in \
+      build/ProGPU.BinaryCompatibility.targets \
+      buildTransitive/ProGPU.BinaryCompatibility.targets \
+      tools/net10.0/SkiaSharp.dll \
+      tools/net10.0/Avalonia.Skia.dll; do
+      if ! unzip -Z1 "${package}" | grep -Fx "${compatibility_entry}" >/dev/null; then
+        echo "${package_id} is missing ${compatibility_entry}." >&2
+        exit 1
+      fi
+    done
   elif [[ ! -f "${symbols}" ]]; then
     echo "Expected symbol package was not produced: ${symbols}" >&2
     exit 1

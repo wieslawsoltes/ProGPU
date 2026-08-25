@@ -71,6 +71,7 @@ Choose the area closest to your application to find the relevant packages.
 | `ProGPU.Avalonia.SilkNet` | Cross-platform windowing, input, surfaces, and WebGPU integration shipped as separate versioned packages for Avalonia 11 and 12. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Avalonia.SilkNet.svg)](https://www.nuget.org/packages/ProGPU.Avalonia.SilkNet/) |
 | `ProGPU.Uno` | Uno/WinUI integration and compositor backend adapter. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Uno.svg)](https://www.nuget.org/packages/ProGPU.Uno/) |
 | `ProGPU.SkiaSharp` | ProGPU-backed portable SkiaSharp compatibility shim used by drawing and imaging adapters. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.SkiaSharp.svg)](https://www.nuget.org/packages/ProGPU.SkiaSharp/) |
+| `ProGPU.BinaryCompatibility` | Opt-in official-identity SkiaSharp and Avalonia.Skia build/publish substitution for unchanged modern-.NET consumers. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.BinaryCompatibility.svg)](https://www.nuget.org/packages/ProGPU.BinaryCompatibility/) |
 | `ProGPU.System.Drawing.Common` | ProGPU-backed portable System.Drawing.Common compatibility shim for LibreWinForms and GDI-style callers. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.System.Drawing.Common.svg)](https://www.nuget.org/packages/ProGPU.System.Drawing.Common/) |
 | `LibreWPF.Interop` | LibreWPF portable interop contracts consumed by the ProGPU/Silk.NET SDK lane. | [![NuGet](https://img.shields.io/nuget/vpre/LibreWPF.Interop.svg)](https://www.nuget.org/packages/LibreWPF.Interop/) |
 
@@ -448,6 +449,18 @@ The [API parity report](docs/SKIASHARP_API_PARITY.md) records the exact metadata
 | Package | Purpose | NuGet |
 | --- | --- | --- |
 | `ProGPU.SkiaSharp` | ProGPU-backed SkiaSharp API compatibility layer. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.SkiaSharp.svg)](https://www.nuget.org/packages/ProGPU.SkiaSharp/) |
+| `ProGPU.BinaryCompatibility` | Opt-in binary identity profile for precompiled SkiaSharp/Avalonia.Skia consumers. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.BinaryCompatibility.svg)](https://www.nuget.org/packages/ProGPU.BinaryCompatibility/) |
+
+`ProGPU.SkiaSharp` carries the official SkiaSharp 4.151 ceiling identity. On
+modern .NET this accepts bounded strong-name requests from released stable
+SkiaSharp 2.x, 3.x, and 4.x packages through 4.151.1. For an unchanged library
+that also references released Avalonia.Skia 11.x or 12.x through 12.1.1, add
+`ProGPU.BinaryCompatibility` and set
+`<ProGpuBinaryCompatibility>true</ProGpuBinaryCompatibility>`. The package
+replaces the two final runtime/publish assets without rewriting the dependent
+assembly. This covers assembly identity and implemented shared APIs, not every
+API removed across historical SkiaSharp majors. See the
+[binary compatibility design and limits](docs/PROGPU_BINARY_ASSEMBLY_COMPATIBILITY.md).
 
 ### [Svg.Skia](https://github.com/wieslawsoltes/Svg.Skia)
 
