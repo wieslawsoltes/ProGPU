@@ -92,6 +92,12 @@ affine_2d_double compose_affine(
         first.m31 * second.m12 + first.m32 * second.m22 + second.m32};
 }
 
+bool affine_has_zero_area(const affine_2d_double& transform) noexcept {
+    const double determinant =
+        transform.m11 * transform.m22 - transform.m12 * transform.m21;
+    return std::isfinite(determinant) && determinant == 0.0;
+}
+
 bool try_to_native_affine(
     const affine_2d_double& source,
     progpu_native_affine_2d& destination) noexcept {
@@ -2112,6 +2118,9 @@ struct channel::implementation {
                     found->second,
                     parent_transform);
             }
+            if (affine_has_zero_area(transform)) {
+                return status::success;
+            }
             const bool transform_is_identity =
                 transform.m11 == 1.0 && transform.m12 == 0.0 &&
                 transform.m21 == 0.0 && transform.m22 == 1.0 &&
@@ -2218,6 +2227,9 @@ struct channel::implementation {
             transform = compose_affine(
                 found->second,
                 parent_transform);
+        }
+        if (affine_has_zero_area(transform)) {
+            return status::success;
         }
         const std::size_t original_size = segments.size();
         const auto include_point = [&leaf](progpu_native_point point) noexcept {
@@ -2522,6 +2534,9 @@ struct channel::implementation {
         leaf.fill_rule = group->second.fill_rule == 0U
             ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
             : PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+        if (affine_has_zero_area(transform)) {
+            return status::success;
+        }
         for (const std::uint32_t child_handle : group->second.children) {
             shallow_fill_leaf child{};
             const status child_status = append_group_fill_leaf(
@@ -2615,6 +2630,12 @@ struct channel::implementation {
                 return status::invalid_handle;
             }
             transform = compose_affine(found->second, parent_transform);
+        }
+        if (affine_has_zero_area(transform)) {
+            progpu_native_scene_path_boolean_node empty{};
+            empty.kind = PROGPU_NATIVE_PATH_BOOLEAN_EMPTY;
+            nodes.push_back(empty);
+            return status::success;
         }
         const std::array operands{
             combined->second.geometry1_handle,
@@ -2999,6 +3020,9 @@ struct channel::implementation {
             }
             if (pen->second.brush_handle == 0U ||
                 pen->second.thickness == 0.0) {
+                return status::success;
+            }
+            if (affine_has_zero_area(effective_transform)) {
                 return status::success;
             }
             if (x0 == x1 && y0 == y1) {
@@ -3777,15 +3801,21 @@ struct channel::implementation {
                     local_transform,
                     current.transform);
                 if (geometry_group != geometry_groups.end()) {
+                    const bool has_zero_area =
+                        affine_has_zero_area(effective_transform);
                     if (pen_handle != 0U) {
                         const auto pen = pens.find(pen_handle);
                         if (pen == pens.end()) {
                             return status::invalid_handle;
                         }
-                        if (pen->second.brush_handle != 0U &&
+                        if (!has_zero_area &&
+                            pen->second.brush_handle != 0U &&
                             pen->second.thickness > 0.0) {
                             return status::unsupported_command;
                         }
+                    }
+                    if (has_zero_area) {
+                        continue;
                     }
                     if (brush_handle == 0U ||
                         geometry_group->second.children.empty()) {
@@ -3936,15 +3966,21 @@ struct channel::implementation {
                     continue;
                 }
                 if (combined_geometry != combined_geometries.end()) {
+                    const bool has_zero_area =
+                        affine_has_zero_area(effective_transform);
                     if (pen_handle != 0U) {
                         const auto pen = pens.find(pen_handle);
                         if (pen == pens.end()) {
                             return status::invalid_handle;
                         }
-                        if (pen->second.brush_handle != 0U &&
+                        if (!has_zero_area &&
+                            pen->second.brush_handle != 0U &&
                             pen->second.thickness > 0.0) {
                             return status::unsupported_command;
                         }
+                    }
+                    if (has_zero_area) {
+                        continue;
                     }
                     if (brush_handle == 0U) {
                         continue;
@@ -4062,6 +4098,13 @@ struct channel::implementation {
                     continue;
                 }
                 if (path_geometry != path_geometries.end()) {
+                    if (affine_has_zero_area(effective_transform)) {
+                        if (pen_handle != 0U &&
+                            !pens.contains(pen_handle)) {
+                            return status::invalid_handle;
+                        }
+                        continue;
+                    }
                     if (brush_handle != 0U &&
                         !path_geometry->second.segments.empty()) {
                         std::uint32_t brush_index =
@@ -4199,6 +4242,16 @@ struct channel::implementation {
                  radius_y < 0.0)) {
                 return status::malformed_batch;
             }
+            if (affine_has_zero_area(effective_transform)) {
+                if (brush_handle != 0U &&
+                    !solid_brushes.contains(brush_handle)) {
+                    return status::invalid_handle;
+                }
+                if (pen_handle != 0U && !pens.contains(pen_handle)) {
+                    return status::invalid_handle;
+                }
+                continue;
+            }
             if (is_rounded && radius_x != radius_y) {
                 return status::unsupported_command;
             }
@@ -4213,6 +4266,13 @@ struct channel::implementation {
             }
             if (brush_handle == 0U && pen_handle == 0U) {
                 continue;
+            }
+            if (brush_handle != 0U &&
+                !solid_brushes.contains(brush_handle)) {
+                return status::invalid_handle;
+            }
+            if (pen_handle != 0U && !pens.contains(pen_handle)) {
+                return status::invalid_handle;
             }
             progpu_native_affine_2d native_local_transform{};
             if (!try_to_native_affine(
