@@ -34,7 +34,8 @@ public enum NativeMilResourceType : uint
     RadialGradientBrush = 78,
     DashStyle = 84,
     Pen = 85,
-    GeometryDrawing = 87
+    GeometryDrawing = 87,
+    DrawingGroup = 91
 }
 
 public enum NativeMilPathFillRule : uint
@@ -252,6 +253,38 @@ public readonly record struct NativeMilPen(
     NativeMilPenLineJoin LineJoin = NativeMilPenLineJoin.Miter,
     double MiterLimit = 10.0,
     uint DashStyleHandle = 0);
+
+public enum NativeMilEdgeMode : uint
+{
+    Unspecified,
+    Aliased
+}
+
+public enum NativeMilBitmapScalingMode : uint
+{
+    Unspecified,
+    Linear,
+    Fant,
+    NearestNeighbor
+}
+
+public enum NativeMilClearTypeHint : uint
+{
+    Auto,
+    Enabled
+}
+
+public readonly record struct NativeMilDrawingGroup(
+    double Opacity = 1.0,
+    uint ClipGeometryHandle = 0,
+    uint OpacityAnimationHandle = 0,
+    uint OpacityMaskHandle = 0,
+    uint TransformHandle = 0,
+    uint GuidelineSetHandle = 0,
+    NativeMilEdgeMode EdgeMode = NativeMilEdgeMode.Unspecified,
+    NativeMilBitmapScalingMode BitmapScalingMode =
+        NativeMilBitmapScalingMode.Unspecified,
+    NativeMilClearTypeHint ClearTypeHint = NativeMilClearTypeHint.Auto);
 
 public enum NativeMilStatus : uint
 {

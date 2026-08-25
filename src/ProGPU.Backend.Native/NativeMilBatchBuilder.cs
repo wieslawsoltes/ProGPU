@@ -836,6 +836,47 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 16, geometryHandle);
     }
 
+    public void SetDrawingGroup(
+        uint handle,
+        NativeMilDrawingGroup group,
+        ReadOnlySpan<uint> childHandles)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(group.Opacity) || group.Opacity < 0.0 ||
+            group.Opacity > 1.0 ||
+            group.EdgeMode > NativeMilEdgeMode.Aliased ||
+            group.BitmapScalingMode >
+                NativeMilBitmapScalingMode.NearestNeighbor ||
+            group.ClearTypeHint > NativeMilClearTypeHint.Enabled)
+        {
+            throw new ArgumentOutOfRangeException(nameof(group));
+        }
+        foreach (uint childHandle in childHandles)
+        {
+            ValidateHandle(childHandle);
+        }
+        int childrenSize = checked(childHandles.Length * sizeof(uint));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.DrawingGroup,
+            checked(52 + childrenSize));
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, group.Opacity);
+        WriteUInt32(packet, 16, checked((uint)childrenSize));
+        WriteUInt32(packet, 20, group.ClipGeometryHandle);
+        WriteUInt32(packet, 24, group.OpacityAnimationHandle);
+        WriteUInt32(packet, 28, group.OpacityMaskHandle);
+        WriteUInt32(packet, 32, group.TransformHandle);
+        WriteUInt32(packet, 36, group.GuidelineSetHandle);
+        WriteUInt32(packet, 40, (uint)group.EdgeMode);
+        WriteUInt32(packet, 44, (uint)group.BitmapScalingMode);
+        WriteUInt32(packet, 48, (uint)group.ClearTypeHint);
+        for (int index = 0; index < childHandles.Length; index++)
+        {
+            WriteUInt32(packet, 52 + index * sizeof(uint), childHandles[index]);
+        }
+    }
+
     public void SetDashStyle(
         uint handle,
         double offset,
@@ -1222,4 +1263,5 @@ internal static class NativeMilCommand
     internal const uint DashStyle = 0x85;
     internal const uint Pen = 0x86;
     internal const uint GeometryDrawing = 0x87;
+    internal const uint DrawingGroup = 0x8b;
 }

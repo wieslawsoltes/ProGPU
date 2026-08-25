@@ -4087,6 +4087,225 @@ bool retained_geometry_drawing_reuses_native_geometry_lowering() {
     return true;
 }
 
+bool retained_drawing_group_composes_children_transform_and_opacity() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t geometry = 5U;
+    constexpr std::uint32_t drawing = 6U;
+    constexpr std::uint32_t group = 7U;
+    constexpr std::uint32_t transform = 8U;
+    constexpr std::uint32_t opacity = 9U;
+    constexpr std::uint32_t clip = 10U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, geometry, 69U);
+    append_create(batch, drawing, 87U);
+    append_create(batch, group, 91U);
+    append_create(batch, transform, 66U);
+    append_create(batch, opacity, 49U);
+    append_create(batch, clip, 69U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.25F, 0.5F, 0.75F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::rectangle_geometry,
+        geometry,
+        0.0,
+        0.0,
+        2.0,
+        3.0,
+        20.0,
+        10.0,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::geometry_drawing,
+        drawing,
+        brush,
+        0U,
+        geometry);
+    append_command(
+        batch,
+        command::matrix_transform,
+        transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        10.0,
+        20.0,
+        0U);
+    append_command(batch, command::double_resource, opacity, 0.5);
+    append_command(
+        batch,
+        command::rectangle_geometry,
+        clip,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        10.0,
+        10.0,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::drawing_group,
+        group,
+        1.0,
+        4U,
+        clip,
+        opacity,
+        0U,
+        transform,
+        0U,
+        0U,
+        0U,
+        0U,
+        drawing);
+    std::vector<std::byte> nested;
+    append_command(nested, command::draw_drawing, group, 0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7004U, 1U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rectangle_count == 1U);
+    PROGPU_REQUIRE(metrics.brush_count == 1U);
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_group_state = false;
+    bool found_bounds = false;
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            const auto scene_state = read_value<progpu_native_scene_state>(
+                stream,
+                resource.payload_offset);
+            if (scene_state.opacity == 0.5F &&
+                scene_state.transform.m31 == 10.0F &&
+                scene_state.transform.m32 == 20.0F &&
+                (scene_state.flags &
+                    PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U &&
+                scene_state.clip_rect.x == 10.0F &&
+                scene_state.clip_rect.y == 20.0F &&
+                scene_state.clip_rect.width == 10.0F &&
+                scene_state.clip_rect.height == 10.0F) {
+                found_group_state = true;
+            }
+        }
+    }
+    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
+            record.bounds_x == 12.0F && record.bounds_y == 23.0F &&
+            record.bounds_width == 20.0F &&
+            record.bounds_height == 10.0F) {
+            found_bounds = true;
+        }
+    }
+    PROGPU_REQUIRE(found_group_state);
+    PROGPU_REQUIRE(found_bounds);
+
+    std::vector<std::byte> opacity_update;
+    append_command(opacity_update, command::double_resource, opacity, 0.25);
+    PROGPU_REQUIRE(state.apply(opacity_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7004U, 2U, stream, &metrics) ==
+        status::success);
+    const auto updated_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_updated_opacity = false;
+    for (std::uint32_t index = 0U;
+         index < updated_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            updated_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            const auto scene_state = read_value<progpu_native_scene_state>(
+                stream,
+                resource.payload_offset);
+            found_updated_opacity |= scene_state.opacity == 0.25F &&
+                scene_state.transform.m31 == 10.0F &&
+                scene_state.transform.m32 == 20.0F;
+        }
+    }
+    PROGPU_REQUIRE(found_updated_opacity);
+
+    std::vector<std::byte> delete_child;
+    append_command(
+        delete_child,
+        command::channel_delete_resource,
+        drawing,
+        87U);
+    PROGPU_REQUIRE(state.apply(delete_child) == status::invalid_graph);
+
+    std::vector<std::byte> invalid_child;
+    append_command(
+        invalid_child,
+        command::drawing_group,
+        group,
+        1.0,
+        4U,
+        clip,
+        opacity,
+        0U,
+        transform,
+        0U,
+        0U,
+        0U,
+        0U,
+        target);
+    PROGPU_REQUIRE(state.apply(invalid_child) == status::invalid_handle);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7004U, 3U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rectangle_count == 1U);
+    return true;
+}
+
 bool retained_geometry_group_compiles_to_one_semantic_path() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -5783,6 +6002,8 @@ int main() {
         retained_line_path_stroke_preserves_closure_gaps_and_pen_state());
     PROGPU_REQUIRE(
         retained_geometry_drawing_reuses_native_geometry_lowering());
+    PROGPU_REQUIRE(
+        retained_drawing_group_composes_children_transform_and_opacity());
     PROGPU_REQUIRE(retained_geometry_group_compiles_to_one_semantic_path());
     PROGPU_REQUIRE(
         retained_gradient_brushes_compile_with_wpf_mapping_and_animation());

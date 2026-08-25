@@ -151,6 +151,45 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWriteCanonicalDrawingGroupPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(7, NativeMilResourceType.DrawingGroup);
+        batch.SetDrawingGroup(
+            7,
+            new NativeMilDrawingGroup(
+                0.75,
+                ClipGeometryHandle: 2,
+                OpacityAnimationHandle: 3,
+                OpacityMaskHandle: 4,
+                TransformHandle: 5,
+                GuidelineSetHandle: 6,
+                EdgeMode: NativeMilEdgeMode.Aliased,
+                BitmapScalingMode:
+                    NativeMilBitmapScalingMode.NearestNeighbor,
+                ClearTypeHint: NativeMilClearTypeHint.Enabled),
+            [8, 9]);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(80, encoded.Length);
+        Assert.Equal(64U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x8bU, ReadUInt32(encoded, 20));
+        Assert.Equal(7U, ReadUInt32(encoded, 24));
+        Assert.Equal(0.75, ReadDouble(encoded, 28));
+        Assert.Equal(8U, ReadUInt32(encoded, 36));
+        Assert.Equal(2U, ReadUInt32(encoded, 40));
+        Assert.Equal(3U, ReadUInt32(encoded, 44));
+        Assert.Equal(4U, ReadUInt32(encoded, 48));
+        Assert.Equal(5U, ReadUInt32(encoded, 52));
+        Assert.Equal(6U, ReadUInt32(encoded, 56));
+        Assert.Equal(1U, ReadUInt32(encoded, 60));
+        Assert.Equal(3U, ReadUInt32(encoded, 64));
+        Assert.Equal(1U, ReadUInt32(encoded, 68));
+        Assert.Equal(8U, ReadUInt32(encoded, 72));
+        Assert.Equal(9U, ReadUInt32(encoded, 76));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalGradientPackets()
     {
         var stops = new[]
