@@ -320,6 +320,42 @@ public sealed class GraphicsStringFormatQualityTests
     }
 
     [Fact]
+    public void LineLimitExcludesAPartiallyVisibleFinalLine()
+    {
+        using var target = new Bitmap(240, 160);
+        using Graphics graphics = Graphics.FromImage(target);
+        using var font = new Font(FontFamily.GenericSansSerif, 18f);
+        using var singleLine = new StringFormat(StringFormatFlags.NoWrap);
+        using var partial = new StringFormat();
+        using var whole = new StringFormat(StringFormatFlags.LineLimit);
+        float lineHeight = graphics.MeasureString("M", font, new SizeF(200f, 120f), singleLine).Height;
+        var layoutArea = new SizeF(58f, lineHeight * 1.5f);
+        const string Text = "alpha beta gamma delta epsilon";
+
+        SizeF partialSize = graphics.MeasureString(
+            Text,
+            font,
+            layoutArea,
+            partial,
+            out int partialCharacters,
+            out int partialLines);
+        SizeF wholeSize = graphics.MeasureString(
+            Text,
+            font,
+            layoutArea,
+            whole,
+            out int wholeCharacters,
+            out int wholeLines);
+
+        Assert.Equal(2, partialLines);
+        Assert.Equal(1, wholeLines);
+        Assert.InRange(partialCharacters, wholeCharacters + 1, Text.Length - 1);
+        Assert.InRange(wholeCharacters, 1, partialCharacters - 1);
+        Assert.True(partialSize.Height > wholeSize.Height);
+        Assert.InRange(wholeSize.Height, lineHeight - 0.01f, lineHeight + 0.01f);
+    }
+
+    [Fact]
     public void WarmedAdvancedFormatMeasurementHasBoundedManagedAllocation()
     {
         using var target = new Bitmap(180, 80);

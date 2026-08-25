@@ -2108,13 +2108,25 @@ public class Graphics :
             shapingOptions,
             formattingOptions);
 
-        bool exceedsWidth = float.IsFinite(maxWidth) && layout.ContentSize.X > maxWidth + 0.001f;
-        bool exceedsHeight = float.IsFinite(maxHeight) && layout.ContentSize.Y > maxHeight + 0.001f;
         bool lineLimit = (flags & StringFormatFlags.LineLimit) != 0;
+        bool clipToLayout = (flags & StringFormatFlags.NoClip) == 0;
+        float layoutHeightLimit = maxHeight;
+        if (!lineLimit && clipToLayout && float.IsFinite(maxHeight))
+        {
+            float lineHeight = GetLineHeight(font, fontSize);
+            if (lineHeight > 0f)
+            {
+                layoutHeightLimit = MathF.Ceiling((maxHeight / lineHeight) - 0.0001f) * lineHeight;
+            }
+        }
+
+        bool exceedsWidth = float.IsFinite(maxWidth) && layout.ContentSize.X > maxWidth + 0.001f;
+        bool exceedsHeight = float.IsFinite(layoutHeightLimit)
+            && layout.ContentSize.Y > layoutHeightLimit + 0.001f;
         int charactersFitted = text.Length;
 
         if ((exceedsWidth || exceedsHeight)
-            && (format.Trimming != StringTrimming.None || lineLimit))
+            && (format.Trimming != StringTrimming.None || lineLimit || (clipToLayout && exceedsHeight)))
         {
             StringTrimming trimming = format.Trimming == StringTrimming.None
                 ? StringTrimming.Character
@@ -2124,7 +2136,7 @@ public class Graphics :
                 font,
                 fontSize,
                 maxWidth,
-                maxHeight,
+                layoutHeightLimit,
                 noWrap,
                 alignment,
                 trimming,
@@ -2479,11 +2491,18 @@ public class Graphics :
             return 0;
         }
 
-        var singleLine = new ProGPU.Text.TextLayout("M", font.TtfFont, fontSize);
-        float lineHeight = singleLine.ContentSize.Y;
+        float lineHeight = GetLineHeight(font, fontSize);
         return lineHeight > 0f
             ? Math.Max(1, (int)MathF.Round(layout.ContentSize.Y / lineHeight))
             : CountLines(layout.Text);
+    }
+
+    private static float GetLineHeight(Font font, float fontSize)
+    {
+        ProGPU.Text.TtfFont face = font.TtfFont;
+        return face.UnitsPerEm == 0
+            ? 0f
+            : (face.Ascender - face.Descender + face.LineGap) * (fontSize / face.UnitsPerEm);
     }
 
     private static int CountLines(string? text)
