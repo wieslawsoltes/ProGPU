@@ -1732,8 +1732,21 @@ owns linear and nearest texture bindings over the same view, so changing only
 that cache-root sampling policy selects the exact nearest sampler without
 rerasterizing or expanding the 64-byte layer record. The flag is valid only
 with `CACHE_LOCAL_SPACE`; the C++, managed, and serialized-scene validators
-reject every other use. Cubic/Fant sampling and spatial masks remain fail
-closed until their dedicated composite operations are represented explicitly.
+reject every other use.
+
+The cache-root spatial opacity-mask checkpoint reuses the existing
+host-neutral `LAYER_MASK_BRUSH` resource and shared WebGPU/DirectX compositor.
+A canonical linear or radial gradient brush is resolved against the exact
+Visual-local cache bounds, then emitted as a composite-only typed mask with the
+same outer placement and SnapsToDevicePixels correction as the retained quad.
+Changing only mask opacity, stops, animation values, mapping mode, or typed
+brush transforms rebuilds the mask/composite while preserving the cached
+content revision and skipping the content pass. A transform-free solid mask
+continues to fold into uniform layer opacity. Local-cache validation now permits
+the optional typed mask reference while effects remain excluded. Inherited
+mask composition, mask/effect ordering, gradient-mask plus guideline
+composition, and Cubic/Fant cache sampling deliberately fail closed until each
+has an explicit ordering representation.
 
 The pinned provider/Dawn Metal hardware gate now exercises the local page
 directly: its first 24x18 render performs one content and one composite pass, a
@@ -1860,10 +1873,11 @@ The implementation sequence is intentionally architectural:
    LibreWPF without reflection.
 5. Qualify composite clip/mask/guideline/sampling ordering, nested cache
    lifetime, effects ordering, and LibreWPF package lanes. (Exact rectangle
-   composite clips, one static guideline per axis, NearestNeighbor sampling,
-   and the combined snapping/ClearType checkpoint are implemented; the
-   complete implemented subset through NearestNeighbor is qualified on live
-   D3D12.)
+   composite clips, one static guideline per axis, linear/radial cache-root
+   opacity masks, NearestNeighbor sampling, and the combined
+   snapping/ClearType checkpoint are implemented; the complete subset through
+   NearestNeighbor is qualified on live D3D12, while the spatial-mask
+   checkpoint awaits its exact Windows qualification.)
 
 The persistent page and composite-transform path are executable, but full cache
 parity is not claimed until the remaining post-raster state and ordering
