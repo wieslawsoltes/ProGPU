@@ -368,6 +368,11 @@ jobs:
             --configuration Release --no-restore \
             -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
             -p:ProGpuNativePackageVersion="${version}" -- \
+            --mil-drawing-group-only
+          dotnet run --project tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
+            --configuration Release --no-restore \
+            -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
+            -p:ProGpuNativePackageVersion="${version}" -- \
             --mil-glyph-run-drawing-only
           dotnet run --project tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
             --configuration Release --no-restore \
@@ -399,6 +404,7 @@ jobs:
           fi
           test -x "${executable}"
           "${executable}"
+          "${executable}" --mil-drawing-group-only
           "${executable}" --mil-glyph-run-drawing-only
           "${executable}" --mil-drawing-image-only
           "${executable}" --mil-guideline-only

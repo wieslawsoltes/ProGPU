@@ -89,6 +89,11 @@ NUGET_PACKAGES="${consumer_packages}" dotnet run \
   --project "${consumer}" --configuration Release --no-restore \
   -p:ProGpuNativePackageSource="${package_output}" \
   -p:ProGpuNativePackageVersion="${package_version}" -- \
+  --mil-drawing-group-only
+NUGET_PACKAGES="${consumer_packages}" dotnet run \
+  --project "${consumer}" --configuration Release --no-restore \
+  -p:ProGpuNativePackageSource="${package_output}" \
+  -p:ProGpuNativePackageVersion="${package_version}" -- \
   --mil-glyph-run-drawing-only
 NUGET_PACKAGES="${consumer_packages}" dotnet run \
   --project "${consumer}" --configuration Release --no-restore \
