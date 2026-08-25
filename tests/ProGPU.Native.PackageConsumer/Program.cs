@@ -58,7 +58,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
         NativeMilCompiledScene scene = mil.CompileScene(42, 701, 1);
-        if (milMetrics.CommandCount != 64 || mil.ResourceCount != 29 ||
+        if (milMetrics.CommandCount != 74 || mil.ResourceCount != 34 ||
             !mil.TryGetVisual(41, out NativeMilVisualSnapshot visual) ||
             visual.Handle != 41 || scene.Stream.Length == 0 ||
             scene.Metrics.VisualCount != 1 ||
@@ -78,7 +78,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
         NativeMilCompiledScene scene = dawnMil.CompileScene(42, 702, 1);
-        if (milMetrics.CommandCount != 64 || dawnMil.ResourceCount != 29 ||
+        if (milMetrics.CommandCount != 74 || dawnMil.ResourceCount != 34 ||
             scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
             scene.Metrics.RectangleCount != 3 ||
             scene.Metrics.EllipseCount != 4 ||
@@ -265,6 +265,11 @@ static byte[] CreateMilSeedBatch(
     batch.CreateResource(67, NativeMilResourceType.Pen);
     batch.CreateResource(68, NativeMilResourceType.RectangleGeometry);
     batch.CreateResource(69, NativeMilResourceType.RectangleGeometry);
+    batch.CreateResource(70, NativeMilResourceType.TransformGroup);
+    batch.CreateResource(71, NativeMilResourceType.TranslateTransform);
+    batch.CreateResource(72, NativeMilResourceType.ScaleTransform);
+    batch.CreateResource(73, NativeMilResourceType.SkewTransform);
+    batch.CreateResource(74, NativeMilResourceType.RotateTransform);
     batch.CreateVisual(41);
     batch.SetVisualOffset(41, 1, 2);
     batch.SetMatrixTransform(
@@ -273,7 +278,12 @@ static byte[] CreateMilSeedBatch(
     batch.SetMatrixTransform(
         62,
         new NativeMilMatrix3x2(1, 0, 0, 0, 0, 0));
-    batch.SetVisualTransform(41, 45);
+    batch.SetTranslateTransform(71, 0, 0);
+    batch.SetScaleTransform(72, 1, 1, 8, 12);
+    batch.SetSkewTransform(73, 0, 0, 8, 12);
+    batch.SetRotateTransform(74, 0, 8, 12);
+    batch.SetTransformGroup(70, [45, 71, 72, 73, 74]);
+    batch.SetVisualTransform(41, 70);
     batch.SetVisualOpacity(41, 0.9);
     batch.SetVisualContent(41, 43);
     batch.SetSolidColorBrush(44, new NativeMilColor(1, 0.25f, 0.1f, 1));
