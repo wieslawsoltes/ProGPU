@@ -194,6 +194,7 @@ public sealed unsafe partial class DawnGpuContext
                 maxSamplersPerShaderStage:
                     limits.MaxSamplersPerShaderStage,
                 maxBindGroups: limits.MaxBindGroups,
+                maxBufferSize: limits.MaxBufferSize,
                 supportsTextureFormatsTier1:
                     supportsTextureFormatsTier1,
                 adapterBackendType:

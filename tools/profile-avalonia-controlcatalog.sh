@@ -21,10 +21,11 @@ skia_project="$repo_root/integration/AvaloniaSkiaControlCatalogReference/Avaloni
 skia_app="$repo_root/integration/AvaloniaSkiaControlCatalogReference/bin/Release/net10.0/AvaloniaSkiaControlCatalogReference.dll"
 source_project="$repo_root/integration/AvaloniaSourceControlCatalog/AvaloniaSourceControlCatalog.csproj"
 source_app="$repo_root/integration/AvaloniaSourceControlCatalog/bin/Release/net10.0/AvaloniaSourceControlCatalog.dll"
-avalonia_source_root="${PROGPU_AVALONIA_ROOT:-$repo_root/.worktrees/avalonia-12.0.5}"
+avalonia_source_root="${PROGPU_AVALONIA_ROOT:-$repo_root/.worktrees/avalonia-12.1.1}"
 analyzer_project="$repo_root/tools/ProGPU.SampleMemoryProfiler/ProGPU.SampleMemoryProfiler.csproj"
 analyzer_app="$repo_root/tools/ProGPU.SampleMemoryProfiler/bin/Release/net10.0/ProGPU.SampleMemoryProfiler.dll"
-page_source="$avalonia_source_root/samples/ControlCatalog/MainView.xaml"
+page_list_source="$avalonia_source_root/samples/ControlCatalog/ViewModels/MainWindowViewModel_PageList.cs"
+page_xaml_source="$avalonia_source_root/samples/ControlCatalog/MainView.xaml"
 failure_path="$output_root/failures.tsv"
 host_kernel="$(uname -s)"
 if command -v rg >/dev/null 2>&1; then
@@ -90,7 +91,7 @@ if [[ "${PROGPU_AVALONIA_SKIP_BUILD:-0}" != "1" ]]; then
   for backend in "${backends[@]}"; do
     if [[ "$backend" == source-progpu* ]]; then
       if [[ "$source_built" == "0" ]]; then
-        "$repo_root/tools/prepare-avalonia-12.0.5-source.sh"
+        "$repo_root/tools/prepare-avalonia-12.1.1-source.sh"
         dotnet restore "$source_project" \
           -p:ProGpuDependencyMode=Source \
           -p:ProGpuSourceRoot="$repo_root" \
@@ -116,7 +117,7 @@ if [[ "${PROGPU_AVALONIA_SKIP_BUILD:-0}" != "1" ]]; then
       fi
     else
       if [[ "$skia_built" == "0" ]]; then
-        "$repo_root/tools/prepare-avalonia-12.0.5-source.sh"
+        "$repo_root/tools/prepare-avalonia-12.1.1-source.sh"
         dotnet restore "$skia_project" \
           -p:PackAvaloniaNative=false \
           -p:AvaloniaForkRoot="$avalonia_source_root"
@@ -153,12 +154,18 @@ if [[ "${PROGPU_AVALONIA_BUILD_ONLY:-0}" == "1" ]]; then
 fi
 
 pages=()
-while IFS= read -r page; do
-  pages+=("$page")
-done < <(sed -n 's/^[[:space:]]*<TabItem Header="\([^"]*\)".*/\1/p' "$page_source")
+if [[ -f "$page_list_source" ]]; then
+  while IFS= read -r page; do
+    pages+=("$page")
+  done < <(sed -n 's/^[[:space:]]*new PageItem("\([^"]*\)".*/\1/p' "$page_list_source")
+elif [[ -f "$page_xaml_source" ]]; then
+  while IFS= read -r page; do
+    pages+=("$page")
+  done < <(sed -n 's/^[[:space:]]*<TabItem Header="\([^"]*\)".*/\1/p' "$page_xaml_source")
+fi
 
 if [[ ${#pages[@]} -eq 0 ]]; then
-  echo "No ControlCatalog pages were discovered in $page_source" >&2
+  echo "No ControlCatalog pages were discovered under $avalonia_source_root/samples/ControlCatalog" >&2
   exit 3
 fi
 

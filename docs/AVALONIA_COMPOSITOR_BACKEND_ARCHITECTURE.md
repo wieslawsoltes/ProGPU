@@ -7,7 +7,8 @@ public assembly and API identities remain Avalonia-compatible while ProGPU owns
 the retained render scene, resource residency, GPU compilation, render graph,
 and presentation.
 
-The first supported lane is Avalonia 12.0.5. Avalonia 11 remains on the current
+The first supported lane was Avalonia 12.0.5; the current source lane is
+Avalonia 12.1.1. Avalonia 11 remains on the current
 `IPlatformRenderInterface` backend until the Avalonia 12 composition contract
 and ControlCatalog conformance gates are complete.
 
@@ -842,21 +843,21 @@ Machine-readable and Markdown results are under:
 Prepare the exact official source lane and run its fail-closed ABI gate with:
 
 ```bash
-./tools/prepare-avalonia-12.0.5-source.sh
+./tools/prepare-avalonia-12.1.1-source.sh
 ./tools/validate-avalonia-source-abi.sh
 ```
 
 The preparation script creates an isolated detached worktree at official
-Avalonia 12.0.5 commit
-`fee9c561ce036e8a3e8cee2397c75ca599b4790d`, initializes its pinned
+Avalonia 12.1.1 commit
+`e33eaed9c106846b200680751022385d9cc5dc6f`, initializes its pinned
 submodules, and applies the reviewed compositor and text-test patches only
 when they apply cleanly. Both scripts reject a different revision.
 
 The ABI gate builds the pinned
 `Avalonia.Base`, compares its assembly name, version, culture, and public-key
-token with the official 12.0.5 runtime assembly, and runs the .NET SDK's
+token with the official 12.1.1 runtime assembly, and runs the .NET SDK's
 strict ApiCompat rules over the runtime API including attributes and parameter
-names. It passes with `Avalonia.Base, Version=12.0.5.0`, public-key token
+names. It passes with `Avalonia.Base, Version=12.1.1.0`, public-key token
 `C8D484A7012F9A8B`, and no suppression file. Avalonia's NuGet reference facade
 is produced by its packaging-time `PrivateApi` stripping pipeline, so a normal
 compiler-generated `obj/ref` assembly is deliberately not misrepresented as

@@ -107,10 +107,10 @@ evidence are recorded in `docs/RETAINED_GPU_SUBMISSION_OPTIMIZATION.md` and
 
 ## Avalonia Integration Packages
 
-- `ProGPU.Avalonia.Rendering` `12.0.5-preview.56`
-- `ProGPU.Avalonia.SilkNet` `12.0.5-preview.56`
-- `ProGPU.Avalonia.Rendering` `11.3.18-preview.56`
-- `ProGPU.Avalonia.SilkNet` `11.3.18-preview.56`
+- `ProGPU.Avalonia.Rendering` `12.1.1-preview.56`
+- `ProGPU.Avalonia.SilkNet` `12.1.1-preview.56`
+- `ProGPU.Avalonia.Rendering` `11.3.20-preview.56`
+- `ProGPU.Avalonia.SilkNet` `11.3.20-preview.56`
 
 These packages are packed on the portable runner and published after the
 `0.1.0-preview.56` runtime package set so their exact ProGPU dependencies are

@@ -24,6 +24,16 @@ public enum NativeWindowTheme
     Dark = 2
 }
 
+[Flags]
+public enum NativeWindowChromeHints
+{
+    NoChrome = 0,
+    SystemChrome = 1 << 0,
+    PreferSystemChrome = 1 << 1,
+    MacOsThickTitleBar = 1 << 3,
+    Default = PreferSystemChrome
+}
+
 public enum NativeWindowBackdrop
 {
     None = 0,
@@ -198,6 +208,7 @@ internal readonly record struct NativeWindowState(
     bool ShowInTaskbar,
     bool AddShadow,
     bool ExtendClientArea,
+    NativeWindowChromeHints ChromeHints,
     double TitleBarHeight,
     NativeWindowSize MinimumSize,
     NativeWindowSize MaximumSize,
@@ -215,6 +226,7 @@ internal readonly record struct NativeWindowState(
         ShowInTaskbar: true,
         AddShadow: true,
         ExtendClientArea: false,
+        ChromeHints: NativeWindowChromeHints.Default,
         TitleBarHeight: -1d,
         MinimumSize: new NativeWindowSize(0, 0),
         MaximumSize: NativeWindowSize.Unbounded,

@@ -100,6 +100,12 @@ partial class DrawingContextImpl
                     "A supported effect did not create a retained subtree.");
             ProGPU.Scene.DrawingContext parent = DrawingContext;
             DrawingContext = retained.Context;
+            if (clipRect is { } subtreeClip)
+            {
+                PushSkiaDeviceClipState(
+                    ToProGpuRect(subtreeClip),
+                    isDeviceRect: true);
+            }
             PushAvaloniaEffectFrame(
                 new AvaloniaEffectFrame(
                     parent,
@@ -134,7 +140,10 @@ partial class DrawingContextImpl
         }
 
         if ((frame.Operations & AvaloniaEffectOperations.Clip) != 0)
+        {
             DrawingContext.PopClip();
+            PopSkiaClipState();
+        }
         if ((frame.Operations & AvaloniaEffectOperations.Blend) != 0)
             DrawingContext.PopBlendMode();
     }
@@ -149,7 +158,9 @@ partial class DrawingContextImpl
     {
         if (clipRect is not { } clip)
             return false;
-        DrawingContext.PushClip(ToProGpuRect(clip));
+        ProGPU.Scene.Rect deviceClip = ToProGpuRect(clip);
+        DrawingContext.PushClip(deviceClip);
+        PushSkiaDeviceClipState(deviceClip, isDeviceRect: true);
         return true;
     }
 
@@ -164,7 +175,10 @@ partial class DrawingContextImpl
             DrawingContext.PushClip(ToProGpuRect(clip));
         DrawingContext.DrawVisual(subtree);
         if (frame.OutputClip.HasValue)
+        {
             DrawingContext.PopClip();
+            PopSkiaClipState();
+        }
     }
 
     private bool TryCreateEffectSubtree(
@@ -307,6 +321,8 @@ partial class DrawingContextImpl
             {
                 DrawingContext = frame.Parent;
                 frame.Subtree?.Dispose();
+                if (frame.OutputClip.HasValue)
+                    PopSkiaClipState();
                 continue;
             }
 
@@ -314,6 +330,7 @@ partial class DrawingContextImpl
                  AvaloniaEffectOperations.Clip) != 0)
             {
                 DrawingContext.PopClip();
+                PopSkiaClipState();
             }
             if ((frame.Operations &
                  AvaloniaEffectOperations.Blend) != 0)

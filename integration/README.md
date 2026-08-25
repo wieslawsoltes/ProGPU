@@ -11,7 +11,7 @@ Run all commands from the repository root:
 cd /Users/wieslawsoltes/GitHub/ProGPU-clean-preview27
 ```
 
-The source-host scripts prepare the pinned Avalonia 12.0.5 checkout
+The source-host scripts prepare the pinned Avalonia 12.1.1 checkout
 automatically. The first invocation can therefore take longer than subsequent
 runs.
 
@@ -491,7 +491,7 @@ Override package versions when validating another preview:
 
 ```bash
 PROGPU_RUNTIME_PACKAGE_VERSION=0.1.0-preview.56 \
-PROGPU_INTEGRATION_PACKAGE_VERSION=12.0.5-preview.56 \
+PROGPU_INTEGRATION_PACKAGE_VERSION=12.1.1-preview.56 \
 ./integration/ProGpuAvaloniaPackageSmoke/run.sh local
 ```
 
@@ -520,7 +520,7 @@ Run the pinned Avalonia compositor and text suites:
 Run the ABI, reflection, and clean-room checks:
 
 ```bash
-PROGPU_AVALONIA_ROOT="$PWD/.worktrees/avalonia-12.0.5" \
+PROGPU_AVALONIA_ROOT="$PWD/.worktrees/avalonia-12.1.1" \
 ./tools/validate-avalonia-source-abi.sh
 
 ./tools/validate-avalonia-progpu-no-reflection.sh \

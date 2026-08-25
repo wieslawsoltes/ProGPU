@@ -6,10 +6,12 @@ namespace Avalonia.SilkNet;
 
 internal sealed class SilkNetWindowingPlatform : IWindowingPlatform
 {
+    private const long TopmostZOrderBase = long.MaxValue / 2;
     private readonly SilkNetEventLoop _eventLoop;
     private readonly SilkNetRenderTimer _renderTimer;
     private readonly SilkNetClipboard _clipboard;
     private readonly Compositor _compositor;
+    private readonly SilkNetMonitorProvider _monitors = new();
     private long _nextZOrder;
 
     internal SilkNetWindowingPlatform(
@@ -22,6 +24,8 @@ internal sealed class SilkNetWindowingPlatform : IWindowingPlatform
         _renderTimer = renderTimer;
         _clipboard = clipboard;
         _compositor = compositor;
+        _monitors.Changed += OnMonitorsChanged;
+        _monitors.Attach();
     }
 
     public IWindowImpl CreateWindow() =>
@@ -70,8 +74,25 @@ internal sealed class SilkNetWindowingPlatform : IWindowingPlatform
     internal SilkNetRenderTimer RenderTimer => _renderTimer;
     internal SilkNetClipboard Clipboard => _clipboard;
     internal Compositor Compositor => _compositor;
+    internal SilkNetMonitorProvider Monitors => _monitors;
 
     internal long BringToFront() =>
         System.Threading.Interlocked.Increment(
             ref _nextZOrder);
+
+    internal static long ResolveZOrder(
+        long activationOrder,
+        bool topmost) =>
+        topmost
+            ? TopmostZOrderBase + activationOrder
+            : activationOrder;
+
+    private void OnMonitorsChanged()
+    {
+        int framesPerSecond =
+            SilkNetPlatform.ResolveRenderFramesPerSecond(
+                _monitors.ReadMaximumRefreshRate());
+        _eventLoop.UpdateFramesPerSecond(framesPerSecond);
+        _renderTimer.UpdateFramesPerSecond(framesPerSecond);
+    }
 }

@@ -3304,7 +3304,10 @@ SceneCompilationComplete:
 
         if (_vectorVerticesList.Count > 0)
         {
-            EnsureBufferSize(ref _vectorVertexBuffer, (uint)_vectorVerticesList.Count * (uint)Marshal.SizeOf<VectorVertex>(), BufferUsage.Vertex);
+            EnsureBufferSize(
+                ref _vectorVertexBuffer,
+                checked((ulong)_vectorVerticesList.Count * (uint)Marshal.SizeOf<VectorVertex>()),
+                BufferUsage.Vertex);
             UploadIncrementalSceneBuffer(
                 _vectorVertexBuffer,
                 CollectionsMarshal.AsSpan(_vectorVerticesList),
@@ -3312,7 +3315,10 @@ SceneCompilationComplete:
         }
         if (_vectorIndicesList.Count > 0)
         {
-            EnsureBufferSize(ref _vectorIndexBuffer, (uint)_vectorIndicesList.Count * 4, BufferUsage.Index);
+            EnsureBufferSize(
+                ref _vectorIndexBuffer,
+                checked((ulong)_vectorIndicesList.Count * 4UL),
+                BufferUsage.Index);
             UploadIncrementalSceneBuffer(
                 _vectorIndexBuffer,
                 CollectionsMarshal.AsSpan(_vectorIndicesList),
@@ -3321,7 +3327,10 @@ SceneCompilationComplete:
 
         if (_textVerticesList.Count > 0)
         {
-            EnsureBufferSize(ref _textVertexBuffer, (uint)_textVerticesList.Count * (uint)Marshal.SizeOf<GlyphInstance>(), BufferUsage.Vertex);
+            EnsureBufferSize(
+                ref _textVertexBuffer,
+                checked((ulong)_textVerticesList.Count * (uint)Marshal.SizeOf<GlyphInstance>()),
+                BufferUsage.Vertex);
             UploadIncrementalSceneBuffer(
                 _textVertexBuffer,
                 CollectionsMarshal.AsSpan(_textVerticesList),
@@ -3330,7 +3339,10 @@ SceneCompilationComplete:
 
         if (_textureVerticesList.Count > 0)
         {
-            EnsureBufferSize(ref _textureVertexBuffer, (uint)_textureVerticesList.Count * (uint)Marshal.SizeOf<VectorVertex>(), BufferUsage.Vertex);
+            EnsureBufferSize(
+                ref _textureVertexBuffer,
+                checked((ulong)_textureVerticesList.Count * (uint)Marshal.SizeOf<VectorVertex>()),
+                BufferUsage.Vertex);
             UploadIncrementalSceneBuffer(
                 _textureVertexBuffer,
                 CollectionsMarshal.AsSpan(_textureVerticesList),
@@ -3338,7 +3350,10 @@ SceneCompilationComplete:
         }
         if (_textureIndicesList.Count > 0)
         {
-            EnsureBufferSize(ref _textureIndexBuffer, (uint)_textureIndicesList.Count * 4, BufferUsage.Index);
+            EnsureBufferSize(
+                ref _textureIndexBuffer,
+                checked((ulong)_textureIndicesList.Count * 4UL),
+                BufferUsage.Index);
             UploadIncrementalSceneBuffer(
                 _textureIndexBuffer,
                 CollectionsMarshal.AsSpan(_textureIndicesList),
@@ -14098,21 +14113,21 @@ SceneStateUploadComplete:
         bool vectorStateResized = EnsureBufferSize(
             ref _brushesStorageBuffer,
             checked(
-                (uint)Math.Max(1, _activeBrushes.Count) *
+                (ulong)Math.Max(1, _activeBrushes.Count) *
                 (uint)Marshal.SizeOf<GpuBrush>()),
             BufferUsage.Storage,
             "Compositor Brushes Resize Storage Buffer");
         vectorStateResized |= EnsureBufferSize(
             ref _gradientStopsStorageBuffer,
             checked(
-                (uint)Math.Max(1, _activeGradientStops.Count) *
+                (ulong)Math.Max(1, _activeGradientStops.Count) *
                 (uint)Marshal.SizeOf<GpuGradientStop>()),
             BufferUsage.Storage,
             "Compositor Gradient Stops Resize Storage Buffer");
         bool textStateResized = EnsureBufferSize(
             ref _textStylesStorageBuffer,
             checked(
-                (uint)Math.Max(1, _activeTextStyles.Count) *
+                (ulong)Math.Max(1, _activeTextStyles.Count) *
                 (uint)Marshal.SizeOf<GpuTextStyle>()),
             BufferUsage.Storage,
             "Compositor Text Styles Resize Storage Buffer");
@@ -14142,23 +14157,49 @@ SceneStateUploadComplete:
 
     private bool EnsureBufferSize(
         ref GpuBuffer buffer,
-        uint requiredSize,
+        ulong requiredSize,
         BufferUsage usage,
         string? label = null)
     {
-        if (buffer.Size >= requiredSize) return false;
+        if ((ulong)buffer.Size >= requiredSize) return false;
 
-        uint newSize = Math.Max(buffer.Size * 2, requiredSize);
         string resolvedLabel = label ??
             (usage == BufferUsage.Vertex
                 ? "Vector/Text Resize Vertex Buffer"
                 : "Vector/Text Resize Index Buffer");
+        uint newSize = CalculateBufferGrowth(
+            buffer.Size,
+            requiredSize,
+            _context.MaxBufferSize,
+            resolvedLabel);
         var replacement =
             new GpuBuffer(_context, newSize, usage | BufferUsage.CopyDst, resolvedLabel);
         GpuBuffer previous = buffer;
         buffer = replacement;
         previous.Dispose();
         return true;
+    }
+
+    internal static uint CalculateBufferGrowth(
+        uint currentSize,
+        ulong requiredSize,
+        ulong maxBufferSize,
+        string label)
+    {
+        ulong effectiveLimit = Math.Min(
+            maxBufferSize,
+            uint.MaxValue & ~3UL);
+        if (requiredSize > effectiveLimit)
+        {
+            throw new InvalidOperationException(
+                $"GPU buffer '{label}' requires {requiredSize} bytes, exceeding the device maximum of {effectiveLimit} bytes.");
+        }
+
+        ulong doubled = currentSize > effectiveLimit / 2UL
+            ? effectiveLimit
+            : (ulong)currentSize * 2UL;
+        ulong capacity = Math.Max(requiredSize, doubled);
+        return checked((uint)Math.Min(capacity, effectiveLimit));
     }
 
     private CommandEncoder* CreateCommandEncoder(ReadOnlySpan<byte> label)
@@ -16728,7 +16769,10 @@ SceneStateUploadComplete:
         // Upload CPU batches to dynamic GPU buffers
         if (_vectorVerticesList.Count > 0)
         {
-            EnsureBufferSize(ref _vectorVertexBuffer, (uint)_vectorVerticesList.Count * (uint)Marshal.SizeOf<VectorVertex>(), BufferUsage.Vertex);
+            EnsureBufferSize(
+                ref _vectorVertexBuffer,
+                checked((ulong)_vectorVerticesList.Count * (uint)Marshal.SizeOf<VectorVertex>()),
+                BufferUsage.Vertex);
             UploadIncrementalSceneBuffer(
                 _vectorVertexBuffer,
                 CollectionsMarshal.AsSpan(_vectorVerticesList),
@@ -16736,7 +16780,10 @@ SceneStateUploadComplete:
         }
         if (_vectorIndicesList.Count > 0)
         {
-            EnsureBufferSize(ref _vectorIndexBuffer, (uint)_vectorIndicesList.Count * 4, BufferUsage.Index);
+            EnsureBufferSize(
+                ref _vectorIndexBuffer,
+                checked((ulong)_vectorIndicesList.Count * 4UL),
+                BufferUsage.Index);
             UploadIncrementalSceneBuffer(
                 _vectorIndexBuffer,
                 CollectionsMarshal.AsSpan(_vectorIndicesList),
@@ -16745,7 +16792,10 @@ SceneStateUploadComplete:
 
         if (_textVerticesList.Count > 0)
         {
-            EnsureBufferSize(ref _textVertexBuffer, (uint)_textVerticesList.Count * (uint)Marshal.SizeOf<GlyphInstance>(), BufferUsage.Vertex);
+            EnsureBufferSize(
+                ref _textVertexBuffer,
+                checked((ulong)_textVerticesList.Count * (uint)Marshal.SizeOf<GlyphInstance>()),
+                BufferUsage.Vertex);
             UploadIncrementalSceneBuffer(
                 _textVertexBuffer,
                 CollectionsMarshal.AsSpan(_textVerticesList),
@@ -16754,7 +16804,10 @@ SceneStateUploadComplete:
 
         if (_textureVerticesList.Count > 0)
         {
-            EnsureBufferSize(ref _textureVertexBuffer, (uint)_textureVerticesList.Count * (uint)Marshal.SizeOf<VectorVertex>(), BufferUsage.Vertex);
+            EnsureBufferSize(
+                ref _textureVertexBuffer,
+                checked((ulong)_textureVerticesList.Count * (uint)Marshal.SizeOf<VectorVertex>()),
+                BufferUsage.Vertex);
             UploadIncrementalSceneBuffer(
                 _textureVertexBuffer,
                 CollectionsMarshal.AsSpan(_textureVerticesList),
@@ -16762,7 +16815,10 @@ SceneStateUploadComplete:
         }
         if (_textureIndicesList.Count > 0)
         {
-            EnsureBufferSize(ref _textureIndexBuffer, (uint)_textureIndicesList.Count * 4, BufferUsage.Index);
+            EnsureBufferSize(
+                ref _textureIndexBuffer,
+                checked((ulong)_textureIndicesList.Count * 4UL),
+                BufferUsage.Index);
             UploadIncrementalSceneBuffer(
                 _textureIndexBuffer,
                 CollectionsMarshal.AsSpan(_textureIndicesList),

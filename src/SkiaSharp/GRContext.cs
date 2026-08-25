@@ -1155,7 +1155,14 @@ public class GRContext : GRRecordingContext
     {
     }
 
-    public WgpuContext Context => BackendContext;
+    public WgpuContext Context
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(IsDisposed, this);
+            return BackendContext;
+        }
+    }
 
     public override GRBackend Backend => base.Backend;
 

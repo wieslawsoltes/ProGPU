@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Avalonia.Rendering;
 
 namespace Avalonia.SilkNet;
@@ -12,24 +13,22 @@ namespace Avalonia.SilkNet;
 /// </remarks>
 public sealed class SilkNetRenderTimer : IRenderTimer
 {
-    private readonly long _periodTicks;
+    private long _periodTicks;
+    private int _framesPerSecond;
     private long _nextTick;
     private Action<TimeSpan>? _tick;
 
     public SilkNetRenderTimer(int framesPerSecond)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(framesPerSecond);
-        FramesPerSecond = framesPerSecond;
-        Interval = TimeSpan.FromSeconds(1.0 / framesPerSecond);
-        _periodTicks = Math.Max(
-            1,
-            (long)Math.Round(
-                TimeSpan.TicksPerSecond / (double)framesPerSecond));
+        UpdateFramesPerSecond(framesPerSecond);
     }
 
-    public int FramesPerSecond { get; }
+    public int FramesPerSecond =>
+        Volatile.Read(ref _framesPerSecond);
 
-    public TimeSpan Interval { get; }
+    public TimeSpan Interval =>
+        TimeSpan.FromSeconds(1.0 / FramesPerSecond);
 
     public bool RunsInBackground => false;
 
@@ -68,14 +67,30 @@ public sealed class SilkNetRenderTimer : IRenderTimer
 
         callback(TimeSpan.FromTicks(nowTicks));
 
-        long next = _nextTick + _periodTicks;
+        long periodTicks = Volatile.Read(ref _periodTicks);
+        long next = _nextTick + periodTicks;
         if (next <= nowTicks)
         {
             long missedPeriods =
-                (nowTicks - next) / _periodTicks + 1;
-            next += missedPeriods * _periodTicks;
+                (nowTicks - next) / periodTicks + 1;
+            next += missedPeriods * periodTicks;
         }
 
         _nextTick = next;
+    }
+
+    internal void UpdateFramesPerSecond(int framesPerSecond)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            framesPerSecond);
+        Volatile.Write(ref _framesPerSecond, framesPerSecond);
+        Volatile.Write(
+            ref _periodTicks,
+            Math.Max(
+                1,
+                (long)Math.Round(
+                    TimeSpan.TicksPerSecond /
+                    (double)framesPerSecond)));
+        Interlocked.Exchange(ref _nextTick, 0);
     }
 }

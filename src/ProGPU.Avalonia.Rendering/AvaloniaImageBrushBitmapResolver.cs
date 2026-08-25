@@ -72,7 +72,11 @@ internal static class ProGpuImageBrushSource
             }
 #endif
             using var encoded = new MemoryStream();
+#if AVALONIA11
             bitmap.Save(encoded);
+#else
+            bitmap.Save(encoded, PngBitmapEncoderOptions.Default);
+#endif
             encoded.Position = 0;
             return new ImmutableBitmap(encoded);
         }

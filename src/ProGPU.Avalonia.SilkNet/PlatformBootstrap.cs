@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Platform;
 using Avalonia.Rendering;
 using Avalonia.Rendering.Composition;
@@ -48,14 +50,17 @@ public static class SilkNetPlatform
         var eventLoop = new SilkNetEventLoop(framesPerSecond);
         var renderTimer = new SilkNetRenderTimer(framesPerSecond);
         var clipboard = new SilkNetClipboard();
+        RegisterPlatformSettings();
         AvaloniaLocator.CurrentMutable
             .Bind<IRenderTimer>().ToConstant(renderTimer)
-            .Bind<IKeyboardDevice>().ToConstant(new KeyboardDevice());
+            .Bind<IKeyboardDevice>().ToConstant(new KeyboardDevice())
+            .Bind<IClipboard>().ToConstant(clipboard);
 #if !AVALONIA11
         IRenderLoop renderLoop =
             Avalonia.Rendering.RenderLoop.FromTimer(renderTimer);
         AvaloniaLocator.CurrentMutable
             .Bind<IRenderLoop>().ToConstant(renderLoop);
+        Dispatcher.InitializeUIThreadDispatcher(eventLoop);
 #endif
 #if AVALONIA11
         AvaloniaLocator.CurrentMutable
@@ -63,6 +68,8 @@ public static class SilkNetPlatform
 #endif
         var compositor = new Compositor(
             AvaloniaLocator.Current.GetService<IPlatformGraphics>());
+        AvaloniaLocator.CurrentMutable
+            .Bind<Compositor>().ToConstant(compositor);
         var windowing = new SilkNetWindowingPlatform(
             eventLoop,
             renderTimer,
@@ -73,9 +80,6 @@ public static class SilkNetPlatform
         s_renderTimer = renderTimer;
         s_windowing = windowing;
 
-#if !AVALONIA11
-        Dispatcher.InitializeUIThreadDispatcher(eventLoop);
-#endif
         AvaloniaLocator.CurrentMutable
             .Bind<IWindowingPlatform>().ToConstant(windowing)
             .Bind<ICursorFactory>().ToConstant(new SilkNetCursorFactory())
@@ -86,6 +90,77 @@ public static class SilkNetPlatform
     {
         GlfwWindowing.RegisterPlatform();
         GlfwInput.RegisterPlatform();
+    }
+
+    internal static void RegisterPlatformSettings()
+    {
+        var hotkeys = CreateHotkeyConfiguration(
+            OperatingSystem.IsMacOS(),
+            OperatingSystem.IsWindows());
+
+        AvaloniaLocator.CurrentMutable
+            .Bind<PlatformHotkeyConfiguration>()
+            .ToConstant(hotkeys)
+            .Bind<KeyGestureFormatInfo>()
+            .ToConstant(CreateKeyGestureFormatInfo(
+                OperatingSystem.IsMacOS(),
+                OperatingSystem.IsWindows()))
+            .Bind<IPlatformSettings>()
+            .ToConstant(new DefaultPlatformSettings());
+    }
+
+    internal static PlatformHotkeyConfiguration CreateHotkeyConfiguration(
+        bool isMacOS,
+        bool isWindows = false)
+    {
+        var hotkeys = new PlatformHotkeyConfiguration(
+            isMacOS ? KeyModifiers.Meta : KeyModifiers.Control,
+            KeyModifiers.Shift,
+            isMacOS ? KeyModifiers.Alt : KeyModifiers.Control);
+
+        if (isMacOS)
+        {
+            hotkeys.MoveCursorToTheStartOfLine.Add(
+                new KeyGesture(Key.Left, KeyModifiers.Meta));
+            hotkeys.MoveCursorToTheStartOfLineWithSelection.Add(
+                new KeyGesture(
+                    Key.Left,
+                    KeyModifiers.Meta | KeyModifiers.Shift));
+            hotkeys.MoveCursorToTheEndOfLine.Add(
+                new KeyGesture(Key.Right, KeyModifiers.Meta));
+            hotkeys.MoveCursorToTheEndOfLineWithSelection.Add(
+                new KeyGesture(
+                    Key.Right,
+                    KeyModifiers.Meta | KeyModifiers.Shift));
+        }
+        else if (isWindows)
+        {
+            hotkeys.OpenContextMenu.Add(
+                new KeyGesture(Key.F10, KeyModifiers.Shift));
+        }
+
+        return hotkeys;
+    }
+
+    internal static KeyGestureFormatInfo CreateKeyGestureFormatInfo(
+        bool isMacOS,
+        bool isWindows)
+    {
+        IReadOnlyDictionary<Key, string> keyNames =
+            new Dictionary<Key, string>();
+        if (isMacOS)
+        {
+            return new KeyGestureFormatInfo(
+                keyNames,
+                meta: "⌘",
+                ctrl: "⌃",
+                alt: "⌥",
+                shift: "⇧");
+        }
+
+        return new KeyGestureFormatInfo(
+            keyNames,
+            meta: isWindows ? "Win" : "Super");
     }
 
     internal static void RaiseFramePreparing() =>
@@ -104,13 +179,6 @@ public static class SilkNetPlatform
 
     internal static int ResolveRenderFramesPerSecond()
     {
-        int configured = 0;
-        string? value =
-            Environment.GetEnvironmentVariable(
-                "PROGPU_AVALONIA_RENDER_FPS");
-        if (value is not null)
-            int.TryParse(value, out configured);
-
         int detected = 0;
         try
         {
@@ -124,9 +192,22 @@ public static class SilkNetPlatform
         {
         }
 
+        return ResolveRenderFramesPerSecond(detected);
+    }
+
+    internal static int ResolveRenderFramesPerSecond(
+        int detectedFramesPerSecond)
+    {
+        int configured = 0;
+        string? value =
+            Environment.GetEnvironmentVariable(
+                "PROGPU_AVALONIA_RENDER_FPS");
+        if (value is not null)
+            int.TryParse(value, out configured);
+
         return NormalizeRenderFramesPerSecond(
             configured,
-            detected);
+            detectedFramesPerSecond);
     }
 
     private static bool IsSupportedRate(int value) =>

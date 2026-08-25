@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Avalonia.Controls;
+using Avalonia.Platform;
 #if !AVALONIA11
 using Avalonia.Controls.Platform;
 #endif
@@ -15,6 +16,25 @@ internal readonly record struct SilkNetTransparencyChoice(
 
 internal static class SilkNetWindowChrome
 {
+#if AVALONIA11
+    internal static NativeWindowChromeHints MapChromeHints(
+        ExtendClientAreaChromeHints hints) =>
+        (NativeWindowChromeHints)(int)hints;
+#endif
+
+#if !AVALONIA11
+    internal static NativeWindowTheme MapFrameTheme(
+        PlatformThemeVariant? requested,
+        PlatformThemeVariant platformDefault)
+    {
+        PlatformThemeVariant resolved =
+            requested ?? platformDefault;
+        return resolved == PlatformThemeVariant.Dark
+            ? NativeWindowTheme.Dark
+            : NativeWindowTheme.Light;
+    }
+#endif
+
     internal static SilkNetTransparencyChoice SelectTransparency(
         IReadOnlyList<WindowTransparencyLevel> requested,
         NativeWindowCapabilities capabilities)

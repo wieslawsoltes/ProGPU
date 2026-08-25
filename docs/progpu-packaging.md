@@ -5,15 +5,15 @@ Avalonia 11 version lanes:
 
 | Avalonia lane | Package | Assembly | Purpose |
 | --- | --- | --- | --- |
-| 12.0.5 | `ProGPU.Avalonia.Rendering` `12.0.5-preview.56` | `Avalonia.ProGpu` | ProGPU/WebGPU rendering backend |
-| 12.0.5 | `ProGPU.Avalonia.SilkNet` `12.0.5-preview.56` | `Avalonia.SilkNet` | Cross-platform Silk.NET windowing backend |
-| 11.3.18 | `ProGPU.Avalonia.Rendering` `11.3.18-preview.56` | `Avalonia.ProGpu` | Shared-source ProGPU/WebGPU rendering backend |
-| 11.3.18 | `ProGPU.Avalonia.SilkNet` `11.3.18-preview.56` | `Avalonia.SilkNet` | Shared-source Silk.NET windowing backend |
+| 12.1.1 | `ProGPU.Avalonia.Rendering` `12.1.1-preview.56` | `Avalonia.ProGpu` | ProGPU/WebGPU rendering backend |
+| 12.1.1 | `ProGPU.Avalonia.SilkNet` `12.1.1-preview.56` | `Avalonia.SilkNet` | Cross-platform Silk.NET windowing backend |
+| 11.3.20 | `ProGPU.Avalonia.Rendering` `11.3.20-preview.56` | `Avalonia.ProGpu` | Shared-source ProGPU/WebGPU rendering backend |
+| 11.3.20 | `ProGPU.Avalonia.SilkNet` `11.3.20-preview.56` | `Avalonia.SilkNet` | Shared-source Silk.NET windowing backend |
 | native ABI | `ProGPU.Backend.Native` `0.1.0-preview.56` | `ProGPU.Backend.Native` | Experimental typed C++ renderer host with isolated wgpu-native and provider-resolved Dawn binaries for Linux, macOS, and Windows x64/arm64 |
 | native ABI | `ProGPU.Backend.Dawn` `0.1.0-preview.56` | `ProGPU.Backend.Dawn` | Exact-ABI Dawn device, IOSurface shared memory, and timeline fences |
 
-The Avalonia 12 packages are built against exactly Avalonia `12.0.5`; the
-Avalonia 11 packages are built against exactly Avalonia `11.3.18`. Both lanes
+The Avalonia 12 packages are built against exactly Avalonia `12.1.1`; the
+Avalonia 11 packages are built against exactly Avalonia `11.3.20`. Both lanes
 use ProGPU `0.1.0-preview.56`. They intentionally use `ProGPU.*` package IDs;
 no `Avalonia.*` package ID is published by the normal NuGet.org release lane.
 The separately gated private/local replacement lane described below produces
@@ -56,7 +56,7 @@ exact-source replacement stack with:
 ```
 
 This builds the exact-identity `Avalonia` replacement, compares its public ABI
-with official Avalonia 12.0.5, packs the ProGPU runtime dependency closure and
+with the separately pinned source-replacement Avalonia lane, packs the ProGPU runtime dependency closure and
 both Avalonia integration lanes, and rejects runtime reflection in the
 renderer and Silk.NET assemblies.
 
@@ -88,7 +88,7 @@ probing.
 ## Official source sample hosts
 
 The RenderDemo and Sandbox integration hosts compile the unchanged official
-Avalonia 12.0.5 sample projects from the prepared pinned source tree. The
+Avalonia 12.1.1 sample projects from the prepared pinned source tree. The
 ProGPU-owned startup assemblies replace only platform selection:
 
 ```bash
@@ -185,7 +185,7 @@ Run the pinned Avalonia text conformance corpus against the ProGPU shaper with:
 ./tools/test-avalonia-progpu-text.sh
 ```
 
-The script builds the exact official 12.0.5 source-lane test executable and runs the complete
+The script builds the exact official 12.1.1 source-lane test executable and runs the complete
 text-formatting namespace plus `GlyphRunTests`. The test bodies and assertions
 remain upstream; only the typed ProGPU test bootstrap selects
 `ProGpuTextShaper`.
@@ -251,7 +251,7 @@ Build the complete private/local replacement stack with:
 ./tools/pack-avalonia-progpu-stack.sh
 ```
 
-This creates an `Avalonia` `12.0.5` package from the exact official tag plus
+This creates an `Avalonia` `12.1.1` package from the exact official tag plus
 the reviewed typed compositor seam, then compiles the ProGPU renderer against
 that seam. It also packs the ten-package `avalonia-runtime` dependency
 closure (`Backend`, `Backend.Dawn`, `Text.Shaping`, `Transpiler`, `Vector`,
@@ -265,7 +265,7 @@ validated source build, and requires the package provenance notice.
 Because its package ID and version intentionally collide with the official
 package, this artifact is only for an isolated private/local feed. It is the
 actual NuGet bait-and-switch lane: applications keep
-`PackageReference Include="Avalonia" Version="12.0.5"` while the feed supplies
+`PackageReference Include="Avalonia" Version="12.1.1"` while the feed supplies
 the ProGPU source build. It must not be published to NuGet.org.
 
 Exercise a clean package-only consumer and fail if restore selects the official
@@ -330,17 +330,17 @@ Release order:
 1. Tag and publish ProGPU `0.1.0-preview.56`.
 2. Confirm the required ProGPU packages are available from NuGet.org.
 3. Pack and test both Avalonia integration lanes.
-4. Publish the two `12.0.5-preview.56` packages and the two
-   `11.3.18-preview.56` packages.
+4. Publish the two `12.1.1-preview.56` packages and the two
+   `11.3.20-preview.56` packages.
 
 ## Consume the packages
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="Avalonia" Version="12.0.5" />
-  <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.5" />
-  <PackageReference Include="ProGPU.Avalonia.Rendering" Version="12.0.5-preview.56" />
-  <PackageReference Include="ProGPU.Avalonia.SilkNet" Version="12.0.5-preview.56" />
+  <PackageReference Include="Avalonia" Version="12.1.1" />
+  <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.1" />
+  <PackageReference Include="ProGPU.Avalonia.Rendering" Version="12.1.1-preview.56" />
+  <PackageReference Include="ProGPU.Avalonia.SilkNet" Version="12.1.1-preview.56" />
 </ItemGroup>
 ```
 
@@ -363,13 +363,21 @@ public static AppBuilder BuildAvaloniaApp() =>
 
 `UseSkia()` remains available as a compatibility alias for the ProGPU renderer, but `UseProGpu()` avoids ambiguity with Avalonia's Skia package.
 
+The renderer also exposes Avalonia's `ISkiaSharpApiLeaseFeature` source
+contract over `ProGPU.SkiaSharp`, allowing existing custom draw operations to
+keep using `lease.SkCanvas` after recompilation. Do not reference the official
+`Avalonia.Skia` package in this lane; its assembly and native SkiaSharp
+identities are a different binary contract. See
+`docs/AVALONIA_SKIASHARP_LEASE_COMPATIBILITY_RESEARCH.md` for the design and
+conformance record.
+
 Use `IProGpuApiLeaseFeature` from `ICustomDrawOperation.Render` for scoped
 access to the ProGPU scene command recorder and active `WgpuContext`. The
 lease lifetime and package-facing API contract are documented in
 `docs/progpu-package-readme.md`.
 
 For Avalonia 11 applications, use the same package IDs with
-`11.3.18-preview.56` and pin the Avalonia packages to `11.3.18`.
+`11.3.20-preview.56` and pin the Avalonia packages to `11.3.20`.
 
 The cross-engine design review and validation evidence are recorded in
 `docs/progpu-avalonia-rendering-research.md`.

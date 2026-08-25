@@ -469,14 +469,14 @@ jobs:
 
       - name: Prepare pinned Avalonia source
         shell: bash
-        run: ./tools/prepare-avalonia-12.0.5-source.sh
+        run: ./tools/prepare-avalonia-12.1.1-source.sh
 
       - name: Build native-window ControlCatalog and contracts
         shell: bash
         run: |
           dotnet restore integration/AvaloniaSourceControlCatalog/AvaloniaSourceControlCatalog.csproj \
-            --configfile "${{ github.workspace }}/.worktrees/avalonia-12.0.5/NuGet.Config" \
-            -p:ProGpuAvaloniaSourceRoot="${{ github.workspace }}/.worktrees/avalonia-12.0.5" \
+            --configfile "${{ github.workspace }}/.worktrees/avalonia-12.1.1/NuGet.Config" \
+            -p:ProGpuAvaloniaSourceRoot="${{ github.workspace }}/.worktrees/avalonia-12.1.1" \
             -p:ProGpuSourceRoot="${{ github.workspace }}" \
             -p:UseSkiaSharpShim=true
           dotnet build integration/AvaloniaSourceControlCatalog/AvaloniaSourceControlCatalog.csproj \
@@ -484,7 +484,7 @@ jobs:
             --no-restore \
             -m:1 \
             -p:ContinuousIntegrationBuild=true \
-            -p:ProGpuAvaloniaSourceRoot="${{ github.workspace }}/.worktrees/avalonia-12.0.5" \
+            -p:ProGpuAvaloniaSourceRoot="${{ github.workspace }}/.worktrees/avalonia-12.1.1" \
             -p:ProGpuSourceRoot="${{ github.workspace }}" \
             -p:UseSkiaSharpShim=true
           dotnet restore tests/ProGPU.Avalonia.ContractTests/ProGPU.Avalonia.ContractTests.csproj

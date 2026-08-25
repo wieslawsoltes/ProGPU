@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AvaloniaSingleProject>false</AvaloniaSingleProject>
-    <AvaloniaForkRoot Condition="'$(AvaloniaForkRoot)' == ''">$(MSBuildThisFileDirectory)..\..\.worktrees\avalonia-12.0.5</AvaloniaForkRoot>
+    <AvaloniaForkRoot Condition="'$(AvaloniaForkRoot)' == ''">$(MSBuildThisFileDirectory)..\..\.worktrees\avalonia-12.1.1</AvaloniaForkRoot>
   </PropertyGroup>
 
   <ItemGroup>

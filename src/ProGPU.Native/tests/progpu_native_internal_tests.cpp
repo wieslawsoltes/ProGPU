@@ -1,4 +1,5 @@
 #include "progpu_native_draw_state.hpp"
+#include "progpu_native_buffer_capacity.hpp"
 #include "progpu_native_effect_plan.hpp"
 #include "progpu_native_geometry_analytic.hpp"
 #include "progpu_native_geometry_dash.hpp"
@@ -102,6 +103,21 @@ void native_submission_retirement_is_periodic_and_bounded() {
         submission_retirement_action::poll);
     tracker.observe_latest_completion(72U);
     require(tracker.retired_count() == 72U);
+}
+
+void native_buffer_growth_respects_the_portable_device_limit() {
+    using progpu::native::try_calculate_buffer_capacity;
+    constexpr std::uint64_t maximum = 256U;
+    std::uint64_t capacity = 0U;
+
+    require(try_calculate_buffer_capacity(64U, 129U, 16U, maximum, capacity));
+    require(capacity == 256U);
+    require(try_calculate_buffer_capacity(0U, 1U, 0U, maximum, capacity));
+    require(capacity == 1U);
+    require(!try_calculate_buffer_capacity(
+        64U, maximum + 1U, 16U, maximum, capacity));
+    require(!try_calculate_buffer_capacity(
+        maximum + 1U, maximum, 16U, maximum, capacity));
 }
 
 void semantic_contiguous_draws_merge_without_reordering() {
@@ -882,6 +898,7 @@ void draw_state_resolution_is_cpu_only_and_bounded() {
 int main() {
     native_webgpu_scopes_share_one_process_lock();
     native_submission_retirement_is_periodic_and_bounded();
+    native_buffer_growth_respects_the_portable_device_limit();
     semantic_contiguous_draws_merge_without_reordering();
     effect_plan_uses_three_bounded_intermediates();
     semantic_budget_counts_effected_depth_once();
