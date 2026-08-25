@@ -141,8 +141,13 @@ solid and dashed outlines share ProGPU's native join, miter-limit, dash-cap,
 offset, odd-pattern, transform, and backend execution rules. Fill-only,
 stroke-only, and fill-plus-stroke records remain distinct draws with one shared
 brush table; stroke culling expands the local rectangle by half the pen width
-before the four-corner affine bounds transform. Zero-width or zero-height
-rectangle strokes still fail closed pending exact WPF collapse semantics.
+before the four-corner affine bounds transform. A solid zero-width or
+zero-height rectangle uses WPF's optimized widened-shape result directly: the
+degenerate contour has no inner boundary, so ProGPU emits the one exact outer
+vector fill. Miter and Bevel joins preserve `Get90DegreeBevelOffset()` and its
+miter-limit clamp; Round joins preserve the rounded outer path. Nonempty dash
+patterns on degenerate rectangles remain fail closed pending exact collapsed
+dash traversal.
 
 `MILCMD_DRAW_ELLIPSE` records likewise accept independent fill and pen handles.
 Solid ellipse pens lower to ProGPU's exact analytic full-ellipse arc primitive,
@@ -163,9 +168,11 @@ rounded-rectangle analytic primitive with native stroke thickness, including
 affine semantic-state execution and bounds expanded by half the pen width.
 Fill-only, stroke-only, and fill-plus-stroke records share the native brush
 table. A zero radius keeps the closed-polyline rectangle path so WPF join and
-dash metadata are preserved. Nonempty dash patterns on curved corners,
-non-uniform radii, and degenerate rounded-rectangle strokes fail closed until
-their exact curve semantics are available.
+dash metadata are preserved. Degenerate uniform-radius solid outlines use the
+same WPF outer widened path with separately clamped X/Y corner radii, retaining
+analytic quarter arcs under affine transforms. Nonempty dash patterns on
+curved corners and non-uniform radii fail closed until their exact curve
+semantics are available.
 
 The retained fixed-geometry slice implements the exact fixed-size
 `MILCMD_LINEGEOMETRY`, `MILCMD_RECTANGLEGEOMETRY`, and
@@ -928,6 +935,29 @@ three draws, and 41,472 coverage bytes. Exact staged SHA-256 values were
 `8e235e440a980fcdf63c4770c33a2afbcd9f92a06667671daa33c7406e50457a`
 for `progpu_native.dll` and
 `2ecd3a808e9ee65d50cae7637e365d00820febb02a63067849ace0b73d54df58`
+for `progpu_native_dawn.dll`.
+
+The degenerate rectangle implementation at `762887cb` then followed
+`CRectangle::WidenToShape` and `CPlainPen::Get90DegreeBevelOffset` rather than
+asking the generic stroke rasterizer to interpret coincident closed edges.
+Because WPF omits the inner boundary unless both original dimensions exceed
+the full pen width, every zero-area rectangle is exactly one outer figure.
+Sharp Miter and Bevel cases lower to the same four- or eight-edge vector path;
+Round joins and source-rounded rectangles lower to four analytic elliptical
+quarter arcs with WPF's independent dimension clamps. Degenerate fills remain
+empty, local affine state remains typed on the path, and nonempty dashed
+collapses still fail closed. Immediate and retained fixtures cover line and
+point collapses, all three public joins, rounded-source radii, transformed
+bounds, and the dash boundary. All ten local native tests passed. Strict
+Windows ARM64 MSVC rebuilt both modules under `/W4 /WX`, and all 11 native/Dawn
+CTests passed on the Parallels VM. Package checkpoint `557c67fb` added immediate
+Round and rounded collapses plus retained transformed rectangle geometry. Both
+MIL exports compiled its 62-command, 28-channel-resource seed; live D3D12
+readback retained 32 semantic resources, issued six draws, and staged 61,440
+coverage bytes. Exact staged SHA-256 values were
+`35610b8e6e6250d8d150e4a855e52a306f28af12dde286b41822baf5d5bab3eb`
+for `progpu_native.dll` and
+`7f3cf20154beb9c305de9b2477fbd6cb967292da61405afb35b2f46f936fa19a`
 for `progpu_native_dawn.dll`.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
