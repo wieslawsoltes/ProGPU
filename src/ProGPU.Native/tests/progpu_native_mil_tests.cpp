@@ -1799,6 +1799,47 @@ bool visual_bitmap_cache_uses_canonical_typed_retention() {
     PROGPU_REQUIRE(
         animated.composite_revision == first.composite_revision);
 
+    std::vector<std::byte> fractional_offset;
+    append_command(
+        fractional_offset,
+        command::visual_set_offset,
+        cached_visual,
+        2.25,
+        0.75);
+    append_command(
+        fractional_offset,
+        command::bitmap_cache,
+        cache,
+        1.0,
+        scale_animation,
+        1U,
+        0U);
+    PROGPU_REQUIRE(state.apply(fractional_offset) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9015U, 7U, stream, &metrics) ==
+        status::success);
+    progpu_native_scene_layer snapped{};
+    PROGPU_REQUIRE(try_get_cached_layer(stream, snapped));
+    progpu_native_scene_state snapped_composite{};
+    PROGPU_REQUIRE(try_get_state_resource(
+        stream, snapped.reserved0, snapped_composite));
+    PROGPU_REQUIRE(snapped_composite.transform.m31 == 6.0F);
+    PROGPU_REQUIRE(snapped_composite.transform.m32 == 6.0F);
+
+    std::vector<std::byte> clear_type_cache;
+    append_command(
+        clear_type_cache,
+        command::bitmap_cache,
+        cache,
+        1.0,
+        scale_animation,
+        0U,
+        1U);
+    PROGPU_REQUIRE(state.apply(clear_type_cache) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9015U, 8U, stream, &metrics) ==
+        status::unsupported_command);
+
     std::vector<std::byte> delete_animation;
     append_command(
         delete_animation,

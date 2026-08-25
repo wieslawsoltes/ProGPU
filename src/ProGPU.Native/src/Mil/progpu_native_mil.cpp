@@ -8691,8 +8691,7 @@ struct channel::implementation {
             skip_content = true;
             return status::success;
         }
-        if (cache->second.snaps_to_device_pixels ||
-            cache->second.enable_clear_type) {
+        if (cache->second.enable_clear_type) {
             return status::unsupported_command;
         }
         const auto& cache_visual = visuals.at(visual_handle);
@@ -8753,8 +8752,31 @@ struct channel::implementation {
             1.0 / render_at_scale,
             cache_visual.cache_bounds_x,
             cache_visual.cache_bounds_y};
-        const affine_2d_double composite_transform = compose_affine(
+        affine_2d_double composite_transform = compose_affine(
             raster_to_local, state.transform);
+        if (cache->second.snaps_to_device_pixels) {
+            progpu_native_image_rect world_bounds{};
+            if (!try_transform_bounds(
+                    cache_visual.cache_bounds_x,
+                    cache_visual.cache_bounds_y,
+                    cache_visual.cache_bounds_width,
+                    cache_visual.cache_bounds_height,
+                    state.transform,
+                    world_bounds)) {
+                return status::invalid_graph;
+            }
+            const affine_2d_double snap_offset{
+                1.0,
+                0.0,
+                0.0,
+                1.0,
+                -static_cast<double>(
+                    world_bounds.x - std::floor(world_bounds.x)),
+                -static_cast<double>(
+                    world_bounds.y - std::floor(world_bounds.y))};
+            composite_transform = compose_affine(
+                composite_transform, snap_offset);
+        }
         auto composite_state =
             native::semantic_scene_builder::identity_state();
         if (!try_to_native_affine(

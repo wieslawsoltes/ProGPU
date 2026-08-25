@@ -1712,7 +1712,10 @@ target. Root offset, transform, and opacity are excluded from the pixel
 revision and applied only by the composite, so changing placement reuses the
 page. Positive finite static or animated RenderAtScale values resize and
 rerasterize it, and exact resolved scale zero suppresses the subtree.
-SnapsToDevicePixels and EnableClearType still return `unsupported_command`.
+SnapsToDevicePixels transforms the exact local bounds through outer placement,
+floors the resulting world-space left/top, and applies the fractional
+correction only to the cached-page composite. EnableClearType still returns
+`unsupported_command`.
 Root composite clips, spatial masks, and guideline state also fail closed until
 the local-cache layer carries those post-raster operations explicitly.
 
