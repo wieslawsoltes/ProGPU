@@ -482,6 +482,27 @@ installed the wgpu-native semantic stream, and completed live D3D12 readback.
 The installed graph reported 17 semantic resources and two draw calls before
 the independent immediate renderer smoke completed its 16,384-pixel readback.
 
+The retained line-path stroke checkpoint at exact ProGPU commit `70c88279`
+passed the complete Windows ARM64 MSVC gate from a clean checkout. Both native
+modules rebuilt under `/W4 /WX`; all 11 CTests passed, including closed/open
+stroke topology, geometry-gap dash caps, affine/dash/pen propagation,
+unsupported smooth/curved strokes, and closed-gap dash-seam fail-closed cases.
+The independent C++ and managed hosts completed live Parallels D3D12
+rendering/readback and allocation probes. The bounded differential remained at
+maximum delta 2/255 with zero pixels above 3/255 and mean `0.0000622`; path
+atlas, image/mask/effect, semantic-layer, text, Overlay, and ColorDodge
+contracts all passed. The synchronized eight-frame native diagnostic measured
+`0.0902 ms/frame` on this VM.
+
+The updated zero-warning package consumer then copied the exact staged
+`progpu_native.dll` and `progpu_native_dawn.dll`; each app-local SHA-256 matched
+its staged source. It compiled the existing path/group/combined graph plus a
+transformed dashed closed `PathGeometry` whose first edge is a WPF geometry gap
+through both MIL exports, installed the wgpu-native stream, and completed live
+D3D12 readback. The installed graph reported 18 semantic resources and three
+draw calls before the independent immediate renderer completed its
+16,384-pixel readback.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
