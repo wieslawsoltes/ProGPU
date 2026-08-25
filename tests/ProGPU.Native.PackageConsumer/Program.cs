@@ -81,7 +81,7 @@ if (!renderOnly)
         : drawingGroupOnly ? 10U : focusedMil ? 6U : 36U;
     uint expectedRectangleCount = geometryDrawingOnly || drawingGroupOnly
         ? 1U
-        : gradientOnly ? 2U : 3U;
+        : gradientOnly ? 2U : focusedMil ? 0U : 3U;
     uint expectedEllipseCount = gradientOnly ? 1U : focusedMil ? 0U : 4U;
     uint expectedRoundedRectangleCount = focusedMil ? 0U : 6U;
     uint expectedLineCount = focusedMil ? 0U : 3U;
