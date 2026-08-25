@@ -346,6 +346,31 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWriteCanonicalVisualClipPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetVisualClip(7, 9);
+        batch.SetVisualScrollableAreaClip(
+            7,
+            new NativeMilRect(1.5, 2.5, 30.5, 40.5));
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(64, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x1fU, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(9U, ReadUInt32(encoded, 12));
+        Assert.Equal(48U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x28U, ReadUInt32(encoded, 20));
+        Assert.Equal(7U, ReadUInt32(encoded, 24));
+        Assert.Equal(1.5, ReadDouble(encoded, 28));
+        Assert.Equal(2.5, ReadDouble(encoded, 36));
+        Assert.Equal(30.5, ReadDouble(encoded, 44));
+        Assert.Equal(40.5, ReadDouble(encoded, 52));
+        Assert.Equal(1U, ReadUInt32(encoded, 60));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalGradientPackets()
     {
         var stops = new[]

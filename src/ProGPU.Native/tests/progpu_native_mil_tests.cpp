@@ -1022,6 +1022,189 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     return true;
 }
 
+bool visual_clips_compile_to_exact_semantic_state() {
+    constexpr std::uint32_t root = 1U;
+    constexpr std::uint32_t child = 2U;
+    constexpr std::uint32_t content = 3U;
+    constexpr std::uint32_t target = 4U;
+    constexpr std::uint32_t brush = 5U;
+    constexpr std::uint32_t clip = 6U;
+    constexpr std::uint32_t transform = 7U;
+    constexpr std::uint32_t ellipse = 8U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, root, 39U);
+    append_create(batch, child, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, clip, 69U);
+    append_create(batch, transform, 66U);
+    append_create(batch, ellipse, 70U);
+    append_command(batch, command::visual_create, root);
+    append_command(batch, command::visual_create, child);
+    append_command(
+        batch,
+        command::matrix_transform,
+        transform,
+        2.0,
+        0.0,
+        0.0,
+        2.0,
+        0.0,
+        0.0,
+        0U);
+    append_command(
+        batch, command::visual_set_transform, root, transform);
+    append_command(
+        batch, command::visual_set_offset, child, 3.4, 4.7);
+    append_command(batch, command::visual_set_clip, child, clip);
+    append_command(
+        batch,
+        command::visual_set_scrollable_area_clip,
+        child,
+        2.2,
+        3.2,
+        20.8,
+        15.8,
+        1U);
+    append_command(batch, command::visual_set_content, child, content);
+    append_command(
+        batch, command::visual_insert_child_at, root, child, 0U);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.2F, 0.7F, 1.0F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::rectangle_geometry,
+        clip,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        40.0,
+        40.0,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::ellipse_geometry,
+        ellipse,
+        10.0,
+        10.0,
+        20.0,
+        20.0,
+        0U,
+        0U,
+        0U,
+        0U);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_rectangle,
+        -10.0,
+        -10.0,
+        100.0,
+        100.0,
+        brush,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, root);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9010U, 1U, stream, &metrics) ==
+        status::success);
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_clip = false;
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            continue;
+        }
+        const auto scene_state = read_value<progpu_native_scene_state>(
+            stream, resource.payload_offset);
+        if (scene_state.transform.m11 == 2.0F &&
+            scene_state.transform.m22 == 2.0F &&
+            scene_state.transform.m31 == 6.0F &&
+            scene_state.transform.m32 == 9.0F &&
+            (scene_state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U &&
+            scene_state.clip_rect.x == 6.0F &&
+            scene_state.clip_rect.y == 9.0F &&
+            scene_state.clip_rect.width == 40.0F &&
+            scene_state.clip_rect.height == 29.0F) {
+            found_clip = true;
+        }
+    }
+    PROGPU_REQUIRE(found_clip);
+
+    std::vector<std::byte> unsupported_clip;
+    append_command(
+        unsupported_clip, command::visual_set_clip, child, ellipse);
+    PROGPU_REQUIRE(state.apply(unsupported_clip) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9010U, 2U, stream, &metrics) ==
+        status::unsupported_command);
+
+    std::vector<std::byte> clear_clip;
+    append_command(clear_clip, command::visual_set_clip, child, 0U);
+    append_command(
+        clear_clip,
+        command::visual_set_scrollable_area_clip,
+        child,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0U);
+    PROGPU_REQUIRE(state.apply(clear_clip) == status::success);
+    std::vector<std::byte> delete_clip;
+    append_command(
+        delete_clip,
+        command::channel_delete_resource,
+        clip,
+        69U);
+    PROGPU_REQUIRE(state.apply(delete_clip) == status::success);
+
+    std::vector<std::byte> malformed_clip;
+    append_command(
+        malformed_clip,
+        command::visual_set_scrollable_area_clip,
+        child,
+        0.0,
+        0.0,
+        -1.0,
+        1.0,
+        1U);
+    PROGPU_REQUIRE(
+        state.apply(malformed_clip) == status::malformed_batch);
+    return true;
+}
+
 bool matrix_transform_scopes_compile_to_semantic_state() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -7053,6 +7236,7 @@ int main() {
     PROGPU_REQUIRE(failed_batches_roll_back());
     PROGPU_REQUIRE(invalid_visual_graphs_fail_closed());
     PROGPU_REQUIRE(solid_rectangle_compiles_to_semantic_scene());
+    PROGPU_REQUIRE(visual_clips_compile_to_exact_semantic_state());
     PROGPU_REQUIRE(matrix_transform_scopes_compile_to_semantic_state());
     PROGPU_REQUIRE(
         static_transform_resources_compose_and_retain_dependencies());
