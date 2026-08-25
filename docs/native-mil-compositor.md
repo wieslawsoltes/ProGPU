@@ -215,9 +215,14 @@ typed geometry dependencies, and cycles transactionally. At execution, groups
 whose children are identity-local retained `PathGeometry` resources aggregate
 their contours into one semantic path batch, so the group's EvenOdd/Nonzero
 rule is applied across child overlap exactly as WPF's `CShape` aggregation
-does. The group transform remains one native path transform. Fixed-geometry,
-transformed-child, nested-group, and meaningful-pen execution currently fail
-closed until their contours or strokes can be composed without approximation.
+does. Fixed rectangle and ellipse children now join that same batch, including
+geometry-local affine transforms and non-uniform rounded rectangles. Rectangle,
+rounded-corner, and ellipse contours use WPF's `CFigureData` point order,
+radius clamping, and `ARC_AS_BEZIER` cubic constant before applying the child
+matrix; line children correctly contribute no fill. The group transform remains
+one native path transform. Transformed general paths, nested groups,
+combined-geometry children, and meaningful group pens currently fail closed
+until their contours or strokes can be composed without approximation.
 
 Canonical fixed-size `MILCMD_COMBINEDGEOMETRY` state now retains the optional
 matrix transform, two geometry dependencies, and WPF Union/Intersect/Xor/
@@ -239,8 +244,8 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds, recursive
-  group/combined child widening, curved path strokes/dashes and per-segment
-  smooth joins,
+  transformed-path/nested/combined group widening, curved path strokes/dashes
+  and per-segment smooth joins,
   remaining pen draws,
   brushes, drawings, images, glyph runs, caches, guidelines, effects, and
   complete render-data decoding.
