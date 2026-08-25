@@ -6,7 +6,7 @@ on:
       version:
         description: NuGet package version to build.
         required: true
-        default: 0.1.0-preview.58
+        default: 0.1.0-preview.59
       publish:
         description: Push packages to NuGet.org after validation.
         required: true
@@ -201,6 +201,10 @@ jobs:
 
       - name: Test
         shell: bash
+        # Allocation contracts measure optimized steady-state hot paths. Avoid
+        # crossing a tiered-compilation threshold inside a measured loop.
+        env:
+          DOTNET_TieredCompilation: "0"
         run: |
           native_root="${GITHUB_WORKSPACE}/src/ProGPU.Tests/bin/Release/net10.0/linux-x64"
           native_rid_root="${native_root}/runtimes/linux-x64/native"

@@ -5,7 +5,7 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 It also builds the separately versioned Avalonia 11 and 12 integration packages
 from `scripts/progpu-package-list.sh`.
 
-Preview.58 advances the successfully published preview.57 boundary with an
+Preview.59 advances the successfully published preview.57 boundary with an
 opt-in binary compatibility lane for unchanged modern-.NET consumers. The
 ProGPU SkiaSharp shim can carry the official SkiaSharp identity at the tested
 4.151 ceiling, a minimal Avalonia.Skia facade forwards the three custom-drawing
@@ -18,7 +18,7 @@ ledgers rather than behavioral-completion claims. Detailed remaining work is
 pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 `docs/xaml-compiler/ROADMAP.md`.
 
-## Preview.58 closure and continuation
+## Preview.59 closure and continuation
 
 The compatibility profile accepts released stable SkiaSharp 2.x, 3.x, and 4.x
 through 4.151.1 and Avalonia.Skia 11.x and 12.x through 12.1.1 without requiring
@@ -28,7 +28,7 @@ tested ceilings, or .NET Framework compatibility. Unchanged official-package
 consumers and the latest Svg.Skia, Avalonia SVG control, and WebScene packages
 exercise the exact assembly identities in direct, build, and publish outputs.
 
-The next WinUI parity branch starts from the immutable preview.58 tag. It must
+The next WinUI parity branch starts from the immutable preview.59 tag. It must
 retain the official NuGet metadata comparator and proceed through API-contract
 markers, retained WebGPU Composition families, behavior-complete XAML control
 and property-system clusters, removal of accidental ProGPU-only declarations,
@@ -36,7 +36,7 @@ and matched rendering/performance validation. The exact baseline remains 4,952
 of 16,579 declarations; behavior, accessibility, device-loss, and rendering
 quality remain independently gated.
 
-The XAML compiler remains pre-MVP. Preview.58 retains automatic projection of
+The XAML compiler remains pre-MVP. Preview.59 retains automatic projection of
 changed stable XAML identities to detached Roslyn metadata diagnostic origins.
 The five remaining product blockers are runtime capability adapters; atomic
 metadata apply, XAML publication, joint commit, and recovery;
@@ -50,14 +50,16 @@ inventory and adds package-assembly hash checks proving that Svg.Skia, both
 Avalonia SVG controls, and WebScene execute without modification. Rendering
 algorithms and the native C++ renderer are unchanged.
 
-The preview.58 changes passed 3,803 managed renderer tests, 240 headless tests,
+The preview.59 changes passed 3,803 managed renderer tests, 240 headless tests,
 the focused binary compatibility suite, and 25 unchanged official-package
 consumers spanning every released SkiaSharp and Avalonia.Skia minor band in
 scope. The ecosystem gate also executed Svg.Skia 5.2.2, both Avalonia SVG
 controls 12.0.0.16, and WebScene 1.0.23 from build and publish outputs while
 preserving every external assembly SHA-256. The tagged Release workflow repeats
 repository, native, package-consumer, mobile, and integration validation before
-publishing. Clean-room provenance and contract limits are recorded in
+publishing. Its managed test hosts disable tiered compilation so exact allocation
+contracts measure optimized steady-state loops without crossing a tier threshold
+inside the sample. Clean-room provenance and contract limits are recorded in
 `docs/PROGPU_BINARY_ASSEMBLY_COMPATIBILITY.md`.
 
 ## NuGet Packages
@@ -109,19 +111,19 @@ publishing. Clean-room provenance and contract limits are recorded in
 
 ## Avalonia Integration Packages
 
-- `ProGPU.Avalonia.Rendering` `12.1.1-preview.58`
-- `ProGPU.Avalonia.SilkNet` `12.1.1-preview.58`
-- `ProGPU.Avalonia.Rendering` `11.3.20-preview.58`
-- `ProGPU.Avalonia.SilkNet` `11.3.20-preview.58`
+- `ProGPU.Avalonia.Rendering` `12.1.1-preview.59`
+- `ProGPU.Avalonia.SilkNet` `12.1.1-preview.59`
+- `ProGPU.Avalonia.Rendering` `11.3.20-preview.59`
+- `ProGPU.Avalonia.SilkNet` `11.3.20-preview.59`
 
 These packages are packed on the portable runner and published after the
-`0.1.0-preview.58` runtime package set so their exact ProGPU dependencies are
+`0.1.0-preview.59` runtime package set so their exact ProGPU dependencies are
 available first.
 
 ## Local Package Build
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.58 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.59 ./eng/progpu-pack.sh
 PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
 ```
 
@@ -139,7 +141,7 @@ release workflow combines and re-verifies both outputs before publishing.
 ```bash
 read -rsp "NuGet API key: " NUGET_API_KEY
 export NUGET_API_KEY
-PROGPU_PACKAGE_VERSION=0.1.0-preview.58 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.59 ./eng/progpu-publish.sh
 ./scripts/progpu-publish.sh
 unset NUGET_API_KEY
 ```
@@ -157,7 +159,7 @@ feed.
 - `Release` validates and packs portable packages and the Avalonia integration lanes on Linux, packs mobile packages on macOS, verifies the combined runtime dependency closure, publishes runtime packages followed by Avalonia packages, and creates a tag-driven GitHub Release.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
-for example `v0.1.0-preview.58`.
+for example `v0.1.0-preview.59`.
 
 ## NuGet Publishing
 

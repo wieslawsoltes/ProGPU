@@ -169,8 +169,8 @@ completed with zero warnings and zero errors.
 - Both windowing projects build in Release, and the focused backend windowing
   presenter suite passes 17 tests.
 - Package validation produced both
-  `ProGPU.Avalonia.SilkNet.12.1.1-preview.58.nupkg` and
-  `ProGPU.Avalonia.SilkNet.11.3.20-preview.58.nupkg`; their nuspec dependencies
+  `ProGPU.Avalonia.SilkNet.12.1.1-preview.59.nupkg` and
+  `ProGPU.Avalonia.SilkNet.11.3.20-preview.59.nupkg`; their nuspec dependencies
   pin Avalonia exactly to 12.1.1 and 11.3.20 respectively.
 - The runtime-reflection audit passes for both `Avalonia.SilkNet.dll`
   variants.
