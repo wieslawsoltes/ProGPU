@@ -1172,6 +1172,35 @@ for `progpu_native.dll` and
 `e8c7dce855f34877abe3c211a7970235444402a37bfd940f0a4afbfea5f1a6a2`
 for `progpu_native_dawn.dll`.
 
+ImageDrawing implementation `6d99ced4`, focused package gate `03acffe0`, and
+expectation correction `46175bf3` then added canonical resource type `89` and
+command `0x89` with its exact 48-byte command-view payload (52 bytes framed).
+The retained drawing references canonical `TYPE_BITMAPSOURCE` handle `95`.
+Because WPF's original `MilCmdBitmapSource` transports an in-process
+`IWICBitmapSource*`, portable hosts bind copied straight-alpha RGBA8 pixels to
+that handle through the typed
+`progpu_native_mil_channel_set_bitmap_source_rgba8` sideband. No process
+pointer enters the retained graph or semantic scene. The same compiled scene
+image resource and draw command execute through wgpu-native and Dawn.
+
+Native fixtures verify missing-binding failure, exact destination/source/bounds
+state, copied upload bytes, resource generation, dependency-protected deletion,
+and invalid stride/type rejection. All ten local native CTests passed, the
+managed canonical-builder filter passed 8/8, and the project-reference package
+consumer built with zero warnings. Strict Windows ARM64 MSVC rebuilt both
+native modules under `/W4 /WX`, and all 11 native/Dawn CTests passed in the
+Parallels VM. The focused 12-command, five-channel-resource ImageDrawing scene
+compiled through both MIL exports and rendered on live D3D12 with two semantic
+resources, one image draw, zero coverage-staging bytes, a valid submission,
+nonblack retained readback, and 16,384 direct-render pixels. Exact qualified
+SHA-256 values were
+`d396e5bcc5b9093271878499fafabae9e0b1fb0e7db6fd9aac8379e14ea64749`
+for `progpu_native.dll` and
+`4fe6051479644bfe40019e5d45570f68c57aeaae5040096b2fc257fe60c405d5`
+for `progpu_native_dawn.dll`. Rect animations, DrawingImage/D3DImage/video
+sources, incremental bitmap invalidation, and same-device external texture
+bindings remain explicit follow-up work.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
