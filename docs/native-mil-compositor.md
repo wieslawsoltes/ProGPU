@@ -1436,6 +1436,38 @@ the visual-to-DrawingGroup inheritance scene compiled through both exports and
 live D3D12 retained/direct rendering completed with four semantic resources,
 one draw, zero coverage-staging bytes, and 16,384 direct pixels.
 
+Native text render-option implementation `83f9febd` next completes the text
+fields already present in canonical `MilCmdVisualSetRenderOptions` (`0x21`).
+The C++ channel now validates and retains WPF `TextRenderingMode`
+Auto/Aliased/Grayscale/ClearType and `TextHintingMode` Auto/Fixed/Animated,
+then applies those inherited values only while compiling glyph content.
+CompositingMode remains a known, transactional `unsupported_command`.
+
+The glyph compiler maps WPF modes onto the existing shared semantic text
+styles consumed by `Text.wgsl`: Aliased selects threshold coverage, Grayscale
+selects gamma-corrected monochrome coverage, and ClearType selects the shared
+RGB-shifted coverage path. `ClearTypeHint.Enabled` promotes an otherwise Auto
+text-rendering scope to ClearType, matching the current managed ProGPU WPF
+policy. Explicit text-rendering mode wins over that hint.
+
+Auto and Fixed hinting use the same physical-placement policy as the managed
+native-scene compiler. Axis-preserving glyph runs at raster sizes up to 24 px
+snap Y to an integer pixel, keep X on one of four quarter-pixel phases, and
+select a phase-specific retained outline. Larger glyphs snap both axes to
+integers. Animated text and rotated, sheared, or reflected placement remain
+unsnapped. Each unique glyph/raster-size resource retains four outline records
+that share decoded SFNT path segments, so phase selection does not duplicate
+outline decoding or managed objects.
+
+The local native build and all ten configured CTests pass, including retained
+SFNT glyph tests for grayscale, ClearType hint promotion, explicit Aliased plus
+Fixed snapping, and Animated unsnapped placement. The canonical managed packet
+test also passes. This establishes parity with ProGPU's current managed
+WebGPU/DirectX text modes, not pixel identity with WPF's DirectWrite glyph
+hinting or system display parameters; those remain an explicit platform-text
+parity gate. Canonical DrawingGroup has no text-rendering or text-hinting
+fields, so object-level DrawingGroup text options continue to fail closed.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
