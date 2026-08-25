@@ -30,6 +30,8 @@ if (info.AbiVersion != 3 ||
 bool milOnly = args.Contains("--mil-only", StringComparer.Ordinal);
 bool renderOnly = args.Contains("--render-only", StringComparer.Ordinal);
 bool gradientOnly = args.Contains("--mil-gradient-only", StringComparer.Ordinal);
+bool geometryDrawingOnly = args.Contains(
+    "--mil-geometry-drawing-only", StringComparer.Ordinal);
 byte[]? compiledMilStream = null;
 if (!renderOnly)
 {
@@ -49,32 +51,43 @@ if (!renderOnly)
         !affineRecursiveOnly && !arcBooleanOnly;
     bool includeRecursiveBooleanArc =
         !affineRecursiveOnly && !arcGroupOnly;
-    byte[] milBatch = gradientOnly
-        ? CreateMilGradientBatch()
-        : CreateMilSeedBatch(
+    byte[] milBatch = geometryDrawingOnly
+        ? CreateMilGeometryDrawingBatch()
+        : gradientOnly
+            ? CreateMilGradientBatch()
+            : CreateMilSeedBatch(
             includeRecursiveGroupArc,
             includeRecursiveBooleanArc,
             minimalArcGroup,
             duplicateArcGroup,
             mixedArcGroup);
-    uint targetHandle = gradientOnly ? 2U : 42U;
-    uint visualHandle = gradientOnly ? 1U : 41U;
+    bool focusedMil = gradientOnly || geometryDrawingOnly;
+    uint targetHandle = focusedMil ? 2U : 42U;
+    uint visualHandle = focusedMil ? 1U : 41U;
+    uint expectedCommandCount = focusedMil ? 15U : 78U;
+    uint expectedResourceCount = focusedMil ? 6U : 36U;
+    uint expectedRectangleCount = geometryDrawingOnly
+        ? 1U
+        : gradientOnly ? 2U : 3U;
+    uint expectedEllipseCount = gradientOnly ? 1U : focusedMil ? 0U : 4U;
+    uint expectedRoundedRectangleCount = focusedMil ? 0U : 6U;
+    uint expectedLineCount = focusedMil ? 0U : 3U;
+    uint expectedBrushCount = gradientOnly ? 3U : 1U;
     using (var mil = new NativeMilChannel())
     {
         NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
         NativeMilCompiledScene scene = mil.CompileScene(targetHandle, 701, 1);
-        if ((!gradientOnly &&
-                (milMetrics.CommandCount != 78 || mil.ResourceCount != 36)) ||
-            (gradientOnly &&
-                (milMetrics.CommandCount != 15 || mil.ResourceCount != 6)) ||
+        if (milMetrics.CommandCount != expectedCommandCount ||
+            mil.ResourceCount != expectedResourceCount ||
             !mil.TryGetVisual(visualHandle, out NativeMilVisualSnapshot visual) ||
             visual.Handle != visualHandle || scene.Stream.Length == 0 ||
             scene.Metrics.VisualCount != 1 ||
-            scene.Metrics.RectangleCount != (gradientOnly ? 2U : 3U) ||
-            scene.Metrics.EllipseCount != (gradientOnly ? 1U : 4U) ||
-            scene.Metrics.RoundedRectangleCount != (gradientOnly ? 0U : 6U) ||
-            scene.Metrics.LineCount != (gradientOnly ? 0U : 3U) ||
-            scene.Metrics.BrushCount != (gradientOnly ? 3U : 1U))
+            scene.Metrics.RectangleCount != expectedRectangleCount ||
+            scene.Metrics.EllipseCount != expectedEllipseCount ||
+            scene.Metrics.RoundedRectangleCount !=
+                expectedRoundedRectangleCount ||
+            scene.Metrics.LineCount != expectedLineCount ||
+            scene.Metrics.BrushCount != expectedBrushCount)
         {
             throw new InvalidOperationException(
                 "The packaged wgpu-native MIL channel is incomplete.");
@@ -87,17 +100,15 @@ if (!renderOnly)
         NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
         NativeMilCompiledScene scene = dawnMil.CompileScene(
             targetHandle, 702, 1);
-        if ((!gradientOnly &&
-                (milMetrics.CommandCount != 78 || dawnMil.ResourceCount != 36)) ||
-            (gradientOnly &&
-                (milMetrics.CommandCount != 15 ||
-                 dawnMil.ResourceCount != 6)) ||
+        if (milMetrics.CommandCount != expectedCommandCount ||
+            dawnMil.ResourceCount != expectedResourceCount ||
             scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
-            scene.Metrics.RectangleCount != (gradientOnly ? 2U : 3U) ||
-            scene.Metrics.EllipseCount != (gradientOnly ? 1U : 4U) ||
-            scene.Metrics.RoundedRectangleCount != (gradientOnly ? 0U : 6U) ||
-            scene.Metrics.LineCount != (gradientOnly ? 0U : 3U) ||
-            scene.Metrics.BrushCount != (gradientOnly ? 3U : 1U))
+            scene.Metrics.RectangleCount != expectedRectangleCount ||
+            scene.Metrics.EllipseCount != expectedEllipseCount ||
+            scene.Metrics.RoundedRectangleCount !=
+                expectedRoundedRectangleCount ||
+            scene.Metrics.LineCount != expectedLineCount ||
+            scene.Metrics.BrushCount != expectedBrushCount)
         {
             throw new InvalidOperationException(
                 "The packaged Dawn MIL channel is incomplete.");
@@ -243,6 +254,29 @@ static byte[] CreateMilGradientBatch()
             0.5),
         stops);
     batch.SetSolidColorBrush(6, new NativeMilColor(1, 1, 1, 1));
+    batch.SetRenderData(3, renderData);
+    batch.CreateGenericTarget(2, 64, 64);
+    batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
+    batch.SetTargetRoot(2, 1);
+    return batch.ToArray();
+}
+
+static byte[] CreateMilGeometryDrawingBatch()
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.DrawDrawing(6);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(1, NativeMilResourceType.Visual);
+    batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(3, NativeMilResourceType.RenderData);
+    batch.CreateResource(4, NativeMilResourceType.SolidColorBrush);
+    batch.CreateResource(5, NativeMilResourceType.RectangleGeometry);
+    batch.CreateResource(6, NativeMilResourceType.GeometryDrawing);
+    batch.CreateVisual(1);
+    batch.SetVisualContent(1, 3);
+    batch.SetSolidColorBrush(4, new NativeMilColor(0.1f, 0.6f, 1, 1));
+    batch.SetRectangleGeometry(5, 8, 12, 48, 40);
+    batch.SetGeometryDrawing(6, 4, 0, 5);
     batch.SetRenderData(3, renderData);
     batch.CreateGenericTarget(2, 64, 64);
     batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
