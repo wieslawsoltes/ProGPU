@@ -383,7 +383,9 @@ static NativeMilPathGeometry CreateMilJoinedCurveStrokePath()
                 IsFilled: false,
                 IsClosed: true,
                 [
-                    NativeMilPathSegment.Line(new NativeMilPoint(10, 18)),
+                    NativeMilPathSegment.Line(
+                        new NativeMilPoint(10, 18),
+                        isSmoothJoin: true),
                     NativeMilPathSegment.QuadraticBezier(
                         new NativeMilPoint(30, 6),
                         new NativeMilPoint(48, 18)),
