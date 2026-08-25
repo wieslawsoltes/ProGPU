@@ -43,6 +43,7 @@ public enum NativeMilResourceType : uint
     ImageDrawing = 89,
     DrawingGroup = 91,
     GuidelineSet = 92,
+    BitmapCache = 94,
     BitmapSource = 95
 }
 
@@ -72,6 +73,13 @@ public readonly record struct NativeMilRect(
     double Y,
     double Width,
     double Height);
+
+/// <summary>Canonical retained WPF BitmapCache resource state.</summary>
+public readonly record struct NativeMilBitmapCache(
+    double RenderAtScale = 1.0,
+    bool SnapsToDevicePixels = false,
+    bool EnableClearType = false,
+    uint RenderAtScaleAnimationHandle = 0);
 
 public readonly record struct NativeMilGlyphRun(
     NativeMilPoint Origin,

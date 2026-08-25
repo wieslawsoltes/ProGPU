@@ -81,6 +81,16 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 8, effectHandle);
     }
 
+    /// <summary>Writes canonical MilCmdVisualSetCacheMode state.</summary>
+    public void SetVisualCacheMode(uint handle, uint cacheModeHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VisualSetCacheMode, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, cacheModeHandle);
+    }
+
     public void SetVisualClip(uint handle, uint clipGeometryHandle)
     {
         ValidateHandle(handle);
@@ -370,6 +380,23 @@ public sealed class NativeMilBatchBuilder
             _writer, NativeMilCommand.DoubleResource, 16);
         WriteUInt32(packet, 4, handle);
         WriteDouble(packet, 8, value);
+    }
+
+    /// <summary>Writes canonical MilCmdBitmapCache resource state.</summary>
+    public void SetBitmapCache(uint handle, NativeMilBitmapCache cache)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(cache.RenderAtScale))
+        {
+            throw new ArgumentOutOfRangeException(nameof(cache));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.BitmapCache, 28);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, cache.RenderAtScale);
+        WriteUInt32(packet, 16, cache.RenderAtScaleAnimationHandle);
+        WriteUInt32(packet, 20, cache.SnapsToDevicePixels ? 1U : 0U);
+        WriteUInt32(packet, 24, cache.EnableClearType ? 1U : 0U);
     }
 
     public void SetPointResource(uint handle, NativeMilPoint point)
@@ -1643,6 +1670,7 @@ internal static class NativeMilCommand
     internal const uint VisualSetOffset = 0x1b;
     internal const uint VisualSetTransform = 0x1c;
     internal const uint VisualSetEffect = 0x1d;
+    internal const uint VisualSetCacheMode = 0x1e;
     internal const uint VisualSetClip = 0x1f;
     internal const uint VisualSetAlpha = 0x20;
     internal const uint VisualSetRenderOptions = 0x21;
@@ -1691,4 +1719,5 @@ internal static class NativeMilCommand
     internal const uint ImageDrawing = 0x89;
     internal const uint DrawingGroup = 0x8b;
     internal const uint GuidelineSet = 0x8c;
+    internal const uint BitmapCache = 0x8d;
 }
