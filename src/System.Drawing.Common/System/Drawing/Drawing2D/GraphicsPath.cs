@@ -483,6 +483,9 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
     public void AddCurve(ReadOnlySpan<Point> points, float tension) =>
         AddOpenCurve(ConvertPoints(points), 0, points.Length - 1, tension);
 
+    internal void AddCurve(ReadOnlySpan<Point> points, int offset, int numberOfSegments, float tension) =>
+        AddOpenCurve(ConvertPoints(points), offset, numberOfSegments, tension);
+
     public void AddCurve(PointF[] points) => AddCurve(points, 0.5f);
 
     public void AddCurve(PointF[] points, float tension)
@@ -501,6 +504,9 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
 
     public void AddCurve(ReadOnlySpan<PointF> points, float tension) =>
         AddOpenCurve(points, 0, points.Length - 1, tension);
+
+    internal void AddCurve(ReadOnlySpan<PointF> points, int offset, int numberOfSegments, float tension) =>
+        AddOpenCurve(points, offset, numberOfSegments, tension);
 
     public void AddClosedCurve(Point[] points) => AddClosedCurve(points, 0.5f);
 

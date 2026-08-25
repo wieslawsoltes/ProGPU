@@ -655,24 +655,139 @@ public class Graphics :
 
     public void DrawLines(Pen pen, PointF[] points)
     {
-        if (points == null || points.Length < 2) return;
-        ArgumentNullException.ThrowIfNull(pen);
-        using var path = new GraphicsPath();
-        path.AddLines(points);
-        DrawTransformedPath(pen, path.Geometry);
+        ArgumentNullException.ThrowIfNull(points);
+        DrawLines(pen, (ReadOnlySpan<PointF>)points);
     }
 
     public void DrawLines(Pen pen, Point[] points)
     {
-        if (points == null || points.Length < 2) return;
+        ArgumentNullException.ThrowIfNull(points);
+        DrawLines(pen, (ReadOnlySpan<Point>)points);
+    }
+
+    public void DrawLines(Pen pen, ReadOnlySpan<Point> points)
+    {
         ArgumentNullException.ThrowIfNull(pen);
         using var path = new GraphicsPath();
         path.AddLines(points);
         DrawTransformedPath(pen, path.Geometry);
     }
 
-    public void DrawLines(Pen pen, ReadOnlySpan<Point> points) => DrawLines(pen, points.ToArray());
-    public void DrawLines(Pen pen, ReadOnlySpan<PointF> points) => DrawLines(pen, points.ToArray());
+    public void DrawLines(Pen pen, ReadOnlySpan<PointF> points)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        using var path = new GraphicsPath();
+        path.AddLines(points);
+        DrawTransformedPath(pen, path.Geometry);
+    }
+
+    public void DrawArc(Pen pen, Rectangle rect, float startAngle, float sweepAngle) =>
+        DrawArc(pen, rect.X, rect.Y, rect.Width, rect.Height, startAngle, sweepAngle);
+
+    public void DrawArc(Pen pen, RectangleF rect, float startAngle, float sweepAngle) =>
+        DrawArc(pen, rect.X, rect.Y, rect.Width, rect.Height, startAngle, sweepAngle);
+
+    public void DrawArc(Pen pen, int x, int y, int width, int height, int startAngle, int sweepAngle) =>
+        DrawArc(pen, (float)x, y, width, height, startAngle, sweepAngle);
+
+    public void DrawArc(Pen pen, float x, float y, float width, float height, float startAngle, float sweepAngle)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        using var path = new GraphicsPath();
+        path.AddArc(x, y, width, height, startAngle, sweepAngle);
+        DrawPath(pen, path);
+    }
+
+    public void DrawBezier(Pen pen, Point pt1, Point pt2, Point pt3, Point pt4) =>
+        DrawBezier(pen, pt1.X, pt1.Y, pt2.X, pt2.Y, pt3.X, pt3.Y, pt4.X, pt4.Y);
+
+    public void DrawBezier(Pen pen, PointF pt1, PointF pt2, PointF pt3, PointF pt4) =>
+        DrawBezier(pen, pt1.X, pt1.Y, pt2.X, pt2.Y, pt3.X, pt3.Y, pt4.X, pt4.Y);
+
+    public void DrawBezier(
+        Pen pen,
+        float x1,
+        float y1,
+        float x2,
+        float y2,
+        float x3,
+        float y3,
+        float x4,
+        float y4)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        using var path = new GraphicsPath();
+        path.AddBezier(x1, y1, x2, y2, x3, y3, x4, y4);
+        DrawPath(pen, path);
+    }
+
+    public void DrawBeziers(Pen pen, Point[] points)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        DrawBeziers(pen, (ReadOnlySpan<Point>)points);
+    }
+
+    public void DrawBeziers(Pen pen, PointF[] points)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        DrawBeziers(pen, (ReadOnlySpan<PointF>)points);
+    }
+
+    public void DrawBeziers(Pen pen, ReadOnlySpan<Point> points)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        using var path = new GraphicsPath();
+        path.AddBeziers(points);
+        DrawPath(pen, path);
+    }
+
+    public void DrawBeziers(Pen pen, ReadOnlySpan<PointF> points)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        using var path = new GraphicsPath();
+        path.AddBeziers(points);
+        DrawPath(pen, path);
+    }
+
+    public void DrawClosedCurve(Pen pen, Point[] points) =>
+        DrawClosedCurve(pen, points, 0.5f, FillMode.Alternate);
+
+    public void DrawClosedCurve(Pen pen, Point[] points, float tension, FillMode fillmode)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        DrawClosedCurve(pen, (ReadOnlySpan<Point>)points, tension, fillmode);
+    }
+
+    public void DrawClosedCurve(Pen pen, PointF[] points) =>
+        DrawClosedCurve(pen, points, 0.5f, FillMode.Alternate);
+
+    public void DrawClosedCurve(Pen pen, PointF[] points, float tension, FillMode fillmode)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        DrawClosedCurve(pen, (ReadOnlySpan<PointF>)points, tension, fillmode);
+    }
+
+    public void DrawClosedCurve(Pen pen, ReadOnlySpan<Point> points) =>
+        DrawClosedCurve(pen, points, 0.5f, FillMode.Alternate);
+
+    public void DrawClosedCurve(Pen pen, ReadOnlySpan<Point> points, float tension, FillMode fillmode)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        using var path = new GraphicsPath(fillmode);
+        path.AddClosedCurve(points, tension);
+        DrawPath(pen, path);
+    }
+
+    public void DrawClosedCurve(Pen pen, ReadOnlySpan<PointF> points) =>
+        DrawClosedCurve(pen, points, 0.5f, FillMode.Alternate);
+
+    public void DrawClosedCurve(Pen pen, ReadOnlySpan<PointF> points, float tension, FillMode fillmode)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        using var path = new GraphicsPath(fillmode);
+        path.AddClosedCurve(points, tension);
+        DrawPath(pen, path);
+    }
 
     public void DrawCurve(Pen pen, PointF[] points) =>
         DrawCurve(pen, points, 0, GetCurveSegmentCount(points), 0.5f);
@@ -749,6 +864,45 @@ public class Graphics :
         DrawTransformedPath(pen, geometry);
     }
 
+    public void DrawCurve(Pen pen, ReadOnlySpan<Point> points) => DrawCurve(pen, points, 0.5f);
+
+    public void DrawCurve(Pen pen, ReadOnlySpan<Point> points, float tension)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        using var path = new GraphicsPath();
+        path.AddCurve(points, tension);
+        DrawPath(pen, path);
+    }
+
+    public void DrawCurve(Pen pen, ReadOnlySpan<Point> points, int offset, int numberOfSegments, float tension)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        using var path = new GraphicsPath();
+        path.AddCurve(points, offset, numberOfSegments, tension);
+        DrawPath(pen, path);
+    }
+
+    public void DrawCurve(Pen pen, ReadOnlySpan<PointF> points) => DrawCurve(pen, points, 0.5f);
+
+    public void DrawCurve(Pen pen, ReadOnlySpan<PointF> points, float tension)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        using var path = new GraphicsPath();
+        path.AddCurve(points, tension);
+        DrawPath(pen, path);
+    }
+
+    public void DrawCurve(Pen pen, ReadOnlySpan<PointF> points, int offset, int numberOfSegments) =>
+        DrawCurve(pen, points, offset, numberOfSegments, 0.5f);
+
+    public void DrawCurve(Pen pen, ReadOnlySpan<PointF> points, int offset, int numberOfSegments, float tension)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        using var path = new GraphicsPath();
+        path.AddCurve(points, offset, numberOfSegments, tension);
+        DrawPath(pen, path);
+    }
+
     private static int GetCurveSegmentCount<TPoint>(TPoint[]? points)
     {
         ArgumentNullException.ThrowIfNull(points);
@@ -770,6 +924,7 @@ public class Graphics :
     }
 
     public void DrawRectangle(Pen pen, Rectangle rect) => DrawRectangle(pen, rect.X, rect.Y, rect.Width, rect.Height);
+    public void DrawRectangle(Pen pen, RectangleF rect) => DrawRectangle(pen, rect.X, rect.Y, rect.Width, rect.Height);
     public void DrawRectangle(Pen pen, int x, int y, int width, int height) => DrawRectangle(pen, (float)x, y, width, height);
 
     public void DrawRectangle(Pen pen, float x, float y, float width, float height)
@@ -802,15 +957,30 @@ public class Graphics :
 
     public void DrawRectangles(Pen pen, Rectangle[] rects)
     {
-        foreach (var r in rects) DrawRectangle(pen, r);
+        ArgumentNullException.ThrowIfNull(rects);
+        DrawRectangles(pen, (ReadOnlySpan<Rectangle>)rects);
     }
 
     public void DrawRectangles(Pen pen, RectangleF[] rects)
     {
-        foreach (var r in rects) DrawRectangle(pen, r.X, r.Y, r.Width, r.Height);
+        ArgumentNullException.ThrowIfNull(rects);
+        DrawRectangles(pen, (ReadOnlySpan<RectangleF>)rects);
+    }
+
+    public void DrawRectangles(Pen pen, ReadOnlySpan<Rectangle> rects)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        foreach (Rectangle rect in rects) DrawRectangle(pen, rect);
+    }
+
+    public void DrawRectangles(Pen pen, ReadOnlySpan<RectangleF> rects)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        foreach (RectangleF rect in rects) DrawRectangle(pen, rect);
     }
 
     public void FillRectangle(Brush brush, Rectangle rect) => FillRectangle(brush, rect.X, rect.Y, rect.Width, rect.Height);
+    public void FillRectangle(Brush brush, RectangleF rect) => FillRectangle(brush, rect.X, rect.Y, rect.Width, rect.Height);
     public void FillRectangle(Brush brush, int x, int y, int width, int height) => FillRectangle(brush, (float)x, y, width, height);
 
     public void FillRectangle(Brush brush, float x, float y, float width, float height)
@@ -972,12 +1142,26 @@ public class Graphics :
 
     public void FillRectangles(Brush brush, Rectangle[] rects)
     {
-        foreach (var r in rects) FillRectangle(brush, r);
+        ArgumentNullException.ThrowIfNull(rects);
+        FillRectangles(brush, (ReadOnlySpan<Rectangle>)rects);
     }
 
     public void FillRectangles(Brush brush, RectangleF[] rects)
     {
-        foreach (var r in rects) FillRectangle(brush, r.X, r.Y, r.Width, r.Height);
+        ArgumentNullException.ThrowIfNull(rects);
+        FillRectangles(brush, (ReadOnlySpan<RectangleF>)rects);
+    }
+
+    public void FillRectangles(Brush brush, ReadOnlySpan<Rectangle> rects)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        foreach (Rectangle rect in rects) FillRectangle(brush, rect);
+    }
+
+    public void FillRectangles(Brush brush, ReadOnlySpan<RectangleF> rects)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        foreach (RectangleF rect in rects) FillRectangle(brush, rect);
     }
 
     public void DrawEllipse(Pen pen, Rectangle rect) => DrawEllipse(pen, rect.X, rect.Y, rect.Width, rect.Height);
@@ -1040,44 +1224,86 @@ public class Graphics :
 
     public void DrawPolygon(Pen pen, PointF[] points)
     {
-        if (points == null || points.Length < 2) return;
-        using var path = new GraphicsPath();
-        path.AddPolygon(points);
-        DrawPath(pen, path);
+        ArgumentNullException.ThrowIfNull(points);
+        DrawPolygon(pen, (ReadOnlySpan<PointF>)points);
     }
 
     public void DrawPolygon(Pen pen, Point[] points)
     {
-        if (points == null || points.Length < 2) return;
+        ArgumentNullException.ThrowIfNull(points);
+        DrawPolygon(pen, (ReadOnlySpan<Point>)points);
+    }
+
+    public void DrawPolygon(Pen pen, ReadOnlySpan<Point> points)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
         using var path = new GraphicsPath();
         path.AddPolygon(points);
         DrawPath(pen, path);
     }
 
-    public void DrawPolygon(Pen pen, ReadOnlySpan<Point> points) => DrawPolygon(pen, points.ToArray());
-    public void DrawPolygon(Pen pen, ReadOnlySpan<PointF> points) => DrawPolygon(pen, points.ToArray());
+    public void DrawPolygon(Pen pen, ReadOnlySpan<PointF> points)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        using var path = new GraphicsPath();
+        path.AddPolygon(points);
+        DrawPath(pen, path);
+    }
 
     public void FillPolygon(Brush brush, PointF[] points)
     {
-        if (points == null || points.Length < 2) return;
-        using var path = new GraphicsPath();
-        path.AddPolygon(points);
-        FillPath(brush, path);
+        ArgumentNullException.ThrowIfNull(points);
+        FillPolygon(brush, (ReadOnlySpan<PointF>)points, FillMode.Alternate);
     }
 
     public void FillPolygon(Brush brush, Point[] points)
     {
-        if (points == null || points.Length < 2) return;
-        using var path = new GraphicsPath();
+        ArgumentNullException.ThrowIfNull(points);
+        FillPolygon(brush, (ReadOnlySpan<Point>)points, FillMode.Alternate);
+    }
+
+    public void FillPolygon(Brush brush, ReadOnlySpan<Point> points) =>
+        FillPolygon(brush, points, FillMode.Alternate);
+
+    public void FillPolygon(Brush brush, ReadOnlySpan<PointF> points) =>
+        FillPolygon(brush, points, FillMode.Alternate);
+
+    public void FillPolygon(Brush brush, Point[] points, FillMode fillMode)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        FillPolygon(brush, (ReadOnlySpan<Point>)points, fillMode);
+    }
+
+    public void FillPolygon(Brush brush, PointF[] points, FillMode fillMode)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        FillPolygon(brush, (ReadOnlySpan<PointF>)points, fillMode);
+    }
+
+    public void FillPolygon(Brush brush, ReadOnlySpan<Point> points, FillMode fillMode)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        using var path = new GraphicsPath(fillMode);
         path.AddPolygon(points);
         FillPath(brush, path);
     }
 
-    public void FillPolygon(Brush brush, ReadOnlySpan<Point> points) => FillPolygon(brush, points.ToArray());
-    public void FillPolygon(Brush brush, ReadOnlySpan<PointF> points) => FillPolygon(brush, points.ToArray());
+    public void FillPolygon(Brush brush, ReadOnlySpan<PointF> points, FillMode fillMode)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        using var path = new GraphicsPath(fillMode);
+        path.AddPolygon(points);
+        FillPath(brush, path);
+    }
 
     public void DrawPie(Pen pen, Rectangle rect, float startAngle, float sweepAngle) =>
         DrawPie(pen, rect.X, rect.Y, rect.Width, rect.Height, startAngle, sweepAngle);
+
+    public void DrawPie(Pen pen, RectangleF rect, float startAngle, float sweepAngle) =>
+        DrawPie(pen, rect.X, rect.Y, rect.Width, rect.Height, startAngle, sweepAngle);
+
+    public void DrawPie(Pen pen, int x, int y, int width, int height, int startAngle, int sweepAngle) =>
+        DrawPie(pen, (float)x, y, width, height, startAngle, sweepAngle);
 
     public void DrawPie(Pen pen, float x, float y, float width, float height, float startAngle, float sweepAngle)
     {
@@ -1087,7 +1313,32 @@ public class Graphics :
         DrawPath(pen, path);
     }
 
+    public void FillPie(Brush brush, Rectangle rect, float startAngle, float sweepAngle) =>
+        FillPie(brush, rect.X, rect.Y, rect.Width, rect.Height, startAngle, sweepAngle);
+
+    public void FillPie(Brush brush, RectangleF rect, float startAngle, float sweepAngle) =>
+        FillPie(brush, rect.X, rect.Y, rect.Width, rect.Height, startAngle, sweepAngle);
+
+    public void FillPie(Brush brush, int x, int y, int width, int height, int startAngle, int sweepAngle) =>
+        FillPie(brush, (float)x, y, width, height, startAngle, sweepAngle);
+
+    public void FillPie(Brush brush, float x, float y, float width, float height, float startAngle, float sweepAngle)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        using var path = new GraphicsPath();
+        path.AddPie(x, y, width, height, startAngle, sweepAngle);
+        FillPath(brush, path);
+    }
+
     public void DrawRoundedRectangle(Pen pen, Rectangle rect, Size radius)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        using var path = new GraphicsPath();
+        path.AddRoundedRectangle(rect, radius);
+        DrawPath(pen, path);
+    }
+
+    public void DrawRoundedRectangle(Pen pen, RectangleF rect, SizeF radius)
     {
         ArgumentNullException.ThrowIfNull(pen);
         using var path = new GraphicsPath();
@@ -1100,6 +1351,66 @@ public class Graphics :
         ArgumentNullException.ThrowIfNull(brush);
         using var path = new GraphicsPath();
         path.AddRoundedRectangle(rect, radius);
+        FillPath(brush, path);
+    }
+
+    public void FillRoundedRectangle(Brush brush, RectangleF rect, SizeF radius)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        using var path = new GraphicsPath();
+        path.AddRoundedRectangle(rect, radius);
+        FillPath(brush, path);
+    }
+
+    public void FillClosedCurve(Brush brush, Point[] points) =>
+        FillClosedCurve(brush, points, FillMode.Alternate, 0.5f);
+
+    public void FillClosedCurve(Brush brush, Point[] points, FillMode fillmode) =>
+        FillClosedCurve(brush, points, fillmode, 0.5f);
+
+    public void FillClosedCurve(Brush brush, Point[] points, FillMode fillmode, float tension)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        FillClosedCurve(brush, (ReadOnlySpan<Point>)points, fillmode, tension);
+    }
+
+    public void FillClosedCurve(Brush brush, PointF[] points) =>
+        FillClosedCurve(brush, points, FillMode.Alternate, 0.5f);
+
+    public void FillClosedCurve(Brush brush, PointF[] points, FillMode fillmode) =>
+        FillClosedCurve(brush, points, fillmode, 0.5f);
+
+    public void FillClosedCurve(Brush brush, PointF[] points, FillMode fillmode, float tension)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        FillClosedCurve(brush, (ReadOnlySpan<PointF>)points, fillmode, tension);
+    }
+
+    public void FillClosedCurve(Brush brush, ReadOnlySpan<Point> points) =>
+        FillClosedCurve(brush, points, FillMode.Alternate, 0.5f);
+
+    public void FillClosedCurve(Brush brush, ReadOnlySpan<Point> points, FillMode fillmode) =>
+        FillClosedCurve(brush, points, fillmode, 0.5f);
+
+    public void FillClosedCurve(Brush brush, ReadOnlySpan<Point> points, FillMode fillmode, float tension)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        using var path = new GraphicsPath(fillmode);
+        path.AddClosedCurve(points, tension);
+        FillPath(brush, path);
+    }
+
+    public void FillClosedCurve(Brush brush, ReadOnlySpan<PointF> points) =>
+        FillClosedCurve(brush, points, FillMode.Alternate, 0.5f);
+
+    public void FillClosedCurve(Brush brush, ReadOnlySpan<PointF> points, FillMode fillmode) =>
+        FillClosedCurve(brush, points, fillmode, 0.5f);
+
+    public void FillClosedCurve(Brush brush, ReadOnlySpan<PointF> points, FillMode fillmode, float tension)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        using var path = new GraphicsPath(fillmode);
+        path.AddClosedCurve(points, tension);
         FillPath(brush, path);
     }
 
