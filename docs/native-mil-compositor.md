@@ -1707,6 +1707,24 @@ pixel revision in this target-coordinate checkpoint so an offset/transform/
 opacity change redraws correctly; WPF's cheaper composite-only update becomes
 available with the local-space descriptor.
 
+Windows ARM64 qualification for this exact cache-bounds checkpoint completed
+on 2026-08-25 from clean detached commit `dd3857a4` in the Parallels Windows 11
+VM. MSVC rebuilt both `progpu_native.dll` and `progpu_native_dawn.dll` under
+`/W4 /WX`; all 11 native/Dawn CTests passed, the base and Dawn export contracts
+passed, and both independent C++ and managed samples rendered through the live
+`Parallels Display Adapter (WDDM)` D3D12 device. The managed retained sample
+lowered 16 source commands to 13 native commands, issued six draws in one
+submission, and passed pre-build and post-build allocation/readback checks. The
+bounded differential matrix completed its opacity, zero-copy image/mask,
+retained semantic scene, mask/effect chain, vector clip, image effect, Overlay,
+ColorDodge, and text shaping contracts. The staged ARM64 package DLL SHA-256
+values are `D17701FB0669A241183AF064080A1FD1ADD29AE1B000A531CCE5E7307B2650C6`
+for `progpu_native.dll` and
+`02414A74F7C6CB1A84F2846D5E5B701102E4812B5AEFCBA25688AE881592BD42`
+for `progpu_native_dawn.dll`. This qualifies the implemented target-space
+subset on DirectX; it does not widen the explicitly fail-closed local-space,
+non-unit-scale, pixel-snap, or ClearType gaps.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
