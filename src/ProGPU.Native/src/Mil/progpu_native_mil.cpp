@@ -2998,6 +2998,9 @@ struct channel::implementation {
                         continue;
                     }
                     std::vector<progpu_native_path_segment> group_segments;
+                    std::vector<shallow_fill_leaf> group_leaves;
+                    group_leaves.reserve(
+                        geometry_group->second.children.size());
                     bool has_group_bounds = false;
                     double group_left = 0.0;
                     double group_top = 0.0;
@@ -3033,6 +3036,9 @@ struct channel::implementation {
                             return child_status;
                         }
                         if (child.has_bounds) {
+                            if (child.segment_count != 0U) {
+                                group_leaves.push_back(child);
+                            }
                             include_group_point({
                                 static_cast<float>(child.left),
                                 static_cast<float>(child.top)});
@@ -3043,6 +3049,39 @@ struct channel::implementation {
                     }
                     if (group_segments.empty() || !has_group_bounds) {
                         continue;
+                    }
+                    std::vector<progpu_native_scene_path_boolean_node>
+                        group_boolean_nodes;
+                    const bool use_even_odd_leaf_program =
+                        geometry_group->second.fill_rule == 0U &&
+                        group_leaves.size() > 1U &&
+                        group_leaves.size() <= 32U;
+                    if (use_even_odd_leaf_program) {
+                        group_boolean_nodes.reserve(
+                            group_leaves.size() * 2U - 1U);
+                        for (std::size_t leaf_index = 0U;
+                             leaf_index < group_leaves.size();
+                             ++leaf_index) {
+                            const auto& leaf = group_leaves[leaf_index];
+                            group_boolean_nodes.push_back({
+                                leaf.segment_offset,
+                                leaf.segment_count,
+                                static_cast<float>(leaf.left),
+                                static_cast<float>(leaf.top),
+                                static_cast<float>(leaf.right),
+                                static_cast<float>(leaf.bottom),
+                                PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+                                PROGPU_NATIVE_PATH_BOOLEAN_LEAF,
+                                0U,
+                                0U});
+                            if (leaf_index != 0U) {
+                                progpu_native_scene_path_boolean_node
+                                    operation{};
+                                operation.kind =
+                                    PROGPU_NATIVE_PATH_BOOLEAN_XOR;
+                                group_boolean_nodes.push_back(operation);
+                            }
+                        }
                     }
                     std::uint32_t brush_index =
                         PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -3073,7 +3112,7 @@ struct channel::implementation {
                             0U,
                             group_segments.size(),
                             0U,
-                            0U,
+                            group_boolean_nodes.size(),
                             static_cast<float>(group_left),
                             static_cast<float>(group_top),
                             static_cast<float>(group_right),
@@ -3090,7 +3129,9 @@ struct channel::implementation {
                             paths,
                             group_segments,
                             brushes,
-                            path_bounds)) {
+                            path_bounds,
+                            PROGPU_NATIVE_SCENE_NO_INDEX,
+                            group_boolean_nodes)) {
                         return status::invalid_graph;
                     }
                     continue;
