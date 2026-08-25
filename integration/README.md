@@ -45,7 +45,7 @@ Strict native presentation expects these paths:
 | `AvaloniaSourceControlCatalog` | Silk.NET + ProGPU compositor + ProGPU text | HarfBuzz, Avalonia platform windowing with direct Dawn |
 | `AvaloniaSkiaControlCatalogReference` | Avalonia platform windowing + Skia + HarfBuzz | Page selection only |
 | `ProGpuAvaloniaPackageSmoke` | Package-only Silk.NET + ProGPU + ProGPU text | Local packages, exact-identity replacement packages, NuGet.org, NativeAOT |
-| `ProGpuBinaryCompatibility` | Unmodified official SkiaSharp/Avalonia.Skia consumer | Direct facade, packed buildTransitive output, publish output, AssemblyRef and SHA-256 preservation |
+| `ProGpuBinaryCompatibility` | Unmodified official and ecosystem package consumers | Direct facade, packed buildTransitive output, publish output, AssemblyRef and SHA-256 preservation, latest Svg.Skia/SVG controls/WebScene packages |
 
 The `AvaloniaControlCatalogHarness` and `AvaloniaSourceSampleHost`
 directories contain shared telemetry/host code and are not standalone
@@ -500,7 +500,11 @@ PROGPU_INTEGRATION_PACKAGE_VERSION=12.1.1-preview.57 \
 
 Validate unchanged consumers compiled at both boundaries of every released
 stable SkiaSharp 2.x/3.x/4.x and Avalonia.Skia 11.x/12.x minor band through
-the Avalonia 11 and 12 direct, packed-build, and publish paths:
+the Avalonia 11 and 12 direct, packed-build, and publish paths. The same gate
+also restores and executes Svg.Skia 5.2.2, Svg.Controls.Avalonia and
+Svg.Controls.Skia.Avalonia 12.0.0.16, and the WebScene 1.0.23 Avalonia package
+closure through both build and publish outputs. It verifies that every
+third-party package assembly remains byte-for-byte unchanged:
 
 ```bash
 ./integration/ProGpuBinaryCompatibility/run.sh

@@ -116,6 +116,14 @@ packages. The compatibility package controls only the final CLR assets.
 4. Pack `ProGPU.BinaryCompatibility`, restore hosts through the local package,
    and execute both ordinary build and publish outputs for both Avalonia lanes.
 5. Verify all precompiled consumer SHA-256 values remain unchanged.
+6. Restore the latest Svg.Skia 5.2.2, Svg.Controls.Avalonia and
+   Svg.Controls.Skia.Avalonia 12.0.0.16, and WebScene 1.0.23 package closure.
+   Load SVG content through the core renderer and both Avalonia controls,
+   initialize the WebScene canvas and component host, and verify the original
+   SkiaSharp 2.x/4.x and Avalonia.Skia 11.x `AssemblyRef` identities.
+7. Execute that ecosystem probe from both build and publish output, verify the
+   selected compatibility payload hashes, and prove every external package
+   assembly is byte-for-byte identical to its NuGet cache asset.
 
 Focused unit tests separately pin both replacement identities and the complete
 three-type forwarding set.

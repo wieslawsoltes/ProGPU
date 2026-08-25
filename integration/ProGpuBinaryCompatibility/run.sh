@@ -4,9 +4,13 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 contract_project="${repo_root}/integration/ProGpuBinaryCompatibility/Contract/OfficialBinaryCompatibilityConsumer.csproj"
 host_project="${repo_root}/integration/ProGpuBinaryCompatibility/Host/ProGpuBinaryCompatibilityHost.csproj"
+ecosystem_project="${repo_root}/integration/ProGpuBinaryCompatibility/Ecosystem/ProGpuEcosystemCompatibility.csproj"
 work_root="$(mktemp -d "${TMPDIR:-/tmp}/progpu-binary-compat.XXXXXX")"
 package_output="${work_root}/packages"
-package_version="0.1.0-binary-compat-test"
+package_version="0.1.0-binary-compat-test.$(date +%s).$$"
+ecosystem_packages="$(dotnet nuget locals global-packages --list)"
+ecosystem_packages="${ecosystem_packages#*: }"
+ecosystem_packages="${ecosystem_packages%/}"
 
 cleanup() {
   rm -rf -- "${work_root}"
@@ -141,6 +145,82 @@ for lane in 11 12; do
   run_contracts "${publish_output}" "${lane}"
 done
 
+ecosystem_properties=(
+  -p:ProGpuBinaryCompatibilityPackageVersion="${package_version}"
+)
+dotnet restore "${ecosystem_project}" \
+  --source "${package_output}" \
+  --source "https://api.nuget.org/v3/index.json" \
+  "${ecosystem_properties[@]}"
+
+ecosystem_build_output="${work_root}/ecosystem-build"
+dotnet build "${ecosystem_project}" \
+  --configuration Release \
+  --no-restore \
+  --output "${ecosystem_build_output}" \
+  "${ecosystem_properties[@]}"
+dotnet "${ecosystem_build_output}/ProGpuEcosystemCompatibility.dll"
+
+ecosystem_publish_output="${work_root}/ecosystem-publish"
+dotnet publish "${ecosystem_project}" \
+  --configuration Release \
+  --no-restore \
+  --output "${ecosystem_publish_output}" \
+  "${ecosystem_properties[@]}"
+dotnet "${ecosystem_publish_output}/ProGpuEcosystemCompatibility.dll"
+
+verify_package_assembly() {
+  local package_asset="$1"
+  local output_name="$2"
+  local package_hash
+  local build_hash
+  local publish_hash
+
+  package_hash="$(shasum -a 256 "${ecosystem_packages}/${package_asset}" | awk '{print $1}')"
+  build_hash="$(shasum -a 256 "${ecosystem_build_output}/${output_name}" | awk '{print $1}')"
+  publish_hash="$(shasum -a 256 "${ecosystem_publish_output}/${output_name}" | awk '{print $1}')"
+  if [[ "${package_hash}" != "${build_hash}" ||
+        "${package_hash}" != "${publish_hash}" ]]; then
+    echo "Package assembly ${output_name} was modified." >&2
+    exit 1
+  fi
+}
+
+verify_package_assembly \
+  "svg.skia/5.2.2/lib/net10.0/Svg.Skia.dll" \
+  "Svg.Skia.dll"
+verify_package_assembly \
+  "svg.controls.skia.avalonia/12.0.0.16/lib/net10.0/Svg.Controls.Skia.Avalonia.dll" \
+  "Svg.Controls.Skia.Avalonia.dll"
+verify_package_assembly \
+  "svg.controls.avalonia/12.0.0.16/lib/net10.0/Svg.Controls.Avalonia.dll" \
+  "Svg.Controls.Avalonia.dll"
+verify_package_assembly \
+  "webscene/1.0.23/lib/net10.0/WebScene.dll" \
+  "WebScene.dll"
+verify_package_assembly \
+  "webscene.backend.avalonia/1.0.23/lib/net10.0/WebScene.Backend.Avalonia.dll" \
+  "WebScene.Backend.Avalonia.dll"
+verify_package_assembly \
+  "webscene.sdk.avalonia/1.0.23/lib/net10.0/WebScene.Sdk.Avalonia.dll" \
+  "WebScene.Sdk.Avalonia.dll"
+
+compatibility_package="${package_output}/ProGPU.BinaryCompatibility.${package_version}.nupkg"
+for replacement_name in SkiaSharp.dll Avalonia.Skia.dll; do
+  payload_hash="$(unzip -p \
+    "${compatibility_package}" \
+    "tools/net10.0/${replacement_name}" | shasum -a 256 | awk '{print $1}')"
+  build_hash="$(shasum -a 256 \
+    "${ecosystem_build_output}/${replacement_name}" | awk '{print $1}')"
+  publish_hash="$(shasum -a 256 \
+    "${ecosystem_publish_output}/${replacement_name}" | awk '{print $1}')"
+  if [[ "${payload_hash}" != "${build_hash}" ||
+        "${payload_hash}" != "${publish_hash}" ]]; then
+    echo "Compatibility payload ${replacement_name} was not selected." >&2
+    exit 1
+  fi
+done
+
 for index in "${!contract_paths[@]}"; do
   after_hash="$(shasum -a 256 "${contract_paths[$index]}" | awk '{print $1}')"
   if [[ "${contract_hashes[$index]}" != "${after_hash}" ]]; then
@@ -150,3 +230,4 @@ for index in "${!contract_paths[@]}"; do
 done
 
 echo "All ${#contract_paths[@]} official-package consumer hashes remained unchanged."
+echo "Latest Svg.Skia, SVG control, and WebScene package assemblies remained unchanged."
