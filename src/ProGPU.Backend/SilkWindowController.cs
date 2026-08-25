@@ -67,6 +67,12 @@ public sealed class SilkWindowController : IDisposable
         return Apply(ApplyChromeAndShadow);
     }
 
+    public bool SetIsPopup(bool value)
+    {
+        _state = _state with { IsPopup = value };
+        return Apply(ApplyChromeAndShadow);
+    }
+
     public bool SetCanResize(bool value)
     {
         _state = _state with { CanResize = value };
