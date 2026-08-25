@@ -301,20 +301,26 @@ framing and packed field offsets directly into reusable buffer writers, expose
 only typed resource/color/primitive inputs, and are shared by package smoke
 tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 
-The first exact `MILCMD_PUSH_CLIP` slice accepts retained, non-rounded rectangle
-geometry. It composes the geometry transform with the transform active at push
-time, requires an axis-alignment-preserving result, intersects nested clips in
-logical target coordinates, and saves a native semantic clip-rectangle state.
-Later transform scopes do not move an already-pushed clip. Rounded rectangles,
-rotated/sheared rectangles, paths, groups, and combined geometry fail closed;
-their bounds are never substituted for exact clip coverage.
+`MILCMD_PUSH_CLIP` keeps axis-aligned, non-rounded rectangles on the semantic
+clip-rectangle fast path. Other retained fixed geometry, paths, recursive
+groups, and recursive combined geometry compile to retained vector-mask paths
+with the same analytic line/quadratic/cubic/arc segments, fill rules, and
+bounded postfix boolean programs used by native fills. Each path is frozen in
+logical target coordinates using the transform active at push time, and nested
+paths are ordered intersections. Rectangle and vector-mask state remain
+independent, so a cheap bounds clip can constrain exact vector coverage without
+changing it. Scope records store only arena prefix counts and a retained mask
+index; push/pop does not copy accumulated path data. Degenerate geometry lowers
+to an empty clip, singular arc transforms and oversized boolean programs fail
+closed, and geometry bounds are never substituted for coverage. Fixed ellipses
+and rounded rectangles use analytic quarter arcs rather than cubic circle
+approximations.
 
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds,
   singular arc-transform fill semantics and curve dashes,
   exact translated-equivalent EvenOdd overlap execution,
-  remaining exact geometry clip scopes,
   remaining pen draws,
   brushes, drawings, images, glyph runs, caches, guidelines, effects, and
   complete render-data decoding.
@@ -795,8 +801,27 @@ values were
 `014999b22d86f2192ea56697dde3d5bc47a88991831a39636a4db26c29fccb69`
 for `progpu_native.dll` and
 `ba780db29da7fbedd7834768180b9d9976775532f3cf0c50c4d52cc94b56d0b7`
-for `progpu_native_dawn.dll`. Arbitrary geometry clips remain an explicit
-fail-closed parity item.
+for `progpu_native_dawn.dll`.
+
+The exact geometry-clip implementation at `66d5f74b` then connected retained
+fixed, path, group, and combined geometry to the semantic vector-mask resource.
+Nested path/group/combined clips preserve analytic arcs, outer group fill
+ownership, recursive boolean programs, and push-time affine state; mask arenas
+truncate by saved prefix count after pop instead of copying segment vectors.
+The same checkpoint replaced fixed ellipse and rounded-rectangle cubic circle
+approximations with analytic arc segments. All ten local native tests passed.
+Windows ARM64 MSVC rebuilt both native modules under `/W4 /WX`, and all 11
+native/Dawn CTests passed on the Parallels VM. Package checkpoint `a2502e36`
+added the retained arc path as a second clip around the mixed MIL scene. The
+unchanged 48-command/21-channel-resource seed compiled through both exports;
+live D3D12 readback completed with 23 semantic resources, three draws, and
+41,472 coverage bytes. The complete Windows sample, allocation/readback,
+differential, text, path, image, mask, effect, and blend smoke matrix passed.
+Exact staged SHA-256 values were
+`43e452fb73b6e103bc81ab56836c3e68d43a30b8bec7c8931df73ec8f5d05672`
+for `progpu_native.dll` and
+`9ca1765e660c8cc0d69c8c3eccba3d6971b9c4a05b04a5fc33975dee26e9c938`
+for `progpu_native_dawn.dll`.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
