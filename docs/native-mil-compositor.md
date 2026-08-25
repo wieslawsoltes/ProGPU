@@ -1824,6 +1824,29 @@ were pixel-exact. The staged nine-file win-arm64 package has SHA-256
 rectangle post-raster clips, one static composite guideline per axis, and
 cache-root raster/composite state separation.
 
+The cache-root NearestNeighbor checkpoint was qualified on 2026-08-26 from
+clean detached ProGPU commit `625a0961` after merging current `main`. ARM64
+MSVC rebuilt the modified MIL compiler, scene validators, retained-layer
+resources/compositor, and both native modules under `/W4 /WX`; all 11
+native/Dawn CTests and both export contracts passed. The independent C++ and
+managed samples selected the live `Parallels Display Adapter (WDDM)` D3D12
+adapter and passed retained rendering, allocation, and pixel readback. To stay
+inside the Parallels guest memory envelope, the two managed Release builds
+were repeated serially with `-m:1 -nr:false`; both completed with zero warnings
+and zero errors. The complete bounded differential matrix passed its
+mixed-picture native stress and one-rectangle managed parity, group opacity,
+zero-copy image/mask, retained semantic, mask/effect, path-atlas, image-effect,
+Overlay, ColorDodge, and managed/C++ text-shaping contracts. Group opacity,
+zero-copy image, Overlay, and ColorDodge were pixel-exact; bounded
+mixed-picture parity had maximum channel difference 2 and no pixels above 3.
+The staged win-arm64 package DLL SHA-256 values are
+`8CFCBD3BFCC362611EC4A1DB0F17684838C2E1EA1DC30F3EA994B04C63709E2D` for
+`progpu_native.dll` and
+`9BFB20223CCC046B2280B2B3A8F25E353C916FB001118B3DC5DC47C744968D5F` for
+`progpu_native_dawn.dll`. This closes the strict DirectX gate for exact
+linear/NearestNeighbor retained-page sampling without changing the cache
+content revision.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
@@ -1839,7 +1862,8 @@ The implementation sequence is intentionally architectural:
    lifetime, effects ordering, and LibreWPF package lanes. (Exact rectangle
    composite clips, one static guideline per axis, NearestNeighbor sampling,
    and the combined snapping/ClearType checkpoint are implemented; the
-   pre-nearest subset is qualified on live D3D12.)
+   complete implemented subset through NearestNeighbor is qualified on live
+   D3D12.)
 
 The persistent page and composite-transform path are executable, but full cache
 parity is not claimed until the remaining post-raster state and ordering

@@ -2330,6 +2330,27 @@ staged nine-file win-arm64 package hashes are
 composite guideline per axis, and cache-root raster/composite state separation
 are therefore qualified on DirectX as well as Metal/Dawn.
 
+The cache-root NearestNeighbor checkpoint then passed the same strict Windows
+gate on 2026-08-26 from clean detached ProGPU commit `625a0961` after merging
+current `main`. ARM64 MSVC rebuilt the modified MIL compiler, validators,
+retained-layer resources/compositor, and both modules under `/W4 /WX`; all 11
+native/Dawn CTests and both export allowlists passed. The independent C++ and
+managed samples selected the live Parallels D3D12 adapter and completed
+retained render, allocation, and pixel-readback checks. The managed sample and
+benchmark Release builds were repeated serially with `-m:1 -nr:false` to stay
+inside the VM memory envelope, completing with zero warnings and zero errors.
+The complete bounded differential smoke matrix passed, including the
+384-command native mixed-picture stress, bounded managed pixel parity, retained
+mask/effect/vector-clip coverage, and managed/C++ text shaping. Group opacity,
+zero-copy image, Overlay, and ColorDodge were pixel-exact. The staged
+win-arm64 package DLL hashes are
+`8CFCBD3BFCC362611EC4A1DB0F17684838C2E1EA1DC30F3EA994B04C63709E2D` for
+`progpu_native.dll` and
+`9BFB20223CCC046B2280B2B3A8F25E353C916FB001118B3DC5DC47C744968D5F` for
+`progpu_native_dawn.dll`. Exact linear/NearestNeighbor retained-page sampling
+is therefore qualified on DirectX as well as Metal/Dawn without invalidating
+retained content.
+
 The command vocabulary is deliberately semantic:
 
 - save/restore transform and rectangular/rounded/vector clip state;
