@@ -1,6 +1,9 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
+#if !AVALONIA11
+using Avalonia.Media.Imaging;
+#endif
 using Avalonia.Platform;
 using ProGPU.Backend;
 using ProGPU.Scene;
@@ -154,10 +157,20 @@ internal sealed class SurfaceRenderTarget :
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
         using FileStream destination = File.Create(fileName);
+#if AVALONIA11
         Save(destination, quality);
+#else
+        Save(destination, PngBitmapEncoderOptions.Default);
+#endif
     }
 
-    public void Save(Stream stream, int? quality = null)
+    public void Save(
+        Stream stream,
+#if AVALONIA11
+        int? quality = null)
+#else
+        BitmapEncoderOptions options)
+#endif
     {
         ArgumentNullException.ThrowIfNull(stream);
         ThrowIfDisposed();
@@ -166,7 +179,11 @@ internal sealed class SurfaceRenderTarget :
             ReadPixels(),
             PixelSize.Width,
             PixelSize.Height);
+#if AVALONIA11
         image.SaveAsPng(stream);
+#else
+        AvaloniaBitmapEncoding.Save(image, stream, options);
+#endif
     }
 
     public void Dispose()

@@ -118,7 +118,9 @@ internal sealed class SilkNetCursorFactory : ICursorFactory
     {
         ArgumentNullException.ThrowIfNull(cursor);
         using var encoded = new MemoryStream();
-        cursor.Save(encoded);
+        cursor.Save(
+            encoded,
+            PngBitmapEncoderOptions.Default);
         return CreateDecodedCursor(encoded, hotSpot);
     }
 #endif
@@ -204,7 +206,13 @@ internal sealed class SilkNetIconLoader : IPlatformIconLoader
     {
         ArgumentNullException.ThrowIfNull(bitmap);
         using var stream = new MemoryStream();
+#if AVALONIA11
         bitmap.Save(stream);
+#else
+        bitmap.Save(
+            stream,
+            PngBitmapEncoderOptions.Default);
+#endif
         return new SilkNetWindowIcon(stream.ToArray());
     }
 }
@@ -216,6 +224,7 @@ internal sealed class SilkNetClipboard : IClipboard
     private IAsyncDataTransfer? _ownedData;
     private string? _text;
 #if AVALONIA11
+#pragma warning disable CS0618
     private IDataObject? _legacyData;
 #endif
 
@@ -246,6 +255,9 @@ internal sealed class SilkNetClipboard : IClipboard
             previous = _ownedData;
             _ownedData = null;
             _text = null;
+#if AVALONIA11
+            _legacyData = null;
+#endif
             if (_keyboard is not null)
                 _keyboard.ClipboardText = string.Empty;
         }
@@ -266,6 +278,8 @@ internal sealed class SilkNetClipboard : IClipboard
         string? text = null;
         foreach (IAsyncDataTransferItem item in dataTransfer.Items)
         {
+            if (!item.Contains(DataFormat.Text))
+                continue;
             text = await item.TryGetTextAsync().ConfigureAwait(false);
             if (text is not null)
                 break;
@@ -277,11 +291,15 @@ internal sealed class SilkNetClipboard : IClipboard
             previous = _ownedData;
             _ownedData = dataTransfer;
             _text = text;
-            if (_keyboard is not null && text is not null)
-                _keyboard.ClipboardText = text;
+#if AVALONIA11
+            _legacyData = null;
+#endif
+            if (_keyboard is not null)
+                _keyboard.ClipboardText = text ?? string.Empty;
         }
 
-        previous?.Dispose();
+        if (!ReferenceEquals(previous, dataTransfer))
+            previous?.Dispose();
     }
 
     public Task FlushAsync() => Task.CompletedTask;
@@ -291,12 +309,10 @@ internal sealed class SilkNetClipboard : IClipboard
         string? text;
         lock (_gate)
         {
-            text = _keyboard?.ClipboardText;
-            if (string.IsNullOrEmpty(text))
-                text = _text;
+            text = _keyboard?.ClipboardText ?? _text;
         }
 
-        if (string.IsNullOrEmpty(text))
+        if (text is null)
             return Task.FromResult<IAsyncDataTransfer?>(null);
 
         var transfer = new DataTransfer();
@@ -311,7 +327,6 @@ internal sealed class SilkNetClipboard : IClipboard
     }
 
 #if AVALONIA11
-#pragma warning disable CS0618
     public Task<string?> GetTextAsync()
     {
         lock (_gate)
@@ -320,28 +335,36 @@ internal sealed class SilkNetClipboard : IClipboard
 
     public Task SetTextAsync(string? text)
     {
+        IAsyncDataTransfer? previous;
         lock (_gate)
         {
+            previous = _ownedData;
+            _ownedData = null;
             _text = text;
             _legacyData = null;
             if (_keyboard is not null)
                 _keyboard.ClipboardText = text ?? string.Empty;
         }
 
+        previous?.Dispose();
         return Task.CompletedTask;
     }
 
     public Task SetDataObjectAsync(IDataObject data)
     {
         ArgumentNullException.ThrowIfNull(data);
+        IAsyncDataTransfer? previous;
         lock (_gate)
         {
+            previous = _ownedData;
+            _ownedData = null;
             _legacyData = data;
             _text = data.Get(DataFormats.Text) as string;
-            if (_keyboard is not null && _text is not null)
-                _keyboard.ClipboardText = _text;
+            if (_keyboard is not null)
+                _keyboard.ClipboardText = _text ?? string.Empty;
         }
 
+        previous?.Dispose();
         return Task.CompletedTask;
     }
 

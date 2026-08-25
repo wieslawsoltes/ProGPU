@@ -8,12 +8,13 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <AssemblyName>Avalonia.ProGpu.UnitTests</AssemblyName>
     <RootNamespace>ProGPU.Avalonia.ContractTests</RootNamespace>
-    <ProGpuAvaloniaSourceRoot Condition="'$(ProGpuAvaloniaSourceRoot)' == ''">$(MSBuildThisFileDirectory)..\..\.worktrees\avalonia-12.0.5</ProGpuAvaloniaSourceRoot>
+    <ProGpuAvaloniaSourceRoot Condition="'$(ProGpuAvaloniaSourceRoot)' == ''">$(MSBuildThisFileDirectory)..\..\.worktrees\avalonia-12.1.1</ProGpuAvaloniaSourceRoot>
     <AvaloniaAccessUnstablePrivateApis>true</AvaloniaAccessUnstablePrivateApis>
     <Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>true</Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="AvaloniaBitmapEncodingContractTests.cs" />
     <Compile Include="AvaloniaDirtyRegionContractTests.cs" />
     <Compile Include="AvaloniaEncodedImageContractTests.cs" />
     <Compile Include="AvaloniaGeometryFactoryContractTests.cs" />

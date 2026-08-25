@@ -22,8 +22,14 @@ public sealed class SilkWindowController : IDisposable
     public NativeWindowHandle Handle => _platform?.Handle ?? ResolvePendingHandle();
     public NativeWindowCapabilities Capabilities =>
         _platform?.Capabilities ?? NativeWindowCapabilities.ForKind(Handle.Kind);
-    public bool IsClientAreaExtended => _state.ExtendClientArea;
-    public bool RequiresManagedDecorations => _state.ExtendClientArea && (_platform?.RequiresManagedDecorations ?? false);
+    public bool IsClientAreaExtended =>
+        _state.ExtendClientArea &&
+        (!UsesSystemChrome(_state.ChromeHints) ||
+         (_platform?.SupportsSystemChromeExtension ?? false));
+    public bool RequiresManagedDecorations =>
+        IsClientAreaExtended &&
+        (_platform?.RequiresManagedDecorations ?? false) &&
+        UsesManagedChrome(_state.ChromeHints);
     public NativeDrawnDecorationParts RequestedDrawnDecorations =>
         RequiresManagedDecorations
             ? _platform?.RequestedDrawnDecorations ?? NativeDrawnDecorationParts.None
@@ -140,6 +146,19 @@ public sealed class SilkWindowController : IDisposable
     public bool SetTitleBarHeight(double titleBarHeight)
     {
         return SetClientAreaExtension(_state.ExtendClientArea, titleBarHeight);
+    }
+
+    public bool SetChromeHints(NativeWindowChromeHints hints)
+    {
+        _state = _state with { ChromeHints = hints };
+        return Apply((platform, state) =>
+        {
+            bool extension = platform.SetClientAreaExtension(
+                state.ExtendClientArea,
+                state.TitleBarHeight);
+            bool chrome = ApplyChromeAndShadow(platform, state);
+            return extension || chrome;
+        });
     }
 
     public bool SetTheme(NativeWindowTheme theme)
@@ -393,6 +412,15 @@ public sealed class SilkWindowController : IDisposable
         edge is NativeResizeEdge.Top or NativeResizeEdge.TopLeft or NativeResizeEdge.TopRight;
     private static bool UsesBottom(NativeResizeEdge edge) =>
         edge is NativeResizeEdge.Bottom or NativeResizeEdge.BottomLeft or NativeResizeEdge.BottomRight;
+
+    internal static bool UsesSystemChrome(
+        NativeWindowChromeHints hints) =>
+        (hints & NativeWindowChromeHints.SystemChrome) != 0 &&
+        (hints & NativeWindowChromeHints.PreferSystemChrome) == 0;
+
+    internal static bool UsesManagedChrome(
+        NativeWindowChromeHints hints) =>
+        (hints & NativeWindowChromeHints.PreferSystemChrome) != 0;
 
     private void ThrowIfDisposed()
     {

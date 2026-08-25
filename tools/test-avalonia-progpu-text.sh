@@ -2,11 +2,11 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-avalonia_root="${PROGPU_AVALONIA_ROOT:-${repo_root}/.worktrees/avalonia-12.0.5}"
-expected_revision="fee9c561ce036e8a3e8cee2397c75ca599b4790d"
+avalonia_root="${PROGPU_AVALONIA_ROOT:-${repo_root}/.worktrees/avalonia-12.1.1}"
+expected_revision="e33eaed9c106846b200680751022385d9cc5dc6f"
 test_project="${avalonia_root}/tests/Avalonia.Skia.UnitTests/Avalonia.Skia.UnitTests.csproj"
 
-"${repo_root}/tools/prepare-avalonia-12.0.5-source.sh"
+"${repo_root}/tools/prepare-avalonia-12.1.1-source.sh"
 
 if [[ ! -f "${test_project}" ]]; then
   echo "Pinned Avalonia text test project was not found at ${test_project}." >&2

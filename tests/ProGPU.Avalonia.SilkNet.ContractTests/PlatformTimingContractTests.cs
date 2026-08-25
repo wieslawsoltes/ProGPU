@@ -60,4 +60,17 @@ public sealed class PlatformTimingContractTests
         Assert.Throws<ArgumentOutOfRangeException>(
             () => new SilkNetRenderTimer(framesPerSecond));
     }
+
+    [Fact]
+    public void RenderCadenceTracksAChangedDisplayRate()
+    {
+        var timer = new SilkNetRenderTimer(60);
+
+        timer.UpdateFramesPerSecond(144);
+
+        Assert.Equal(144, timer.FramesPerSecond);
+        Assert.Equal(
+            TimeSpan.FromSeconds(1.0 / 144),
+            timer.Interval);
+    }
 }

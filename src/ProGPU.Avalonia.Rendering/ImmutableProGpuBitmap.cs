@@ -212,10 +212,20 @@ internal sealed class ImmutableBitmap :
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
         using FileStream destination = File.Create(fileName);
+#if AVALONIA11
         Save(destination, quality);
+#else
+        Save(destination, PngBitmapEncoderOptions.Default);
+#endif
     }
 
-    public void Save(Stream stream, int? quality = null)
+    public void Save(
+        Stream stream,
+#if AVALONIA11
+        int? quality = null)
+#else
+        BitmapEncoderOptions options)
+#endif
     {
         ArgumentNullException.ThrowIfNull(stream);
         lock (_gate)
@@ -223,8 +233,14 @@ internal sealed class ImmutableBitmap :
             ThrowIfDisposed();
             if (_encoded is { Length: > 0 } encoded)
             {
+#if AVALONIA11
                 stream.Write(encoded);
                 return;
+#else
+                using Image<Rgba32> decoded = Image.Load<Rgba32>(encoded);
+                AvaloniaBitmapEncoding.Save(decoded, stream, options);
+                return;
+#endif
             }
 
             Rgba32[] pixels = _pendingPixels ??
@@ -236,7 +252,11 @@ internal sealed class ImmutableBitmap :
                 pixels,
                 PixelSize.Width,
                 PixelSize.Height);
+#if AVALONIA11
             image.SaveAsPng(stream);
+#else
+            AvaloniaBitmapEncoding.Save(image, stream, options);
+#endif
         }
     }
 

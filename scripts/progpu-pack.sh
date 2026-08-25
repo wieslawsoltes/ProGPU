@@ -35,7 +35,7 @@ for index in "${!progpu_avalonia_package_ids[@]}"; do
     -p:IncludeSymbols=true
     -p:SymbolPackageFormat=snupkg
   )
-  if [[ "${package_version}" == 12.0.5-* &&
+  if [[ "${package_version}" == 12.1.1-* &&
         -n "${PROGPU_AVALONIA_SOURCE_ROOT:-}" ]]; then
     pack_arguments+=(
       -p:ProGpuAvaloniaSourceRoot="${PROGPU_AVALONIA_SOURCE_ROOT}"

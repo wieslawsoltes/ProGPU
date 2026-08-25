@@ -3,9 +3,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>Avalonia.Skia</AssemblyName>
     <RootNamespace>Avalonia.Skia</RootNamespace>
-    <Version>12.0.5</Version>
-    <AssemblyVersion>12.0.5.0</AssemblyVersion>
-    <FileVersion>12.0.5.0</FileVersion>
+    <Version>12.1.1</Version>
+    <AssemblyVersion>12.1.1.0</AssemblyVersion>
+    <FileVersion>12.1.1.0</FileVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <NoWarn>$(NoWarn);CS0618</NoWarn>
@@ -36,6 +36,6 @@
   <Target Name="ValidatePinnedAvaloniaSkiaSources"
           BeforeTargets="PrepareForBuild">
     <Error Condition="'$(AvaloniaSkiaSourceRoot)' == '' or !Exists('$(AvaloniaSkiaSourceRoot)\DrawingContextImpl.cs')"
-           Text="Set ProGpuAvaloniaSourceRoot to the prepared, pinned Avalonia 12.0.5 source tree." />
+           Text="Set ProGpuAvaloniaSourceRoot to the prepared, pinned Avalonia 12.1.1 source tree." />
   </Target>
 </Project>

@@ -196,10 +196,22 @@ internal sealed class ProGpuExternalObjectsFeature :
         public void Save(string fileName, int? quality = null)
         {
             using FileStream stream = File.Create(fileName);
+#if AVALONIA11
             Save(stream, quality);
+#else
+            Save(
+                stream,
+                Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
+#endif
         }
 
-        public void Save(Stream stream, int? quality = null)
+        public void Save(
+            Stream stream,
+#if AVALONIA11
+            int? quality = null)
+#else
+            Avalonia.Media.Imaging.BitmapEncoderOptions options)
+#endif
         {
             GpuTexture texture = _lease?.Texture ??
                 throw new ObjectDisposedException(nameof(ImportedBitmap));
@@ -235,7 +247,11 @@ internal sealed class ProGpuExternalObjectsFeature :
                 pixels,
                 PixelSize.Width,
                 PixelSize.Height);
+#if AVALONIA11
             image.SaveAsPng(stream);
+#else
+            AvaloniaBitmapEncoding.Save(image, stream, options);
+#endif
         }
 
         public void Dispose()

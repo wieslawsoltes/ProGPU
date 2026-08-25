@@ -41,6 +41,7 @@ internal unsafe class GlfwNativeWindowPlatform : INativeWindowPlatform
     public virtual double DefaultTitleBarHeight => Math.Max(0, FrameInsets.Top);
     public virtual bool SupportsManagedMove => Handle.Kind is not NativeWindowKind.Wayland;
     public virtual bool SupportsManagedResize => true;
+    public virtual bool SupportsSystemChromeExtension => false;
 
     public virtual bool ApplyChrome(in NativeWindowState state)
     {
@@ -49,7 +50,13 @@ internal unsafe class GlfwNativeWindowPlatform : INativeWindowPlatform
             return false;
         }
 
-        var decorated = state.Decorations != NativeWindowDecorations.None && !state.ExtendClientArea;
+        bool hideNativeChrome =
+            state.ExtendClientArea &&
+            !SilkWindowController.UsesSystemChrome(
+                state.ChromeHints);
+        var decorated =
+            state.Decorations != NativeWindowDecorations.None &&
+            !hideNativeChrome;
         var nativeResizable = RequiresNativeResizableStyle(state);
         Glfw.SetWindowAttrib(GlfwWindow, WindowAttributeSetter.Decorated, decorated);
         Glfw.SetWindowAttrib(GlfwWindow, WindowAttributeSetter.Resizable, nativeResizable);
