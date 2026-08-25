@@ -64,7 +64,8 @@ constexpr std::uint32_t render_option_text_rendering_mode = 0x10U;
 constexpr std::uint32_t render_option_text_hinting_mode = 0x20U;
 constexpr std::uint32_t render_option_supported_mask =
     render_option_bitmap_scaling | render_option_edge_mode |
-    render_option_clear_type_hint;
+    render_option_clear_type_hint | render_option_text_rendering_mode |
+    render_option_text_hinting_mode;
 constexpr std::uint32_t render_option_known_mask =
     render_option_supported_mask | render_option_compositing_mode |
     render_option_text_rendering_mode | render_option_text_hinting_mode;
@@ -574,6 +575,8 @@ struct channel::implementation {
         std::uint32_t edge_mode{};
         std::uint32_t bitmap_scaling_mode{};
         std::uint32_t clear_type_hint{};
+        std::uint32_t text_rendering_mode{};
+        std::uint32_t text_hinting_mode{};
         std::vector<std::uint32_t> children;
     };
 
@@ -734,6 +737,8 @@ struct channel::implementation {
             PROGPU_NATIVE_SCENE_NO_INDEX};
         bool edge_aliased{};
         bool clear_type_enabled{};
+        std::uint32_t text_rendering_mode{};
+        std::uint32_t text_hinting_mode{};
     };
 
     struct transform_state {
@@ -1450,14 +1455,18 @@ struct channel::implementation {
             }
             if ((flags & ~render_option_known_mask) != 0U ||
                 edge_mode > 1U || bitmap_scaling_mode > 3U ||
-                clear_type_hint > 1U) {
+                clear_type_hint > 1U || text_rendering_mode > 3U ||
+                text_hinting_mode > 2U) {
                 return status::malformed_batch;
             }
             if ((flags & ~render_option_supported_mask) != 0U) {
                 return status::unsupported_command;
             }
-            if (compositing_mode != 0U || text_rendering_mode != 0U ||
-                text_hinting_mode != 0U) {
+            if (compositing_mode != 0U ||
+                ((flags & render_option_text_rendering_mode) == 0U &&
+                 text_rendering_mode != 0U) ||
+                ((flags & render_option_text_hinting_mode) == 0U &&
+                 text_hinting_mode != 0U)) {
                 return status::malformed_batch;
             }
             auto& visual = visuals.at(handle);
@@ -1465,6 +1474,8 @@ struct channel::implementation {
             visual.edge_mode = edge_mode;
             visual.bitmap_scaling_mode = bitmap_scaling_mode;
             visual.clear_type_hint = clear_type_hint;
+            visual.text_rendering_mode = text_rendering_mode;
+            visual.text_hinting_mode = text_hinting_mode;
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -3359,8 +3370,69 @@ struct channel::implementation {
     struct glyph_scene_resource {
         std::uint32_t resource_index{PROGPU_NATIVE_SCENE_NO_INDEX};
         std::uint16_t units_per_em{};
-        std::unordered_map<std::uint16_t, std::uint32_t> outline_indices;
+        std::unordered_map<std::uint64_t, std::uint32_t> outline_indices;
     };
+
+    struct glyph_placement {
+        std::uint32_t subpixel_index{};
+        progpu_native_point position{};
+    };
+
+    static std::uint64_t glyph_outline_key(
+        std::uint16_t glyph_index,
+        std::uint32_t subpixel_index) noexcept {
+        return static_cast<std::uint64_t>(glyph_index) << 32U |
+            subpixel_index;
+    }
+
+    static progpu_native_point transform_affine_point(
+        const progpu_native_point& point,
+        const affine_2d_double& transform) noexcept {
+        return {
+            static_cast<float>(
+                point.x * transform.m11 + point.y * transform.m21 +
+                transform.m31),
+            static_cast<float>(
+                point.x * transform.m12 + point.y * transform.m22 +
+                transform.m32)};
+    }
+
+    static glyph_placement resolve_glyph_placement(
+        const progpu_native_point& position,
+        const affine_2d_double& transform,
+        float target_raster_size,
+        std::uint32_t text_hinting_mode) noexcept {
+        constexpr double transformed_epsilon = 0.0001;
+        const bool transformed_placement =
+            std::abs(transform.m12) > transformed_epsilon ||
+            std::abs(transform.m21) > transformed_epsilon ||
+            transform.m11 < 0.0 || transform.m22 < 0.0;
+        if (text_hinting_mode == 2U || transformed_placement) {
+            return {0U, position};
+        }
+        affine_2d_double inverse{};
+        if (!try_invert_affine(transform, inverse)) {
+            return {0U, position};
+        }
+        progpu_native_point world = transform_affine_point(
+            position, transform);
+        std::uint32_t phase = 0U;
+        if (target_raster_size <= 24.0F) {
+            double integer_x = std::floor(world.x);
+            auto rounded_phase = static_cast<std::int32_t>(
+                std::nearbyint((world.x - integer_x) * 4.0));
+            if (rounded_phase == 4) {
+                rounded_phase = 0;
+                integer_x += 1.0;
+            }
+            phase = static_cast<std::uint32_t>(rounded_phase);
+            world.x = static_cast<float>(integer_x);
+        } else {
+            world.x = static_cast<float>(std::nearbyint(world.x));
+        }
+        world.y = static_cast<float>(std::nearbyint(world.y));
+        return {phase, transform_affine_point(world, inverse)};
+    }
 
     static bool try_get_affine_scale(
         const affine_2d_double& transform,
@@ -3396,12 +3468,6 @@ struct channel::implementation {
             glyph_resources) const {
         if (glyph_run_handle == 0U || foreground_brush_handle == 0U) {
             return status::success;
-        }
-        if (current.clear_type_enabled) {
-            // WPF uses ClearTypeHint only to permit ClearType glyph rendering
-            // on alpha intermediates. The shared native glyph path is still
-            // grayscale, so text-bearing hinted scopes must fail closed.
-            return status::unsupported_command;
         }
         const auto glyph_run_entry = glyph_runs.find(glyph_run_handle);
         if (glyph_run_entry == glyph_runs.end()) {
@@ -3453,12 +3519,13 @@ struct channel::implementation {
             scene_resource.units_per_em = header.units_per_em;
             std::vector<progpu_native_scene_glyph_outline> outlines;
             std::vector<progpu_native_path_segment> segments;
-            outlines.reserve(glyph_run.glyph_indices.size());
+            outlines.reserve(glyph_run.glyph_indices.size() * 4U);
             scene_resource.outline_indices.reserve(
-                glyph_run.glyph_indices.size());
+                glyph_run.glyph_indices.size() * 4U);
             for (const std::uint16_t glyph_index :
                  glyph_run.glyph_indices) {
-                if (scene_resource.outline_indices.contains(glyph_index)) {
+                if (scene_resource.outline_indices.contains(
+                        glyph_outline_key(glyph_index, 0U))) {
                     continue;
                 }
                 text::sfnt_glyph_data_view glyph_data{};
@@ -3505,20 +3572,23 @@ struct channel::implementation {
                     segments.resize(segment_offset);
                     return status::unsupported_command;
                 }
-                const auto outline_index = static_cast<std::uint32_t>(
-                    outlines.size());
-                scene_resource.outline_indices.emplace(
-                    glyph_index, outline_index);
-                outlines.push_back({
-                    segment_offset,
-                    segments_written,
-                    static_cast<float>(glyph_data.x_min),
-                    static_cast<float>(glyph_data.y_min),
-                    static_cast<float>(glyph_data.x_max),
-                    static_cast<float>(glyph_data.y_max),
-                    target_raster_size /
-                        static_cast<float>(header.units_per_em),
-                    0.0F});
+                for (std::uint32_t phase = 0U; phase < 4U; ++phase) {
+                    const auto outline_index = static_cast<std::uint32_t>(
+                        outlines.size());
+                    scene_resource.outline_indices.emplace(
+                        glyph_outline_key(glyph_index, phase),
+                        outline_index);
+                    outlines.push_back({
+                        segment_offset,
+                        segments_written,
+                        static_cast<float>(glyph_data.x_min),
+                        static_cast<float>(glyph_data.y_min),
+                        static_cast<float>(glyph_data.x_max),
+                        static_cast<float>(glyph_data.y_max),
+                        target_raster_size /
+                            static_cast<float>(header.units_per_em),
+                        phase * 0.25F});
+                }
             }
             if (!outlines.empty() &&
                 !builder.add_glyph_outlines(
@@ -3546,15 +3616,22 @@ struct channel::implementation {
         for (std::size_t index = 0U;
              index < glyph_run.glyph_indices.size();
              ++index) {
-            const auto outline = scene_resource.outline_indices.find(
-                glyph_run.glyph_indices[index]);
             const progpu_native_point offset = glyph_run.offsets.empty()
                 ? progpu_native_point{}
                 : glyph_run.offsets[index];
+            const progpu_native_point source_position{
+                glyph_run.origin_x + cursor_x + offset.x,
+                glyph_run.origin_y + cursor_y + offset.y};
+            const glyph_placement placement = resolve_glyph_placement(
+                source_position,
+                current.transform,
+                target_raster_size,
+                current.text_hinting_mode);
+            const auto outline = scene_resource.outline_indices.find(
+                glyph_outline_key(
+                    glyph_run.glyph_indices[index],
+                    placement.subpixel_index));
             if (outline != scene_resource.outline_indices.end()) {
-                const progpu_native_point position{
-                    glyph_run.origin_x + cursor_x + offset.x,
-                    glyph_run.origin_y + cursor_y + offset.y};
                 const std::uint32_t pass_count = bold ? 2U : 1U;
                 for (std::uint32_t pass = 0U;
                      pass < pass_count;
@@ -3562,7 +3639,7 @@ struct channel::implementation {
                     positioned.push_back({
                         outline->second,
                         0U,
-                        position,
+                        placement.position,
                         {1.0F, 0.0F},
                         {0.0F, 1.0F},
                         {1.0F, 1.0F, 1.0F, 1.0F},
@@ -3579,9 +3656,17 @@ struct channel::implementation {
         }
         progpu_native_color text_color = solid->second.color;
         text_color.a *= static_cast<float>(solid->second.opacity);
+        const std::uint32_t text_rendering_mode =
+            current.text_rendering_mode == 1U
+            ? PROGPU_NATIVE_SCENE_TEXT_ALIASED
+            : current.text_rendering_mode == 3U ||
+                (current.text_rendering_mode == 0U &&
+                 current.clear_type_enabled)
+            ? PROGPU_NATIVE_SCENE_TEXT_CLEARTYPE
+            : PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE;
         const progpu_native_scene_text_style style{
             text_color,
-            PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE,
+            text_rendering_mode,
             0U,
             0U,
             0U};
@@ -7779,8 +7864,7 @@ struct channel::implementation {
             return status::invalid_graph;
         }
         if ((visual->second.render_options_flags &
-                render_option_bitmap_scaling) != 0U &&
-            visual->second.bitmap_scaling_mode != 0U) {
+                render_option_bitmap_scaling) != 0U) {
             current.image_sampling =
                 visual->second.bitmap_scaling_mode == 3U
                 ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
@@ -7789,14 +7873,22 @@ struct channel::implementation {
                 : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
         }
         if ((visual->second.render_options_flags &
-                render_option_edge_mode) != 0U &&
-            visual->second.edge_mode != 0U) {
-            current.edge_aliased = true;
+                render_option_edge_mode) != 0U) {
+            current.edge_aliased = visual->second.edge_mode != 0U;
         }
         if ((visual->second.render_options_flags &
-                render_option_clear_type_hint) != 0U &&
-            visual->second.clear_type_hint != 0U) {
-            current.clear_type_enabled = true;
+                render_option_clear_type_hint) != 0U) {
+            current.clear_type_enabled =
+                visual->second.clear_type_hint != 0U;
+        }
+        if ((visual->second.render_options_flags &
+                render_option_text_rendering_mode) != 0U) {
+            current.text_rendering_mode =
+                visual->second.text_rendering_mode;
+        }
+        if ((visual->second.render_options_flags &
+                render_option_text_hinting_mode) != 0U) {
+            current.text_hinting_mode = visual->second.text_hinting_mode;
         }
 
         auto state = native::semantic_scene_builder::identity_state();

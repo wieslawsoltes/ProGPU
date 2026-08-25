@@ -48,6 +48,38 @@ T read_value(const std::vector<std::byte>& bytes, std::size_t offset) {
     return value;
 }
 
+bool scene_contains_text_style_mode(
+    const std::vector<std::byte>& stream,
+    std::uint32_t expected_mode) {
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind !=
+                PROGPU_NATIVE_SCENE_RESOURCE_TEXT_STYLE_TABLE ||
+            resource.payload_size %
+                sizeof(progpu_native_scene_text_style) != 0U) {
+            continue;
+        }
+        const std::uint32_t style_count = resource.payload_size /
+            sizeof(progpu_native_scene_text_style);
+        for (std::uint32_t style_index = 0U;
+             style_index < style_count;
+             ++style_index) {
+            const auto style = read_value<progpu_native_scene_text_style>(
+                stream,
+                resource.payload_offset +
+                    style_index * sizeof(progpu_native_scene_text_style));
+            if (style.text_rendering_mode == expected_mode) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 template<typename T>
 void write_value(
     std::vector<std::byte>& bytes,
@@ -691,13 +723,13 @@ bool solid_rectangle_compiles_to_semantic_scene() {
         batch,
         command::visual_set_render_options,
         root,
-        0x0bU,
+        0x3bU,
         1U,
         0U,
         3U,
         1U,
-        0U,
-        0U);
+        3U,
+        1U);
     append_command(batch, command::visual_set_offset, child, 3.0, 4.0);
     append_command(batch, command::visual_set_alpha, child, 0.5);
     append_command(batch, command::visual_set_content, child, content);
@@ -956,6 +988,34 @@ bool solid_rectangle_compiles_to_semantic_scene() {
         0U,
         0U,
         0U,
+        0U);
+    PROGPU_REQUIRE(
+        state.apply(malformed_options) == status::malformed_batch);
+    malformed_options.clear();
+    append_command(
+        malformed_options,
+        command::visual_set_render_options,
+        root,
+        0x10U,
+        0U,
+        0U,
+        0U,
+        0U,
+        4U,
+        0U);
+    PROGPU_REQUIRE(
+        state.apply(malformed_options) == status::malformed_batch);
+    malformed_options.clear();
+    append_command(
+        malformed_options,
+        command::visual_set_render_options,
+        root,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        1U,
         0U);
     PROGPU_REQUIRE(
         state.apply(malformed_options) == status::malformed_batch);
@@ -5121,7 +5181,7 @@ bool retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband() {
         PROGPU_REQUIRE(
             resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN);
         PROGPU_REQUIRE(resource.payload_size ==
-            sizeof(progpu_native_scene_glyph_outline));
+            4U * sizeof(progpu_native_scene_glyph_outline));
         PROGPU_REQUIRE(draw.glyph_count == 2U);
         PROGPU_REQUIRE(positioned.position.x == 12.0F);
         PROGPU_REQUIRE(positioned.position.y == 37.0F);
@@ -5133,6 +5193,8 @@ bool retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband() {
         ++glyph_draw_count;
     }
     PROGPU_REQUIRE(glyph_draw_count == 2U);
+    PROGPU_REQUIRE(scene_contains_text_style_mode(
+        stream, PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE));
 
     constexpr std::uint32_t clear_type_group = 7U;
     std::vector<std::byte> clear_type_batch;
@@ -5162,7 +5224,9 @@ bool retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband() {
     PROGPU_REQUIRE(state.apply(clear_type_batch) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7006U, 3U, stream, &metrics) ==
-        status::unsupported_command);
+        status::success);
+    PROGPU_REQUIRE(scene_contains_text_style_mode(
+        stream, PROGPU_NATIVE_SCENE_TEXT_CLEARTYPE));
 
     std::vector<std::byte> visual_clear_type_batch;
     append_command(
@@ -5194,7 +5258,97 @@ bool retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband() {
     PROGPU_REQUIRE(state.apply(visual_clear_type_batch) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7006U, 4U, stream, &metrics) ==
-        status::unsupported_command);
+        status::success);
+    PROGPU_REQUIRE(scene_contains_text_style_mode(
+        stream, PROGPU_NATIVE_SCENE_TEXT_CLEARTYPE));
+
+    std::vector<std::byte> fixed_aliased_batch;
+    append_command(
+        fixed_aliased_batch,
+        command::visual_set_offset,
+        visual,
+        0.375,
+        0.4);
+    append_command(
+        fixed_aliased_batch,
+        command::visual_set_render_options,
+        visual,
+        0x30U,
+        0U,
+        0U,
+        0U,
+        0U,
+        1U,
+        1U);
+    PROGPU_REQUIRE(state.apply(fixed_aliased_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7006U, 5U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(scene_contains_text_style_mode(
+        stream, PROGPU_NATIVE_SCENE_TEXT_ALIASED));
+    bool found_fixed_position = false;
+    const auto fixed_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    for (std::uint32_t index = 0U;
+         index < fixed_header.command_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            fixed_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
+            continue;
+        }
+        const auto positioned = read_value<progpu_native_positioned_glyph>(
+            stream,
+            record.payload_offset + sizeof(progpu_native_scene_glyph_draw));
+        PROGPU_REQUIRE(positioned.position.x == 11.625F);
+        PROGPU_REQUIRE(positioned.position.y == 36.6F);
+        PROGPU_REQUIRE(positioned.outline_index % 4U == 2U);
+        found_fixed_position = true;
+    }
+    PROGPU_REQUIRE(found_fixed_position);
+
+    std::vector<std::byte> animated_batch;
+    append_command(
+        animated_batch,
+        command::visual_set_render_options,
+        visual,
+        0x30U,
+        0U,
+        0U,
+        0U,
+        0U,
+        2U,
+        2U);
+    PROGPU_REQUIRE(state.apply(animated_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7006U, 6U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(scene_contains_text_style_mode(
+        stream, PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE));
+    bool found_animated_position = false;
+    const auto animated_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    for (std::uint32_t index = 0U;
+         index < animated_header.command_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            animated_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) {
+            continue;
+        }
+        const auto positioned = read_value<progpu_native_positioned_glyph>(
+            stream,
+            record.payload_offset + sizeof(progpu_native_scene_glyph_draw));
+        PROGPU_REQUIRE(positioned.position.x == 12.0F);
+        PROGPU_REQUIRE(positioned.position.y == 37.0F);
+        PROGPU_REQUIRE(positioned.outline_index % 4U == 0U);
+        found_animated_position = true;
+    }
+    PROGPU_REQUIRE(found_animated_position);
 
     std::vector<std::byte> delete_glyph;
     append_command(

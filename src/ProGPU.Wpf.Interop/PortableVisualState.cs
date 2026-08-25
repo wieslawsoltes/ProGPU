@@ -77,9 +77,17 @@ public sealed class PortableVisualState
 
     public object? TextRenderingMode { get; set; }
 
+    public bool HasPortableTextRenderingMode { get; set; }
+
+    public PortableTextRenderingMode PortableTextRenderingMode { get; set; }
+
     public bool HasTextHintingMode { get; set; }
 
     public object? TextHintingMode { get; set; }
+
+    public bool HasPortableTextHintingMode { get; set; }
+
+    public PortableTextHintingMode PortableTextHintingMode { get; set; }
 
     public bool HasSnappingGuidelinesX { get; set; }
 
