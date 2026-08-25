@@ -2638,6 +2638,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     constexpr std::uint32_t nested_combined = 18U;
     constexpr std::uint32_t arc_transform = 19U;
     constexpr std::uint32_t singular_transform = 20U;
+    constexpr std::uint32_t pen = 21U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -2660,6 +2661,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     append_create(batch, nested_combined, 72U);
     append_create(batch, arc_transform, 66U);
     append_create(batch, singular_transform, 66U);
+    append_create(batch, pen, 85U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -2668,6 +2670,19 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         brush,
         1.0,
         progpu_native_color{0.75F, 0.25F, 0.5F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::pen,
+        pen,
+        2.0,
+        4.0,
+        brush,
+        0U,
+        0U,
         0U,
         0U,
         0U,
@@ -3543,10 +3558,154 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         singular_transform,
         1U,
         make_arc_path_figures());
+    const std::array singular_group_children{path_b};
+    append_geometry_group(
+        singular_arc_update,
+        group,
+        0U,
+        1U,
+        singular_group_children);
+    append_command(
+        singular_arc_update,
+        command::combined_geometry,
+        combined,
+        0U,
+        0U,
+        path_b,
+        0U);
+    std::vector<std::byte> singular_render_data;
+    append_command(
+        singular_render_data,
+        command::draw_geometry,
+        brush,
+        0U,
+        group,
+        0U);
+    append_command(
+        singular_render_data,
+        command::draw_geometry,
+        brush,
+        0U,
+        combined,
+        0U);
+    append_command(
+        singular_render_data,
+        command::draw_geometry,
+        brush,
+        0U,
+        path_b,
+        0U);
+    append_command(
+        singular_render_data,
+        command::push_clip,
+        path_b,
+        0U);
+    append_command(
+        singular_render_data,
+        command::draw_rectangle,
+        0.0,
+        0.0,
+        64.0,
+        64.0,
+        brush,
+        0U);
+    append_command(singular_render_data, command::pop);
+    append_command(
+        singular_render_data,
+        command::push_transform,
+        singular_transform,
+        0U);
+    append_command(
+        singular_render_data,
+        command::draw_line,
+        0.0,
+        0.0,
+        32.0,
+        32.0,
+        pen,
+        0U);
+    append_command(
+        singular_render_data,
+        command::draw_geometry,
+        brush,
+        pen,
+        group,
+        0U);
+    append_command(
+        singular_render_data,
+        command::draw_geometry,
+        brush,
+        pen,
+        combined,
+        0U);
+    append_command(
+        singular_render_data,
+        command::draw_geometry,
+        brush,
+        pen,
+        path_a,
+        0U);
+    append_command(
+        singular_render_data,
+        command::draw_geometry,
+        brush,
+        pen,
+        rounded_rectangle,
+        0U);
+    append_command(singular_render_data, command::pop);
+    append_render_data(
+        singular_arc_update,
+        content,
+        singular_render_data);
     PROGPU_REQUIRE(state.apply(singular_arc_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7003U, 7U, stream) ==
-        status::unsupported_command);
+        state.build_scene(target, 7003U, 7U, stream) == status::success);
+    const auto singular_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_empty_singular_clip = false;
+    for (std::uint32_t index = 0U;
+         index < singular_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            singular_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        PROGPU_REQUIRE(
+            resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH);
+        PROGPU_REQUIRE(
+            resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK);
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            continue;
+        }
+        const auto scene_state = read_value<progpu_native_scene_state>(
+            stream,
+            resource.payload_offset);
+        if ((scene_state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U &&
+            scene_state.clip_rect.width == 0.0F &&
+            scene_state.clip_rect.height == 0.0F) {
+            found_empty_singular_clip = true;
+        }
+    }
+    PROGPU_REQUIRE(found_empty_singular_clip);
+    std::uint32_t singular_draw_count = 0U;
+    for (std::uint32_t index = 0U;
+         index < singular_header.command_count;
+         ++index) {
+        const auto scene_command = read_value<progpu_native_scene_command>(
+            stream,
+            singular_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (scene_command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC) {
+            ++singular_draw_count;
+            continue;
+        }
+        PROGPU_REQUIRE(
+            scene_command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY &&
+            scene_command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH &&
+            scene_command.kind !=
+                PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH);
+    }
+    PROGPU_REQUIRE(singular_draw_count == 1U);
 
     std::vector<std::byte> different_nested_fill;
     const std::array different_fill_child{different_fill_group};
@@ -3556,6 +3715,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         transform,
         0U,
         different_fill_child);
+    append_render_data(different_nested_fill, content, nested);
     PROGPU_REQUIRE(state.apply(different_nested_fill) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7003U, 8U, stream) == status::success);
