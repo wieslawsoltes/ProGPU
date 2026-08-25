@@ -95,6 +95,11 @@ NUGET_PACKAGES="${consumer_packages}" dotnet run \
   -p:ProGpuNativePackageSource="${package_output}" \
   -p:ProGpuNativePackageVersion="${package_version}" -- \
   --mil-drawing-image-only
+NUGET_PACKAGES="${consumer_packages}" dotnet run \
+  --project "${consumer}" --configuration Release --no-restore \
+  -p:ProGpuNativePackageSource="${package_output}" \
+  -p:ProGpuNativePackageVersion="${package_version}" -- \
+  --mil-guideline-only
 
 native_consumer_root="$(mktemp -d /tmp/progpu-native-cpp-consumer.XXXXXX)"
 cleanup_native_consumer() {

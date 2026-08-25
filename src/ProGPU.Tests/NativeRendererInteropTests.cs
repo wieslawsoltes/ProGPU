@@ -2701,8 +2701,15 @@ public class NativeRendererInteropTests
             storedState.Flags);
         Assert.Equal(guidelineIndex, storedState.GuidelineResourceIndex);
 
+        Span<byte> invalidDestination = stackalloc byte[1024];
+        var invalidBuilder = new NativeSceneStreamBuilder(
+            invalidDestination,
+            sceneId: 84U,
+            generation: 1U,
+            commandCapacity: 0,
+            resourceCapacity: 2);
         Span<double> tooMany = stackalloc double[2] { 1, 2 };
-        Assert.False(builder.TryAddGuidelineSetResource(
+        Assert.False(invalidBuilder.TryAddGuidelineSetResource(
             3U,
             1U,
             tooMany,
@@ -2712,7 +2719,7 @@ public class NativeRendererInteropTests
             Matrix3x2.Identity,
             flags: NativeSceneStateFlags.GuidelineSet,
             guidelineResourceIndex: NativeMethods.SceneNoIndex);
-        Assert.False(builder.TryAddStateResource(
+        Assert.False(invalidBuilder.TryAddStateResource(
             4U,
             1U,
             in missingResource,
