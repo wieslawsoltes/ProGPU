@@ -211,6 +211,7 @@ static byte[] CreateMilSeedBatch(
     renderData.DrawGeometry(44, 0, 54);
     renderData.DrawGeometry(44, 0, 55);
     renderData.DrawGeometry(0, 46, 56);
+    renderData.DrawGeometry(0, 48, 59);
     renderData.Pop();
     var batch = new NativeMilBatchBuilder();
     batch.CreateResource(41, NativeMilResourceType.Visual);
@@ -231,6 +232,7 @@ static byte[] CreateMilSeedBatch(
     batch.CreateResource(56, NativeMilResourceType.PathGeometry);
     batch.CreateResource(57, NativeMilResourceType.GeometryGroup);
     batch.CreateResource(58, NativeMilResourceType.CombinedGeometry);
+    batch.CreateResource(59, NativeMilResourceType.PathGeometry);
     batch.CreateVisual(41);
     batch.SetVisualOffset(41, 1, 2);
     batch.SetMatrixTransform(
@@ -296,6 +298,10 @@ static byte[] CreateMilSeedBatch(
         56,
         CreateMilLineStrokePath(),
         45);
+    batch.SetPathGeometry(
+        59,
+        CreateMilArcStrokePath(),
+        45);
     batch.SetRenderData(43, renderData);
     batch.CreateGenericTarget(42, 64, 64);
     batch.SetTargetClearColor(42, new NativeMilColor(0, 0, 0, 1));
@@ -322,6 +328,31 @@ static NativeMilPathGeometry CreateMilLineStrokePath()
                         isStroked: false),
                     NativeMilPathSegment.Line(new NativeMilPoint(60, 60)),
                     NativeMilPathSegment.Line(new NativeMilPoint(4, 60))
+                ])
+        ]);
+}
+
+static NativeMilPathGeometry CreateMilArcStrokePath()
+{
+    return new NativeMilPathGeometry(
+        NativeMilPathFillRule.Nonzero,
+        8,
+        8,
+        48,
+        40,
+        [
+            new NativeMilPathFigure(
+                new NativeMilPoint(12, 32),
+                IsFilled: false,
+                IsClosed: false,
+                [
+                    NativeMilPathSegment.Arc(
+                        new NativeMilPoint(52, 32),
+                        20,
+                        12,
+                        20,
+                        isLargeArc: false,
+                        isClockwise: true)
                 ])
         ]);
 }
