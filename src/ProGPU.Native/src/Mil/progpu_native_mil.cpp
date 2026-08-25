@@ -2450,45 +2450,47 @@ struct channel::implementation {
                                 0.5522847498307933984;
                             const double center_x = fixed->second.first;
                             const double center_y = fixed->second.second;
-                            const double radius_x = fixed->second.third;
-                            const double radius_y = fixed->second.fourth;
-                            const double mid_x = radius_x * arc_as_bezier;
-                            const double mid_y = radius_y * arc_as_bezier;
+                            const double child_radius_x = fixed->second.third;
+                            const double child_radius_y = fixed->second.fourth;
+                            const double mid_x =
+                                child_radius_x * arc_as_bezier;
+                            const double mid_y =
+                                child_radius_y * arc_as_bezier;
                             if (!append_cubic(
-                                    center_x + radius_x,
+                                    center_x + child_radius_x,
                                     center_y,
-                                    center_x + radius_x,
+                                    center_x + child_radius_x,
                                     center_y + mid_y,
                                     center_x + mid_x,
-                                    center_y + radius_y,
+                                    center_y + child_radius_y,
                                     center_x,
-                                    center_y + radius_y) ||
+                                    center_y + child_radius_y) ||
                                 !append_cubic(
                                     center_x,
-                                    center_y + radius_y,
+                                    center_y + child_radius_y,
                                     center_x - mid_x,
-                                    center_y + radius_y,
-                                    center_x - radius_x,
+                                    center_y + child_radius_y,
+                                    center_x - child_radius_x,
                                     center_y + mid_y,
-                                    center_x - radius_x,
+                                    center_x - child_radius_x,
                                     center_y) ||
                                 !append_cubic(
-                                    center_x - radius_x,
+                                    center_x - child_radius_x,
                                     center_y,
-                                    center_x - radius_x,
+                                    center_x - child_radius_x,
                                     center_y - mid_y,
                                     center_x - mid_x,
-                                    center_y - radius_y,
+                                    center_y - child_radius_y,
                                     center_x,
-                                    center_y - radius_y) ||
+                                    center_y - child_radius_y) ||
                                 !append_cubic(
                                     center_x,
-                                    center_y - radius_y,
+                                    center_y - child_radius_y,
                                     center_x + mid_x,
-                                    center_y - radius_y,
-                                    center_x + radius_x,
+                                    center_y - child_radius_y,
+                                    center_x + child_radius_x,
                                     center_y - mid_y,
-                                    center_x + radius_x,
+                                    center_x + child_radius_x,
                                     center_y)) {
                                 return status::invalid_graph;
                             }
@@ -2498,13 +2500,14 @@ struct channel::implementation {
                         const double top = fixed->second.second;
                         const double right = left + fixed->second.third;
                         const double bottom = top + fixed->second.fourth;
-                        double radius_x = std::min(
+                        const double clamped_radius_x = std::min(
                             fixed->second.radius_x,
                             fixed->second.third * 0.5);
-                        double radius_y = std::min(
+                        const double clamped_radius_y = std::min(
                             fixed->second.radius_y,
                             fixed->second.fourth * 0.5);
-                        if (radius_x == 0.0 && radius_y == 0.0) {
+                        if (clamped_radius_x == 0.0 &&
+                            clamped_radius_y == 0.0) {
                             if (!append_line(left, top, right, top) ||
                                 !append_line(right, top, right, bottom) ||
                                 !append_line(right, bottom, left, bottom) ||
@@ -2516,65 +2519,65 @@ struct channel::implementation {
                         constexpr double one_minus_arc_as_bezier =
                             1.0 - 0.5522847498307933984;
                         const double bezier_x =
-                            radius_x * one_minus_arc_as_bezier;
+                            clamped_radius_x * one_minus_arc_as_bezier;
                         const double bezier_y =
-                            radius_y * one_minus_arc_as_bezier;
+                            clamped_radius_y * one_minus_arc_as_bezier;
                         if (!append_cubic(
                                 left,
-                                top + radius_y,
+                                top + clamped_radius_y,
                                 left,
                                 top + bezier_y,
                                 left + bezier_x,
                                 top,
-                                left + radius_x,
+                                left + clamped_radius_x,
                                 top) ||
                             !append_line(
-                                left + radius_x,
+                                left + clamped_radius_x,
                                 top,
-                                right - radius_x,
+                                right - clamped_radius_x,
                                 top) ||
                             !append_cubic(
-                                right - radius_x,
+                                right - clamped_radius_x,
                                 top,
                                 right - bezier_x,
                                 top,
                                 right,
                                 top + bezier_y,
                                 right,
-                                top + radius_y) ||
+                                top + clamped_radius_y) ||
                             !append_line(
                                 right,
-                                top + radius_y,
+                                top + clamped_radius_y,
                                 right,
-                                bottom - radius_y) ||
+                                bottom - clamped_radius_y) ||
                             !append_cubic(
                                 right,
-                                bottom - radius_y,
+                                bottom - clamped_radius_y,
                                 right,
                                 bottom - bezier_y,
                                 right - bezier_x,
                                 bottom,
-                                right - radius_x,
+                                right - clamped_radius_x,
                                 bottom) ||
                             !append_line(
-                                right - radius_x,
+                                right - clamped_radius_x,
                                 bottom,
-                                left + radius_x,
+                                left + clamped_radius_x,
                                 bottom) ||
                             !append_cubic(
-                                left + radius_x,
+                                left + clamped_radius_x,
                                 bottom,
                                 left + bezier_x,
                                 bottom,
                                 left,
                                 bottom - bezier_y,
                                 left,
-                                bottom - radius_y) ||
+                                bottom - clamped_radius_y) ||
                             !append_line(
                                 left,
-                                bottom - radius_y,
+                                bottom - clamped_radius_y,
                                 left,
-                                top + radius_y)) {
+                                top + clamped_radius_y)) {
                             return status::invalid_graph;
                         }
                     }
