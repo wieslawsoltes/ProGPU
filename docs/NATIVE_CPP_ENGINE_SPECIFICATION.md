@@ -2200,35 +2200,51 @@ layers use a separate bounded pool of 16 stable owner slots, while both pools
 and their effect intermediates remain inside the aggregate 256 MiB layer
 budget. Missing owners are evicted after preflight, owner replacement
 invalidates the completed-output key, texture reallocation increments the slot
-generation, and normal engine/device teardown releases every page. This
-semantic execution checkpoint is target-coordinate and raster-scale-one.
+generation, and normal engine/device teardown releases every page.
 Source-built WPF descendant bounds arrive through the typed
-`progpu_native_mil_channel_set_visual_cache_bounds` sideband, are transformed
-by current Visual placement, and bound the retained page; missing bounds fail
-closed instead of allocating the full target. It remains the persistent
-lifetime primitive for, not yet a parity claim for, WPF local-space cache
-rasterization, RenderAtScale, ClearType, pixel snapping, or outer-transform
-composition.
+`progpu_native_mil_channel_set_visual_cache_bounds` sideband and missing bounds
+fail closed instead of allocating the full target.
+
+`PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE` is the additive local-raster
+contract. It preserves the 64-byte layer ABI: bounds are a positive zero-origin
+raster-page extent, and `reserved0` references a preceding transform-only State
+resource that maps page logical coordinates into the parent target. The local
+flag requires `CACHE_CONTENT`, `BOUNDS`, source-over, and no layer-local mask or
+effect. The target cursor does not intersect the page allocation with parent
+placement; the executor instead transforms the four composite vertices and
+localizes them to the parent materialized target. This representation is
+backend-neutral and is shared by wgpu-native, provider-resolved Dawn, and
+DirectX.
 
 The canonical MIL channel now consumes WPF's packed cache protocol on top of
 that primitive: `VisualSetCacheMode` is an exact 12-byte command payload,
 `BitmapCache` is an exact 28-byte resource update for type 94, and the optional
 RenderAtScale animation must be a live type-49 DoubleResource. Both Visual-to-
 cache and cache-to-animation edges participate in transactional deletion
-protection. The initial executable subset resolves scale at compile time,
-suppresses an exact non-positive result, and emits a persistent cached layer
-only for scale one with pixel snapping and ClearType disabled. Other values
-fail closed until the semantic cache record separates WPF local bounds/raster
-scale from composite placement.
+protection. The executable subset resolves scale at compile time, suppresses
+an exact non-positive result, and emits a persistent local cached layer for any
+positive finite RenderAtScale with pixel snapping and ClearType disabled. Page
+bounds are local bounds multiplied by scale; raster state maps Visual-local
+coordinates into that page, while the inverse scale/local-origin plus outer
+Visual affine maps the page back into its parent.
 
 MIL cache content identity is independent of scene generation and unrelated
 sibling updates. It hashes the typed cached Visual/resource dependency graph,
 including nested render-data references and their brush, pen, transform,
 geometry, drawing, image, glyph, effect, guideline, cache, and animation
-generations. The temporary target-coordinate implementation includes the cache
-root's outer state in that pixel hash to prevent stale placement; the planned
-local-space representation will split those fields into composite identity so
-outer-only changes avoid rerasterization exactly as WPF does.
+generations. Cache-root bounds and raster-affecting state remain in that hash,
+while root offset, transform, and opacity are composite-only state. Outer-only
+changes therefore rebuild transformed composite vertices without invalidating
+the completed page. Root composite clips, spatial masks, guidelines,
+SnapsToDevicePixels, and ClearType remain fail-closed until their post-raster
+semantics are represented explicitly.
+
+The pinned provider/Dawn Metal hardware test validates first render, stable
+composite-only translation, and scale-driven rerasterization at 24x18 then
+12x9 page extents. Package-mode managed Dawn rendering/readback and forced
+device-loss recreation pass at provider revision
+`02823bf8d2e56548b2780d6b92ae7065be1d8605` and Dawn revision
+`710c33013c53ab2700d332c25ff51430251a8cc4`.
 
 The exact-bounds implementation at `dd3857a4` is qualified on Windows 11 ARM64
 under Parallels. Both wgpu-native and provider-resolved Dawn modules rebuilt
@@ -2240,8 +2256,8 @@ also passed. Packaged `progpu_native.dll` and `progpu_native_dawn.dll` hashes
 are respectively
 `D17701FB0669A241183AF064080A1FD1ADD29AE1B000A531CCE5E7307B2650C6` and
 `02414A74F7C6CB1A84F2846D5E5B701102E4812B5AEFCBA25688AE881592BD42`.
-This is evidence for the current target-coordinate subset only; the local-space
-raster/composite split remains a required cache-parity gate.
+This is evidence for the preceding target-coordinate subset only; the new
+local-space/RenderAtScale checkpoint requires its own strict Windows gate.
 
 The command vocabulary is deliberately semantic:
 
