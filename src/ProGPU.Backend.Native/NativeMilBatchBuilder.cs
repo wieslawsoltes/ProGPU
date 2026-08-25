@@ -178,6 +178,94 @@ public sealed class NativeMilBatchBuilder
         WriteDouble(packet, 8, value);
     }
 
+    public void SetPointResource(uint handle, NativeMilPoint point)
+    {
+        ValidateHandle(handle);
+        ValidatePoint(point);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PointResource, 24);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, point.X);
+        WriteDouble(packet, 16, point.Y);
+    }
+
+    public void SetLinearGradientBrush(
+        uint handle,
+        NativeMilLinearGradientBrush brush,
+        ReadOnlySpan<NativeMilGradientStop> stops)
+    {
+        ValidateHandle(handle);
+        ValidateGradientState(
+            brush.Opacity,
+            brush.Interpolation,
+            brush.MappingMode,
+            brush.SpreadMethod);
+        ValidatePoint(brush.StartPoint);
+        ValidatePoint(brush.EndPoint);
+        int stopsSize = checked(stops.Length * 24);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.LinearGradientBrush,
+            checked(84 + stopsSize));
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, brush.Opacity);
+        WritePoint(packet, 16, brush.StartPoint);
+        WritePoint(packet, 32, brush.EndPoint);
+        WriteUInt32(packet, 48, brush.OpacityAnimationHandle);
+        WriteUInt32(packet, 52, brush.TransformHandle);
+        WriteUInt32(packet, 56, brush.RelativeTransformHandle);
+        WriteUInt32(packet, 60, (uint)brush.Interpolation);
+        WriteUInt32(packet, 64, (uint)brush.MappingMode);
+        WriteUInt32(packet, 68, (uint)brush.SpreadMethod);
+        WriteUInt32(packet, 72, checked((uint)stopsSize));
+        WriteUInt32(packet, 76, brush.StartPointAnimationHandle);
+        WriteUInt32(packet, 80, brush.EndPointAnimationHandle);
+        WriteGradientStops(packet[84..], stops);
+    }
+
+    public void SetRadialGradientBrush(
+        uint handle,
+        NativeMilRadialGradientBrush brush,
+        ReadOnlySpan<NativeMilGradientStop> stops)
+    {
+        ValidateHandle(handle);
+        ValidateGradientState(
+            brush.Opacity,
+            brush.Interpolation,
+            brush.MappingMode,
+            brush.SpreadMethod);
+        ValidatePoint(brush.Center);
+        ValidatePoint(brush.GradientOrigin);
+        if (!double.IsFinite(brush.RadiusX) || brush.RadiusX < 0.0 ||
+            !double.IsFinite(brush.RadiusY) || brush.RadiusY < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(brush));
+        }
+        int stopsSize = checked(stops.Length * 24);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.RadialGradientBrush,
+            checked(108 + stopsSize));
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, brush.Opacity);
+        WritePoint(packet, 16, brush.Center);
+        WriteDouble(packet, 32, brush.RadiusX);
+        WriteDouble(packet, 40, brush.RadiusY);
+        WritePoint(packet, 48, brush.GradientOrigin);
+        WriteUInt32(packet, 64, brush.OpacityAnimationHandle);
+        WriteUInt32(packet, 68, brush.TransformHandle);
+        WriteUInt32(packet, 72, brush.RelativeTransformHandle);
+        WriteUInt32(packet, 76, (uint)brush.Interpolation);
+        WriteUInt32(packet, 80, (uint)brush.MappingMode);
+        WriteUInt32(packet, 84, (uint)brush.SpreadMethod);
+        WriteUInt32(packet, 88, checked((uint)stopsSize));
+        WriteUInt32(packet, 92, brush.CenterAnimationHandle);
+        WriteUInt32(packet, 96, brush.RadiusXAnimationHandle);
+        WriteUInt32(packet, 100, brush.RadiusYAnimationHandle);
+        WriteUInt32(packet, 104, brush.GradientOriginAnimationHandle);
+        WriteGradientStops(packet[108..], stops);
+    }
+
     public void SetMatrixResource(uint handle, NativeMilMatrix3x2 matrix)
     {
         ValidateHandle(handle);
@@ -794,6 +882,50 @@ public sealed class NativeMilBatchBuilder
         ArgumentOutOfRangeException.ThrowIfZero(handle);
     }
 
+    private static void ValidatePoint(NativeMilPoint point)
+    {
+        if (!double.IsFinite(point.X) || !double.IsFinite(point.Y))
+        {
+            throw new ArgumentOutOfRangeException(nameof(point));
+        }
+    }
+
+    private static void ValidateGradientState(
+        double opacity,
+        NativeMilGradientInterpolation interpolation,
+        NativeMilBrushMappingMode mappingMode,
+        NativeMilGradientSpreadMethod spreadMethod)
+    {
+        if (!double.IsFinite(opacity) || opacity < 0.0 || opacity > 1.0 ||
+            interpolation > NativeMilGradientInterpolation.SRgb ||
+            mappingMode > NativeMilBrushMappingMode.RelativeToBoundingBox ||
+            spreadMethod > NativeMilGradientSpreadMethod.Repeat)
+        {
+            throw new ArgumentOutOfRangeException(nameof(opacity));
+        }
+    }
+
+    private static void WriteGradientStops(
+        Span<byte> destination,
+        ReadOnlySpan<NativeMilGradientStop> stops)
+    {
+        for (int index = 0; index < stops.Length; ++index)
+        {
+            NativeMilGradientStop stop = stops[index];
+            ValidateColor(stop.Color);
+            if (!double.IsFinite(stop.Offset))
+            {
+                throw new ArgumentOutOfRangeException(nameof(stops));
+            }
+            int offset = index * 24;
+            WriteDouble(destination, offset, stop.Offset);
+            WriteSingle(destination, offset + 8, stop.Color.Red);
+            WriteSingle(destination, offset + 12, stop.Color.Green);
+            WriteSingle(destination, offset + 16, stop.Color.Blue);
+            WriteSingle(destination, offset + 20, stop.Color.Alpha);
+        }
+    }
+
     internal static void ValidateColor(NativeMilColor color)
     {
         if (!float.IsFinite(color.Red) || !float.IsFinite(color.Green) ||
@@ -1026,6 +1158,7 @@ internal static class NativeMilCommand
     internal const uint CreateResource = 0x07;
     internal const uint DeleteResource = 0x08;
     internal const uint DoubleResource = 0x0e;
+    internal const uint PointResource = 0x10;
     internal const uint MatrixResource = 0x13;
     internal const uint RenderData = 0x18;
     internal const uint VisualCreate = 0x1a;
@@ -1059,6 +1192,8 @@ internal static class NativeMilCommand
     internal const uint CombinedGeometry = 0x7c;
     internal const uint PathGeometry = 0x7d;
     internal const uint SolidColorBrush = 0x7e;
+    internal const uint LinearGradientBrush = 0x7f;
+    internal const uint RadialGradientBrush = 0x80;
     internal const uint DashStyle = 0x85;
     internal const uint Pen = 0x86;
 }
