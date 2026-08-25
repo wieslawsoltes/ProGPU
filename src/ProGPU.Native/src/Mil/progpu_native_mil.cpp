@@ -2279,78 +2279,97 @@ struct channel::implementation {
             segments.push_back(segment);
             return true;
         };
-        const auto append_cubic = [
+        const auto append_arc = [
             &segments,
             &include_point,
-            &map_point](
+            &transform](
             double x0,
             double y0,
             double x1,
             double y1,
-            double x2,
-            double y2,
-            double x3,
-            double y3) {
+            double center_x,
+            double center_y,
+            double radius_x,
+            double radius_y,
+            float theta1,
+            float delta_theta) {
+            progpu_native_path_segment source{};
+            source.p0 = {static_cast<float>(x0), static_cast<float>(y0)};
+            source.p1 = {static_cast<float>(x1), static_cast<float>(y1)};
+            source.p2 = {
+                static_cast<float>(center_x),
+                static_cast<float>(center_y)};
+            source.p3 = {
+                static_cast<float>(radius_x),
+                static_cast<float>(radius_y)};
+            source.kind = PROGPU_NATIVE_PATH_SEGMENT_ARC;
+            source.pad0 = std::bit_cast<std::uint32_t>(theta1);
+            source.pad1 = std::bit_cast<std::uint32_t>(delta_theta);
+            source.pad2 = std::bit_cast<std::uint32_t>(0.0F);
             progpu_native_path_segment segment{};
-            if (!map_point(x0, y0, segment.p0) ||
-                !map_point(x1, y1, segment.p1) ||
-                !map_point(x2, y2, segment.p2) ||
-                !map_point(x3, y3, segment.p3)) {
+            if (!try_transform_arc_segment(source, transform, segment)) {
                 return false;
             }
-            segment.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
             include_point(segment.p0);
             include_point(segment.p1);
-            include_point(segment.p2);
-            include_point(segment.p3);
             segments.push_back(segment);
             return true;
         };
         bool appended = false;
         if (fixed->second.kind == fixed_geometry_kind::ellipse) {
-            constexpr double arc_as_bezier = 0.5522847498307933984;
             const double center_x = fixed->second.first;
             const double center_y = fixed->second.second;
             const double radius_x = fixed->second.third;
             const double radius_y = fixed->second.fourth;
-            const double mid_x = radius_x * arc_as_bezier;
-            const double mid_y = radius_y * arc_as_bezier;
-            appended = append_cubic(
+            if (radius_x == 0.0 || radius_y == 0.0) {
+                return status::success;
+            }
+            constexpr float half_pi =
+                std::numbers::pi_v<float> * 0.5F;
+            appended = append_arc(
                     center_x + radius_x,
                     center_y,
-                    center_x + radius_x,
-                    center_y + mid_y,
-                    center_x + mid_x,
-                    center_y + radius_y,
-                    center_x,
-                    center_y + radius_y) &&
-                append_cubic(
                     center_x,
                     center_y + radius_y,
-                    center_x - mid_x,
+                    center_x,
+                    center_y,
+                    radius_x,
+                    radius_y,
+                    0.0F,
+                    half_pi) &&
+                append_arc(
+                    center_x,
                     center_y + radius_y,
-                    center_x - radius_x,
-                    center_y + mid_y,
-                    center_x - radius_x,
-                    center_y) &&
-                append_cubic(
                     center_x - radius_x,
                     center_y,
+                    center_x,
+                    center_y,
+                    radius_x,
+                    radius_y,
+                    half_pi,
+                    half_pi) &&
+                append_arc(
                     center_x - radius_x,
-                    center_y - mid_y,
-                    center_x - mid_x,
-                    center_y - radius_y,
-                    center_x,
-                    center_y - radius_y) &&
-                append_cubic(
+                    center_y,
                     center_x,
                     center_y - radius_y,
-                    center_x + mid_x,
+                    center_x,
+                    center_y,
+                    radius_x,
+                    radius_y,
+                    std::numbers::pi_v<float>,
+                    half_pi) &&
+                append_arc(
+                    center_x,
                     center_y - radius_y,
                     center_x + radius_x,
-                    center_y - mid_y,
-                    center_x + radius_x,
-                    center_y);
+                    center_y,
+                    center_x,
+                    center_y,
+                    radius_x,
+                    radius_y,
+                    std::numbers::pi_v<float> + half_pi,
+                    half_pi);
         } else {
             const double left = fixed->second.first;
             const double top = fixed->second.second;
@@ -2362,69 +2381,73 @@ struct channel::implementation {
             const double radius_y = std::min(
                 fixed->second.radius_y,
                 fixed->second.fourth * 0.5);
-            if (radius_x == 0.0 && radius_y == 0.0) {
+            if (radius_x == 0.0 || radius_y == 0.0) {
                 appended = append_line(left, top, right, top) &&
                     append_line(right, top, right, bottom) &&
                     append_line(right, bottom, left, bottom) &&
                     append_line(left, bottom, left, top);
             } else {
-                constexpr double one_minus_arc_as_bezier =
-                    1.0 - 0.5522847498307933984;
-                const double bezier_x =
-                    radius_x * one_minus_arc_as_bezier;
-                const double bezier_y =
-                    radius_y * one_minus_arc_as_bezier;
-                appended = append_cubic(
+                constexpr float half_pi =
+                    std::numbers::pi_v<float> * 0.5F;
+                appended = append_arc(
                         left,
                         top + radius_y,
-                        left,
-                        top + bezier_y,
-                        left + bezier_x,
+                        left + radius_x,
                         top,
                         left + radius_x,
-                        top) &&
+                        top + radius_y,
+                        radius_x,
+                        radius_y,
+                        std::numbers::pi_v<float>,
+                        half_pi) &&
                     append_line(
                         left + radius_x,
                         top,
                         right - radius_x,
                         top) &&
-                    append_cubic(
+                    append_arc(
                         right - radius_x,
                         top,
-                        right - bezier_x,
-                        top,
                         right,
-                        top + bezier_y,
-                        right,
-                        top + radius_y) &&
+                        top + radius_y,
+                        right - radius_x,
+                        top + radius_y,
+                        radius_x,
+                        radius_y,
+                        std::numbers::pi_v<float> + half_pi,
+                        half_pi) &&
                     append_line(
                         right,
                         top + radius_y,
                         right,
                         bottom - radius_y) &&
-                    append_cubic(
+                    append_arc(
                         right,
                         bottom - radius_y,
-                        right,
-                        bottom - bezier_y,
-                        right - bezier_x,
+                        right - radius_x,
                         bottom,
                         right - radius_x,
-                        bottom) &&
+                        bottom - radius_y,
+                        radius_x,
+                        radius_y,
+                        0.0F,
+                        half_pi) &&
                     append_line(
                         right - radius_x,
                         bottom,
                         left + radius_x,
                         bottom) &&
-                    append_cubic(
+                    append_arc(
                         left + radius_x,
                         bottom,
-                        left + bezier_x,
-                        bottom,
                         left,
-                        bottom - bezier_y,
-                        left,
-                        bottom - radius_y) &&
+                        bottom - radius_y,
+                        left + radius_x,
+                        bottom - radius_y,
+                        radius_x,
+                        radius_y,
+                        half_pi,
+                        half_pi) &&
                     append_line(
                         left,
                         bottom - radius_y,
@@ -2438,6 +2461,40 @@ struct channel::implementation {
             leaf.segment_offset = original_size;
             return status::invalid_graph;
         }
+        progpu_native_image_rect transformed_bounds{};
+        const double bounds_x = fixed->second.kind ==
+                fixed_geometry_kind::ellipse
+            ? fixed->second.first - fixed->second.third
+            : fixed->second.first;
+        const double bounds_y = fixed->second.kind ==
+                fixed_geometry_kind::ellipse
+            ? fixed->second.second - fixed->second.fourth
+            : fixed->second.second;
+        const double bounds_width = fixed->second.kind ==
+                fixed_geometry_kind::ellipse
+            ? fixed->second.third * 2.0
+            : fixed->second.third;
+        const double bounds_height = fixed->second.kind ==
+                fixed_geometry_kind::ellipse
+            ? fixed->second.fourth * 2.0
+            : fixed->second.fourth;
+        if (!try_transform_bounds(
+                bounds_x,
+                bounds_y,
+                bounds_width,
+                bounds_height,
+                transform,
+                transformed_bounds)) {
+            segments.resize(original_size);
+            leaf = {};
+            leaf.segment_offset = original_size;
+            return status::invalid_graph;
+        }
+        leaf.left = transformed_bounds.x;
+        leaf.top = transformed_bounds.y;
+        leaf.right = transformed_bounds.x + transformed_bounds.width;
+        leaf.bottom = transformed_bounds.y + transformed_bounds.height;
+        leaf.has_bounds = true;
         leaf.segment_count = segments.size() - original_size;
         return status::success;
     }
@@ -2649,9 +2706,20 @@ struct channel::implementation {
             double opacity{1.0};
             progpu_native_image_rect clip_rect{};
             bool has_clip{};
+            std::size_t clip_path_count{};
+            std::size_t clip_segment_count{};
+            std::size_t clip_boolean_node_count{};
+            std::uint32_t mask_resource_index{
+                PROGPU_NATIVE_SCENE_NO_INDEX};
         };
-        render_scope_state current{base_transform, base_opacity};
+        render_scope_state current{};
+        current.transform = base_transform;
+        current.opacity = base_opacity;
         std::vector<render_scope_state> scope_states;
+        std::vector<progpu_native_scene_clip_path> clip_paths;
+        std::vector<progpu_native_path_segment> clip_segments;
+        std::vector<progpu_native_scene_path_boolean_node>
+            clip_boolean_nodes;
         const auto save_state = [&builder](
             const render_scope_state& source) noexcept {
             auto state = native::semantic_scene_builder::identity_state();
@@ -2663,9 +2731,185 @@ struct channel::implementation {
                 state.flags |= PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
                 state.clip_rect = source.clip_rect;
             }
+            if (source.mask_resource_index !=
+                PROGPU_NATIVE_SCENE_NO_INDEX) {
+                state.flags |= PROGPU_NATIVE_SCENE_STATE_MASK;
+                state.mask_resource_index = source.mask_resource_index;
+            }
             std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             return builder.add_state(state, state_index) &&
                 builder.save(state_index);
+        };
+        const auto append_vector_clip = [
+            this,
+            &builder,
+            &clip_paths,
+            &clip_segments,
+            &clip_boolean_nodes](
+            std::uint32_t geometry_handle,
+            const affine_2d_double& target_transform,
+            render_scope_state& state) {
+            clip_paths.resize(state.clip_path_count);
+            clip_segments.resize(state.clip_segment_count);
+            clip_boolean_nodes.resize(state.clip_boolean_node_count);
+            const std::size_t segment_offset =
+                clip_segments.size();
+            const std::size_t boolean_node_offset =
+                clip_boolean_nodes.size();
+            shallow_fill_leaf tree{};
+            std::uint32_t fill_rule = PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+
+            const auto combined = combined_geometries.find(geometry_handle);
+            const auto group = geometry_groups.find(geometry_handle);
+            status append_status = status::success;
+            if (combined != combined_geometries.end()) {
+                append_status = append_boolean_geometry(
+                    geometry_handle,
+                    clip_segments,
+                    clip_boolean_nodes,
+                    tree,
+                    target_transform);
+            } else if (group != geometry_groups.end() &&
+                group->second.fill_rule == 0U &&
+                group->second.children.size() > 1U &&
+                group->second.children.size() <= 32U) {
+                affine_2d_double group_transform = target_transform;
+                if (group->second.transform_handle != 0U) {
+                    const auto transform = matrix_transforms.find(
+                        group->second.transform_handle);
+                    if (transform == matrix_transforms.end()) {
+                        return status::invalid_handle;
+                    }
+                    group_transform = compose_affine(
+                        transform->second,
+                        target_transform);
+                }
+                std::vector<shallow_fill_leaf> leaves;
+                leaves.reserve(group->second.children.size());
+                for (const std::uint32_t child_handle :
+                     group->second.children) {
+                    shallow_fill_leaf child{};
+                    append_status = append_group_fill_leaf(
+                        child_handle,
+                        clip_segments,
+                        child,
+                        group_transform);
+                    if (append_status != status::success) {
+                        break;
+                    }
+                    if (!child.has_bounds) {
+                        continue;
+                    }
+                    if (!tree.has_bounds) {
+                        tree.left = child.left;
+                        tree.top = child.top;
+                        tree.right = child.right;
+                        tree.bottom = child.bottom;
+                        tree.has_bounds = true;
+                    } else {
+                        tree.left = std::min(tree.left, child.left);
+                        tree.top = std::min(tree.top, child.top);
+                        tree.right = std::max(tree.right, child.right);
+                        tree.bottom = std::max(tree.bottom, child.bottom);
+                    }
+                    if (child.segment_count != 0U) {
+                        leaves.push_back(child);
+                    }
+                }
+                if (append_status == status::success &&
+                    has_overlapping_translated_equivalent_leaves(
+                        clip_segments,
+                        leaves)) {
+                    append_status = status::unsupported_command;
+                }
+                if (append_status == status::success) {
+                    for (std::size_t leaf_index = 0U;
+                         leaf_index < leaves.size();
+                         ++leaf_index) {
+                        const auto& leaf = leaves[leaf_index];
+                        clip_boolean_nodes.push_back({
+                            leaf.segment_offset,
+                            leaf.segment_count,
+                            static_cast<float>(leaf.left),
+                            static_cast<float>(leaf.top),
+                            static_cast<float>(leaf.right),
+                            static_cast<float>(leaf.bottom),
+                            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+                            PROGPU_NATIVE_PATH_BOOLEAN_LEAF,
+                            0U,
+                            0U});
+                        if (leaf_index != 0U) {
+                            progpu_native_scene_path_boolean_node operation{};
+                            operation.kind = PROGPU_NATIVE_PATH_BOOLEAN_XOR;
+                            clip_boolean_nodes.push_back(operation);
+                        }
+                    }
+                    tree.segment_offset = segment_offset;
+                    tree.segment_count =
+                        clip_segments.size() - segment_offset;
+                    fill_rule = PROGPU_NATIVE_FILL_RULE_EVEN_ODD;
+                }
+            } else {
+                append_status = append_group_fill_leaf(
+                    geometry_handle,
+                    clip_segments,
+                    tree,
+                    target_transform);
+                fill_rule = tree.fill_rule;
+            }
+            if (append_status != status::success) {
+                clip_segments.resize(segment_offset);
+                clip_boolean_nodes.resize(boolean_node_offset);
+                return append_status;
+            }
+            if (!tree.has_bounds || tree.segment_count == 0U ||
+                tree.right <= tree.left || tree.bottom <= tree.top) {
+                clip_segments.resize(segment_offset);
+                clip_boolean_nodes.resize(boolean_node_offset);
+                state.clip_rect = {};
+                state.has_clip = true;
+                return status::success;
+            }
+            const std::size_t boolean_node_count =
+                clip_boolean_nodes.size() - boolean_node_offset;
+            if (clip_paths.size() >= 64U ||
+                boolean_node_count > 63U) {
+                clip_segments.resize(segment_offset);
+                clip_boolean_nodes.resize(boolean_node_offset);
+                return status::unsupported_command;
+            }
+            clip_paths.push_back({
+                segment_offset,
+                clip_segments.size() - segment_offset,
+                boolean_node_offset,
+                boolean_node_count,
+                static_cast<float>(tree.left),
+                static_cast<float>(tree.top),
+                static_cast<float>(tree.right),
+                static_cast<float>(tree.bottom),
+                {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F},
+                fill_rule,
+                8U,
+                PROGPU_NATIVE_CLIP_INTERSECT,
+                0U});
+            std::uint32_t mask_resource_index =
+                PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!builder.add_vector_clip_mask(
+                    clip_paths,
+                    clip_segments,
+                    clip_boolean_nodes,
+                    1.0F,
+                    mask_resource_index)) {
+                clip_paths.pop_back();
+                clip_segments.resize(segment_offset);
+                clip_boolean_nodes.resize(boolean_node_offset);
+                return status::invalid_graph;
+            }
+            state.clip_path_count = clip_paths.size();
+            state.clip_segment_count = clip_segments.size();
+            state.clip_boolean_node_count = clip_boolean_nodes.size();
+            state.mask_resource_index = mask_resource_index;
+            return status::success;
         };
         const auto resolve_brush_index = [
             this,
@@ -3325,70 +3569,83 @@ struct channel::implementation {
                     return status::malformed_batch;
                 }
                 const auto geometry = fixed_geometries.find(geometry_handle);
-                if (geometry == fixed_geometries.end()) {
-                    return path_geometries.contains(geometry_handle) ||
-                            geometry_groups.contains(geometry_handle) ||
-                            combined_geometries.contains(geometry_handle)
-                        ? status::unsupported_command
-                        : status::invalid_handle;
+                render_scope_state next = current;
+                bool lowered_rectangle = false;
+                if (geometry != fixed_geometries.end() &&
+                    geometry->second.kind == fixed_geometry_kind::rectangle &&
+                    (geometry->second.radius_x == 0.0 ||
+                     geometry->second.radius_y == 0.0)) {
+                    affine_2d_double local_transform{};
+                    if (geometry->second.transform_handle != 0U) {
+                        const auto transform = matrix_transforms.find(
+                            geometry->second.transform_handle);
+                        if (transform == matrix_transforms.end()) {
+                            return status::invalid_handle;
+                        }
+                        local_transform = transform->second;
+                    }
+                    const auto effective_transform = compose_affine(
+                        local_transform,
+                        current.transform);
+                    const bool preserves_axis_alignment =
+                        (effective_transform.m12 == 0.0 &&
+                         effective_transform.m21 == 0.0) ||
+                        (effective_transform.m11 == 0.0 &&
+                         effective_transform.m22 == 0.0);
+                    if (preserves_axis_alignment) {
+                        progpu_native_image_rect clip_rect{};
+                        if (!try_transform_bounds(
+                                geometry->second.first,
+                                geometry->second.second,
+                                geometry->second.third,
+                                geometry->second.fourth,
+                                effective_transform,
+                                clip_rect)) {
+                            return status::invalid_graph;
+                        }
+                        if (current.has_clip) {
+                            const float left = std::max(
+                                current.clip_rect.x,
+                                clip_rect.x);
+                            const float top = std::max(
+                                current.clip_rect.y,
+                                clip_rect.y);
+                            const float right = std::min(
+                                current.clip_rect.x +
+                                    current.clip_rect.width,
+                                clip_rect.x + clip_rect.width);
+                            const float bottom = std::min(
+                                current.clip_rect.y +
+                                    current.clip_rect.height,
+                                clip_rect.y + clip_rect.height);
+                            clip_rect = {
+                                left,
+                                top,
+                                std::max(0.0F, right - left),
+                                std::max(0.0F, bottom - top)};
+                        }
+                        next.clip_rect = clip_rect;
+                        next.has_clip = true;
+                        lowered_rectangle = true;
+                    }
                 }
-                if (geometry->second.kind != fixed_geometry_kind::rectangle ||
-                    geometry->second.radius_x != 0.0 ||
-                    geometry->second.radius_y != 0.0) {
-                    return status::unsupported_command;
-                }
-                affine_2d_double local_transform{};
-                if (geometry->second.transform_handle != 0U) {
-                    const auto transform = matrix_transforms.find(
-                        geometry->second.transform_handle);
-                    if (transform == matrix_transforms.end()) {
+                if (!lowered_rectangle) {
+                    const bool known_geometry =
+                        geometry != fixed_geometries.end() ||
+                        path_geometries.contains(geometry_handle) ||
+                        geometry_groups.contains(geometry_handle) ||
+                        combined_geometries.contains(geometry_handle);
+                    if (!known_geometry) {
                         return status::invalid_handle;
                     }
-                    local_transform = transform->second;
+                    const status clip_status = append_vector_clip(
+                        geometry_handle,
+                        current.transform,
+                        next);
+                    if (clip_status != status::success) {
+                        return clip_status;
+                    }
                 }
-                const auto effective_transform = compose_affine(
-                    local_transform,
-                    current.transform);
-                const bool preserves_axis_alignment =
-                    (effective_transform.m12 == 0.0 &&
-                     effective_transform.m21 == 0.0) ||
-                    (effective_transform.m11 == 0.0 &&
-                     effective_transform.m22 == 0.0);
-                if (!preserves_axis_alignment) {
-                    return status::unsupported_command;
-                }
-                progpu_native_image_rect clip_rect{};
-                if (!try_transform_bounds(
-                        geometry->second.first,
-                        geometry->second.second,
-                        geometry->second.third,
-                        geometry->second.fourth,
-                        effective_transform,
-                        clip_rect)) {
-                    return status::invalid_graph;
-                }
-                if (current.has_clip) {
-                    const float left = std::max(
-                        current.clip_rect.x,
-                        clip_rect.x);
-                    const float top = std::max(
-                        current.clip_rect.y,
-                        clip_rect.y);
-                    const float right = std::min(
-                        current.clip_rect.x + current.clip_rect.width,
-                        clip_rect.x + clip_rect.width);
-                    const float bottom = std::min(
-                        current.clip_rect.y + current.clip_rect.height,
-                        clip_rect.y + clip_rect.height);
-                    clip_rect = {
-                        left,
-                        top,
-                        std::max(0.0F, right - left),
-                        std::max(0.0F, bottom - top)};
-                }
-                render_scope_state next = current;
-                next.clip_rect = clip_rect;
-                next.has_clip = true;
                 if (!save_state(next)) {
                     return status::invalid_graph;
                 }
