@@ -202,12 +202,17 @@ are never implicitly closed for stroking even though WPF fill closure remains
 unchanged. A nonempty dash pattern on a closed gapped figure whose continuous
 run crosses the original figure start fails closed: WPF resets dash phase at
 that start yet joins the two widened pieces, which cannot be represented by
-one current semantic polyline without changing phase or join shape. Stroked
-quadratic/cubic/arc segments, `SegSmoothJoin`, and
-non-flat-cap zero-length runs fail closed until reusable native curved and
-per-join stroke primitives can preserve those semantics exactly. Unstroked
-curves remain valid topology gaps and do not prevent neighboring line runs
-from using the native path-pen lane.
+one current semantic polyline without changing phase or join shape. The first
+native curved-stroke slice retains the exact segment record beside the line
+topology and lowers one open solid quadratic, cubic, or analytic arc segment
+with flat endpoint caps directly to ProGPU geometry primitives. Geometry-local
+affine transforms stay on the primitive; arcs map their resolved center/radii/
+rotation/angles into the reusable two-axis analytic arc contract. Dashed
+curves, non-flat curve caps, `SegSmoothJoin`, joined or multi-segment curved
+contours, closed curved figures, and non-flat-cap zero-length runs still fail
+closed until native cap/join and continuous curve-dash composition preserves
+WPF semantics. Unstroked curves remain valid topology gaps and do not prevent
+neighboring line runs from using the native path-pen lane.
 
 The first retained `MILCMD_GEOMETRYGROUP` slice validates the canonical
 variable child-handle payload, group fill rule, optional matrix transform,
@@ -289,8 +294,8 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds,
-  singular arc-transform fill semantics, curved path
-  strokes/dashes and per-segment smooth joins,
+  singular arc-transform fill semantics, joined/closed curved path
+  strokes, curve dashes, non-flat curve caps, and per-segment smooth joins,
   exact translated-equivalent EvenOdd overlap execution,
   remaining pen draws,
   brushes, drawings, images, glyph runs, caches, guidelines, effects, and
@@ -710,6 +715,19 @@ translated control/end/center points, invariant radii, and positive overlapping
 bounds. Non-overlapping equivalents and non-equivalent mixed leaves keep the
 normal GPU path. Exact rendering for the guarded overlap remains an open parity
 item; fail-closed behavior is the supported interim contract.
+
+The isolated curved-stroke implementation at `e0a9d15f`, with the MSVC
+portability correction at `42e05f29`, passed the focused Windows ARM64 lane.
+Both wgpu-native and Dawn modules rebuilt under `/W4 /WX`; the MIL and Dawn
+contracts passed, including exact quadratic/cubic/arc primitive payloads,
+geometry-local affine state, and dashed/non-flat-cap fail-closed cases. The
+zero-warning project-reference package consumer checkpoint `fa463b86` added an
+open analytic arc stroke to its retained seed. Its 44 commands and 19 channel
+resources compiled through both MIL exports, then the wgpu-native stream
+completed live Parallels D3D12 readback with 19 semantic resources, three
+draws, and 41,472 coverage bytes. This is focused integration evidence; the
+complete differential matrix remains qualified at the preceding `ef6091e9`
+safety checkpoint and will be rerun after the joined-curve slice.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
