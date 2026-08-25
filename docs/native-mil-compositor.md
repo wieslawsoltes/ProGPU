@@ -113,8 +113,10 @@ Resolved transforms compose as local visual transform, visual offset, parent
 transform, and then nested drawing scopes; draw culling bounds are the
 axis-aligned bounds of all four transformed primitive corners.
 Transform handle zero retains WPF's defined balanced no-op scope. Animated
-brushes and pens and other nested commands deliberately fail closed until their
-typed resources are implemented.
+transform fields on linear and radial gradient brushes are resolved through
+the same retained transform graph. Other animated brushes and pens and other
+nested commands deliberately fail closed until their typed resources are
+implemented.
 The slice is covered by byte-level fixtures that check semantic
 brush, transform/opacity state, rectangle, ellipse and rounded-rectangle
 primitives, transformed bounds, nested scope, rollback, scene identity,
@@ -143,6 +145,37 @@ offset on a boundary belonging to the preceding interval as in WPF's
 `CDashSequence::Initialize`. Flat/Flat and initial-gap cases are exact no-ops.
 The size-stable MIL scene metrics ABI now publishes `line_count` in its former
 reserved tail field.
+
+Canonical `MILCMD_LINEARGRADIENTBRUSH` and `MILCMD_RADIALGRADIENTBRUSH`
+resources are retained as typed native state. The decoder validates their
+84-byte and 108-byte fixed packet prefixes, respectively, plus the exact
+24-byte `MilGradientStop` payload stride. `MILCMD_POINTRESOURCE` and
+`MILCMD_DOUBLERESOURCE` replace current point, opacity, and radial-radius values
+on every scene compilation; referenced transform resources remain live without
+retransmitting the brush packet. Deletion of a referenced animation or
+transform is rejected transactionally.
+
+Each brush use resolves WPF's ordering in geometry space: relative coordinates
+are mapped through the drawing bounds, `RelativeTransform` is conjugated by
+those bounds, absolute `Transform` is appended, and the inverse draw and brush
+matrices become the shared shader coordinate transform. Fill and ordinary
+nondegenerate pen paths therefore share one bounds-correct material across
+analytic rectangles/ellipses, retained paths, geometry groups, combined
+geometry, lines, and rounded rectangles. Pad, Reflect, Repeat, sRGB, scRGB,
+anisotropic radii, and focal origins lower to the existing backend-neutral
+ProGPU brush ABI and execute in the same `Vector.wgsl` path for wgpu-native and
+Dawn/DirectX.
+
+Gradient stops are stably sorted after WPF double-to-float position
+quantization. Out-of-range endpoints are clamped or interpolated in the selected
+WPF color space, scRGB packet colors are converted to the shader's sRGB storage
+contract, zero stops become an empty material, and one stop becomes a solid
+material. Internal exact duplicate stops remain ordered for hard transitions.
+WPF's epsilon-based near-coincident consolidation and its distinct Pad outside
+color at duplicate 0/1 endpoints are not yet represented by the semantic brush
+ABI; those cases remain an explicit differential-parity task rather than an
+approximate claim. Gradient brushes on cap-only degenerate pen strokes also
+fail closed until the cap path exposes its exact brush-sizing bounds.
 
 Axis-aligned `MILCMD_DRAW_RECTANGLE` records now accept independent fill and
 pen handles. Rectangle pens lower to closed four-point semantic polylines, so
@@ -1058,6 +1091,32 @@ Exact qualified SHA-256 values were
 `a903edec8bb58e314e2738d64f8246ccc7a9f83e2d0c33755f3855ff043c233e`
 for `progpu_native.dll` and
 `e19d905e42d5030bf2aded0182fa1c8eb9bfc27f9a974cc3aa4d21b6507d33b0`
+for `progpu_native_dawn.dll`.
+
+Native gradient implementation `1a937dbd` and managed packet-builder
+checkpoint `5d3b96f0` then added retained linear/radial gradient resources,
+`PointResource` current values, bounds-relative mapping, brush transforms,
+anisotropic focal radial state, both interpolation modes, all three spread
+modes, and stable out-of-range stop normalization. Native fixtures validate
+live point/double updates, transform ordering, enum remapping, stop payloads,
+wrong-type rejection, and dependency-protected deletion. All eight locally
+configured native suites passed. Strict Windows ARM64 MSVC rebuilt both native
+modules under `/W4 /WX`, and all 11 native/Dawn CTests passed in the Parallels
+VM. The managed builder tests passed 6/6 and the project-reference package
+consumer built with zero warnings.
+
+Focused package gate `5db0910e` compiled one mixed solid/linear/radial scene
+through both MIL exports using 15 commands and six channel resources, then
+installed and rendered it on live D3D12. The retained renderer reported five
+semantic resources, one batched draw, zero coverage-staging bytes, a valid
+submission, and nonblack readback; the following direct render also read back
+16,384 pixels. The broader unchanged 78-command/36-resource MIL seed passed
+both export contracts. Its dense path/boolean live render remained noisy on
+the documented Parallels adapter and was not used as gradient evidence. Exact
+qualified SHA-256 values were
+`84f9ff3fcc3b1030fba0150891a92d176ea63d5cca7641af97d7f57d36f0cb54`
+for `progpu_native.dll` and
+`3779ab39f5d324f666eccc2452d0a21caf5ac5c2bea8d9eee2acede9fe8c6bf5`
 for `progpu_native_dawn.dll`.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
