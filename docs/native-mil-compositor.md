@@ -177,6 +177,15 @@ ABI; those cases remain an explicit differential-parity task rather than an
 approximate claim. Gradient brushes on cap-only degenerate pen strokes also
 fail closed until the cap path exposes its exact brush-sizing bounds.
 
+Canonical `MILCMD_GEOMETRYDRAWING` resource `87` and nested
+`MILCMD_DRAW_DRAWING` command `0x4a` are retained as typed native state. A
+geometry drawing keeps nullable brush, pen, and geometry handles and resolves
+them through the same native geometry lowering used by `DrawGeometry`; a null
+geometry is the WPF-defined no-op. The channel rejects wrong resource types and
+deletion of a live brush, pen, or geometry dependency transactionally. Other
+drawing resource kinds remain unsupported and fail closed rather than being
+adapted through managed object inspection.
+
 Axis-aligned `MILCMD_DRAW_RECTANGLE` records now accept independent fill and
 pen handles. Rectangle pens lower to closed four-point semantic polylines, so
 solid and dashed outlines share ProGPU's native join, miter-limit, dash-cap,
@@ -1117,6 +1126,24 @@ qualified SHA-256 values were
 `84f9ff3fcc3b1030fba0150891a92d176ea63d5cca7641af97d7f57d36f0cb54`
 for `progpu_native.dll` and
 `3779ab39f5d324f666eccc2452d0a21caf5ac5c2bea8d9eee2acede9fe8c6bf5`
+for `progpu_native_dawn.dll`.
+
+GeometryDrawing implementation `43ef1cf5` and focused package gate
+`64206983` then added the exact 24-byte resource-update and 16-byte nested draw
+records to the C++ channel and managed packet builders. The native fixture
+verifies shared geometry lowering, null-geometry no-op behavior, protected
+dependencies, wrong-type rejection, and rollback. All ten local native CTests
+passed, the managed canonical-builder filter passed 6/6, and the package
+consumer built with zero warnings. After merging current ProGPU `main`, strict
+Windows ARM64 MSVC rebuilt both native modules under `/W4 /WX`; all 11
+native/Dawn CTests passed in the Parallels VM. The focused 15-command,
+six-resource GeometryDrawing scene compiled through both MIL exports and
+rendered on live D3D12 with three semantic resources, one batched draw, zero
+coverage-staging bytes, a valid submission, nonblack retained readback, and
+16,384 direct-render pixels. Exact qualified SHA-256 values were
+`14636dca53dbecb0defd05a356642ac39cac9982d4ef918dc3d50e538cf99c3a`
+for `progpu_native.dll` and
+`5abd082989ae7df2b77cd727081f761d1211d5803d71cfd9102056f1a2d6034c`
 for `progpu_native_dawn.dll`.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
