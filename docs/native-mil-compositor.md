@@ -823,6 +823,23 @@ for `progpu_native.dll` and
 `9ca1765e660c8cc0d69c8c3eccba3d6971b9c4a05b04a5fc33975dee26e9c938`
 for `progpu_native_dawn.dll`.
 
+The dashed closed-gap implementation at `c12e6d60` removed the obsolete seam
+rejection for line-only closed figures. The decoder already rotates each open
+stroked run to the first edge after its geometry gap, so a run that crosses the
+figure start retains one ordered polyline, one dash phase, and DashCap at both
+gap boundaries without flattening or splitting. Native tests now assert the
+wrapped point order, dash offset, interval count, and cap state. All ten local
+native tests passed; strict Windows ARM64 rebuilt both modules and the MIL/Dawn
+contract tests passed. Package checkpoint `0048f430` moved the existing line
+geometry gap to force a start-crossing dashed run. Both MIL exports compiled
+the 48-command/21-channel-resource seed, and live D3D12 readback retained 23
+semantic resources, three draws, and 41,472 coverage bytes. Exact focused
+SHA-256 values were
+`39a28937c25d977310597efb3c6e7f0ed9f077cd8617b2f95582d3cca58e0161`
+for `progpu_native.dll` and
+`daefb160737962ec81fb78238b44508a7c6a7235c8daf1bc129b0f5df2dda14a`
+for `progpu_native_dawn.dll`.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
