@@ -60,6 +60,10 @@ public sealed class PortableDrawingGroupState
 
     public object? BitmapScalingMode { get; set; }
 
+    public bool HasPortableBitmapScalingMode { get; set; }
+
+    public PortableBitmapScalingMode PortableBitmapScalingMode { get; set; }
+
     public bool HasEdgeMode { get; set; }
 
     public object? EdgeMode { get; set; }

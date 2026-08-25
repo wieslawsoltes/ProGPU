@@ -4404,6 +4404,7 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
     constexpr std::uint32_t target = 3U;
     constexpr std::uint32_t bitmap = 4U;
     constexpr std::uint32_t drawing = 5U;
+    constexpr std::uint32_t group = 6U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -4411,6 +4412,7 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
     append_create(batch, target, 47U);
     append_create(batch, bitmap, 95U);
     append_create(batch, drawing, 89U);
+    append_create(batch, group, 91U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -4423,8 +4425,23 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
         10.0,
         bitmap,
         0U);
+    append_command(
+        batch,
+        command::drawing_group,
+        group,
+        1.0,
+        4U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        3U,
+        0U,
+        drawing);
     std::vector<std::byte> nested;
-    append_command(nested, command::draw_drawing, drawing, 0U);
+    append_command(nested, command::draw_drawing, group, 0U);
     append_render_data(batch, content, nested);
     append_command(
         batch,
@@ -4479,7 +4496,7 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
         PROGPU_REQUIRE(image.image_width == 2U);
         PROGPU_REQUIRE(image.image_height == 2U);
         PROGPU_REQUIRE(image.row_bytes == 8U);
-        PROGPU_REQUIRE(image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR);
+        PROGPU_REQUIRE(image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST);
         PROGPU_REQUIRE(image.source_rect.width == 2.0F);
         PROGPU_REQUIRE(image.source_rect.height == 2.0F);
         PROGPU_REQUIRE(image.destination_rect.x == 3.0F);
@@ -4493,6 +4510,45 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
         found_image = true;
     }
     PROGPU_REQUIRE(found_image);
+
+    std::vector<std::byte> high_quality_update;
+    append_command(
+        high_quality_update,
+        command::drawing_group,
+        group,
+        1.0,
+        4U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        2U,
+        0U,
+        drawing);
+    PROGPU_REQUIRE(state.apply(high_quality_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7005U, 3U, stream, &metrics) ==
+        status::success);
+    const auto cubic_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    bool found_cubic = false;
+    for (std::uint32_t index = 0U;
+         index < cubic_header.command_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            cubic_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+            const auto image = read_value<progpu_native_scene_image_draw>(
+                stream, record.payload_offset);
+            found_cubic = image.sampling ==
+                PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC;
+        }
+    }
+    PROGPU_REQUIRE(found_cubic);
 
     std::vector<std::byte> delete_bitmap;
     append_command(
