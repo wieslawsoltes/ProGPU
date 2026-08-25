@@ -383,7 +383,10 @@ bool is_valid_semantic_layer(
         PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
         PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
         PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
-        PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT;
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE;
+    const bool local_cache =
+        (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
     const bool bounds_are_canonical =
         (layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) != 0U ||
         (layer.bounds.x == 0.0F && layer.bounds.y == 0.0F &&
@@ -402,7 +405,18 @@ bool is_valid_semantic_layer(
             ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BACKDROP) == 0U &&
                 layer.content_revision != 0U &&
                 layer.composite_revision != 0U)) &&
-        layer.reserved0 == 0U && layer.reserved1 == 0U;
+        (!local_cache ||
+            ((layer.flags & (PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+                    PROGPU_NATIVE_SCENE_LAYER_BOUNDS)) ==
+                (PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+                    PROGPU_NATIVE_SCENE_LAYER_BOUNDS) &&
+                layer.bounds.x == 0.0F && layer.bounds.y == 0.0F &&
+                layer.bounds.width > 0.0F && layer.bounds.height > 0.0F &&
+                layer.blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER &&
+                layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
+                layer.effect_resource_index ==
+                    PROGPU_NATIVE_SCENE_NO_INDEX)) &&
+        (local_cache || layer.reserved0 == 0U) && layer.reserved1 == 0U;
 }
 
 bool is_valid_semantic_effect(

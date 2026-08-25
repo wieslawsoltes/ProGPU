@@ -258,7 +258,14 @@ enum {
     PROGPU_NATIVE_SCENE_LAYER_BOUNDS = 1U << 0U,
     PROGPU_NATIVE_SCENE_LAYER_BACKDROP = 1U << 1U,
     PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION = 1U << 2U,
-    PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT = 1U << 3U
+    PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT = 1U << 3U,
+    /*
+     * Rasterizes cached content into layer-local coordinates and composites
+     * it through the STATE resource referenced by reserved0. Requires
+     * CACHE_CONTENT, BOUNDS, a zero bounds origin, and a canonical transform-
+     * only composite state.
+     */
+    PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE = 1U << 4U
 };
 
 typedef enum progpu_native_image_sampling {
@@ -1025,7 +1032,10 @@ typedef struct progpu_native_scene_guideline_set {
  * Revisions are caller-owned retained identities; zero disables reuse hints.
  * With LAYER_CACHE_CONTENT, composite_revision is the stable cache-owner
  * identity and content_revision is the subtree pixel version. Both must be
- * nonzero.
+ * nonzero. With LAYER_CACHE_LOCAL_SPACE, bounds describe the zero-origin
+ * raster-page extent and reserved0 is a preceding transform-only
+ * PROGPU_NATIVE_SCENE_RESOURCE_STATE used to place the cached quad in its
+ * parent target. The 64-byte version-one record remains unchanged.
  */
 typedef struct progpu_native_scene_layer {
     uint32_t struct_size;

@@ -4024,14 +4024,37 @@ progpu_native_status render_scene(
                     const std::uint32_t first_vertex =
                         static_cast<std::uint32_t>(
                             semantic_layer_vertices.size());
-                    append_semantic_layer_quad(
-                        semantic_layer_vertices,
-                        source_extent,
-                        target_extent,
-                        engine->semantic_layer_slots[source_layer].width,
-                        engine->semantic_layer_slots[source_layer].height,
-                        frame->dpi_scale,
-                        layer.opacity);
+                    const bool local_cache =
+                        (layer.flags &
+                            PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) !=
+                        0U;
+                    if (local_cache) {
+                        const auto composite_resource = read_resource(
+                            layer.reserved0);
+                        progpu_native_scene_state composite_state{};
+                        std::memcpy(
+                            &composite_state,
+                            bytes + composite_resource.payload_offset,
+                            sizeof(composite_state));
+                        append_semantic_transformed_layer_quad(
+                            semantic_layer_vertices,
+                            source_extent,
+                            target_extent,
+                            engine->semantic_layer_slots[source_layer].width,
+                            engine->semantic_layer_slots[source_layer].height,
+                            frame->dpi_scale,
+                            layer.opacity,
+                            composite_state.transform);
+                    } else {
+                        append_semantic_layer_quad(
+                            semantic_layer_vertices,
+                            source_extent,
+                            target_extent,
+                            engine->semantic_layer_slots[source_layer].width,
+                            engine->semantic_layer_slots[source_layer].height,
+                            frame->dpi_scale,
+                            layer.opacity);
+                    }
                     semantic_render_bundle_span operation{};
                     operation.kind = semantic_replay_kind::pop_layer;
                     operation.operation_id = command.command_id;

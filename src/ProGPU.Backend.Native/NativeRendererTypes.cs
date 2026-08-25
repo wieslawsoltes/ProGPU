@@ -712,7 +712,13 @@ public enum NativeSceneLayerFlags : uint
     /// Retains this isolated output by stable composite revision and refreshes
     /// its pixels only when the nonzero content revision changes.
     /// </summary>
-    CacheContent = 1U << 3
+    CacheContent = 1U << 3,
+
+    /// <summary>
+    /// Rasterizes cached content in a zero-origin local page and composites it
+    /// through <see cref="NativeSceneLayer.CompositeStateResourceIndex"/>.
+    /// </summary>
+    CacheLocalSpace = 1U << 4
 }
 
 public enum NativeSceneValidationError : uint
@@ -1551,7 +1557,10 @@ internal readonly struct NativeSceneGuidelineSetHeader
 /// feature. Revisions are retained identity hints; zero disables the
 /// corresponding hint. For <see cref="NativeSceneLayerFlags.CacheContent"/>,
 /// composite revision is the stable owner identity and content revision is the
-/// subtree pixel version; both must be nonzero.
+/// subtree pixel version; both must be nonzero. A local-space cache uses
+/// <see cref="CompositeStateResourceIndex"/> to reference a preceding
+/// transform-only <see cref="NativeSceneState"/> resource while retaining the
+/// exact 64-byte layer ABI.
 /// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct NativeSceneLayer
@@ -1569,7 +1578,8 @@ public readonly struct NativeSceneLayer
         uint maskResourceIndex = uint.MaxValue,
         uint effectResourceIndex = uint.MaxValue,
         ulong contentRevision = 0U,
-        ulong compositeRevision = 0U)
+        ulong compositeRevision = 0U,
+        uint compositeStateResourceIndex = 0U)
     {
         if ((uint)blendMode > (uint)GpuBlendMode.Modulate)
         {
@@ -1585,7 +1595,7 @@ public readonly struct NativeSceneLayer
         EffectResourceIndex = effectResourceIndex;
         ContentRevision = contentRevision;
         CompositeRevision = compositeRevision;
-        Reserved0 = 0U;
+        CompositeStateResourceIndex = compositeStateResourceIndex;
         Reserved1 = 0U;
     }
 
@@ -1600,10 +1610,12 @@ public readonly struct NativeSceneLayer
     public readonly uint EffectResourceIndex;
     public readonly ulong ContentRevision;
     public readonly ulong CompositeRevision;
-    private readonly uint Reserved0;
+    public readonly uint CompositeStateResourceIndex;
     private readonly uint Reserved1;
 
-    internal bool HasCanonicalReservedFields => Reserved0 == 0U && Reserved1 == 0U;
+    internal bool HasCanonicalReservedFields =>
+        ((Flags & NativeSceneLayerFlags.CacheLocalSpace) != 0 ||
+            CompositeStateResourceIndex == 0U) && Reserved1 == 0U;
 }
 
 /// <summary>

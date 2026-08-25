@@ -1150,11 +1150,42 @@ validation_result validate(
                     PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) ||
                 !valid_layer_resource(
                     layer.effect_resource_index,
-                    PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN)) {
+                    PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) ||
+                (((layer.flags &
+                        PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U) &&
+                    (layer.reserved0 == PROGPU_NATIVE_SCENE_NO_INDEX ||
+                        !valid_layer_resource(
+                            layer.reserved0,
+                            PROGPU_NATIVE_SCENE_RESOURCE_STATE)))) {
                 return fail(
                     header,
                     PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
                     offset);
+            }
+            if ((layer.flags &
+                    PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U) {
+                const auto composite_resource = read_record<
+                    progpu_native_scene_resource>(
+                        bytes,
+                        header.resource_offset +
+                            static_cast<std::size_t>(layer.reserved0) *
+                                header.resource_stride);
+                const auto composite_state = read_record<
+                    progpu_native_scene_state>(
+                        bytes, composite_resource.payload_offset);
+                if (composite_state.flags != 0U ||
+                    composite_state.opacity != 1.0F ||
+                    composite_state.clip_rect.x != 0.0F ||
+                    composite_state.clip_rect.y != 0.0F ||
+                    composite_state.clip_rect.width != 0.0F ||
+                    composite_state.clip_rect.height != 0.0F ||
+                    composite_state.mask_resource_index != 0U ||
+                    composite_state.guideline_resource_index != 0U) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                        offset);
+                }
             }
             layer_is_materialized = layer_requires_materialization(layer);
         }

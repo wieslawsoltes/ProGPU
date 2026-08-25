@@ -104,6 +104,56 @@ bool try_get_cached_layer(
     return false;
 }
 
+bool try_get_state_resource(
+    const std::vector<std::byte>& stream,
+    std::uint32_t resource_index,
+    progpu_native_scene_state& state) {
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    if (resource_index >= header.resource_count) {
+        return false;
+    }
+    const auto resource = read_value<progpu_native_scene_resource>(
+        stream,
+        header.resource_offset +
+            resource_index * sizeof(progpu_native_scene_resource));
+    if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE ||
+        resource.payload_size != sizeof(progpu_native_scene_state)) {
+        return false;
+    }
+    state = read_value<progpu_native_scene_state>(
+        stream, resource.payload_offset);
+    return true;
+}
+
+bool try_get_cached_raster_state(
+    const std::vector<std::byte>& stream,
+    progpu_native_scene_state& state) {
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    bool cached_layer_pending = false;
+    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+        const auto command_record = read_value<progpu_native_scene_command>(
+            stream,
+            header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (command_record.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER &&
+            command_record.payload_size == sizeof(progpu_native_scene_layer)) {
+            const auto layer = read_value<progpu_native_scene_layer>(
+                stream, command_record.payload_offset);
+            cached_layer_pending =
+                (layer.flags &
+                    PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
+            continue;
+        }
+        if (cached_layer_pending &&
+            command_record.kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE) {
+            return try_get_state_resource(
+                stream, command_record.state_index, state);
+        }
+        cached_layer_pending = false;
+    }
+    return false;
+}
+
 template<typename T>
 void write_value(
     std::vector<std::byte>& bytes,
@@ -1610,13 +1660,27 @@ bool visual_bitmap_cache_uses_canonical_typed_retention() {
     PROGPU_REQUIRE(try_get_cached_layer(stream, first));
     PROGPU_REQUIRE(
         first.flags == (PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
             PROGPU_NATIVE_SCENE_LAYER_BOUNDS));
-    PROGPU_REQUIRE(first.bounds.x == 4.0F);
-    PROGPU_REQUIRE(first.bounds.y == 6.0F);
+    PROGPU_REQUIRE(first.bounds.x == 0.0F);
+    PROGPU_REQUIRE(first.bounds.y == 0.0F);
     PROGPU_REQUIRE(first.bounds.width == 24.0F);
     PROGPU_REQUIRE(first.bounds.height == 18.0F);
     PROGPU_REQUIRE(first.content_revision != 0U);
     PROGPU_REQUIRE(first.composite_revision != 0U);
+    progpu_native_scene_state first_composite{};
+    PROGPU_REQUIRE(try_get_state_resource(
+        stream, first.reserved0, first_composite));
+    PROGPU_REQUIRE(first_composite.transform.m11 == 1.0F);
+    PROGPU_REQUIRE(first_composite.transform.m22 == 1.0F);
+    PROGPU_REQUIRE(first_composite.transform.m31 == 4.0F);
+    PROGPU_REQUIRE(first_composite.transform.m32 == 6.0F);
+    progpu_native_scene_state first_raster{};
+    PROGPU_REQUIRE(try_get_cached_raster_state(stream, first_raster));
+    PROGPU_REQUIRE(first_raster.transform.m11 == 1.0F);
+    PROGPU_REQUIRE(first_raster.transform.m22 == 1.0F);
+    PROGPU_REQUIRE(first_raster.transform.m31 == -4.0F);
+    PROGPU_REQUIRE(first_raster.transform.m32 == -6.0F);
 
     std::vector<std::byte> sibling_update;
     append_command(
@@ -1668,13 +1732,18 @@ bool visual_bitmap_cache_uses_canonical_typed_retention() {
     progpu_native_scene_layer cached_changed{};
     PROGPU_REQUIRE(try_get_cached_layer(stream, cached_changed));
     PROGPU_REQUIRE(
-        cached_changed.content_revision != brush_changed.content_revision);
+        cached_changed.content_revision == brush_changed.content_revision);
     PROGPU_REQUIRE(
         cached_changed.composite_revision == first.composite_revision);
-    PROGPU_REQUIRE(cached_changed.bounds.x == 6.0F);
-    PROGPU_REQUIRE(cached_changed.bounds.y == 6.0F);
+    PROGPU_REQUIRE(cached_changed.bounds.x == 0.0F);
+    PROGPU_REQUIRE(cached_changed.bounds.y == 0.0F);
     PROGPU_REQUIRE(cached_changed.bounds.width == 24.0F);
     PROGPU_REQUIRE(cached_changed.bounds.height == 18.0F);
+    progpu_native_scene_state moved_composite{};
+    PROGPU_REQUIRE(try_get_state_resource(
+        stream, cached_changed.reserved0, moved_composite));
+    PROGPU_REQUIRE(moved_composite.transform.m31 == 6.0F);
+    PROGPU_REQUIRE(moved_composite.transform.m32 == 6.0F);
 
     const auto cache_generation = state.resource_generation(cache);
     std::vector<std::byte> malformed_boolean;
@@ -1696,7 +1765,26 @@ bool visual_bitmap_cache_uses_canonical_typed_retention() {
     PROGPU_REQUIRE(state.apply(scaled) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 9015U, 5U, stream, &metrics) ==
-        status::unsupported_command);
+        status::success);
+    progpu_native_scene_layer scaled_layer{};
+    PROGPU_REQUIRE(try_get_cached_layer(stream, scaled_layer));
+    PROGPU_REQUIRE(scaled_layer.bounds.width == 12.0F);
+    PROGPU_REQUIRE(scaled_layer.bounds.height == 9.0F);
+    PROGPU_REQUIRE(
+        scaled_layer.content_revision != cached_changed.content_revision);
+    progpu_native_scene_state scaled_composite{};
+    PROGPU_REQUIRE(try_get_state_resource(
+        stream, scaled_layer.reserved0, scaled_composite));
+    PROGPU_REQUIRE(scaled_composite.transform.m11 == 2.0F);
+    PROGPU_REQUIRE(scaled_composite.transform.m22 == 2.0F);
+    PROGPU_REQUIRE(scaled_composite.transform.m31 == 6.0F);
+    PROGPU_REQUIRE(scaled_composite.transform.m32 == 6.0F);
+    progpu_native_scene_state scaled_raster{};
+    PROGPU_REQUIRE(try_get_cached_raster_state(stream, scaled_raster));
+    PROGPU_REQUIRE(scaled_raster.transform.m11 == 0.5F);
+    PROGPU_REQUIRE(scaled_raster.transform.m22 == 0.5F);
+    PROGPU_REQUIRE(scaled_raster.transform.m31 == -2.0F);
+    PROGPU_REQUIRE(scaled_raster.transform.m32 == -3.0F);
     std::vector<std::byte> unit_scale;
     append_command(
         unit_scale, command::double_resource, scale_animation, 1.0);
@@ -1707,7 +1795,7 @@ bool visual_bitmap_cache_uses_canonical_typed_retention() {
     progpu_native_scene_layer animated{};
     PROGPU_REQUIRE(try_get_cached_layer(stream, animated));
     PROGPU_REQUIRE(
-        animated.content_revision != cached_changed.content_revision);
+        animated.content_revision != scaled_layer.content_revision);
     PROGPU_REQUIRE(
         animated.composite_revision == first.composite_revision);
 

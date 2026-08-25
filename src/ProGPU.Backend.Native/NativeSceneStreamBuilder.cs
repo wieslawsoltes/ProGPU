@@ -1748,7 +1748,8 @@ public ref struct NativeSceneStreamBuilder
                 NativeSceneResourceKind.LayerMask) ||
             !HasOptionalResourceKind(
                 layer.EffectResourceIndex,
-                NativeSceneResourceKind.EffectChain))
+                NativeSceneResourceKind.EffectChain) ||
+            !HasValidLocalCompositeState(in layer))
         {
             return false;
         }
@@ -2852,7 +2853,10 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneLayerFlags.Bounds |
             NativeSceneLayerFlags.Backdrop |
             NativeSceneLayerFlags.ForceIsolation |
-            NativeSceneLayerFlags.CacheContent;
+            NativeSceneLayerFlags.CacheContent |
+            NativeSceneLayerFlags.CacheLocalSpace;
+        bool localCache =
+            (layer.Flags & NativeSceneLayerFlags.CacheLocalSpace) != 0;
         bool hasBounds =
             (layer.Flags & NativeSceneLayerFlags.Bounds) != 0;
         bool canonicalBounds = hasBounds ||
@@ -2868,7 +2872,47 @@ public ref struct NativeSceneStreamBuilder
                 ((layer.Flags & NativeSceneLayerFlags.Backdrop) == 0 &&
                     layer.ContentRevision != 0 &&
                     layer.CompositeRevision != 0)) &&
+            (!localCache ||
+                ((layer.Flags & (NativeSceneLayerFlags.CacheContent |
+                        NativeSceneLayerFlags.Bounds)) ==
+                    (NativeSceneLayerFlags.CacheContent |
+                        NativeSceneLayerFlags.Bounds) &&
+                    layer.Bounds.X == 0f && layer.Bounds.Y == 0f &&
+                    layer.Bounds.Width > 0f && layer.Bounds.Height > 0f &&
+                    layer.BlendMode == GpuBlendMode.SrcOver &&
+                    layer.MaskResourceIndex == NativeMethods.SceneNoIndex &&
+                    layer.EffectResourceIndex == NativeMethods.SceneNoIndex)) &&
             layer.HasCanonicalReservedFields;
+    }
+
+    private readonly bool HasValidLocalCompositeState(
+        in NativeSceneLayer layer)
+    {
+        if ((layer.Flags & NativeSceneLayerFlags.CacheLocalSpace) == 0)
+            return true;
+        uint resourceIndex = layer.CompositeStateResourceIndex;
+        if (resourceIndex >= (uint)_resourceCount ||
+            !ResourceHasKind(resourceIndex, NativeSceneResourceKind.State))
+        {
+            return false;
+        }
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            _destination.Slice(
+                _resourceOffset + checked((int)resourceIndex) * ResourceSize,
+                ResourceSize));
+        if (resource.PayloadSize !=
+            checked((uint)Unsafe.SizeOf<NativeSceneState>()))
+            return false;
+        var state = MemoryMarshal.Read<NativeSceneState>(
+            _destination.Slice(
+                checked((int)resource.PayloadOffset),
+                Unsafe.SizeOf<NativeSceneState>()));
+        return state.Flags == NativeSceneStateFlags.None &&
+            state.Opacity == 1f && state.ClipRect.X == 0f &&
+            state.ClipRect.Y == 0f && state.ClipRect.Width == 0f &&
+            state.ClipRect.Height == 0f &&
+            state.MaskResourceIndex == 0U &&
+            state.GuidelineResourceIndex == 0U;
     }
 
     private static bool IsValidLayerMask(in NativeSceneLayerMask mask)
