@@ -7,6 +7,7 @@ using System.ComponentModel;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Drawing.Text;
+using System.Globalization;
 using System.Numerics;
 using System.Text;
 
@@ -2009,7 +2010,10 @@ public class Graphics :
         format.EnsureNotDisposed();
 
         StringFormatFlags flags = format.FormatFlags;
-        string displayText = ApplyHotkeyPrefix(text, format.HotkeyPrefix);
+        string displayText = ApplyDigitSubstitution(
+            ApplyHotkeyPrefix(text, format.HotkeyPrefix),
+            format,
+            out CultureInfo? digitCulture);
         float maxWidth = layoutArea.Width > 0f && float.IsFinite(layoutArea.Width)
             ? layoutArea.Width
             : float.PositiveInfinity;
@@ -2022,7 +2026,35 @@ public class Graphics :
             : GetTextAlignment(format.Alignment, flags);
         float textLayoutWidth = noWrap ? float.PositiveInfinity : maxWidth;
         float fontSize = GetFontPixelSize(font);
-        var layout = new ProGPU.Text.TextLayout(displayText, font.TtfFont, fontSize, textLayoutWidth, alignment);
+        var shapingOptions = new ProGPU.Text.TextShapingOptions
+        {
+            Direction = (flags & StringFormatFlags.DirectionVertical) != 0
+                ? ProGPU.Text.Shaping.ShapingDirection.TopToBottom
+                : (flags & StringFormatFlags.DirectionRightToLeft) != 0
+                    ? ProGPU.Text.Shaping.ShapingDirection.RightToLeft
+                    : ProGPU.Text.Shaping.ShapingDirection.LeftToRight,
+            Language = digitCulture?.Name,
+            BufferFlags = (flags & StringFormatFlags.DisplayFormatControl) != 0
+                ? ProGPU.Text.Shaping.ShapingBufferFlags.PreserveDefaultIgnorables
+                : ProGPU.Text.Shaping.ShapingBufferFlags.None
+        };
+        float[] tabStops = format.GetTabStops(out float firstTabOffset);
+        var formattingOptions = new ProGPU.Text.TextLayoutFormattingOptions
+        {
+            EnableFontFallback = (flags & StringFormatFlags.NoFontFallback) == 0,
+            MeasureTrailingWhitespace = (flags & StringFormatFlags.MeasureTrailingSpaces) != 0,
+            FirstTabOffset = firstTabOffset,
+            TabStops = tabStops
+        };
+        var layout = new ProGPU.Text.TextLayout(
+            displayText,
+            font.TtfFont,
+            fontSize,
+            textLayoutWidth,
+            alignment,
+            atlas: null,
+            shapingOptions,
+            formattingOptions);
 
         bool exceedsWidth = float.IsFinite(maxWidth) && layout.ContentSize.X > maxWidth + 0.001f;
         bool exceedsHeight = float.IsFinite(maxHeight) && layout.ContentSize.Y > maxHeight + 0.001f;
@@ -2044,8 +2076,18 @@ public class Graphics :
                 noWrap,
                 alignment,
                 trimming,
+                shapingOptions,
+                formattingOptions,
                 out charactersFitted);
-            layout = new ProGPU.Text.TextLayout(displayText, font.TtfFont, fontSize, textLayoutWidth, alignment);
+            layout = new ProGPU.Text.TextLayout(
+                displayText,
+                font.TtfFont,
+                fontSize,
+                textLayoutWidth,
+                alignment,
+                atlas: null,
+                shapingOptions,
+                formattingOptions);
         }
 
         int linesFilled = GetLineCount(layout, font, fontSize);
@@ -2061,6 +2103,8 @@ public class Graphics :
         bool noWrap,
         ProGPU.Text.TextAlignment alignment,
         StringTrimming trimming,
+        ProGPU.Text.TextShapingOptions shapingOptions,
+        ProGPU.Text.TextLayoutFormattingOptions formattingOptions,
         out int charactersFitted)
     {
         string suffix = trimming is StringTrimming.EllipsisCharacter
@@ -2128,7 +2172,10 @@ public class Graphics :
                 font.TtfFont,
                 fontSize,
                 noWrap ? float.PositiveInfinity : maxWidth,
-                alignment);
+                alignment,
+                atlas: null,
+                shapingOptions,
+                formattingOptions);
             bool widthFits = !float.IsFinite(maxWidth) || candidateLayout.ContentSize.X <= maxWidth + 0.001f;
             bool heightFits = !float.IsFinite(maxHeight) || candidateLayout.ContentSize.Y <= maxHeight + 0.001f;
             return widthFits && heightFits;
@@ -2195,6 +2242,93 @@ public class Graphics :
         }
 
         return builder.ToString();
+    }
+
+    private static string ApplyDigitSubstitution(
+        string text,
+        StringFormat format,
+        out CultureInfo? digitCulture)
+    {
+        digitCulture = null;
+        StringDigitSubstitute method = format.DigitSubstitutionMethod;
+        if (method == StringDigitSubstitute.None || text.AsSpan().IndexOfAny("0123456789") < 0)
+        {
+            return text;
+        }
+
+        int language = format.DigitSubstitutionLanguage;
+        try
+        {
+            digitCulture = language == 0
+                ? CultureInfo.CurrentCulture
+                : CultureInfo.GetCultureInfo(language);
+        }
+        catch (CultureNotFoundException)
+        {
+            return text;
+        }
+
+        string[] digits = GetSubstitutionDigits(digitCulture);
+        bool hasNativeDigits = false;
+        for (int index = 0; index < digits.Length; index++)
+        {
+            if (digits[index].Length == 1 && digits[index][0] != (char)('0' + index))
+            {
+                hasNativeDigits = true;
+                break;
+            }
+        }
+
+        if (!hasNativeDigits)
+        {
+            return text;
+        }
+
+        var builder = new StringBuilder(text.Length);
+        bool substituted = false;
+        for (int index = 0; index < text.Length; index++)
+        {
+            char character = text[index];
+            if (character is >= '0' and <= '9')
+            {
+                string digit = digits[character - '0'];
+                if (digit.Length == 1 && digit[0] != character)
+                {
+                    builder.Append(digit);
+                    substituted = true;
+                    continue;
+                }
+            }
+
+            builder.Append(character);
+        }
+
+        return substituted ? builder.ToString() : text;
+    }
+
+    private static string[] GetSubstitutionDigits(CultureInfo culture)
+    {
+        string[] nativeDigits = culture.NumberFormat.NativeDigits;
+        for (int index = 0; index < nativeDigits.Length; index++)
+        {
+            if (nativeDigits[index].Length == 1 && nativeDigits[index][0] != (char)('0' + index))
+            {
+                return nativeDigits;
+            }
+        }
+
+        string? digits = culture.TwoLetterISOLanguageName switch
+        {
+            "ar" => "٠١٢٣٤٥٦٧٨٩",
+            "fa" or "ur" => "۰۱۲۳۴۵۶۷۸۹",
+            "th" => "๐๑๒๓๔๕๖๗๘๙",
+            "bn" => "০১২৩৪৫৬৭৮৯",
+            "hi" or "mr" or "ne" => "०१२३४५६७८९",
+            _ => null
+        };
+        return digits is null
+            ? nativeDigits
+            : digits.Select(static digit => digit.ToString()).ToArray();
     }
 
     private static ProGPU.Text.TextAlignment GetTextAlignment(

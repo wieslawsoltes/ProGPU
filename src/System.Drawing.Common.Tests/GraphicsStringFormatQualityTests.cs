@@ -1,4 +1,5 @@
 using ProGPU.Scene;
+using ProGPU.Text;
 using System.Drawing.Drawing2D;
 using Xunit;
 
@@ -113,5 +114,138 @@ public sealed class GraphicsStringFormatQualityTests
 
         long bytesPerMeasure = (GC.GetAllocatedBytesForCurrentThread() - before) / Iterations;
         Assert.InRange(bytesPerMeasure, 1_024, 16_384);
+    }
+
+    [Fact]
+    public void ExplicitTabStopsAdvanceTheFollowingCharacterFromTheLineOrigin()
+    {
+        using var target = new Bitmap(180, 80);
+        using Graphics graphics = Graphics.FromImage(target);
+        using var font = new Font(FontFamily.GenericSansSerif, 16f);
+        using var format = new StringFormat(StringFormatFlags.NoWrap | StringFormatFlags.NoClip);
+        format.SetTabStops(10f, [40f]);
+        format.SetMeasurableCharacterRanges([new CharacterRange(2, 1)]);
+
+        using Region region = Assert.Single(graphics.MeasureCharacterRanges(
+            "A\tB",
+            font,
+            new RectangleF(3f, 4f, 160f, 50f),
+            format));
+
+        Assert.True(region.GetBounds(graphics).Left >= 52.9f);
+    }
+
+    [Fact]
+    public void MeasureTrailingSpacesControlsMeasuredWidth()
+    {
+        using var target = new Bitmap(240, 80);
+        using Graphics graphics = Graphics.FromImage(target);
+        using var font = new Font(FontFamily.GenericSansSerif, 16f);
+        using var compact = new StringFormat(StringFormatFlags.NoWrap);
+        using var expanded = new StringFormat(
+            StringFormatFlags.NoWrap | StringFormatFlags.MeasureTrailingSpaces);
+
+        SizeF compactSize = graphics.MeasureString("A   ", font, new SizeF(220f, 60f), compact);
+        SizeF expandedSize = graphics.MeasureString("A   ", font, new SizeF(220f, 60f), expanded);
+
+        Assert.True(expandedSize.Width > compactSize.Width);
+        Assert.Equal(compactSize.Height, expandedSize.Height);
+    }
+
+    [Fact]
+    public void DirectionVerticalUsesTheTypedVerticalShapingPath()
+    {
+        using var target = new Bitmap(240, 240);
+        using Graphics graphics = Graphics.FromImage(target);
+        using var font = new Font(FontFamily.GenericSansSerif, 20f);
+        using var horizontal = new StringFormat(StringFormatFlags.NoWrap);
+        using var vertical = new StringFormat(
+            StringFormatFlags.NoWrap | StringFormatFlags.DirectionVertical);
+
+        SizeF horizontalSize = graphics.MeasureString("ABCD", font, new SizeF(220f, 220f), horizontal);
+        SizeF verticalSize = graphics.MeasureString("ABCD", font, new SizeF(220f, 220f), vertical);
+
+        Assert.True(horizontalSize.Width > horizontalSize.Height);
+        Assert.True(verticalSize.Height > verticalSize.Width);
+    }
+
+    [Fact]
+    public void DigitSubstitutionShapesCultureNativeDigits()
+    {
+        var latinContext = new DrawingContext();
+        var arabicContext = new DrawingContext();
+        using Graphics latinGraphics = Graphics.FromProGpuDrawingContext(latinContext);
+        using Graphics arabicGraphics = Graphics.FromProGpuDrawingContext(arabicContext);
+        using var font = new Font(FontFamily.GenericSansSerif, 18f);
+        using var brush = new SolidBrush(Color.Black);
+        using var latin = new StringFormat(StringFormatFlags.NoWrap);
+        using var arabic = new StringFormat(StringFormatFlags.NoWrap);
+        latin.SetDigitSubstitution(0x0C01, StringDigitSubstitute.None);
+        arabic.SetDigitSubstitution(0x0C01, StringDigitSubstitute.National);
+
+        latinGraphics.DrawString("123", font, brush, PointF.Empty, latin);
+        arabicGraphics.DrawString("123", font, brush, PointF.Empty, arabic);
+
+        ushort[] latinGlyphs = Assert.Single(
+            latinContext.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun).GlyphIndices!;
+        ushort[] arabicGlyphs = Assert.Single(
+            arabicContext.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun).GlyphIndices!;
+        Assert.NotEqual(latinGlyphs, arabicGlyphs);
+    }
+
+    [Fact]
+    public void NoFontFallbackKeepsMissingGlyphsOnTheRequestedFace()
+    {
+        string fonts = Path.Combine(AppContext.BaseDirectory, "Fonts");
+        var requested = new TtfFont(Path.Combine(fonts, "Inter-Regular.ttf"));
+        var fallback = new TtfFont(Path.Combine(fonts, "NotoSansCJKjp-Regular.otf"));
+        FontApi.RegisterPlatformFallbackFont(fallback);
+        using var font = new Font(requested, 18f);
+        using var brush = new SolidBrush(Color.Black);
+        var fallbackContext = new DrawingContext();
+        var requestedContext = new DrawingContext();
+        using Graphics fallbackGraphics = Graphics.FromProGpuDrawingContext(fallbackContext);
+        using Graphics requestedGraphics = Graphics.FromProGpuDrawingContext(requestedContext);
+        using var enabled = new StringFormat(StringFormatFlags.NoWrap);
+        using var disabled = new StringFormat(
+            StringFormatFlags.NoWrap | StringFormatFlags.NoFontFallback);
+
+        fallbackGraphics.DrawString("漢", font, brush, PointF.Empty, enabled);
+        requestedGraphics.DrawString("漢", font, brush, PointF.Empty, disabled);
+
+        TtfFont enabledFont = Assert.Single(
+            fallbackContext.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun).Font!;
+        TtfFont disabledFont = Assert.Single(
+            requestedContext.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun).Font!;
+        Assert.NotSame(disabledFont, enabledFont);
+        Assert.Same(requested, disabledFont);
+    }
+
+    [Fact]
+    public void WarmedAdvancedFormatMeasurementHasBoundedManagedAllocation()
+    {
+        using var target = new Bitmap(180, 80);
+        using Graphics graphics = Graphics.FromImage(target);
+        using var font = new Font(FontFamily.GenericSansSerif, 16f);
+        using var format = new StringFormat(
+            StringFormatFlags.NoWrap | StringFormatFlags.MeasureTrailingSpaces);
+        format.SetTabStops(8f, [40f, 40f]);
+        format.SetDigitSubstitution(0x0C01, StringDigitSubstitute.National);
+        char[] text = "A\t123  ".ToCharArray();
+        _ = graphics.MeasureString(text.AsSpan(), font, new SizeF(160f, 60f), format);
+
+        const int Iterations = 128;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < Iterations; index++)
+        {
+            _ = graphics.MeasureString(text.AsSpan(), font, new SizeF(160f, 60f), format);
+        }
+
+        long bytesPerMeasure = (GC.GetAllocatedBytesForCurrentThread() - before) / Iterations;
+        Assert.InRange(bytesPerMeasure, 1_024, 24_576);
     }
 }

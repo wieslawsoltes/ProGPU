@@ -25,5 +25,8 @@
     <None Include="..\ProGPU.Fonts.Inter\Fonts\Inter-Regular.ttf"
           Link="Fonts\Inter-Regular.ttf"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\ProGPU.Fonts.Noto\Fonts\NotoSansCJKjp-Regular.otf"
+          Link="Fonts\NotoSansCJKjp-Regular.otf"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
