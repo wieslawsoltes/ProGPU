@@ -572,6 +572,7 @@ struct channel::implementation {
         std::uint32_t transform_handle{};
         std::uint32_t clip_geometry_handle{};
         std::uint32_t content_handle{};
+        std::uint32_t alpha_mask_handle{};
         double scroll_clip_x{};
         double scroll_clip_y{};
         double scroll_clip_width{};
@@ -1224,6 +1225,7 @@ struct channel::implementation {
                     (visual.transform_handle == handle ||
                      visual.clip_geometry_handle == handle ||
                      visual.content_handle == handle ||
+                     visual.alpha_mask_handle == handle ||
                      std::ranges::find(visual.children, handle) !=
                         visual.children.end())) {
                     return status::invalid_graph;
@@ -1517,6 +1519,22 @@ struct channel::implementation {
                 return status::invalid_handle;
             }
             visuals.at(handle).content_handle = content;
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::visual_set_alpha_mask: {
+            std::uint32_t alpha_mask = 0U;
+            if (!has_exact_size(view, 12U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, alpha_mask)) {
+                return status::malformed_batch;
+            }
+            if (!require_visual(handle) ||
+                (alpha_mask != 0U && !require_brush(alpha_mask))) {
+                return status::invalid_handle;
+            }
+            visuals.at(handle).alpha_mask_handle = alpha_mask;
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -6914,24 +6932,13 @@ struct channel::implementation {
                         next.clear_type_enabled = true;
                     }
                     double opacity_mask_alpha = 1.0;
-                    if (group->second.opacity_mask_handle != 0U) {
-                        const auto mask = solid_brushes.find(
-                            group->second.opacity_mask_handle);
-                        if (mask == solid_brushes.end()) {
-                            active_drawings.erase(drawing_handle);
-                            return has_brush_state(
-                                group->second.opacity_mask_handle)
-                                ? status::unsupported_command
-                                : status::invalid_handle;
-                        }
-                        opacity_mask_alpha = mask->second.opacity *
-                            static_cast<double>(mask->second.color.a);
-                        if (!finite_double_as_float(opacity_mask_alpha) ||
-                            opacity_mask_alpha < 0.0 ||
-                            opacity_mask_alpha > 1.0) {
-                            active_drawings.erase(drawing_handle);
-                            return status::invalid_graph;
-                        }
+                    const status opacity_mask_status =
+                        resolve_uniform_opacity_mask_alpha(
+                            group->second.opacity_mask_handle,
+                            opacity_mask_alpha);
+                    if (opacity_mask_status != status::success) {
+                        active_drawings.erase(drawing_handle);
+                        return opacity_mask_status;
                     }
                     next.opacity *= group_opacity * opacity_mask_alpha;
                     if (!finite_double_as_float(next.opacity) ||
@@ -7897,6 +7904,28 @@ struct channel::implementation {
             std::max(0.0F, bottom - top)};
     }
 
+    status resolve_uniform_opacity_mask_alpha(
+        std::uint32_t brush_handle,
+        double& alpha) const noexcept {
+        alpha = 1.0;
+        if (brush_handle == 0U) {
+            return status::success;
+        }
+        const auto mask = solid_brushes.find(brush_handle);
+        if (mask == solid_brushes.end()) {
+            return has_brush_state(brush_handle)
+                ? status::unsupported_command
+                : status::invalid_handle;
+        }
+        alpha = mask->second.opacity *
+            static_cast<double>(mask->second.color.a);
+        if (!finite_double_as_float(alpha) ||
+            alpha < 0.0 || alpha > 1.0) {
+            return status::invalid_graph;
+        }
+        return status::success;
+    }
+
     status apply_visual_rectangle_clip(
         std::uint32_t geometry_handle,
         render_scope_state& state) const {
@@ -8030,7 +8059,16 @@ struct channel::implementation {
             compose_affine(local_transform, offset_transform),
             parent_state.transform);
         current.transform = transform;
-        current.opacity *= visual->second.opacity;
+        double opacity_mask_alpha = 1.0;
+        const status opacity_mask_status =
+            resolve_uniform_opacity_mask_alpha(
+                visual->second.alpha_mask_handle,
+                opacity_mask_alpha);
+        if (opacity_mask_status != status::success) {
+            active_visuals.erase(handle);
+            return opacity_mask_status;
+        }
+        current.opacity *= visual->second.opacity * opacity_mask_alpha;
         if (!std::isfinite(current.opacity) ||
             current.opacity < 0.0 || current.opacity > 1.0) {
             active_visuals.erase(handle);

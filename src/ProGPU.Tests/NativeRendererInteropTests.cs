@@ -371,6 +371,20 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWriteCanonicalVisualOpacityMaskPacket()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetVisualOpacityMask(7, 9);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(16, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x23U, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(9U, ReadUInt32(encoded, 12));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalGradientPackets()
     {
         var stops = new[]
