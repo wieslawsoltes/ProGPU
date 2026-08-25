@@ -277,7 +277,7 @@ static byte[] CreateMilSeedBatch(
             : duplicateArcGroup
                 ? [52, 57]
             : includeRecursiveGroupArc
-                ? [52, 53, 50, 51, 57]
+                ? [53, 50, 51, 57]
             : [52, 53, 50, 51],
         45);
     batch.SetCombinedGeometry(
