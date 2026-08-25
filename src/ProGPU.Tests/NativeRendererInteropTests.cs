@@ -190,7 +190,7 @@ public class NativeRendererInteropTests
                 MeasuringMethod: NativeMilTextMeasuringMethod.GdiNatural),
             [3, 4],
             [7.5f, 8.5f],
-            [new NativeMilPoint(1, -2), new NativeMilPoint(0.5, 3)]);
+            [new Vector2(1, -2), new Vector2(0.5f, 3)]);
         batch.CreateResource(8, NativeMilResourceType.GlyphRunDrawing);
         batch.SetGlyphRunDrawing(8, 7, 9);
         byte[] encoded = batch.ToArray();
