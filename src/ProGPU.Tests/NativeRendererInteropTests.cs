@@ -177,6 +177,25 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWriteCanonicalDrawingImagePackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(7, NativeMilResourceType.DrawingImage);
+        batch.SetDrawingImage(7, 8);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(32, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x07U, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(59U, ReadUInt32(encoded, 12));
+        Assert.Equal(16U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x71U, ReadUInt32(encoded, 20));
+        Assert.Equal(7U, ReadUInt32(encoded, 24));
+        Assert.Equal(8U, ReadUInt32(encoded, 28));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalGlyphRunPackets()
     {
         var batch = new NativeMilBatchBuilder();

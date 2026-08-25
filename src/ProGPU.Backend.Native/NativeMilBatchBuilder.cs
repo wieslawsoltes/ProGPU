@@ -981,6 +981,16 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 44, rectAnimationHandle);
     }
 
+    /// <summary>Writes canonical MilCmdDrawingImage state.</summary>
+    public void SetDrawingImage(uint handle, uint drawingHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawingImage, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, drawingHandle);
+    }
+
     public void SetDrawingGroup(
         uint handle,
         NativeMilDrawingGroup group,
@@ -1413,6 +1423,7 @@ internal static class NativeMilCommand
     internal const uint PushOpacity = 0x4f;
     internal const uint PushTransform = 0x51;
     internal const uint Pop = 0x56;
+    internal const uint DrawingImage = 0x71;
     internal const uint TransformGroup = 0x72;
     internal const uint TranslateTransform = 0x73;
     internal const uint ScaleTransform = 0x74;

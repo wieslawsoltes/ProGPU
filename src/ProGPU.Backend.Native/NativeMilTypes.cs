@@ -18,6 +18,7 @@ public enum NativeMilResourceType : uint
     DoubleResource = 49,
     PointResource = 51,
     MatrixResource = 54,
+    DrawingImage = 59,
     TransformGroup = 61,
     TranslateTransform = 62,
     ScaleTransform = 63,

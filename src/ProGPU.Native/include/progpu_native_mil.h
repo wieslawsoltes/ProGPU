@@ -96,6 +96,18 @@ progpu_native_mil_channel_set_bitmap_source_rgba8(
     const void* pixels,
     size_t pixel_size);
 /*
+ * Binds exact local Drawing bounds to a canonical TYPE_DRAWINGIMAGE handle.
+ * The canonical packet carries only the referenced Drawing handle.
+ */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_drawing_image_bounds(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    double x,
+    double y,
+    double width,
+    double height);
+/*
  * Binds copied SFNT/TTC bytes to a canonical TYPE_GLYPHRUN handle. This is
  * the portable replacement for MilCmdGlyphRunCreate's process-local
  * IDWriteFont pointer. style_simulations is a bitwise combination of

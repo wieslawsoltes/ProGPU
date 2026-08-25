@@ -29,6 +29,7 @@ constexpr std::uint32_t type_generic_render_target = 47U;
 constexpr std::uint32_t type_double_resource = 49U;
 constexpr std::uint32_t type_point_resource = 51U;
 constexpr std::uint32_t type_matrix_resource = 54U;
+constexpr std::uint32_t type_drawing_image = 59U;
 constexpr std::uint32_t type_transform_group = 61U;
 constexpr std::uint32_t type_translate_transform = 62U;
 constexpr std::uint32_t type_scale_transform = 63U;
@@ -671,6 +672,16 @@ struct channel::implementation {
         std::vector<std::byte> pixels;
     };
 
+    struct drawing_image_state {
+        std::uint32_t drawing_handle{};
+        double bounds_x{};
+        double bounds_y{};
+        double bounds_width{};
+        double bounds_height{};
+        bool has_bounds{};
+        std::vector<std::byte> child_render_data;
+    };
+
     struct drawing_group_state {
         double opacity{1.0};
         std::uint32_t clip_geometry_handle{};
@@ -791,6 +802,7 @@ struct channel::implementation {
         glyph_run_drawings;
     std::unordered_map<std::uint32_t, image_drawing_state> image_drawings;
     std::unordered_map<std::uint32_t, bitmap_source_state> bitmap_sources;
+    std::unordered_map<std::uint32_t, drawing_image_state> drawing_images;
     std::unordered_map<std::uint32_t, drawing_group_state> drawing_groups;
 
     bool require_resource(
@@ -1211,6 +1223,12 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
             }
+            for (const auto& [image_handle, image] : drawing_images) {
+                if (image_handle != handle &&
+                    image.drawing_handle == handle) {
+                    return status::invalid_graph;
+                }
+            }
             for (const auto& [group_handle, group] : drawing_groups) {
                 if (group_handle != handle &&
                     (group.clip_geometry_handle == handle ||
@@ -1299,6 +1317,7 @@ struct channel::implementation {
             glyph_runs.erase(handle);
             image_drawings.erase(handle);
             bitmap_sources.erase(handle);
+            drawing_images.erase(handle);
             drawing_groups.erase(handle);
             resources.erase(found);
             ++metrics.deleted_resource_count;
@@ -3013,11 +3032,13 @@ struct channel::implementation {
                     view.packet, 44U, drawing.rect_animation_handle)) {
                 return status::malformed_batch;
             }
+            const auto image_source = resources.find(
+                drawing.image_source_handle);
             if (!require_resource(handle, type_image_drawing) ||
                 (drawing.image_source_handle != 0U &&
-                 !require_resource(
-                     drawing.image_source_handle,
-                     type_bitmap_source))) {
+                 (image_source == resources.end() ||
+                  (image_source->second.type != type_bitmap_source &&
+                   image_source->second.type != type_drawing_image)))) {
                 return status::invalid_handle;
             }
             if (drawing.rect_animation_handle != 0U) {
@@ -3031,6 +3052,55 @@ struct channel::implementation {
                 return status::malformed_batch;
             }
             image_drawings.insert_or_assign(handle, drawing);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::drawing_image: {
+            std::uint32_t drawing_handle = 0U;
+            if (!has_exact_size(view, 12U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, drawing_handle)) {
+                return status::malformed_batch;
+            }
+            const auto drawing = resources.find(drawing_handle);
+            if (!require_resource(handle, type_drawing_image) ||
+                (drawing_handle != 0U &&
+                 (drawing == resources.end() ||
+                  !is_drawing_type(drawing->second.type)))) {
+                return status::invalid_handle;
+            }
+            drawing_image_state image{};
+            const auto previous = drawing_images.find(handle);
+            if (previous != drawing_images.end() &&
+                previous->second.has_bounds) {
+                image.bounds_x = previous->second.bounds_x;
+                image.bounds_y = previous->second.bounds_y;
+                image.bounds_width = previous->second.bounds_width;
+                image.bounds_height = previous->second.bounds_height;
+                image.has_bounds = true;
+            }
+            image.drawing_handle = drawing_handle;
+            if (drawing_handle != 0U) {
+                try {
+                    image.child_render_data.resize(16U);
+                } catch (const std::bad_alloc&) {
+                    return status::capacity_exceeded;
+                }
+                constexpr std::uint32_t record_size = 16U;
+                constexpr std::uint32_t draw_command =
+                    static_cast<std::uint32_t>(command::draw_drawing);
+                constexpr std::uint32_t padding = 0U;
+                std::memcpy(image.child_render_data.data(),
+                    &record_size, sizeof(record_size));
+                std::memcpy(image.child_render_data.data() + 4U,
+                    &draw_command, sizeof(draw_command));
+                std::memcpy(image.child_render_data.data() + 8U,
+                    &drawing_handle, sizeof(drawing_handle));
+                std::memcpy(image.child_render_data.data() + 12U,
+                    &padding, sizeof(padding));
+            }
+            drawing_images.insert_or_assign(handle, std::move(image));
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -4497,6 +4567,132 @@ struct channel::implementation {
                 geometry_handle,
                 source.transform,
                 destination);
+        };
+        const auto apply_rectangle_clip = [
+            &builder,
+            &clip_paths,
+            &clip_segments,
+            &clip_boolean_nodes](
+            double x,
+            double y,
+            double width,
+            double height,
+            const render_scope_state& source,
+            render_scope_state& destination) {
+            const auto& transform = source.transform;
+            const bool preserves_axis_alignment =
+                (transform.m12 == 0.0 && transform.m21 == 0.0) ||
+                (transform.m11 == 0.0 && transform.m22 == 0.0);
+            if (preserves_axis_alignment) {
+                progpu_native_image_rect clip_rect{};
+                if (!try_transform_bounds(
+                        x, y, width, height, transform, clip_rect)) {
+                    return status::invalid_graph;
+                }
+                if (source.has_clip) {
+                    const float left = std::max(
+                        source.clip_rect.x, clip_rect.x);
+                    const float top = std::max(
+                        source.clip_rect.y, clip_rect.y);
+                    const float right = std::min(
+                        source.clip_rect.x + source.clip_rect.width,
+                        clip_rect.x + clip_rect.width);
+                    const float bottom = std::min(
+                        source.clip_rect.y + source.clip_rect.height,
+                        clip_rect.y + clip_rect.height);
+                    clip_rect = {
+                        left,
+                        top,
+                        std::max(0.0F, right - left),
+                        std::max(0.0F, bottom - top)};
+                }
+                destination.clip_rect = clip_rect;
+                destination.has_clip = true;
+                return status::success;
+            }
+
+            clip_paths.resize(source.clip_path_count);
+            clip_segments.resize(source.clip_segment_count);
+            clip_boolean_nodes.resize(source.clip_boolean_node_count);
+            const std::size_t segment_offset = clip_segments.size();
+            const auto map_point = [&transform](
+                double point_x,
+                double point_y,
+                progpu_native_point& result) noexcept {
+                const double mapped_x = point_x * transform.m11 +
+                    point_y * transform.m21 + transform.m31;
+                const double mapped_y = point_x * transform.m12 +
+                    point_y * transform.m22 + transform.m32;
+                if (!finite_double_as_float(mapped_x) ||
+                    !finite_double_as_float(mapped_y)) {
+                    return false;
+                }
+                result = {static_cast<float>(mapped_x),
+                    static_cast<float>(mapped_y)};
+                return true;
+            };
+            std::array<progpu_native_point, 4U> points{};
+            if (!map_point(x, y, points[0]) ||
+                !map_point(x + width, y, points[1]) ||
+                !map_point(x + width, y + height, points[2]) ||
+                !map_point(x, y + height, points[3])) {
+                return status::invalid_graph;
+            }
+            float left = points[0].x;
+            float top = points[0].y;
+            float right = points[0].x;
+            float bottom = points[0].y;
+            try {
+                for (std::size_t index = 0U; index < points.size(); ++index) {
+                    progpu_native_path_segment segment{};
+                    segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                    segment.p0 = points[index];
+                    segment.p1 = points[(index + 1U) % points.size()];
+                    clip_segments.push_back(segment);
+                    left = std::min(left, segment.p0.x);
+                    top = std::min(top, segment.p0.y);
+                    right = std::max(right, segment.p0.x);
+                    bottom = std::max(bottom, segment.p0.y);
+                }
+            } catch (const std::bad_alloc&) {
+                clip_segments.resize(segment_offset);
+                return status::capacity_exceeded;
+            }
+            if (clip_paths.size() >= 64U) {
+                clip_segments.resize(segment_offset);
+                return status::unsupported_command;
+            }
+            clip_paths.push_back({
+                segment_offset,
+                4U,
+                clip_boolean_nodes.size(),
+                0U,
+                left,
+                top,
+                right,
+                bottom,
+                {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F},
+                PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+                8U,
+                PROGPU_NATIVE_CLIP_INTERSECT,
+                0U});
+            std::uint32_t mask_resource_index =
+                PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!builder.add_vector_clip_mask(
+                    clip_paths,
+                    clip_segments,
+                    clip_boolean_nodes,
+                    1.0F,
+                    mask_resource_index)) {
+                clip_paths.pop_back();
+                clip_segments.resize(segment_offset);
+                return status::invalid_graph;
+            }
+            destination.clip_path_count = clip_paths.size();
+            destination.clip_segment_count = clip_segments.size();
+            destination.clip_boolean_node_count = clip_boolean_nodes.size();
+            destination.mask_resource_index = mask_resource_index;
+            return status::success;
         };
         struct brush_use_state {
             double x{};
@@ -6202,63 +6398,131 @@ struct channel::implementation {
                         }
                         const auto bitmap = bitmap_sources.find(
                             image_state.image_source_handle);
-                        if (bitmap == bitmap_sources.end()) {
-                            return status::invalid_handle;
-                        }
-                        std::uint32_t image_index =
-                            PROGPU_NATIVE_SCENE_NO_INDEX;
-                        const auto existing = image_indices.find(
-                            image_state.image_source_handle);
-                        if (existing != image_indices.end()) {
-                            image_index = existing->second;
-                        } else {
-                            if (!builder.add_rgba8_image(
-                                    bitmap->second.width,
-                                    bitmap->second.height,
-                                    bitmap->second.row_bytes,
-                                    bitmap->second.pixels,
-                                    image_index)) {
+                        if (bitmap != bitmap_sources.end()) {
+                            std::uint32_t image_index =
+                                PROGPU_NATIVE_SCENE_NO_INDEX;
+                            const auto existing = image_indices.find(
+                                image_state.image_source_handle);
+                            if (existing != image_indices.end()) {
+                                image_index = existing->second;
+                            } else {
+                                if (!builder.add_rgba8_image(
+                                        bitmap->second.width,
+                                        bitmap->second.height,
+                                        bitmap->second.row_bytes,
+                                        bitmap->second.pixels,
+                                        image_index)) {
+                                    return status::invalid_graph;
+                                }
+                                image_indices.emplace(
+                                    image_state.image_source_handle,
+                                    image_index);
+                            }
+                            progpu_native_affine_2d native_transform{};
+                            progpu_native_image_rect bounds{};
+                            if (!try_to_native_affine(
+                                    current.transform, native_transform) ||
+                                !try_transform_bounds(
+                                    image_state.x,
+                                    image_state.y,
+                                    image_state.width,
+                                    image_state.height,
+                                    current.transform,
+                                    bounds)) {
                                 return status::invalid_graph;
                             }
-                            image_indices.emplace(
-                                image_state.image_source_handle,
-                                image_index);
+                            const progpu_native_scene_image_draw image_draw{
+                                sizeof(progpu_native_scene_image_draw),
+                                0U,
+                                bitmap->second.width,
+                                bitmap->second.height,
+                                bitmap->second.row_bytes,
+                                PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR,
+                                {0.0F,
+                                 0.0F,
+                                 static_cast<float>(bitmap->second.width),
+                                 static_cast<float>(bitmap->second.height)},
+                                {static_cast<float>(image_state.x),
+                                 static_cast<float>(image_state.y),
+                                 static_cast<float>(image_state.width),
+                                 static_cast<float>(image_state.height)},
+                                native_transform,
+                                1.0F,
+                                1U};
+                            if (!builder.draw_image(
+                                    image_index,
+                                    image_draw,
+                                    bounds)) {
+                                return status::invalid_graph;
+                            }
+                            continue;
                         }
-                        progpu_native_affine_2d native_transform{};
-                        progpu_native_image_rect bounds{};
-                        if (!try_to_native_affine(
-                                current.transform, native_transform) ||
-                            !try_transform_bounds(
-                                image_state.x,
-                                image_state.y,
-                                image_state.width,
-                                image_state.height,
-                                current.transform,
-                                bounds)) {
+
+                        const auto drawing_image = drawing_images.find(
+                            image_state.image_source_handle);
+                        if (drawing_image == drawing_images.end()) {
+                            return status::invalid_handle;
+                        }
+                        const auto& source = drawing_image->second;
+                        if (source.drawing_handle == 0U) {
+                            continue;
+                        }
+                        if (!source.has_bounds) {
+                            return status::unsupported_command;
+                        }
+                        if (!active_drawings.insert(
+                                image_state.image_source_handle).second) {
                             return status::invalid_graph;
                         }
-                        const progpu_native_scene_image_draw image_draw{
-                            sizeof(progpu_native_scene_image_draw),
-                            0U,
-                            bitmap->second.width,
-                            bitmap->second.height,
-                            bitmap->second.row_bytes,
-                            PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR,
-                            {0.0F,
-                             0.0F,
-                             static_cast<float>(bitmap->second.width),
-                             static_cast<float>(bitmap->second.height)},
-                            {static_cast<float>(image_state.x),
-                             static_cast<float>(image_state.y),
-                             static_cast<float>(image_state.width),
-                             static_cast<float>(image_state.height)},
-                            native_transform,
-                            1.0F,
-                            1U};
-                        if (!builder.draw_image(
-                                image_index,
-                                image_draw,
-                                bounds)) {
+                        render_scope_state next = current;
+                        const status clip_status = apply_rectangle_clip(
+                            image_state.x,
+                            image_state.y,
+                            image_state.width,
+                            image_state.height,
+                            current,
+                            next);
+                        if (clip_status != status::success) {
+                            active_drawings.erase(
+                                image_state.image_source_handle);
+                            return clip_status;
+                        }
+                        const affine_2d_double mapping{
+                            image_state.width / source.bounds_width,
+                            0.0,
+                            0.0,
+                            image_state.height / source.bounds_height,
+                            image_state.x - source.bounds_x *
+                                image_state.width / source.bounds_width,
+                            image_state.y - source.bounds_y *
+                                image_state.height / source.bounds_height};
+                        next.transform = compose_affine(
+                            mapping, current.transform);
+                        if (!save_state(next)) {
+                            active_drawings.erase(
+                                image_state.image_source_handle);
+                            return status::invalid_graph;
+                        }
+                        const status image_status = append_render_stream(
+                            source.child_render_data,
+                            next,
+                            drawing_depth + 1U,
+                            builder,
+                            brush_indices,
+                            image_indices,
+                            glyph_resources,
+                            active_drawings,
+                            clip_paths,
+                            clip_segments,
+                            clip_boolean_nodes,
+                            metrics);
+                        const bool restored = builder.restore();
+                        active_drawings.erase(
+                            image_state.image_source_handle);
+                        if (image_status != status::success) {
+                            return image_status;
+                        }
+                        if (!restored) {
                             return status::invalid_graph;
                         }
                         continue;
@@ -7379,6 +7643,31 @@ status channel::set_bitmap_source_rgba8(
     } catch (...) {
         return status::invalid_argument;
     }
+}
+
+status channel::set_drawing_image_bounds(
+    std::uint32_t handle,
+    double x,
+    double y,
+    double width,
+    double height) noexcept {
+    if (!implementation_->require_resource(handle, type_drawing_image) ||
+        !implementation_->drawing_images.contains(handle)) {
+        return status::invalid_handle;
+    }
+    if (!finite_double_as_float(x) || !finite_double_as_float(y) ||
+        !finite_double_as_float(width) || !finite_double_as_float(height) ||
+        width <= 0.0 || height <= 0.0) {
+        return status::invalid_argument;
+    }
+    auto& image = implementation_->drawing_images.at(handle);
+    image.bounds_x = x;
+    image.bounds_y = y;
+    image.bounds_width = width;
+    image.bounds_height = height;
+    image.has_bounds = true;
+    implementation_->increment_generation(handle);
+    return status::success;
 }
 
 status channel::set_glyph_run_font_sfnt(
