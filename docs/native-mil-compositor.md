@@ -1363,6 +1363,11 @@ for `progpu_native.dll` and
 `341e01504aeb9380a33676704f1712cf25ee433f80554344bb080a3e0514be93`
 for `progpu_native_dawn.dll`.
 
+The qualification push also corrected both checked-in exported-symbol
+allowlists to include the public DrawingImage bounds sideband entry point.
+Linux ARM64 had built successfully and passed all 15 native suites before its
+symbol-surface guard exposed that earlier packaging omission.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
