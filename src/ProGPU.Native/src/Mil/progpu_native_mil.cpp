@@ -716,6 +716,7 @@ struct channel::implementation {
             PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR};
         std::uint32_t guideline_resource_index{
             PROGPU_NATIVE_SCENE_NO_INDEX};
+        bool edge_aliased{};
     };
 
     struct transform_state {
@@ -5076,7 +5077,8 @@ struct channel::implementation {
         };
         const auto append_polyline_stroke = [
             this,
-            &builder](
+            &builder,
+            &current](
             const pen_state& pen,
             std::span<const progpu_native_point> points,
             bool closed,
@@ -5098,10 +5100,13 @@ struct channel::implementation {
             progpu_native_scene_stroke stroke{};
             stroke.struct_size = sizeof(stroke);
             stroke.kind = PROGPU_NATIVE_SCENE_STROKE_POLYLINE;
-            stroke.flags = closed
+            stroke.flags = current.edge_aliased
                 ? static_cast<std::uint32_t>(
-                    PROGPU_NATIVE_POLYLINE_FLAG_CLOSED)
+                    PROGPU_NATIVE_POLYLINE_FLAG_EDGE_ALIASED)
                 : 0U;
+            if (closed) {
+                stroke.flags |= PROGPU_NATIVE_POLYLINE_FLAG_CLOSED;
+            }
             stroke.point_count = points.size();
             stroke.dash_interval_count = intervals.size();
             stroke.color = {1.0F, 1.0F, 1.0F, 1.0F};
@@ -5126,7 +5131,8 @@ struct channel::implementation {
         };
         const auto append_degenerate_cap_stroke = [
             this,
-            &builder](
+            &builder,
+            &current](
             const pen_state& pen,
             progpu_native_point point,
             std::uint32_t brush_index,
@@ -5229,7 +5235,8 @@ struct channel::implementation {
                 &pen,
                 point,
                 brush_index,
-                &native_local_transform](
+                &native_local_transform,
+                &current](
                 std::uint32_t cap,
                 bool at_start) {
                 if (cap == PROGPU_NATIVE_STROKE_CAP_FLAT) {
@@ -5237,8 +5244,11 @@ struct channel::implementation {
                 }
                 progpu_native_geometry_primitive primitive{};
                 primitive.kind = PROGPU_NATIVE_GEOMETRY_PATH_CAP;
-                primitive.flags = cap <<
-                    PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+                primitive.flags =
+                    (current.edge_aliased
+                        ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+                        : 0U) |
+                    (cap << PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT);
                 primitive.p0 = point;
                 primitive.p1 = {1.0F, 0.0F};
                 primitive.p2.x = at_start ? 1.0F : 0.0F;
@@ -5271,7 +5281,8 @@ struct channel::implementation {
             &resolve_brush_index,
             &append_polyline_stroke,
             &append_degenerate_cap_stroke,
-            &metrics](
+            &metrics,
+            &current](
             double x0,
             double y0,
             double x1,
@@ -5371,6 +5382,9 @@ struct channel::implementation {
                 return status::invalid_graph;
             }
             const std::uint32_t flags =
+                (current.edge_aliased
+                    ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+                    : 0U) |
                 (pen->second.start_line_cap <<
                     PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT) |
                 (pen->second.end_line_cap <<
@@ -5423,7 +5437,8 @@ struct channel::implementation {
             this,
             &builder,
             &resolve_brush_index,
-            &append_degenerate_cap_stroke](
+            &append_degenerate_cap_stroke,
+            &current](
             double center_x,
             double center_y,
             double radius_x,
@@ -5495,6 +5510,9 @@ struct channel::implementation {
                 return status::invalid_graph;
             }
             const std::uint32_t flags =
+                (current.edge_aliased
+                    ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+                    : 0U) |
                 (PROGPU_NATIVE_STROKE_CAP_ROUND <<
                     PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT) |
                 (PROGPU_NATIVE_STROKE_CAP_ROUND <<
@@ -5538,7 +5556,8 @@ struct channel::implementation {
             &builder,
             &resolve_brush_index,
             &append_polyline_stroke,
-            &append_degenerate_cap_stroke](
+            &append_degenerate_cap_stroke,
+            &current](
             const path_geometry_state& geometry,
             const pen_state& pen,
             const affine_2d_double& local_transform,
@@ -5765,10 +5784,14 @@ struct channel::implementation {
                     };
                     const auto make_primitive = [
                         &native_local_transform,
-                        &pen](
+                        &pen,
+                        &current](
                         const progpu_native_path_segment& segment,
                         progpu_native_geometry_primitive& primitive) noexcept {
                         primitive = {};
+                        primitive.flags = current.edge_aliased
+                            ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+                            : 0U;
                         primitive.stroke_thickness =
                             static_cast<float>(pen.thickness);
                         primitive.color = {1.0F, 1.0F, 1.0F, 1.0F};
@@ -5827,7 +5850,8 @@ struct channel::implementation {
                         &segment_end,
                         &native_local_transform,
                         &pen,
-                        brush_index](
+                        brush_index,
+                        &current](
                         const progpu_native_path_segment& segment,
                         std::uint32_t cap,
                         bool at_start) {
@@ -5840,8 +5864,12 @@ struct channel::implementation {
                         }
                         progpu_native_geometry_primitive primitive{};
                         primitive.kind = PROGPU_NATIVE_GEOMETRY_PATH_CAP;
-                        primitive.flags = cap <<
-                            PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+                        primitive.flags =
+                            (current.edge_aliased
+                                ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+                                : 0U) |
+                            (cap <<
+                                PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT);
                         primitive.p0 = at_start ? segment.p0 : segment_end(segment);
                         primitive.p1 = tangent;
                         primitive.p2.x = at_start ? 1.0F : 0.0F;
@@ -5860,7 +5888,8 @@ struct channel::implementation {
                         &segment_end,
                         &native_local_transform,
                         &pen,
-                        brush_index](
+                        brush_index,
+                        &current](
                         const progpu_native_path_segment& incoming,
                         const progpu_native_path_segment& outgoing,
                         bool smooth_join) {
@@ -5883,11 +5912,15 @@ struct channel::implementation {
                         }
                         progpu_native_geometry_primitive join{};
                         join.kind = PROGPU_NATIVE_GEOMETRY_PATH_JOIN;
-                        join.flags = (smooth_join
-                                ? static_cast<std::uint32_t>(
-                                    PROGPU_NATIVE_STROKE_JOIN_ROUND)
-                                : pen.line_join) <<
-                            PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+                        join.flags =
+                            (current.edge_aliased
+                                ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+                                : 0U) |
+                            ((smooth_join
+                                  ? static_cast<std::uint32_t>(
+                                      PROGPU_NATIVE_STROKE_JOIN_ROUND)
+                                  : pen.line_join) <<
+                                PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT);
                         join.p0 = join_point;
                         join.p1 = incoming_tangent;
                         join.p2 = outgoing_tangent;
@@ -6100,7 +6133,8 @@ struct channel::implementation {
             this,
             &builder,
             &resolve_brush_index,
-            &append_rounded_rectangle_path](
+            &append_rounded_rectangle_path,
+            &current](
             double x,
             double y,
             double width,
@@ -6258,7 +6292,7 @@ struct channel::implementation {
                     {1.0F, 1.0F, 1.0F, 1.0F},
                     native_local_transform,
                     PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
-                    8U}};
+                    current.edge_aliased ? 1U : 8U}};
             const std::array brushes{brush_index};
             return builder.draw_paths(
                     paths,
@@ -6642,8 +6676,7 @@ struct channel::implementation {
                             ? status::unsupported_command
                             : status::invalid_handle;
                     }
-                    if (group->second.edge_mode != 0U ||
-                        group->second.clear_type_hint != 0U) {
+                    if (group->second.clear_type_hint != 0U) {
                         return status::unsupported_command;
                     }
                     if (!active_drawings.insert(drawing_handle).second) {
@@ -6670,6 +6703,9 @@ struct channel::implementation {
                             : group->second.bitmap_scaling_mode == 2U
                             ? PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
                             : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+                    }
+                    if (group->second.edge_mode != 0U) {
+                        next.edge_aliased = true;
                     }
                     double opacity_mask_alpha = 1.0;
                     if (group->second.opacity_mask_handle != 0U) {
@@ -7018,7 +7054,7 @@ struct channel::implementation {
                                 geometry_group->second.fill_rule == 0U
                                     ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
                                     : PROGPU_NATIVE_FILL_RULE_NON_ZERO),
-                            8U}};
+                            current.edge_aliased ? 1U : 8U}};
                     const std::array brushes{brush_index};
                     if (!builder.draw_paths(
                             paths,
@@ -7157,7 +7193,7 @@ struct channel::implementation {
                             {1.0F, 1.0F, 1.0F, 1.0F},
                             native_local_transform,
                             PROGPU_NATIVE_FILL_RULE_NON_ZERO,
-                            8U}};
+                            current.edge_aliased ? 1U : 8U}};
                     const std::array brushes{brush_index};
                     if (!builder.draw_paths(
                             paths,
@@ -7231,7 +7267,7 @@ struct channel::implementation {
                                     path_geometry->second.fill_rule == 0U
                                         ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
                                         : PROGPU_NATIVE_FILL_RULE_NON_ZERO),
-                                8U}};
+                                current.edge_aliased ? 1U : 8U}};
                         const std::array brushes{brush_index};
                         if (!builder.draw_paths(
                                 paths,
@@ -7410,7 +7446,7 @@ struct channel::implementation {
                             {1.0F, 1.0F, 1.0F, 1.0F},
                             native_local_transform,
                             PROGPU_NATIVE_FILL_RULE_NON_ZERO,
-                            8U}};
+                            current.edge_aliased ? 1U : 8U}};
                     if (!builder.draw_paths(
                             paths,
                             rounded_geometry.segments,
@@ -7427,7 +7463,9 @@ struct channel::implementation {
                                     : has_rounded_corners
                                         ? PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE
                                         : PROGPU_NATIVE_PRIMITIVE_RECTANGLE),
-                            0U,
+                            current.edge_aliased
+                                ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+                                : 0U,
                             static_cast<float>(x),
                             static_cast<float>(y),
                             static_cast<float>(width),
@@ -7515,7 +7553,9 @@ struct channel::implementation {
                             const std::array primitive{
                                 progpu_native_geometry_primitive{
                                     PROGPU_NATIVE_GEOMETRY_ARC,
-                                    0U,
+                                    current.edge_aliased
+                                        ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+                                        : 0U,
                                     {static_cast<float>(first),
                                         static_cast<float>(second)},
                                     {static_cast<float>(third), 0.0F},
@@ -7567,7 +7607,9 @@ struct channel::implementation {
                                 const std::array primitive{
                                     progpu_native_analytic_primitive{
                                         PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE,
-                                        0U,
+                                        current.edge_aliased
+                                            ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+                                            : 0U,
                                         static_cast<float>(x),
                                         static_cast<float>(y),
                                         static_cast<float>(width),

@@ -68,6 +68,10 @@ public sealed class PortableDrawingGroupState
 
     public object? EdgeMode { get; set; }
 
+    public bool HasPortableEdgeMode { get; set; }
+
+    public PortableEdgeMode PortableEdgeMode { get; set; }
+
     public bool HasClearTypeHint { get; set; }
 
     public object? ClearTypeHint { get; set; }
