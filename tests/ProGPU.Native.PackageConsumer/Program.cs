@@ -64,7 +64,7 @@ if (!renderOnly)
             scene.Metrics.VisualCount != 1 ||
             scene.Metrics.RectangleCount != 3 ||
             scene.Metrics.EllipseCount != 4 ||
-            scene.Metrics.RoundedRectangleCount != 3 ||
+            scene.Metrics.RoundedRectangleCount != 4 ||
             scene.Metrics.LineCount != 3 ||
             scene.Metrics.BrushCount != 1)
         {
@@ -82,7 +82,7 @@ if (!renderOnly)
             scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
             scene.Metrics.RectangleCount != 3 ||
             scene.Metrics.EllipseCount != 4 ||
-            scene.Metrics.RoundedRectangleCount != 3 ||
+            scene.Metrics.RoundedRectangleCount != 4 ||
             scene.Metrics.LineCount != 3 ||
             scene.Metrics.BrushCount != 1)
         {
@@ -208,6 +208,7 @@ static byte[] CreateMilSeedBatch(
     renderData.DrawEllipse(32, 32, 16, 12, 44, 48);
     renderData.DrawEllipse(32, 20, 10, 0, 44, 48);
     renderData.DrawRoundedRectangle(12, 16, 40, 32, 8, 8, 0, 48);
+    renderData.DrawRoundedRectangle(20, 12, 24, 20, 6, 3, 44, 48);
     renderData.DrawRectangle(16, 20, 0, 16, 0, 67);
     renderData.DrawRoundedRectangle(24, 20, 0, 16, 6, 6, 0, 48);
     renderData.DrawGeometry(0, 48, 49);
@@ -305,7 +306,7 @@ static byte[] CreateMilSeedBatch(
             2,
             LineJoin: NativeMilPenLineJoin.Round));
     batch.SetLineGeometry(49, 8, 56, 56, 8, 45);
-    batch.SetRectangleGeometry(50, 12, 16, 40, 32, 8, 8, 45);
+    batch.SetRectangleGeometry(50, 12, 16, 40, 32, 8, 4, 45);
     batch.SetEllipseGeometry(51, 32, 32, 16, 12, 45);
     batch.SetEllipseGeometry(66, 20, 40, 0, 8, 45);
     batch.SetRectangleGeometry(68, 40, 20, 0, 16, transformHandle: 45);
