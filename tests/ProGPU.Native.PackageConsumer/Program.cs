@@ -94,7 +94,7 @@ if (!renderOnly)
         ? 14U
         : imageDrawingOnly
         ? 12U
-        : drawingGroupOnly ? 23U : focusedMil ? 15U : 78U;
+        : drawingGroupOnly ? 25U : focusedMil ? 15U : 78U;
     uint expectedResourceCount = guidelineOnly
         ? 8U
         : drawingImageOnly
@@ -103,7 +103,7 @@ if (!renderOnly)
         ? 6U
         : imageDrawingOnly
         ? 5U
-        : drawingGroupOnly ? 10U : focusedMil ? 6U : 36U;
+        : drawingGroupOnly ? 11U : focusedMil ? 6U : 36U;
     uint expectedRectangleCount = geometryDrawingOnly || drawingGroupOnly ||
         drawingImageOnly || guidelineOnly
         ? 1U
@@ -364,6 +364,7 @@ static byte[] CreateMilDrawingGroupBatch()
     batch.CreateResource(8, NativeMilResourceType.RectangleGeometry);
     batch.CreateResource(9, NativeMilResourceType.DoubleResource);
     batch.CreateResource(10, NativeMilResourceType.DrawingGroup);
+    batch.CreateResource(11, NativeMilResourceType.SolidColorBrush);
     batch.CreateVisual(1);
     batch.SetVisualContent(1, 3);
     batch.SetSolidColorBrush(4, new NativeMilColor(0.85f, 0.25f, 0.1f, 1));
@@ -372,12 +373,17 @@ static byte[] CreateMilDrawingGroupBatch()
     batch.SetMatrixTransform(7, new NativeMilMatrix3x2(1, 0, 0, 1, 2, 4));
     batch.SetRectangleGeometry(8, 16, 16, 32, 32);
     batch.SetDoubleResource(9, 0.75);
+    batch.SetSolidColorBrush(
+        11,
+        new NativeMilColor(1, 1, 1, 0.5f),
+        opacity: 0.5);
     batch.SetDrawingGroup(
         10,
         new NativeMilDrawingGroup(
             Opacity: 1,
             ClipGeometryHandle: 8,
             OpacityAnimationHandle: 9,
+            OpacityMaskHandle: 11,
             TransformHandle: 7),
         [6]);
     batch.SetRenderData(3, renderData);
