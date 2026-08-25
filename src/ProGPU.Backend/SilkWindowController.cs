@@ -45,6 +45,18 @@ public sealed class SilkWindowController : IDisposable
     public NativeWindowHandle Parent => _state.Parent;
     public bool IsInteractiveMoveResize =>
         _platform?.IsInteractiveMoveResize ?? false;
+    public bool IsProcessingPromotedTouchMouse =>
+        _platform?.IsProcessingPromotedTouchMouse ?? false;
+
+    public Action<NativeTouchEvent>? TouchHandler
+    {
+        get => _platform?.TouchHandler;
+        set
+        {
+            if (_platform is not null)
+                _platform.TouchHandler = value;
+        }
+    }
 
     public bool Attach()
     {

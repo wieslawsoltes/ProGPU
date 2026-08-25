@@ -124,6 +124,15 @@ public unsafe partial class Compositor
             return false;
         }
 
+        if (!_atlas.TryMarkRetainedGlyphReplay(page.GlyphResidency))
+        {
+            RemoveRetainedCompositionPicture(lookup);
+            observation =
+                _retainedPictureObservations.GetOrCreateValue(picture);
+            _retainedCompositionPictureMisses++;
+            return false;
+        }
+
         CommitPendingDrawCalls();
         AppendIncrementalScenePage(page);
         _pathAtlas.MarkRetainedPathReplay();
@@ -149,6 +158,7 @@ public unsafe partial class Compositor
             _vectorIndicesList.Count,
             _textVerticesList.Count,
             _activeTextStyles.Count,
+            _atlas.BatchUsageCount,
             _textureVerticesList.Count,
             _textureIndicesList.Count,
             _drawCalls.Count,

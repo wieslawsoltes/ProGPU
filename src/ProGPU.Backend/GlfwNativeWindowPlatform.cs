@@ -43,6 +43,8 @@ internal unsafe class GlfwNativeWindowPlatform : INativeWindowPlatform
     public virtual bool SupportsManagedResize => true;
     public virtual bool SupportsSystemChromeExtension => false;
     public virtual bool IsInteractiveMoveResize => false;
+    public virtual bool IsProcessingPromotedTouchMouse => false;
+    public virtual Action<NativeTouchEvent>? TouchHandler { get; set; }
 
     public virtual bool ApplyChrome(in NativeWindowState state)
     {

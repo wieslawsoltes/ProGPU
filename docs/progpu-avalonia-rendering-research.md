@@ -3496,3 +3496,104 @@ strict linked iOS Release build and an iPhone 17 Pro simulator launch
 completed without Dawn validation errors. This establishes the managed/native
 ABI and simulator startup path; a physical-device IOSurface/MTLSharedEvent
 run and matched Instruments evidence remain required.
+
+## Retained glyph-atlas residency during incremental replay (2026-08-26)
+
+ControlCatalog geometry-clip integration exposed a retained-resource defect,
+not a clipping algorithm defect. An incremental scene page stored text
+vertices containing glyph-atlas UVs, but replaying that page did not mark the
+referenced glyph entries as used in the current atlas batch. Later page
+compilation could therefore select one of those entries as an LRU victim,
+reuse its rectangle, and then submit the earlier retained vertices with stale
+UVs. The visible result looked like arbitrary clipped or substituted text.
+
+The clean-room design was informed by these primary sources:
+
+- Skia's
+  [`GrTextBlob` vertex regenerator](https://skia.googlesource.com/skia/+/43cbd7229f83ef265b52270a1264a36d06c4f1ed/src/gpu/text/GrTextBlob.cpp)
+  compares retained subrun atlas generations and bulk-updates use tokens even
+  when texture coordinates do not need regeneration. Its
+  [`GrDrawOpAtlas`](https://skia.googlesource.com/skia/+/34c67453a5d032b2f5416564a8c80aa5dca05c9f/src/gpu/GrDrawOpAtlas.h)
+  explicitly requires clients to set a last-use token to prevent eviction.
+  SkParagraph separately caches reusable shaped paragraph results in
+  [`ParagraphCache`](https://skia.googlesource.com/skia/+/5d8f55bfa851a55fa7e111b9a4f1fd063509eca5/modules/skparagraph/src/ParagraphCache.cpp).
+- DirectWrite/Direct2D retain glyph positions in reusable text layouts while
+  drawing device-specific glyph runs, as documented in
+  [Text Rendering with Direct2D and DirectWrite](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite).
+  Direct2D's
+  [resource domains](https://learn.microsoft.com/en-us/windows/win32/direct2d/resources-and-resource-domains)
+  require device-dependent resources to be recreated when their render target
+  is lost. This supports keeping CPU shaping/layout identity independent from
+  validation of GPU atlas residency.
+- WebRender's
+  [`gpu_cache` contract](https://searchfox.org/firefox-main/source/gfx/wr/webrender/src/gpu_cache.rs)
+  requires every resource needed by a frame to be requested before its address
+  is consumed, and its
+  [profiler](https://github.com/servo/webrender/blob/main/webrender/src/profiler.rs)
+  separately measures glyph resolution, texture-cache updates, pressure, and
+  eviction. The relevant concept is current-frame demand, not preserving a UV
+  merely because a display item remains retained.
+- Vello's resource design requires the atlas to contain every resource needed
+  by the encoded viewport and protects pending draw resources from eviction;
+  glyphs follow the same rule in its
+  [image-resource design](https://github.com/linebender/vello/issues/176).
+  Its [glyph-caching roadmap](https://github.com/linebender/vello/blob/main/doc/roadmap_2023.md)
+  keeps glyph-run identity in the scene and resolves cached atlas resources
+  before submission.
+- HarfBuzz's
+  [`hb_shape`](https://github.com/harfbuzz/harfbuzz/blob/main/src/hb-shape.cc)
+  turns a Unicode buffer into glyph IDs and positions, while its documented
+  [shape-plan cache](https://github.com/harfbuzz/harfbuzz/blob/main/docs/usermanual-opentype-features.xml)
+  caches shaping decisions. It does not own raster-atlas residency. ProGPU's
+  shaped glyph runs therefore remain reusable CPU results.
+
+Adopted: a retained page carries an opaque set of the exact `GlyphKey` values
+used to produce its atlas-backed vertices. Replay first verifies that every
+key still maps to a non-fallback resident entry and then marks all entries as
+used for the current batch before any later page can allocate. If any entry is
+missing, the page/picture is discarded and compiled again; stale UVs are never
+submitted. The same capture and replay contract is used by incremental scene
+pages and retained composition pictures.
+
+Adapted: ProGPU keeps fine-grained key residency rather than invalidating every
+retained text page after any atlas eviction. This preserves unaffected pages
+while providing the same safety as Skia's generation/use-token combination.
+The existing key already includes font identity, glyph index, raster size, and
+subpixel phase, so DPI/subpixel quality and font fallback semantics are not
+weakened. Color bitmap entries participate when they use atlas storage; vector
+CFF/color fallbacks retain their existing path-resource contracts.
+
+Rejected: permanently pinning every glyph referenced by any retained page,
+clearing the atlas on every page hit, trusting coordinates without identity,
+or reshaping text during replay. Those choices respectively create unbounded
+residency, destroy reuse, permit recycled rectangles, or conflate reusable CPU
+layout with GPU resource validation.
+
+Capture is `O(G)` time for `G` glyph uses since the page boundary and `O(U)`
+retained storage for `U` distinct keys. Replay is two `O(U)` passes: the first
+is transactional validation and the second updates LRU state. Stable replay
+performs no rasterization, upload, or managed allocation after the batch-use
+journal reaches capacity. Startup remains lazy, visibility culling and worker
+preparation are unchanged, GPU draw batching is unchanged, and existing atlas
+generation/device-loss invalidation remains authoritative. No shader, C ABI,
+or native resource layout changed.
+
+Two focused regressions use a deliberately 96-pixel atlas. One verifies that
+a replayed entry cannot be selected during later LRU churn; the other renders
+an incremental label, mutates a sibling page until the atlas evicts entries,
+and requires the retained label pixels to remain byte-identical. Both pass in
+Release. Linux native-Dawn ControlCatalog runs then completed Border, Canvas,
+ScrollViewer, TextBlock, Viewbox, and AdornerLayer with 1024x800 logical,
+2048x1600 physical output, no retained-scene full synchronization during the
+fixture mutations, and visually correct screenshots. Windows native
+Dawn/D3D12 completed Canvas and the text-heavy TextBox at the same 2x physical
+resolution. macOS native Dawn/Metal completed the same five representative
+pages plus AdornerLayer at 1024x800 logical and 2048x1600 physical output; all
+typed clip, drawing-option, and adorner synchronization gates passed, and the
+TextBlock, Canvas, and moved-adorner screenshots were visually correct.
+
+The managed/native applicability audit found no equivalent defect in the C++
+renderer. Its immutable native scene owns a complete positioned-glyph atlas
+and grows/replaces that scene resource as a unit; it has neither the managed
+LRU slot reuse nor Avalonia incremental-page replay that formed this bug. The
+native renderer therefore requires no one-sided approximation or wire change.

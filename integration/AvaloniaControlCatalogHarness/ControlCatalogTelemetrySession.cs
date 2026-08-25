@@ -246,6 +246,7 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
 #if PROGPU_AVALONIA_BACKEND
             _measurementActive = true;
 #endif
+            _fixture?.ActivateMeasurementMutations();
             _previousAnimationTimestamp = timestamp;
             _measurementStartTimestamp = Stopwatch.GetTimestamp();
             ControlCatalogBenchmarkEventSource.Log.MeasurementStarted(
@@ -280,7 +281,6 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
 
     private void PrepareMeasurement()
     {
-        _fixture?.ActivateMeasurementMutations();
         CollectRetainedMemory();
         _allocatedBytesStart =
             GC.GetTotalAllocatedBytes(precise: true);
@@ -669,16 +669,16 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
             return;
         }
 
+        // RenderTargetBitmap.Render records in the visual's logical coordinate
+        // space. Keep deterministic catalog captures at one pixel per logical
+        // unit; the live-surface telemetry independently validates the native
+        // physical framebuffer size and render scaling.
         int width = Math.Max(
             1,
-            checked((int)Math.Ceiling(
-                _window.Bounds.Width *
-                _window.RenderScaling)));
+            checked((int)Math.Ceiling(_window.Bounds.Width)));
         int height = Math.Max(
             1,
-            checked((int)Math.Ceiling(
-                _window.Bounds.Height *
-                _window.RenderScaling)));
+            checked((int)Math.Ceiling(_window.Bounds.Height)));
         string path = Path.GetFullPath(_screenshotPath);
         string? directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(directory))
@@ -688,11 +688,9 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
 
         using var bitmap = new RenderTargetBitmap(
             new PixelSize(width, height),
-            new Vector(
-                96d * _window.RenderScaling,
-                96d * _window.RenderScaling));
+            new Vector(96d, 96d));
         bitmap.Render(_window);
-        bitmap.Save(path);
+        bitmap.Save(path, PngBitmapEncoderOptions.Default);
     }
 
     private void SignalDiagnosticHold()
@@ -905,6 +903,7 @@ internal sealed class BenchmarkVisualFixture
     private readonly Visual _target;
     private readonly Panel? _panel;
     private readonly bool _customVisual;
+    private readonly bool _geometryClip;
     private readonly bool _drawingOptions;
     private readonly bool _topology;
     private readonly bool _adorner;
@@ -925,6 +924,7 @@ internal sealed class BenchmarkVisualFixture
         Panel? panel,
         BenchmarkPulseControl? pulse,
         bool customVisual,
+        bool geometryClip,
         bool drawingOptions,
         bool topology,
         bool adorner,
@@ -939,6 +939,7 @@ internal sealed class BenchmarkVisualFixture
         _panel = panel;
         _pulse = pulse;
         _customVisual = customVisual;
+        _geometryClip = geometryClip;
         _drawingOptions = drawingOptions;
         _topology = topology;
         _adorner = adorner;
@@ -1125,6 +1126,7 @@ internal sealed class BenchmarkVisualFixture
             panel,
             pulse,
             customVisual,
+            geometryClip,
             drawingOptions,
             topology,
             adorner,
@@ -1216,6 +1218,18 @@ internal sealed class BenchmarkVisualFixture
 
     public void ActivateMeasurementMutations()
     {
+        if (_geometryClip)
+        {
+            _target.Clip = new RectangleGeometry(
+                new Rect(
+                    1.25,
+                    1.25,
+                    Math.Max(1, _target.Bounds.Width - 2.5),
+                    Math.Max(1, _target.Bounds.Height - 2.5)));
+            Console.Error.WriteLine(
+                "[ControlCatalog] typed retained geometry-clip channel fixture attached");
+        }
+
         if (_drawingOptions)
         {
             RenderOptions.SetBitmapInterpolationMode(

@@ -900,6 +900,9 @@ public sealed class WindowImpl :
         return false;
     }
 
+    internal bool IsProcessingPromotedTouchMouse =>
+        _windowController?.IsProcessingPromotedTouchMouse ?? false;
+
     internal NativeWindowPoint ToNativeScreenPoint(
         float clientX,
         float clientY)
@@ -923,8 +926,26 @@ public sealed class WindowImpl :
     internal void EndNativeDrag() =>
         _windowController?.EndDrag();
 
-    void ISilkNetLoopParticipant.PollNativeEvents() =>
-        _window?.DoEvents();
+    internal void SetNativeTouchHandler(
+        Action<NativeTouchEvent>? handler)
+    {
+        if (_windowController is not null)
+            _windowController.TouchHandler = handler;
+    }
+
+    void ISilkNetLoopParticipant.PollNativeEvents()
+    {
+        SilkNetInputRouter? input = _input;
+        input?.PollSupplementalEvents();
+        try
+        {
+            _window?.DoEvents();
+        }
+        finally
+        {
+            input?.CompleteSupplementalEventPoll();
+        }
+    }
 
     void ISilkNetLoopParticipant.UpdateNativeWindow()
     {
