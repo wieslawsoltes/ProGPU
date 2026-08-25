@@ -821,6 +821,21 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 48, pen.DashStyleHandle);
     }
 
+    public void SetGeometryDrawing(
+        uint handle,
+        uint brushHandle,
+        uint penHandle,
+        uint geometryHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.GeometryDrawing, 20);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, brushHandle);
+        WriteUInt32(packet, 12, penHandle);
+        WriteUInt32(packet, 16, geometryHandle);
+    }
+
     public void SetDashStyle(
         uint handle,
         double offset,
@@ -1058,6 +1073,15 @@ public sealed class NativeMilRenderDataBuilder
         NativeMilBatchBuilder.WriteUInt32(packet, 16, 0);
     }
 
+    public void DrawDrawing(uint drawingHandle)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(drawingHandle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawDrawing, 12);
+        NativeMilBatchBuilder.WriteUInt32(packet, 4, drawingHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 8, 0);
+    }
+
     public void DrawRectangle(
         double x,
         double y,
@@ -1175,6 +1199,7 @@ internal static class NativeMilCommand
     internal const uint DrawRoundedRectangle = 0x42;
     internal const uint DrawEllipse = 0x44;
     internal const uint DrawGeometry = 0x46;
+    internal const uint DrawDrawing = 0x4a;
     internal const uint PushClip = 0x4d;
     internal const uint PushOpacity = 0x4f;
     internal const uint PushTransform = 0x51;
@@ -1196,4 +1221,5 @@ internal static class NativeMilCommand
     internal const uint RadialGradientBrush = 0x80;
     internal const uint DashStyle = 0x85;
     internal const uint Pen = 0x86;
+    internal const uint GeometryDrawing = 0x87;
 }

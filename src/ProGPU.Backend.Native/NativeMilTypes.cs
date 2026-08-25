@@ -33,7 +33,8 @@ public enum NativeMilResourceType : uint
     LinearGradientBrush = 77,
     RadialGradientBrush = 78,
     DashStyle = 84,
-    Pen = 85
+    Pen = 85,
+    GeometryDrawing = 87
 }
 
 public enum NativeMilPathFillRule : uint

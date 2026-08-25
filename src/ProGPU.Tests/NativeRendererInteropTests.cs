@@ -119,6 +119,38 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWriteCanonicalGeometryDrawingPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(7, NativeMilResourceType.GeometryDrawing);
+        batch.SetGeometryDrawing(7, 4, 5, 6);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(40, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x07U, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(87U, ReadUInt32(encoded, 12));
+        Assert.Equal(24U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x87U, ReadUInt32(encoded, 20));
+        Assert.Equal(7U, ReadUInt32(encoded, 24));
+        Assert.Equal(4U, ReadUInt32(encoded, 28));
+        Assert.Equal(5U, ReadUInt32(encoded, 32));
+        Assert.Equal(6U, ReadUInt32(encoded, 36));
+
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.DrawDrawing(7);
+        byte[] nested = renderData.WrittenSpan.ToArray();
+        Assert.Equal(16, nested.Length);
+        Assert.Equal(16U, ReadUInt32(nested, 0));
+        Assert.Equal(0x4aU, ReadUInt32(nested, 4));
+        Assert.Equal(7U, ReadUInt32(nested, 8));
+        Assert.Equal(0U, ReadUInt32(nested, 12));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderData.DrawDrawing(0));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalGradientPackets()
     {
         var stops = new[]

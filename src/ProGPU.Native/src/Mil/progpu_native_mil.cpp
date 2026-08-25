@@ -44,6 +44,7 @@ constexpr std::uint32_t type_linear_gradient_brush = 77U;
 constexpr std::uint32_t type_radial_gradient_brush = 78U;
 constexpr std::uint32_t type_dash_style = 84U;
 constexpr std::uint32_t type_pen = 85U;
+constexpr std::uint32_t type_geometry_drawing = 87U;
 constexpr std::uint32_t type_last = 98U;
 constexpr std::uint32_t maximum_visual_depth = 256U;
 constexpr std::uint32_t maximum_path_record_count = 1U << 20U;
@@ -613,6 +614,12 @@ struct channel::implementation {
         std::vector<double> intervals;
     };
 
+    struct geometry_drawing_state {
+        std::uint32_t brush_handle{};
+        std::uint32_t pen_handle{};
+        std::uint32_t geometry_handle{};
+    };
+
     struct transform_state {
         enum class kind : std::uint32_t {
             matrix,
@@ -700,6 +707,8 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, gradient_brush_state> gradient_brushes;
     std::unordered_map<std::uint32_t, dash_style_state> dash_styles;
     std::unordered_map<std::uint32_t, pen_state> pens;
+    std::unordered_map<std::uint32_t, geometry_drawing_state>
+        geometry_drawings;
 
     bool require_resource(
         std::uint32_t handle,
@@ -1070,6 +1079,14 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
             }
+            for (const auto& [drawing_handle, drawing] : geometry_drawings) {
+                if (drawing_handle != handle &&
+                    (drawing.brush_handle == handle ||
+                     drawing.pen_handle == handle ||
+                     drawing.geometry_handle == handle)) {
+                    return status::invalid_graph;
+                }
+            }
             for (const auto& [brush_handle, brush] : gradient_brushes) {
                 if (brush_handle != handle &&
                     (brush.opacity_animation == handle ||
@@ -1139,6 +1156,7 @@ struct channel::implementation {
             gradient_brushes.erase(handle);
             dash_styles.erase(handle);
             pens.erase(handle);
+            geometry_drawings.erase(handle);
             resources.erase(found);
             ++metrics.deleted_resource_count;
             return status::success;
@@ -2673,6 +2691,29 @@ struct channel::implementation {
                 return status::malformed_batch;
             }
             pens.insert_or_assign(handle, pen);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::geometry_drawing: {
+            geometry_drawing_state drawing{};
+            if (!has_exact_size(view, 20U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, drawing.brush_handle) ||
+                !read_at(view.packet, 12U, drawing.pen_handle) ||
+                !read_at(view.packet, 16U, drawing.geometry_handle)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_geometry_drawing) ||
+                (drawing.brush_handle != 0U &&
+                 !require_brush(drawing.brush_handle)) ||
+                (drawing.pen_handle != 0U &&
+                 !require_resource(drawing.pen_handle, type_pen)) ||
+                (drawing.geometry_handle != 0U &&
+                 !require_geometry(drawing.geometry_handle))) {
+                return status::invalid_handle;
+            }
+            geometry_drawings.insert_or_assign(handle, drawing);
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -5390,20 +5431,44 @@ struct channel::implementation {
             double radius_y = 0.0;
             std::uint32_t brush_handle = 0U;
             std::uint32_t pen_handle = 0U;
+            std::uint32_t geometry_handle = 0U;
             affine_2d_double local_transform{};
             affine_2d_double effective_transform = current.transform;
-            if (view.kind == command::draw_geometry) {
-                std::uint32_t geometry_handle = 0U;
+            const bool is_drawing_resource =
+                view.kind == command::draw_drawing;
+            if (is_drawing_resource) {
+                std::uint32_t drawing_handle = 0U;
                 std::uint32_t padding = 0U;
-                if (!has_exact_size(view, 20U) ||
-                    !read_at(view.packet, 4U, brush_handle) ||
-                    !read_at(view.packet, 8U, pen_handle) ||
-                    !read_at(view.packet, 12U, geometry_handle) ||
-                    !read_at(view.packet, 16U, padding)) {
+                if (!has_exact_size(view, 12U) ||
+                    !read_at(view.packet, 4U, drawing_handle) ||
+                    !read_at(view.packet, 8U, padding) || padding != 0U ||
+                    drawing_handle == 0U) {
                     return status::malformed_batch;
                 }
-                if (padding != 0U || geometry_handle == 0U) {
-                    return status::malformed_batch;
+                const auto drawing = geometry_drawings.find(drawing_handle);
+                if (drawing == geometry_drawings.end()) {
+                    return status::invalid_handle;
+                }
+                brush_handle = drawing->second.brush_handle;
+                pen_handle = drawing->second.pen_handle;
+                geometry_handle = drawing->second.geometry_handle;
+                if (geometry_handle == 0U) {
+                    continue;
+                }
+            }
+            if (view.kind == command::draw_geometry || is_drawing_resource) {
+                std::uint32_t padding = 0U;
+                if (!is_drawing_resource) {
+                    if (!has_exact_size(view, 20U) ||
+                        !read_at(view.packet, 4U, brush_handle) ||
+                        !read_at(view.packet, 8U, pen_handle) ||
+                        !read_at(view.packet, 12U, geometry_handle) ||
+                        !read_at(view.packet, 16U, padding)) {
+                        return status::malformed_batch;
+                    }
+                    if (padding != 0U || geometry_handle == 0U) {
+                        return status::malformed_batch;
+                    }
                 }
                 if (brush_handle != 0U &&
                     !has_brush_state(brush_handle)) {
