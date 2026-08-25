@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Numerics;
 
 namespace ProGPU.Backend.Native;
 
@@ -846,11 +847,11 @@ public sealed class NativeMilBatchBuilder
         NativeMilGlyphRun glyphRun,
         ReadOnlySpan<ushort> glyphIndices,
         ReadOnlySpan<float> advances,
-        ReadOnlySpan<NativeMilPoint> offsets = default)
+        ReadOnlySpan<Vector2> offsets = default)
     {
         ValidateHandle(handle);
         if (glyphIndices.IsEmpty || glyphIndices.Length > ushort.MaxValue ||
-            advances.Length != glyphIndices.Length ||
+            (!advances.IsEmpty && advances.Length != glyphIndices.Length) ||
             (!offsets.IsEmpty && offsets.Length != glyphIndices.Length) ||
             !float.IsFinite(glyphRun.EmSize) || glyphRun.EmSize <= 0 ||
             glyphRun.MeasuringMethod > NativeMilTextMeasuringMethod.GdiNatural ||
@@ -872,14 +873,16 @@ public sealed class NativeMilBatchBuilder
                 throw new ArgumentOutOfRangeException(nameof(advances));
             }
         }
-        foreach (NativeMilPoint offset in offsets)
+        foreach (Vector2 offset in offsets)
         {
-            _ = ToFiniteSingle(offset.X, nameof(offsets));
-            _ = ToFiniteSingle(offset.Y, nameof(offsets));
+            if (!float.IsFinite(offset.X) || !float.IsFinite(offset.Y))
+            {
+                throw new ArgumentOutOfRangeException(nameof(offsets));
+            }
         }
         int payloadSize = checked(
             glyphIndices.Length * sizeof(ushort) +
-            advances.Length * sizeof(float) +
+            glyphIndices.Length * sizeof(float) +
             offsets.Length * sizeof(float) * 2);
         Span<byte> packet = NativeMilBatchEncoding.Allocate(
             _writer,
@@ -913,21 +916,27 @@ public sealed class NativeMilBatchBuilder
             WriteUInt16(packet, writeOffset, glyphIndex);
             writeOffset += sizeof(ushort);
         }
-        foreach (float advance in advances)
+        if (advances.IsEmpty)
         {
-            WriteSingle(packet, writeOffset, advance);
-            writeOffset += sizeof(float);
+            for (int index = 0; index < glyphIndices.Length; index++)
+            {
+                WriteSingle(packet, writeOffset, 0);
+                writeOffset += sizeof(float);
+            }
         }
-        foreach (NativeMilPoint glyphOffset in offsets)
+        else
         {
+            foreach (float advance in advances)
+            {
+                WriteSingle(packet, writeOffset, advance);
+                writeOffset += sizeof(float);
+            }
+        }
+        foreach (Vector2 glyphOffset in offsets)
+        {
+            WriteSingle(packet, writeOffset, glyphOffset.X);
             WriteSingle(
-                packet,
-                writeOffset,
-                ToFiniteSingle(glyphOffset.X, nameof(offsets)));
-            WriteSingle(
-                packet,
-                writeOffset + sizeof(float),
-                ToFiniteSingle(glyphOffset.Y, nameof(offsets)));
+                packet, writeOffset + sizeof(float), glyphOffset.Y);
             writeOffset += sizeof(float) * 2;
         }
     }

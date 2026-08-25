@@ -647,7 +647,7 @@ struct channel::implementation {
         std::vector<std::uint16_t> glyph_indices;
         std::vector<float> advances;
         std::vector<progpu_native_point> offsets;
-        std::vector<std::byte> font_data;
+        std::shared_ptr<const std::vector<std::byte>> font_data;
     };
 
     struct glyph_run_drawing_state {
@@ -3207,7 +3207,7 @@ struct channel::implementation {
         if ((glyph_run.flags & 0x0001U) != 0U) {
             return status::unsupported_command;
         }
-        if (glyph_run.font_data.empty() ||
+        if (!glyph_run.font_data || glyph_run.font_data->empty() ||
             glyph_run.glyph_indices.empty() ||
             glyph_run.glyph_indices.size() != glyph_run.advances.size() ||
             (!glyph_run.offsets.empty() &&
@@ -3228,7 +3228,7 @@ struct channel::implementation {
             text::sfnt_font_view font{};
             text::font_error font_error = text::font_error::none;
             if (!text::sfnt_font_view::try_create(
-                    glyph_run.font_data,
+                    *glyph_run.font_data,
                     glyph_run.face_index,
                     font,
                     &font_error)) {
@@ -7404,10 +7404,28 @@ status channel::set_glyph_run_font_sfnt(
         return status::invalid_argument;
     }
     try {
+        std::shared_ptr<const std::vector<std::byte>> retained_font;
+        for (const auto& [other_handle, other] :
+             implementation_->glyph_runs) {
+            (void)other_handle;
+            if (other.font_data &&
+                other.font_data->size() == font_data.size() &&
+                std::memcmp(
+                    other.font_data->data(),
+                    font_data.data(),
+                    font_data.size()) == 0) {
+                retained_font = other.font_data;
+                break;
+            }
+        }
+        if (!retained_font) {
+            retained_font = std::make_shared<const std::vector<std::byte>>(
+                font_data.begin(), font_data.end());
+        }
         auto& glyph_run = implementation_->glyph_runs.at(handle);
         glyph_run.face_index = face_index;
         glyph_run.style_simulations = style_simulations;
-        glyph_run.font_data.assign(font_data.begin(), font_data.end());
+        glyph_run.font_data = std::move(retained_font);
         implementation_->increment_generation(handle);
         return status::success;
     } catch (const std::bad_alloc&) {
