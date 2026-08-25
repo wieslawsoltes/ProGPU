@@ -183,6 +183,91 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 56, 0);
     }
 
+    public void SetTransformGroup(uint handle, ReadOnlySpan<uint> children)
+    {
+        ValidateHandle(handle);
+        int childrenSize = checked(children.Length * sizeof(uint));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.TransformGroup,
+            checked(12 + childrenSize));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, (uint)childrenSize);
+        for (int index = 0; index < children.Length; ++index)
+        {
+            ValidateHandle(children[index]);
+            WriteUInt32(packet, 12 + index * sizeof(uint), children[index]);
+        }
+    }
+
+    public void SetTranslateTransform(uint handle, double x, double y)
+    {
+        ValidateHandle(handle);
+        ValidateTransformValues(x, y);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.TranslateTransform, 32);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, x);
+        WriteDouble(packet, 16, y);
+        WriteUInt32(packet, 24, 0);
+        WriteUInt32(packet, 28, 0);
+    }
+
+    public void SetScaleTransform(
+        uint handle,
+        double scaleX,
+        double scaleY,
+        double centerX = 0,
+        double centerY = 0)
+    {
+        ValidateHandle(handle);
+        ValidateTransformValues(scaleX, scaleY, centerX, centerY);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.ScaleTransform, 56);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, scaleX);
+        WriteDouble(packet, 16, scaleY);
+        WriteDouble(packet, 24, centerX);
+        WriteDouble(packet, 32, centerY);
+        packet[40..56].Clear();
+    }
+
+    public void SetSkewTransform(
+        uint handle,
+        double angleX,
+        double angleY,
+        double centerX = 0,
+        double centerY = 0)
+    {
+        ValidateHandle(handle);
+        ValidateTransformValues(angleX, angleY, centerX, centerY);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.SkewTransform, 56);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, angleX);
+        WriteDouble(packet, 16, angleY);
+        WriteDouble(packet, 24, centerX);
+        WriteDouble(packet, 32, centerY);
+        packet[40..56].Clear();
+    }
+
+    public void SetRotateTransform(
+        uint handle,
+        double angle,
+        double centerX = 0,
+        double centerY = 0)
+    {
+        ValidateHandle(handle);
+        ValidateTransformValues(angle, centerX, centerY);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.RotateTransform, 44);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, angle);
+        WriteDouble(packet, 16, centerX);
+        WriteDouble(packet, 24, centerY);
+        packet[32..44].Clear();
+    }
+
     public void SetLineGeometry(
         uint handle,
         double startX,
@@ -676,6 +761,19 @@ public sealed class NativeMilBatchBuilder
         }
     }
 
+    private static void ValidateTransformValues(
+        double first,
+        double second,
+        double third = 0,
+        double fourth = 0)
+    {
+        if (!double.IsFinite(first) || !double.IsFinite(second) ||
+            !double.IsFinite(third) || !double.IsFinite(fourth))
+        {
+            throw new ArgumentOutOfRangeException(nameof(first));
+        }
+    }
+
     internal static void WriteUInt32(Span<byte> packet, int offset, uint value) =>
         BinaryPrimitives.WriteUInt32LittleEndian(packet[offset..], value);
 
@@ -893,6 +991,11 @@ internal static class NativeMilCommand
     internal const uint PushOpacity = 0x4f;
     internal const uint PushTransform = 0x51;
     internal const uint Pop = 0x56;
+    internal const uint TransformGroup = 0x72;
+    internal const uint TranslateTransform = 0x73;
+    internal const uint ScaleTransform = 0x74;
+    internal const uint SkewTransform = 0x75;
+    internal const uint RotateTransform = 0x76;
     internal const uint MatrixTransform = 0x77;
     internal const uint LineGeometry = 0x78;
     internal const uint RectangleGeometry = 0x79;

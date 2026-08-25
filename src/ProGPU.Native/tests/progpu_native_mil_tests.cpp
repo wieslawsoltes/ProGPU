@@ -126,6 +126,25 @@ void append_geometry_group(
     batch.insert(batch.end(), packet.begin(), packet.end());
 }
 
+void append_transform_group(
+    std::vector<std::byte>& batch,
+    std::uint32_t handle,
+    std::span<const std::uint32_t> children) {
+    std::vector<std::byte> packet;
+    append_value(packet, static_cast<std::uint32_t>(command::transform_group));
+    append_value(packet, handle);
+    append_value(
+        packet,
+        static_cast<std::uint32_t>(children.size_bytes()));
+    for (const std::uint32_t child : children) {
+        append_value(packet, child);
+    }
+    append_value(
+        batch,
+        static_cast<std::uint32_t>(packet.size() + sizeof(std::uint32_t)));
+    batch.insert(batch.end(), packet.begin(), packet.end());
+}
+
 std::vector<std::byte> make_rectangle_path_figures(
     double left,
     double top,
@@ -991,6 +1010,187 @@ bool matrix_transform_scopes_compile_to_semantic_state() {
     }
     PROGPU_REQUIRE(found_vector_clip);
     PROGPU_REQUIRE(found_masked_state);
+    return true;
+}
+
+bool static_transform_resources_compose_and_retain_dependencies() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t translate = 5U;
+    constexpr std::uint32_t scale = 6U;
+    constexpr std::uint32_t skew = 7U;
+    constexpr std::uint32_t rotate = 8U;
+    constexpr std::uint32_t group = 9U;
+    constexpr std::uint32_t nested_group = 10U;
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, translate, 62U);
+    append_create(batch, scale, 63U);
+    append_create(batch, skew, 64U);
+    append_create(batch, rotate, 65U);
+    append_create(batch, group, 61U);
+    append_create(batch, nested_group, 61U);
+    append_command(batch, command::visual_create, visual);
+    append_command(
+        batch,
+        command::translate_transform,
+        translate,
+        3.0,
+        4.0,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::scale_transform,
+        scale,
+        2.0,
+        3.0,
+        0.0,
+        0.0,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::skew_transform,
+        skew,
+        45.0,
+        0.0,
+        0.0,
+        0.0,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::rotate_transform,
+        rotate,
+        90.0,
+        0.0,
+        0.0,
+        0U,
+        0U,
+        0U);
+    const std::array transform_children{translate, scale, skew, rotate};
+    append_transform_group(batch, group, transform_children);
+    const std::array nested_children{group};
+    append_transform_group(batch, nested_group, nested_children);
+    append_command(batch, command::visual_set_transform, visual, nested_group);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.2F, 0.4F, 0.6F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_rectangle,
+        0.0,
+        0.0,
+        2.0,
+        3.0,
+        brush,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 1U, stream) == status::success);
+    const auto has_transform = [&stream](
+        float offset_x,
+        float offset_y) {
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+            const auto resource = read_value<progpu_native_scene_resource>(
+                stream,
+                header.resource_offset +
+                    index * sizeof(progpu_native_scene_resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+                continue;
+            }
+            const auto scene_state = read_value<progpu_native_scene_state>(
+                stream,
+                resource.payload_offset);
+            if (std::abs(scene_state.transform.m11) < 0.0001F &&
+                std::abs(scene_state.transform.m12 - 2.0F) < 0.0001F &&
+                std::abs(scene_state.transform.m21 + 3.0F) < 0.0001F &&
+                std::abs(scene_state.transform.m22 - 3.0F) < 0.0001F &&
+                std::abs(scene_state.transform.m31 - offset_x) < 0.0001F &&
+                std::abs(scene_state.transform.m32 - offset_y) < 0.0001F) {
+                return true;
+            }
+        }
+        return false;
+    };
+    PROGPU_REQUIRE(has_transform(-12.0F, 18.0F));
+
+    std::vector<std::byte> child_update;
+    append_command(
+        child_update,
+        command::translate_transform,
+        translate,
+        5.0,
+        4.0,
+        0U,
+        0U);
+    PROGPU_REQUIRE(state.apply(child_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 2U, stream) == status::success);
+    PROGPU_REQUIRE(has_transform(-12.0F, 22.0F));
+
+    const auto rotate_generation = state.resource_generation(rotate);
+    std::vector<std::byte> animated_update;
+    append_command(
+        animated_update,
+        command::rotate_transform,
+        rotate,
+        180.0,
+        0.0,
+        0.0,
+        1U,
+        0U,
+        0U);
+    PROGPU_REQUIRE(
+        state.apply(animated_update) == status::unsupported_command);
+    PROGPU_REQUIRE(state.resource_generation(rotate) == rotate_generation);
+
+    std::vector<std::byte> cycle;
+    const std::array cycle_children{nested_group};
+    append_transform_group(cycle, group, cycle_children);
+    PROGPU_REQUIRE(state.apply(cycle) == status::invalid_graph);
+
+    std::vector<std::byte> delete_dependency;
+    append_command(
+        delete_dependency,
+        command::channel_delete_resource,
+        translate,
+        62U);
+    PROGPU_REQUIRE(state.apply(delete_dependency) == status::invalid_graph);
     return true;
 }
 
@@ -5085,6 +5285,8 @@ int main() {
     PROGPU_REQUIRE(invalid_visual_graphs_fail_closed());
     PROGPU_REQUIRE(solid_rectangle_compiles_to_semantic_scene());
     PROGPU_REQUIRE(matrix_transform_scopes_compile_to_semantic_state());
+    PROGPU_REQUIRE(
+        static_transform_resources_compose_and_retain_dependencies());
     PROGPU_REQUIRE(solid_pen_line_compiles_to_geometry_scene());
     PROGPU_REQUIRE(retained_path_geometry_compiles_to_semantic_scene());
     PROGPU_REQUIRE(
