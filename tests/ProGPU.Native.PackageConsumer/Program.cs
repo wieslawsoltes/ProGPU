@@ -230,8 +230,8 @@ static byte[] CreateMilSeedBatch()
     batch.SetCombinedGeometry(
         55,
         NativeMilGeometryCombineMode.Exclude,
-        52,
-        53,
+        50,
+        51,
         45);
     batch.SetPathGeometry(
         56,

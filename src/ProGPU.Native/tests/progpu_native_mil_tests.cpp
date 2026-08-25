@@ -2125,8 +2125,8 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         combined,
         transform,
         3U,
-        path_a,
-        path_b);
+        rectangle,
+        rounded_rectangle);
     std::vector<std::byte> nested;
     append_command(
         nested,
@@ -2219,13 +2219,13 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
             found_group_path = true;
             continue;
         }
-        PROGPU_REQUIRE(path.segment_count == 8U);
-        PROGPU_REQUIRE(path.min_x == 1.0F && path.min_y == 2.0F);
-        PROGPU_REQUIRE(path.max_x == 15.0F && path.max_y == 12.0F);
+        PROGPU_REQUIRE(path.segment_count == 12U);
+        PROGPU_REQUIRE(path.min_x == 16.0F && path.min_y == 0.0F);
+        PROGPU_REQUIRE(path.max_x == 26.0F && path.max_y == 8.0F);
         PROGPU_REQUIRE(path.boolean_node_count == 3U);
         const std::size_t boolean_offset =
             resource.auxiliary_offset +
-            8U * sizeof(progpu_native_path_segment);
+            12U * sizeof(progpu_native_path_segment);
         const auto leaf_a =
             read_value<progpu_native_scene_path_boolean_node>(
                 stream,
@@ -2243,13 +2243,58 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
             leaf_a.segment_offset == 0U && leaf_a.segment_count == 4U);
         PROGPU_REQUIRE(
             leaf_b.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
-            leaf_b.segment_offset == 4U && leaf_b.segment_count == 4U);
+            leaf_b.segment_offset == 4U && leaf_b.segment_count == 8U);
+        PROGPU_REQUIRE(
+            leaf_a.fill_rule == PROGPU_NATIVE_FILL_RULE_NON_ZERO &&
+            leaf_a.min_x == 20.0F && leaf_a.min_y == 5.0F &&
+            leaf_a.max_x == 24.0F && leaf_a.max_y == 8.0F);
+        PROGPU_REQUIRE(
+            leaf_b.fill_rule == PROGPU_NATIVE_FILL_RULE_NON_ZERO &&
+            leaf_b.min_x == 16.0F && leaf_b.min_y == 0.0F &&
+            leaf_b.max_x == 26.0F && leaf_b.max_y == 8.0F);
         PROGPU_REQUIRE(
             operation.kind == PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE);
         found_combined_path = true;
     }
     PROGPU_REQUIRE(found_group_path);
     PROGPU_REQUIRE(found_combined_path);
+
+    std::vector<std::byte> path_operand_update;
+    append_command(
+        path_operand_update,
+        command::combined_geometry,
+        combined,
+        transform,
+        3U,
+        path_a,
+        path_b);
+    PROGPU_REQUIRE(state.apply(path_operand_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7003U, 2U, stream) == status::success);
+    const auto path_operand_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_path_operands = false;
+    for (std::uint32_t index = 0U;
+         index < path_operand_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            path_operand_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            continue;
+        }
+        const auto path = read_value<progpu_native_scene_path_fill>(
+            stream,
+            resource.payload_offset);
+        if (path.boolean_node_count == 3U) {
+            PROGPU_REQUIRE(path.segment_count == 8U);
+            PROGPU_REQUIRE(path.min_x == 1.0F && path.min_y == 2.0F);
+            PROGPU_REQUIRE(path.max_x == 15.0F && path.max_y == 12.0F);
+            found_path_operands = true;
+        }
+    }
+    PROGPU_REQUIRE(found_path_operands);
 
     const auto generation = state.resource_generation(group);
     std::vector<std::byte> malformed;
@@ -2275,7 +2320,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         0U);
     PROGPU_REQUIRE(state.apply(null_operand_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7003U, 2U, stream) == status::success);
+        state.build_scene(target, 7003U, 3U, stream) == status::success);
     const auto combined_generation = state.resource_generation(combined);
     std::vector<std::byte> invalid_combine;
     append_command(
