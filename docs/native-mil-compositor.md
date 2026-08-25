@@ -228,13 +228,19 @@ lowerer, compose each group/leaf transform in WPF order, and intentionally
 ignore nested fill rules before applying the outer root fill rule. This matches
 `CMilGeometryGroupDuce::GetShapeDataCore`, which copies every child figure with
 `CShape::AddShapeData` and calls `SetFillMode` only on the resulting outer
-shape. Nonsingular affine transforms on native arc records are baked without
-flattening: ProGPU transforms the arc's two ellipse basis vectors, factors the
-resulting `T*T^T` metric into orthogonal output axes/radii, projects the start
-parameter into that basis, and reverses the sweep exactly when the affine
-determinant is negative. Combined-geometry children, singular arc transforms,
-and meaningful group pens currently fail closed until their contours or
-strokes can be composed without approximation.
+shape. Nonzero groups keep that shared contour batch because cross-child winding
+cancellation is significant. EvenOdd groups compile the same child leaves into
+an exact postfix XOR program; XOR of the child-inside predicates is the outer
+EvenOdd result and bounds each raster operation to its own leaf without changing
+WPF parity semantics. Nonsingular affine transforms on native arc records are
+baked without flattening: ProGPU transforms the arc's two ellipse basis vectors,
+factors the resulting `T*T^T` metric into orthogonal output axes/radii, projects
+the start parameter into that basis, and reverses the sweep exactly when the
+affine determinant is negative. A translation-only fast path preserves the
+source radii, axis, angles, sweep, and padding bit-for-bit while translating only
+the endpoints and center. Combined-geometry children, singular arc transforms,
+and meaningful group pens currently fail closed until their contours or strokes
+can be composed without approximation.
 
 Canonical fixed-size `MILCMD_COMBINEDGEOMETRY` state now retains the optional
 matrix transform, two geometry dependencies, and WPF Union/Intersect/Xor/
@@ -261,6 +267,14 @@ arcs and sweep reversal. Singular arc transforms and stroked operands remain
 fail closed. Combined children inside a `GeometryGroup` also remain fail closed
 because treating a boolean result as raw outer-fill contours would change WPF
 semantics.
+
+The shared WGSL path rasterizer keeps these arcs analytic. It rejects samples
+outside each path record's exact bounds, rejects quadratic and cubic work on
+rows outside the curve control hull, and tests arc sweep membership with
+oriented cross products of the normalized start/end vectors rather than
+per-crossing trigonometric reconstruction. The existing half-open endpoint and
+derivative rules are unchanged, and the complete path-atlas parity fixture
+retains its prior pixel result.
 
 `NativeMilBatchBuilder` and `NativeMilRenderDataBuilder` provide the matching
 managed producer for this supported subset. They write the canonical WPF
@@ -643,13 +657,52 @@ wgpu-native stream completed live Parallels D3D12 readback with 18 semantic
 resources, three draws, and 16,384 pixels; the immediate renderer smoke also
 passed.
 
-Two adapter-specific limitations remain explicit. Retained GPU hit-test
+The affine-arc recursive-geometry checkpoint at exact ProGPU commit `b9011c23`
+passed the complete Windows ARM64 MSVC gate on 2026-08-25. Both native modules
+rebuilt under `/W4 /WX`; all 11 CTests passed, including reflected/sheared arc
+sample equivalence, sweep reversal, singular-transform rejection, exact
+translation record preservation, recursive group/boolean arc leaves, outer
+fill ownership, and transactional rollback. The independent C++ and managed
+D3D12 samples, allocation probes, text, images, masks/effects, Overlay,
+ColorDodge, and the bounded differential matrix all passed. The mixed
+differential remained at maximum delta 2/255, zero pixels above 3/255, and mean
+`0.0000622`. The 49-path atlas retained its existing maximum delta 46/255,
+1,048 pixels over tolerance, and mean `0.017107928`; this is an unchanged
+historical independent-edge-AA contract rather than a regression. VM timing was
+noisy during this run and is intentionally not used as qualification evidence.
+
+The zero-warning project-reference package consumer copied the exact staged
+DLLs and exercised both the focused recursive-group arc scene and the broader
+recursive group/boolean scene through the wgpu-native and Dawn MIL exports.
+They completed live D3D12 readback with 18 semantic resources and three draws;
+the focused scene staged 40,960 coverage bytes and the broader scene 41,472.
+The staged module SHA-256 values were
+`a94dab843f3f253e004e128e6ff9fc4160676691cc467cb0288a6071b0f37025`
+for `progpu_native.dll` and
+`a1f0c7067bd442b989708f4e7243927074a75e9419f8013d4cdef5d565b59807`
+for `progpu_native_dawn.dll`.
+
+One deliberately separate diagnostic is not qualified: an EvenOdd group whose
+two leaves are nearly translated equivalents can remove the Parallels D3D12
+device during retained readback. A single recursive group arc, a recursive
+boolean arc, and a mixed non-equivalent group all pass; the close-duplicate case
+also fails with affine line/quadratic/cubic leaves, so it is not arc
+factorization-specific. Translation preservation, bounded XOR leaf execution,
+row/bounds rejection, sample-grid changes, and curve approximations did not
+eliminate the backend failure; all approximation experiments were removed and
+analytic 8x8 rasterization retained. This diagnostic is excluded from the
+supported package seed. Before release, the compiler must either reject that
+overlap pattern transactionally or the shared path backend must execute it
+without device loss; it must not be treated as supported parity in the interim.
+
+Three adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
 The legacy managed renderer also removes the Parallels D3D12 device on the
 dense 384-command mixed-picture workload; the same workload passes through the
 C++ renderer, so this adapter's gate keeps full native stress and a bounded
-managed differential as separate processes. Neither limitation is evidence of
+managed differential as separate processes. The close translated-equivalent
+EvenOdd-group failure above is the third tracked limitation. None is evidence of
 full DirectX/MIL parity; Stages 1–5 remain open until their listed protocol and
 integration surfaces are implemented.
 
