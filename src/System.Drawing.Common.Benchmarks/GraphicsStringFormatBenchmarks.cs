@@ -12,12 +12,14 @@ public class GraphicsStringFormatBenchmarks
     private Font _font = null!;
     private StringFormat _format = null!;
     private StringFormat _advancedFormat = null!;
+    private StringFormat _pathFormat = null!;
     private DrawingContext _recordingContext = null!;
     private Graphics _recordingGraphics = null!;
     private SolidBrush _brush = null!;
     private StringFormat _mnemonicFormat = null!;
     private char[] _text = null!;
     private char[] _advancedText = null!;
+    private char[] _pathText = null!;
 
     [GlobalSetup]
     public void Setup()
@@ -30,6 +32,10 @@ public class GraphicsStringFormatBenchmarks
             StringFormatFlags.NoWrap | StringFormatFlags.MeasureTrailingSpaces);
         _advancedFormat.SetTabStops(8f, [40f, 40f]);
         _advancedFormat.SetDigitSubstitution(0x0C01, StringDigitSubstitute.National);
+        _pathFormat = new StringFormat(StringFormatFlags.NoWrap)
+        {
+            Trimming = StringTrimming.EllipsisPath
+        };
         _recordingContext = new DrawingContext();
         _recordingGraphics = Graphics.FromProGpuDrawingContext(_recordingContext);
         _brush = new SolidBrush(Color.Black);
@@ -39,8 +45,10 @@ public class GraphicsStringFormatBenchmarks
         };
         _text = "LibreWinForms text".ToCharArray();
         _advancedText = "A\t123  ".ToCharArray();
+        _pathText = "C:/very/long/project/folder/report.txt".ToCharArray();
         MeasureSpan();
         MeasureAdvancedFormatSpan();
+        MeasureEllipsisPathSpan();
         RecordMnemonicString();
     }
 
@@ -57,6 +65,14 @@ public class GraphicsStringFormatBenchmarks
             _advancedFormat);
 
     [Benchmark]
+    public SizeF MeasureEllipsisPathSpan() =>
+        _graphics.MeasureString(
+            _pathText.AsSpan(),
+            _font,
+            new SizeF(160f, 60f),
+            _pathFormat);
+
+    [Benchmark]
     public int RecordMnemonicString()
     {
         _recordingContext.Commands.Clear();
@@ -69,6 +85,7 @@ public class GraphicsStringFormatBenchmarks
     {
         _format.Dispose();
         _advancedFormat.Dispose();
+        _pathFormat.Dispose();
         _mnemonicFormat.Dispose();
         _brush.Dispose();
         _recordingGraphics.Dispose();

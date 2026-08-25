@@ -356,6 +356,95 @@ public sealed class GraphicsStringFormatQualityTests
     }
 
     [Fact]
+    public void EllipsisPathPreservesTheFinalSlashDelimitedSegment()
+    {
+        const string Text = "C:/very/long/project/folder/re&port.txt";
+        const string Prefix = "C:";
+        const string Tail = "/report.txt";
+        var context = new DrawingContext();
+        var prefixContext = new DrawingContext();
+        var tailContext = new DrawingContext();
+        var ellipsisContext = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        using Graphics prefixGraphics = Graphics.FromProGpuDrawingContext(prefixContext);
+        using Graphics tailGraphics = Graphics.FromProGpuDrawingContext(tailContext);
+        using Graphics ellipsisGraphics = Graphics.FromProGpuDrawingContext(ellipsisContext);
+        using var font = new Font(FontFamily.GenericSansSerif, 18f);
+        using var brush = new SolidBrush(Color.Black);
+        using var format = new StringFormat(StringFormatFlags.NoWrap)
+        {
+            HotkeyPrefix = HotkeyPrefix.Show,
+            Trimming = StringTrimming.EllipsisPath
+        };
+        using var measurementFormat = new StringFormat(StringFormatFlags.NoWrap);
+        float width = graphics.MeasureString(
+            "C:/long…/report.txt",
+            font,
+            new SizeF(400f, 60f),
+            measurementFormat).Width;
+
+        SizeF measured = graphics.MeasureString(
+            Text,
+            font,
+            new SizeF(width, 60f),
+            format,
+            out int charactersFitted,
+            out int linesFilled);
+        graphics.DrawString(Text, font, brush, new RectangleF(0f, 0f, width, 60f), format);
+        prefixGraphics.DrawString(Prefix, font, brush, PointF.Empty, measurementFormat);
+        tailGraphics.DrawString(Tail, font, brush, PointF.Empty, measurementFormat);
+        ellipsisGraphics.DrawString("\u2026", font, brush, PointF.Empty, measurementFormat);
+
+        ushort[] actual = Assert.Single(
+            context.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun).GlyphIndices!;
+        ushort[] expectedPrefix = Assert.Single(
+            prefixContext.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun).GlyphIndices!;
+        ushort[] expectedTail = Assert.Single(
+            tailContext.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun).GlyphIndices!;
+        ushort ellipsis = Assert.Single(
+            Assert.Single(
+                ellipsisContext.Commands,
+                static command => command.Type == RenderCommandType.DrawGlyphRun).GlyphIndices!);
+
+        Assert.Equal(expectedPrefix, actual[..expectedPrefix.Length]);
+        Assert.Equal(expectedTail, actual[^expectedTail.Length..]);
+        Assert.Contains(ellipsis, actual);
+        Assert.Single(
+            context.Commands,
+            static command => command.Type == RenderCommandType.DrawRect);
+        Assert.InRange(charactersFitted, Prefix.Length + Tail.Length, Text.Length - 2);
+        Assert.Equal(1, linesFilled);
+        Assert.True(measured.Width <= width + 0.01f);
+    }
+
+    [Fact]
+    public void WarmedEllipsisPathMeasurementHasBoundedManagedAllocation()
+    {
+        using var target = new Bitmap(180, 80);
+        using Graphics graphics = Graphics.FromImage(target);
+        using var font = new Font(FontFamily.GenericSansSerif, 16f);
+        using var format = new StringFormat(StringFormatFlags.NoWrap)
+        {
+            Trimming = StringTrimming.EllipsisPath
+        };
+        char[] text = "C:/very/long/project/folder/report.txt".ToCharArray();
+        _ = graphics.MeasureString(text.AsSpan(), font, new SizeF(160f, 60f), format);
+
+        const int Iterations = 128;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < Iterations; index++)
+        {
+            _ = graphics.MeasureString(text.AsSpan(), font, new SizeF(160f, 60f), format);
+        }
+
+        long bytesPerMeasure = (GC.GetAllocatedBytesForCurrentThread() - before) / Iterations;
+        Assert.InRange(bytesPerMeasure, 1_024, 98_304);
+    }
+
+    [Fact]
     public void WarmedAdvancedFormatMeasurementHasBoundedManagedAllocation()
     {
         using var target = new Bitmap(180, 80);

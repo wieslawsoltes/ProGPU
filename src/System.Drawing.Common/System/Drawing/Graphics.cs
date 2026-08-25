@@ -2124,6 +2124,7 @@ public class Graphics :
         bool exceedsHeight = float.IsFinite(layoutHeightLimit)
             && layout.ContentSize.Y > layoutHeightLimit + 0.001f;
         int charactersFitted = text.Length;
+        int mnemonicIndex = hotkeyText.MnemonicIndex;
 
         if ((exceedsWidth || exceedsHeight)
             && (format.Trimming != StringTrimming.None || lineLimit || (clipToLayout && exceedsHeight)))
@@ -2142,7 +2143,9 @@ public class Graphics :
                 trimming,
                 shapingOptions,
                 formattingOptions,
-                out charactersFitted);
+                mnemonicIndex,
+                out charactersFitted,
+                out mnemonicIndex);
             layout = new ProGPU.Text.TextLayout(
                 displayText,
                 font.TtfFont,
@@ -2155,9 +2158,6 @@ public class Graphics :
         }
 
         int linesFilled = GetLineCount(layout, font, fontSize);
-        int mnemonicIndex = hotkeyText.MnemonicIndex >= 0 && hotkeyText.MnemonicIndex < charactersFitted
-            ? hotkeyText.MnemonicIndex
-            : -1;
         return new FormattedTextLayout(
             layout,
             Math.Min(charactersFitted, text.Length),
@@ -2176,7 +2176,9 @@ public class Graphics :
         StringTrimming trimming,
         ProGPU.Text.TextShapingOptions shapingOptions,
         ProGPU.Text.TextLayoutFormattingOptions formattingOptions,
-        out int charactersFitted)
+        int mnemonicIndex,
+        out int charactersFitted,
+        out int mappedMnemonicIndex)
     {
         string suffix = trimming is StringTrimming.EllipsisCharacter
             or StringTrimming.EllipsisWord
@@ -2185,6 +2187,15 @@ public class Graphics :
                 : string.Empty;
         if (!Fits(text, suffix: string.Empty))
         {
+            if (trimming == StringTrimming.EllipsisPath
+                && TryTrimPath(
+                    out string pathText,
+                    out charactersFitted,
+                    out mappedMnemonicIndex))
+            {
+                return pathText;
+            }
+
             var prefixLengths = new List<int>(text.Length + 1) { 0 };
             for (int textIndex = 0; textIndex < text.Length; textIndex++)
             {
@@ -2229,11 +2240,111 @@ public class Graphics :
             }
 
             charactersFitted = prefix.Length;
+            mappedMnemonicIndex = mnemonicIndex >= 0 && mnemonicIndex < charactersFitted
+                ? mnemonicIndex
+                : -1;
             return Fits(prefix, suffix) ? prefix + suffix : string.Empty;
         }
 
         charactersFitted = text.Length;
+        mappedMnemonicIndex = mnemonicIndex;
         return text;
+
+        bool TryTrimPath(
+            out string result,
+            out int pathCharactersFitted,
+            out int pathMnemonicIndex)
+        {
+            result = string.Empty;
+            pathCharactersFitted = 0;
+            pathMnemonicIndex = -1;
+            int separatorIndex = Math.Max(text.LastIndexOf('/'), text.LastIndexOf('\\'));
+            if (separatorIndex < 0 || separatorIndex == text.Length - 1)
+            {
+                return false;
+            }
+
+            const string Ellipsis = "\u2026";
+            if (!Fits(string.Empty, Ellipsis))
+            {
+                return true;
+            }
+
+            var suffixStarts = new List<int>(text.Length - separatorIndex + 1);
+            for (int index = separatorIndex; index < text.Length; index++)
+            {
+                suffixStarts.Add(index);
+                if (char.IsHighSurrogate(text[index])
+                    && index + 1 < text.Length
+                    && char.IsLowSurrogate(text[index + 1]))
+                {
+                    index++;
+                }
+            }
+
+            suffixStarts.Add(text.Length);
+            int low = 0;
+            int high = suffixStarts.Count - 1;
+            int retainedSuffixStart = text.Length;
+            while (low <= high)
+            {
+                int middle = low + ((high - low) / 2);
+                int candidateStart = suffixStarts[middle];
+                if (Fits(string.Empty, Ellipsis + text[candidateStart..]))
+                {
+                    retainedSuffixStart = candidateStart;
+                    high = middle - 1;
+                }
+                else
+                {
+                    low = middle + 1;
+                }
+            }
+
+            string retainedSuffix = text[retainedSuffixStart..];
+            string retainedTail = Ellipsis + retainedSuffix;
+            var prefixLengths = new List<int>(separatorIndex + 1) { 0 };
+            for (int index = 0; index < separatorIndex; index++)
+            {
+                if (char.IsHighSurrogate(text[index])
+                    && index + 1 < separatorIndex
+                    && char.IsLowSurrogate(text[index + 1]))
+                {
+                    index++;
+                }
+
+                prefixLengths.Add(index + 1);
+            }
+
+            low = 0;
+            high = prefixLengths.Count - 1;
+            int retainedPrefixLength = 0;
+            while (low <= high)
+            {
+                int middle = low + ((high - low) / 2);
+                int candidateLength = prefixLengths[middle];
+                if (Fits(text[..candidateLength], retainedTail))
+                {
+                    retainedPrefixLength = candidateLength;
+                    low = middle + 1;
+                }
+                else
+                {
+                    high = middle - 1;
+                }
+            }
+
+            pathCharactersFitted = retainedPrefixLength + text.Length - retainedSuffixStart;
+            pathMnemonicIndex = mnemonicIndex switch
+            {
+                >= 0 when mnemonicIndex < retainedPrefixLength => mnemonicIndex,
+                >= 0 when mnemonicIndex >= retainedSuffixStart =>
+                    retainedPrefixLength + Ellipsis.Length + mnemonicIndex - retainedSuffixStart,
+                _ => -1
+            };
+            result = text[..retainedPrefixLength] + retainedTail;
+            return true;
+        }
 
         bool Fits(string prefix, string suffix)
         {
