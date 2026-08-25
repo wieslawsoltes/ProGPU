@@ -1197,9 +1197,9 @@ SHA-256 values were
 `d396e5bcc5b9093271878499fafabae9e0b1fb0e7db6fd9aac8379e14ea64749`
 for `progpu_native.dll` and
 `4fe6051479644bfe40019e5d45570f68c57aeaae5040096b2fc257fe60c405d5`
-for `progpu_native_dawn.dll`. Rect animations, DrawingImage/D3DImage/video
-sources, incremental bitmap invalidation, and same-device external texture
-bindings remain explicit follow-up work.
+for `progpu_native_dawn.dll`. Rect animations, D3DImage/video sources,
+incremental bitmap invalidation, and same-device external texture bindings
+remain explicit follow-up work.
 
 GlyphRun implementation `c8efc666`, transport optimization `6c762f2b`, focused
 package gate `b21fd324`, and fixture correction `fa8d6a33` next added canonical
@@ -1241,6 +1241,40 @@ TrueType `glyf` outlines, logical-pixel raster sizing, and static glyph state.
 Sideways text, gradient/tile text brushes, CFF/CFF2 and variable/color/bitmap
 glyphs, target-DPI-aware raster selection, text decorations, and incremental
 font-resource registration remain explicit parity work.
+
+DrawingImage implementation `6071925d` then added canonical resource type
+`59` and command `0x71` with its exact 12-byte command view (16 bytes framed).
+The canonical update retains only the referenced Drawing handle. Portable
+hosts bind that drawing's exact local content bounds through
+`progpu_native_mil_channel_set_drawing_image_bounds`; unlike WPF's original
+in-process resource graph, those bounds are not present in the packet and are
+required to map vector content into an ImageDrawing destination rectangle.
+Missing or nonfinite bounds fail closed, while a null Drawing remains a
+canonical no-op.
+
+Scene compilation recursively reuses retained GeometryDrawing,
+GlyphRunDrawing, ImageDrawing, and DrawingGroup lowering. It scales and
+translates source bounds into the destination, intersects the destination with
+the active clip, and protects both DrawingImage-to-Drawing and
+ImageDrawing-to-DrawingImage dependencies. Axis-preserving destination clips
+become scissors; rotated or sheared clips become exact four-edge semantic
+vector masks rather than broadened rectangle bounds. Cycles and invalid image
+source types fail closed transactionally.
+
+All ten local native CTests passed, the canonical managed packet test passed,
+and the project-reference package consumer built with zero warnings. Strict
+Windows ARM64 MSVC rebuilt both modules under `/W4 /WX`; all 11 native/Dawn
+CTests passed in the Parallels VM. The focused 19-command,
+eight-channel-resource DrawingImage scene compiled through both MIL exports
+and rendered on live D3D12 with four semantic resources, one batched draw,
+zero coverage-staging bytes, a valid retained readback, and 16,384
+direct-render pixels. Exact qualified SHA-256 values were
+`85ef5bb9c18505b97f11bf40302a8d93c50d3bd13b7afbd412fac55b7ba67cf1`
+for `progpu_native.dll` and
+`bae571f2a8d3cf707c92919613c8a5bece2f6e462b19c9bcd6167cd0ea66bc2c`
+for `progpu_native_dawn.dll`. DrawingImage used as an ImageBrush source,
+animated destination rectangles, incremental source-bounds updates, and
+effects/cache state remain explicit follow-up work.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
