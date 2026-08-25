@@ -253,7 +253,13 @@ static byte[] CreateMilSeedBatch(
             NativeMilPenLineCap.Square,
             NativeMilPenLineCap.Round,
             DashStyleHandle: 47));
-    batch.SetPen(48, new NativeMilPen(44, 2));
+    batch.SetPen(
+        48,
+        new NativeMilPen(
+            44,
+            2,
+            NativeMilPenLineCap.Round,
+            NativeMilPenLineCap.Triangle));
     batch.SetLineGeometry(49, 8, 56, 56, 8, 45);
     batch.SetRectangleGeometry(50, 12, 16, 40, 32, 8, 8, 45);
     batch.SetEllipseGeometry(51, 32, 32, 16, 12, 45);
