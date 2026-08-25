@@ -1645,12 +1645,28 @@ explicit no-opacity/no-mask/no-inflation conditions.
 The shared native representation therefore needs an owner-keyed retained
 cache page, not the existing depth-indexed temporary layer slot. Its stable
 identity is independent of command position and sibling updates; a content
-revision invalidates raster content, while a composite revision changes only
-placement, opacity, clip, mask, or other outer state. Cache pages participate
+revision invalidates raster content, while placement, opacity, clip, mask, or
+other outer-state changes only rebuild the composite. Cache pages participate
 in the existing 256 MiB bounded layer budget, carry explicit logical bounds,
 raster scale, pixel-snap, and text-mode fields, and are released when their
 owner disappears or the device is lost. Nested caches require independent
 pages rather than sharing one slot at a materialized depth.
+
+The first executable checkpoint now adds
+`PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT`. It uses the existing
+`composite_revision` field as a nonzero stable owner identity and
+`content_revision` as the nonzero pixel version, assigns up to 16 owners to a
+separate persistent GPU-slot pool, and keys reuse independently of the whole
+scene hash. The preflight rejects backdrop caches and duplicate owners, charges
+cache and effect pages to the shared layer budget, and preserves the page
+across an unrelated sibling update. Texture extent/generation or content
+version changes force a redraw; disappearance, owner replacement, and device
+teardown release or invalidate the page. Portable C++ validation, managed
+builder validation, and the Dawn/Metal provider integration test cover the
+contract. This checkpoint still uses target coordinates at raster scale one;
+the explicit local-space descriptor, outer transform, RenderAtScale,
+SnapsToDevicePixels, and ClearType policy remain required before MIL
+`BitmapCache` parity can be claimed.
 
 The implementation sequence is intentionally architectural:
 

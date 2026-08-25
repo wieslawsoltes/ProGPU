@@ -247,6 +247,7 @@ progpu_native_status render_scene(
     };
 
     semantic_layer_budget layer_budget{};
+    semantic::cache_budget cache_budget{};
     semantic_layer_target_cursor layer_budget_cursor(
         bytes,
         frame->width,
@@ -282,6 +283,9 @@ progpu_native_status render_scene(
             }
             const bool materialized =
                 progpu::native::scene::layer_requires_materialization(layer);
+            const bool cached =
+                (layer.flags &
+                    PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U;
             semantic_has_materialized_layers |= materialized;
             if (layer.mask_resource_index !=
                     PROGPU_NATIVE_SCENE_NO_INDEX) {
@@ -356,6 +360,14 @@ progpu_native_status render_scene(
             }
             const bool effected = layer.effect_resource_index !=
                 PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (cached && !cache_budget.add(
+                    layer.composite_revision,
+                    target_extent,
+                    effected)) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                    "A semantic retained cache owner is duplicated or the bounded cache-page pool is exceeded.");
+            }
             semantic_has_layer_effects |= effected;
             if (effected) {
                 const auto effect_resource = read_resource(
@@ -439,8 +451,8 @@ progpu_native_status render_scene(
             }
             if (!layer_budget.push(
                     target_extent,
-                    materialized,
-                    effected)) {
+                    materialized && !cached,
+                    effected && !cached)) {
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                     "The semantic isolated-layer stack exceeds its bounded depth or aggregate pixel budget.");
@@ -448,6 +460,65 @@ progpu_native_status render_scene(
         } else if (command.kind ==
             PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
             layer_budget.pop();
+        }
+    }
+
+    std::array<bool, semantic::max_cached_layers> retained_cache_slots{};
+    for (std::uint32_t cache_index = 0U;
+         cache_index < cache_budget.count;
+         ++cache_index) {
+        const std::uint64_t identity = cache_budget.identities[cache_index];
+        std::uint32_t retained_index = semantic::max_cached_layers;
+        for (std::uint32_t index = 0U;
+             index < semantic::max_cached_layers;
+             ++index) {
+            if (engine->semantic_cached_layer_identities[index] == identity) {
+                retained_index = index;
+                break;
+            }
+        }
+        if (retained_index == semantic::max_cached_layers) {
+            for (std::uint32_t index = 0U;
+                 index < semantic::max_cached_layers;
+                 ++index) {
+                if (!retained_cache_slots[index] &&
+                    std::find(
+                        cache_budget.identities.begin(),
+                        cache_budget.identities.begin() +
+                            cache_budget.count,
+                        engine->semantic_cached_layer_identities[index]) ==
+                        cache_budget.identities.begin() +
+                            cache_budget.count) {
+                    retained_index = index;
+                    break;
+                }
+            }
+        }
+        if (retained_index == semantic::max_cached_layers) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "A semantic retained cache page could not obtain a stable GPU slot.");
+        }
+        auto& slot = engine->semantic_layer_slots[
+            semantic::cached_layer_slot_base + retained_index];
+        if (engine->semantic_cached_layer_identities[retained_index] !=
+            identity) {
+            engine->semantic_cached_layer_identities[retained_index] =
+                identity;
+            slot.effect_output_cache = {};
+        }
+        retained_cache_slots[retained_index] = true;
+        cache_budget.slots[cache_index] =
+            semantic::cached_layer_slot_base + retained_index;
+    }
+    for (std::uint32_t index = 0U;
+         index < semantic::max_cached_layers;
+         ++index) {
+        if (!retained_cache_slots[index]) {
+            engine->semantic_cached_layer_identities[index] = 0U;
+            engine->semantic_layer_slots[
+                semantic::cached_layer_slot_base + index]
+                .effect_output_cache = {};
         }
     }
 
@@ -1354,6 +1425,9 @@ progpu_native_status render_scene(
     const std::uint64_t pooled_layer_bytes = layer_budget.pooled_bytes();
     const std::uint64_t pooled_effect_bytes =
         layer_budget.pooled_effect_bytes();
+    const std::uint64_t pooled_cache_bytes = cache_budget.pooled_bytes();
+    const std::uint64_t pooled_cache_effect_bytes =
+        cache_budget.pooled_effect_bytes();
     const auto texture_bytes = [](std::uint32_t width,
                                   std::uint32_t height,
                                   std::uint64_t texture_count,
@@ -1438,12 +1512,18 @@ progpu_native_status render_scene(
                 semantic_advanced_source_bytes;
     const bool invalid_layer_pool =
         pooled_layer_bytes > PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES ||
-        pooled_effect_bytes >
+        pooled_cache_bytes >
             PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES - pooled_layer_bytes ||
+        pooled_effect_bytes > PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES -
+                pooled_layer_bytes - pooled_cache_bytes ||
+        pooled_cache_effect_bytes > PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES -
+                pooled_layer_bytes - pooled_cache_bytes -
+                pooled_effect_bytes ||
         invalid_destination_pool;
     const std::uint64_t retained_layer_base = invalid_layer_pool
         ? std::numeric_limits<std::uint64_t>::max()
-        : pooled_layer_bytes + pooled_effect_bytes +
+        : pooled_layer_bytes + pooled_cache_bytes + pooled_effect_bytes +
+            pooled_cache_effect_bytes +
             semantic_destination_texture_bytes;
     const bool invalid_mask_pool = invalid_layer_pool ||
         semantic_layer_coverage_texture_bytes >
@@ -2959,9 +3039,9 @@ progpu_native_status render_scene(
     std::uint32_t semantic_effect_operation_count = 0U;
     std::uint32_t semantic_effect_cache_hit_count = 0U;
     std::array<progpu::native::effects::semantic_output_cache,
-        PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS>
+        semantic::layer_slot_count>
         semantic_effect_working_caches{};
-    std::array<bool, PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS>
+    std::array<bool, semantic::layer_slot_count>
         semantic_effect_cache_updates{};
     for (std::size_t index = 0U;
          index < semantic_effect_working_caches.size();
@@ -3397,6 +3477,7 @@ progpu_native_status render_scene(
         if (!prepare_semantic_layer_resources(
                 *engine,
                 layer_budget,
+                cache_budget,
                 frame->width,
                 frame->height,
                 frame->dpi_scale,
@@ -3796,8 +3877,12 @@ progpu_native_status render_scene(
         std::array<std::size_t,
             PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS>
             materialized_push_span_indices{};
+        std::array<std::uint32_t,
+            PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS>
+            materialized_slots{};
         std::uint32_t layer_scope_depth = 0U;
         std::uint32_t materialized_depth = 0U;
+        std::uint32_t transient_materialized_depth = 0U;
         std::uint32_t advanced_operation_index = 0U;
         std::uint32_t current_target_layer =
             PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -3829,7 +3914,7 @@ progpu_native_status render_scene(
                     const std::uint32_t parent_layer =
                         materialized_depth == 0U
                             ? PROGPU_NATIVE_SCENE_NO_INDEX
-                            : materialized_depth - 1U;
+                            : materialized_slots[materialized_depth - 1U];
                     const semantic_scissor parent_extent =
                         parent_layer == PROGPU_NATIVE_SCENE_NO_INDEX
                             ? semantic_scissor{
@@ -3838,16 +3923,45 @@ progpu_native_status render_scene(
                                 frame->width,
                                 frame->height,
                                 true}
-                            : materialized_extents[parent_layer];
-                    const std::uint32_t slot = materialized_depth;
-                    materialized_layers[materialized_depth++] = layer;
-                    materialized_extents[slot] = target_extent;
+                            : materialized_extents[
+                                materialized_depth - 1U];
+                    const bool cached =
+                        (layer.flags &
+                            PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U;
+                    std::uint32_t slot = transient_materialized_depth;
+                    if (cached) {
+                        slot = PROGPU_NATIVE_SCENE_NO_INDEX;
+                        for (std::uint32_t cache_index = 0U;
+                             cache_index < cache_budget.count;
+                             ++cache_index) {
+                            if (cache_budget.identities[cache_index] ==
+                                layer.composite_revision) {
+                                slot = cache_budget.slots[cache_index];
+                                break;
+                            }
+                        }
+                        if (slot == PROGPU_NATIVE_SCENE_NO_INDEX) {
+                            return fail_bundle(engine->fail(
+                                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                                "A retained cache layer lost its stable GPU slot during compilation."));
+                        }
+                    } else {
+                        ++transient_materialized_depth;
+                    }
+                    const std::uint32_t depth_index = materialized_depth++;
+                    materialized_layers[depth_index] = layer;
+                    materialized_extents[depth_index] = target_extent;
+                    materialized_slots[depth_index] = slot;
                     semantic_render_bundle_span operation{};
                     operation.kind = semantic_replay_kind::push_layer;
                     operation.target_layer = slot;
                     operation.source_layer = slot;
                     operation.parent_layer = parent_layer;
                     operation.operation_id = command.command_id;
+                    operation.cache_content = cached;
+                    operation.cache_identity = layer.composite_revision;
+                    operation.cache_content_revision =
+                        layer.content_revision;
                     operation.backdrop =
                         (layer.flags &
                             PROGPU_NATIVE_SCENE_LAYER_BACKDROP) != 0U;
@@ -3869,8 +3983,8 @@ progpu_native_status render_scene(
                                 semantic_layer_vertices,
                                 target_extent,
                                 target_extent,
-                                layer_budget.slot_widths[slot],
-                                layer_budget.slot_heights[slot],
+                                engine->semantic_layer_slots[slot].width,
+                                engine->semantic_layer_slots[slot].height,
                                 frame->dpi_scale,
                                 1.0F);
                         }
@@ -3878,7 +3992,7 @@ progpu_native_status render_scene(
                             ? 0U
                             : 1U;
                     }
-                    materialized_push_span_indices[slot] =
+                    materialized_push_span_indices[depth_index] =
                         compiled_spans.size();
                     compiled_spans.push_back(operation);
                     current_target_layer = slot;
@@ -3894,11 +4008,19 @@ progpu_native_status render_scene(
                     if (finish_status != PROGPU_NATIVE_STATUS_SUCCESS) {
                         return fail_bundle(finish_status);
                     }
-                    const std::uint32_t source_layer =
+                    const std::uint32_t source_depth =
                         --materialized_depth;
-                    const auto& layer = materialized_layers[source_layer];
+                    const std::uint32_t source_layer =
+                        materialized_slots[source_depth];
+                    const auto& layer = materialized_layers[source_depth];
                     const auto& source_extent =
-                        materialized_extents[source_layer];
+                        materialized_extents[source_depth];
+                    const bool cached =
+                        (layer.flags &
+                            PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U;
+                    if (!cached) {
+                        --transient_materialized_depth;
+                    }
                     const std::uint32_t first_vertex =
                         static_cast<std::uint32_t>(
                             semantic_layer_vertices.size());
@@ -3906,8 +4028,8 @@ progpu_native_status render_scene(
                         semantic_layer_vertices,
                         source_extent,
                         target_extent,
-                        layer_budget.slot_widths[source_layer],
-                        layer_budget.slot_heights[source_layer],
+                        engine->semantic_layer_slots[source_layer].width,
+                        engine->semantic_layer_slots[source_layer].height,
                         frame->dpi_scale,
                         layer.opacity);
                     semantic_render_bundle_span operation{};
@@ -3915,13 +4037,17 @@ progpu_native_status render_scene(
                     operation.operation_id = command.command_id;
                     operation.target_layer = materialized_depth == 0U
                         ? PROGPU_NATIVE_SCENE_NO_INDEX
-                        : materialized_depth - 1U;
+                        : materialized_slots[materialized_depth - 1U];
                     operation.source_layer = source_layer;
                     operation.first_composite_vertex = first_vertex;
                     operation.blend_mode = layer.blend_mode;
                     operation.backdrop =
                         (layer.flags &
                             PROGPU_NATIVE_SCENE_LAYER_BACKDROP) != 0U;
+                    operation.cache_content = cached;
+                    operation.cache_identity = layer.composite_revision;
+                    operation.cache_content_revision =
+                        layer.content_revision;
                     const bool advanced_blend =
                         is_advanced_group_blend(layer.blend_mode);
                     if (!operation.backdrop) {
@@ -3932,11 +4058,21 @@ progpu_native_status render_scene(
                     if (operation.effect_count != 0U &&
                         !operation.backdrop) {
                         auto& push_operation = compiled_spans[
-                            materialized_push_span_indices[source_layer]];
+                            materialized_push_span_indices[source_depth]];
                         push_operation.effect_cache_operation_id =
                             operation.operation_id;
+                        push_operation.effect_count =
+                            operation.effect_count;
                         push_operation.can_skip_content_on_effect_cache =
                             true;
+                    }
+                    if (cached) {
+                        auto& push_operation = compiled_spans[
+                            materialized_push_span_indices[source_depth]];
+                        push_operation.can_skip_content_on_effect_cache =
+                            true;
+                        push_operation.effect_cache_operation_id =
+                            layer.composite_revision;
                     }
                     if (layer.mask_resource_index !=
                             PROGPU_NATIVE_SCENE_NO_INDEX) {
@@ -3969,22 +4105,22 @@ progpu_native_status render_scene(
                             semantic_layer_vertices,
                             source_extent,
                             source_extent,
-                            layer_budget.slot_widths[source_layer],
-                            layer_budget.slot_heights[source_layer],
+                            engine->semantic_layer_slots[source_layer].width,
+                            engine->semantic_layer_slots[source_layer].height,
                             frame->dpi_scale,
                             layer.opacity);
                         operation.target_width =
                             operation.target_layer ==
                                 PROGPU_NATIVE_SCENE_NO_INDEX
                                 ? frame->width
-                                : layer_budget.slot_widths[
-                                    operation.target_layer];
+                                : engine->semantic_layer_slots[
+                                    operation.target_layer].width;
                         operation.target_height =
                             operation.target_layer ==
                                 PROGPU_NATIVE_SCENE_NO_INDEX
                                 ? frame->height
-                                : layer_budget.slot_heights[
-                                    operation.target_layer];
+                                : engine->semantic_layer_slots[
+                                    operation.target_layer].height;
                         // WebGPU rejects zero-sized scissors. Empty semantic
                         // sources retain their canonical zero sampling extent,
                         // but resolve through the one-pixel bounded scratch
@@ -4511,9 +4647,31 @@ progpu_native_status render_scene(
         std::uint32_t active_target_layer =
             PROGPU_NATIVE_SCENE_NO_INDEX;
         std::uint32_t skipped_cached_depth = 0U;
-        std::array<bool,
-            PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS>
+        std::array<bool, semantic::layer_slot_count>
             cached_layer_replay{};
+        const auto output_cache_key = [&engine](
+            const semantic_render_bundle_span& operation,
+            const semantic_layer_slot& slot) noexcept {
+            const bool effect_output = operation.effect_count != 0U;
+            if (operation.cache_content) {
+                return progpu::native::effects::semantic_output_cache_key{
+                    operation.cache_content_revision,
+                    operation.cache_identity,
+                    effect_output
+                        ? slot.effect_generation
+                        : slot.generation,
+                    effect_output ? slot.effect_width : slot.width,
+                    effect_output ? slot.effect_height : slot.height};
+            }
+            return progpu::native::effects::semantic_output_cache_key{
+                engine->semantic_scene_hash,
+                operation.effect_cache_operation_id != 0U
+                    ? operation.effect_cache_operation_id
+                    : operation.operation_id,
+                slot.effect_generation,
+                slot.effect_width,
+                slot.effect_height};
+        };
         const auto finish_pass = [&]() noexcept {
             if (pass != nullptr) {
                 wgpuRenderPassEncoderEnd(pass);
@@ -4620,13 +4778,9 @@ progpu_native_status render_scene(
                         engine->semantic_layer_slots.size()) {
                     const auto& slot = engine->semantic_layer_slots[
                         operation.source_layer];
-                    const progpu::native::effects::semantic_output_cache_key
-                        cache_key{
-                            engine->semantic_scene_hash,
-                            operation.effect_cache_operation_id,
-                            slot.effect_generation,
-                            slot.effect_width,
-                            slot.effect_height};
+                    const auto cache_key = output_cache_key(
+                        operation,
+                        slot);
                     if (progpu::native::effects::semantic_output_cache_hit(
                             semantic_effect_working_caches[
                                 operation.source_layer],
@@ -4686,13 +4840,9 @@ progpu_native_status render_scene(
                     }
                     const auto& slot = engine->semantic_layer_slots[
                         operation.source_layer];
-                    const progpu::native::effects::semantic_output_cache_key
-                        cache_key{
-                            engine->semantic_scene_hash,
-                            operation.operation_id,
-                            slot.effect_generation,
-                            slot.effect_width,
-                            slot.effect_height};
+                    const auto cache_key = output_cache_key(
+                        operation,
+                        slot);
                     if (content_cached) {
                         // Push-layer cache lookup already proved that the
                         // immutable effect output belongs to this exact scene,
@@ -4718,6 +4868,20 @@ progpu_native_status render_scene(
                                 operation.source_layer] = true;
                         }
                     }
+                } else if (operation.cache_content && !content_cached) {
+                    if (operation.source_layer >=
+                            engine->semantic_layer_slots.size()) {
+                        return fail_replay(
+                            "A semantic retained cache layer index is invalid.");
+                    }
+                    const auto& slot = engine->semantic_layer_slots[
+                        operation.source_layer];
+                    progpu::native::effects::commit_semantic_output_cache(
+                        semantic_effect_working_caches[
+                            operation.source_layer],
+                        output_cache_key(operation, slot));
+                    semantic_effect_cache_updates[
+                        operation.source_layer] = true;
                 }
                 const bool composite_ready = effect_ready &&
                     (advanced_blend
@@ -4840,10 +5004,26 @@ progpu_native_status render_scene(
                 effect_texture_generation,
                 engine->semantic_layer_slots[index].effect_generation);
         }
+        for (std::uint32_t index = 0U;
+             index < cache_budget.count;
+             ++index) {
+            const auto& slot = engine->semantic_layer_slots[
+                cache_budget.slots[index]];
+            texture_generation = std::max(
+                texture_generation,
+                slot.generation);
+            effect_texture_generation = std::max(
+                effect_texture_generation,
+                slot.effect_generation);
+        }
         engine->last_layer_metrics.texture_width =
-            layer_budget.maximum_width();
+            std::max(
+                layer_budget.maximum_width(),
+                cache_budget.maximum_width());
         engine->last_layer_metrics.texture_height =
-            layer_budget.maximum_height();
+            std::max(
+                layer_budget.maximum_height(),
+                cache_budget.maximum_height());
         engine->last_layer_metrics.texture_generation = texture_generation;
         engine->last_layer_metrics.allocation_count =
             engine->semantic_layer_allocation_count;
@@ -4855,6 +5035,7 @@ progpu_native_status render_scene(
             semantic_render_bundle_hit ? 1U : 0U;
         engine->last_layer_metrics.texture_bytes =
             layer_budget.pooled_bytes() +
+            cache_budget.pooled_bytes() +
             semantic_destination_texture_bytes;
         engine->last_layer_metrics.vertex_upload_bytes =
             semantic_layer_vertex_upload_bytes;
@@ -4890,7 +5071,7 @@ progpu_native_status render_scene(
             ? 1U
             : 0U;
         engine->last_layer_metrics.effect_texture_bytes =
-            pooled_effect_bytes;
+            pooled_effect_bytes + pooled_cache_effect_bytes;
         engine->last_layer_metrics.effect_uniform_upload_bytes =
             semantic_layer_effect_uniform_upload_bytes;
         engine->last_layer_metrics.effect_count =

@@ -254,6 +254,22 @@ void semantic_compilation_budget_is_checked() {
         0U));
 }
 
+void semantic_cache_budget_is_owner_keyed_and_bounded() {
+    using progpu::native::semantic::cache_budget;
+    using progpu::native::semantic::scissor;
+    cache_budget budget{};
+    require(budget.add(71U, scissor{0U, 0U, 40U, 32U, true}, false));
+    require(budget.add(72U, scissor{4U, 4U, 24U, 16U, true}, true));
+    require(!budget.add(71U, scissor{0U, 0U, 8U, 8U, true}, false));
+    require(!budget.add(0U, scissor{0U, 0U, 8U, 8U, true}, false));
+    require(budget.count == 2U);
+    require(budget.pooled_bytes() ==
+        (40U * 32U + 24U * 16U) * 4U);
+    require(budget.pooled_effect_bytes() == 24U * 16U * 12U);
+    require(budget.maximum_width() == 40U);
+    require(budget.maximum_height() == 32U);
+}
+
 void semantic_brush_page_is_bounded_deduplicated_and_retained() {
     std::array<std::byte, 2048U> storage{};
     progpu_native_scene_header header{};
@@ -962,6 +978,7 @@ int main() {
     effect_plan_uses_three_bounded_intermediates();
     semantic_budget_counts_effected_depth_once();
     semantic_compilation_budget_is_checked();
+    semantic_cache_budget_is_owner_keyed_and_bounded();
     semantic_brush_page_is_bounded_deduplicated_and_retained();
     semantic_mesh_brush_preserves_source_opacity_before_color_blend();
     require(progpu::native::tests::

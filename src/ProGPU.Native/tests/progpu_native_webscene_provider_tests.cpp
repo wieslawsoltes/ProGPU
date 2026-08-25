@@ -1117,6 +1117,187 @@ std::vector<std::byte> create_semantic_layer_scene_stream() {
     return stream;
 }
 
+std::vector<std::byte> create_semantic_retained_cache_scene_stream(
+    std::uint64_t generation,
+    std::uint64_t content_revision,
+    float sibling_blue,
+    float cached_green) {
+    constexpr std::uint64_t scene_id = 1093U;
+    constexpr std::uint64_t cache_identity = 7001U;
+    constexpr std::uint32_t command_count = 4U;
+    constexpr std::uint32_t resource_count = 2U;
+    constexpr std::uint32_t command_offset =
+        sizeof(progpu_native_scene_header);
+    constexpr std::uint32_t resource_offset = command_offset +
+        command_count * sizeof(progpu_native_scene_command);
+    constexpr std::uint32_t arena_offset = resource_offset +
+        resource_count * sizeof(progpu_native_scene_resource);
+    std::vector<std::byte> stream(arena_offset);
+
+    const progpu_native_affine_2d identity{
+        1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    const progpu_native_analytic_primitive sibling{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        2.0F,
+        2.0F,
+        10.0F,
+        10.0F,
+        0.0F,
+        0.0F,
+        {0.1F, 0.2F, sibling_blue, 1.0F},
+        identity};
+    const progpu_native_analytic_primitive cached_content{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        20.0F,
+        12.0F,
+        24.0F,
+        18.0F,
+        0.0F,
+        0.0F,
+        {0.2F, cached_green, 0.3F, 1.0F},
+        identity};
+    const std::uint32_t sibling_offset = append_scene_payload(
+        stream,
+        &sibling,
+        1U);
+    const std::uint32_t cached_content_offset = append_scene_payload(
+        stream,
+        &cached_content,
+        1U);
+    const progpu_native_scene_layer cache_layer{
+        sizeof(progpu_native_scene_layer),
+        PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT,
+        {16.0F, 8.0F, 32.0F, 24.0F},
+        1.0F,
+        PROGPU_NATIVE_BLEND_SRC_OVER,
+        PROGPU_NATIVE_SCENE_NO_INDEX,
+        PROGPU_NATIVE_SCENE_NO_INDEX,
+        content_revision,
+        cache_identity,
+        0U,
+        0U};
+    const std::uint32_t cache_layer_offset = append_scene_payload(
+        stream,
+        &cache_layer,
+        1U);
+
+    progpu_native_scene_header header{};
+    header.struct_size = sizeof(header);
+    header.magic = PROGPU_NATIVE_SCENE_STREAM_MAGIC;
+    header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
+    header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
+    header.total_size = static_cast<std::uint32_t>(stream.size());
+    header.scene_id = scene_id;
+    header.generation = generation;
+    header.command_offset = command_offset;
+    header.command_count = command_count;
+    header.command_stride = sizeof(progpu_native_scene_command);
+    header.resource_offset = resource_offset;
+    header.resource_count = resource_count;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+    header.arena_offset = arena_offset;
+    header.arena_size = header.total_size - arena_offset;
+    std::memcpy(stream.data(), &header, sizeof(header));
+
+    const progpu_native_scene_resource resources[]{
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U,
+            7101U,
+            generation,
+            sibling_offset,
+            sizeof(sibling),
+            0U,
+            0U},
+        {sizeof(progpu_native_scene_resource),
+            PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U,
+            7102U,
+            content_revision,
+            cached_content_offset,
+            sizeof(cached_content),
+            0U,
+            0U}
+    };
+    std::memcpy(
+        stream.data() + resource_offset,
+        resources,
+        sizeof(resources));
+
+    const progpu_native_scene_command commands[]{
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U,
+            7201U,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            0U,
+            0U,
+            0U,
+            2.0F,
+            2.0F,
+            10.0F,
+            10.0F,
+            0U,
+            0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U,
+            7202U,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            cache_layer_offset,
+            sizeof(cache_layer),
+            16.0F,
+            8.0F,
+            32.0F,
+            24.0F,
+            0U,
+            0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U,
+            7203U,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            1U,
+            0U,
+            0U,
+            20.0F,
+            12.0F,
+            24.0F,
+            18.0F,
+            0U,
+            0U},
+        {sizeof(progpu_native_scene_command),
+            PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER,
+            PROGPU_NATIVE_SCENE_RECORD_REQUIRED,
+            0U,
+            7204U,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            0U,
+            0U,
+            16.0F,
+            8.0F,
+            32.0F,
+            24.0F,
+            0U,
+            0U}
+    };
+    std::memcpy(
+        stream.data() + command_offset,
+        commands,
+        sizeof(commands));
+    return stream;
+}
+
 std::vector<std::byte> create_semantic_opacity_layer_scene_stream(
     std::uint64_t generation = 1U,
     float glyph_raster_scale = 1.0F) {
@@ -4822,6 +5003,121 @@ int main(int argc, char** argv) {
         semantic_layer_metrics.effect_cache_hit == 1U &&
         semantic_layer_metrics.effect_pass_count == 0U,
         "semantic root effect stable metrics are incorrect");
+
+    auto retained_cache_scene =
+        create_semantic_retained_cache_scene_stream(
+            1U,
+            1U,
+            0.4F,
+            0.7F);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        retained_cache_scene.data(),
+        retained_cache_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        scene_metrics.command_count == 4U &&
+        scene_metrics.resource_count == 2U &&
+        scene_metrics.draw_count == 2U,
+        "semantic retained cache update failed");
+    progpu_native_scene_frame retained_cache_frame = semantic_frame;
+    retained_cache_frame.target_view =
+        reinterpret_cast<std::uintptr_t>(view);
+    retained_cache_frame.scene_id = 1093U;
+    retained_cache_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &retained_cache_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 3U,
+        "semantic retained cache first render failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.content_pass_count == 1U &&
+        semantic_layer_metrics.composite_pass_count == 1U,
+        "semantic retained cache first render metrics are incorrect");
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &retained_cache_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 2U,
+        "semantic retained cache stable replay failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.content_pass_count == 0U &&
+        semantic_layer_metrics.composite_pass_count == 1U,
+        "semantic retained cache stable replay redrew content");
+
+    retained_cache_scene = create_semantic_retained_cache_scene_stream(
+        2U,
+        1U,
+        0.9F,
+        0.7F);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        retained_cache_scene.data(),
+        retained_cache_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic retained cache sibling update failed");
+    retained_cache_frame.generation = 2U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &retained_cache_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 2U,
+        "semantic retained cache sibling replay failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.content_pass_count == 0U,
+        "unrelated sibling invalidated semantic retained cache content");
+
+    retained_cache_scene = create_semantic_retained_cache_scene_stream(
+        3U,
+        2U,
+        0.9F,
+        0.9F);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        retained_cache_scene.data(),
+        retained_cache_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic retained cache content update failed");
+    retained_cache_frame.generation = 3U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &retained_cache_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 3U,
+        "semantic retained cache content replay failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.content_pass_count == 1U,
+        "changed semantic retained cache content was not redrawn");
 
     scene_metrics = {};
     scene_metrics.struct_size = sizeof(scene_metrics);

@@ -2179,14 +2179,32 @@ An absent bounds flag requires four canonical zero values and means the full
 target. The existing empty-payload push prefix remains a canonical full-target,
 unit-opacity, source-over layer so version-one streams stay append-compatible.
 `BACKDROP` requests parent pixels as layer input; `FORCE_ISOLATION` prevents a
-later compiler from folding an otherwise trivial scope. `NO_INDEX` disables a
-mask or effect. Otherwise the index must reference a preceding exact typed
-resource: a 104-byte analytic rounded-rectangle mask, an 80-byte R8 coverage
-mask whose exact row-strided pixels occupy its auxiliary span, or a 16-byte
-effect-chain header whose auxiliary span contains one to eight exact 56-byte
-effect records.
+later compiler from folding an otherwise trivial scope. `CACHE_CONTENT`
+materializes into a persistent owner-keyed page: `composite_revision` is the
+nonzero stable owner identity and `content_revision` is the nonzero pixel
+version. A matching owner/version/texture generation skips the enclosed draw
+subtree and composites the retained page. The cache key deliberately excludes
+the whole-scene hash, so an unrelated sibling or outer-composite update cannot
+invalidate content. A changed content version or texture extent/generation
+fails closed to a redraw. Cached layers cannot request backdrop input, and one
+owner identity may occur only once in a scene. `NO_INDEX` disables a mask or
+effect. Otherwise the index must reference a preceding exact typed resource: a
+104-byte analytic rounded-rectangle mask, an 80-byte R8 coverage mask whose
+exact row-strided pixels occupy its auxiliary span, or a 16-byte effect-chain
+header whose auxiliary span contains one to eight exact 56-byte effect records.
 The resource generation and chain/effect revisions are caller-owned immutable
 identities; no record retains a pointer to caller storage.
+
+Temporary materialized layers retain their 16 depth-indexed slots. Cached
+layers use a separate bounded pool of 16 stable owner slots, while both pools
+and their effect intermediates remain inside the aggregate 256 MiB layer
+budget. Missing owners are evicted after preflight, owner replacement
+invalidates the completed-output key, texture reallocation increments the slot
+generation, and normal engine/device teardown releases every page. This first
+semantic execution checkpoint is target-coordinate and raster-scale-one; it is
+the persistent lifetime primitive for, not yet a parity claim for, WPF
+`BitmapCache` local bounds, RenderAtScale, ClearType, pixel snapping, or outer
+transform composition.
 
 The command vocabulary is deliberately semantic:
 

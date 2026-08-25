@@ -706,7 +706,13 @@ public enum NativeSceneLayerFlags : uint
     /// Materializes an isolated child even when the remaining layer state could
     /// otherwise be lowered directly into its parent.
     /// </summary>
-    ForceIsolation = 1U << 2
+    ForceIsolation = 1U << 2,
+
+    /// <summary>
+    /// Retains this isolated output by stable composite revision and refreshes
+    /// its pixels only when the nonzero content revision changes.
+    /// </summary>
+    CacheContent = 1U << 3
 }
 
 public enum NativeSceneValidationError : uint
@@ -1543,7 +1549,9 @@ internal readonly struct NativeSceneGuidelineSetHeader
 /// Bounds are logical target coordinates. Mask and effect indices reference
 /// preceding typed resources or use <see cref="uint.MaxValue"/> to disable the
 /// feature. Revisions are retained identity hints; zero disables the
-/// corresponding hint.
+/// corresponding hint. For <see cref="NativeSceneLayerFlags.CacheContent"/>,
+/// composite revision is the stable owner identity and content revision is the
+/// subtree pixel version; both must be nonzero.
 /// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct NativeSceneLayer

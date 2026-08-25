@@ -8,6 +8,7 @@
 #include "progpu_native_geometry_spline.hpp"
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
+#include "progpu_native_semantic_budget.hpp"
 #include "progpu_native_semantic_identity.hpp"
 #include "progpu_native_semantic_text_style.hpp"
 #include "progpu_webgpu_compat.hpp"
@@ -430,7 +431,10 @@ struct progpu_native_engine {
     std::vector<semantic_render_bundle_span> semantic_render_bundle_spans;
     std::vector<semantic_effect_dispatch> semantic_effect_dispatches;
     std::array<semantic_layer_slot,
-        PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS> semantic_layer_slots{};
+        progpu::native::semantic::layer_slot_count> semantic_layer_slots{};
+    std::array<std::uint64_t,
+        progpu::native::semantic::max_cached_layers>
+        semantic_cached_layer_identities{};
     semantic_layer_slot semantic_root_slot{};
     semantic_layer_slot semantic_advanced_source_slot{};
     semantic_layer_slot semantic_advanced_output_slot{};

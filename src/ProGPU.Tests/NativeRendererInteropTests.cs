@@ -3239,6 +3239,36 @@ public class NativeRendererInteropTests
         Assert.True(success);
         Assert.Equal(0L, allocated);
 
+        var cachedLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent,
+            bounds: new NativeImageRect(2f, 3f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 9U);
+        Assert.True(BuildLayer(destination, in cachedLayer, out _));
+        var invalidCachedLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent,
+            bounds: new NativeImageRect(2f, 3f, 40f, 50f),
+            contentRevision: 0U,
+            compositeRevision: 9U);
+        Assert.False(BuildLayer(destination, in invalidCachedLayer, out _));
+        invalidCachedLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent,
+            bounds: new NativeImageRect(2f, 3f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 0U);
+        Assert.False(BuildLayer(destination, in invalidCachedLayer, out _));
+        invalidCachedLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.Backdrop |
+                NativeSceneLayerFlags.CacheContent,
+            bounds: new NativeImageRect(2f, 3f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 9U);
+        Assert.False(BuildLayer(destination, in invalidCachedLayer, out _));
+
         NativeSceneLayer invalid = default;
         var invalidBuilder = new NativeSceneStreamBuilder(
             destination,

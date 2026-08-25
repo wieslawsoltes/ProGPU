@@ -382,7 +382,8 @@ bool is_valid_semantic_layer(
     constexpr std::uint32_t known_flags =
         PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
         PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
-        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT;
     const bool bounds_are_canonical =
         (layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) != 0U ||
         (layer.bounds.x == 0.0F && layer.bounds.y == 0.0F &&
@@ -397,6 +398,10 @@ bool is_valid_semantic_layer(
         bounds_are_canonical && std::isfinite(layer.opacity) &&
         layer.opacity >= 0.0F && layer.opacity <= 1.0F &&
         layer.blend_mode <= PROGPU_NATIVE_BLEND_MODULATE &&
+        ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) == 0U ||
+            ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BACKDROP) == 0U &&
+                layer.content_revision != 0U &&
+                layer.composite_revision != 0U)) &&
         layer.reserved0 == 0U && layer.reserved1 == 0U;
 }
 

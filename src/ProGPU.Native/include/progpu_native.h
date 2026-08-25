@@ -257,7 +257,8 @@ enum {
 enum {
     PROGPU_NATIVE_SCENE_LAYER_BOUNDS = 1U << 0U,
     PROGPU_NATIVE_SCENE_LAYER_BACKDROP = 1U << 1U,
-    PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION = 1U << 2U
+    PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION = 1U << 2U,
+    PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT = 1U << 3U
 };
 
 typedef enum progpu_native_image_sampling {
@@ -1022,6 +1023,9 @@ typedef struct progpu_native_scene_guideline_set {
  * references PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK and an effect references
  * PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN; NO_INDEX disables each feature.
  * Revisions are caller-owned retained identities; zero disables reuse hints.
+ * With LAYER_CACHE_CONTENT, composite_revision is the stable cache-owner
+ * identity and content_revision is the subtree pixel version. Both must be
+ * nonzero.
  */
 typedef struct progpu_native_scene_layer {
     uint32_t struct_size;

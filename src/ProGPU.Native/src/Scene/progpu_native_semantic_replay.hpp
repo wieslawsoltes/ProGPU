@@ -241,8 +241,11 @@ struct semantic_render_bundle_span {
     std::uint32_t mask_source_x = 0U;
     std::uint32_t mask_source_y = 0U;
     std::uint64_t effect_cache_operation_id = 0U;
+    std::uint64_t cache_identity = 0U;
+    std::uint64_t cache_content_revision = 0U;
     bool backdrop = false;
     bool can_skip_content_on_effect_cache = false;
+    bool cache_content = false;
     bool mask_uses_alpha_channel = false;
 };
 
