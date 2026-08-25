@@ -2214,7 +2214,9 @@ effect. The target cursor does not intersect the page allocation with parent
 placement; the executor instead transforms the four composite vertices and
 localizes them to the parent materialized target. This representation is
 backend-neutral and is shared by wgpu-native, provider-resolved Dawn, and
-DirectX.
+DirectX. `PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST` is an additive local-cache-
+only sampler selector over the same page view. Each slot owns both linear and
+nearest bind groups; selecting either does not invalidate retained pixels.
 
 The canonical MIL channel now consumes WPF's packed cache protocol on top of
 that primitive: `VisualSetCacheMode` is an exact 12-byte command payload,
@@ -2245,8 +2247,11 @@ Visual state remains part of retained raster content. The local-cache State
 resource now carries exact rectangle composite clips and one static guideline
 per axis. The shared executor resolves guideline translation and a target-local
 scissor when drawing the page, including empty-clip suppression, without
-rerasterizing it. Non-linear cache-bitmap sampling and spatial masks remain
-fail-closed. BitmapCache EnableClearType is a raster-scope policy: false
+rerasterizing it. Cache-root NearestNeighbor bitmap scaling selects the
+retained page's nearest bind group and is composite-only; validation rejects
+that flag without local-cache state. Cubic/Fant cache-bitmap sampling and
+spatial masks remain fail-closed. BitmapCache EnableClearType is a raster-scope
+policy: false
 converts requested descendant subpixel glyph styles to grayscale; true
 preserves descendant inherited/explicit text rendering mode without forcing
 unrequested ClearType. A cache-root text mode does not leak into the retained
@@ -2259,10 +2264,11 @@ device-loss recreation pass at provider revision
 `02823bf8d2e56548b2780d6b92ae7065be1d8605` and Dawn revision
 `710c33013c53ab2700d332c25ff51430251a8cc4`.
 The composite-state checkpoint also changes only the local-cache rectangle
-clip on a live Metal frame and observes zero content passes. All 12
-provider-configured native CTests, the base export allowlist, package-mode
-managed Dawn readback, and forced device-loss recovery pass with unchanged
-capture hashes.
+clip on a live Metal frame and observes zero content passes. A subsequent
+NearestNeighbor checkpoint changes only the sampler and again observes zero
+content passes. All 12 provider-configured native CTests, the base export
+allowlist, package-mode managed Dawn readback, and forced device-loss recovery
+pass with unchanged capture hashes.
 
 The exact-bounds implementation at `dd3857a4` is qualified on Windows 11 ARM64
 under Parallels. Both wgpu-native and provider-resolved Dawn modules rebuilt
@@ -2306,7 +2312,7 @@ package contains nine files, with SHA-256
 `FC95E25FF8E5313D6151F199E236D376E28C9FF7243AD0887F8FA360B89AA73E` for
 `progpu_native_dawn.dll`. This qualifies the executable local-space,
 RenderAtScale, pixel-snapping, and ClearType cache subset on DirectX; the
-remaining cache work is spatial mask, non-linear sampling, multi-guideline,
+remaining cache work is spatial mask, cubic/Fant sampling, multi-guideline,
 nested-cache/effect ordering, and LibreWPF package integration.
 
 The post-raster cache-root State checkpoint passed that strict Windows gate on

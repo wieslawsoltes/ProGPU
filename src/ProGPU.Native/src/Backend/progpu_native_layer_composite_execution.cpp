@@ -324,7 +324,9 @@ bool encode_semantic_layer_composite(
     const auto& slot = engine.semantic_layer_slots[
         operation.source_layer];
     WGPUBindGroup source_bind_group = operation.effect_count == 0U
-        ? slot.bind_group
+        ? (operation.composite_nearest
+            ? slot.nearest_bind_group
+            : slot.bind_group)
         : operation.final_effect_texture <
                 slot.effect_output_bind_groups.size()
             ? slot.effect_output_bind_groups[

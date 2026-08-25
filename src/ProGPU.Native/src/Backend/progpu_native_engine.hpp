@@ -1142,6 +1142,10 @@ struct progpu_native_engine {
                 wgpuBindGroupRelease(slot.bind_group);
                 slot.bind_group = nullptr;
             }
+            if (slot.nearest_bind_group != nullptr) {
+                wgpuBindGroupRelease(slot.nearest_bind_group);
+                slot.nearest_bind_group = nullptr;
+            }
             if (slot.view != nullptr) {
                 wgpuTextureViewRelease(slot.view);
                 slot.view = nullptr;

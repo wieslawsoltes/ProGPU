@@ -1198,6 +1198,19 @@ void semantic_scene_layer_descriptors_are_exact_and_canonical() {
     PROGPU_REQUIRE(progpu_native_scene_validate(
         stream.data(), stream.size(), &metrics) ==
         PROGPU_NATIVE_STATUS_SUCCESS);
+    auto nearest_local_cached = local_cached;
+    nearest_local_cached.flags |=
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST;
+    stream = create_local_cache_layer_scene(
+        nearest_local_cached, composite_state);
+    metrics = {};
+    metrics.struct_size = sizeof(metrics);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        stream.data(), stream.size(), &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS);
+    auto invalid_nearest = cached;
+    invalid_nearest.flags |= PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST;
+    rejects_value(invalid_nearest);
 
     composite_state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
     composite_state.clip_rect = {16.0F, 10.0F, 8.0F, 6.0F};

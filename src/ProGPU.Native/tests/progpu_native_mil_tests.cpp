@@ -2203,9 +2203,9 @@ bool visual_bitmap_cache_applies_root_state_at_composite() {
     PROGPU_REQUIRE(changed_composite.clip_rect.width == 8.0F);
     PROGPU_REQUIRE(changed_composite.clip_rect.height == 6.0F);
 
-    std::vector<std::byte> unsupported_sampling;
+    std::vector<std::byte> nearest_sampling;
     append_command(
-        unsupported_sampling,
+        nearest_sampling,
         command::visual_set_render_options,
         visual,
         0x01U,
@@ -2215,9 +2215,31 @@ bool visual_bitmap_cache_applies_root_state_at_composite() {
         0U,
         0U,
         0U);
-    PROGPU_REQUIRE(state.apply(unsupported_sampling) == status::success);
+    PROGPU_REQUIRE(state.apply(nearest_sampling) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 9017U, 3U, stream, &metrics) ==
+        status::success);
+    progpu_native_scene_layer nearest{};
+    PROGPU_REQUIRE(try_get_cached_layer(stream, nearest));
+    PROGPU_REQUIRE(
+        (nearest.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST) != 0U);
+    PROGPU_REQUIRE(nearest.content_revision == changed.content_revision);
+
+    std::vector<std::byte> unsupported_cubic;
+    append_command(
+        unsupported_cubic,
+        command::visual_set_render_options,
+        visual,
+        0x01U,
+        0U,
+        0U,
+        2U,
+        0U,
+        0U,
+        0U);
+    PROGPU_REQUIRE(state.apply(unsupported_cubic) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9017U, 4U, stream, &metrics) ==
         status::unsupported_command);
     return true;
 }

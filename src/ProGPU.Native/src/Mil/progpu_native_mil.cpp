@@ -8699,10 +8699,12 @@ struct channel::implementation {
         }
         // Local cached pixels are independent of the cache-root Visual's
         // properties. WPF applies those properties while drawing the retained
-        // bitmap. Spatial masks and non-linear cache-bitmap sampling still
+        // bitmap. Spatial masks and cubic/Fant cache-bitmap sampling still
         // require dedicated composite support and therefore fail closed.
         if (state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
-            state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR) {
+            (state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR &&
+                state.image_sampling !=
+                    PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST)) {
             return status::unsupported_command;
         }
         const double raster_width =
@@ -8835,6 +8837,9 @@ struct channel::implementation {
         layer.flags = PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
             PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
             PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+        if (state.image_sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST) {
+            layer.flags |= PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST;
+        }
         layer.opacity = static_cast<float>(state.opacity);
         layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
         layer.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
