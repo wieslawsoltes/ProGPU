@@ -560,6 +560,27 @@ rounded-rectangle and ellipse boolean operands, and the installed wgpu-native
 stream completed live D3D12 readback with 18 semantic resources, three draws,
 and 16,384 pixels.
 
+The affine path-leaf checkpoint at exact ProGPU commit `9634af73` passed the
+complete Windows ARM64 MSVC gate. Both modules rebuilt under `/W4 /WX`, and all
+11 CTests passed with exact transformed line, quadratic, cubic, implicit fill
+closure, conservative bounds, legacy identity-path operands, and transformed-
+arc fail-closed coverage. Live C++/managed D3D12 rendering and readback,
+allocation probes, text, path atlas, image/mask/effect, Overlay, ColorDodge, and
+the bounded differential matrix all passed. The mixed differential remained at
+maximum delta 2/255, zero pixels above 3/255, and mean `0.0000622`; the
+synchronized eight-frame native diagnostic measured `0.0925 ms/frame` before
+fresh package staging.
+
+The zero-warning project-reference consumer verified identical staged/app-local
+SHA-256 values:
+`6493681ddc832c58b5d549a22cae070839268a7f66d41aae70c0c9450ba59f3f`
+for `progpu_native.dll` and
+`28a82155eedaa4c1b3c73b982f3c5e8f4e475687eef300946be8d6f1158d4379`
+for `progpu_native_dawn.dll`. Both MIL exports compiled a transformed
+line/quadratic/cubic path leaf in the retained group, and the installed
+wgpu-native stream completed live D3D12 readback with 18 semantic resources,
+three draws, and 16,384 pixels.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
