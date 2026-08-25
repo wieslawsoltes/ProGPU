@@ -2033,6 +2033,9 @@ bool solid_pen_line_compiles_to_geometry_scene() {
         PROGPU_REQUIRE(path.transform.m11 == 1.0F);
         PROGPU_REQUIRE(path.transform.m22 == 1.0F);
         std::uint32_t arc_count = 0U;
+#if defined(__clang__)
+#pragma clang loop vectorize(disable) interleave(disable)
+#endif
         for (std::size_t segment_index = 0U;
              segment_index < path.segment_count;
              ++segment_index) {
@@ -3605,6 +3608,9 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         }
         PROGPU_REQUIRE(record.payload_size >= primitive_stride);
         std::uint32_t primitive_offset = 0U;
+#if defined(__clang__)
+#pragma clang loop vectorize(disable) interleave(disable)
+#endif
         for (;
              primitive_offset + primitive_stride <= record.payload_size;
              primitive_offset += primitive_stride) {
@@ -3665,6 +3671,9 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         }
         PROGPU_REQUIRE(record.payload_size >= primitive_stride);
         std::uint32_t primitive_offset = 0U;
+#if defined(__clang__)
+#pragma clang loop vectorize(disable) interleave(disable)
+#endif
         for (;
              primitive_offset + primitive_stride <= record.payload_size;
              primitive_offset += primitive_stride) {
@@ -3744,6 +3753,9 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         }
         PROGPU_REQUIRE(record.payload_size >= primitive_stride);
         std::uint32_t primitive_offset = 0U;
+#if defined(__clang__)
+#pragma clang loop vectorize(disable) interleave(disable)
+#endif
         for (;
              primitive_offset + primitive_stride <= record.payload_size;
              primitive_offset += primitive_stride) {
@@ -3850,6 +3862,9 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         }
         PROGPU_REQUIRE(record.payload_size >= primitive_stride);
         std::uint32_t primitive_offset = 0U;
+#if defined(__clang__)
+#pragma clang loop vectorize(disable) interleave(disable)
+#endif
         for (;
              primitive_offset + primitive_stride <= record.payload_size;
              primitive_offset += primitive_stride) {
@@ -3917,6 +3932,9 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         }
         PROGPU_REQUIRE(record.payload_size >= primitive_stride);
         std::uint32_t primitive_offset = 0U;
+#if defined(__clang__)
+#pragma clang loop vectorize(disable) interleave(disable)
+#endif
         for (;
              primitive_offset + primitive_stride <= record.payload_size;
              primitive_offset += primitive_stride) {
@@ -4872,6 +4890,9 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
             continue;
         }
         std::size_t arc_count = 0U;
+#if defined(__clang__)
+#pragma clang loop vectorize(disable) interleave(disable)
+#endif
         for (std::size_t segment_index = 0U;
              segment_index < path.segment_count;
              ++segment_index) {
