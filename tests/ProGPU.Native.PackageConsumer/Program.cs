@@ -58,13 +58,13 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
         NativeMilCompiledScene scene = mil.CompileScene(42, 701, 1);
-        if (milMetrics.CommandCount != 58 || mil.ResourceCount != 26 ||
+        if (milMetrics.CommandCount != 62 || mil.ResourceCount != 28 ||
             !mil.TryGetVisual(41, out NativeMilVisualSnapshot visual) ||
             visual.Handle != 41 || scene.Stream.Length == 0 ||
             scene.Metrics.VisualCount != 1 ||
-            scene.Metrics.RectangleCount != 1 ||
+            scene.Metrics.RectangleCount != 3 ||
             scene.Metrics.EllipseCount != 4 ||
-            scene.Metrics.RoundedRectangleCount != 2 ||
+            scene.Metrics.RoundedRectangleCount != 3 ||
             scene.Metrics.LineCount != 3 ||
             scene.Metrics.BrushCount != 1)
         {
@@ -78,11 +78,11 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
         NativeMilCompiledScene scene = dawnMil.CompileScene(42, 702, 1);
-        if (milMetrics.CommandCount != 58 || dawnMil.ResourceCount != 26 ||
+        if (milMetrics.CommandCount != 62 || dawnMil.ResourceCount != 28 ||
             scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
-            scene.Metrics.RectangleCount != 1 ||
+            scene.Metrics.RectangleCount != 3 ||
             scene.Metrics.EllipseCount != 4 ||
-            scene.Metrics.RoundedRectangleCount != 2 ||
+            scene.Metrics.RoundedRectangleCount != 3 ||
             scene.Metrics.LineCount != 3 ||
             scene.Metrics.BrushCount != 1)
         {
@@ -208,6 +208,8 @@ static byte[] CreateMilSeedBatch(
     renderData.DrawEllipse(32, 32, 16, 12, 44, 48);
     renderData.DrawEllipse(32, 20, 10, 0, 44, 48);
     renderData.DrawRoundedRectangle(12, 16, 40, 32, 8, 8, 0, 48);
+    renderData.DrawRectangle(16, 20, 0, 16, 0, 67);
+    renderData.DrawRoundedRectangle(24, 20, 0, 16, 6, 6, 0, 48);
     renderData.DrawGeometry(0, 48, 49);
     renderData.DrawGeometry(44, 48, 50);
     renderData.DrawGeometry(44, 48, 51);
@@ -219,6 +221,7 @@ static byte[] CreateMilSeedBatch(
     renderData.DrawGeometry(0, 48, 60);
     renderData.DrawGeometry(0, 65, 63);
     renderData.DrawGeometry(44, 48, 66);
+    renderData.DrawGeometry(0, 48, 68);
     renderData.Pop();
     renderData.Pop();
     renderData.Pop();
@@ -256,6 +259,8 @@ static byte[] CreateMilSeedBatch(
     batch.CreateResource(64, NativeMilResourceType.DashStyle);
     batch.CreateResource(65, NativeMilResourceType.Pen);
     batch.CreateResource(66, NativeMilResourceType.EllipseGeometry);
+    batch.CreateResource(67, NativeMilResourceType.Pen);
+    batch.CreateResource(68, NativeMilResourceType.RectangleGeometry);
     batch.CreateVisual(41);
     batch.SetVisualOffset(41, 1, 2);
     batch.SetMatrixTransform(
@@ -293,10 +298,17 @@ static byte[] CreateMilSeedBatch(
             NativeMilPenLineCap.Round,
             NativeMilPenLineCap.Triangle,
             DashStyleHandle: 64));
+    batch.SetPen(
+        67,
+        new NativeMilPen(
+            44,
+            2,
+            LineJoin: NativeMilPenLineJoin.Round));
     batch.SetLineGeometry(49, 8, 56, 56, 8, 45);
     batch.SetRectangleGeometry(50, 12, 16, 40, 32, 8, 8, 45);
     batch.SetEllipseGeometry(51, 32, 32, 16, 12, 45);
     batch.SetEllipseGeometry(66, 20, 40, 0, 8, 45);
+    batch.SetRectangleGeometry(68, 40, 20, 0, 16, transformHandle: 45);
     batch.SetPathGeometry(
         52,
         CreateMilPath(0));
