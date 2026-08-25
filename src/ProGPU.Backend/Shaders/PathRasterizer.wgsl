@@ -192,45 +192,61 @@ fn add_arc_crossing(
     center: vec2<f32>,
     rx: f32,
     ry: f32,
-    theta1: f32,
     delta_theta: f32,
     cos_phi: f32,
     sin_phi: f32,
+    start_unit: vec2<f32>,
+    end_unit: vec2<f32>,
     sample_positions_x: SampleRow,
     winding: ptr<function, WindingRow>) {
     let intersect_x = center.x + dx;
     let dy = sample_y - center.y;
     let local_x = dx * cos_phi + dy * sin_phi;
     let local_y = -dx * sin_phi + dy * cos_phi;
-    let theta = atan2(local_y / ry, local_x / rx);
-
-    var t = 0.0;
+    let unit = vec2<f32>(local_x / rx, local_y / ry);
+    let counter_clockwise_start = select(
+        end_unit,
+        start_unit,
+        delta_theta > 0.0);
+    let counter_clockwise_end = select(
+        start_unit,
+        end_unit,
+        delta_theta > 0.0);
+    let start_cross =
+        counter_clockwise_start.x * unit.y -
+        counter_clockwise_start.y * unit.x;
+    let end_cross =
+        unit.x * counter_clockwise_end.y -
+        unit.y * counter_clockwise_end.x;
+    let sweep = abs(delta_theta);
+    let pi = 3.141592653589793;
     let pi2 = 6.283185307179586;
-    if (delta_theta > 0.0) {
-        let diff =
-            (theta - theta1) -
-            pi2 * floor((theta - theta1) / pi2);
-        t = diff / delta_theta;
-    } else {
-        let diff =
-            (theta1 - theta) -
-            pi2 * floor((theta1 - theta) / pi2);
-        t = diff / (-delta_theta);
+    let epsilon = 0.00001;
+    let within_sweep = select(
+        start_cross >= -epsilon && end_cross >= -epsilon,
+        start_cross >= -epsilon || end_cross >= -epsilon,
+        sweep > pi) || sweep >= pi2 - epsilon;
+    if (!within_sweep || sweep <= epsilon) {
+        return;
     }
+    let start_distance = unit - start_unit;
+    let end_distance = unit - end_unit;
+    let at_start = dot(start_distance, start_distance) <= epsilon * epsilon;
+    let at_end = dot(end_distance, end_distance) <= epsilon * epsilon;
 
     let deriv_y = delta_theta *
-        (-rx * sin(theta) * sin_phi +
-            ry * cos(theta) * cos_phi);
+        (-rx * unit.y * sin_phi +
+            ry * unit.x * cos_phi);
 
-    // Preserve the direction-aware half-open intervals exactly:
-    // upward [0,1), downward (0,1].
-    if (deriv_y > 0.0 && t >= 0.0 && t < 1.0) {
+    // Preserve direction-aware half-open path intervals: upward [0,1),
+    // downward (0,1].
+    if (deriv_y > 0.0 && !at_end) {
         add_crossing(
             winding,
             sample_positions_x,
             intersect_x,
             1);
-    } else if (deriv_y < 0.0 && t > 0.0 && t <= 1.0) {
+    } else if (deriv_y < 0.0 && !at_start) {
         add_crossing(
             winding,
             sample_positions_x,
@@ -418,12 +434,19 @@ fn row_coverage_mask(
             let rx = r.x;
             let ry = r.y;
 
-            let theta1 = bitcast<f32>(seg._pad0);
             let delta_theta = bitcast<f32>(seg._pad1);
             let phi = bitcast<f32>(seg._pad2);
 
             let cos_phi = cos(phi);
             let sin_phi = sin(phi);
+            let start_delta = p0 - center;
+            let end_delta = p1 - center;
+            let start_unit = vec2<f32>(
+                (start_delta.x * cos_phi + start_delta.y * sin_phi) / rx,
+                (-start_delta.x * sin_phi + start_delta.y * cos_phi) / ry);
+            let end_unit = vec2<f32>(
+                (end_delta.x * cos_phi + end_delta.y * sin_phi) / rx,
+                (-end_delta.x * sin_phi + end_delta.y * cos_phi) / ry);
 
             let dy = sampleY - center.y;
 
@@ -446,10 +469,11 @@ fn row_coverage_mask(
                     center,
                     rx,
                     ry,
-                    theta1,
                     delta_theta,
                     cos_phi,
                     sin_phi,
+                    start_unit,
+                    end_unit,
                     samplePositionsX,
                     &winding);
                 add_arc_crossing(
@@ -458,10 +482,11 @@ fn row_coverage_mask(
                     center,
                     rx,
                     ry,
-                    theta1,
                     delta_theta,
                     cos_phi,
                     sin_phi,
+                    start_unit,
+                    end_unit,
                     samplePositionsX,
                     &winding);
             }
