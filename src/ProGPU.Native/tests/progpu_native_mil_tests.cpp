@@ -2326,6 +2326,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         PROGPU_REQUIRE(path.transform.m32 == 3.0F);
         if (path.segment_count == 28U) {
             PROGPU_REQUIRE(path.boolean_node_count == 11U);
+            PROGPU_REQUIRE(path.sample_grid == 4U);
             PROGPU_REQUIRE(path.segment_count == 28U);
             PROGPU_REQUIRE(path.min_x == 1.0F && path.min_y == 0.0F);
             PROGPU_REQUIRE(path.max_x == 35.0F && path.max_y == 15.0F);
@@ -2807,6 +2808,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         if (path.boolean_node_count != 11U || path.segment_count != 26U) {
             continue;
         }
+        PROGPU_REQUIRE(path.sample_grid == 4U);
         const auto arc = read_value<progpu_native_path_segment>(
             stream,
             resource.auxiliary_offset +
@@ -2986,6 +2988,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         if (path.boolean_node_count == 0U && path.segment_count == 4U) {
             PROGPU_REQUIRE(
                 path.fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD);
+            PROGPU_REQUIRE(path.sample_grid == 8U);
             found_outer_fill_override = true;
         }
     }
