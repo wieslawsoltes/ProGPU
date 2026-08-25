@@ -736,6 +736,86 @@ void semantic_scene_stream_validates_mixed_order_and_stack() {
     PROGPU_REQUIRE(metrics.payload_bytes == 96U);
 }
 
+void semantic_scene_static_guideline_resource_validates() {
+    constexpr std::uint32_t resource_count = 2U;
+    constexpr std::uint32_t resource_offset =
+        sizeof(progpu_native_scene_header);
+    constexpr std::uint32_t arena_offset = resource_offset +
+        resource_count * sizeof(progpu_native_scene_resource);
+    constexpr std::uint32_t guideline_size =
+        sizeof(progpu_native_scene_guideline_set) + sizeof(double);
+    constexpr std::uint32_t arena_size =
+        guideline_size + sizeof(progpu_native_scene_state);
+    std::vector<std::byte> stream(arena_offset + arena_size);
+
+    progpu_native_scene_header header{};
+    header.struct_size = sizeof(header);
+    header.magic = PROGPU_NATIVE_SCENE_STREAM_MAGIC;
+    header.stream_version = PROGPU_NATIVE_SCENE_STREAM_VERSION;
+    header.endian_marker = PROGPU_NATIVE_SCENE_STREAM_ENDIAN_MARKER;
+    header.total_size = static_cast<std::uint32_t>(stream.size());
+    header.scene_id = 42U;
+    header.generation = 8U;
+    header.command_offset = sizeof(header);
+    header.command_stride = sizeof(progpu_native_scene_command);
+    header.resource_offset = resource_offset;
+    header.resource_count = resource_count;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+    header.arena_offset = arena_offset;
+    header.arena_size = arena_size;
+    write_scene_record(stream, 0U, header);
+
+    progpu_native_scene_resource guideline_resource{};
+    guideline_resource.struct_size = sizeof(guideline_resource);
+    guideline_resource.kind = PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET;
+    guideline_resource.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+    guideline_resource.resource_id = 1U;
+    guideline_resource.generation = 1U;
+    guideline_resource.payload_offset = arena_offset;
+    guideline_resource.payload_size = guideline_size;
+    write_scene_record(stream, resource_offset, guideline_resource);
+
+    progpu_native_scene_guideline_set guidelines{};
+    guidelines.struct_size = sizeof(guidelines);
+    guidelines.guideline_x_count = 1U;
+    write_scene_record(stream, arena_offset, guidelines);
+    const double guideline_x = 8.25;
+    write_scene_record(
+        stream,
+        arena_offset + sizeof(guidelines),
+        guideline_x);
+
+    progpu_native_scene_resource state_resource{};
+    state_resource.struct_size = sizeof(state_resource);
+    state_resource.kind = PROGPU_NATIVE_SCENE_RESOURCE_STATE;
+    state_resource.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+    state_resource.resource_id = 2U;
+    state_resource.generation = 1U;
+    state_resource.payload_offset = arena_offset + guideline_size;
+    state_resource.payload_size = sizeof(progpu_native_scene_state);
+    write_scene_record(
+        stream,
+        resource_offset + sizeof(progpu_native_scene_resource),
+        state_resource);
+
+    progpu_native_scene_state state{};
+    state.struct_size = sizeof(state);
+    state.flags = PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+    state.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
+    state.opacity = 1.0F;
+    write_scene_record(stream, state_resource.payload_offset, state);
+
+    progpu_native_scene_metrics metrics{};
+    metrics.struct_size = sizeof(metrics);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        stream.data(), stream.size(), &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS);
+    PROGPU_REQUIRE(metrics.validation_error ==
+        PROGPU_NATIVE_SCENE_VALIDATION_NONE);
+    PROGPU_REQUIRE(metrics.resource_count == resource_count);
+    PROGPU_REQUIRE(metrics.payload_bytes == arena_size);
+}
+
 void semantic_scene_stream_rejects_malformed_updates_transactionally() {
     auto stream = create_valid_mixed_scene();
     auto header = progpu::native::scene::validate(
@@ -2397,6 +2477,7 @@ void invalid_rectangles_fail_without_partial_append() {
 int main() {
     api_contract_is_versioned();
     semantic_scene_stream_validates_mixed_order_and_stack();
+    semantic_scene_static_guideline_resource_validates();
     semantic_scene_stream_rejects_malformed_updates_transactionally();
     semantic_scene_resource_generations_are_monotonic();
     semantic_scene_layer_descriptors_are_exact_and_canonical();
