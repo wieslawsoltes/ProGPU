@@ -364,6 +364,11 @@ jobs:
             --configuration Release --no-restore \
             -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
             -p:ProGpuNativePackageVersion="${version}"
+          dotnet run --project tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
+            --configuration Release --no-restore \
+            -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
+            -p:ProGpuNativePackageVersion="${version}" -- \
+            --mil-glyph-run-drawing-only
 
       - name: Publish and run NativeAOT package consumer
         shell: bash
@@ -384,6 +389,7 @@ jobs:
           fi
           test -x "${executable}"
           "${executable}"
+          "${executable}" --mil-glyph-run-drawing-only
 
   avalonia-compositor-contract:
     name: Avalonia retained compositor contract
