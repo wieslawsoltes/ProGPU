@@ -1201,6 +1201,47 @@ for `progpu_native_dawn.dll`. Rect animations, DrawingImage/D3DImage/video
 sources, incremental bitmap invalidation, and same-device external texture
 bindings remain explicit follow-up work.
 
+GlyphRun implementation `c8efc666`, transport optimization `6c762f2b`, focused
+package gate `b21fd324`, and fixture correction `fa8d6a33` next added canonical
+`MilCmdGlyphRunCreate` command `0x3a`, retained `GlyphRunDrawing` resource type
+`88`/command `0x88`, and nested `DrawGlyphRun` command `0x49`. The canonical
+glyph-create command retains its 76-byte fixed command view followed by glyph
+indices, advances, optional X/Y offsets, and DWORD padding. Its embedded
+`IDWriteFont*` field is always zero outside the source process. Portable hosts
+instead bind copied SFNT/TTC bytes, face index, and bold/italic simulations to
+the glyph-run handle through the typed
+`progpu_native_mil_channel_set_glyph_run_font_sfnt` sideband. Identical font
+payloads share one retained native byte buffer across glyph-run resources.
+
+Scene compilation decodes TrueType outlines through `progpu_native_text`,
+caches the resulting semantic outline resource by glyph-run handle and raster
+size, and emits positioned glyphs through the shared semantic text command
+consumed by wgpu-native and Dawn. Direct render-data glyph commands and
+retained GlyphRunDrawing resources therefore share the same font decode,
+positioning, style, transform, and renderer path. Missing font bindings,
+invalid fonts/faces/styles, wrong resource types, deletion of referenced
+glyphs/brushes, and malformed packets fail closed or roll back transactionally.
+
+All ten local native CTests passed, the managed canonical-builder filter passed
+10/10, and the project-reference package consumer built with zero warnings.
+Strict Windows ARM64 MSVC rebuilt both modules under `/W4 /WX`; all 11
+native/Dawn CTests passed in the Parallels VM. The focused 14-command,
+six-channel-resource glyph scene compiled direct and retained glyph draws
+through both MIL exports and rendered on live D3D12 with three semantic
+resources, one batched draw, 13,312 coverage-staging bytes, a valid submission,
+nonblack retained readback, and 16,384 direct-render pixels. Exact qualified
+SHA-256 values were
+`f75a6e979f52d5a606294cb1698c48efcb6a96b78e961f23820495af1697d510`
+for `progpu_native.dll` and
+`e95c7107f76ef1bb221b0784919fe5bd8f72ac8c004ef016db4794b8e7a5d399`
+for `progpu_native_dawn.dll`.
+
+This checkpoint intentionally supports solid foreground brushes, horizontal
+TrueType `glyf` outlines, logical-pixel raster sizing, and static glyph state.
+Sideways text, gradient/tile text brushes, CFF/CFF2 and variable/color/bitmap
+glyphs, target-DPI-aware raster selection, text decorations, and incremental
+font-resource registration remain explicit parity work.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
