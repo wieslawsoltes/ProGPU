@@ -257,9 +257,11 @@ factors the resulting `T*T^T` metric into orthogonal output axes/radii, projects
 the start parameter into that basis, and reverses the sweep exactly when the
 affine determinant is negative. A translation-only fast path preserves the
 source radii, axis, angles, sweep, and padding bit-for-bit while translating only
-the endpoints and center. Combined-geometry children, singular arc transforms,
-and meaningful group pens currently fail closed until their contours or strokes
-can be composed without approximation.
+the endpoints and center. Combined-geometry children and meaningful group pens
+currently fail closed until their contours or strokes can be composed without
+approximation. Exact singular affine transforms now lower fill and stroke
+coverage to empty, matching WPF's zero-determinant area semantics without
+attempting to invert or factor an arc basis.
 
 Canonical fixed-size `MILCMD_COMBINEDGEOMETRY` state now retains the optional
 matrix transform, two geometry dependencies, and WPF Union/Intersect/Xor/
@@ -282,8 +284,9 @@ cover all nonempty descendants. Group/combined references share one cycle-
 checked geometry DAG; deletion and malformed operation updates fail
 transactionally. The same exact nonsingular affine arc factorization is shared
 by group leaves and arbitrary-depth boolean leaves, including reflected/sheared
-arcs and sweep reversal. Singular arc transforms and stroked operands remain
-fail closed. Combined children inside a `GeometryGroup` also remain fail closed
+arcs and sweep reversal. Singular transformed operands become exact empty
+leaves. Stroked operands remain fail closed. Combined children inside a
+`GeometryGroup` also remain fail closed
 because treating a boolean result as raw outer-fill contours would change WPF
 semantics.
 
@@ -310,16 +313,15 @@ logical target coordinates using the transform active at push time, and nested
 paths are ordered intersections. Rectangle and vector-mask state remain
 independent, so a cheap bounds clip can constrain exact vector coverage without
 changing it. Scope records store only arena prefix counts and a retained mask
-index; push/pop does not copy accumulated path data. Degenerate geometry lowers
-to an empty clip, singular arc transforms and oversized boolean programs fail
-closed, and geometry bounds are never substituted for coverage. Fixed ellipses
-and rounded rectangles use analytic quarter arcs rather than cubic circle
-approximations.
+index; push/pop does not copy accumulated path data. Degenerate and singularly
+transformed geometry lower to an exact empty clip; oversized boolean programs
+fail closed, and geometry bounds are never substituted for coverage. Fixed
+ellipses and rounded rectangles use analytic quarter arcs rather than cubic
+circle approximations.
 
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
-- Implement scalar animation resources, remaining transform kinds,
-  singular arc-transform fill semantics and curve dashes,
+- Implement scalar animation resources, remaining transform kinds, curve dashes,
   exact translated-equivalent EvenOdd overlap execution,
   remaining pen draws,
   brushes, drawings, images, glyph runs, caches, guidelines, effects, and
@@ -838,6 +840,25 @@ SHA-256 values were
 `39a28937c25d977310597efb3c6e7f0ed9f077cd8617b2f95582d3cca58e0161`
 for `progpu_native.dll` and
 `daefb160737962ec81fb78238b44508a7c6a7235c8daf1bc129b0f5df2dda14a`
+for `progpu_native_dawn.dll`.
+
+The singular-affine implementation at `f244dc2d` then closed the remaining
+zero-determinant fill, stroke, and clip ambiguity. WPF's
+`CShapeBase::GetArea` multiplies rectangle area by the absolute 2D determinant
+and treats a degenerate general transform as no scannable workspace, so the
+native MIL compiler now lowers singularly transformed fixed, path, group, and
+combined geometry to exact empty coverage instead of trying to invert or
+factor an arc basis. Direct line strokes follow the same rule, and a singular
+geometry clip becomes an exact empty clip rather than bounds coverage. All ten
+local native tests passed. Strict Windows ARM64 MSVC rebuilt both modules under
+`/W4 /WX`, and all 11 native/Dawn CTests passed on the Parallels VM. Package
+checkpoint `7b91b21f` added a typed singular `MatrixTransform` scope around
+direct and retained draw commands. Both MIL exports compiled its 50-command,
+22-channel-resource seed; live D3D12 readback retained 24 semantic resources,
+three visible draws, and 41,472 coverage bytes. Exact staged SHA-256 values were
+`1dec50b6aef18b22f894739a9bff477a31bd0751cae1baabd9d3efc562212b65`
+for `progpu_native.dll` and
+`83ff9ae3133fbe9ecd789202f10ea5dfc483528f207c8ef3d34af05e45c038d9`
 for `progpu_native_dawn.dll`.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
