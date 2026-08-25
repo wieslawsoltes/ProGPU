@@ -836,6 +836,33 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 16, geometryHandle);
     }
 
+    public void SetImageDrawing(
+        uint handle,
+        double x,
+        double y,
+        double width,
+        double height,
+        uint imageSourceHandle,
+        uint rectAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(x) || !double.IsFinite(y) ||
+            !double.IsFinite(width) || width < 0.0 ||
+            !double.IsFinite(height) || height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.ImageDrawing, 48);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, x);
+        WriteDouble(packet, 16, y);
+        WriteDouble(packet, 24, width);
+        WriteDouble(packet, 32, height);
+        WriteUInt32(packet, 40, imageSourceHandle);
+        WriteUInt32(packet, 44, rectAnimationHandle);
+    }
+
     public void SetDrawingGroup(
         uint handle,
         NativeMilDrawingGroup group,
@@ -1263,5 +1290,6 @@ internal static class NativeMilCommand
     internal const uint DashStyle = 0x85;
     internal const uint Pen = 0x86;
     internal const uint GeometryDrawing = 0x87;
+    internal const uint ImageDrawing = 0x89;
     internal const uint DrawingGroup = 0x8b;
 }

@@ -45,8 +45,10 @@ constexpr std::uint32_t type_radial_gradient_brush = 78U;
 constexpr std::uint32_t type_dash_style = 84U;
 constexpr std::uint32_t type_pen = 85U;
 constexpr std::uint32_t type_geometry_drawing = 87U;
+constexpr std::uint32_t type_image_drawing = 89U;
 constexpr std::uint32_t type_drawing_group = 91U;
 constexpr std::uint32_t type_guideline_set = 92U;
+constexpr std::uint32_t type_bitmap_source = 95U;
 constexpr std::uint32_t type_last = 98U;
 constexpr std::uint32_t maximum_visual_depth = 256U;
 constexpr std::uint32_t maximum_path_record_count = 1U << 20U;
@@ -626,6 +628,22 @@ struct channel::implementation {
         std::uint32_t geometry_handle{};
     };
 
+    struct image_drawing_state {
+        double x{};
+        double y{};
+        double width{};
+        double height{};
+        std::uint32_t image_source_handle{};
+        std::uint32_t rect_animation_handle{};
+    };
+
+    struct bitmap_source_state {
+        std::uint32_t width{};
+        std::uint32_t height{};
+        std::uint32_t row_bytes{};
+        std::vector<std::byte> pixels;
+    };
+
     struct drawing_group_state {
         double opacity{1.0};
         std::uint32_t clip_geometry_handle{};
@@ -741,6 +759,8 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, pen_state> pens;
     std::unordered_map<std::uint32_t, geometry_drawing_state>
         geometry_drawings;
+    std::unordered_map<std::uint32_t, image_drawing_state> image_drawings;
+    std::unordered_map<std::uint32_t, bitmap_source_state> bitmap_sources;
     std::unordered_map<std::uint32_t, drawing_group_state> drawing_groups;
 
     bool require_resource(
@@ -1146,6 +1166,13 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
             }
+            for (const auto& [drawing_handle, drawing] : image_drawings) {
+                if (drawing_handle != handle &&
+                    (drawing.image_source_handle == handle ||
+                     drawing.rect_animation_handle == handle)) {
+                    return status::invalid_graph;
+                }
+            }
             for (const auto& [group_handle, group] : drawing_groups) {
                 if (group_handle != handle &&
                     (group.clip_geometry_handle == handle ||
@@ -1230,6 +1257,8 @@ struct channel::implementation {
             dash_styles.erase(handle);
             pens.erase(handle);
             geometry_drawings.erase(handle);
+            image_drawings.erase(handle);
+            bitmap_sources.erase(handle);
             drawing_groups.erase(handle);
             resources.erase(found);
             ++metrics.deleted_resource_count;
@@ -2792,6 +2821,42 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         }
+        case command::image_drawing: {
+            image_drawing_state drawing{};
+            if (!has_exact_size(view, 48U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, drawing.x) ||
+                !read_at(view.packet, 16U, drawing.y) ||
+                !read_at(view.packet, 24U, drawing.width) ||
+                !read_at(view.packet, 32U, drawing.height) ||
+                !read_at(
+                    view.packet, 40U, drawing.image_source_handle) ||
+                !read_at(
+                    view.packet, 44U, drawing.rect_animation_handle)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_image_drawing) ||
+                (drawing.image_source_handle != 0U &&
+                 !require_resource(
+                     drawing.image_source_handle,
+                     type_bitmap_source))) {
+                return status::invalid_handle;
+            }
+            if (drawing.rect_animation_handle != 0U) {
+                return status::unsupported_command;
+            }
+            if (!finite_double_as_float(drawing.x) ||
+                !finite_double_as_float(drawing.y) ||
+                !finite_double_as_float(drawing.width) ||
+                !finite_double_as_float(drawing.height) ||
+                drawing.width < 0.0 || drawing.height < 0.0) {
+                return status::malformed_batch;
+            }
+            image_drawings.insert_or_assign(handle, drawing);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
         case command::drawing_group: {
             drawing_group_state group{};
             std::uint32_t children_size = 0U;
@@ -3665,6 +3730,7 @@ struct channel::implementation {
         double base_opacity,
         native::semantic_scene_builder& builder,
         std::unordered_map<std::uint32_t, std::uint32_t>& brush_indices,
+        std::unordered_map<std::uint32_t, std::uint32_t>& image_indices,
         scene_metrics& metrics) const {
         const auto resource = resources.find(content_handle);
         if (resource == resources.end() ||
@@ -3686,6 +3752,7 @@ struct channel::implementation {
             1U,
             builder,
             brush_indices,
+            image_indices,
             active_drawings,
             clip_paths,
             clip_segments,
@@ -3699,6 +3766,7 @@ struct channel::implementation {
         std::uint32_t drawing_depth,
         native::semantic_scene_builder& builder,
         std::unordered_map<std::uint32_t, std::uint32_t>& brush_indices,
+        std::unordered_map<std::uint32_t, std::uint32_t>& image_indices,
         std::unordered_set<std::uint32_t>& active_drawings,
         std::vector<progpu_native_scene_clip_path>& clip_paths,
         std::vector<progpu_native_path_segment>& clip_segments,
@@ -5657,6 +5725,80 @@ struct channel::implementation {
                         continue;
                     }
                 } else {
+                    const auto image = image_drawings.find(drawing_handle);
+                    if (image != image_drawings.end()) {
+                        const auto& image_state = image->second;
+                        if (image_state.rect_animation_handle != 0U) {
+                            return status::unsupported_command;
+                        }
+                        if (image_state.image_source_handle == 0U ||
+                            image_state.width == 0.0 ||
+                            image_state.height == 0.0) {
+                            continue;
+                        }
+                        const auto bitmap = bitmap_sources.find(
+                            image_state.image_source_handle);
+                        if (bitmap == bitmap_sources.end()) {
+                            return status::invalid_handle;
+                        }
+                        std::uint32_t image_index =
+                            PROGPU_NATIVE_SCENE_NO_INDEX;
+                        const auto existing = image_indices.find(
+                            image_state.image_source_handle);
+                        if (existing != image_indices.end()) {
+                            image_index = existing->second;
+                        } else {
+                            if (!builder.add_rgba8_image(
+                                    bitmap->second.width,
+                                    bitmap->second.height,
+                                    bitmap->second.row_bytes,
+                                    bitmap->second.pixels,
+                                    image_index)) {
+                                return status::invalid_graph;
+                            }
+                            image_indices.emplace(
+                                image_state.image_source_handle,
+                                image_index);
+                        }
+                        progpu_native_affine_2d native_transform{};
+                        progpu_native_image_rect bounds{};
+                        if (!try_to_native_affine(
+                                current.transform, native_transform) ||
+                            !try_transform_bounds(
+                                image_state.x,
+                                image_state.y,
+                                image_state.width,
+                                image_state.height,
+                                current.transform,
+                                bounds)) {
+                            return status::invalid_graph;
+                        }
+                        const progpu_native_scene_image_draw image_draw{
+                            sizeof(progpu_native_scene_image_draw),
+                            0U,
+                            bitmap->second.width,
+                            bitmap->second.height,
+                            bitmap->second.row_bytes,
+                            PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR,
+                            {0.0F,
+                             0.0F,
+                             static_cast<float>(bitmap->second.width),
+                             static_cast<float>(bitmap->second.height)},
+                            {static_cast<float>(image_state.x),
+                             static_cast<float>(image_state.y),
+                             static_cast<float>(image_state.width),
+                             static_cast<float>(image_state.height)},
+                            native_transform,
+                            1.0F,
+                            1U};
+                        if (!builder.draw_image(
+                                image_index,
+                                image_draw,
+                                bounds)) {
+                            return status::invalid_graph;
+                        }
+                        continue;
+                    }
                     const auto group = drawing_groups.find(drawing_handle);
                     if (group == drawing_groups.end()) {
                         const auto resource = resources.find(drawing_handle);
@@ -5730,6 +5872,7 @@ struct channel::implementation {
                         drawing_depth + 1U,
                         builder,
                         brush_indices,
+                        image_indices,
                         active_drawings,
                         clip_paths,
                         clip_segments,
@@ -6570,6 +6713,7 @@ struct channel::implementation {
         std::uint32_t depth,
         native::semantic_scene_builder& builder,
         std::unordered_map<std::uint32_t, std::uint32_t>& brush_indices,
+        std::unordered_map<std::uint32_t, std::uint32_t>& image_indices,
         std::unordered_set<std::uint32_t>& active_visuals,
         scene_metrics& metrics) const {
         if (depth == 0U || depth > maximum_visual_depth ||
@@ -6632,6 +6776,7 @@ struct channel::implementation {
                 opacity,
                 builder,
                 brush_indices,
+                image_indices,
                 metrics);
         }
         if (result == status::success) {
@@ -6643,6 +6788,7 @@ struct channel::implementation {
                     depth + 1U,
                     builder,
                     brush_indices,
+                    image_indices,
                     active_visuals,
                     metrics);
                 if (result != status::success) {
@@ -6711,6 +6857,43 @@ status channel::apply(
         if (metrics != nullptr) {
             *metrics = local_metrics;
         }
+        return status::invalid_argument;
+    }
+}
+
+status channel::set_bitmap_source_rgba8(
+    std::uint32_t handle,
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t row_bytes,
+    std::span<const std::byte> pixels) noexcept {
+    if (!implementation_->require_resource(handle, type_bitmap_source)) {
+        return status::invalid_handle;
+    }
+    const std::uint64_t minimum_row_bytes =
+        static_cast<std::uint64_t>(width) * 4U;
+    const std::uint64_t required_bytes = height == 0U
+        ? 0U
+        : static_cast<std::uint64_t>(row_bytes) * (height - 1U) +
+            minimum_row_bytes;
+    if (width == 0U || height == 0U || width > 16'384U ||
+        height > 16'384U || row_bytes < minimum_row_bytes ||
+        required_bytes != pixels.size()) {
+        return status::invalid_argument;
+    }
+    try {
+        implementation::bitmap_source_state source{};
+        source.width = width;
+        source.height = height;
+        source.row_bytes = row_bytes;
+        source.pixels.assign(pixels.begin(), pixels.end());
+        implementation_->bitmap_sources.insert_or_assign(
+            handle, std::move(source));
+        implementation_->increment_generation(handle);
+        return status::success;
+    } catch (const std::bad_alloc&) {
+        return status::capacity_exceeded;
+    } catch (...) {
         return status::invalid_argument;
     }
 }
@@ -6801,6 +6984,7 @@ status channel::build_scene(
     try {
         native::semantic_scene_builder builder(scene_id, generation);
         std::unordered_map<std::uint32_t, std::uint32_t> brush_indices;
+        std::unordered_map<std::uint32_t, std::uint32_t> image_indices;
         std::unordered_set<std::uint32_t> active_visuals;
         if (target->second.root_handle != 0U) {
             const status append_status = implementation_->append_visual(
@@ -6810,6 +6994,7 @@ status channel::build_scene(
                 1U,
                 builder,
                 brush_indices,
+                image_indices,
                 active_visuals,
                 local_metrics);
             if (append_status != status::success) {

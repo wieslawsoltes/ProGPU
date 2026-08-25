@@ -73,6 +73,17 @@ internal static unsafe partial class NativeMilMethods
         nuint batchSize,
         BatchMetrics* metrics);
 
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_bitmap_source_rgba8")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetBitmapSourceRgba8(
+        nint channel,
+        uint handle,
+        uint width,
+        uint height,
+        uint rowBytes,
+        void* pixels,
+        nuint pixelSize);
+
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_get_resource_count")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial nuint GetResourceCount(nint channel);
@@ -141,6 +152,17 @@ internal static unsafe partial class NativeMilDawnMethods
         void* batch,
         nuint batchSize,
         NativeMilMethods.BatchMetrics* metrics);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_bitmap_source_rgba8")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetBitmapSourceRgba8(
+        nint channel,
+        uint handle,
+        uint width,
+        uint height,
+        uint rowBytes,
+        void* pixels,
+        nuint pixelSize);
 
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_get_resource_count")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

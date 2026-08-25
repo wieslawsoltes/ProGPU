@@ -244,6 +244,17 @@ public:
         std::span<const std::byte> bytes,
         batch_metrics* metrics = nullptr) noexcept;
 
+    // Binds pointer-free RGBA8 pixels to a canonical TYPE_BITMAPSOURCE
+    // handle. WPF's native MilCmdBitmapSource carries an in-process WIC
+    // pointer, so portable hosts provide the equivalent pixels through this
+    // typed channel sideband before scene compilation.
+    status set_bitmap_source_rgba8(
+        std::uint32_t handle,
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t row_bytes,
+        std::span<const std::byte> pixels) noexcept;
+
     std::size_t resource_count() const noexcept;
     bool has_resource(std::uint32_t handle) const noexcept;
     std::uint32_t resource_type(std::uint32_t handle) const noexcept;

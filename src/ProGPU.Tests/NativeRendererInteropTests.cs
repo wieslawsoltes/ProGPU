@@ -151,6 +151,32 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWriteCanonicalImageDrawingPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(7, NativeMilResourceType.ImageDrawing);
+        batch.SetImageDrawing(7, 1.5, 2.5, 30, 40, 8);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(68, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x07U, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(89U, ReadUInt32(encoded, 12));
+        Assert.Equal(52U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x89U, ReadUInt32(encoded, 20));
+        Assert.Equal(7U, ReadUInt32(encoded, 24));
+        Assert.Equal(1.5, ReadDouble(encoded, 28));
+        Assert.Equal(2.5, ReadDouble(encoded, 36));
+        Assert.Equal(30.0, ReadDouble(encoded, 44));
+        Assert.Equal(40.0, ReadDouble(encoded, 52));
+        Assert.Equal(8U, ReadUInt32(encoded, 60));
+        Assert.Equal(0U, ReadUInt32(encoded, 64));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetImageDrawing(7, 0, 0, -1, 1, 8));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalDrawingGroupPackets()
     {
         var batch = new NativeMilBatchBuilder();

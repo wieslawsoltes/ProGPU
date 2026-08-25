@@ -79,6 +79,52 @@ public sealed unsafe class NativeMilChannel : IDisposable
             metrics.TotalBytes);
     }
 
+    /// <summary>
+    /// Copies straight-alpha RGBA8 pixels into the portable sideband for a
+    /// canonical WPF <see cref="NativeMilResourceType.BitmapSource"/> handle.
+    /// </summary>
+    /// <remarks>
+    /// Canonical MilCmdBitmapSource transports an in-process WIC pointer,
+    /// which cannot cross the native portable boundary. The retained handle
+    /// and ImageDrawing packet stay canonical; only pixel ownership uses this
+    /// pointer-free typed binding.
+    /// </remarks>
+    public void SetBitmapSourceRgba8(
+        uint handle,
+        uint width,
+        uint height,
+        uint rowBytes,
+        ReadOnlySpan<byte> pixels)
+    {
+        nint channel = GetChannel();
+        fixed (byte* pixelPointer = pixels)
+        {
+            NativeMilStatus status = _backend == NativeMilBackend.Dawn
+                ? NativeMilDawnMethods.SetBitmapSourceRgba8(
+                    channel,
+                    handle,
+                    width,
+                    height,
+                    rowBytes,
+                    pixelPointer,
+                    (nuint)pixels.Length)
+                : NativeMilMethods.SetBitmapSourceRgba8(
+                    channel,
+                    handle,
+                    width,
+                    height,
+                    rowBytes,
+                    pixelPointer,
+                    (nuint)pixels.Length);
+            if (status != NativeMilStatus.Success)
+            {
+                throw new NativeMilException(
+                    status,
+                    $"The RGBA8 BitmapSource binding for MIL handle {handle} was rejected with {status}.");
+            }
+        }
+    }
+
     public bool HasResource(uint handle)
     {
         nint channel = GetChannel();
