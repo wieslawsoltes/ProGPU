@@ -1390,6 +1390,30 @@ focused scene and live D3D12 retained/direct rendering completed with four
 semantic resources, one draw, zero coverage-staging bytes, and 16,384 direct
 pixels.
 
+Vector-only ClearType-hint implementation `db057403` and package gate
+`4af0b1c5` next consume the final canonical DrawingGroup render-option field
+without overstating text parity. WPF's `CDrawingContext::PushRenderOptions`
+uses `ClearTypeHint.Enabled` to call `SetClearTypeHint(true)`, and the software
+render target consults that state only while deciding whether `DrawGlyphRun`
+may use ClearType on an alpha surface. It has no vector or image effect.
+
+ProGPU therefore carries Enabled as inherited scope state and accepts exact
+non-text subtrees. Any nonempty direct or retained glyph run reached under
+that state returns `unsupported_command` before a semantic scene is
+published, because the current shared native glyph rasterizer is grayscale
+and silently drawing it would be false parity. Source validation continues
+to accept only Auto/Enabled. Native tests cover an accepted vector subtree
+and a rejected real SFNT-backed GlyphRunDrawing subtree.
+
+All eight configured local native suites, the managed canonical builder
+contract, and the zero-warning project-reference package build passed.
+Strict Windows ARM64 MSVC rebuilt both exports and all 11 native/Dawn CTests
+passed. With fresh native, Dawn, and wgpu-native DLLs copied app-local, both
+MIL exports compiled the hinted vector scene and live D3D12 retained/direct
+rendering completed with four semantic resources, one draw, zero
+coverage-staging bytes, and 16,384 direct pixels. True ClearType text remains
+an explicit shared glyph-rasterization/backend follow-up.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
