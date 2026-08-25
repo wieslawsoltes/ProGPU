@@ -336,6 +336,11 @@ jobs:
             --configuration Release --no-restore \
             -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages/Release" \
             -p:ProGpuNativePackageVersion="${PROGPU_PACKAGE_VERSION}" -- \
+            --mil-visual-effect-only
+          dotnet run --project tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
+            --configuration Release --no-restore \
+            -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages/Release" \
+            -p:ProGpuNativePackageVersion="${PROGPU_PACKAGE_VERSION}" -- \
             --mil-visual-guideline-only
           dotnet run --project tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
             --configuration Release --no-restore \
