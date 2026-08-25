@@ -235,9 +235,9 @@ until their contours or strokes can be composed without approximation.
 Canonical fixed-size `MILCMD_COMBINEDGEOMETRY` state now retains the optional
 matrix transform, two geometry dependencies, and WPF Union/Intersect/Xor/
 Exclude operation. Null operands become explicit empty leaves. Identity-local
-`PathGeometry` operands lower to ProGPU's existing bounded three-instruction
-postfix boolean program, preserving each operand's own fill rule and executing
-the result in the native path atlas on every backend. The same shared shallow
+`PathGeometry` operands lower to ProGPU's native postfix boolean program,
+preserving each operand's own fill rule and executing the result in the native
+path atlas on every backend. The same shared shallow
 fill lowerer now accepts fixed rectangle and ellipse operands, including
 geometry-local affine transforms and non-uniform rounded rectangles with WPF's
 radius clamping, point order, and cubic constant; line operands become explicit
@@ -245,11 +245,16 @@ empty leaves. It also accepts affine-transformed line/quadratic/cubic path
 operands using the same exact point/bounds baking as groups while preserving the
 operand's own fill rule. A recursively flattened `GeometryGroup` is also a
 boolean leaf: its root fill rule is retained while its group/child transforms
-are baked into the leaf contours. Group/combined references share one
-cycle-checked geometry DAG; deletion and malformed operation updates fail
-transactionally. Transformed arc-bearing paths, combined-geometry operands,
-and stroked operands remain fail closed until exact recursive boolean lowering
-is available.
+are baked into the leaf contours. Combined operands now recurse into that same
+bounded geometry DAG and append their two subtrees plus operation in postfix
+order. Nested combined transforms compose into descendant leaf transforms;
+segment/node appends roll back together on failure, and conservative bounds
+cover all nonempty descendants. Group/combined references share one cycle-
+checked geometry DAG; deletion and malformed operation updates fail
+transactionally. Transformed arc-bearing paths and stroked operands remain fail
+closed until exact transform/stroke lowering is available. Combined children
+inside a `GeometryGroup` also remain fail closed because treating a boolean
+result as raw outer-fill contours would change WPF semantics.
 
 `NativeMilBatchBuilder` and `NativeMilRenderDataBuilder` provide the matching
 managed producer for this supported subset. They write the canonical WPF
@@ -259,8 +264,8 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
-- Implement scalar animation resources, remaining transform kinds, recursive
-  arc-preserving transforms and nested-combined widening, curved path
+- Implement scalar animation resources, remaining transform kinds,
+  arc-preserving affine transforms, curved path
   strokes/dashes and per-segment smooth joins,
   remaining pen draws,
   brushes, drawings, images, glyph runs, caches, guidelines, effects, and

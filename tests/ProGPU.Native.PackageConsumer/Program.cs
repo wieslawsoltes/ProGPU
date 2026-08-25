@@ -37,7 +37,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
         NativeMilCompiledScene scene = mil.CompileScene(42, 701, 1);
-        if (milMetrics.CommandCount != 40 || mil.ResourceCount != 17 ||
+        if (milMetrics.CommandCount != 42 || mil.ResourceCount != 18 ||
             !mil.TryGetVisual(41, out NativeMilVisualSnapshot visual) ||
             visual.Handle != 41 || scene.Stream.Length == 0 ||
             scene.Metrics.VisualCount != 1 ||
@@ -57,7 +57,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
         NativeMilCompiledScene scene = dawnMil.CompileScene(42, 702, 1);
-        if (milMetrics.CommandCount != 40 || dawnMil.ResourceCount != 17 ||
+        if (milMetrics.CommandCount != 42 || dawnMil.ResourceCount != 18 ||
             scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
             scene.Metrics.RectangleCount != 1 ||
             scene.Metrics.EllipseCount != 2 ||
@@ -195,6 +195,7 @@ static byte[] CreateMilSeedBatch()
     batch.CreateResource(55, NativeMilResourceType.CombinedGeometry);
     batch.CreateResource(56, NativeMilResourceType.PathGeometry);
     batch.CreateResource(57, NativeMilResourceType.GeometryGroup);
+    batch.CreateResource(58, NativeMilResourceType.CombinedGeometry);
     batch.CreateVisual(41);
     batch.SetVisualOffset(41, 1, 2);
     batch.SetMatrixTransform(
@@ -235,9 +236,15 @@ static byte[] CreateMilSeedBatch()
         [52, 53, 50, 51, 57],
         45);
     batch.SetCombinedGeometry(
+        58,
+        NativeMilGeometryCombineMode.Intersect,
+        57,
+        50,
+        45);
+    batch.SetCombinedGeometry(
         55,
         NativeMilGeometryCombineMode.Exclude,
-        57,
+        58,
         51,
         45);
     batch.SetPathGeometry(
