@@ -45,6 +45,8 @@ constexpr std::uint32_t type_radial_gradient_brush = 78U;
 constexpr std::uint32_t type_dash_style = 84U;
 constexpr std::uint32_t type_pen = 85U;
 constexpr std::uint32_t type_geometry_drawing = 87U;
+constexpr std::uint32_t type_drawing_group = 91U;
+constexpr std::uint32_t type_guideline_set = 92U;
 constexpr std::uint32_t type_last = 98U;
 constexpr std::uint32_t maximum_visual_depth = 256U;
 constexpr std::uint32_t maximum_path_record_count = 1U << 20U;
@@ -78,6 +80,10 @@ bool is_target_type(std::uint32_t type) noexcept {
 
 bool is_transform_type(std::uint32_t type) noexcept {
     return type >= type_transform_group && type <= type_matrix_transform;
+}
+
+bool is_drawing_type(std::uint32_t type) noexcept {
+    return type >= type_geometry_drawing && type <= type_drawing_group;
 }
 
 bool finite_double_as_float(double value) noexcept {
@@ -620,6 +626,32 @@ struct channel::implementation {
         std::uint32_t geometry_handle{};
     };
 
+    struct drawing_group_state {
+        double opacity{1.0};
+        std::uint32_t clip_geometry_handle{};
+        std::uint32_t opacity_animation_handle{};
+        std::uint32_t opacity_mask_handle{};
+        std::uint32_t transform_handle{};
+        std::uint32_t guideline_set_handle{};
+        std::uint32_t edge_mode{};
+        std::uint32_t bitmap_scaling_mode{};
+        std::uint32_t clear_type_hint{};
+        std::vector<std::uint32_t> children;
+        std::vector<std::byte> child_render_data;
+    };
+
+    struct render_scope_state {
+        affine_2d_double transform;
+        double opacity{1.0};
+        progpu_native_image_rect clip_rect{};
+        bool has_clip{};
+        std::size_t clip_path_count{};
+        std::size_t clip_segment_count{};
+        std::size_t clip_boolean_node_count{};
+        std::uint32_t mask_resource_index{
+            PROGPU_NATIVE_SCENE_NO_INDEX};
+    };
+
     struct transform_state {
         enum class kind : std::uint32_t {
             matrix,
@@ -709,6 +741,7 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, pen_state> pens;
     std::unordered_map<std::uint32_t, geometry_drawing_state>
         geometry_drawings;
+    std::unordered_map<std::uint32_t, drawing_group_state> drawing_groups;
 
     bool require_resource(
         std::uint32_t handle,
@@ -766,6 +799,32 @@ struct channel::implementation {
             const auto found = transforms.find(current);
             if (found == transforms.end() ||
                 found->second.type != transform_state::kind::group) {
+                continue;
+            }
+            pending.insert(
+                pending.end(),
+                found->second.children.begin(),
+                found->second.children.end());
+        }
+        return false;
+    }
+
+    bool drawing_reaches(
+        std::uint32_t start,
+        std::uint32_t destination) const {
+        std::vector<std::uint32_t> pending{start};
+        std::unordered_set<std::uint32_t> visited;
+        while (!pending.empty()) {
+            const std::uint32_t current = pending.back();
+            pending.pop_back();
+            if (current == destination) {
+                return true;
+            }
+            if (!visited.insert(current).second) {
+                continue;
+            }
+            const auto found = drawing_groups.find(current);
+            if (found == drawing_groups.end()) {
                 continue;
             }
             pending.insert(
@@ -1087,6 +1146,20 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
             }
+            for (const auto& [group_handle, group] : drawing_groups) {
+                if (group_handle != handle &&
+                    (group.clip_geometry_handle == handle ||
+                     group.opacity_animation_handle == handle ||
+                     group.opacity_mask_handle == handle ||
+                     group.transform_handle == handle ||
+                     group.guideline_set_handle == handle ||
+                     std::find(
+                         group.children.begin(),
+                         group.children.end(),
+                         handle) != group.children.end())) {
+                    return status::invalid_graph;
+                }
+            }
             for (const auto& [brush_handle, brush] : gradient_brushes) {
                 if (brush_handle != handle &&
                     (brush.opacity_animation == handle ||
@@ -1157,6 +1230,7 @@ struct channel::implementation {
             dash_styles.erase(handle);
             pens.erase(handle);
             geometry_drawings.erase(handle);
+            drawing_groups.erase(handle);
             resources.erase(found);
             ++metrics.deleted_resource_count;
             return status::success;
@@ -2718,6 +2792,105 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         }
+        case command::drawing_group: {
+            drawing_group_state group{};
+            std::uint32_t children_size = 0U;
+            if (view.packet.size() < 52U ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, group.opacity) ||
+                !read_at(view.packet, 16U, children_size) ||
+                !read_at(
+                    view.packet, 20U, group.clip_geometry_handle) ||
+                !read_at(
+                    view.packet, 24U, group.opacity_animation_handle) ||
+                !read_at(view.packet, 28U, group.opacity_mask_handle) ||
+                !read_at(view.packet, 32U, group.transform_handle) ||
+                !read_at(view.packet, 36U, group.guideline_set_handle) ||
+                !read_at(view.packet, 40U, group.edge_mode) ||
+                !read_at(view.packet, 44U, group.bitmap_scaling_mode) ||
+                !read_at(view.packet, 48U, group.clear_type_hint) ||
+                children_size % sizeof(std::uint32_t) != 0U ||
+                static_cast<std::size_t>(children_size) !=
+                    view.packet.size() - 52U) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_drawing_group) ||
+                (group.clip_geometry_handle != 0U &&
+                 !require_geometry(group.clip_geometry_handle)) ||
+                (group.opacity_animation_handle != 0U &&
+                 !require_resource(
+                     group.opacity_animation_handle,
+                     type_double_resource)) ||
+                (group.opacity_mask_handle != 0U &&
+                 !require_brush(group.opacity_mask_handle)) ||
+                (group.transform_handle != 0U &&
+                 !require_transform(group.transform_handle)) ||
+                (group.guideline_set_handle != 0U &&
+                 !require_resource(
+                     group.guideline_set_handle,
+                     type_guideline_set))) {
+                return status::invalid_handle;
+            }
+            if (!finite_double_as_float(group.opacity) ||
+                group.opacity < 0.0 || group.opacity > 1.0 ||
+                group.edge_mode > 1U ||
+                group.bitmap_scaling_mode > 3U ||
+                group.clear_type_hint > 1U) {
+                return status::malformed_batch;
+            }
+            const std::size_t child_count =
+                children_size / sizeof(std::uint32_t);
+            if (child_count > maximum_path_record_count) {
+                return status::capacity_exceeded;
+            }
+            try {
+                group.children.resize(child_count);
+                group.child_render_data.resize(child_count * 16U);
+            } catch (const std::bad_alloc&) {
+                return status::capacity_exceeded;
+            }
+            constexpr std::uint32_t child_record_size = 16U;
+            constexpr std::uint32_t child_padding = 0U;
+            constexpr std::uint32_t child_command =
+                static_cast<std::uint32_t>(command::draw_drawing);
+            for (std::size_t index = 0U; index < child_count; ++index) {
+                std::uint32_t child = 0U;
+                if (!read_at(
+                        view.packet,
+                        52U + index * sizeof(std::uint32_t),
+                        child)) {
+                    return status::malformed_batch;
+                }
+                const auto resource = resources.find(child);
+                if (child == 0U || resource == resources.end() ||
+                    !is_drawing_type(resource->second.type)) {
+                    return status::invalid_handle;
+                }
+                if (drawing_reaches(child, handle)) {
+                    return status::invalid_graph;
+                }
+                group.children[index] = child;
+                std::byte* record =
+                    group.child_render_data.data() + index * 16U;
+                std::memcpy(
+                    record,
+                    &child_record_size,
+                    sizeof(child_record_size));
+                std::memcpy(
+                    record + 4U,
+                    &child_command,
+                    sizeof(child_command));
+                std::memcpy(record + 8U, &child, sizeof(child));
+                std::memcpy(
+                    record + 12U,
+                    &child_padding,
+                    sizeof(child_padding));
+            }
+            drawing_groups.insert_or_assign(handle, std::move(group));
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
         default:
             ++metrics.unsupported_command_count;
             return status::unsupported_command;
@@ -3499,27 +3672,47 @@ struct channel::implementation {
             return status::invalid_handle;
         }
 
-        batch_reader reader(resource->second.render_data);
-        command_view view{};
-        struct render_scope_state {
-            affine_2d_double transform;
-            double opacity{1.0};
-            progpu_native_image_rect clip_rect{};
-            bool has_clip{};
-            std::size_t clip_path_count{};
-            std::size_t clip_segment_count{};
-            std::size_t clip_boolean_node_count{};
-            std::uint32_t mask_resource_index{
-                PROGPU_NATIVE_SCENE_NO_INDEX};
-        };
-        render_scope_state current{};
-        current.transform = base_transform;
-        current.opacity = base_opacity;
-        std::vector<render_scope_state> scope_states;
+        render_scope_state initial{};
+        initial.transform = base_transform;
+        initial.opacity = base_opacity;
+        std::unordered_set<std::uint32_t> active_drawings;
         std::vector<progpu_native_scene_clip_path> clip_paths;
         std::vector<progpu_native_path_segment> clip_segments;
         std::vector<progpu_native_scene_path_boolean_node>
             clip_boolean_nodes;
+        return append_render_stream(
+            resource->second.render_data,
+            initial,
+            1U,
+            builder,
+            brush_indices,
+            active_drawings,
+            clip_paths,
+            clip_segments,
+            clip_boolean_nodes,
+            metrics);
+    }
+
+    status append_render_stream(
+        std::span<const std::byte> bytes,
+        render_scope_state current,
+        std::uint32_t drawing_depth,
+        native::semantic_scene_builder& builder,
+        std::unordered_map<std::uint32_t, std::uint32_t>& brush_indices,
+        std::unordered_set<std::uint32_t>& active_drawings,
+        std::vector<progpu_native_scene_clip_path>& clip_paths,
+        std::vector<progpu_native_path_segment>& clip_segments,
+        std::vector<progpu_native_scene_path_boolean_node>&
+            clip_boolean_nodes,
+        scene_metrics& metrics) const {
+        if (drawing_depth == 0U ||
+            drawing_depth > maximum_visual_depth) {
+            return status::invalid_graph;
+        }
+
+        batch_reader reader(bytes);
+        command_view view{};
+        std::vector<render_scope_state> scope_states;
         const auto save_state = [&builder](
             const render_scope_state& source) noexcept {
             auto state = native::semantic_scene_builder::identity_state();
@@ -3712,6 +3905,86 @@ struct channel::implementation {
             state.clip_boolean_node_count = clip_boolean_nodes.size();
             state.mask_resource_index = mask_resource_index;
             return status::success;
+        };
+        const auto apply_clip = [
+            this,
+            &append_vector_clip](
+            std::uint32_t geometry_handle,
+            const render_scope_state& source,
+            render_scope_state& destination) {
+            const auto geometry = fixed_geometries.find(geometry_handle);
+            bool lowered_rectangle = false;
+            if (geometry != fixed_geometries.end() &&
+                geometry->second.kind == fixed_geometry_kind::rectangle &&
+                (geometry->second.radius_x == 0.0 ||
+                 geometry->second.radius_y == 0.0)) {
+                affine_2d_double local_transform{};
+                if (geometry->second.transform_handle != 0U) {
+                    const status transform_status = resolve_transform(
+                        geometry->second.transform_handle,
+                        local_transform);
+                    if (transform_status != status::success) {
+                        return transform_status;
+                    }
+                }
+                const auto effective_transform = compose_affine(
+                    local_transform,
+                    source.transform);
+                const bool preserves_axis_alignment =
+                    (effective_transform.m12 == 0.0 &&
+                     effective_transform.m21 == 0.0) ||
+                    (effective_transform.m11 == 0.0 &&
+                     effective_transform.m22 == 0.0);
+                if (preserves_axis_alignment) {
+                    progpu_native_image_rect clip_rect{};
+                    if (!try_transform_bounds(
+                            geometry->second.first,
+                            geometry->second.second,
+                            geometry->second.third,
+                            geometry->second.fourth,
+                            effective_transform,
+                            clip_rect)) {
+                        return status::invalid_graph;
+                    }
+                    if (source.has_clip) {
+                        const float left = std::max(
+                            source.clip_rect.x,
+                            clip_rect.x);
+                        const float top = std::max(
+                            source.clip_rect.y,
+                            clip_rect.y);
+                        const float right = std::min(
+                            source.clip_rect.x + source.clip_rect.width,
+                            clip_rect.x + clip_rect.width);
+                        const float bottom = std::min(
+                            source.clip_rect.y + source.clip_rect.height,
+                            clip_rect.y + clip_rect.height);
+                        clip_rect = {
+                            left,
+                            top,
+                            std::max(0.0F, right - left),
+                            std::max(0.0F, bottom - top)};
+                    }
+                    destination.clip_rect = clip_rect;
+                    destination.has_clip = true;
+                    lowered_rectangle = true;
+                }
+            }
+            if (lowered_rectangle) {
+                return status::success;
+            }
+            const bool known_geometry =
+                geometry != fixed_geometries.end() ||
+                path_geometries.contains(geometry_handle) ||
+                geometry_groups.contains(geometry_handle) ||
+                combined_geometries.contains(geometry_handle);
+            if (!known_geometry) {
+                return status::invalid_handle;
+            }
+            return append_vector_clip(
+                geometry_handle,
+                source.transform,
+                destination);
         };
         struct brush_use_state {
             double x{};
@@ -5254,83 +5527,13 @@ struct channel::implementation {
                 if (geometry_handle == 0U || padding != 0U) {
                     return status::malformed_batch;
                 }
-                const auto geometry = fixed_geometries.find(geometry_handle);
                 render_scope_state next = current;
-                bool lowered_rectangle = false;
-                if (geometry != fixed_geometries.end() &&
-                    geometry->second.kind == fixed_geometry_kind::rectangle &&
-                    (geometry->second.radius_x == 0.0 ||
-                     geometry->second.radius_y == 0.0)) {
-                    affine_2d_double local_transform{};
-                    if (geometry->second.transform_handle != 0U) {
-                        const status transform_status = resolve_transform(
-                            geometry->second.transform_handle,
-                            local_transform);
-                        if (transform_status != status::success) {
-                            return transform_status;
-                        }
-                    }
-                    const auto effective_transform = compose_affine(
-                        local_transform,
-                        current.transform);
-                    const bool preserves_axis_alignment =
-                        (effective_transform.m12 == 0.0 &&
-                         effective_transform.m21 == 0.0) ||
-                        (effective_transform.m11 == 0.0 &&
-                         effective_transform.m22 == 0.0);
-                    if (preserves_axis_alignment) {
-                        progpu_native_image_rect clip_rect{};
-                        if (!try_transform_bounds(
-                                geometry->second.first,
-                                geometry->second.second,
-                                geometry->second.third,
-                                geometry->second.fourth,
-                                effective_transform,
-                                clip_rect)) {
-                            return status::invalid_graph;
-                        }
-                        if (current.has_clip) {
-                            const float left = std::max(
-                                current.clip_rect.x,
-                                clip_rect.x);
-                            const float top = std::max(
-                                current.clip_rect.y,
-                                clip_rect.y);
-                            const float right = std::min(
-                                current.clip_rect.x +
-                                    current.clip_rect.width,
-                                clip_rect.x + clip_rect.width);
-                            const float bottom = std::min(
-                                current.clip_rect.y +
-                                    current.clip_rect.height,
-                                clip_rect.y + clip_rect.height);
-                            clip_rect = {
-                                left,
-                                top,
-                                std::max(0.0F, right - left),
-                                std::max(0.0F, bottom - top)};
-                        }
-                        next.clip_rect = clip_rect;
-                        next.has_clip = true;
-                        lowered_rectangle = true;
-                    }
-                }
-                if (!lowered_rectangle) {
-                    const bool known_geometry =
-                        geometry != fixed_geometries.end() ||
-                        path_geometries.contains(geometry_handle) ||
-                        geometry_groups.contains(geometry_handle) ||
-                        combined_geometries.contains(geometry_handle);
-                    if (!known_geometry) {
-                        return status::invalid_handle;
-                    }
-                    const status clip_status = append_vector_clip(
-                        geometry_handle,
-                        current.transform,
-                        next);
-                    if (clip_status != status::success) {
-                        return clip_status;
-                    }
+                const status clip_status = apply_clip(
+                    geometry_handle,
+                    current,
+                    next);
+                if (clip_status != status::success) {
+                    return clip_status;
                 }
                 if (!save_state(next)) {
                     return status::invalid_graph;
@@ -5446,13 +5649,100 @@ struct channel::implementation {
                     return status::malformed_batch;
                 }
                 const auto drawing = geometry_drawings.find(drawing_handle);
-                if (drawing == geometry_drawings.end()) {
-                    return status::invalid_handle;
-                }
-                brush_handle = drawing->second.brush_handle;
-                pen_handle = drawing->second.pen_handle;
-                geometry_handle = drawing->second.geometry_handle;
-                if (geometry_handle == 0U) {
+                if (drawing != geometry_drawings.end()) {
+                    brush_handle = drawing->second.brush_handle;
+                    pen_handle = drawing->second.pen_handle;
+                    geometry_handle = drawing->second.geometry_handle;
+                    if (geometry_handle == 0U) {
+                        continue;
+                    }
+                } else {
+                    const auto group = drawing_groups.find(drawing_handle);
+                    if (group == drawing_groups.end()) {
+                        const auto resource = resources.find(drawing_handle);
+                        return resource != resources.end() &&
+                                is_drawing_type(resource->second.type)
+                            ? status::unsupported_command
+                            : status::invalid_handle;
+                    }
+                    if (group->second.opacity_mask_handle != 0U ||
+                        group->second.guideline_set_handle != 0U ||
+                        group->second.edge_mode != 0U ||
+                        group->second.bitmap_scaling_mode != 0U ||
+                        group->second.clear_type_hint != 0U) {
+                        return status::unsupported_command;
+                    }
+                    if (!active_drawings.insert(drawing_handle).second) {
+                        return status::invalid_graph;
+                    }
+                    double group_opacity = 0.0;
+                    const status opacity_status = resolve_animated_double(
+                        group->second.opacity,
+                        group->second.opacity_animation_handle,
+                        group_opacity);
+                    if (opacity_status != status::success ||
+                        !finite_double_as_float(group_opacity) ||
+                        group_opacity < 0.0 || group_opacity > 1.0) {
+                        active_drawings.erase(drawing_handle);
+                        return opacity_status != status::success
+                            ? opacity_status
+                            : status::invalid_graph;
+                    }
+                    render_scope_state next = current;
+                    next.opacity *= group_opacity;
+                    if (!finite_double_as_float(next.opacity) ||
+                        next.opacity < 0.0 || next.opacity > 1.0) {
+                        active_drawings.erase(drawing_handle);
+                        return status::invalid_graph;
+                    }
+                    if (group->second.transform_handle != 0U) {
+                        affine_2d_double group_transform{};
+                        const status transform_status = resolve_transform(
+                            group->second.transform_handle,
+                            group_transform);
+                        if (transform_status != status::success) {
+                            active_drawings.erase(drawing_handle);
+                            return transform_status;
+                        }
+                        next.transform = compose_affine(
+                            group_transform,
+                            current.transform);
+                    }
+                    if (group->second.clip_geometry_handle != 0U) {
+                        render_scope_state clipped = next;
+                        const status clip_status = apply_clip(
+                            group->second.clip_geometry_handle,
+                            next,
+                            clipped);
+                        if (clip_status != status::success) {
+                            active_drawings.erase(drawing_handle);
+                            return clip_status;
+                        }
+                        next = clipped;
+                    }
+                    if (!save_state(next)) {
+                        active_drawings.erase(drawing_handle);
+                        return status::invalid_graph;
+                    }
+                    const status group_status = append_render_stream(
+                        group->second.child_render_data,
+                        next,
+                        drawing_depth + 1U,
+                        builder,
+                        brush_indices,
+                        active_drawings,
+                        clip_paths,
+                        clip_segments,
+                        clip_boolean_nodes,
+                        metrics);
+                    const bool restored = builder.restore();
+                    active_drawings.erase(drawing_handle);
+                    if (group_status != status::success) {
+                        return group_status;
+                    }
+                    if (!restored) {
+                        return status::invalid_graph;
+                    }
                     continue;
                 }
             }
