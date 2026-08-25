@@ -2958,7 +2958,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         state.build_scene(target, 7003U, 71U, stream) == status::success);
     const auto multi_arc_header =
         read_value<progpu_native_scene_header>(stream, 0U);
-    bool found_expanded_group_arcs = false;
+    bool found_preserved_group_arcs = false;
     for (std::uint32_t resource_index = 0U;
          resource_index < multi_arc_header.resource_count;
          ++resource_index) {
@@ -2976,7 +2976,6 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
             continue;
         }
         std::size_t arc_count = 0U;
-        std::size_t quadratic_count = 0U;
         for (std::size_t segment_index = 0U;
              segment_index < path.segment_count;
              ++segment_index) {
@@ -2987,16 +2986,11 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
             arc_count += segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC
                 ? 1U
                 : 0U;
-            quadratic_count +=
-                segment.kind == PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC
-                ? 1U
-                : 0U;
         }
-        PROGPU_REQUIRE(arc_count == 0U);
-        PROGPU_REQUIRE(quadratic_count >= 8U);
-        found_expanded_group_arcs = true;
+        PROGPU_REQUIRE(arc_count == 3U);
+        found_preserved_group_arcs = true;
     }
-    PROGPU_REQUIRE(found_expanded_group_arcs);
+    PROGPU_REQUIRE(found_preserved_group_arcs);
 
     std::vector<std::byte> restore_path_a;
     append_path_geometry(restore_path_a, path_a, 0U, 1U, figures_a);
