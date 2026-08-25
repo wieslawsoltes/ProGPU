@@ -1738,12 +1738,9 @@ struct channel::implementation {
                                         ? edge.segment.p3
                                         : edge.segment.p1);
                         }
-                        std::ranges::transform(
-                            stroke_edges,
-                            std::back_inserter(contour.segments),
-                            [](const parsed_stroke_edge& edge) {
-                                return edge.segment;
-                            });
+                        for (const auto& edge : stroke_edges) {
+                            contour.segments.push_back(edge.segment);
+                        }
                         geometry.stroke_contours.push_back(
                             std::move(contour));
                     } else if (figure_is_closed) {
