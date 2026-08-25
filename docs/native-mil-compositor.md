@@ -1515,6 +1515,33 @@ Exact rounded/path Visual clips remain a reusable ProGPU vector-mask task.
 Layout clips are a source-built WPF producer concern and are not claimed by
 these canonical Visual commands.
 
+Static solid Visual opacity-mask implementation `070bed14` next adds canonical
+`MilCmdVisualSetAlphaMask` (`0x23`). The retained Visual holds and protects its
+Brush dependency, while a shared native uniform-mask resolver now serves both
+Visual and DrawingGroup scopes. For a transform-free, nonanimated
+SolidColorBrush, `Brush.Opacity * Color.A` composes into inherited Visual
+opacity for every shared semantic draw family. Retained brush updates change
+the next compiled scene generation without rebuilding managed objects.
+
+Missing or wrongly typed handles are invalid; known gradient/spatial masks
+return `unsupported_command`; clear-then-delete succeeds; and deletion while
+referenced fails transactionally. Package checkpoint `cfe13009` adds
+`--mil-visual-opacity-mask-only` to JIT, NativeAOT, package verification,
+build, and release lanes. All ten local native CTests, the canonical managed
+packet test, two focused typed producer tests, and the zero-warning consumer
+build pass.
+
+Strict Windows ARM64 MSVC rebuilt both exports and all 11 native/Dawn CTests
+passed. Fresh app-local DLLs compiled the focused mask through both MIL exports
+and live D3D12 rendered three semantic resources, one draw, zero
+coverage-staging bytes, a nonblack retained readback, and 16,384 direct pixels.
+Qualified binaries from 2026-08-25 17:25 are 1,961,472 bytes with SHA-256
+`a76fe43b7e7a26b6ccaab71e80261e2704f0308c03c3e3a35abc4d80ff66038c`
+for `progpu_native.dll`, and 1,999,872 bytes with SHA-256
+`ac396e3973a2bc5a851925dff0d97f3cf43ebaaaa7b332df797cfbc3946341cd`
+for `progpu_native_dawn.dll`. Gradient, tile, transformed, animated, and other
+spatial Visual masks remain part of the reusable ProGPU mask-target work.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
