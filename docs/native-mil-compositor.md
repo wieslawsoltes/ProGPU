@@ -1480,6 +1480,41 @@ display parameters; those remain an explicit platform-text parity gate.
 Canonical DrawingGroup has no text-rendering or text-hinting fields, so
 object-level DrawingGroup text options continue to fail closed.
 
+Retained Visual clip implementation `f134b690` next adds canonical
+`MilCmdVisualSetClip` (`0x1f`) and `MilCmdVisualSetScrollableAreaClip`
+(`0x28`). The channel retains the geometry dependency and optional scroll
+rectangle, protects live dependencies from deletion, validates finite
+nonnegative rectangles, and keeps batch updates transactional.
+
+The scene compiler follows WPF's ordering for the exact rectangle subset.
+Scrollable-area clips are transformed by the parent scope before the Visual's
+offset and transform, snapped inward with ceiling left/top and floor
+right/bottom, and intersected with the inherited scissor. A Visual carrying a
+scroll clip also snaps its offset through parent device space before mapping it
+back into local space. The regular Visual clip is applied after the Visual
+offset and transform. Plain RectangleGeometry with an axis-preserving effective
+transform becomes a shared semantic scissor; rounded, rotated/sheared, ellipse,
+and arbitrary path Visual clips return `unsupported_command` instead of being
+broadened to bounds.
+
+Package checkpoint `909d6ae8` adds `--mil-visual-clip-only` to JIT,
+NativeAOT, package verification, build, and release lanes. All ten local native
+CTests, the canonical managed packet test, and the zero-warning package-consumer
+build pass. Strict Windows ARM64 MSVC rebuilt both exports and all 11
+native/Dawn CTests passed. Fresh app-local native, Dawn, and wgpu-native DLLs
+compiled the focused clip scene through both MIL exports and rendered on live
+D3D12 with three semantic resources, one draw, zero coverage-staging bytes, a
+nonblack retained readback, and 16,384 direct-render pixels. Qualified binaries
+from 2026-08-25 17:11 are 1,960,448 bytes with SHA-256
+`0261b5eda34a53db96526e7b27709b052619da561d468d5b131945ed475d54d8`
+for `progpu_native.dll`, and 1,999,360 bytes with SHA-256
+`9068358ec8f291c261943eef95849c1eac78397bb0446b83d395e9ae5c330116`
+for `progpu_native_dawn.dll`.
+
+Exact rounded/path Visual clips remain a reusable ProGPU vector-mask task.
+Layout clips are a source-built WPF producer concern and are not claimed by
+these canonical Visual commands.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
