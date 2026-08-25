@@ -255,6 +255,15 @@ public:
         std::uint32_t row_bytes,
         std::span<const std::byte> pixels) noexcept;
 
+    // Binds the exact local content bounds used by WPF DrawingImage when it
+    // maps its retained Drawing into an ImageDrawing destination rectangle.
+    status set_drawing_image_bounds(
+        std::uint32_t handle,
+        double x,
+        double y,
+        double width,
+        double height) noexcept;
+
     // Binds copied SFNT/TTC bytes to a canonical TYPE_GLYPHRUN handle. The
     // canonical MilCmdGlyphRunCreate keeps indices, advances, offsets, origin,
     // and bounds on the wire but carries an in-process IDWriteFont pointer;

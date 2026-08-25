@@ -175,6 +175,35 @@ public sealed unsafe class NativeMilChannel : IDisposable
         }
     }
 
+    /// <summary>
+    /// Sets the exact local content bounds for a canonical DrawingImage.
+    /// </summary>
+    public void SetDrawingImageBounds(
+        uint handle,
+        NativeMilRect bounds)
+    {
+        if (!double.IsFinite(bounds.X) || !double.IsFinite(bounds.Y) ||
+            !double.IsFinite(bounds.Width) || bounds.Width <= 0 ||
+            !double.IsFinite(bounds.Height) || bounds.Height <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(bounds));
+        }
+        nint channel = GetChannel();
+        NativeMilStatus status = _backend == NativeMilBackend.Dawn
+            ? NativeMilDawnMethods.SetDrawingImageBounds(
+                channel, handle, bounds.X, bounds.Y,
+                bounds.Width, bounds.Height)
+            : NativeMilMethods.SetDrawingImageBounds(
+                channel, handle, bounds.X, bounds.Y,
+                bounds.Width, bounds.Height);
+        if (status != NativeMilStatus.Success)
+        {
+            throw new NativeMilException(
+                status,
+                $"The bounds binding for MIL drawing-image handle {handle} was rejected with {status}.");
+        }
+    }
+
     public bool HasResource(uint handle)
     {
         nint channel = GetChannel();

@@ -38,6 +38,8 @@ bool imageDrawingOnly = args.Contains(
     "--mil-image-drawing-only", StringComparer.Ordinal);
 bool glyphRunDrawingOnly = args.Contains(
     "--mil-glyph-run-drawing-only", StringComparer.Ordinal);
+bool drawingImageOnly = args.Contains(
+    "--mil-drawing-image-only", StringComparer.Ordinal);
 byte[]? compiledMilStream = null;
 if (!renderOnly)
 {
@@ -57,7 +59,9 @@ if (!renderOnly)
         !affineRecursiveOnly && !arcBooleanOnly;
     bool includeRecursiveBooleanArc =
         !affineRecursiveOnly && !arcGroupOnly;
-    byte[] milBatch = glyphRunDrawingOnly
+    byte[] milBatch = drawingImageOnly
+        ? CreateMilDrawingImageBatch()
+        : glyphRunDrawingOnly
         ? CreateMilGlyphRunDrawingBatch()
         : imageDrawingOnly
         ? CreateMilImageDrawingBatch()
@@ -74,20 +78,26 @@ if (!renderOnly)
             duplicateArcGroup,
             mixedArcGroup);
     bool focusedMil = gradientOnly || geometryDrawingOnly ||
-        drawingGroupOnly || imageDrawingOnly || glyphRunDrawingOnly;
+        drawingGroupOnly || imageDrawingOnly || glyphRunDrawingOnly ||
+        drawingImageOnly;
     uint targetHandle = focusedMil ? 2U : 42U;
     uint visualHandle = focusedMil ? 1U : 41U;
-    uint expectedCommandCount = glyphRunDrawingOnly
+    uint expectedCommandCount = drawingImageOnly
+        ? 19U
+        : glyphRunDrawingOnly
         ? 14U
         : imageDrawingOnly
         ? 12U
         : drawingGroupOnly ? 23U : focusedMil ? 15U : 78U;
-    uint expectedResourceCount = glyphRunDrawingOnly
+    uint expectedResourceCount = drawingImageOnly
+        ? 8U
+        : glyphRunDrawingOnly
         ? 6U
         : imageDrawingOnly
         ? 5U
         : drawingGroupOnly ? 10U : focusedMil ? 6U : 36U;
-    uint expectedRectangleCount = geometryDrawingOnly || drawingGroupOnly
+    uint expectedRectangleCount = geometryDrawingOnly || drawingGroupOnly ||
+        drawingImageOnly
         ? 1U
         : gradientOnly ? 2U : focusedMil ? 0U : 3U;
     uint expectedEllipseCount = gradientOnly ? 1U : focusedMil ? 0U : 4U;
@@ -106,6 +116,10 @@ if (!renderOnly)
         if (glyphRunDrawingOnly)
         {
             BindFocusedGlyphRunFont(mil);
+        }
+        if (drawingImageOnly)
+        {
+            BindFocusedDrawingImageBounds(mil);
         }
         NativeMilCompiledScene scene = mil.CompileScene(targetHandle, 701, 1);
         if (milMetrics.CommandCount != expectedCommandCount ||
@@ -136,6 +150,10 @@ if (!renderOnly)
         if (glyphRunDrawingOnly)
         {
             BindFocusedGlyphRunFont(dawnMil);
+        }
+        if (drawingImageOnly)
+        {
+            BindFocusedDrawingImageBounds(dawnMil);
         }
         NativeMilCompiledScene scene = dawnMil.CompileScene(
             targetHandle, 702, 1);
@@ -410,6 +428,38 @@ static byte[] CreateMilGlyphRunDrawingBatch()
     batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
     batch.SetTargetRoot(2, 1);
     return batch.ToArray();
+}
+
+static byte[] CreateMilDrawingImageBatch()
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.DrawDrawing(8);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(1, NativeMilResourceType.Visual);
+    batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(3, NativeMilResourceType.RenderData);
+    batch.CreateResource(4, NativeMilResourceType.SolidColorBrush);
+    batch.CreateResource(5, NativeMilResourceType.RectangleGeometry);
+    batch.CreateResource(6, NativeMilResourceType.GeometryDrawing);
+    batch.CreateResource(7, NativeMilResourceType.DrawingImage);
+    batch.CreateResource(8, NativeMilResourceType.ImageDrawing);
+    batch.CreateVisual(1);
+    batch.SetVisualContent(1, 3);
+    batch.SetSolidColorBrush(4, new NativeMilColor(0.15f, 0.5f, 0.95f, 1));
+    batch.SetRectangleGeometry(5, 10, 20, 20, 10);
+    batch.SetGeometryDrawing(6, 4, 0, 5);
+    batch.SetDrawingImage(7, 6);
+    batch.SetImageDrawing(8, 2, 4, 40, 20, 7);
+    batch.SetRenderData(3, renderData);
+    batch.CreateGenericTarget(2, 64, 64);
+    batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
+    batch.SetTargetRoot(2, 1);
+    return batch.ToArray();
+}
+
+static void BindFocusedDrawingImageBounds(NativeMilChannel channel)
+{
+    channel.SetDrawingImageBounds(7, new NativeMilRect(10, 20, 20, 10));
 }
 
 static void BindFocusedBitmapSource(NativeMilChannel channel)

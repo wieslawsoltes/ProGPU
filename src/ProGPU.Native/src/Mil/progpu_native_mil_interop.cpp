@@ -101,6 +101,21 @@ progpu_native_mil_channel_set_bitmap_source_rgba8(
 }
 
 progpu_native_mil_status
+progpu_native_mil_channel_set_drawing_image_bounds(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    double x,
+    double y,
+    double width,
+    double height) {
+    if (channel == nullptr) {
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    }
+    return to_abi(channel->state.set_drawing_image_bounds(
+        handle, x, y, width, height));
+}
+
+progpu_native_mil_status
 progpu_native_mil_channel_set_glyph_run_font_sfnt(
     progpu_native_mil_channel* channel,
     uint32_t handle,
