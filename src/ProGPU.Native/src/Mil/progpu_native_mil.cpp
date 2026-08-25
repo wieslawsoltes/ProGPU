@@ -300,6 +300,85 @@ bool try_transform_arc_segment(
     return true;
 }
 
+bool append_arc_cubic_segments(
+    const progpu_native_path_segment& source,
+    std::vector<progpu_native_path_segment>& destination) {
+    if (source.kind != PROGPU_NATIVE_PATH_SEGMENT_ARC) {
+        return false;
+    }
+    const double theta1 = std::bit_cast<float>(source.pad0);
+    const double delta_theta = std::bit_cast<float>(source.pad1);
+    const double rotation = std::bit_cast<float>(source.pad2);
+    const double radius_x = source.p3.x;
+    const double radius_y = source.p3.y;
+    constexpr double maximum_piece_sweep =
+        std::numbers::pi_v<double> * 0.5;
+    const double piece_count_value =
+        std::ceil(std::abs(delta_theta) / maximum_piece_sweep);
+    if (!std::isfinite(theta1) || !std::isfinite(delta_theta) ||
+        !std::isfinite(rotation) || radius_x <= 0.0 || radius_y <= 0.0 ||
+        piece_count_value < 1.0 || piece_count_value > 4.0) {
+        return false;
+    }
+    const auto piece_count = static_cast<std::uint32_t>(piece_count_value);
+    const double piece_sweep = delta_theta / piece_count;
+    const double cosine_rotation = std::cos(rotation);
+    const double sine_rotation = std::sin(rotation);
+    const auto evaluate = [
+        &source,
+        radius_x,
+        radius_y,
+        cosine_rotation,
+        sine_rotation](double theta) noexcept {
+        const double cosine_theta = std::cos(theta);
+        const double sine_theta = std::sin(theta);
+        return std::array<double, 4U>{
+            source.p2.x + radius_x * cosine_theta * cosine_rotation -
+                radius_y * sine_theta * sine_rotation,
+            source.p2.y + radius_x * cosine_theta * sine_rotation +
+                radius_y * sine_theta * cosine_rotation,
+            -radius_x * sine_theta * cosine_rotation -
+                radius_y * cosine_theta * sine_rotation,
+            -radius_x * sine_theta * sine_rotation +
+                radius_y * cosine_theta * cosine_rotation};
+    };
+    for (std::uint32_t piece = 0U; piece < piece_count; ++piece) {
+        const double start_theta = theta1 + piece * piece_sweep;
+        const double end_theta = start_theta + piece_sweep;
+        const auto start = evaluate(start_theta);
+        const auto end = evaluate(end_theta);
+        const double alpha = 4.0 / 3.0 * std::tan(piece_sweep * 0.25);
+        const std::array<double, 8U> values{
+            start[0],
+            start[1],
+            start[0] + alpha * start[2],
+            start[1] + alpha * start[3],
+            end[0] - alpha * end[2],
+            end[1] - alpha * end[3],
+            end[0],
+            end[1]};
+        if (!std::ranges::all_of(values, finite_double_as_float)) {
+            return false;
+        }
+        progpu_native_path_segment cubic{};
+        cubic.p0 = {
+            static_cast<float>(values[0]),
+            static_cast<float>(values[1])};
+        cubic.p1 = {
+            static_cast<float>(values[2]),
+            static_cast<float>(values[3])};
+        cubic.p2 = {
+            static_cast<float>(values[4]),
+            static_cast<float>(values[5])};
+        cubic.p3 = {
+            static_cast<float>(values[6]),
+            static_cast<float>(values[7])};
+        cubic.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
+        destination.push_back(cubic);
+    }
+    return true;
+}
+
 bool try_line_stroke_bounds(
     double x0,
     double y0,
@@ -3050,6 +3129,61 @@ struct channel::implementation {
                     if (group_segments.empty() || !has_group_bounds) {
                         continue;
                     }
+                    const std::size_t group_arc_count =
+                        static_cast<std::size_t>(std::ranges::count_if(
+                            group_segments,
+                            [](const progpu_native_path_segment& segment) {
+                                return segment.kind ==
+                                    PROGPU_NATIVE_PATH_SEGMENT_ARC;
+                            }));
+                    if (group_arc_count > 1U) {
+                        std::vector<progpu_native_path_segment>
+                            expanded_group_segments;
+                        expanded_group_segments.reserve(
+                            group_segments.size() + group_arc_count * 3U);
+                        std::vector<shallow_fill_leaf> expanded_group_leaves;
+                        expanded_group_leaves.reserve(group_leaves.size());
+                        std::size_t covered_segment_count = 0U;
+                        for (const auto& source_leaf : group_leaves) {
+                            if (source_leaf.segment_offset !=
+                                covered_segment_count) {
+                                return status::invalid_graph;
+                            }
+                            auto expanded_leaf = source_leaf;
+                            expanded_leaf.segment_offset =
+                                expanded_group_segments.size();
+                            const std::size_t source_end =
+                                source_leaf.segment_offset +
+                                source_leaf.segment_count;
+                            for (std::size_t segment_index =
+                                     source_leaf.segment_offset;
+                                 segment_index < source_end;
+                                 ++segment_index) {
+                                const auto& segment =
+                                    group_segments[segment_index];
+                                if (segment.kind ==
+                                    PROGPU_NATIVE_PATH_SEGMENT_ARC) {
+                                    if (!append_arc_cubic_segments(
+                                            segment,
+                                            expanded_group_segments)) {
+                                        return status::unsupported_command;
+                                    }
+                                } else {
+                                    expanded_group_segments.push_back(segment);
+                                }
+                            }
+                            expanded_leaf.segment_count =
+                                expanded_group_segments.size() -
+                                expanded_leaf.segment_offset;
+                            expanded_group_leaves.push_back(expanded_leaf);
+                            covered_segment_count = source_end;
+                        }
+                        if (covered_segment_count != group_segments.size()) {
+                            return status::invalid_graph;
+                        }
+                        group_segments = std::move(expanded_group_segments);
+                        group_leaves = std::move(expanded_group_leaves);
+                    }
                     std::vector<progpu_native_scene_path_boolean_node>
                         group_boolean_nodes;
                     const bool use_even_odd_leaf_program =
@@ -3107,13 +3241,6 @@ struct channel::implementation {
                             native_local_transform)) {
                         return status::invalid_graph;
                     }
-                    constexpr std::size_t
-                        maximum_eight_sample_group_segment_count = 20U;
-                    const std::uint32_t group_sample_grid =
-                        group_segments.size() <=
-                            maximum_eight_sample_group_segment_count
-                        ? 8U
-                        : 4U;
                     const std::array paths{
                         progpu_native_scene_path_fill{
                             0U,
@@ -3130,7 +3257,7 @@ struct channel::implementation {
                                 geometry_group->second.fill_rule == 0U
                                     ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
                                     : PROGPU_NATIVE_FILL_RULE_NON_ZERO),
-                            group_sample_grid}};
+                            8U}};
                     const std::array brushes{brush_index};
                     if (!builder.draw_paths(
                             paths,
