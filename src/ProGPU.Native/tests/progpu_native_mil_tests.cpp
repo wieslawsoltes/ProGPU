@@ -2304,6 +2304,63 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     PROGPU_REQUIRE(joined_cubic_count == 1U);
     PROGPU_REQUIRE(joined_join_count == 4U);
 
+    auto smooth_curve_figures = make_curve_path_figures();
+    const std::uint32_t smooth_curve_join = 0x08U;
+    std::memcpy(
+        smooth_curve_figures.data() + 92U,
+        &smooth_curve_join,
+        sizeof(smooth_curve_join));
+    std::vector<std::byte> smooth_curve_update;
+    append_path_geometry(
+        smooth_curve_update,
+        geometry,
+        transform,
+        0U,
+        smooth_curve_figures);
+    PROGPU_REQUIRE(state.apply(smooth_curve_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 8U, stream, &metrics) ==
+        status::success);
+    const auto smooth_curve_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t bevel_join_count = 0U;
+    std::uint32_t round_join_count = 0U;
+    for (std::uint32_t resource_index = 0U;
+         resource_index < smooth_curve_header.resource_count;
+         ++resource_index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            smooth_curve_header.resource_offset +
+                resource_index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            continue;
+        }
+        const std::size_t primitive_count =
+            record.payload_size / sizeof(progpu_native_geometry_primitive);
+        for (std::size_t primitive_index = 0U;
+             primitive_index < primitive_count;
+             ++primitive_index) {
+            const auto primitive =
+                read_value<progpu_native_geometry_primitive>(
+                    stream,
+                    record.payload_offset +
+                        primitive_index *
+                            sizeof(progpu_native_geometry_primitive));
+            if (primitive.kind != PROGPU_NATIVE_GEOMETRY_PATH_JOIN) {
+                continue;
+            }
+            const std::uint32_t join =
+                (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
+                    PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+            bevel_join_count +=
+                join == PROGPU_NATIVE_STROKE_JOIN_BEVEL ? 1U : 0U;
+            round_join_count +=
+                join == PROGPU_NATIVE_STROKE_JOIN_ROUND ? 1U : 0U;
+        }
+    }
+    PROGPU_REQUIRE(bevel_join_count == 3U);
+    PROGPU_REQUIRE(round_join_count == 1U);
+
     PROGPU_REQUIRE(state.apply(solid_arc_update) == status::success);
 
     std::vector<std::byte> dashed_arc_update;
@@ -2322,7 +2379,7 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         dash);
     PROGPU_REQUIRE(state.apply(dashed_arc_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7002U, 8U, stream, &metrics) ==
+        state.build_scene(target, 7002U, 9U, stream, &metrics) ==
         status::unsupported_command);
 
     std::vector<std::byte> capped_arc_update;
@@ -2341,7 +2398,7 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         0U);
     PROGPU_REQUIRE(state.apply(capped_arc_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7002U, 9U, stream, &metrics) ==
+        state.build_scene(target, 7002U, 10U, stream, &metrics) ==
         status::success);
     const auto capped_header =
         read_value<progpu_native_scene_header>(stream, 0U);
