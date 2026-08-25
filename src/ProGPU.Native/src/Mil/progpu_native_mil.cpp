@@ -717,6 +717,7 @@ struct channel::implementation {
         std::uint32_t guideline_resource_index{
             PROGPU_NATIVE_SCENE_NO_INDEX};
         bool edge_aliased{};
+        bool clear_type_enabled{};
     };
 
     struct transform_state {
@@ -3336,6 +3337,12 @@ struct channel::implementation {
             glyph_resources) const {
         if (glyph_run_handle == 0U || foreground_brush_handle == 0U) {
             return status::success;
+        }
+        if (current.clear_type_enabled) {
+            // WPF uses ClearTypeHint only to permit ClearType glyph rendering
+            // on alpha intermediates. The shared native glyph path is still
+            // grayscale, so text-bearing hinted scopes must fail closed.
+            return status::unsupported_command;
         }
         const auto glyph_run_entry = glyph_runs.find(glyph_run_handle);
         if (glyph_run_entry == glyph_runs.end()) {
@@ -6676,9 +6683,6 @@ struct channel::implementation {
                             ? status::unsupported_command
                             : status::invalid_handle;
                     }
-                    if (group->second.clear_type_hint != 0U) {
-                        return status::unsupported_command;
-                    }
                     if (!active_drawings.insert(drawing_handle).second) {
                         return status::invalid_graph;
                     }
@@ -6706,6 +6710,9 @@ struct channel::implementation {
                     }
                     if (group->second.edge_mode != 0U) {
                         next.edge_aliased = true;
+                    }
+                    if (group->second.clear_type_hint != 0U) {
+                        next.clear_type_enabled = true;
                     }
                     double opacity_mask_alpha = 1.0;
                     if (group->second.opacity_mask_handle != 0U) {
