@@ -719,6 +719,14 @@ public sealed class NativeMilRenderDataBuilder
         NativeMilBatchBuilder.WriteDouble(packet, 4, opacity);
     }
 
+    public void PushClip(uint geometryHandle)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(geometryHandle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PushClip, 12);
+        NativeMilBatchBuilder.WriteUInt32(packet, 4, geometryHandle);
+    }
+
     public void PushTransform(uint transformHandle)
     {
         Span<byte> packet = NativeMilBatchEncoding.Allocate(
@@ -881,6 +889,7 @@ internal static class NativeMilCommand
     internal const uint DrawRoundedRectangle = 0x42;
     internal const uint DrawEllipse = 0x44;
     internal const uint DrawGeometry = 0x46;
+    internal const uint PushClip = 0x4d;
     internal const uint PushOpacity = 0x4f;
     internal const uint PushTransform = 0x51;
     internal const uint Pop = 0x56;

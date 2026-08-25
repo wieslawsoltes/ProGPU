@@ -715,6 +715,8 @@ bool matrix_transform_scopes_compile_to_semantic_state() {
     constexpr std::uint32_t brush = 4U;
     constexpr std::uint32_t visual_transform = 5U;
     constexpr std::uint32_t scope_transform = 6U;
+    constexpr std::uint32_t clip_geometry = 7U;
+    constexpr std::uint32_t nested_clip_geometry = 8U;
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
     append_create(batch, content, 43U);
@@ -722,6 +724,8 @@ bool matrix_transform_scopes_compile_to_semantic_state() {
     append_create(batch, brush, 75U);
     append_create(batch, visual_transform, 66U);
     append_create(batch, scope_transform, 66U);
+    append_create(batch, clip_geometry, 69U);
+    append_create(batch, nested_clip_geometry, 69U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_offset, visual, 10.0, 20.0);
     append_command(
@@ -751,6 +755,34 @@ bool matrix_transform_scopes_compile_to_semantic_state() {
         command::visual_set_transform,
         visual,
         visual_transform);
+    append_command(
+        batch,
+        command::rectangle_geometry,
+        clip_geometry,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        5.0,
+        6.0,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::rectangle_geometry,
+        nested_clip_geometry,
+        0.0,
+        0.0,
+        4.0,
+        5.0,
+        5.0,
+        5.0,
+        0U,
+        0U,
+        0U,
+        0U);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
         batch,
@@ -768,6 +800,8 @@ bool matrix_transform_scopes_compile_to_semantic_state() {
         command::push_transform,
         scope_transform,
         0U);
+    append_command(nested, command::push_clip, clip_geometry, 0U);
+    append_command(nested, command::push_clip, nested_clip_geometry, 0U);
     append_command(nested, command::push_opacity, 0.5);
     append_command(
         nested,
@@ -778,6 +812,8 @@ bool matrix_transform_scopes_compile_to_semantic_state() {
         4.0,
         brush,
         0U);
+    append_command(nested, command::pop);
+    append_command(nested, command::pop);
     append_command(nested, command::pop);
     append_command(nested, command::pop);
     append_render_data(batch, content, nested);
@@ -798,11 +834,13 @@ bool matrix_transform_scopes_compile_to_semantic_state() {
     PROGPU_REQUIRE(
         state.build_scene(target, 7001U, 3U, stream) == status::success);
     const auto header = read_value<progpu_native_scene_header>(stream, 0U);
-    PROGPU_REQUIRE(header.command_count == 7U);
-    PROGPU_REQUIRE(header.resource_count == 5U);
+    PROGPU_REQUIRE(header.command_count == 11U);
+    PROGPU_REQUIRE(header.resource_count == 7U);
 
     bool found_visual_state = false;
     bool found_transform_state = false;
+    bool found_clip_state = false;
+    bool found_nested_clip_state = false;
     bool found_opacity_state = false;
     for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
         const auto record = read_value<progpu_native_scene_resource>(
@@ -824,9 +862,27 @@ bool matrix_transform_scopes_compile_to_semantic_state() {
                 scene_state.transform.m22 == 2.0F &&
                 scene_state.transform.m31 == 17.0F &&
                 scene_state.transform.m32 == 30.0F) {
-                if (scene_state.opacity == 1.0F) {
+                const bool has_clip = (scene_state.flags &
+                    PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U;
+                if (scene_state.opacity == 1.0F && !has_clip) {
                     found_transform_state = true;
-                } else if (scene_state.opacity == 0.5F) {
+                } else if (scene_state.opacity == 1.0F && has_clip &&
+                    scene_state.clip_rect.x == 17.0F) {
+                    PROGPU_REQUIRE(scene_state.clip_rect.y == 30.0F);
+                    PROGPU_REQUIRE(scene_state.clip_rect.width == 10.0F);
+                    PROGPU_REQUIRE(scene_state.clip_rect.height == 12.0F);
+                    found_clip_state = true;
+                } else if (scene_state.opacity == 1.0F && has_clip) {
+                    PROGPU_REQUIRE(scene_state.clip_rect.x == 25.0F);
+                    PROGPU_REQUIRE(scene_state.clip_rect.y == 40.0F);
+                    PROGPU_REQUIRE(scene_state.clip_rect.width == 2.0F);
+                    PROGPU_REQUIRE(scene_state.clip_rect.height == 2.0F);
+                    found_nested_clip_state = true;
+                } else if (scene_state.opacity == 0.5F && has_clip) {
+                    PROGPU_REQUIRE(scene_state.clip_rect.x == 25.0F);
+                    PROGPU_REQUIRE(scene_state.clip_rect.y == 40.0F);
+                    PROGPU_REQUIRE(scene_state.clip_rect.width == 2.0F);
+                    PROGPU_REQUIRE(scene_state.clip_rect.height == 2.0F);
                     found_opacity_state = true;
                 }
             }
@@ -848,6 +904,8 @@ bool matrix_transform_scopes_compile_to_semantic_state() {
     }
     PROGPU_REQUIRE(found_visual_state);
     PROGPU_REQUIRE(found_transform_state);
+    PROGPU_REQUIRE(found_clip_state);
+    PROGPU_REQUIRE(found_nested_clip_state);
     PROGPU_REQUIRE(found_opacity_state);
     PROGPU_REQUIRE(found_transformed_bounds);
 
@@ -877,6 +935,26 @@ bool matrix_transform_scopes_compile_to_semantic_state() {
         visual,
         brush);
     PROGPU_REQUIRE(state.apply(wrong_type) == status::invalid_handle);
+
+    std::vector<std::byte> rounded_clip_update;
+    append_command(
+        rounded_clip_update,
+        command::rectangle_geometry,
+        clip_geometry,
+        1.0,
+        1.0,
+        0.0,
+        0.0,
+        5.0,
+        6.0,
+        0U,
+        0U,
+        0U,
+        0U);
+    PROGPU_REQUIRE(state.apply(rounded_clip_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7001U, 4U, stream) ==
+        status::unsupported_command);
     return true;
 }
 
