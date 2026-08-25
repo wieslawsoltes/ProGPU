@@ -1667,11 +1667,19 @@ contract. The typed Visual-bounds checkpoint now prevents the cache from
 becoming a full-target allocation. Portable hosts bind source-built WPF
 descendant bounds through
 `progpu_native_mil_channel_set_visual_cache_bounds`; the compiler transforms
-those local bounds through current Visual placement and emits exact semantic
-layer bounds. Missing/nonfinite/empty metadata fails closed. This remains a
-target-coordinate raster-scale-one page: the explicit local-space descriptor,
-composite transform, RenderAtScale, SnapsToDevicePixels, and ClearType policy
-are still required before MIL `BitmapCache` parity can be claimed.
+those local bounds into an explicit local raster page. Missing/nonfinite/empty
+metadata fails closed.
+
+The next executable checkpoint adds
+`PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE` without changing the exact
+64-byte layer record. For this flag, bounds are the zero-origin raster-page
+extent and `reserved0` names a preceding canonical transform-only State
+resource that places the cached quad in its parent. The target cursor allocates
+that page independently of target placement, content states translate/scale
+the Visual-local bounds into the page, and the shared WebGPU/DirectX executor
+composites all four page corners through the typed affine state. The same
+record therefore supports translation, scale, rotation, shear, parent-layer
+localization, and non-unit RenderAtScale while retaining one owner-keyed page.
 
 The canonical MIL checkpoint is now executable on that foundation. The C++
 channel decodes the exact 12-byte `MILCMD_VISUAL_SETCACHEMODE` command and the
@@ -1689,7 +1697,7 @@ on every scene compilation.
 scale, snapping, and ClearType values without referencing PresentationCore or
 using reflection; source-built LibreWPF is responsible for publishing it.
 
-For the currently executable unit-scale subset, the MIL compiler emits one
+For the currently executable local-space subset, the MIL compiler emits one
 owner-keyed cached semantic layer around the Visual subtree. The stable owner
 identity is derived from scene identity plus Visual handle; the pixel revision
 walks the typed Visual, render-data, brush, pen, transform, geometry, drawing,
@@ -1698,14 +1706,23 @@ Consequently an unrelated sibling update preserves the cache version, while a
 brush/resource update inside the cached subtree changes it without managed
 invalidation assistance. Exact resolved scale zero suppresses the cached
 subtree. Exact source-built Visual descendant bounds are required through the
-typed channel sideband and become the transformed target-space cache extent;
-missing bounds fail closed instead of allocating the full render target. Until
-local-space raster and composite placement land, non-unit scale,
-SnapsToDevicePixels, and EnableClearType return `unsupported_command` instead
-of rendering approximate pixels. Root outer state is also included in the
-pixel revision in this target-coordinate checkpoint so an offset/transform/
-opacity change redraws correctly; WPF's cheaper composite-only update becomes
-available with the local-space descriptor.
+typed channel sideband and become a zero-origin page sized by RenderAtScale and
+frame DPI; missing bounds fail closed instead of allocating the full render
+target. Root offset, transform, and opacity are excluded from the pixel
+revision and applied only by the composite, so changing placement reuses the
+page. Positive finite static or animated RenderAtScale values resize and
+rerasterize it, and exact resolved scale zero suppresses the subtree.
+SnapsToDevicePixels and EnableClearType still return `unsupported_command`.
+Root composite clips, spatial masks, and guideline state also fail closed until
+the local-cache layer carries those post-raster operations explicitly.
+
+The pinned provider/Dawn Metal hardware gate now exercises the local page
+directly: its first 24x18 render performs one content and one composite pass, a
+composite-only translation reuses the page with zero content passes, and a
+0.5 RenderAtScale update reallocates/rerasterizes a 12x9 page. The complete
+package-mode managed Dawn render/readback and forced device-loss recovery pass
+at provider revision `02823bf8d2e56548b2780d6b92ae7065be1d8605` and Dawn
+revision `710c33013c53ab2700d332c25ff51430251a8cc4`.
 
 Windows ARM64 qualification for this exact cache-bounds checkpoint completed
 on 2026-08-25 from clean detached commit `dd3857a4` in the Parallels Windows 11
@@ -1721,9 +1738,9 @@ ColorDodge, and text shaping contracts. The staged ARM64 package DLL SHA-256
 values are `D17701FB0669A241183AF064080A1FD1ADD29AE1B000A531CCE5E7307B2650C6`
 for `progpu_native.dll` and
 `02414A74F7C6CB1A84F2846D5E5B701102E4812B5AEFCBA25688AE881592BD42`
-for `progpu_native_dawn.dll`. This qualifies the implemented target-space
-subset on DirectX; it does not widen the explicitly fail-closed local-space,
-non-unit-scale, pixel-snap, or ClearType gaps.
+for `progpu_native_dawn.dll`. This qualifies the preceding exact-bounds
+target-space checkpoint on DirectX; Windows qualification of the new
+local-space/RenderAtScale checkpoint is tracked separately.
 
 The implementation sequence is intentionally architectural:
 
@@ -1732,17 +1749,19 @@ The implementation sequence is intentionally architectural:
 2. Prove cache hits survive unrelated sibling/composite changes, while content,
    scale, size, text mode, and device generation changes invalidate the page.
 3. Decode canonical BitmapCache/Visual packets into that descriptor and retain
-   dependency lifetime transactionally. (Implemented for the explicit
-   unit-scale target-coordinate subset.)
+   dependency lifetime transactionally. (Implemented with local-space bounds,
+   composite-only placement, and positive finite RenderAtScale.)
 4. Publish neutral typed cache state from source-built WPF and emit it from
    LibreWPF without reflection.
-5. Qualify scale, zero-scale suppression, pixel snapping, ClearType policy,
-   nested cache lifetime, effects ordering, package lanes, and live D3D12.
+5. Qualify pixel snapping, ClearType policy, composite clip/mask/guideline
+   ordering, nested cache lifetime, effects ordering, package lanes, and live
+   D3D12 for the local-space checkpoint.
 
-No cache parity is claimed until the persistent page and composite-transform
-path are executable. Treating BitmapCache as a no-op, an ephemeral full-target
+The persistent page and composite-transform path are executable, but full cache
+parity is not claimed until the remaining post-raster state and text policies
+above are exact. Treating BitmapCache as a no-op, an ephemeral full-target
 layer, or a depth-slot effect-cache alias would preserve neither WPF pixels nor
-its performance contract and is explicitly excluded.
+its performance contract and remains explicitly excluded.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
