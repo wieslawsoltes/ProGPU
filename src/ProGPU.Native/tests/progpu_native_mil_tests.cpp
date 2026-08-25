@@ -3976,6 +3976,117 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     return true;
 }
 
+bool retained_geometry_drawing_reuses_native_geometry_lowering() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t geometry = 5U;
+    constexpr std::uint32_t drawing = 6U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, geometry, 69U);
+    append_create(batch, drawing, 87U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.25F, 0.5F, 0.75F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::rectangle_geometry,
+        geometry,
+        0.0,
+        0.0,
+        2.0,
+        3.0,
+        20.0,
+        10.0,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::geometry_drawing,
+        drawing,
+        brush,
+        0U,
+        geometry);
+    std::vector<std::byte> nested;
+    append_command(nested, command::draw_drawing, drawing, 0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7003U, 1U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rectangle_count == 1U);
+    PROGPU_REQUIRE(metrics.brush_count == 1U);
+
+    std::vector<std::byte> delete_geometry;
+    append_command(
+        delete_geometry,
+        command::channel_delete_resource,
+        geometry,
+        69U);
+    PROGPU_REQUIRE(state.apply(delete_geometry) == status::invalid_graph);
+
+    std::vector<std::byte> clear_drawing;
+    append_command(
+        clear_drawing,
+        command::geometry_drawing,
+        drawing,
+        brush,
+        0U,
+        0U);
+    PROGPU_REQUIRE(state.apply(clear_drawing) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7003U, 2U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rectangle_count == 0U);
+    PROGPU_REQUIRE(metrics.brush_count == 0U);
+
+    std::vector<std::byte> invalid_drawing;
+    append_command(
+        invalid_drawing,
+        command::geometry_drawing,
+        drawing,
+        target,
+        0U,
+        geometry);
+    PROGPU_REQUIRE(state.apply(invalid_drawing) == status::invalid_handle);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7003U, 3U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rectangle_count == 0U);
+    return true;
+}
+
 bool retained_geometry_group_compiles_to_one_semantic_path() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -5670,6 +5781,8 @@ int main() {
     PROGPU_REQUIRE(retained_path_geometry_compiles_to_semantic_scene());
     PROGPU_REQUIRE(
         retained_line_path_stroke_preserves_closure_gaps_and_pen_state());
+    PROGPU_REQUIRE(
+        retained_geometry_drawing_reuses_native_geometry_lowering());
     PROGPU_REQUIRE(retained_geometry_group_compiles_to_one_semantic_path());
     PROGPU_REQUIRE(
         retained_gradient_brushes_compile_with_wpf_mapping_and_animation());
