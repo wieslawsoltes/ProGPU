@@ -1572,6 +1572,55 @@ for `progpu_native.dll`, and 2,002,432 bytes with SHA-256
 for `progpu_native_dawn.dll`. Multiple guides per axis remain the same explicit
 piecewise-deformation gap as canonical GuidelineSet.
 
+Retained Visual effect implementation `93929c07` next adds canonical
+`MilCmdVisualSetEffect` (`0x1d`), `MilCmdBlurEffect` (`0x6e`), and
+`MilCmdDropShadowEffect` (`0x6f`) with resource types 36 and 37. The channel
+retains and protects the Visual's effect dependency, applies resource updates
+on the next compiled generation, rejects deletion while referenced, and keeps
+failed batches transactional. Managed builder checkpoint `7f02bd4a` also
+carries the WPF blur kernel and rendering bias through the neutral portable
+effect DTO rather than reconstructing effect state in a host bridge.
+
+The exact Gaussian mapping follows WPF milcore rather than treating WPF's
+logical radius as WebGPU sigma. WPF truncates Radius to an integer, scales it
+by the smaller orthogonal transform row length, truncates and caps the physical
+kernel radius at 100, then uses `radius / 3` as standard deviation. ProGPU feeds
+that sigma into the existing shared semantic blur pass. DropShadow computes
+the WPF local offset `(depth * cos(direction), -depth * sin(direction))`, maps
+it through the normalized orthogonal transform, and runs the existing shared
+blur, shadow-composite, and source-composite passes. Both wgpu-native/Dawn and
+DirectX therefore consume the same retained scene and effect descriptors.
+
+This checkpoint is intentionally narrower than general WPF Effect parity.
+Only Gaussian BlurEffect and DropShadowEffect with static values and an
+orthogonal effective transform are accepted. Box blur, animated effect fields,
+shear, and composition with an active Visual clip, opacity mask, or non-unit
+opacity return `unsupported_command`. WPF applies Visual effect before opacity
+mask/opacity and after clip; the current semantic layer does not yet represent
+separate inflated-source and final-composite clip regions, so accepting those
+combinations would silently change ordering. The native effect currently uses
+a conservative full-target isolated layer; retained dirty-region tightening is
+follow-up performance work.
+
+Native regressions cover blur sigma, drop-shadow direction/color/opacity,
+dependency lifetime, Box rejection, and modifier-combination rejection. All
+ten local native CTests, the canonical managed packet test, the focused typed
+LibreWPF producer tests, and the zero-warning project-reference consumer build
+passed. Package checkpoint `6702b9b7` adds `--mil-visual-effect-only` to JIT,
+NativeAOT, package verification, build, and release lanes.
+
+Strict Windows ARM64 MSVC rebuilt both exports and all 11 native/Dawn CTests
+passed. Export checks found `progpu_native_mil_channel_create` and
+`progpu_native_mil_channel_build_scene` in both DLLs. Fresh app-local native,
+Dawn, and wgpu-native DLLs compiled the retained DropShadow scene through both
+MIL exports and live D3D12 rendered four semantic resources, two draws, zero
+coverage-staging bytes, a nonblack retained readback, and 16,384 direct pixels.
+Qualified binaries from 2026-08-25 18:05 are 1,973,248 bytes with SHA-256
+`eb55945dff526f5535fd7c10795e2e0e91baea787aac6c165ab7cfea3fa4c4cf`
+for `progpu_native.dll`, and 2,011,648 bytes with SHA-256
+`2c9c1f5fc1ee4f41b9361280d53a32201e3b4215c3cd70a0c0cf68c130766eda`
+for `progpu_native_dawn.dll`.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
