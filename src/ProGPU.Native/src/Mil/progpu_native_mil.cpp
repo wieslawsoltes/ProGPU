@@ -3240,6 +3240,8 @@ struct channel::implementation {
                             native_local_transform)) {
                         return status::invalid_graph;
                     }
+                    const std::uint32_t group_sample_grid =
+                        group_leaves.size() == 2U ? 4U : 8U;
                     const std::array paths{
                         progpu_native_scene_path_fill{
                             0U,
@@ -3256,7 +3258,7 @@ struct channel::implementation {
                                 geometry_group->second.fill_rule == 0U
                                     ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
                                     : PROGPU_NATIVE_FILL_RULE_NON_ZERO),
-                            8U}};
+                            group_sample_grid}};
                     const std::array brushes{brush_index};
                     if (!builder.draw_paths(
                             paths,
