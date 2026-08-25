@@ -771,30 +771,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.DrawString(System.ReadOnlySpan{System.Char},System.Drawing.Font,System.Drawing.Brush,System.Drawing.PointF,System.Drawing.StringFormat)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.DrawString(System.ReadOnlySpan{System.Char},System.Drawing.Font,System.Drawing.Brush,System.Drawing.PointF)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.DrawString(System.ReadOnlySpan{System.Char},System.Drawing.Font,System.Drawing.Brush,System.Drawing.RectangleF,System.Drawing.StringFormat)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.DrawString(System.ReadOnlySpan{System.Char},System.Drawing.Font,System.Drawing.Brush,System.Drawing.RectangleF)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.DrawString(System.ReadOnlySpan{System.Char},System.Drawing.Font,System.Drawing.Brush,System.Single,System.Single,System.Drawing.StringFormat)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.DrawString(System.ReadOnlySpan{System.Char},System.Drawing.Font,System.Drawing.Brush,System.Single,System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Graphics.EndContainer(System.Drawing.Drawing2D.GraphicsContainer)</Target>
   </Suppression>
   <Suppression>
@@ -996,46 +972,6 @@
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Graphics.IsVisible(System.Single,System.Single,System.Single,System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.MeasureCharacterRanges(System.ReadOnlySpan{System.Char},System.Drawing.Font,System.Drawing.RectangleF,System.Drawing.StringFormat)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.MeasureString(System.ReadOnlySpan{System.Char},System.Drawing.Font,System.Drawing.PointF,System.Drawing.StringFormat)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.MeasureString(System.ReadOnlySpan{System.Char},System.Drawing.Font,System.Drawing.SizeF,System.Drawing.StringFormat,System.Int32@,System.Int32@)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.MeasureString(System.ReadOnlySpan{System.Char},System.Drawing.Font,System.Drawing.SizeF,System.Drawing.StringFormat)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.MeasureString(System.ReadOnlySpan{System.Char},System.Drawing.Font,System.Drawing.SizeF)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.MeasureString(System.ReadOnlySpan{System.Char},System.Drawing.Font,System.Int32,System.Drawing.StringFormat)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.MeasureString(System.ReadOnlySpan{System.Char},System.Drawing.Font,System.Int32)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.MeasureString(System.ReadOnlySpan{System.Char},System.Drawing.Font)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.MeasureString(System.String,System.Drawing.Font,System.Drawing.PointF,System.Drawing.StringFormat)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.MeasureStringInternal(System.ReadOnlySpan{System.Char},System.Drawing.Font,System.Drawing.RectangleF,System.Drawing.StringFormat,System.Int32@,System.Int32@)</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>

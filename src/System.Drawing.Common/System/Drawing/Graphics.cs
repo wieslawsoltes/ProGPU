@@ -1459,25 +1459,75 @@ public class Graphics :
             CurrentTransform4x4());
     }
 
-    public Region[] MeasureCharacterRanges(string text, Font font, RectangleF layoutRect, StringFormat stringFormat)
+    public Region[] MeasureCharacterRanges(string? text, Font font, RectangleF layoutRect, StringFormat? stringFormat) =>
+        MeasureCharacterRanges(text.AsSpan(), font, layoutRect, stringFormat);
+
+    public Region[] MeasureCharacterRanges(
+        ReadOnlySpan<char> text,
+        Font font,
+        RectangleF layoutRect,
+        StringFormat? stringFormat)
     {
-        ArgumentNullException.ThrowIfNull(text);
+        if (text.IsEmpty)
+        {
+            return [];
+        }
+
         ArgumentNullException.ThrowIfNull(font);
-        ArgumentNullException.ThrowIfNull(stringFormat);
+        if (stringFormat is null)
+        {
+            return [];
+        }
+
         CharacterRange[] ranges = stringFormat.GetMeasurableCharacterRanges();
         var result = new Region[ranges.Length];
+        if (ranges.Length == 0)
+        {
+            return result;
+        }
+
+        FormattedTextLayout formatted = CreateFormattedTextLayout(
+            text.ToString(),
+            font,
+            layoutRect.Size,
+            stringFormat);
+        StringFormatFlags flags = stringFormat.FormatFlags;
+        float offsetX = GetNoWrapAlignmentOffset(
+            formatted.Layout.ContentSize.X,
+            layoutRect.Width,
+            stringFormat.Alignment,
+            flags);
+        float offsetY = GetRectangleAlignmentOffset(
+            formatted.Layout.ContentSize.Y,
+            layoutRect.Height,
+            stringFormat.LineAlignment);
+        bool clipToLayout = (flags & StringFormatFlags.NoClip) == 0;
+
         for (int index = 0; index < ranges.Length; index++)
         {
             CharacterRange range = ranges[index];
             int first = Math.Clamp(range.First, 0, text.Length);
             int length = Math.Clamp(range.Length, 0, text.Length - first);
-            float prefixWidth = first == 0 ? 0f : MeasureString(text[..first], font).Width;
-            SizeF rangeSize = length == 0 ? SizeF.Empty : MeasureString(text.Substring(first, length), font);
-            result[index] = new Region(new RectangleF(
-                layoutRect.X + prefixWidth,
-                layoutRect.Y,
-                rangeSize.Width,
-                MathF.Min(rangeSize.Height, layoutRect.Height)));
+            var region = new Region();
+            region.MakeEmpty();
+            IReadOnlyList<ProGPU.Text.TextBounds> bounds =
+                formatted.Layout.GetSelectionRectangles(first, length);
+            for (int boundsIndex = 0; boundsIndex < bounds.Count; boundsIndex++)
+            {
+                ProGPU.Text.TextBounds item = bounds[boundsIndex];
+                region.Union(new RectangleF(
+                    layoutRect.X + offsetX + item.X,
+                    layoutRect.Y + offsetY + item.Y,
+                    item.Width,
+                    item.Height));
+            }
+
+            if (clipToLayout)
+            {
+                region.Intersect(layoutRect);
+            }
+
+            result[index] = region;
         }
 
         return result;
@@ -1490,12 +1540,23 @@ public class Graphics :
     public bool IsVisible(Rectangle rect) => IsVisible((RectangleF)rect);
     public bool IsVisible(RectangleF rect) => _clip?.IsVisible(rect, this) ?? VisibleClipBounds.IntersectsWith(rect);
 
-    public void DrawString(string s, Font font, Brush brush, PointF point) => DrawString(s, font, brush, point.X, point.Y);
-    public void DrawString(string s, Font font, Brush brush, PointF point, StringFormat? format) =>
+    public void DrawString(string? s, Font font, Brush brush, PointF point) => DrawString(s, font, brush, point.X, point.Y);
+    public void DrawString(string? s, Font font, Brush brush, PointF point, StringFormat? format) =>
+        DrawString(s, font, brush, point.X, point.Y, format);
+    public void DrawString(ReadOnlySpan<char> s, Font font, Brush brush, PointF point) =>
+        DrawString(s, font, brush, point.X, point.Y);
+    public void DrawString(ReadOnlySpan<char> s, Font font, Brush brush, PointF point, StringFormat? format) =>
         DrawString(s, font, brush, point.X, point.Y, format);
 
-    public void DrawString(string s, Font font, Brush brush, float x, float y)
+    public void DrawString(string? s, Font font, Brush brush, float x, float y)
     {
+        ArgumentNullException.ThrowIfNull(brush);
+        if (string.IsNullOrEmpty(s))
+        {
+            return;
+        }
+
+        ArgumentNullException.ThrowIfNull(font);
         var isBold = (font.Style & FontStyle.Bold) != 0;
         var isItalic = (font.Style & FontStyle.Italic) != 0;
         _context.DrawText(
@@ -1509,13 +1570,33 @@ public class Graphics :
             isItalic);
     }
 
-    public void DrawString(string s, Font font, Brush brush, float x, float y, StringFormat? format)
+    public void DrawString(ReadOnlySpan<char> s, Font font, Brush brush, float x, float y)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        if (s.IsEmpty)
+        {
+            return;
+        }
+
+        ArgumentNullException.ThrowIfNull(font);
+        DrawString(s.ToString(), font, brush, x, y);
+    }
+
+    public void DrawString(string? s, Font font, Brush brush, float x, float y, StringFormat? format)
     {
         if (format == null)
         {
             DrawString(s, font, brush, x, y);
             return;
         }
+
+        ArgumentNullException.ThrowIfNull(brush);
+        if (string.IsNullOrEmpty(s))
+        {
+            return;
+        }
+
+        ArgumentNullException.ThrowIfNull(font);
 
         DrawFormattedString(
             s,
@@ -1526,8 +1607,33 @@ public class Graphics :
             pointAnchor: true);
     }
 
-    public void DrawString(string s, Font font, Brush brush, RectangleF layoutRectangle)
+    public void DrawString(
+        ReadOnlySpan<char> s,
+        Font font,
+        Brush brush,
+        float x,
+        float y,
+        StringFormat? format)
     {
+        ArgumentNullException.ThrowIfNull(brush);
+        if (s.IsEmpty)
+        {
+            return;
+        }
+
+        ArgumentNullException.ThrowIfNull(font);
+        DrawString(s.ToString(), font, brush, x, y, format);
+    }
+
+    public void DrawString(string? s, Font font, Brush brush, RectangleF layoutRectangle)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        if (string.IsNullOrEmpty(s))
+        {
+            return;
+        }
+
+        ArgumentNullException.ThrowIfNull(font);
         if (layoutRectangle.Width <= 0f
             || layoutRectangle.Height <= 0f
             || !float.IsFinite(layoutRectangle.Width)
@@ -1560,16 +1666,36 @@ public class Graphics :
         _context.PopClip();
     }
 
-    public void DrawString(string s, Font font, Brush brush, Rectangle layoutRectangle, StringFormat? format) =>
+    public void DrawString(ReadOnlySpan<char> s, Font font, Brush brush, RectangleF layoutRectangle)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        if (s.IsEmpty)
+        {
+            return;
+        }
+
+        ArgumentNullException.ThrowIfNull(font);
+        DrawString(s.ToString(), font, brush, layoutRectangle);
+    }
+
+    public void DrawString(string? s, Font font, Brush brush, Rectangle layoutRectangle, StringFormat? format) =>
         DrawString(s, font, brush, (RectangleF)layoutRectangle, format);
 
-    public void DrawString(string s, Font font, Brush brush, RectangleF layoutRectangle, StringFormat? format)
+    public void DrawString(string? s, Font font, Brush brush, RectangleF layoutRectangle, StringFormat? format)
     {
         if (format == null)
         {
             DrawString(s, font, brush, layoutRectangle);
             return;
         }
+
+        ArgumentNullException.ThrowIfNull(brush);
+        if (string.IsNullOrEmpty(s))
+        {
+            return;
+        }
+
+        ArgumentNullException.ThrowIfNull(font);
 
         if (layoutRectangle.Width <= 0f
             || layoutRectangle.Height <= 0f
@@ -1583,14 +1709,46 @@ public class Graphics :
         DrawFormattedString(s, font, brush, layoutRectangle, format, pointAnchor: false);
     }
 
-    public SizeF MeasureString(string text, Font font)
+    public void DrawString(
+        ReadOnlySpan<char> s,
+        Font font,
+        Brush brush,
+        RectangleF layoutRectangle,
+        StringFormat? format)
     {
+        ArgumentNullException.ThrowIfNull(brush);
+        if (s.IsEmpty)
+        {
+            return;
+        }
+
+        ArgumentNullException.ThrowIfNull(font);
+        DrawString(s.ToString(), font, brush, layoutRectangle, format);
+    }
+
+    public SizeF MeasureString(string? text, Font font)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return SizeF.Empty;
+        }
+
+        ArgumentNullException.ThrowIfNull(font);
         var layout = new ProGPU.Text.TextLayout(text, font.TtfFont, GetFontPixelSize(font));
         return new SizeF(layout.MeasuredSize.X, layout.MeasuredSize.Y);
     }
 
-    public SizeF MeasureString(string text, Font font, SizeF layoutArea)
+    public SizeF MeasureString(ReadOnlySpan<char> text, Font font) =>
+        MeasureStringInternal(text, font, RectangleF.Empty, null, out _, out _);
+
+    public SizeF MeasureString(string? text, Font font, SizeF layoutArea)
     {
+        if (string.IsNullOrEmpty(text))
+        {
+            return SizeF.Empty;
+        }
+
+        ArgumentNullException.ThrowIfNull(font);
         float maxWidth = layoutArea.Width > 0f && float.IsFinite(layoutArea.Width)
             ? layoutArea.Width
             : float.PositiveInfinity;
@@ -1615,19 +1773,43 @@ public class Graphics :
         return new SizeF(measuredWidth, measuredHeight);
     }
 
-    public SizeF MeasureString(string text, Font font, SizeF layoutArea, StringFormat? stringFormat)
+    public SizeF MeasureString(ReadOnlySpan<char> text, Font font, SizeF layoutArea) =>
+        MeasureStringInternal(text, font, new RectangleF(PointF.Empty, layoutArea), null, out _, out _);
+
+    public SizeF MeasureString(string? text, Font font, SizeF layoutArea, StringFormat? stringFormat)
     {
         return MeasureString(text, font, layoutArea, stringFormat, out _, out _);
     }
 
     public SizeF MeasureString(
-        string text,
+        ReadOnlySpan<char> text,
+        Font font,
+        SizeF layoutArea,
+        StringFormat? stringFormat) =>
+        MeasureStringInternal(
+            text,
+            font,
+            new RectangleF(PointF.Empty, layoutArea),
+            stringFormat,
+            out _,
+            out _);
+
+    public SizeF MeasureString(
+        string? text,
         Font font,
         SizeF layoutArea,
         StringFormat? stringFormat,
         out int charactersFitted,
         out int linesFilled)
     {
+        if (string.IsNullOrEmpty(text))
+        {
+            charactersFitted = 0;
+            linesFilled = 0;
+            return SizeF.Empty;
+        }
+
+        ArgumentNullException.ThrowIfNull(font);
         if (stringFormat == null)
         {
             SizeF measured = MeasureString(text, font, layoutArea);
@@ -1655,15 +1837,75 @@ public class Graphics :
         return new SizeF(measuredWidth, measuredHeight);
     }
 
-    public SizeF MeasureString(string text, Font font, int width)
+    public SizeF MeasureString(
+        ReadOnlySpan<char> text,
+        Font font,
+        SizeF layoutArea,
+        StringFormat? stringFormat,
+        out int charactersFitted,
+        out int linesFilled) =>
+        MeasureStringInternal(
+            text,
+            font,
+            new RectangleF(PointF.Empty, layoutArea),
+            stringFormat,
+            out charactersFitted,
+            out linesFilled);
+
+    public SizeF MeasureStringInternal(
+        ReadOnlySpan<char> text,
+        Font font,
+        RectangleF layoutArea,
+        StringFormat? stringFormat,
+        out int charactersFitted,
+        out int linesFilled)
     {
-        return MeasureString(text, font, new SizeF(width, float.MaxValue));
+        if (text.IsEmpty)
+        {
+            charactersFitted = 0;
+            linesFilled = 0;
+            return SizeF.Empty;
+        }
+
+        ArgumentNullException.ThrowIfNull(font);
+        return MeasureString(
+            text.ToString(),
+            font,
+            layoutArea.Size,
+            stringFormat,
+            out charactersFitted,
+            out linesFilled);
     }
 
-    public SizeF MeasureString(string text, Font font, int width, StringFormat? format)
+    public SizeF MeasureString(string? text, Font font, PointF origin, StringFormat? stringFormat) =>
+        MeasureStringInternal(text.AsSpan(), font, new RectangleF(origin, SizeF.Empty), stringFormat, out _, out _);
+
+    public SizeF MeasureString(
+        ReadOnlySpan<char> text,
+        Font font,
+        PointF origin,
+        StringFormat? stringFormat) =>
+        MeasureStringInternal(text, font, new RectangleF(origin, SizeF.Empty), stringFormat, out _, out _);
+
+    public SizeF MeasureString(string? text, Font font, int width)
     {
-        return MeasureString(text, font, new SizeF(width, float.MaxValue), format);
+        return MeasureString(text, font, new SizeF(width, 999999f));
     }
+
+    public SizeF MeasureString(ReadOnlySpan<char> text, Font font, int width) =>
+        MeasureString(text, font, new SizeF(width, 999999f));
+
+    public SizeF MeasureString(string? text, Font font, int width, StringFormat? format)
+    {
+        return MeasureString(text, font, new SizeF(width, 999999f), format);
+    }
+
+    public SizeF MeasureString(
+        ReadOnlySpan<char> text,
+        Font font,
+        int width,
+        StringFormat? format) =>
+        MeasureString(text, font, new SizeF(width, 999999f), format);
 
     private void DrawFormattedString(
         string text,
