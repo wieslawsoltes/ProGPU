@@ -83,6 +83,106 @@ void append_render_data(
     batch.resize(batch.size() + item_size - sizeof(std::uint32_t) - packet.size());
 }
 
+struct mil_gradient_stop {
+    double position{};
+    progpu_native_color color{};
+};
+
+void append_linear_gradient_brush(
+    std::vector<std::byte>& batch,
+    std::uint32_t handle,
+    double opacity,
+    double start_x,
+    double start_y,
+    double end_x,
+    double end_y,
+    std::uint32_t opacity_animation,
+    std::uint32_t transform,
+    std::uint32_t relative_transform,
+    std::uint32_t interpolation,
+    std::uint32_t mapping,
+    std::uint32_t spread,
+    std::uint32_t start_animation,
+    std::uint32_t end_animation,
+    std::span<const mil_gradient_stop> stops) {
+    std::vector<std::byte> packet;
+    append_value(packet, static_cast<std::uint32_t>(
+        command::linear_gradient_brush));
+    append_value(packet, handle);
+    append_value(packet, opacity);
+    append_value(packet, start_x);
+    append_value(packet, start_y);
+    append_value(packet, end_x);
+    append_value(packet, end_y);
+    append_value(packet, opacity_animation);
+    append_value(packet, transform);
+    append_value(packet, relative_transform);
+    append_value(packet, interpolation);
+    append_value(packet, mapping);
+    append_value(packet, spread);
+    append_value(packet, static_cast<std::uint32_t>(
+        stops.size_bytes()));
+    append_value(packet, start_animation);
+    append_value(packet, end_animation);
+    for (const auto& stop : stops) {
+        append_value(packet, stop.position);
+        append_value(packet, stop.color);
+    }
+    PROGPU_REQUIRE(packet.size() == 84U + stops.size_bytes());
+    append_value(batch, static_cast<std::uint32_t>(
+        packet.size() + sizeof(std::uint32_t)));
+    batch.insert(batch.end(), packet.begin(), packet.end());
+}
+
+void append_radial_gradient_brush(
+    std::vector<std::byte>& batch,
+    std::uint32_t handle,
+    double opacity,
+    double center_x,
+    double center_y,
+    double radius_x,
+    double radius_y,
+    double origin_x,
+    double origin_y,
+    std::uint32_t interpolation,
+    std::uint32_t mapping,
+    std::uint32_t spread,
+    std::uint32_t radius_x_animation,
+    std::uint32_t radius_y_animation,
+    std::span<const mil_gradient_stop> stops) {
+    std::vector<std::byte> packet;
+    append_value(packet, static_cast<std::uint32_t>(
+        command::radial_gradient_brush));
+    append_value(packet, handle);
+    append_value(packet, opacity);
+    append_value(packet, center_x);
+    append_value(packet, center_y);
+    append_value(packet, radius_x);
+    append_value(packet, radius_y);
+    append_value(packet, origin_x);
+    append_value(packet, origin_y);
+    append_value(packet, 0U);
+    append_value(packet, 0U);
+    append_value(packet, 0U);
+    append_value(packet, interpolation);
+    append_value(packet, mapping);
+    append_value(packet, spread);
+    append_value(packet, static_cast<std::uint32_t>(
+        stops.size_bytes()));
+    append_value(packet, 0U);
+    append_value(packet, radius_x_animation);
+    append_value(packet, radius_y_animation);
+    append_value(packet, 0U);
+    for (const auto& stop : stops) {
+        append_value(packet, stop.position);
+        append_value(packet, stop.color);
+    }
+    PROGPU_REQUIRE(packet.size() == 108U + stops.size_bytes());
+    append_value(batch, static_cast<std::uint32_t>(
+        packet.size() + sizeof(std::uint32_t)));
+    batch.insert(batch.end(), packet.begin(), packet.end());
+}
+
 void append_path_geometry(
     std::vector<std::byte>& batch,
     std::uint32_t handle,
@@ -5274,6 +5374,216 @@ bool render_data_scope_errors_fail_closed() {
     return true;
 }
 
+bool retained_gradient_brushes_compile_with_wpf_mapping_and_animation() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t linear = 4U;
+    constexpr std::uint32_t start_point = 5U;
+    constexpr std::uint32_t end_point = 6U;
+    constexpr std::uint32_t opacity = 7U;
+    constexpr std::uint32_t relative = 8U;
+    constexpr std::uint32_t absolute = 9U;
+    constexpr std::uint32_t radial = 10U;
+    constexpr std::uint32_t radius_x = 11U;
+    constexpr std::uint32_t radius_y = 12U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, linear, 77U);
+    append_create(batch, start_point, 51U);
+    append_create(batch, end_point, 51U);
+    append_create(batch, opacity, 49U);
+    append_create(batch, relative, 62U);
+    append_create(batch, absolute, 62U);
+    append_create(batch, radial, 78U);
+    append_create(batch, radius_x, 49U);
+    append_create(batch, radius_y, 49U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(batch, command::point_resource, start_point, 0.25, 0.5);
+    append_command(batch, command::point_resource, end_point, 0.75, 0.5);
+    append_command(batch, command::double_resource, opacity, 0.6);
+    append_command(batch, command::double_resource, radius_x, 12.0);
+    append_command(batch, command::double_resource, radius_y, 6.0);
+    append_command(
+        batch,
+        command::translate_transform,
+        relative,
+        0.1,
+        0.2,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::translate_transform,
+        absolute,
+        3.0,
+        4.0,
+        0U,
+        0U);
+    const std::array linear_stops{
+        mil_gradient_stop{1.0, {0.0F, 0.0F, 1.0F, 1.0F}},
+        mil_gradient_stop{-1.0, {1.0F, 0.0F, 0.0F, 1.0F}},
+        mil_gradient_stop{0.5, {0.0F, 1.0F, 0.0F, 0.5F}}};
+    append_linear_gradient_brush(
+        batch,
+        linear,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        opacity,
+        absolute,
+        relative,
+        1U,
+        1U,
+        1U,
+        start_point,
+        end_point,
+        linear_stops);
+    const std::array radial_stops{
+        mil_gradient_stop{0.0, {1.0F, 1.0F, 1.0F, 1.0F}},
+        mil_gradient_stop{1.0, {0.0F, 0.0F, 0.0F, 0.0F}}};
+    append_radial_gradient_brush(
+        batch,
+        radial,
+        0.8,
+        20.0,
+        20.0,
+        1.0,
+        1.0,
+        18.0,
+        19.0,
+        0U,
+        0U,
+        2U,
+        radius_x,
+        radius_y,
+        radial_stops);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_rectangle,
+        10.0,
+        20.0,
+        100.0,
+        50.0,
+        linear,
+        0U);
+    append_command(
+        nested,
+        command::draw_ellipse,
+        20.0,
+        20.0,
+        15.0,
+        10.0,
+        radial,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        160U,
+        100U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 8100U, 1U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.brush_count == 2U);
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_gradients = false;
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE) {
+            continue;
+        }
+        PROGPU_REQUIRE(resource.payload_size ==
+            2U * sizeof(progpu_native_scene_brush));
+        const auto linear_brush = read_value<progpu_native_scene_brush>(
+            stream, resource.payload_offset);
+        const auto radial_brush = read_value<progpu_native_scene_brush>(
+            stream,
+            resource.payload_offset + sizeof(progpu_native_scene_brush));
+        PROGPU_REQUIRE(
+            linear_brush.type == PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT);
+        PROGPU_REQUIRE(linear_brush.opacity == 0.6F);
+        PROGPU_REQUIRE(linear_brush.start_point.x == 35.0F);
+        PROGPU_REQUIRE(linear_brush.start_point.y == 45.0F);
+        PROGPU_REQUIRE(linear_brush.end_point.x == 85.0F);
+        PROGPU_REQUIRE(linear_brush.end_point.y == 45.0F);
+        PROGPU_REQUIRE(linear_brush.spread_method ==
+            PROGPU_NATIVE_SCENE_GRADIENT_REFLECT);
+        PROGPU_REQUIRE(linear_brush.color_interpolation_mode ==
+            PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB);
+        PROGPU_REQUIRE(linear_brush.stop_count == 3U);
+        PROGPU_REQUIRE(linear_brush.coordinate_transform0[2] == -13.0F);
+        PROGPU_REQUIRE(linear_brush.coordinate_transform1[2] == -14.0F);
+        const auto first_stop = read_value<
+            progpu_native_scene_gradient_stop>(
+            stream,
+            resource.auxiliary_offset +
+                linear_brush.stop_offset *
+                    sizeof(progpu_native_scene_gradient_stop));
+        const auto middle_stop = read_value<
+            progpu_native_scene_gradient_stop>(
+            stream,
+            resource.auxiliary_offset +
+                (linear_brush.stop_offset + 1U) *
+                    sizeof(progpu_native_scene_gradient_stop));
+        PROGPU_REQUIRE(first_stop.offset == 0.0F);
+        PROGPU_REQUIRE(std::abs(first_stop.color.r - (1.0F / 3.0F)) < 1e-6F);
+        PROGPU_REQUIRE(std::abs(first_stop.color.g - (2.0F / 3.0F)) < 1e-6F);
+        PROGPU_REQUIRE(middle_stop.offset == 0.5F);
+        PROGPU_REQUIRE(
+            radial_brush.type == PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT);
+        PROGPU_REQUIRE(radial_brush.opacity == 0.8F);
+        PROGPU_REQUIRE(radial_brush.center.x == 20.0F);
+        PROGPU_REQUIRE(radial_brush.center.y == 20.0F);
+        PROGPU_REQUIRE(radial_brush.start_point.x == 18.0F);
+        PROGPU_REQUIRE(radial_brush.start_point.y == 19.0F);
+        PROGPU_REQUIRE(radial_brush.radius == 12.0F);
+        PROGPU_REQUIRE(radial_brush.radius_y == 6.0F);
+        PROGPU_REQUIRE(radial_brush.spread_method ==
+            PROGPU_NATIVE_SCENE_GRADIENT_REPEAT);
+        PROGPU_REQUIRE(radial_brush.color_interpolation_mode ==
+            PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SCRGB);
+        found_gradients = true;
+    }
+    PROGPU_REQUIRE(found_gradients);
+
+    std::vector<std::byte> update;
+    append_command(update, command::point_resource, start_point, 0.0, 0.0);
+    append_command(update, command::double_resource, opacity, 0.25);
+    PROGPU_REQUIRE(state.apply(update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 8100U, 2U, stream, &metrics) ==
+        status::success);
+    std::vector<std::byte> delete_dependency;
+    append_command(
+        delete_dependency,
+        command::channel_delete_resource,
+        start_point,
+        51U);
+    PROGPU_REQUIRE(state.apply(delete_dependency) == status::invalid_graph);
+    return true;
+}
+
 bool malformed_and_unsupported_packets_fail_closed() {
     channel state;
     const std::array malformed{
@@ -5346,6 +5656,8 @@ int main() {
     PROGPU_REQUIRE(
         retained_line_path_stroke_preserves_closure_gaps_and_pen_state());
     PROGPU_REQUIRE(retained_geometry_group_compiles_to_one_semantic_path());
+    PROGPU_REQUIRE(
+        retained_gradient_brushes_compile_with_wpf_mapping_and_animation());
     PROGPU_REQUIRE(render_data_scope_errors_fail_closed());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());
     PROGPU_REQUIRE(c_abi_is_typed_and_size_versioned());

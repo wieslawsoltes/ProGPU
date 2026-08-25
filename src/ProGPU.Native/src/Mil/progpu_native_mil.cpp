@@ -25,6 +25,7 @@ constexpr std::uint32_t type_render_target = 45U;
 constexpr std::uint32_t type_hwnd_render_target = 46U;
 constexpr std::uint32_t type_generic_render_target = 47U;
 constexpr std::uint32_t type_double_resource = 49U;
+constexpr std::uint32_t type_point_resource = 51U;
 constexpr std::uint32_t type_matrix_resource = 54U;
 constexpr std::uint32_t type_transform_group = 61U;
 constexpr std::uint32_t type_translate_transform = 62U;
@@ -39,6 +40,8 @@ constexpr std::uint32_t type_geometry_group = 71U;
 constexpr std::uint32_t type_combined_geometry = 72U;
 constexpr std::uint32_t type_path_geometry = 73U;
 constexpr std::uint32_t type_solid_color_brush = 75U;
+constexpr std::uint32_t type_linear_gradient_brush = 77U;
+constexpr std::uint32_t type_radial_gradient_brush = 78U;
 constexpr std::uint32_t type_dash_style = 84U;
 constexpr std::uint32_t type_pen = 85U;
 constexpr std::uint32_t type_last = 98U;
@@ -107,6 +110,58 @@ bool affine_has_zero_area(const affine_2d_double& transform) noexcept {
     const double determinant =
         transform.m11 * transform.m22 - transform.m12 * transform.m21;
     return std::isfinite(determinant) && determinant == 0.0;
+}
+
+bool try_invert_affine(
+    const affine_2d_double& source,
+    affine_2d_double& inverse) noexcept {
+    const double determinant =
+        source.m11 * source.m22 - source.m12 * source.m21;
+    if (!std::isfinite(determinant) || determinant == 0.0) {
+        return false;
+    }
+    const double reciprocal = 1.0 / determinant;
+    inverse = {
+        source.m22 * reciprocal,
+        -source.m12 * reciprocal,
+        -source.m21 * reciprocal,
+        source.m11 * reciprocal,
+        (source.m21 * source.m32 - source.m31 * source.m22) * reciprocal,
+        (source.m31 * source.m12 - source.m11 * source.m32) * reciprocal};
+    return finite_double_as_float(inverse.m11) &&
+        finite_double_as_float(inverse.m12) &&
+        finite_double_as_float(inverse.m21) &&
+        finite_double_as_float(inverse.m22) &&
+        finite_double_as_float(inverse.m31) &&
+        finite_double_as_float(inverse.m32);
+}
+
+float linear_to_srgb(float value) noexcept {
+    if (value <= 0.0F) {
+        return 0.0F;
+    }
+    if (value <= 0.0031308F) {
+        return value * 12.92F;
+    }
+    return 1.055F * std::pow(value, 1.0F / 2.4F) - 0.055F;
+}
+
+progpu_native_color sc_rgb_to_s_rgb(progpu_native_color color) noexcept {
+    color.r = linear_to_srgb(color.r);
+    color.g = linear_to_srgb(color.g);
+    color.b = linear_to_srgb(color.b);
+    return color;
+}
+
+progpu_native_color interpolate_color(
+    progpu_native_color first,
+    progpu_native_color second,
+    float factor) noexcept {
+    return {
+        first.r + (second.r - first.r) * factor,
+        first.g + (second.g - first.g) * factor,
+        first.b + (second.b - first.b) * factor,
+        first.a + (second.a - first.a) * factor};
 }
 
 bool try_to_native_affine(
@@ -507,6 +562,41 @@ struct channel::implementation {
         progpu_native_color color{};
     };
 
+    struct point_resource_state {
+        double x{};
+        double y{};
+    };
+
+    struct gradient_stop_state {
+        double position{};
+        progpu_native_color color{};
+    };
+
+    struct gradient_brush_state {
+        enum class kind : std::uint32_t {
+            linear,
+            radial
+        } type{kind::linear};
+        double opacity{1.0};
+        double first_x{};
+        double first_y{};
+        double second_x{};
+        double second_y{};
+        double radius_x{};
+        double radius_y{};
+        std::uint32_t opacity_animation{};
+        std::uint32_t transform_handle{};
+        std::uint32_t relative_transform_handle{};
+        std::uint32_t color_interpolation_mode{};
+        std::uint32_t mapping_mode{};
+        std::uint32_t spread_method{};
+        std::uint32_t first_point_animation{};
+        std::uint32_t second_point_animation{};
+        std::uint32_t radius_x_animation{};
+        std::uint32_t radius_y_animation{};
+        std::vector<gradient_stop_state> stops;
+    };
+
     struct pen_state {
         double thickness{};
         double miter_limit{10.0};
@@ -596,6 +686,7 @@ struct channel::implementation {
 
     std::unordered_map<std::uint32_t, resource_state> resources;
     std::unordered_map<std::uint32_t, double> double_resources;
+    std::unordered_map<std::uint32_t, point_resource_state> point_resources;
     std::unordered_map<std::uint32_t, affine_2d_double> matrix_resources;
     std::unordered_map<std::uint32_t, visual_state> visuals;
     std::unordered_map<std::uint32_t, target_state> targets;
@@ -606,6 +697,7 @@ struct channel::implementation {
         combined_geometries;
     std::unordered_map<std::uint32_t, path_geometry_state> path_geometries;
     std::unordered_map<std::uint32_t, solid_brush_state> solid_brushes;
+    std::unordered_map<std::uint32_t, gradient_brush_state> gradient_brushes;
     std::unordered_map<std::uint32_t, dash_style_state> dash_styles;
     std::unordered_map<std::uint32_t, pen_state> pens;
 
@@ -633,6 +725,19 @@ struct channel::implementation {
         const auto found = resources.find(handle);
         return found != resources.end() &&
             is_transform_type(found->second.type);
+    }
+
+    bool require_brush(std::uint32_t handle) const noexcept {
+        const auto found = resources.find(handle);
+        return found != resources.end() &&
+            (found->second.type == type_solid_color_brush ||
+             found->second.type == type_linear_gradient_brush ||
+             found->second.type == type_radial_gradient_brush);
+    }
+
+    bool has_brush_state(std::uint32_t handle) const noexcept {
+        return solid_brushes.contains(handle) ||
+            gradient_brushes.contains(handle);
     }
 
     bool transform_reaches(
@@ -675,6 +780,26 @@ struct channel::implementation {
             return status::invalid_handle;
         }
         value = animation->second;
+        return status::success;
+    }
+
+    status resolve_animated_point(
+        double base_x,
+        double base_y,
+        std::uint32_t animation_handle,
+        double& x,
+        double& y) const noexcept {
+        if (animation_handle == 0U) {
+            x = base_x;
+            y = base_y;
+            return status::success;
+        }
+        const auto animation = point_resources.find(animation_handle);
+        if (animation == point_resources.end()) {
+            return status::invalid_handle;
+        }
+        x = animation->second.x;
+        y = animation->second.y;
         return status::success;
     }
 
@@ -945,6 +1070,18 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
             }
+            for (const auto& [brush_handle, brush] : gradient_brushes) {
+                if (brush_handle != handle &&
+                    (brush.opacity_animation == handle ||
+                     brush.transform_handle == handle ||
+                     brush.relative_transform_handle == handle ||
+                     brush.first_point_animation == handle ||
+                     brush.second_point_animation == handle ||
+                     brush.radius_x_animation == handle ||
+                     brush.radius_y_animation == handle)) {
+                    return status::invalid_graph;
+                }
+            }
             for (const auto& [transform_handle, transform] : transforms) {
                 if (transform_handle != handle) {
                     if (transform.type == transform_state::kind::group &&
@@ -991,6 +1128,7 @@ struct channel::implementation {
             visuals.erase(handle);
             targets.erase(handle);
             double_resources.erase(handle);
+            point_resources.erase(handle);
             matrix_resources.erase(handle);
             transforms.erase(handle);
             fixed_geometries.erase(handle);
@@ -998,6 +1136,7 @@ struct channel::implementation {
             combined_geometries.erase(handle);
             path_geometries.erase(handle);
             solid_brushes.erase(handle);
+            gradient_brushes.erase(handle);
             dash_styles.erase(handle);
             pens.erase(handle);
             resources.erase(found);
@@ -1259,6 +1398,28 @@ struct channel::implementation {
                 return status::malformed_batch;
             }
             double_resources.insert_or_assign(handle, value);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::point_resource: {
+            point_resource_state point{};
+            if (!has_exact_size(view, 24U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, point.x) ||
+                !read_at(view.packet, 16U, point.y)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_point_resource)) {
+                return status::invalid_handle;
+            }
+            if (!finite_double_as_float(point.x) ||
+                !finite_double_as_float(point.y)) {
+                return status::malformed_batch;
+            }
+            point.x = static_cast<float>(point.x);
+            point.y = static_cast<float>(point.y);
+            point_resources.insert_or_assign(handle, point);
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -2312,6 +2473,125 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         }
+        case command::linear_gradient_brush:
+        case command::radial_gradient_brush: {
+            const bool radial = view.kind == command::radial_gradient_brush;
+            const std::size_t fixed_size = radial ? 108U : 84U;
+            gradient_brush_state brush{};
+            brush.type = radial
+                ? gradient_brush_state::kind::radial
+                : gradient_brush_state::kind::linear;
+            std::uint32_t stops_size = 0U;
+            if (view.packet.size() < fixed_size ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, brush.opacity)) {
+                return status::malformed_batch;
+            }
+            if (radial) {
+                if (!read_at(view.packet, 16U, brush.first_x) ||
+                    !read_at(view.packet, 24U, brush.first_y) ||
+                    !read_at(view.packet, 32U, brush.radius_x) ||
+                    !read_at(view.packet, 40U, brush.radius_y) ||
+                    !read_at(view.packet, 48U, brush.second_x) ||
+                    !read_at(view.packet, 56U, brush.second_y) ||
+                    !read_at(view.packet, 64U, brush.opacity_animation) ||
+                    !read_at(view.packet, 68U, brush.transform_handle) ||
+                    !read_at(
+                        view.packet, 72U, brush.relative_transform_handle) ||
+                    !read_at(
+                        view.packet, 76U, brush.color_interpolation_mode) ||
+                    !read_at(view.packet, 80U, brush.mapping_mode) ||
+                    !read_at(view.packet, 84U, brush.spread_method) ||
+                    !read_at(view.packet, 88U, stops_size) ||
+                    !read_at(view.packet, 92U, brush.first_point_animation) ||
+                    !read_at(view.packet, 96U, brush.radius_x_animation) ||
+                    !read_at(view.packet, 100U, brush.radius_y_animation) ||
+                    !read_at(
+                        view.packet, 104U, brush.second_point_animation)) {
+                    return status::malformed_batch;
+                }
+            } else if (!read_at(view.packet, 16U, brush.first_x) ||
+                !read_at(view.packet, 24U, brush.first_y) ||
+                !read_at(view.packet, 32U, brush.second_x) ||
+                !read_at(view.packet, 40U, brush.second_y) ||
+                !read_at(view.packet, 48U, brush.opacity_animation) ||
+                !read_at(view.packet, 52U, brush.transform_handle) ||
+                !read_at(
+                    view.packet, 56U, brush.relative_transform_handle) ||
+                !read_at(
+                    view.packet, 60U, brush.color_interpolation_mode) ||
+                !read_at(view.packet, 64U, brush.mapping_mode) ||
+                !read_at(view.packet, 68U, brush.spread_method) ||
+                !read_at(view.packet, 72U, stops_size) ||
+                !read_at(view.packet, 76U, brush.first_point_animation) ||
+                !read_at(view.packet, 80U, brush.second_point_animation)) {
+                return status::malformed_batch;
+            }
+            const std::uint32_t expected_type = radial
+                ? type_radial_gradient_brush
+                : type_linear_gradient_brush;
+            if (!require_resource(handle, expected_type)) {
+                return status::invalid_handle;
+            }
+            if (stops_size % 24U != 0U ||
+                view.packet.size() != fixed_size + stops_size ||
+                !finite_double_as_float(brush.opacity) ||
+                brush.opacity < 0.0 || brush.opacity > 1.0 ||
+                !finite_double_as_float(brush.first_x) ||
+                !finite_double_as_float(brush.first_y) ||
+                !finite_double_as_float(brush.second_x) ||
+                !finite_double_as_float(brush.second_y) ||
+                (radial && (!finite_double_as_float(brush.radius_x) ||
+                    !finite_double_as_float(brush.radius_y))) ||
+                brush.color_interpolation_mode > 1U ||
+                brush.mapping_mode > 1U || brush.spread_method > 2U) {
+                return status::malformed_batch;
+            }
+            if ((brush.opacity_animation != 0U &&
+                    !require_resource(
+                        brush.opacity_animation, type_double_resource)) ||
+                (brush.transform_handle != 0U &&
+                    !require_transform(brush.transform_handle)) ||
+                (brush.relative_transform_handle != 0U &&
+                    !require_transform(brush.relative_transform_handle)) ||
+                (brush.first_point_animation != 0U &&
+                    !require_resource(
+                        brush.first_point_animation, type_point_resource)) ||
+                (brush.second_point_animation != 0U &&
+                    !require_resource(
+                        brush.second_point_animation, type_point_resource)) ||
+                (brush.radius_x_animation != 0U &&
+                    !require_resource(
+                        brush.radius_x_animation, type_double_resource)) ||
+                (brush.radius_y_animation != 0U &&
+                    !require_resource(
+                        brush.radius_y_animation, type_double_resource))) {
+                return status::invalid_handle;
+            }
+            const std::size_t stop_count = stops_size / 24U;
+            try {
+                brush.stops.resize(stop_count);
+            } catch (const std::bad_alloc&) {
+                return status::capacity_exceeded;
+            }
+            for (std::size_t index = 0U; index < stop_count; ++index) {
+                auto& stop = brush.stops[index];
+                const std::size_t offset = fixed_size + index * 24U;
+                if (!read_at(view.packet, offset, stop.position) ||
+                    !read_at(view.packet, offset + 8U, stop.color) ||
+                    !finite_double_as_float(stop.position) ||
+                    !std::isfinite(stop.color.r) ||
+                    !std::isfinite(stop.color.g) ||
+                    !std::isfinite(stop.color.b) ||
+                    !std::isfinite(stop.color.a)) {
+                    return status::malformed_batch;
+                }
+            }
+            gradient_brushes.insert_or_assign(handle, std::move(brush));
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
         case command::dash_style: {
             dash_style_state dash{};
             std::uint32_t offset_animations = 0U;
@@ -2376,9 +2656,7 @@ struct channel::implementation {
             pen.dash_style_handle = dash_style;
             if (!require_resource(handle, type_pen) ||
                 (pen.brush_handle != 0U &&
-                 !require_resource(
-                     pen.brush_handle,
-                     type_solid_color_brush)) ||
+                 !require_brush(pen.brush_handle)) ||
                 (dash_style != 0U &&
                  !require_resource(dash_style, type_dash_style))) {
                 return status::invalid_handle;
@@ -3394,31 +3672,306 @@ struct channel::implementation {
             state.mask_resource_index = mask_resource_index;
             return status::success;
         };
+        struct brush_use_state {
+            double x{};
+            double y{};
+            double width{};
+            double height{};
+            affine_2d_double effective_transform{};
+        };
         const auto resolve_brush_index = [
             this,
             &builder,
             &brush_indices](
             std::uint32_t brush_handle,
-            std::uint32_t& result) noexcept {
-            const auto brush = solid_brushes.find(brush_handle);
-            if (brush == solid_brushes.end()) {
-                return status::invalid_handle;
-            }
-            const auto existing = brush_indices.find(brush_handle);
-            if (existing != brush_indices.end()) {
-                result = existing->second;
+            std::uint32_t& result,
+            const brush_use_state* use = nullptr) noexcept {
+            const auto solid = solid_brushes.find(brush_handle);
+            if (solid != solid_brushes.end()) {
+                const auto existing = brush_indices.find(brush_handle);
+                if (existing != brush_indices.end()) {
+                    result = existing->second;
+                    return status::success;
+                }
+                std::uint32_t added = PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (!builder.add_solid_brush(
+                        solid->second.color,
+                        static_cast<float>(solid->second.opacity),
+                        added)) {
+                    return status::invalid_graph;
+                }
+                brush_indices.emplace(brush_handle, added);
+                result = added;
                 return status::success;
             }
-            std::uint32_t added = PROGPU_NATIVE_SCENE_NO_INDEX;
-            if (!builder.add_solid_brush(
-                    brush->second.color,
-                    static_cast<float>(brush->second.opacity),
-                    added)) {
+            const auto gradient = gradient_brushes.find(brush_handle);
+            if (gradient == gradient_brushes.end()) {
+                return status::invalid_handle;
+            }
+            if (use == nullptr || use->width <= 0.0 || use->height <= 0.0) {
+                return status::unsupported_command;
+            }
+            const auto& source = gradient->second;
+            double opacity = 0.0;
+            const status opacity_status = resolve_animated_double(
+                source.opacity,
+                source.opacity_animation,
+                opacity);
+            if (opacity_status != status::success) {
+                return opacity_status;
+            }
+            if (!finite_double_as_float(opacity) ||
+                opacity < 0.0 || opacity > 1.0) {
                 return status::invalid_graph;
             }
-            brush_indices.emplace(brush_handle, added);
-            result = added;
-            return status::success;
+            double first_x = 0.0;
+            double first_y = 0.0;
+            double second_x = 0.0;
+            double second_y = 0.0;
+            const status first_status = resolve_animated_point(
+                source.first_x,
+                source.first_y,
+                source.first_point_animation,
+                first_x,
+                first_y);
+            const status second_status = resolve_animated_point(
+                source.second_x,
+                source.second_y,
+                source.second_point_animation,
+                second_x,
+                second_y);
+            if (first_status != status::success) {
+                return first_status;
+            }
+            if (second_status != status::success) {
+                return second_status;
+            }
+            double radius_x = source.radius_x;
+            double radius_y = source.radius_y;
+            if (source.type == gradient_brush_state::kind::radial) {
+                const status radius_x_status = resolve_animated_double(
+                    source.radius_x,
+                    source.radius_x_animation,
+                    radius_x);
+                const status radius_y_status = resolve_animated_double(
+                    source.radius_y,
+                    source.radius_y_animation,
+                    radius_y);
+                if (radius_x_status != status::success) {
+                    return radius_x_status;
+                }
+                if (radius_y_status != status::success) {
+                    return radius_y_status;
+                }
+            }
+            if (source.mapping_mode == 1U) {
+                first_x = use->x + first_x * use->width;
+                first_y = use->y + first_y * use->height;
+                second_x = use->x + second_x * use->width;
+                second_y = use->y + second_y * use->height;
+                radius_x *= use->width;
+                radius_y *= use->height;
+            }
+            if (!finite_double_as_float(first_x) ||
+                !finite_double_as_float(first_y) ||
+                !finite_double_as_float(second_x) ||
+                !finite_double_as_float(second_y) ||
+                (source.type == gradient_brush_state::kind::radial &&
+                    (!finite_double_as_float(radius_x) ||
+                     !finite_double_as_float(radius_y) ||
+                     radius_x < 0.0 || radius_y < 0.0 ||
+                     (radius_x == 0.0 && radius_y == 0.0)))) {
+                return status::invalid_graph;
+            }
+            affine_2d_double brush_transform{};
+            if (source.relative_transform_handle != 0U) {
+                affine_2d_double relative{};
+                const status relative_status = resolve_transform(
+                    source.relative_transform_handle,
+                    relative);
+                if (relative_status != status::success) {
+                    return relative_status;
+                }
+                const affine_2d_double to_relative{
+                    1.0 / use->width,
+                    0.0,
+                    0.0,
+                    1.0 / use->height,
+                    -use->x / use->width,
+                    -use->y / use->height};
+                const affine_2d_double from_relative{
+                    use->width,
+                    0.0,
+                    0.0,
+                    use->height,
+                    use->x,
+                    use->y};
+                brush_transform = compose_affine(
+                    compose_affine(to_relative, relative),
+                    from_relative);
+            }
+            if (source.transform_handle != 0U) {
+                affine_2d_double absolute{};
+                const status absolute_status = resolve_transform(
+                    source.transform_handle,
+                    absolute);
+                if (absolute_status != status::success) {
+                    return absolute_status;
+                }
+                brush_transform = compose_affine(
+                    brush_transform,
+                    absolute);
+            }
+            affine_2d_double inverse_draw{};
+            affine_2d_double inverse_brush{};
+            if (!try_invert_affine(use->effective_transform, inverse_draw) ||
+                !try_invert_affine(brush_transform, inverse_brush)) {
+                return status::unsupported_command;
+            }
+            const affine_2d_double coordinate = compose_affine(
+                inverse_draw,
+                inverse_brush);
+            progpu_native_affine_2d native_coordinate{};
+            if (!try_to_native_affine(coordinate, native_coordinate)) {
+                return status::invalid_graph;
+            }
+
+            if (source.stops.empty()) {
+                return builder.add_solid_brush({}, 0.0F, result)
+                    ? status::success
+                    : status::invalid_graph;
+            }
+            if (source.stops.size() == 1U) {
+                const auto color = sc_rgb_to_s_rgb(source.stops[0].color);
+                return builder.add_solid_brush(
+                        color,
+                        static_cast<float>(opacity),
+                        result)
+                    ? status::success
+                    : status::invalid_graph;
+            }
+            std::vector<gradient_stop_state> working;
+            try {
+                working = source.stops;
+            } catch (const std::bad_alloc&) {
+                return status::capacity_exceeded;
+            }
+            for (auto& stop : working) {
+                stop.position = static_cast<float>(stop.position);
+                if (source.color_interpolation_mode == 1U) {
+                    stop.color = sc_rgb_to_s_rgb(stop.color);
+                }
+            }
+            std::stable_sort(
+                working.begin(),
+                working.end(),
+                [](const gradient_stop_state& left,
+                   const gradient_stop_state& right) {
+                    return left.position < right.position;
+                });
+            const auto color_at = [&working](
+                float position,
+                bool prefer_first_exact) noexcept {
+                auto first_exact = working.end();
+                auto last_exact = working.end();
+                for (auto current = working.begin();
+                     current != working.end();
+                     ++current) {
+                    const float current_position =
+                        static_cast<float>(current->position);
+                    if (current_position == position) {
+                        if (first_exact == working.end()) {
+                            first_exact = current;
+                        }
+                        last_exact = current;
+                    }
+                }
+                if (first_exact != working.end()) {
+                    return (prefer_first_exact ? first_exact : last_exact)->color;
+                }
+                if (working.front().position > position) {
+                    return working.front().color;
+                }
+                if (working.back().position < position) {
+                    return working.back().color;
+                }
+                for (std::size_t index = 1U;
+                     index < working.size();
+                     ++index) {
+                    const float right =
+                        static_cast<float>(working[index].position);
+                    if (right > position) {
+                        const float left = static_cast<float>(
+                            working[index - 1U].position);
+                        const float factor =
+                            (position - left) / (right - left);
+                        return interpolate_color(
+                            working[index - 1U].color,
+                            working[index].color,
+                            factor);
+                    }
+                }
+                return working.back().color;
+            };
+            const progpu_native_color first_color = color_at(0.0F, false);
+            const progpu_native_color last_color = color_at(1.0F, true);
+            std::vector<progpu_native_scene_gradient_stop> stops;
+            try {
+                stops.reserve(working.size() + 2U);
+                stops.push_back({first_color, 0.0F, 0U, 0U, 0U});
+                for (const auto& stop : working) {
+                    const float position = static_cast<float>(stop.position);
+                    if (position > 0.0F && position < 1.0F) {
+                        stops.push_back({
+                            stop.color, position, 0U, 0U, 0U});
+                    }
+                }
+                stops.push_back({last_color, 1.0F, 0U, 0U, 0U});
+            } catch (const std::bad_alloc&) {
+                return status::capacity_exceeded;
+            }
+            if (source.color_interpolation_mode == 0U) {
+                for (auto& stop : stops) {
+                    stop.color = sc_rgb_to_s_rgb(stop.color);
+                }
+            }
+            progpu_native_scene_brush native{};
+            native.type = source.type == gradient_brush_state::kind::linear
+                ? PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT
+                : PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT;
+            native.opacity = static_cast<float>(opacity);
+            native.start_point = {
+                static_cast<float>(
+                    source.type == gradient_brush_state::kind::linear
+                        ? first_x
+                        : second_x),
+                static_cast<float>(
+                    source.type == gradient_brush_state::kind::linear
+                        ? first_y
+                        : second_y)};
+            native.end_point = {
+                static_cast<float>(second_x),
+                static_cast<float>(second_y)};
+            native.center = {
+                static_cast<float>(first_x),
+                static_cast<float>(first_y)};
+            native.radius = static_cast<float>(radius_x);
+            native.radius_y = static_cast<float>(radius_y);
+            native.stop_count = static_cast<std::uint32_t>(stops.size());
+            native.spread_method = source.spread_method;
+            native.color_interpolation_mode =
+                source.color_interpolation_mode == 0U
+                    ? PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SCRGB
+                    : PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB;
+            native.coordinate_transform0[0] = native_coordinate.m11;
+            native.coordinate_transform0[1] = native_coordinate.m21;
+            native.coordinate_transform0[2] = native_coordinate.m31;
+            native.coordinate_transform1[0] = native_coordinate.m12;
+            native.coordinate_transform1[1] = native_coordinate.m22;
+            native.coordinate_transform1[2] = native_coordinate.m32;
+            return builder.add_brush(native, stops, result)
+                ? status::success
+                : status::invalid_graph;
         };
         const auto append_polyline_stroke = [
             this,
@@ -3667,13 +4220,6 @@ struct channel::implementation {
                 }
                 return cap_status;
             }
-            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            const status brush_status = resolve_brush_index(
-                pen->second.brush_handle,
-                brush_index);
-            if (brush_status != status::success) {
-                return brush_status;
-            }
             double local_x = 0.0;
             double local_y = 0.0;
             double local_width = 0.0;
@@ -3691,6 +4237,20 @@ struct channel::implementation {
                     local_width,
                     local_height)) {
                 return status::invalid_graph;
+            }
+            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            const brush_use_state brush_use{
+                local_x,
+                local_y,
+                local_width,
+                local_height,
+                effective_transform};
+            const status brush_status = resolve_brush_index(
+                pen->second.brush_handle,
+                brush_index,
+                &brush_use);
+            if (brush_status != status::success) {
+                return brush_status;
             }
             progpu_native_image_rect transformed_bounds{};
             if (!try_transform_bounds(
@@ -3772,14 +4332,14 @@ struct channel::implementation {
             if (pen.brush_handle == 0U || pen.thickness == 0.0) {
                 return status::success;
             }
-            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            const status brush_status = resolve_brush_index(
-                pen.brush_handle,
-                brush_index);
-            if (brush_status != status::success) {
-                return brush_status;
-            }
             if (radius_x == 0.0 && radius_y == 0.0) {
+                std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                const status brush_status = resolve_brush_index(
+                    pen.brush_handle,
+                    brush_index);
+                if (brush_status != status::success) {
+                    return brush_status;
+                }
                 bool emitted = false;
                 return append_degenerate_cap_stroke(
                     pen,
@@ -3802,6 +4362,20 @@ struct channel::implementation {
                 }
             }
             const double half_thickness = pen.thickness * 0.5;
+            const brush_use_state brush_use{
+                center_x - radius_x - half_thickness,
+                center_y - radius_y - half_thickness,
+                radius_x * 2.0 + pen.thickness,
+                radius_y * 2.0 + pen.thickness,
+                effective_transform};
+            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            const status brush_status = resolve_brush_index(
+                pen.brush_handle,
+                brush_index,
+                &brush_use);
+            if (brush_status != status::success) {
+                return brush_status;
+            }
             progpu_native_image_rect stroke_bounds{};
             if (!try_transform_bounds(
                     center_x - radius_x - half_thickness,
@@ -3873,13 +4447,6 @@ struct channel::implementation {
             if (geometry.stroke_contours.empty()) {
                 return status::success;
             }
-            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            const status brush_status = resolve_brush_index(
-                pen.brush_handle,
-                brush_index);
-            if (brush_status != status::success) {
-                return brush_status;
-            }
             progpu_native_affine_2d native_local_transform{};
             if (!try_to_native_affine(
                     local_transform,
@@ -3891,6 +4458,20 @@ struct channel::implementation {
                 std::max(1.0, pen.miter_limit);
             if (!finite_double_as_float(expansion)) {
                 return status::invalid_graph;
+            }
+            const brush_use_state brush_use{
+                geometry.left - expansion,
+                geometry.top - expansion,
+                geometry.right - geometry.left + expansion * 2.0,
+                geometry.bottom - geometry.top + expansion * 2.0,
+                effective_transform};
+            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            const status brush_status = resolve_brush_index(
+                pen.brush_handle,
+                brush_index,
+                &brush_use);
+            if (brush_status != status::success) {
+                return brush_status;
             }
             for (const auto& contour : geometry.stroke_contours) {
                 const bool has_curves = std::ranges::any_of(
@@ -4435,18 +5016,25 @@ struct channel::implementation {
                     return status::unsupported_command;
                 }
             }
-            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            const status brush_status = resolve_brush_index(
-                pen.brush_handle,
-                brush_index);
-            if (brush_status != status::success) {
-                return brush_status;
-            }
             const double half_thickness = pen.thickness * 0.5;
             const double left = x - half_thickness;
             const double top = y - half_thickness;
             const double right = x + width + half_thickness;
             const double bottom = y + height + half_thickness;
+            const brush_use_state brush_use{
+                left,
+                top,
+                right - left,
+                bottom - top,
+                effective_transform};
+            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            const status brush_status = resolve_brush_index(
+                pen.brush_handle,
+                brush_index,
+                &brush_use);
+            if (brush_status != status::success) {
+                return brush_status;
+            }
             progpu_native_image_rect stroke_bounds{};
             if (!try_transform_bounds(
                     left,
@@ -4814,7 +5402,7 @@ struct channel::implementation {
                     return status::malformed_batch;
                 }
                 if (brush_handle != 0U &&
-                    !solid_brushes.contains(brush_handle)) {
+                    !has_brush_state(brush_handle)) {
                     return status::invalid_handle;
                 }
                 const auto geometry = fixed_geometries.find(geometry_handle);
@@ -4963,9 +5551,16 @@ struct channel::implementation {
                     }
                     std::uint32_t brush_index =
                         PROGPU_NATIVE_SCENE_NO_INDEX;
+                    const brush_use_state brush_use{
+                        group_left,
+                        group_top,
+                        group_right - group_left,
+                        group_bottom - group_top,
+                        effective_transform};
                     const status brush_status = resolve_brush_index(
                         brush_handle,
-                        brush_index);
+                        brush_index,
+                        &brush_use);
                     if (brush_status != status::success) {
                         return brush_status;
                     }
@@ -5098,9 +5693,16 @@ struct channel::implementation {
                     boolean_nodes.push_back(operation);
                     std::uint32_t brush_index =
                         PROGPU_NATIVE_SCENE_NO_INDEX;
+                    const brush_use_state brush_use{
+                        combined_tree.left,
+                        combined_tree.top,
+                        combined_tree.right - combined_tree.left,
+                        combined_tree.bottom - combined_tree.top,
+                        effective_transform};
                     const status brush_status = resolve_brush_index(
                         brush_handle,
-                        brush_index);
+                        brush_index,
+                        &brush_use);
                     if (brush_status != status::success) {
                         return brush_status;
                     }
@@ -5158,9 +5760,18 @@ struct channel::implementation {
                         !path_geometry->second.segments.empty()) {
                         std::uint32_t brush_index =
                             PROGPU_NATIVE_SCENE_NO_INDEX;
+                        const brush_use_state brush_use{
+                            path_geometry->second.left,
+                            path_geometry->second.top,
+                            path_geometry->second.right -
+                                path_geometry->second.left,
+                            path_geometry->second.bottom -
+                                path_geometry->second.top,
+                            effective_transform};
                         const status brush_status = resolve_brush_index(
                             brush_handle,
-                            brush_index);
+                            brush_index,
+                            &brush_use);
                         if (brush_status != status::success) {
                             return brush_status;
                         }
@@ -5293,7 +5904,7 @@ struct channel::implementation {
             }
             if (affine_has_zero_area(effective_transform)) {
                 if (brush_handle != 0U &&
-                    !solid_brushes.contains(brush_handle)) {
+                    !has_brush_state(brush_handle)) {
                     return status::invalid_handle;
                 }
                 if (pen_handle != 0U && !pens.contains(pen_handle)) {
@@ -5321,7 +5932,7 @@ struct channel::implementation {
                 continue;
             }
             if (brush_handle != 0U &&
-                !solid_brushes.contains(brush_handle)) {
+                !has_brush_state(brush_handle)) {
                 return status::invalid_handle;
             }
             if (pen_handle != 0U && !pens.contains(pen_handle)) {
@@ -5345,9 +5956,12 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
                 std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                const brush_use_state brush_use{
+                    x, y, width, height, effective_transform};
                 const status brush_status = resolve_brush_index(
                     brush_handle,
-                    brush_index);
+                    brush_index,
+                    &brush_use);
                 if (brush_status != status::success) {
                     return brush_status;
                 }
@@ -5438,16 +6052,23 @@ struct channel::implementation {
                             return stroke_status;
                         }
                     } else {
+                        const double half_thickness =
+                            pen->second.thickness * 0.5;
+                        const brush_use_state brush_use{
+                            x - half_thickness,
+                            y - half_thickness,
+                            width + pen->second.thickness,
+                            height + pen->second.thickness,
+                            effective_transform};
                         std::uint32_t pen_brush_index =
                             PROGPU_NATIVE_SCENE_NO_INDEX;
                         const status brush_status = resolve_brush_index(
                             pen->second.brush_handle,
-                            pen_brush_index);
+                            pen_brush_index,
+                            &brush_use);
                         if (brush_status != status::success) {
                             return brush_status;
                         }
-                        const double half_thickness =
-                            pen->second.thickness * 0.5;
                         progpu_native_image_rect stroke_bounds{};
                         if (!try_transform_bounds(
                                 x - half_thickness,
