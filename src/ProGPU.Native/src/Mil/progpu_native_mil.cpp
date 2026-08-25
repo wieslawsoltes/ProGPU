@@ -3807,10 +3807,143 @@ struct channel::implementation {
             }
             return status::success;
         };
+        const auto append_rounded_rectangle_path = [](
+            std::vector<progpu_native_path_segment>& segments,
+            double left,
+            double top,
+            double right,
+            double bottom,
+            double radius_x,
+            double radius_y) {
+            radius_x = std::clamp(
+                radius_x, 0.0, (right - left) * 0.5);
+            radius_y = std::clamp(
+                radius_y, 0.0, (bottom - top) * 0.5);
+            const auto append_line = [&segments](
+                double x0,
+                double y0,
+                double x1,
+                double y1) {
+                progpu_native_path_segment segment{};
+                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                segment.p0 = {
+                    static_cast<float>(x0), static_cast<float>(y0)};
+                segment.p1 = {
+                    static_cast<float>(x1), static_cast<float>(y1)};
+                segments.push_back(segment);
+            };
+            const auto append_arc = [&segments](
+                double x0,
+                double y0,
+                double x1,
+                double y1,
+                double center_x,
+                double center_y,
+                double arc_radius_x,
+                double arc_radius_y,
+                float theta1) {
+                progpu_native_path_segment segment{};
+                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_ARC;
+                segment.p0 = {
+                    static_cast<float>(x0), static_cast<float>(y0)};
+                segment.p1 = {
+                    static_cast<float>(x1), static_cast<float>(y1)};
+                segment.p2 = {static_cast<float>(center_x),
+                    static_cast<float>(center_y)};
+                segment.p3 = {static_cast<float>(arc_radius_x),
+                    static_cast<float>(arc_radius_y)};
+                segment.pad0 = std::bit_cast<std::uint32_t>(theta1);
+                segment.pad1 = std::bit_cast<std::uint32_t>(
+                    std::numbers::pi_v<float> * 0.5F);
+                segment.pad2 = std::bit_cast<std::uint32_t>(0.0F);
+                segments.push_back(segment);
+            };
+            constexpr float half_pi =
+                std::numbers::pi_v<float> * 0.5F;
+            append_arc(
+                left,
+                top + radius_y,
+                left + radius_x,
+                top,
+                left + radius_x,
+                top + radius_y,
+                radius_x,
+                radius_y,
+                std::numbers::pi_v<float>);
+            append_line(left + radius_x, top, right - radius_x, top);
+            append_arc(
+                right - radius_x,
+                top,
+                right,
+                top + radius_y,
+                right - radius_x,
+                top + radius_y,
+                radius_x,
+                radius_y,
+                std::numbers::pi_v<float> + half_pi);
+            append_line(right, top + radius_y, right, bottom - radius_y);
+            append_arc(
+                right,
+                bottom - radius_y,
+                right - radius_x,
+                bottom,
+                right - radius_x,
+                bottom - radius_y,
+                radius_x,
+                radius_y,
+                0.0F);
+            append_line(right - radius_x, bottom, left + radius_x, bottom);
+            append_arc(
+                left + radius_x,
+                bottom,
+                left,
+                bottom - radius_y,
+                left + radius_x,
+                bottom - radius_y,
+                radius_x,
+                radius_y,
+                half_pi);
+            append_line(left, bottom - radius_y, left, top + radius_y);
+        };
+        const auto make_rounded_rectangle_geometry = [
+            &append_rounded_rectangle_path](
+            double x,
+            double y,
+            double width,
+            double height,
+            double radius_x,
+            double radius_y) {
+            path_geometry_state geometry{};
+            geometry.left = x;
+            geometry.top = y;
+            geometry.right = x + width;
+            geometry.bottom = y + height;
+            geometry.fill_rule = 0U;
+            geometry.segments.reserve(8U);
+            append_rounded_rectangle_path(
+                geometry.segments,
+                geometry.left,
+                geometry.top,
+                geometry.right,
+                geometry.bottom,
+                radius_x,
+                radius_y);
+            path_stroke_contour_state contour{};
+            contour.closed = true;
+            contour.points.reserve(geometry.segments.size());
+            contour.segments = geometry.segments;
+            contour.smooth_joins.assign(geometry.segments.size(), 1U);
+            for (const auto& segment : geometry.segments) {
+                contour.points.push_back(segment.p0);
+            }
+            geometry.stroke_contours.push_back(std::move(contour));
+            return geometry;
+        };
         const auto append_degenerate_rectangle_stroke = [
             this,
             &builder,
-            &resolve_brush_index](
+            &resolve_brush_index,
+            &append_rounded_rectangle_path](
             double x,
             double y,
             double width,
@@ -3873,32 +4006,6 @@ struct channel::implementation {
                     static_cast<float>(x1), static_cast<float>(y1)};
                 segments.push_back(segment);
             };
-            const auto append_arc = [&segments](
-                double x0,
-                double y0,
-                double x1,
-                double y1,
-                double center_x,
-                double center_y,
-                double radius_x,
-                double radius_y,
-                float theta1) {
-                progpu_native_path_segment segment{};
-                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_ARC;
-                segment.p0 = {
-                    static_cast<float>(x0), static_cast<float>(y0)};
-                segment.p1 = {
-                    static_cast<float>(x1), static_cast<float>(y1)};
-                segment.p2 = {static_cast<float>(center_x),
-                    static_cast<float>(center_y)};
-                segment.p3 = {static_cast<float>(radius_x),
-                    static_cast<float>(radius_y)};
-                segment.pad0 = std::bit_cast<std::uint32_t>(theta1);
-                segment.pad1 = std::bit_cast<std::uint32_t>(
-                    std::numbers::pi_v<float> * 0.5F);
-                segment.pad2 = std::bit_cast<std::uint32_t>(0.0F);
-                segments.push_back(segment);
-            };
             if (radius > 0.0 ||
                 pen.line_join == PROGPU_NATIVE_STROKE_JOIN_ROUND) {
                 const double outer_radius = radius + half_thickness;
@@ -3906,56 +4013,14 @@ struct channel::implementation {
                     outer_radius, (right - left) * 0.5);
                 const double radius_y = std::min(
                     outer_radius, (bottom - top) * 0.5);
-                constexpr float half_pi =
-                    std::numbers::pi_v<float> * 0.5F;
-                append_arc(
+                append_rounded_rectangle_path(
+                    segments,
                     left,
-                    top + radius_y,
-                    left + radius_x,
-                    top,
-                    left + radius_x,
-                    top + radius_y,
-                    radius_x,
-                    radius_y,
-                    std::numbers::pi_v<float>);
-                append_line(
-                    left + radius_x, top, right - radius_x, top);
-                append_arc(
-                    right - radius_x,
                     top,
                     right,
-                    top + radius_y,
-                    right - radius_x,
-                    top + radius_y,
-                    radius_x,
-                    radius_y,
-                    std::numbers::pi_v<float> + half_pi);
-                append_line(
-                    right, top + radius_y, right, bottom - radius_y);
-                append_arc(
-                    right,
-                    bottom - radius_y,
-                    right - radius_x,
                     bottom,
-                    right - radius_x,
-                    bottom - radius_y,
                     radius_x,
-                    radius_y,
-                    0.0F);
-                append_line(
-                    right - radius_x, bottom, left + radius_x, bottom);
-                append_arc(
-                    left + radius_x,
-                    bottom,
-                    left,
-                    bottom - radius_y,
-                    left + radius_x,
-                    bottom - radius_y,
-                    radius_x,
-                    radius_y,
-                    half_pi);
-                append_line(
-                    left, bottom - radius_y, left, top + radius_y);
+                    radius_y);
             } else {
                 double bevel_offset = 0.0;
                 if (pen.line_join == PROGPU_NATIVE_STROKE_JOIN_BEVEL) {
@@ -4765,9 +4830,6 @@ struct channel::implementation {
                 }
                 continue;
             }
-            if (is_rounded && radius_x != radius_y) {
-                return status::unsupported_command;
-            }
             const double x = is_ellipse ? first - third : first;
             const double y = is_ellipse ? second - fourth : second;
             const double width = is_ellipse ? third * 2.0 : third;
@@ -4776,6 +4838,11 @@ struct channel::implementation {
                 !finite_double_as_float(width) ||
                 !finite_double_as_float(height)) {
                 return status::malformed_batch;
+            }
+            if (is_rounded && radius_x != radius_y &&
+                (width == 0.0 || height == 0.0 ||
+                 radius_x == 0.0 || radius_y == 0.0)) {
+                return status::unsupported_command;
             }
             if (brush_handle == 0U && pen_handle == 0U) {
                 continue;
@@ -4811,29 +4878,61 @@ struct channel::implementation {
                 if (brush_status != status::success) {
                     return brush_status;
                 }
-                const std::array primitive{
-                    progpu_native_analytic_primitive{
-                        static_cast<std::uint32_t>(
-                            is_ellipse
-                                ? PROGPU_NATIVE_PRIMITIVE_ELLIPSE
-                                : is_rounded
-                                    ? PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE
-                                    : PROGPU_NATIVE_PRIMITIVE_RECTANGLE),
-                        0U,
-                        static_cast<float>(x),
-                        static_cast<float>(y),
-                        static_cast<float>(width),
-                        static_cast<float>(height),
-                        static_cast<float>(radius_x),
-                        0.0F,
-                        {1.0F, 1.0F, 1.0F, 1.0F},
-                        native_local_transform}};
                 const std::array brushes{brush_index};
-                if (!builder.draw_analytic(
-                        primitive,
-                        brushes,
-                        fill_bounds)) {
-                    return status::invalid_graph;
+                if (is_rounded && radius_x != radius_y) {
+                    const auto rounded_geometry =
+                        make_rounded_rectangle_geometry(
+                            x,
+                            y,
+                            width,
+                            height,
+                            radius_x,
+                            radius_y);
+                    const std::array paths{
+                        progpu_native_scene_path_fill{
+                            0U,
+                            rounded_geometry.segments.size(),
+                            0U,
+                            0U,
+                            static_cast<float>(rounded_geometry.left),
+                            static_cast<float>(rounded_geometry.top),
+                            static_cast<float>(rounded_geometry.right),
+                            static_cast<float>(rounded_geometry.bottom),
+                            {1.0F, 1.0F, 1.0F, 1.0F},
+                            native_local_transform,
+                            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+                            8U}};
+                    if (!builder.draw_paths(
+                            paths,
+                            rounded_geometry.segments,
+                            brushes,
+                            fill_bounds)) {
+                        return status::invalid_graph;
+                    }
+                } else {
+                    const std::array primitive{
+                        progpu_native_analytic_primitive{
+                            static_cast<std::uint32_t>(
+                                is_ellipse
+                                    ? PROGPU_NATIVE_PRIMITIVE_ELLIPSE
+                                    : is_rounded
+                                        ? PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE
+                                        : PROGPU_NATIVE_PRIMITIVE_RECTANGLE),
+                            0U,
+                            static_cast<float>(x),
+                            static_cast<float>(y),
+                            static_cast<float>(width),
+                            static_cast<float>(height),
+                            static_cast<float>(radius_x),
+                            0.0F,
+                            {1.0F, 1.0F, 1.0F, 1.0F},
+                            native_local_transform}};
+                    if (!builder.draw_analytic(
+                            primitive,
+                            brushes,
+                            fill_bounds)) {
+                        return status::invalid_graph;
+                    }
                 }
             }
             if (pen_handle != 0U) {
@@ -4919,7 +5018,8 @@ struct channel::implementation {
                                     stroke_bounds)) {
                                 return status::invalid_graph;
                             }
-                        } else if (is_rounded && radius_x > 0.0) {
+                        } else if (is_rounded &&
+                            (radius_x > 0.0 || radius_y > 0.0)) {
                             if (pen->second.dash_style_handle != 0U) {
                                 const auto dash = dash_styles.find(
                                     pen->second.dash_style_handle);
@@ -4930,25 +5030,45 @@ struct channel::implementation {
                                     return status::unsupported_command;
                                 }
                             }
-                            const std::array primitive{
-                                progpu_native_analytic_primitive{
-                                    PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE,
-                                    0U,
-                                    static_cast<float>(x),
-                                    static_cast<float>(y),
-                                    static_cast<float>(width),
-                                    static_cast<float>(height),
-                                    static_cast<float>(radius_x),
-                                    static_cast<float>(
-                                        pen->second.thickness),
-                                    {1.0F, 1.0F, 1.0F, 1.0F},
-                                    native_local_transform}};
-                            const std::array brushes{pen_brush_index};
-                            if (!builder.draw_analytic(
-                                    primitive,
-                                    brushes,
-                                    stroke_bounds)) {
-                                return status::invalid_graph;
+                            if (radius_x != radius_y) {
+                                const auto rounded_geometry =
+                                    make_rounded_rectangle_geometry(
+                                        x,
+                                        y,
+                                        width,
+                                        height,
+                                        radius_x,
+                                        radius_y);
+                                const status stroke_status =
+                                    append_path_strokes(
+                                        rounded_geometry,
+                                        pen->second,
+                                        local_transform,
+                                        effective_transform);
+                                if (stroke_status != status::success) {
+                                    return stroke_status;
+                                }
+                            } else {
+                                const std::array primitive{
+                                    progpu_native_analytic_primitive{
+                                        PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE,
+                                        0U,
+                                        static_cast<float>(x),
+                                        static_cast<float>(y),
+                                        static_cast<float>(width),
+                                        static_cast<float>(height),
+                                        static_cast<float>(radius_x),
+                                        static_cast<float>(
+                                            pen->second.thickness),
+                                        {1.0F, 1.0F, 1.0F, 1.0F},
+                                        native_local_transform}};
+                                const std::array brushes{pen_brush_index};
+                                if (!builder.draw_analytic(
+                                        primitive,
+                                        brushes,
+                                        stroke_bounds)) {
+                                    return status::invalid_graph;
+                                }
                             }
                         } else {
                             const std::array points{
