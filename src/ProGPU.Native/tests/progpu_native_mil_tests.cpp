@@ -1205,6 +1205,131 @@ bool visual_clips_compile_to_exact_semantic_state() {
     return true;
 }
 
+bool visual_solid_opacity_mask_composes_and_updates() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t opacity_mask = 5U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, opacity_mask, 75U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_alpha, visual, 0.5);
+    append_command(
+        batch, command::visual_set_alpha_mask, visual, opacity_mask);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.2F, 0.7F, 1.0F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        opacity_mask,
+        0.5,
+        progpu_native_color{1.0F, 1.0F, 1.0F, 0.5F},
+        0U,
+        0U,
+        0U,
+        0U);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_rectangle,
+        4.0,
+        6.0,
+        40.0,
+        32.0,
+        brush,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9011U, 1U, stream, &metrics) ==
+        status::success);
+    auto contains_opacity = [&](float opacity) {
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        for (std::uint32_t index = 0U;
+             index < header.resource_count;
+             ++index) {
+            const auto resource = read_value<progpu_native_scene_resource>(
+                stream,
+                header.resource_offset +
+                    index * sizeof(progpu_native_scene_resource));
+            if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_STATE &&
+                read_value<progpu_native_scene_state>(
+                    stream, resource.payload_offset).opacity == opacity) {
+                return true;
+            }
+        }
+        return false;
+    };
+    PROGPU_REQUIRE(contains_opacity(0.125F));
+
+    std::vector<std::byte> update_mask;
+    append_command(
+        update_mask,
+        command::solid_color_brush,
+        opacity_mask,
+        0.25,
+        progpu_native_color{1.0F, 1.0F, 1.0F, 0.5F},
+        0U,
+        0U,
+        0U,
+        0U);
+    PROGPU_REQUIRE(state.apply(update_mask) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9011U, 2U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(contains_opacity(0.0625F));
+
+    std::vector<std::byte> delete_referenced_mask;
+    append_command(
+        delete_referenced_mask,
+        command::channel_delete_resource,
+        opacity_mask,
+        75U);
+    PROGPU_REQUIRE(
+        state.apply(delete_referenced_mask) == status::invalid_graph);
+
+    std::vector<std::byte> clear_mask;
+    append_command(
+        clear_mask, command::visual_set_alpha_mask, visual, 0U);
+    PROGPU_REQUIRE(state.apply(clear_mask) == status::success);
+    PROGPU_REQUIRE(state.apply(delete_referenced_mask) == status::success);
+
+    std::vector<std::byte> invalid_mask;
+    append_command(
+        invalid_mask, command::visual_set_alpha_mask, visual, target);
+    PROGPU_REQUIRE(state.apply(invalid_mask) == status::invalid_handle);
+    return true;
+}
+
 bool matrix_transform_scopes_compile_to_semantic_state() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -7237,6 +7362,7 @@ int main() {
     PROGPU_REQUIRE(invalid_visual_graphs_fail_closed());
     PROGPU_REQUIRE(solid_rectangle_compiles_to_semantic_scene());
     PROGPU_REQUIRE(visual_clips_compile_to_exact_semantic_state());
+    PROGPU_REQUIRE(visual_solid_opacity_mask_composes_and_updates());
     PROGPU_REQUIRE(matrix_transform_scopes_compile_to_semantic_state());
     PROGPU_REQUIRE(
         static_transform_resources_compose_and_retain_dependencies());

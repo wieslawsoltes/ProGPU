@@ -170,6 +170,15 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 8, contentHandle);
     }
 
+    public void SetVisualOpacityMask(uint handle, uint opacityMaskHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VisualSetAlphaMask, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, opacityMaskHandle);
+    }
+
     public void InsertVisualChild(uint handle, uint childHandle, uint index)
     {
         ValidateHandle(handle);
@@ -1530,6 +1539,7 @@ internal static class NativeMilCommand
     internal const uint VisualSetAlpha = 0x20;
     internal const uint VisualSetRenderOptions = 0x21;
     internal const uint VisualSetContent = 0x22;
+    internal const uint VisualSetAlphaMask = 0x23;
     internal const uint VisualInsertChildAt = 0x26;
     internal const uint VisualSetScrollableAreaClip = 0x28;
     internal const uint GenericTargetCreate = 0x34;
