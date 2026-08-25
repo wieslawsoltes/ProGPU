@@ -2324,12 +2324,42 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         PROGPU_REQUIRE(path.transform.m22 == 1.5F);
         PROGPU_REQUIRE(path.transform.m31 == 2.0F);
         PROGPU_REQUIRE(path.transform.m32 == 3.0F);
-        if (path.boolean_node_count == 0U) {
+        if (path.segment_count == 28U) {
+            PROGPU_REQUIRE(path.boolean_node_count == 11U);
             PROGPU_REQUIRE(path.segment_count == 28U);
             PROGPU_REQUIRE(path.min_x == 1.0F && path.min_y == 0.0F);
             PROGPU_REQUIRE(path.max_x == 35.0F && path.max_y == 15.0F);
             PROGPU_REQUIRE(
                 path.fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD);
+            const std::size_t group_boolean_offset =
+                resource.auxiliary_offset +
+                28U * sizeof(progpu_native_path_segment);
+            const auto first_group_leaf =
+                read_value<progpu_native_scene_path_boolean_node>(
+                    stream,
+                    group_boolean_offset);
+            const auto second_group_leaf =
+                read_value<progpu_native_scene_path_boolean_node>(
+                    stream,
+                    group_boolean_offset + sizeof(first_group_leaf));
+            const auto first_group_xor =
+                read_value<progpu_native_scene_path_boolean_node>(
+                    stream,
+                    group_boolean_offset + 2U * sizeof(first_group_leaf));
+            PROGPU_REQUIRE(
+                first_group_leaf.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
+                first_group_leaf.segment_offset == 0U &&
+                first_group_leaf.segment_count == 4U &&
+                first_group_leaf.fill_rule ==
+                    PROGPU_NATIVE_FILL_RULE_EVEN_ODD);
+            PROGPU_REQUIRE(
+                second_group_leaf.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
+                second_group_leaf.segment_offset == 4U &&
+                second_group_leaf.segment_count == 4U &&
+                second_group_leaf.fill_rule ==
+                    PROGPU_NATIVE_FILL_RULE_EVEN_ODD);
+            PROGPU_REQUIRE(
+                first_group_xor.kind == PROGPU_NATIVE_PATH_BOOLEAN_XOR);
             const auto rectangle_line =
                 read_value<progpu_native_path_segment>(
                     stream,
@@ -2774,7 +2804,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
             found_transformed_boolean_arc = true;
             continue;
         }
-        if (path.boolean_node_count != 0U || path.segment_count != 26U) {
+        if (path.boolean_node_count != 11U || path.segment_count != 26U) {
             continue;
         }
         const auto arc = read_value<progpu_native_path_segment>(
@@ -2866,7 +2896,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         const auto path = read_value<progpu_native_scene_path_fill>(
             stream,
             resource.payload_offset);
-        if (path.boolean_node_count != 0U) {
+        if (path.boolean_node_count != 11U) {
             continue;
         }
         for (std::size_t segment_index = 0U;
