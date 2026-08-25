@@ -58,7 +58,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
         NativeMilCompiledScene scene = mil.CompileScene(42, 701, 1);
-        if (milMetrics.CommandCount != 46 || mil.ResourceCount != 20 ||
+        if (milMetrics.CommandCount != 48 || mil.ResourceCount != 21 ||
             !mil.TryGetVisual(41, out NativeMilVisualSnapshot visual) ||
             visual.Handle != 41 || scene.Stream.Length == 0 ||
             scene.Metrics.VisualCount != 1 ||
@@ -78,7 +78,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
         NativeMilCompiledScene scene = dawnMil.CompileScene(42, 702, 1);
-        if (milMetrics.CommandCount != 46 || dawnMil.ResourceCount != 20 ||
+        if (milMetrics.CommandCount != 48 || dawnMil.ResourceCount != 21 ||
             scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
             scene.Metrics.RectangleCount != 1 ||
             scene.Metrics.EllipseCount != 2 ||
@@ -200,6 +200,7 @@ static byte[] CreateMilSeedBatch(
 {
     var renderData = new NativeMilRenderDataBuilder();
     renderData.PushTransform(45);
+    renderData.PushClip(61);
     renderData.DrawRectangle(8, 8, 48, 48, 44, 46);
     renderData.DrawLine(8, 8, 56, 56, 46);
     renderData.DrawEllipse(32, 32, 16, 12, 44, 48);
@@ -213,6 +214,7 @@ static byte[] CreateMilSeedBatch(
     renderData.DrawGeometry(0, 46, 56);
     renderData.DrawGeometry(0, 48, 59);
     renderData.DrawGeometry(0, 48, 60);
+    renderData.Pop();
     renderData.Pop();
     var batch = new NativeMilBatchBuilder();
     batch.CreateResource(41, NativeMilResourceType.Visual);
@@ -235,6 +237,7 @@ static byte[] CreateMilSeedBatch(
     batch.CreateResource(58, NativeMilResourceType.CombinedGeometry);
     batch.CreateResource(59, NativeMilResourceType.PathGeometry);
     batch.CreateResource(60, NativeMilResourceType.PathGeometry);
+    batch.CreateResource(61, NativeMilResourceType.RectangleGeometry);
     batch.CreateVisual(41);
     batch.SetVisualOffset(41, 1, 2);
     batch.SetMatrixTransform(
@@ -314,6 +317,7 @@ static byte[] CreateMilSeedBatch(
         60,
         CreateMilJoinedCurveStrokePath(),
         45);
+    batch.SetRectangleGeometry(61, -1000, -1000, 2000, 2000);
     batch.SetRenderData(43, renderData);
     batch.CreateGenericTarget(42, 64, 64);
     batch.SetTargetClearColor(42, new NativeMilColor(0, 0, 0, 1));
