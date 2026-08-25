@@ -64,17 +64,17 @@ if (!renderOnly)
         NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
         NativeMilCompiledScene scene = mil.CompileScene(targetHandle, 701, 1);
         if ((!gradientOnly &&
-                (milMetrics.CommandCount != 82 || mil.ResourceCount != 38)) ||
+                (milMetrics.CommandCount != 78 || mil.ResourceCount != 36)) ||
             (gradientOnly &&
                 (milMetrics.CommandCount != 15 || mil.ResourceCount != 6)) ||
             !mil.TryGetVisual(visualHandle, out NativeMilVisualSnapshot visual) ||
             visual.Handle != visualHandle || scene.Stream.Length == 0 ||
             scene.Metrics.VisualCount != 1 ||
-            scene.Metrics.RectangleCount != (gradientOnly ? 2U : 4U) ||
-            scene.Metrics.EllipseCount != (gradientOnly ? 1U : 5U) ||
+            scene.Metrics.RectangleCount != (gradientOnly ? 2U : 3U) ||
+            scene.Metrics.EllipseCount != (gradientOnly ? 1U : 4U) ||
             scene.Metrics.RoundedRectangleCount != (gradientOnly ? 0U : 6U) ||
             scene.Metrics.LineCount != (gradientOnly ? 0U : 3U) ||
-            scene.Metrics.BrushCount != 3)
+            scene.Metrics.BrushCount != (gradientOnly ? 3U : 1U))
         {
             throw new InvalidOperationException(
                 "The packaged wgpu-native MIL channel is incomplete.");
@@ -88,16 +88,16 @@ if (!renderOnly)
         NativeMilCompiledScene scene = dawnMil.CompileScene(
             targetHandle, 702, 1);
         if ((!gradientOnly &&
-                (milMetrics.CommandCount != 82 || dawnMil.ResourceCount != 38)) ||
+                (milMetrics.CommandCount != 78 || dawnMil.ResourceCount != 36)) ||
             (gradientOnly &&
                 (milMetrics.CommandCount != 15 ||
                  dawnMil.ResourceCount != 6)) ||
             scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
-            scene.Metrics.RectangleCount != (gradientOnly ? 2U : 4U) ||
-            scene.Metrics.EllipseCount != (gradientOnly ? 1U : 5U) ||
+            scene.Metrics.RectangleCount != (gradientOnly ? 2U : 3U) ||
+            scene.Metrics.EllipseCount != (gradientOnly ? 1U : 4U) ||
             scene.Metrics.RoundedRectangleCount != (gradientOnly ? 0U : 6U) ||
             scene.Metrics.LineCount != (gradientOnly ? 0U : 3U) ||
-            scene.Metrics.BrushCount != 3)
+            scene.Metrics.BrushCount != (gradientOnly ? 3U : 1U))
         {
             throw new InvalidOperationException(
                 "The packaged Dawn MIL channel is incomplete.");
@@ -294,8 +294,6 @@ static byte[] CreateMilSeedBatch(
     renderData.DrawGeometry(44, 48, 52);
     renderData.DrawGeometry(44, 48, 50);
     renderData.Pop();
-    renderData.DrawRectangle(4, 4, 56, 12, 77);
-    renderData.DrawEllipse(32, 32, 20, 14, 78);
     var batch = new NativeMilBatchBuilder();
     batch.CreateResource(41, NativeMilResourceType.Visual);
     batch.CreateResource(42, NativeMilResourceType.GenericRenderTarget);
@@ -333,8 +331,6 @@ static byte[] CreateMilSeedBatch(
     batch.CreateResource(74, NativeMilResourceType.RotateTransform);
     batch.CreateResource(75, NativeMilResourceType.DoubleResource);
     batch.CreateResource(76, NativeMilResourceType.MatrixResource);
-    batch.CreateResource(77, NativeMilResourceType.LinearGradientBrush);
-    batch.CreateResource(78, NativeMilResourceType.RadialGradientBrush);
     batch.CreateVisual(41);
     batch.SetVisualOffset(41, 1, 2);
     batch.SetMatrixTransform(
@@ -357,34 +353,6 @@ static byte[] CreateMilSeedBatch(
     batch.SetVisualOpacity(41, 0.9);
     batch.SetVisualContent(41, 43);
     batch.SetSolidColorBrush(44, new NativeMilColor(1, 0.25f, 0.1f, 1));
-    ReadOnlySpan<NativeMilGradientStop> gradientStops =
-    [
-        new(-0.25, new NativeMilColor(1, 0, 0, 1)),
-        new(0.5, new NativeMilColor(0, 1, 0, 0.75f)),
-        new(1.25, new NativeMilColor(0, 0, 1, 1))
-    ];
-    batch.SetLinearGradientBrush(
-        77,
-        new NativeMilLinearGradientBrush(
-            new NativeMilPoint(0, 0),
-            new NativeMilPoint(1, 0),
-            Opacity: 0.9,
-            Interpolation: NativeMilGradientInterpolation.SRgb,
-            MappingMode: NativeMilBrushMappingMode.RelativeToBoundingBox,
-            SpreadMethod: NativeMilGradientSpreadMethod.Reflect),
-        gradientStops);
-    batch.SetRadialGradientBrush(
-        78,
-        new NativeMilRadialGradientBrush(
-            new NativeMilPoint(0.5, 0.5),
-            new NativeMilPoint(0.4, 0.45),
-            0.5,
-            0.5,
-            Opacity: 0.85,
-            Interpolation: NativeMilGradientInterpolation.ScRgb,
-            MappingMode: NativeMilBrushMappingMode.RelativeToBoundingBox,
-            SpreadMethod: NativeMilGradientSpreadMethod.Pad),
-        gradientStops);
     batch.SetDashStyle(47, 0.5, [2.0, 1.0]);
     batch.SetPen(
         46,
