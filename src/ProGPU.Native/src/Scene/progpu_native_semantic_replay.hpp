@@ -249,6 +249,7 @@ struct semantic_render_bundle_span {
     bool mask_uses_alpha_channel = false;
     bool has_composite_scissor = false;
     bool composite_drawable = true;
+    bool composite_nearest = false;
 };
 
 struct semantic_layer_slot {
@@ -259,6 +260,7 @@ struct semantic_layer_slot {
     std::uint32_t depth_width = 0U;
     std::uint32_t depth_height = 0U;
     WGPUBindGroup bind_group = nullptr;
+    WGPUBindGroup nearest_bind_group = nullptr;
     WGPUBuffer uniform_buffer = nullptr;
     WGPUBindGroup analytic_uniform_bind_group = nullptr;
     WGPUBindGroup text_uniform_bind_group = nullptr;

@@ -419,6 +419,7 @@ bool ensure_semantic_texture_slot(
     std::uint32_t height,
     const char* label) {
     if (slot.texture != nullptr && slot.uniform_buffer != nullptr &&
+        slot.bind_group != nullptr && slot.nearest_bind_group != nullptr &&
         slot.width == width && slot.height == height) {
         return ensure_semantic_layer_slot_bindings(engine, slot);
     }
@@ -457,6 +458,18 @@ bool ensure_semantic_texture_slot(
         wgpuTextureRelease(texture);
         return false;
     }
+    WGPUBindGroup nearest_bind_group = create_image_texture_bind_group(
+        engine,
+        engine.image_nearest_sampler,
+        view,
+        "ProGPU semantic nearest isolated-layer texture binding");
+    if (nearest_bind_group == nullptr) {
+        wgpuBindGroupRelease(bind_group);
+        wgpuTextureViewRelease(view);
+        wgpuTextureDestroy(texture);
+        wgpuTextureRelease(texture);
+        return false;
+    }
     WGPUBufferDescriptor uniform_descriptor{};
     uniform_descriptor.label = ::progpu::native::webgpu::string_view(
         "ProGPU semantic bounded-layer target uniforms");
@@ -467,6 +480,7 @@ bool ensure_semantic_texture_slot(
         engine.device,
         &uniform_descriptor);
     if (uniform_buffer == nullptr) {
+        wgpuBindGroupRelease(nearest_bind_group);
         wgpuBindGroupRelease(bind_group);
         wgpuTextureViewRelease(view);
         wgpuTextureDestroy(texture);
@@ -489,6 +503,9 @@ bool ensure_semantic_texture_slot(
     if (slot.bind_group != nullptr) {
         wgpuBindGroupRelease(slot.bind_group);
     }
+    if (slot.nearest_bind_group != nullptr) {
+        wgpuBindGroupRelease(slot.nearest_bind_group);
+    }
     if (slot.view != nullptr) {
         wgpuTextureViewRelease(slot.view);
     }
@@ -503,6 +520,7 @@ bool ensure_semantic_texture_slot(
     slot.texture = texture;
     slot.view = view;
     slot.bind_group = bind_group;
+    slot.nearest_bind_group = nearest_bind_group;
     slot.uniform_buffer = uniform_buffer;
     slot.analytic_uniform_bind_group = nullptr;
     slot.text_uniform_bind_group = nullptr;

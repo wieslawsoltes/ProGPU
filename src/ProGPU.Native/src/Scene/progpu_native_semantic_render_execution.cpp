@@ -4088,6 +4088,9 @@ progpu_native_status render_scene(
                     operation.has_composite_scissor =
                         has_composite_scissor;
                     operation.composite_drawable = composite_drawable;
+                    operation.composite_nearest =
+                        (layer.flags &
+                            PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST) != 0U;
                     if (has_composite_scissor && composite_drawable) {
                         operation.clip_x = composite_scissor.x;
                         operation.clip_y = composite_scissor.y;

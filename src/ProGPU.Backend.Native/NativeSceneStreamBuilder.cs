@@ -2854,7 +2854,8 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneLayerFlags.Backdrop |
             NativeSceneLayerFlags.ForceIsolation |
             NativeSceneLayerFlags.CacheContent |
-            NativeSceneLayerFlags.CacheLocalSpace;
+            NativeSceneLayerFlags.CacheLocalSpace |
+            NativeSceneLayerFlags.CacheNearest;
         bool localCache =
             (layer.Flags & NativeSceneLayerFlags.CacheLocalSpace) != 0;
         bool hasBounds =
@@ -2882,6 +2883,8 @@ public ref struct NativeSceneStreamBuilder
                     layer.BlendMode == GpuBlendMode.SrcOver &&
                     layer.MaskResourceIndex == NativeMethods.SceneNoIndex &&
                     layer.EffectResourceIndex == NativeMethods.SceneNoIndex)) &&
+            ((layer.Flags & NativeSceneLayerFlags.CacheNearest) == 0 ||
+                localCache) &&
             layer.HasCanonicalReservedFields;
     }
 

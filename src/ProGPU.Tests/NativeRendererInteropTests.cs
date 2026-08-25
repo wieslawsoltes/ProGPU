@@ -3319,7 +3319,7 @@ public class NativeRendererInteropTests
             destination,
             11U,
             1U,
-            commandCapacity: 1,
+            commandCapacity: 2,
             resourceCapacity: 1);
         var compositeState = new NativeSceneState(
             Matrix3x2.CreateTranslation(12f, 8f));
@@ -3335,6 +3335,28 @@ public class NativeRendererInteropTests
             compositeStateResourceIndex: compositeStateIndex);
         Assert.True(localBuilder.TryPushLayer(1U, in localCachedLayer));
         Assert.Equal(0U, localCachedLayer.CompositeStateResourceIndex);
+
+        var nearestLocalCachedLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent |
+                NativeSceneLayerFlags.CacheLocalSpace |
+                NativeSceneLayerFlags.CacheNearest,
+            bounds: new NativeImageRect(0f, 0f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 9U,
+            compositeStateResourceIndex: compositeStateIndex);
+        Assert.True(localBuilder.TryPushLayer(
+            2U, in nearestLocalCachedLayer));
+
+        var invalidNearestCachedLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent |
+                NativeSceneLayerFlags.CacheNearest,
+            bounds: new NativeImageRect(2f, 3f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 9U);
+        Assert.False(BuildLayer(
+            destination, in invalidNearestCachedLayer, out _));
 
         var missingCompositeState = new NativeSceneLayer(
             flags: NativeSceneLayerFlags.Bounds |

@@ -384,7 +384,8 @@ bool is_valid_semantic_layer(
         PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
         PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
         PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
-        PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE;
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST;
     const bool local_cache =
         (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
     const bool bounds_are_canonical =
@@ -416,6 +417,8 @@ bool is_valid_semantic_layer(
                 layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
                 layer.effect_resource_index ==
                     PROGPU_NATIVE_SCENE_NO_INDEX)) &&
+        (((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST) == 0U) ||
+            local_cache) &&
         (local_cache || layer.reserved0 == 0U) && layer.reserved1 == 0U;
 }
 

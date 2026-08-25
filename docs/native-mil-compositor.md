@@ -1725,9 +1725,15 @@ Exact root/ancestor rectangle clips and one static guideline per axis travel in
 the typed local-cache composite State resource and are resolved only when the
 page quad is drawn. Composite-only clip, guideline, placement, opacity, and
 SnapsToDevicePixels changes therefore retain the page; RenderAtScale,
-EnableClearType, bounds, and descendant content changes rerasterize it. Root
-non-linear bitmap sampling and spatial masks fail closed until the composite
-pipeline represents those operations explicitly.
+EnableClearType, bounds, and descendant content changes rerasterize it.
+NearestNeighbor bitmap scaling now sets the additive
+`PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST` composite flag. Each retained page
+owns linear and nearest texture bindings over the same view, so changing only
+that cache-root sampling policy selects the exact nearest sampler without
+rerasterizing or expanding the 64-byte layer record. The flag is valid only
+with `CACHE_LOCAL_SPACE`; the C++, managed, and serialized-scene validators
+reject every other use. Cubic/Fant sampling and spatial masks remain fail
+closed until their dedicated composite operations are represented explicitly.
 
 The pinned provider/Dawn Metal hardware gate now exercises the local page
 directly: its first 24x18 render performs one content and one composite pass, a
@@ -1738,9 +1744,11 @@ at provider revision `02823bf8d2e56548b2780d6b92ae7065be1d8605` and Dawn
 revision `710c33013c53ab2700d332c25ff51430251a8cc4`.
 The post-raster root-state regression additionally changes only the composite
 clip on the retained local page and observes zero content passes on the next
-live Metal frame. All 12 provider-configured native CTests, the base export
-allowlist, package-mode managed Dawn render/readback, and forced device-loss
-recovery pass with unchanged capture hashes.
+live Metal frame. The nearest-sampling regression then changes only the
+composite sampler on that same page and again observes zero content passes.
+All 12 provider-configured native CTests, the base export allowlist,
+package-mode managed Dawn render/readback, and forced device-loss recovery pass
+with unchanged capture hashes.
 
 Windows ARM64 qualification for this exact cache-bounds checkpoint completed
 on 2026-08-25 from clean detached commit `dd3857a4` in the Parallels Windows 11
@@ -1827,10 +1835,11 @@ The implementation sequence is intentionally architectural:
    composite-only placement, and positive finite RenderAtScale.)
 4. Publish neutral typed cache state from source-built WPF and emit it from
    LibreWPF without reflection.
-5. Qualify composite clip/mask/guideline ordering, nested cache lifetime,
-   effects ordering, and LibreWPF package lanes. (Exact rectangle composite
-   clips, one static guideline per axis, and the combined snapping/ClearType
-   checkpoint are implemented and qualified on live D3D12.)
+5. Qualify composite clip/mask/guideline/sampling ordering, nested cache
+   lifetime, effects ordering, and LibreWPF package lanes. (Exact rectangle
+   composite clips, one static guideline per axis, NearestNeighbor sampling,
+   and the combined snapping/ClearType checkpoint are implemented; the
+   pre-nearest subset is qualified on live D3D12.)
 
 The persistent page and composite-transform path are executable, but full cache
 parity is not claimed until the remaining post-raster state and ordering

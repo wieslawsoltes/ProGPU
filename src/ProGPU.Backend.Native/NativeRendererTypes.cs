@@ -718,7 +718,13 @@ public enum NativeSceneLayerFlags : uint
     /// Rasterizes cached content in a zero-origin local page and composites it
     /// through <see cref="NativeSceneLayer.CompositeStateResourceIndex"/>.
     /// </summary>
-    CacheLocalSpace = 1U << 4
+    CacheLocalSpace = 1U << 4,
+
+    /// <summary>
+    /// Samples a local cached layer with exact nearest-neighbor filtering.
+    /// This flag is invalid without <see cref="CacheLocalSpace"/>.
+    /// </summary>
+    CacheNearest = 1U << 5
 }
 
 public enum NativeSceneValidationError : uint
@@ -1560,7 +1566,8 @@ internal readonly struct NativeSceneGuidelineSetHeader
 /// subtree pixel version; both must be nonzero. A local-space cache uses
 /// <see cref="CompositeStateResourceIndex"/> to reference a preceding
 /// transform-only <see cref="NativeSceneState"/> resource while retaining the
-/// exact 64-byte layer ABI.
+/// exact 64-byte layer ABI. <see cref="NativeSceneLayerFlags.CacheNearest"/>
+/// selects nearest-neighbor filtering for that cached-page composite.
 /// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct NativeSceneLayer
