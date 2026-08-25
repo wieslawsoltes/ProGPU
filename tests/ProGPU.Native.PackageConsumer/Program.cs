@@ -58,7 +58,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
         NativeMilCompiledScene scene = mil.CompileScene(42, 701, 1);
-        if (milMetrics.CommandCount != 52 || mil.ResourceCount != 23 ||
+        if (milMetrics.CommandCount != 56 || mil.ResourceCount != 25 ||
             !mil.TryGetVisual(41, out NativeMilVisualSnapshot visual) ||
             visual.Handle != 41 || scene.Stream.Length == 0 ||
             scene.Metrics.VisualCount != 1 ||
@@ -78,7 +78,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
         NativeMilCompiledScene scene = dawnMil.CompileScene(42, 702, 1);
-        if (milMetrics.CommandCount != 52 || dawnMil.ResourceCount != 23 ||
+        if (milMetrics.CommandCount != 56 || dawnMil.ResourceCount != 25 ||
             scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
             scene.Metrics.RectangleCount != 1 ||
             scene.Metrics.EllipseCount != 2 ||
@@ -216,7 +216,7 @@ static byte[] CreateMilSeedBatch(
     renderData.DrawGeometry(0, 46, 56);
     renderData.DrawGeometry(0, 48, 59);
     renderData.DrawGeometry(0, 48, 60);
-    renderData.DrawGeometry(0, 48, 63);
+    renderData.DrawGeometry(0, 65, 63);
     renderData.Pop();
     renderData.Pop();
     renderData.Pop();
@@ -251,6 +251,8 @@ static byte[] CreateMilSeedBatch(
     batch.CreateResource(61, NativeMilResourceType.RectangleGeometry);
     batch.CreateResource(62, NativeMilResourceType.MatrixTransform);
     batch.CreateResource(63, NativeMilResourceType.PathGeometry);
+    batch.CreateResource(64, NativeMilResourceType.DashStyle);
+    batch.CreateResource(65, NativeMilResourceType.Pen);
     batch.CreateVisual(41);
     batch.SetVisualOffset(41, 1, 2);
     batch.SetMatrixTransform(
@@ -279,6 +281,15 @@ static byte[] CreateMilSeedBatch(
             2,
             NativeMilPenLineCap.Round,
             NativeMilPenLineCap.Triangle));
+    batch.SetDashStyle(64, 3, [3.0, 1.0]);
+    batch.SetPen(
+        65,
+        new NativeMilPen(
+            44,
+            2,
+            NativeMilPenLineCap.Round,
+            NativeMilPenLineCap.Triangle,
+            DashStyleHandle: 64));
     batch.SetLineGeometry(49, 8, 56, 56, 8, 45);
     batch.SetRectangleGeometry(50, 12, 16, 40, 32, 8, 8, 45);
     batch.SetEllipseGeometry(51, 32, 32, 16, 12, 45);
