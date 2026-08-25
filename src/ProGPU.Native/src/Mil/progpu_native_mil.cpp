@@ -24,6 +24,11 @@ constexpr std::uint32_t type_render_data = 43U;
 constexpr std::uint32_t type_render_target = 45U;
 constexpr std::uint32_t type_hwnd_render_target = 46U;
 constexpr std::uint32_t type_generic_render_target = 47U;
+constexpr std::uint32_t type_transform_group = 61U;
+constexpr std::uint32_t type_translate_transform = 62U;
+constexpr std::uint32_t type_scale_transform = 63U;
+constexpr std::uint32_t type_skew_transform = 64U;
+constexpr std::uint32_t type_rotate_transform = 65U;
 constexpr std::uint32_t type_matrix_transform = 66U;
 constexpr std::uint32_t type_line_geometry = 68U;
 constexpr std::uint32_t type_rectangle_geometry = 69U;
@@ -63,6 +68,10 @@ bool is_visual_type(std::uint32_t type) noexcept {
 bool is_target_type(std::uint32_t type) noexcept {
     return type == type_render_target || type == type_hwnd_render_target ||
         type == type_generic_render_target;
+}
+
+bool is_transform_type(std::uint32_t type) noexcept {
+    return type >= type_transform_group && type <= type_matrix_transform;
 }
 
 bool finite_double_as_float(double value) noexcept {
@@ -117,6 +126,45 @@ bool try_to_native_affine(
         static_cast<float>(source.m31),
         static_cast<float>(source.m32)};
     return true;
+}
+
+bool try_quantize_wpf_affine(affine_2d_double& transform) noexcept {
+    progpu_native_affine_2d native{};
+    if (!try_to_native_affine(transform, native)) {
+        return false;
+    }
+    transform = {
+        native.m11,
+        native.m12,
+        native.m21,
+        native.m22,
+        native.m31,
+        native.m32};
+    return true;
+}
+
+affine_2d_double compose_wpf_affine(
+    const affine_2d_double& first,
+    const affine_2d_double& second) noexcept {
+    const float first_m11 = static_cast<float>(first.m11);
+    const float first_m12 = static_cast<float>(first.m12);
+    const float first_m21 = static_cast<float>(first.m21);
+    const float first_m22 = static_cast<float>(first.m22);
+    const float first_m31 = static_cast<float>(first.m31);
+    const float first_m32 = static_cast<float>(first.m32);
+    const float second_m11 = static_cast<float>(second.m11);
+    const float second_m12 = static_cast<float>(second.m12);
+    const float second_m21 = static_cast<float>(second.m21);
+    const float second_m22 = static_cast<float>(second.m22);
+    const float second_m31 = static_cast<float>(second.m31);
+    const float second_m32 = static_cast<float>(second.m32);
+    return {
+        first_m11 * second_m11 + first_m12 * second_m21,
+        first_m11 * second_m12 + first_m12 * second_m22,
+        first_m21 * second_m11 + first_m22 * second_m21,
+        first_m21 * second_m12 + first_m22 * second_m22,
+        first_m31 * second_m11 + first_m32 * second_m21 + second_m31,
+        first_m31 * second_m12 + first_m32 * second_m22 + second_m32};
 }
 
 bool try_transform_bounds(
@@ -473,7 +521,11 @@ struct channel::implementation {
         std::vector<double> intervals;
     };
 
-    using matrix_transform_state = affine_2d_double;
+    struct transform_state {
+        affine_2d_double matrix{};
+        std::vector<std::uint32_t> children;
+        bool is_group{};
+    };
 
     enum class fixed_geometry_kind : std::uint32_t {
         line,
@@ -534,8 +586,7 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, resource_state> resources;
     std::unordered_map<std::uint32_t, visual_state> visuals;
     std::unordered_map<std::uint32_t, target_state> targets;
-    std::unordered_map<std::uint32_t, matrix_transform_state>
-        matrix_transforms;
+    std::unordered_map<std::uint32_t, transform_state> transforms;
     std::unordered_map<std::uint32_t, fixed_geometry_state> fixed_geometries;
     std::unordered_map<std::uint32_t, geometry_group_state> geometry_groups;
     std::unordered_map<std::uint32_t, combined_geometry_state>
@@ -563,6 +614,83 @@ struct channel::implementation {
         const auto found = resources.find(handle);
         return found != resources.end() && is_target_type(found->second.type) &&
             targets.contains(handle);
+    }
+
+    bool require_transform(std::uint32_t handle) const noexcept {
+        const auto found = resources.find(handle);
+        return found != resources.end() &&
+            is_transform_type(found->second.type);
+    }
+
+    bool transform_reaches(
+        std::uint32_t start,
+        std::uint32_t destination) const {
+        std::vector<std::uint32_t> pending{start};
+        std::unordered_set<std::uint32_t> visited;
+        while (!pending.empty()) {
+            const std::uint32_t current = pending.back();
+            pending.pop_back();
+            if (current == destination) {
+                return true;
+            }
+            if (!visited.insert(current).second) {
+                continue;
+            }
+            const auto found = transforms.find(current);
+            if (found == transforms.end() || !found->second.is_group) {
+                continue;
+            }
+            pending.insert(
+                pending.end(),
+                found->second.children.begin(),
+                found->second.children.end());
+        }
+        return false;
+    }
+
+    status resolve_transform_core(
+        std::uint32_t handle,
+        affine_2d_double& matrix,
+        std::array<std::uint32_t, maximum_visual_depth>& active,
+        std::size_t depth) const noexcept {
+        if (depth >= active.size() ||
+            std::find(active.begin(), active.begin() + depth, handle) !=
+                active.begin() + depth) {
+            return status::invalid_graph;
+        }
+        const auto resource = resources.find(handle);
+        const auto transform = transforms.find(handle);
+        if (resource == resources.end() ||
+            !is_transform_type(resource->second.type) ||
+            transform == transforms.end()) {
+            return status::invalid_handle;
+        }
+        if (!transform->second.is_group) {
+            matrix = transform->second.matrix;
+            return status::success;
+        }
+        active[depth] = handle;
+        matrix = {};
+        for (const std::uint32_t child : transform->second.children) {
+            affine_2d_double child_matrix{};
+            const status child_status = resolve_transform_core(
+                child,
+                child_matrix,
+                active,
+                depth + 1U);
+            if (child_status != status::success) {
+                return child_status;
+            }
+            matrix = compose_wpf_affine(matrix, child_matrix);
+        }
+        return status::success;
+    }
+
+    status resolve_transform(
+        std::uint32_t handle,
+        affine_2d_double& matrix) const noexcept {
+        std::array<std::uint32_t, maximum_visual_depth> active{};
+        return resolve_transform_core(handle, matrix, active, 0U);
     }
 
     bool require_geometry(std::uint32_t handle) const noexcept {
@@ -705,6 +833,13 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
             }
+            for (const auto& [transform_handle, transform] : transforms) {
+                if (transform_handle != handle && transform.is_group &&
+                    std::ranges::find(transform.children, handle) !=
+                        transform.children.end()) {
+                    return status::invalid_graph;
+                }
+            }
             for (const auto& [geometry_handle, geometry] : fixed_geometries) {
                 if (geometry_handle != handle &&
                     geometry.transform_handle == handle) {
@@ -737,7 +872,7 @@ struct channel::implementation {
             }
             visuals.erase(handle);
             targets.erase(handle);
-            matrix_transforms.erase(handle);
+            transforms.erase(handle);
             fixed_geometries.erase(handle);
             geometry_groups.erase(handle);
             combined_geometries.erase(handle);
@@ -796,8 +931,7 @@ struct channel::implementation {
                 return status::malformed_batch;
             }
             if (!require_visual(handle) ||
-                (transform != 0U &&
-                 !require_resource(transform, type_matrix_transform))) {
+                (transform != 0U && !require_transform(transform))) {
                 return status::invalid_handle;
             }
             visuals.at(handle).transform_handle = transform;
@@ -1011,8 +1145,200 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         }
+        case command::transform_group: {
+            std::uint32_t children_size = 0U;
+            if (view.packet.size() < 12U ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, children_size) ||
+                children_size % sizeof(std::uint32_t) != 0U ||
+                view.packet.size() != 12U + children_size ||
+                children_size / sizeof(std::uint32_t) >
+                    maximum_path_record_count) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_transform_group)) {
+                return status::invalid_handle;
+            }
+            transform_state transform{};
+            transform.is_group = true;
+            transform.children.reserve(
+                children_size / sizeof(std::uint32_t));
+            for (std::size_t index = 0U;
+                 index < children_size / sizeof(std::uint32_t);
+                 ++index) {
+                std::uint32_t child = 0U;
+                if (!read_at(
+                        view.packet,
+                        12U + index * sizeof(std::uint32_t),
+                        child)) {
+                    return status::malformed_batch;
+                }
+                if (child == 0U || !require_transform(child)) {
+                    return status::invalid_handle;
+                }
+                if (child == handle || transform_reaches(child, handle)) {
+                    return status::invalid_graph;
+                }
+                transform.children.push_back(child);
+            }
+            transforms.insert_or_assign(handle, std::move(transform));
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::translate_transform: {
+            double x = 0.0;
+            double y = 0.0;
+            std::uint32_t x_animations = 0U;
+            std::uint32_t y_animations = 0U;
+            if (!has_exact_size(view, 32U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, x) ||
+                !read_at(view.packet, 16U, y) ||
+                !read_at(view.packet, 24U, x_animations) ||
+                !read_at(view.packet, 28U, y_animations)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_translate_transform)) {
+                return status::invalid_handle;
+            }
+            if (x_animations != 0U || y_animations != 0U) {
+                return status::unsupported_command;
+            }
+            transform_state transform{};
+            transform.matrix.m31 = static_cast<float>(x);
+            transform.matrix.m32 = static_cast<float>(y);
+            if (!try_quantize_wpf_affine(transform.matrix)) {
+                return status::malformed_batch;
+            }
+            transforms.insert_or_assign(handle, std::move(transform));
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::scale_transform:
+        case command::skew_transform: {
+            double first = 0.0;
+            double second = 0.0;
+            double center_x = 0.0;
+            double center_y = 0.0;
+            std::array<std::uint32_t, 4U> animations{};
+            if (!has_exact_size(view, 56U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, first) ||
+                !read_at(view.packet, 16U, second) ||
+                !read_at(view.packet, 24U, center_x) ||
+                !read_at(view.packet, 32U, center_y) ||
+                !read_at(view.packet, 40U, animations[0]) ||
+                !read_at(view.packet, 44U, animations[1]) ||
+                !read_at(view.packet, 48U, animations[2]) ||
+                !read_at(view.packet, 52U, animations[3])) {
+                return status::malformed_batch;
+            }
+            const std::uint32_t expected_type =
+                view.kind == command::scale_transform
+                ? type_scale_transform
+                : type_skew_transform;
+            if (!require_resource(handle, expected_type)) {
+                return status::invalid_handle;
+            }
+            if (std::ranges::any_of(
+                    animations,
+                    [](std::uint32_t animation) noexcept {
+                        return animation != 0U;
+                    })) {
+                return status::unsupported_command;
+            }
+            affine_2d_double core{};
+            const float first_value = static_cast<float>(first);
+            const float second_value = static_cast<float>(second);
+            const float center_x_value = static_cast<float>(center_x);
+            const float center_y_value = static_cast<float>(center_y);
+            if (view.kind == command::scale_transform) {
+                core.m11 = first_value;
+                core.m22 = second_value;
+            } else {
+                const float angle_x = static_cast<float>(
+                    std::fmod(first, 360.0)) *
+                    std::numbers::pi_v<float> / 180.0F;
+                const float angle_y = static_cast<float>(
+                    std::fmod(second, 360.0)) *
+                    std::numbers::pi_v<float> / 180.0F;
+                core.m12 = std::tan(angle_y);
+                core.m21 = std::tan(angle_x);
+            }
+            const affine_2d_double before{
+                1.0, 0.0, 0.0, 1.0,
+                -center_x_value, -center_y_value};
+            const affine_2d_double after{
+                1.0, 0.0, 0.0, 1.0,
+                center_x_value, center_y_value};
+            transform_state transform{};
+            transform.matrix = compose_wpf_affine(
+                compose_wpf_affine(before, core),
+                after);
+            if (!try_quantize_wpf_affine(transform.matrix)) {
+                return status::malformed_batch;
+            }
+            transforms.insert_or_assign(handle, std::move(transform));
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::rotate_transform: {
+            double angle = 0.0;
+            double center_x = 0.0;
+            double center_y = 0.0;
+            std::array<std::uint32_t, 3U> animations{};
+            if (!has_exact_size(view, 44U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, angle) ||
+                !read_at(view.packet, 16U, center_x) ||
+                !read_at(view.packet, 24U, center_y) ||
+                !read_at(view.packet, 32U, animations[0]) ||
+                !read_at(view.packet, 36U, animations[1]) ||
+                !read_at(view.packet, 40U, animations[2])) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_rotate_transform)) {
+                return status::invalid_handle;
+            }
+            if (std::ranges::any_of(
+                    animations,
+                    [](std::uint32_t animation) noexcept {
+                        return animation != 0U;
+                    })) {
+                return status::unsupported_command;
+            }
+            const float radians = static_cast<float>(
+                std::fmod(angle, 360.0)) *
+                std::numbers::pi_v<float> / 180.0F;
+            const float cosine = std::cos(radians);
+            const float sine = std::sin(radians);
+            const float center_x_value = static_cast<float>(center_x);
+            const float center_y_value = static_cast<float>(center_y);
+            const affine_2d_double before{
+                1.0, 0.0, 0.0, 1.0,
+                -center_x_value, -center_y_value};
+            const affine_2d_double rotation{
+                cosine, sine, -sine, cosine, 0.0, 0.0};
+            const affine_2d_double after{
+                1.0, 0.0, 0.0, 1.0,
+                center_x_value, center_y_value};
+            transform_state transform{};
+            transform.matrix = compose_wpf_affine(
+                compose_wpf_affine(before, rotation),
+                after);
+            if (!try_quantize_wpf_affine(transform.matrix)) {
+                return status::malformed_batch;
+            }
+            transforms.insert_or_assign(handle, std::move(transform));
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
         case command::matrix_transform: {
-            matrix_transform_state matrix{};
+            affine_2d_double matrix{};
             std::uint32_t animations = 0U;
             if (!has_exact_size(view, 60U) ||
                 !read_at(view.packet, 4U, handle) ||
@@ -1035,7 +1361,16 @@ struct channel::implementation {
             if (!try_to_native_affine(matrix, native_matrix)) {
                 return status::malformed_batch;
             }
-            matrix_transforms.insert_or_assign(handle, matrix);
+            matrix = {
+                native_matrix.m11,
+                native_matrix.m12,
+                native_matrix.m21,
+                native_matrix.m22,
+                native_matrix.m31,
+                native_matrix.m32};
+            transform_state transform{};
+            transform.matrix = matrix;
+            transforms.insert_or_assign(handle, std::move(transform));
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -1058,9 +1393,7 @@ struct channel::implementation {
             }
             if (!require_resource(handle, type_line_geometry) ||
                 (geometry.transform_handle != 0U &&
-                 !require_resource(
-                     geometry.transform_handle,
-                     type_matrix_transform))) {
+                 !require_transform(geometry.transform_handle))) {
                 return status::invalid_handle;
             }
             if (start_animations != 0U || end_animations != 0U) {
@@ -1099,9 +1432,7 @@ struct channel::implementation {
             }
             if (!require_resource(handle, type_rectangle_geometry) ||
                 (geometry.transform_handle != 0U &&
-                 !require_resource(
-                     geometry.transform_handle,
-                     type_matrix_transform))) {
+                 !require_transform(geometry.transform_handle))) {
                 return status::invalid_handle;
             }
             if (radius_x_animations != 0U || radius_y_animations != 0U ||
@@ -1143,9 +1474,7 @@ struct channel::implementation {
             }
             if (!require_resource(handle, type_ellipse_geometry) ||
                 (geometry.transform_handle != 0U &&
-                 !require_resource(
-                     geometry.transform_handle,
-                     type_matrix_transform))) {
+                 !require_transform(geometry.transform_handle))) {
                 return status::invalid_handle;
             }
             if (radius_x_animations != 0U || radius_y_animations != 0U ||
@@ -1178,9 +1507,7 @@ struct channel::implementation {
             }
             if (!require_resource(handle, type_geometry_group) ||
                 (geometry.transform_handle != 0U &&
-                 !require_resource(
-                     geometry.transform_handle,
-                     type_matrix_transform))) {
+                 !require_transform(geometry.transform_handle))) {
                 return status::invalid_handle;
             }
             if (geometry.fill_rule > 1U ||
@@ -1224,9 +1551,7 @@ struct channel::implementation {
             }
             if (!require_resource(handle, type_combined_geometry) ||
                 (geometry.transform_handle != 0U &&
-                 !require_resource(
-                     geometry.transform_handle,
-                     type_matrix_transform))) {
+                 !require_transform(geometry.transform_handle))) {
                 return status::invalid_handle;
             }
             if (geometry.combine_mode > 3U) {
@@ -1265,9 +1590,7 @@ struct channel::implementation {
             }
             if (!require_resource(handle, type_path_geometry) ||
                 (geometry.transform_handle != 0U &&
-                 !require_resource(
-                     geometry.transform_handle,
-                     type_matrix_transform))) {
+                 !require_transform(geometry.transform_handle))) {
                 return status::invalid_handle;
             }
             if (geometry.fill_rule > 1U || figures_size < 48U) {
@@ -2109,13 +2432,15 @@ struct channel::implementation {
             }
             affine_2d_double transform = parent_transform;
             if (path->second.transform_handle != 0U) {
-                const auto found = matrix_transforms.find(
-                    path->second.transform_handle);
-                if (found == matrix_transforms.end()) {
-                    return status::invalid_handle;
+                affine_2d_double local_transform{};
+                const status transform_status = resolve_transform(
+                    path->second.transform_handle,
+                    local_transform);
+                if (transform_status != status::success) {
+                    return transform_status;
                 }
                 transform = compose_affine(
-                    found->second,
+                    local_transform,
                     parent_transform);
             }
             if (affine_has_zero_area(transform)) {
@@ -2219,13 +2544,15 @@ struct channel::implementation {
         }
         affine_2d_double transform = parent_transform;
         if (fixed->second.transform_handle != 0U) {
-            const auto found = matrix_transforms.find(
-                fixed->second.transform_handle);
-            if (found == matrix_transforms.end()) {
-                return status::invalid_handle;
+            affine_2d_double local_transform{};
+            const status transform_status = resolve_transform(
+                fixed->second.transform_handle,
+                local_transform);
+            if (transform_status != status::success) {
+                return transform_status;
             }
             transform = compose_affine(
-                found->second,
+                local_transform,
                 parent_transform);
         }
         if (affine_has_zero_area(transform)) {
@@ -2521,12 +2848,14 @@ struct channel::implementation {
         }
         affine_2d_double transform = parent_transform;
         if (group->second.transform_handle != 0U) {
-            const auto found = matrix_transforms.find(
-                group->second.transform_handle);
-            if (found == matrix_transforms.end()) {
-                return status::invalid_handle;
+            affine_2d_double local_transform{};
+            const status transform_status = resolve_transform(
+                group->second.transform_handle,
+                local_transform);
+            if (transform_status != status::success) {
+                return transform_status;
             }
-            transform = compose_affine(found->second, parent_transform);
+            transform = compose_affine(local_transform, parent_transform);
         }
         const std::size_t original_size = segments.size();
         leaf = {};
@@ -2624,12 +2953,14 @@ struct channel::implementation {
 
         affine_2d_double transform = parent_transform;
         if (combined->second.transform_handle != 0U) {
-            const auto found = matrix_transforms.find(
-                combined->second.transform_handle);
-            if (found == matrix_transforms.end()) {
-                return status::invalid_handle;
+            affine_2d_double local_transform{};
+            const status transform_status = resolve_transform(
+                combined->second.transform_handle,
+                local_transform);
+            if (transform_status != status::success) {
+                return transform_status;
             }
-            transform = compose_affine(found->second, parent_transform);
+            transform = compose_affine(local_transform, parent_transform);
         }
         if (affine_has_zero_area(transform)) {
             progpu_native_scene_path_boolean_node empty{};
@@ -2787,13 +3118,15 @@ struct channel::implementation {
                 group->second.children.size() <= 32U) {
                 affine_2d_double group_transform = target_transform;
                 if (group->second.transform_handle != 0U) {
-                    const auto transform = matrix_transforms.find(
-                        group->second.transform_handle);
-                    if (transform == matrix_transforms.end()) {
-                        return status::invalid_handle;
+                    affine_2d_double local_transform{};
+                    const status transform_status = resolve_transform(
+                        group->second.transform_handle,
+                        local_transform);
+                    if (transform_status != status::success) {
+                        return transform_status;
                     }
                     group_transform = compose_affine(
-                        transform->second,
+                        local_transform,
                         target_transform);
                 }
                 std::vector<shallow_fill_leaf> leaves;
@@ -4159,12 +4492,12 @@ struct channel::implementation {
                      geometry->second.radius_y == 0.0)) {
                     affine_2d_double local_transform{};
                     if (geometry->second.transform_handle != 0U) {
-                        const auto transform = matrix_transforms.find(
-                            geometry->second.transform_handle);
-                        if (transform == matrix_transforms.end()) {
-                            return status::invalid_handle;
+                        const status transform_status = resolve_transform(
+                            geometry->second.transform_handle,
+                            local_transform);
+                        if (transform_status != status::success) {
+                            return transform_status;
                         }
-                        local_transform = transform->second;
                     }
                     const auto effective_transform = compose_affine(
                         local_transform,
@@ -4248,12 +4581,12 @@ struct channel::implementation {
                 }
                 affine_2d_double pushed_transform{};
                 if (transform_handle != 0U) {
-                    const auto transform =
-                        matrix_transforms.find(transform_handle);
-                    if (transform == matrix_transforms.end()) {
-                        return status::invalid_handle;
+                    const status transform_status = resolve_transform(
+                        transform_handle,
+                        pushed_transform);
+                    if (transform_status != status::success) {
+                        return transform_status;
                     }
-                    pushed_transform = transform->second;
                 }
                 render_scope_state next = current;
                 next.transform = compose_affine(
@@ -4368,12 +4701,12 @@ struct channel::implementation {
                                 ? combined_geometry->second.transform_handle
                                 : path_geometry->second.transform_handle;
                 if (geometry_transform_handle != 0U) {
-                    const auto transform = matrix_transforms.find(
-                        geometry_transform_handle);
-                    if (transform == matrix_transforms.end()) {
-                        return status::invalid_handle;
+                    const status transform_status = resolve_transform(
+                        geometry_transform_handle,
+                        local_transform);
+                    if (transform_status != status::success) {
+                        return transform_status;
                     }
-                    local_transform = transform->second;
                 }
                 effective_transform = compose_affine(
                     local_transform,
@@ -5132,13 +5465,13 @@ struct channel::implementation {
         }
         affine_2d_double local_transform{};
         if (visual->second.transform_handle != 0U) {
-            const auto transform = matrix_transforms.find(
-                visual->second.transform_handle);
-            if (transform == matrix_transforms.end()) {
+            const status transform_status = resolve_transform(
+                visual->second.transform_handle,
+                local_transform);
+            if (transform_status != status::success) {
                 active_visuals.erase(handle);
-                return status::invalid_handle;
+                return transform_status;
             }
-            local_transform = transform->second;
         }
         const affine_2d_double offset_transform{
             1.0,
