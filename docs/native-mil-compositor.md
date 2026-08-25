@@ -301,11 +301,20 @@ framing and packed field offsets directly into reusable buffer writers, expose
 only typed resource/color/primitive inputs, and are shared by package smoke
 tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 
+The first exact `MILCMD_PUSH_CLIP` slice accepts retained, non-rounded rectangle
+geometry. It composes the geometry transform with the transform active at push
+time, requires an axis-alignment-preserving result, intersects nested clips in
+logical target coordinates, and saves a native semantic clip-rectangle state.
+Later transform scopes do not move an already-pushed clip. Rounded rectangles,
+rotated/sheared rectangles, paths, groups, and combined geometry fail closed;
+their bounds are never substituted for exact clip coverage.
+
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds,
   singular arc-transform fill semantics and curve dashes,
   exact translated-equivalent EvenOdd overlap execution,
+  remaining exact geometry clip scopes,
   remaining pen draws,
   brushes, drawings, images, glyph runs, caches, guidelines, effects, and
   complete render-data decoding.
@@ -773,6 +782,21 @@ bytes. Exact focused-build SHA-256 values were
 for `progpu_native.dll` and
 `20806036f956a84b0b217329183f85ca8f130c7c4aba6fc4394705d6df6170e8`
 for `progpu_native_dawn.dll`.
+
+The exact rectangle-clip implementation at `37f496f2` added canonical
+`MILCMD_PUSH_CLIP` production and native target-space nested intersections.
+Local native suites and the typed managed builder test passed. ARM64 MSVC then
+rebuilt both native modules under `/W4 /WX`; the MIL and Dawn contract tests
+passed. Package checkpoint `d22a94c9` pushed a retained rectangle clip around
+the existing mixed scene. Its 48 commands and 21 channel resources compiled
+through both exports, and live D3D12 readback completed with 21 semantic
+resources, three draws, and 41,472 coverage bytes. Exact focused-build SHA-256
+values were
+`014999b22d86f2192ea56697dde3d5bc47a88991831a39636a4db26c29fccb69`
+for `progpu_native.dll` and
+`ba780db29da7fbedd7834768180b9d9976775532f3cf0c50c4d52cc94b56d0b7`
+for `progpu_native_dawn.dll`. Arbitrary geometry clips remain an explicit
+fail-closed parity item.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
