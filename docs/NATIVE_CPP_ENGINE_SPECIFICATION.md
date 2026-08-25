@@ -2223,10 +2223,10 @@ RenderAtScale animation must be a live type-49 DoubleResource. Both Visual-to-
 cache and cache-to-animation edges participate in transactional deletion
 protection. The executable subset resolves scale at compile time, suppresses
 an exact non-positive result, and emits a persistent local cached layer for any
-positive finite RenderAtScale with pixel snapping and ClearType disabled. Page
-bounds are local bounds multiplied by scale; raster state maps Visual-local
-coordinates into that page, while the inverse scale/local-origin plus outer
-Visual affine maps the page back into its parent.
+positive finite RenderAtScale with composite-only pixel snapping and typed
+ClearType raster policy. Page bounds are local bounds multiplied by scale;
+raster state maps Visual-local coordinates into that page, while the inverse
+scale/local-origin plus outer Visual affine maps the page back into its parent.
 
 MIL cache content identity is independent of scene generation and unrelated
 sibling updates. It hashes the typed cached Visual/resource dependency graph,
@@ -2238,8 +2238,11 @@ changes therefore rebuild transformed composite vertices without invalidating
 the completed page. SnapsToDevicePixels follows `CMilVisualCache::Render`: it
 transforms the exact local bounds through outer placement, floors the
 world-space left/top, and post-offsets only the page composite. Root composite
-clips, spatial masks, guidelines, and ClearType remain fail-closed until their
-post-raster semantics are represented explicitly.
+clips, spatial masks, and guidelines remain fail-closed until their post-raster
+semantics are represented explicitly. BitmapCache EnableClearType is a raster
+scope policy: false converts requested subpixel glyph styles to grayscale;
+true preserves the inherited/explicit text rendering mode without forcing
+unrequested ClearType.
 
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then

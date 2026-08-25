@@ -1838,7 +1838,7 @@ bool visual_bitmap_cache_uses_canonical_typed_retention() {
     PROGPU_REQUIRE(state.apply(clear_type_cache) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 9015U, 8U, stream, &metrics) ==
-        status::unsupported_command);
+        status::success);
 
     std::vector<std::byte> delete_animation;
     append_command(
@@ -1878,6 +1878,132 @@ bool visual_bitmap_cache_uses_canonical_typed_retention() {
     PROGPU_REQUIRE(
         state.set_visual_cache_bounds(
             brush, 0.0, 0.0, 1.0, 1.0) == status::invalid_handle);
+    return true;
+}
+
+bool visual_bitmap_cache_controls_clear_type_rasterization() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t cache = 5U;
+    constexpr std::uint32_t glyph_run = 6U;
+
+    const std::vector<std::byte> font_bytes = load_inter_test_font();
+    progpu::native::text::sfnt_font_view font{};
+    progpu::native::text::font_error font_error =
+        progpu::native::text::font_error::none;
+    PROGPU_REQUIRE(progpu::native::text::sfnt_font_view::try_create(
+        font_bytes, 0U, font, &font_error));
+    std::uint16_t glyph_index = 0U;
+    PROGPU_REQUIRE(font.try_get_glyph_index('A', glyph_index));
+    PROGPU_REQUIRE(glyph_index != 0U);
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, cache, 94U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::visual_set_render_options,
+        visual,
+        0x10U,
+        0U,
+        0U,
+        0U,
+        0U,
+        3U,
+        0U);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.2F, 0.4F, 0.8F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    const std::array glyph_indices{glyph_index};
+    const std::array advances{28.0F};
+    const std::array offsets{progpu_native_point{}};
+    append_glyph_run_create(
+        batch,
+        glyph_run,
+        10.0F,
+        38.0F,
+        24.0F,
+        glyph_indices,
+        advances,
+        offsets,
+        10.0,
+        10.0,
+        36.0,
+        36.0);
+    std::vector<std::byte> nested;
+    append_command(nested, command::draw_glyph_run, brush, glyph_run);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::bitmap_cache,
+        cache,
+        1.0,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::visual_set_cache_mode,
+        visual,
+        cache);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    PROGPU_REQUIRE(
+        state.set_glyph_run_font_sfnt(
+            glyph_run, 0U, 0x03U, font_bytes) == status::success);
+    PROGPU_REQUIRE(
+        state.set_visual_cache_bounds(
+            visual, 10.0, 10.0, 36.0, 36.0) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9016U, 1U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(scene_contains_text_style_mode(
+        stream, PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE));
+    PROGPU_REQUIRE(!scene_contains_text_style_mode(
+        stream, PROGPU_NATIVE_SCENE_TEXT_CLEARTYPE));
+
+    std::vector<std::byte> enable_clear_type;
+    append_command(
+        enable_clear_type,
+        command::bitmap_cache,
+        cache,
+        1.0,
+        0U,
+        0U,
+        1U);
+    PROGPU_REQUIRE(state.apply(enable_clear_type) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9016U, 2U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(scene_contains_text_style_mode(
+        stream, PROGPU_NATIVE_SCENE_TEXT_CLEARTYPE));
     return true;
 }
 
@@ -8082,6 +8208,7 @@ int main() {
     PROGPU_REQUIRE(visual_solid_opacity_mask_composes_and_updates());
     PROGPU_REQUIRE(visual_gaussian_effects_compile_to_isolated_layers());
     PROGPU_REQUIRE(visual_bitmap_cache_uses_canonical_typed_retention());
+    PROGPU_REQUIRE(visual_bitmap_cache_controls_clear_type_rasterization());
     PROGPU_REQUIRE(visual_static_guidelines_reset_at_child_boundaries());
     PROGPU_REQUIRE(matrix_transform_scopes_compile_to_semantic_state());
     PROGPU_REQUIRE(
