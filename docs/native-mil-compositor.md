@@ -96,16 +96,22 @@ Ellipse centers/radii are converted exactly to native analytic
 bounds, and every primitive kind is reported separately in typed scene metrics.
 Scope opacity is composed with retained visual opacity in native semantic
 state; malformed opacity and over/underflowed scope stacks fail closed.
-Typed `MILCMD_MATRIXTRANSFORM`, `MILCMD_VISUAL_SETTRANSFORM`, and nested
-`MILCMD_PUSH_TRANSFORM` are also implemented. Matrix values remain doubles in
-the retained channel, are range-checked before lowering to the semantic ABI,
-and compose in WPF row-vector order as local visual transform, visual offset,
-parent transform, and then nested drawing scopes. Draw culling bounds are the
-axis-aligned bounds of all four transformed primitive corners. Animation
-handles, missing/wrong-type nonzero transforms, nonzero packet padding, and
-unbalanced scopes fail closed transactionally; transform handle zero retains
-WPF's defined balanced no-op scope. Animated brushes and pens and other nested
-commands deliberately fail closed until their typed resources are implemented.
+Typed `MILCMD_MATRIXTRANSFORM`, `MILCMD_TRANSLATETRANSFORM`,
+`MILCMD_SCALETRANSFORM`, `MILCMD_SKEWTRANSFORM`,
+`MILCMD_ROTATETRANSFORM`, variable-size `MILCMD_TRANSFORMGROUP`,
+`MILCMD_VISUAL_SETTRANSFORM`, and nested `MILCMD_PUSH_TRANSFORM` are also
+implemented. Leaf values are range-checked and quantized to the same float
+matrix state used by WPF MIL. Transform groups retain ordered child handles and
+resolve them on demand in WPF row-vector collection order, so a child update is
+visible without flattening or rebuilding the group. Cycles, deletion of a live
+child dependency, excessive recursion, animation handles, missing/wrong-type
+nonzero transforms, nonzero packet padding, and unbalanced scopes fail closed
+transactionally. Resolved transforms compose as local visual transform, visual
+offset, parent transform, and then nested drawing scopes; draw culling bounds
+are the axis-aligned bounds of all four transformed primitive corners.
+Transform handle zero retains WPF's defined balanced no-op scope. Animated
+brushes and pens and other nested commands deliberately fail closed until their
+typed resources are implemented.
 The slice is covered by byte-level fixtures that check semantic
 brush, transform/opacity state, rectangle, ellipse and rounded-rectangle
 primitives, transformed bounds, nested scope, rollback, scene identity,
@@ -1007,6 +1013,27 @@ with zero warnings; live D3D12 readback retained 38 semantic resources, issued
 `4c773f255b27ef00990ca52b89e428750a4108289de60ba5a50412b19c354d2f`
 for `progpu_native.dll` and
 `9b7434a0d2bea32861f2b3018078cff8dd183271da4ebffb9657aa4282b83476`
+for `progpu_native_dawn.dll`.
+
+The canonical static-transform implementation at `f6f82b91` then added all
+remaining two-dimensional static resource packets: Translate, Scale, Skew,
+Rotate, and ordered TransformGroup. Leaf transforms follow WPF's float matrix
+evaluation, including center translation and modulo-360 angle handling; groups
+remain retained dependency graphs and re-resolve current child state for visual,
+drawing-scope, geometry, group, combined-geometry, and clip consumers. Native
+fixtures cover meaningful ordered composition, nested groups, child updates,
+animation rollback, cycle rejection, and referenced-child deletion rejection.
+All eight locally configured native suites passed. Strict Windows ARM64 MSVC
+rebuilt both native modules under `/W4 /WX`, and all 11 native/Dawn CTests
+passed in the Parallels VM. Package checkpoint `8bc860e4` exercised all five
+public managed builder APIs through both MIL exports in a 74-command,
+34-channel-resource seed. Its identity-equivalent group preserved the prior
+live D3D12 contract exactly: 38 semantic resources, 11 draws, and 78,848
+coverage bytes. The project-reference consumer built with zero warnings. Exact
+qualified SHA-256 values were
+`301561a6f02de5a392b042f763134720a9a4b3d29f47b379c1018fc31c429d9c`
+for `progpu_native.dll` and
+`c3a800ba100508178a0d9f5837b07f9c6428a2bb616b1bb0d6a4708d0529da06`
 for `progpu_native_dawn.dll`.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
