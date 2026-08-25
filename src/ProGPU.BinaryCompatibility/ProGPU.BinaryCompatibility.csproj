@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>ProGPU.BinaryCompatibility</PackageId>
+    <Description>Opt-in CLR assembly identity compatibility for ProGPU SkiaSharp and Avalonia custom drawing.</Description>
+    <PackageTags>progpu;skiasharp;avalonia;binary-compatibility</PackageTags>
+    <IsPackable>true</IsPackable>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SkiaSharp\SkiaSharp.csproj"
+                      PrivateAssets="all" />
+    <ProjectReference Include="..\ProGPU.Avalonia.Skia.BinaryCompatibility\ProGPU.Avalonia.Skia.BinaryCompatibility.csproj"
+                      PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="build\ProGPU.BinaryCompatibility.targets"
+          Pack="true"
+          PackagePath="build\ProGPU.BinaryCompatibility.targets" />
+    <None Include="buildTransitive\ProGPU.BinaryCompatibility.targets"
+          Pack="true"
+          PackagePath="buildTransitive\ProGPU.BinaryCompatibility.targets" />
+    <None Include="..\SkiaSharp\bin\$(Configuration)\$(TargetFramework)\SkiaSharp.dll"
+          Pack="true"
+          PackagePath="tools\$(TargetFramework)\SkiaSharp.dll"
+          Visible="false" />
+    <None Include="..\ProGPU.Avalonia.Skia.BinaryCompatibility\bin\$(Configuration)\$(TargetFramework)\Avalonia.Skia.dll"
+          Pack="true"
+          PackagePath="tools\$(TargetFramework)\Avalonia.Skia.dll"
+          Visible="false" />
+  </ItemGroup>
+</Project>

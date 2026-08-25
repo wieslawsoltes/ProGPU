@@ -53,17 +53,16 @@ Avalonia renderer responsibility and requires the active draw scope,
 transform, opacity, target size, and device. The generic SkiaSharp shim does
 not own any of those values.
 
-A separate compatibility package was rejected because it would add a
-mandatory assembly dependency to the rendering hot path without providing a
-new ownership boundary. Shipping a replacement assembly named
-`Avalonia.Skia` was also rejected: it would collide with Avalonia's official
-renderer and its native SkiaSharp dependency.
+A mandatory compatibility package remains rejected because it would add an
+assembly dependency for applications that compile directly against ProGPU.
+An optional binary-identity facade is now available for precompiled consumers;
+it is public-signed, contains type forwards only, and is selected at final
+build/publish asset resolution by `ProGPU.BinaryCompatibility`.
 
-This is source compatibility. Applications must use the ProGPU package set
-and recompile code that references `Avalonia.Skia`. A precompiled library
-whose metadata references the official `Avalonia.Skia` and native
-`SkiaSharp` assembly identities is not binary-compatible with the ProGPU
-replacement packages.
+Source compatibility remains the default. Applications that need an unchanged
+precompiled library can opt into the bounded modern-.NET binary profile
+documented in
+[`PROGPU_BINARY_ASSEMBLY_COMPATIBILITY.md`](PROGPU_BINARY_ASSEMBLY_COMPATIBILITY.md).
 
 ## Resulting contract
 

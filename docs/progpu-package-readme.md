@@ -120,10 +120,23 @@ Avalonia transform or current opacity again. `SkSurface` and
 `TryLeasePlatformGraphicsApi()` return `null` because the ProGPU recorder is
 not backed by an Avalonia Skia surface or platform graphics context.
 
-This compatibility is for source rebuilt against the ProGPU package set.
-Do not add the official `Avalonia.Skia` package: a precompiled library tied to
-the official `Avalonia.Skia` and native `SkiaSharp` assembly identities must
-be recompiled for ProGPU.
+Source rebuilds need no additional package. For a precompiled modern-.NET
+library tied to the official `Avalonia.Skia` and `SkiaSharp` identities, add
+`ProGPU.BinaryCompatibility` and opt in at the application boundary:
+
+```xml
+<PropertyGroup>
+  <ProGpuBinaryCompatibility>true</ProGpuBinaryCompatibility>
+</PropertyGroup>
+```
+
+The current `net10.0` profile uses ceiling identities that accept released
+stable Avalonia.Skia 11.x/12.x packages through 12.1.1 and SkiaSharp
+2.x/3.x/4.x packages through 4.151.1 without a version selector. It does not
+promise removed historical APIs, future releases above those ceilings, or
+.NET Framework compatibility. See
+`docs/PROGPU_BINARY_ASSEMBLY_COMPATIBILITY.md` for identity, packaging, and
+security details.
 
 Custom controls can submit ProGPU scene commands from an Avalonia custom draw operation. Acquire `IProGpuApiLeaseFeature` only inside `ICustomDrawOperation.Render`, dispose the lease before returning, and pass `CurrentTransform` to transform-aware ProGPU methods.
 

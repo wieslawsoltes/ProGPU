@@ -101,6 +101,7 @@ summaries and the corresponding documents under `docs/`.
 - `ProGPU.Uno`
 - `ProGPU.Dxf`
 - `ProGPU.SkiaSharp`
+- `ProGPU.BinaryCompatibility`
 - `ProGPU.System.Drawing.Common`
 - `LibreWPF.Interop`
 - `ProGPU.Android`

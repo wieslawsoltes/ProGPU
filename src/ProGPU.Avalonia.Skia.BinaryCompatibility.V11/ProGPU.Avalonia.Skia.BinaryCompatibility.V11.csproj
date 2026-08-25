@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Avalonia.Skia</AssemblyName>
+    <RootNamespace>Avalonia.Skia</RootNamespace>
+    <AssemblyVersion>12.1.1.0</AssemblyVersion>
+    <FileVersion>12.1.1.0</FileVersion>
+    <PublicSign>true</PublicSign>
+    <AssemblyOriginatorKeyFile>..\..\eng\Avalonia.public.snk</AssemblyOriginatorKeyFile>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <Description>Universal binary compatibility facade for Avalonia 11 custom drawing leases.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\ProGPU.Avalonia.Skia.BinaryCompatibility\TypeForwards.cs"
+             Link="TypeForwards.cs" />
+    <ProjectReference Include="..\ProGPU.Avalonia.Rendering.V11\ProGPU.Avalonia.Rendering.V11.csproj" />
+  </ItemGroup>
+</Project>
