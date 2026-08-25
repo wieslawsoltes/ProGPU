@@ -1,8 +1,10 @@
 #include "progpu_native_mil.hpp"
 #include "progpu_native_mil.h"
+#include "../src/Geometry/progpu_native_arc.hpp"
 
 #include <array>
 #include <bit>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -2102,6 +2104,8 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     constexpr std::uint32_t same_fill_group = 16U;
     constexpr std::uint32_t different_fill_group = 17U;
     constexpr std::uint32_t nested_combined = 18U;
+    constexpr std::uint32_t arc_transform = 19U;
+    constexpr std::uint32_t singular_transform = 20U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -2122,6 +2126,8 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     append_create(batch, same_fill_group, 71U);
     append_create(batch, different_fill_group, 71U);
     append_create(batch, nested_combined, 72U);
+    append_create(batch, arc_transform, 66U);
+    append_create(batch, singular_transform, 66U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -2155,6 +2161,28 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         1.0,
         20.0,
         5.0,
+        0U);
+    append_command(
+        batch,
+        command::matrix_transform,
+        arc_transform,
+        -1.25,
+        0.5,
+        0.25,
+        0.75,
+        3.0,
+        -2.0,
+        0U);
+    append_command(
+        batch,
+        command::matrix_transform,
+        singular_transform,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
         0U);
     append_command(
         batch,
@@ -2706,12 +2734,121 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     append_path_geometry(
         transformed_arc_update,
         path_b,
-        child_transform,
+        arc_transform,
         1U,
         make_arc_path_figures());
     PROGPU_REQUIRE(state.apply(transformed_arc_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7003U, 6U, stream) ==
+        state.build_scene(target, 7003U, 6U, stream) == status::success);
+    const auto transformed_arc_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_transformed_arc = false;
+    bool found_transformed_boolean_arc = false;
+    for (std::uint32_t index = 0U;
+         index < transformed_arc_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            transformed_arc_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            continue;
+        }
+        const auto path = read_value<progpu_native_scene_path_fill>(
+            stream,
+            resource.payload_offset);
+        if (path.boolean_node_count == 3U && path.segment_count == 26U) {
+            const auto boolean_arc = read_value<
+                progpu_native_path_segment>(
+                    stream,
+                    resource.auxiliary_offset +
+                        4U * sizeof(progpu_native_path_segment));
+            PROGPU_REQUIRE(
+                boolean_arc.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC);
+            PROGPU_REQUIRE(
+                boolean_arc.p0.x == 5.375F && boolean_arc.p0.y == 3.0F);
+            PROGPU_REQUIRE(
+                boolean_arc.p1.x == -7.375F &&
+                boolean_arc.p1.y == 15.75F);
+            PROGPU_REQUIRE(std::bit_cast<float>(boolean_arc.pad1) < 0.0F);
+            found_transformed_boolean_arc = true;
+            continue;
+        }
+        if (path.boolean_node_count != 0U || path.segment_count != 26U) {
+            continue;
+        }
+        const auto arc = read_value<progpu_native_path_segment>(
+            stream,
+            resource.auxiliary_offset +
+                4U * sizeof(progpu_native_path_segment));
+        PROGPU_REQUIRE(arc.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC);
+        PROGPU_REQUIRE(arc.p0.x == 2.25F && arc.p0.y == 0.0F);
+        PROGPU_REQUIRE(arc.p1.x == -6.25F && arc.p1.y == 8.5F);
+        PROGPU_REQUIRE(arc.p3.x > 0.0F && arc.p3.y > 0.0F);
+        PROGPU_REQUIRE(std::bit_cast<float>(arc.pad1) < 0.0F);
+
+        progpu::native::geometry::arc_point source_center{};
+        float source_theta1 = 0.0F;
+        float source_delta = 0.0F;
+        float source_radius_x = 0.0F;
+        float source_radius_y = 0.0F;
+        PROGPU_REQUIRE(progpu::native::geometry::resolve_arc(
+            {1.0F, 2.0F},
+            {9.0F, 8.0F},
+            {8.0F, 6.0F},
+            30.0F,
+            false,
+            true,
+            source_center,
+            source_theta1,
+            source_delta,
+            source_radius_x,
+            source_radius_y));
+        const float output_theta1 = std::bit_cast<float>(arc.pad0);
+        const float output_delta = std::bit_cast<float>(arc.pad1);
+        const float output_rotation = std::bit_cast<float>(arc.pad2);
+        for (const float fraction :
+             std::array{0.0F, 0.25F, 0.5F, 0.75F, 1.0F}) {
+            const auto source_point =
+                progpu::native::geometry::evaluate_arc(
+                    source_center,
+                    source_radius_x,
+                    source_radius_y,
+                    30.0F,
+                    source_theta1 + fraction * source_delta);
+            const float expected_x =
+                source_point.x * -1.25F + source_point.y * 0.25F + 3.0F;
+            const float expected_y =
+                source_point.x * 0.5F + source_point.y * 0.75F - 2.0F;
+            const float theta = output_theta1 + fraction * output_delta;
+            const float cosine_theta = std::cos(theta);
+            const float sine_theta = std::sin(theta);
+            const float cosine_rotation = std::cos(output_rotation);
+            const float sine_rotation = std::sin(output_rotation);
+            const float actual_x =
+                arc.p3.x * cosine_theta * cosine_rotation -
+                arc.p3.y * sine_theta * sine_rotation + arc.p2.x;
+            const float actual_y =
+                arc.p3.x * cosine_theta * sine_rotation +
+                arc.p3.y * sine_theta * cosine_rotation + arc.p2.y;
+            PROGPU_REQUIRE(std::abs(actual_x - expected_x) < 0.0001F);
+            PROGPU_REQUIRE(std::abs(actual_y - expected_y) < 0.0001F);
+        }
+        found_transformed_arc = true;
+    }
+    PROGPU_REQUIRE(found_transformed_arc);
+    PROGPU_REQUIRE(found_transformed_boolean_arc);
+
+    std::vector<std::byte> singular_arc_update;
+    append_path_geometry(
+        singular_arc_update,
+        path_b,
+        singular_transform,
+        1U,
+        make_arc_path_figures());
+    PROGPU_REQUIRE(state.apply(singular_arc_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7003U, 7U, stream) ==
         status::unsupported_command);
 
     std::vector<std::byte> different_nested_fill;
@@ -2724,7 +2861,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         different_fill_child);
     PROGPU_REQUIRE(state.apply(different_nested_fill) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7003U, 7U, stream) == status::success);
+        state.build_scene(target, 7003U, 8U, stream) == status::success);
     const auto different_fill_header =
         read_value<progpu_native_scene_header>(stream, 0U);
     bool found_outer_fill_override = false;
