@@ -1456,6 +1456,123 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     }
     PROGPU_REQUIRE(found_ellipse_stroke_bounds);
 
+    std::vector<std::byte> degenerate_ellipse_batch;
+    std::vector<std::byte> degenerate_ellipses;
+    append_command(
+        degenerate_ellipses,
+        command::draw_ellipse,
+        3.0,
+        4.0,
+        2.0,
+        0.0,
+        brush,
+        solid_pen);
+    append_command(
+        degenerate_ellipses,
+        command::draw_ellipse,
+        8.0,
+        4.0,
+        0.0,
+        2.0,
+        brush,
+        solid_pen);
+    append_command(
+        degenerate_ellipses,
+        command::draw_ellipse,
+        12.0,
+        4.0,
+        0.0,
+        0.0,
+        brush,
+        solid_pen);
+    append_render_data(
+        degenerate_ellipse_batch,
+        content,
+        degenerate_ellipses);
+    PROGPU_REQUIRE(
+        state.apply(degenerate_ellipse_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 5U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.ellipse_count == 3U);
+    const auto degenerate_ellipse_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t degenerate_ellipse_line_count = 0U;
+    std::uint32_t degenerate_ellipse_cap_count = 0U;
+    std::uint32_t degenerate_ellipse_draw_count = 0U;
+    for (std::uint32_t index = 0U;
+         index < degenerate_ellipse_header.resource_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            degenerate_ellipse_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        PROGPU_REQUIRE(
+            record.kind != PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH);
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            continue;
+        }
+        const std::size_t primitive_count =
+            record.payload_size / sizeof(progpu_native_geometry_primitive);
+        for (std::size_t primitive_index = 0U;
+             primitive_index < primitive_count;
+             ++primitive_index) {
+            const auto primitive =
+                read_value<progpu_native_geometry_primitive>(
+                    stream,
+                    record.payload_offset +
+                        primitive_index *
+                            sizeof(progpu_native_geometry_primitive));
+            if (primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE) {
+                PROGPU_REQUIRE(
+                    (primitive.flags &
+                        PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) ==
+                    (PROGPU_NATIVE_STROKE_CAP_ROUND <<
+                        PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT));
+                PROGPU_REQUIRE(
+                    (primitive.flags &
+                        PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK) ==
+                    (PROGPU_NATIVE_STROKE_CAP_ROUND <<
+                        PROGPU_NATIVE_PRIMITIVE_END_CAP_SHIFT));
+                ++degenerate_ellipse_line_count;
+            } else if (primitive.kind ==
+                PROGPU_NATIVE_GEOMETRY_PATH_CAP) {
+                ++degenerate_ellipse_cap_count;
+            }
+        }
+    }
+    for (std::uint32_t index = 0U;
+         index < degenerate_ellipse_header.command_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            degenerate_ellipse_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
+            continue;
+        }
+        if (degenerate_ellipse_draw_count == 0U) {
+            PROGPU_REQUIRE(record.bounds_x == 10.0F);
+            PROGPU_REQUIRE(record.bounds_y == 26.0F);
+            PROGPU_REQUIRE(record.bounds_width == 12.0F);
+            PROGPU_REQUIRE(record.bounds_height == 4.0F);
+        } else if (degenerate_ellipse_draw_count == 1U) {
+            PROGPU_REQUIRE(record.bounds_x == 24.0F);
+            PROGPU_REQUIRE(record.bounds_y == 22.0F);
+            PROGPU_REQUIRE(record.bounds_width == 4.0F);
+            PROGPU_REQUIRE(record.bounds_height == 12.0F);
+        } else {
+            PROGPU_REQUIRE(record.bounds_x == 32.0F);
+            PROGPU_REQUIRE(record.bounds_y == 26.0F);
+            PROGPU_REQUIRE(record.bounds_width == 4.0F);
+            PROGPU_REQUIRE(record.bounds_height == 4.0F);
+        }
+        ++degenerate_ellipse_draw_count;
+    }
+    PROGPU_REQUIRE(degenerate_ellipse_line_count == 2U);
+    PROGPU_REQUIRE(degenerate_ellipse_cap_count == 2U);
+    PROGPU_REQUIRE(degenerate_ellipse_draw_count == 3U);
+
     std::vector<std::byte> rounded_batch;
     std::vector<std::byte> rounded;
     append_command(
@@ -1472,7 +1589,7 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     append_render_data(rounded_batch, content, rounded);
     PROGPU_REQUIRE(state.apply(rounded_batch) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7002U, 5U, stream, &metrics) ==
+        state.build_scene(target, 7002U, 6U, stream, &metrics) ==
         status::success);
     PROGPU_REQUIRE(metrics.rounded_rectangle_count == 1U);
     const auto rounded_header =
@@ -1538,7 +1655,7 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     append_render_data(dashed_ellipse_batch, content, dashed_ellipse);
     PROGPU_REQUIRE(state.apply(dashed_ellipse_batch) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7002U, 6U, stream, &metrics) ==
+        state.build_scene(target, 7002U, 7U, stream, &metrics) ==
         status::unsupported_command);
 
     std::vector<std::byte> dashed_rounded_batch;
@@ -1557,7 +1674,7 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     append_render_data(dashed_rounded_batch, content, dashed_rounded);
     PROGPU_REQUIRE(state.apply(dashed_rounded_batch) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7002U, 7U, stream, &metrics) ==
+        state.build_scene(target, 7002U, 8U, stream, &metrics) ==
         status::unsupported_command);
 
     constexpr std::uint32_t line_geometry = 9U;
@@ -1585,7 +1702,7 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     append_render_data(geometry_batch, content, geometry_draw);
     PROGPU_REQUIRE(state.apply(geometry_batch) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7002U, 8U, stream, &metrics) ==
+        state.build_scene(target, 7002U, 9U, stream, &metrics) ==
         status::success);
     PROGPU_REQUIRE(metrics.line_count == 1U);
     const auto geometry_header =
@@ -1683,7 +1800,7 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     PROGPU_REQUIRE(
         state.apply(primitive_geometry_batch) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7002U, 9U, stream, &metrics) ==
+        state.build_scene(target, 7002U, 10U, stream, &metrics) ==
         status::success);
     PROGPU_REQUIRE(metrics.rounded_rectangle_count == 1U);
     PROGPU_REQUIRE(metrics.ellipse_count == 1U);
@@ -1712,6 +1829,67 @@ bool solid_pen_line_compiles_to_geometry_scene() {
         ++transformed_analytic_count;
     }
     PROGPU_REQUIRE(transformed_analytic_count >= 3U);
+
+    std::vector<std::byte> degenerate_ellipse_geometry_update;
+    append_command(
+        degenerate_ellipse_geometry_update,
+        command::ellipse_geometry,
+        ellipse_geometry,
+        0.0,
+        3.0,
+        9.0,
+        8.0,
+        transform,
+        0U,
+        0U,
+        0U);
+    std::vector<std::byte> degenerate_ellipse_geometry_draw;
+    append_command(
+        degenerate_ellipse_geometry_draw,
+        command::draw_geometry,
+        brush,
+        solid_pen,
+        ellipse_geometry,
+        0U);
+    append_render_data(
+        degenerate_ellipse_geometry_update,
+        content,
+        degenerate_ellipse_geometry_draw);
+    PROGPU_REQUIRE(
+        state.apply(degenerate_ellipse_geometry_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 11U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.ellipse_count == 1U);
+    const auto degenerate_ellipse_geometry_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t retained_degenerate_ellipse_line_count = 0U;
+    for (std::uint32_t index = 0U;
+         index < degenerate_ellipse_geometry_header.resource_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            degenerate_ellipse_geometry_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        PROGPU_REQUIRE(
+            record.kind != PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH);
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            continue;
+        }
+        const auto primitive =
+            read_value<progpu_native_geometry_primitive>(
+                stream,
+                record.payload_offset);
+        PROGPU_REQUIRE(primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE);
+        PROGPU_REQUIRE(primitive.p0.x == 9.0F);
+        PROGPU_REQUIRE(primitive.p0.y == 5.0F);
+        PROGPU_REQUIRE(primitive.p1.x == 9.0F);
+        PROGPU_REQUIRE(primitive.p1.y == 11.0F);
+        PROGPU_REQUIRE(primitive.transform.m11 == 2.0F);
+        PROGPU_REQUIRE(primitive.transform.m22 == 2.0F);
+        ++retained_degenerate_ellipse_line_count;
+    }
+    PROGPU_REQUIRE(retained_degenerate_ellipse_line_count == 1U);
 
     const auto rectangle_generation =
         state.resource_generation(rectangle_geometry);
