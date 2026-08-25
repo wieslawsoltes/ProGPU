@@ -2998,11 +2998,108 @@ struct channel::implementation {
                 ? status::success
                 : status::invalid_graph;
         };
+        const auto append_degenerate_cap_stroke = [
+            this,
+            &builder](
+            const pen_state& pen,
+            progpu_native_point point,
+            std::uint32_t brush_index,
+            const affine_2d_double& local_transform,
+            const affine_2d_double& effective_transform,
+            std::uint32_t start_cap,
+            std::uint32_t end_cap,
+            bool& emitted) noexcept {
+            emitted = false;
+            if (start_cap == PROGPU_NATIVE_STROKE_CAP_FLAT &&
+                end_cap == PROGPU_NATIVE_STROKE_CAP_FLAT) {
+                return status::success;
+            }
+            if (pen.dash_style_handle != 0U) {
+                const auto dash = dash_styles.find(pen.dash_style_handle);
+                if (dash == dash_styles.end()) {
+                    return status::invalid_handle;
+                }
+                if (!dash->second.intervals.empty()) {
+                    return status::unsupported_command;
+                }
+            }
+            progpu_native_affine_2d native_local_transform{};
+            if (!try_to_native_affine(
+                    local_transform,
+                    native_local_transform)) {
+                return status::invalid_graph;
+            }
+            const double half_thickness = pen.thickness * 0.5;
+            const double left = double{point.x} -
+                (start_cap == PROGPU_NATIVE_STROKE_CAP_FLAT
+                    ? 0.0
+                    : half_thickness);
+            const double right = double{point.x} +
+                (end_cap == PROGPU_NATIVE_STROKE_CAP_FLAT
+                    ? 0.0
+                    : half_thickness);
+            progpu_native_image_rect stroke_bounds{};
+            if (!try_transform_bounds(
+                    left,
+                    double{point.y} - half_thickness,
+                    right - left,
+                    pen.thickness,
+                    effective_transform,
+                    stroke_bounds)) {
+                return status::invalid_graph;
+            }
+            std::array<progpu_native_geometry_primitive, 2U> primitives{};
+            std::array<std::uint32_t, 2U> brushes{};
+            std::size_t primitive_count = 0U;
+            const auto append_cap = [
+                &primitives,
+                &brushes,
+                &primitive_count,
+                &pen,
+                point,
+                brush_index,
+                &native_local_transform](
+                std::uint32_t cap,
+                bool at_start) {
+                if (cap == PROGPU_NATIVE_STROKE_CAP_FLAT) {
+                    return;
+                }
+                progpu_native_geometry_primitive primitive{};
+                primitive.kind = PROGPU_NATIVE_GEOMETRY_PATH_CAP;
+                primitive.flags = cap <<
+                    PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+                primitive.p0 = point;
+                primitive.p1 = {1.0F, 0.0F};
+                primitive.p2.x = at_start ? 1.0F : 0.0F;
+                primitive.stroke_thickness =
+                    static_cast<float>(pen.thickness);
+                primitive.color = {1.0F, 1.0F, 1.0F, 1.0F};
+                primitive.transform = native_local_transform;
+                primitives[primitive_count] = primitive;
+                brushes[primitive_count] = brush_index;
+                ++primitive_count;
+            };
+            append_cap(start_cap, true);
+            append_cap(end_cap, false);
+            if (!builder.draw_geometry(
+                    std::span<const progpu_native_geometry_primitive>(
+                        primitives.data(),
+                        primitive_count),
+                    std::span<const std::uint32_t>(
+                        brushes.data(),
+                        primitive_count),
+                    stroke_bounds)) {
+                return status::invalid_graph;
+            }
+            emitted = true;
+            return status::success;
+        };
         const auto append_line_stroke = [
             this,
             &builder,
             &resolve_brush_index,
             &append_polyline_stroke,
+            &append_degenerate_cap_stroke,
             &metrics](
             double x0,
             double y0,
@@ -3026,10 +3123,33 @@ struct channel::implementation {
                 return status::success;
             }
             if (x0 == x1 && y0 == y1) {
-                return pen->second.start_line_cap == 0U &&
-                    pen->second.end_line_cap == 0U
-                    ? status::success
-                    : status::unsupported_command;
+                if (pen->second.start_line_cap ==
+                        PROGPU_NATIVE_STROKE_CAP_FLAT &&
+                    pen->second.end_line_cap ==
+                        PROGPU_NATIVE_STROKE_CAP_FLAT) {
+                    return status::success;
+                }
+                std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                const status brush_status = resolve_brush_index(
+                    pen->second.brush_handle,
+                    brush_index);
+                if (brush_status != status::success) {
+                    return brush_status;
+                }
+                bool emitted = false;
+                const status cap_status = append_degenerate_cap_stroke(
+                    pen->second,
+                    {static_cast<float>(x0), static_cast<float>(y0)},
+                    brush_index,
+                    local_transform,
+                    effective_transform,
+                    pen->second.start_line_cap,
+                    pen->second.end_line_cap,
+                    emitted);
+                if (cap_status == status::success && emitted) {
+                    ++metrics.line_count;
+                }
+                return cap_status;
             }
             std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             const status brush_status = resolve_brush_index(
@@ -3125,7 +3245,8 @@ struct channel::implementation {
             this,
             &builder,
             &resolve_brush_index,
-            &append_polyline_stroke](
+            &append_polyline_stroke,
+            &append_degenerate_cap_stroke](
             const path_geometry_state& geometry,
             const pen_state& pen,
             const affine_2d_double& local_transform,
@@ -3170,11 +3291,7 @@ struct channel::implementation {
                     [](std::uint8_t smooth_join) {
                         return smooth_join != 0U;
                     });
-                if (contour.points.size() < 2U) {
-                    if (pen.start_line_cap != 0U ||
-                        pen.end_line_cap != 0U) {
-                        return status::unsupported_command;
-                    }
+                if (contour.points.empty()) {
                     continue;
                 }
                 bool has_length = false;
@@ -3202,9 +3319,28 @@ struct channel::implementation {
                     has_length = true;
                 }
                 if (!has_length) {
-                    if (pen.start_line_cap != 0U ||
-                        pen.end_line_cap != 0U) {
-                        return status::unsupported_command;
+                    const std::uint32_t start_cap = contour.closed
+                        ? PROGPU_NATIVE_STROKE_CAP_ROUND
+                        : contour.start_uses_dash_cap
+                            ? pen.dash_cap
+                            : pen.start_line_cap;
+                    const std::uint32_t end_cap = contour.closed
+                        ? PROGPU_NATIVE_STROKE_CAP_ROUND
+                        : contour.end_uses_dash_cap
+                            ? pen.dash_cap
+                            : pen.end_line_cap;
+                    bool emitted = false;
+                    const status cap_status = append_degenerate_cap_stroke(
+                        pen,
+                        contour.points.front(),
+                        brush_index,
+                        local_transform,
+                        effective_transform,
+                        start_cap,
+                        end_cap,
+                        emitted);
+                    if (cap_status != status::success) {
+                        return cap_status;
                     }
                     continue;
                 }

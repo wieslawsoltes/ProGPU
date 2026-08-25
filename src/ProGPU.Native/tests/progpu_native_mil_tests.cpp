@@ -1133,6 +1133,95 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     }
     PROGPU_REQUIRE(found_bounds);
 
+    std::vector<std::byte> degenerate_line_batch;
+    std::vector<std::byte> degenerate_line;
+    append_command(
+        degenerate_line,
+        command::draw_line,
+        3.0,
+        4.0,
+        3.0,
+        4.0,
+        pen,
+        0U);
+    append_render_data(
+        degenerate_line_batch,
+        content,
+        degenerate_line);
+    PROGPU_REQUIRE(state.apply(degenerate_line_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 2U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.line_count == 1U);
+    const auto degenerate_line_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t degenerate_start_cap_count = 0U;
+    std::uint32_t degenerate_end_cap_count = 0U;
+    for (std::uint32_t index = 0U;
+         index < degenerate_line_header.resource_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            degenerate_line_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            continue;
+        }
+        PROGPU_REQUIRE(
+            record.payload_size ==
+            2U * sizeof(progpu_native_geometry_primitive));
+        for (std::size_t primitive_index = 0U;
+             primitive_index < 2U;
+             ++primitive_index) {
+            const auto primitive =
+                read_value<progpu_native_geometry_primitive>(
+                    stream,
+                    record.payload_offset +
+                        primitive_index *
+                            sizeof(progpu_native_geometry_primitive));
+            PROGPU_REQUIRE(
+                primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP);
+            PROGPU_REQUIRE(primitive.p0.x == 3.0F);
+            PROGPU_REQUIRE(primitive.p0.y == 4.0F);
+            PROGPU_REQUIRE(primitive.p1.x == 1.0F);
+            PROGPU_REQUIRE(primitive.p1.y == 0.0F);
+            const std::uint32_t cap =
+                (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
+                PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+            if (primitive.p2.x == 1.0F) {
+                PROGPU_REQUIRE(cap == PROGPU_NATIVE_STROKE_CAP_SQUARE);
+                ++degenerate_start_cap_count;
+            } else {
+                PROGPU_REQUIRE(primitive.p2.x == 0.0F);
+                PROGPU_REQUIRE(cap == PROGPU_NATIVE_STROKE_CAP_ROUND);
+                ++degenerate_end_cap_count;
+            }
+        }
+    }
+    PROGPU_REQUIRE(degenerate_start_cap_count == 1U);
+    PROGPU_REQUIRE(degenerate_end_cap_count == 1U);
+    bool found_degenerate_line_bounds = false;
+    for (std::uint32_t index = 0U;
+         index < degenerate_line_header.command_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            degenerate_line_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
+            continue;
+        }
+        PROGPU_REQUIRE(record.bounds_x == 14.0F);
+        PROGPU_REQUIRE(record.bounds_y == 26.0F);
+        PROGPU_REQUIRE(record.bounds_width == 4.0F);
+        PROGPU_REQUIRE(record.bounds_height == 4.0F);
+        found_degenerate_line_bounds = true;
+    }
+    PROGPU_REQUIRE(found_degenerate_line_bounds);
+    std::vector<std::byte> restore_line_batch;
+    append_render_data(restore_line_batch, content, nested);
+    PROGPU_REQUIRE(state.apply(restore_line_batch) == status::success);
+
     const auto pen_generation = state.resource_generation(pen);
     std::vector<std::byte> animated_pen;
     append_command(
@@ -2614,6 +2703,107 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     PROGPU_REQUIRE(capped_arc_count == 1U);
     PROGPU_REQUIRE(start_cap_count == 1U);
     PROGPU_REQUIRE(end_cap_count == 1U);
+
+    constexpr std::uint32_t zero_line_size = 32U;
+    constexpr std::uint32_t zero_figure_size = 40U + zero_line_size;
+    constexpr std::uint32_t zero_figures_size =
+        48U + 2U * zero_figure_size;
+    std::vector<std::byte> zero_figures;
+    append_value(zero_figures, zero_figures_size);
+    append_value(zero_figures, 0x02U);
+    append_value(zero_figures, 5.0);
+    append_value(zero_figures, 6.0);
+    append_value(zero_figures, 10.0);
+    append_value(zero_figures, 12.0);
+    append_value(zero_figures, 2U);
+    append_value(zero_figures, 0U);
+    const auto append_zero_figure = [
+        &zero_figures,
+        zero_figure_size](
+        std::uint32_t back_size,
+        std::uint32_t flags,
+        double x,
+        double y) {
+        append_value(zero_figures, back_size);
+        append_value(zero_figures, flags);
+        append_value(zero_figures, 1U);
+        append_value(zero_figures, zero_figure_size);
+        append_value(zero_figures, x);
+        append_value(zero_figures, y);
+        append_value(zero_figures, 40U);
+        append_value(zero_figures, 0U);
+        append_value(zero_figures, 1U);
+        append_value(zero_figures, 0U);
+        append_value(zero_figures, 0U);
+        append_value(zero_figures, 0U);
+        append_value(zero_figures, x);
+        append_value(zero_figures, y);
+    };
+    append_zero_figure(0U, 0U, 5.0, 6.0);
+    append_zero_figure(zero_figure_size, 0x04U, 10.0, 12.0);
+    PROGPU_REQUIRE(zero_figures.size() == zero_figures_size);
+    std::vector<std::byte> zero_path_update;
+    append_path_geometry(
+        zero_path_update,
+        geometry,
+        transform,
+        0U,
+        zero_figures);
+    PROGPU_REQUIRE(state.apply(zero_path_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 11U, stream, &metrics) ==
+        status::success);
+    const auto zero_path_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t zero_round_cap_count = 0U;
+    std::uint32_t zero_triangle_cap_count = 0U;
+    std::uint32_t zero_start_cap_count = 0U;
+    std::uint32_t zero_end_cap_count = 0U;
+    for (std::uint32_t resource_index = 0U;
+         resource_index < zero_path_header.resource_count;
+         ++resource_index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            zero_path_header.resource_offset +
+                resource_index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            continue;
+        }
+        const std::size_t primitive_count =
+            record.payload_size / sizeof(progpu_native_geometry_primitive);
+        for (std::size_t primitive_index = 0U;
+             primitive_index < primitive_count;
+             ++primitive_index) {
+            const auto primitive =
+                read_value<progpu_native_geometry_primitive>(
+                    stream,
+                    record.payload_offset +
+                        primitive_index *
+                            sizeof(progpu_native_geometry_primitive));
+            PROGPU_REQUIRE(
+                primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP);
+            PROGPU_REQUIRE(primitive.p1.x == 1.0F);
+            PROGPU_REQUIRE(primitive.p1.y == 0.0F);
+            const std::uint32_t cap =
+                (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
+                PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+            zero_round_cap_count +=
+                cap == PROGPU_NATIVE_STROKE_CAP_ROUND ? 1U : 0U;
+            zero_triangle_cap_count +=
+                cap == PROGPU_NATIVE_STROKE_CAP_TRIANGLE ? 1U : 0U;
+            zero_start_cap_count += primitive.p2.x == 1.0F ? 1U : 0U;
+            zero_end_cap_count += primitive.p2.x == 0.0F ? 1U : 0U;
+        }
+    }
+    PROGPU_REQUIRE(zero_round_cap_count == 3U);
+    PROGPU_REQUIRE(zero_triangle_cap_count == 1U);
+    PROGPU_REQUIRE(zero_start_cap_count == 2U);
+    PROGPU_REQUIRE(zero_end_cap_count == 2U);
+
+    PROGPU_REQUIRE(state.apply(dashed_arc_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 12U, stream, &metrics) ==
+        status::unsupported_command);
     return true;
 }
 
