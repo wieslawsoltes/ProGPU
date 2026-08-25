@@ -30,6 +30,22 @@ float round_to_even(float value) noexcept {
         : lower + 1.0F;
 }
 
+float wpf_guideline_offset(float value) noexcept {
+    // CFloatFPU::OffsetToRounded resolves every half-integer toward the
+    // numerically larger integer and leaves floats with no fractional bits
+    // unchanged.
+    constexpr float minimum_float_without_fraction = 8388608.0F;
+    if (!(std::abs(value) < minimum_float_without_fraction)) {
+        return 0.0F;
+    }
+    const float rounded = std::floor(value + 0.5F);
+    float offset = rounded - value;
+    if (offset <= -0.5F) {
+        offset += 1.0F;
+    }
+    return offset;
+}
+
 } // namespace
 
 progpu_native_scene_state semantic_identity_state() noexcept {
@@ -42,8 +58,12 @@ progpu_native_scene_state semantic_identity_state() noexcept {
 
 semantic_state_cursor::semantic_state_cursor(
     const std::byte* bytes,
-    const progpu_native_scene_header& header) noexcept
-    : bytes_(bytes), header_(header), current_(semantic_identity_state()) {
+    const progpu_native_scene_header& header,
+    float dpi_scale) noexcept
+    : bytes_(bytes),
+      header_(header),
+      dpi_scale_(dpi_scale),
+      current_(semantic_identity_state()) {
 }
 
 progpu_native_scene_state semantic_state_cursor::advance(
@@ -52,7 +72,7 @@ progpu_native_scene_state semantic_state_cursor::advance(
         command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
         stack_[depth_++] = current_;
         if (command.state_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
-            current_ = read_state(command.state_index);
+            current_ = resolve_guidelines(read_state(command.state_index));
         }
         return current_;
     }
@@ -62,9 +82,46 @@ progpu_native_scene_state semantic_state_cursor::advance(
         return current_;
     }
     if (command.state_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
-        return read_state(command.state_index);
+        return resolve_guidelines(read_state(command.state_index));
     }
     return current_;
+}
+
+progpu_native_scene_state semantic_state_cursor::resolve_guidelines(
+    progpu_native_scene_state state) const noexcept {
+    if ((state.flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) == 0U ||
+        !std::isfinite(dpi_scale_) || dpi_scale_ <= 0.0F) {
+        return state;
+    }
+    progpu_native_scene_resource resource{};
+    std::memcpy(
+        &resource,
+        bytes_ + header_.resource_offset +
+            static_cast<std::size_t>(state.guideline_resource_index) *
+                header_.resource_stride,
+        sizeof(resource));
+    progpu_native_scene_guideline_set guidelines{};
+    std::memcpy(
+        &guidelines,
+        bytes_ + resource.payload_offset,
+        sizeof(guidelines));
+    std::size_t offset = resource.payload_offset + sizeof(guidelines);
+    if (guidelines.guideline_x_count != 0U) {
+        double coordinate = 0.0;
+        std::memcpy(&coordinate, bytes_ + offset, sizeof(coordinate));
+        const float physical =
+            static_cast<float>(coordinate) * dpi_scale_;
+        state.transform.m31 += wpf_guideline_offset(physical) / dpi_scale_;
+        offset += sizeof(coordinate);
+    }
+    if (guidelines.guideline_y_count != 0U) {
+        double coordinate = 0.0;
+        std::memcpy(&coordinate, bytes_ + offset, sizeof(coordinate));
+        const float physical =
+            static_cast<float>(coordinate) * dpi_scale_;
+        state.transform.m32 += wpf_guideline_offset(physical) / dpi_scale_;
+    }
+    return state;
 }
 
 progpu_native_scene_state semantic_state_cursor::read_state(

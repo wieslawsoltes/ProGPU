@@ -884,9 +884,12 @@ public ref struct NativeSceneStreamBuilder
     {
         resourceIndex = NativeMethods.SceneNoIndex;
         const NativeSceneStateFlags knownFlags =
-            NativeSceneStateFlags.ClipRect | NativeSceneStateFlags.Mask;
+            NativeSceneStateFlags.ClipRect | NativeSceneStateFlags.Mask |
+            NativeSceneStateFlags.GuidelineSet;
         bool hasClip = (state.Flags & NativeSceneStateFlags.ClipRect) != 0;
         bool hasMask = (state.Flags & NativeSceneStateFlags.Mask) != 0;
+        bool hasGuidelines =
+            (state.Flags & NativeSceneStateFlags.GuidelineSet) != 0;
         bool canonicalClip = hasClip ||
             (state.ClipRect.X == 0f && state.ClipRect.Y == 0f &&
                 state.ClipRect.Width == 0f && state.ClipRect.Height == 0f);
@@ -896,13 +899,19 @@ public ref struct NativeSceneStreamBuilder
                     state.MaskResourceIndex,
                     NativeSceneResourceKind.LayerMask)
             : state.MaskResourceIndex == 0U;
+        bool canonicalGuidelines = hasGuidelines
+            ? state.GuidelineResourceIndex != NativeMethods.SceneNoIndex &&
+                HasOptionalResourceKind(
+                    state.GuidelineResourceIndex,
+                    NativeSceneResourceKind.GuidelineSet)
+            : state.GuidelineResourceIndex == 0U;
         if (state.StructSize != Unsafe.SizeOf<NativeSceneState>() ||
             (state.Flags & ~knownFlags) != 0 ||
             !state.HasCanonicalReservedFields || !IsFinite(state.Transform) ||
             !float.IsFinite(state.Opacity) ||
             state.Opacity is < 0f or > 1f ||
             !IsFiniteBounds(state.ClipRect) ||
-            !canonicalClip || !canonicalMask)
+            !canonicalClip || !canonicalMask || !canonicalGuidelines)
         {
             return false;
         }
@@ -914,6 +923,41 @@ public ref struct NativeSceneStreamBuilder
                 MemoryMarshal.CreateReadOnlySpan(
                     ref Unsafe.AsRef(in state),
                     1)),
+            out resourceIndex,
+            flags: flags);
+    }
+
+    public bool TryAddGuidelineSetResource(
+        ulong resourceId,
+        ulong generation,
+        ReadOnlySpan<double> guidelinesX,
+        ReadOnlySpan<double> guidelinesY,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        resourceIndex = NativeMethods.SceneNoIndex;
+        if (guidelinesX.Length > 1 || guidelinesY.Length > 1 ||
+            (guidelinesX.Length != 0 && !double.IsFinite(guidelinesX[0])) ||
+            (guidelinesY.Length != 0 && !double.IsFinite(guidelinesY[0])))
+        {
+            return false;
+        }
+        Span<byte> payload = stackalloc byte[
+            Unsafe.SizeOf<NativeSceneGuidelineSetHeader>() +
+            (guidelinesX.Length + guidelinesY.Length) * sizeof(double)];
+        var header = new NativeSceneGuidelineSetHeader(
+            (uint)guidelinesX.Length,
+            (uint)guidelinesY.Length);
+        MemoryMarshal.Write(payload, in header);
+        int offset = Unsafe.SizeOf<NativeSceneGuidelineSetHeader>();
+        MemoryMarshal.AsBytes(guidelinesX).CopyTo(payload[offset..]);
+        offset += guidelinesX.Length * sizeof(double);
+        MemoryMarshal.AsBytes(guidelinesY).CopyTo(payload[offset..]);
+        return TryAddResource(
+            NativeSceneResourceKind.GuidelineSet,
+            resourceId,
+            generation,
+            payload,
             out resourceIndex,
             flags: flags);
     }
@@ -2678,7 +2722,7 @@ public ref struct NativeSceneStreamBuilder
 
     private static bool IsKnownResource(NativeSceneResourceKind kind) =>
         kind is >= NativeSceneResourceKind.AnalyticBatch and
-            <= NativeSceneResourceKind.HitTestIndex;
+            <= NativeSceneResourceKind.GuidelineSet;
 
     private static bool IsValidBrushTable(
         ReadOnlySpan<NativeSceneBrush> brushes,

@@ -247,7 +247,8 @@ progpu_native_status compile_semantic_3d_page(
     std::vector<std::uint32_t> mesh_index_counts;
     try {
         draws.reserve(expected_draw_count);
-        semantic_state_cursor state_cursor(bytes, header);
+        semantic_state_cursor state_cursor(
+            bytes, header, frame.dpi_scale);
         semantic_layer_target_cursor target_cursor(
             bytes, frame.width, frame.height, frame.dpi_scale);
         for (std::uint32_t command_index = 0U;

@@ -478,7 +478,8 @@ progpu_native_status render_scene(
     bool semantic_has_masked_glyphs = false;
     bool semantic_has_masked_images = false;
     semantic_compilation_budget compilation_budget{};
-    semantic_state_cursor preflight_state_cursor(bytes, header);
+    semantic_state_cursor preflight_state_cursor(
+        bytes, header, frame->dpi_scale);
     semantic_layer_target_cursor preflight_target_cursor(
         bytes,
         frame->width,
@@ -1647,7 +1648,8 @@ progpu_native_status render_scene(
             engine->geometry_cache_valid = false;
             engine->geometry_gpu_cache_valid = false;
 
-            semantic_state_cursor state_cursor(bytes, header);
+            semantic_state_cursor state_cursor(
+                bytes, header, frame->dpi_scale);
             semantic_layer_target_cursor target_cursor(
                 bytes,
                 frame->width,
@@ -2038,7 +2040,8 @@ progpu_native_status render_scene(
             compiled_brush_indices.reserve(
                 static_cast<std::size_t>(semantic_path_count));
             compiled_draws.reserve(semantic_path_draw_count);
-            semantic_state_cursor state_cursor(bytes, header);
+            semantic_state_cursor state_cursor(
+                bytes, header, frame->dpi_scale);
             semantic_layer_target_cursor target_cursor(
                 bytes,
                 frame->width,
@@ -2226,7 +2229,8 @@ progpu_native_status render_scene(
                 static_cast<std::size_t>(semantic_glyph_count));
             compiled_draws.reserve(semantic_glyph_draw_count);
             compiled_resources.resize(header.resource_count);
-            semantic_state_cursor state_cursor(bytes, header);
+            semantic_state_cursor state_cursor(
+                bytes, header, frame->dpi_scale);
             semantic_layer_target_cursor target_cursor(
                 bytes,
                 frame->width,
@@ -2519,7 +2523,8 @@ progpu_native_status render_scene(
             vertices.reserve(static_cast<std::size_t>(
                 semantic_image_vertex_count));
             compiled_draws.reserve(semantic_image_draw_count);
-            semantic_state_cursor state_cursor(bytes, header);
+            semantic_state_cursor state_cursor(
+                bytes, header, frame->dpi_scale);
             semantic_layer_target_cursor target_cursor(
                 bytes,
                 frame->width,
@@ -3772,7 +3777,8 @@ progpu_native_status render_scene(
             }
         };
 
-        semantic_state_cursor state_cursor(bytes, header);
+        semantic_state_cursor state_cursor(
+            bytes, header, frame->dpi_scale);
         semantic_layer_target_cursor target_cursor(
             bytes,
             frame->width,

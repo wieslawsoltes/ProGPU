@@ -755,6 +755,65 @@ void semantic_state_and_layer_cursors_restore_scopes() {
         progpu::native::semantic::scissor{0U, 0U, 64U, 48U, true});
 }
 
+void semantic_static_guidelines_adjust_state_at_target_dpi() {
+    std::array<std::byte, 512U> storage{};
+    progpu_native_scene_header header{};
+    header.resource_offset = 64U;
+    header.resource_count = 2U;
+    header.resource_stride = sizeof(progpu_native_scene_resource);
+
+    progpu_native_scene_resource guideline_resource{};
+    guideline_resource.kind = PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET;
+    guideline_resource.payload_offset = 256U;
+    guideline_resource.payload_size =
+        sizeof(progpu_native_scene_guideline_set) + 2U * sizeof(double);
+    std::memcpy(storage.data() + header.resource_offset,
+        &guideline_resource, sizeof(guideline_resource));
+    progpu_native_scene_guideline_set guidelines{};
+    guidelines.struct_size = sizeof(guidelines);
+    guidelines.guideline_x_count = 1U;
+    guidelines.guideline_y_count = 1U;
+    std::memcpy(storage.data() + guideline_resource.payload_offset,
+        &guidelines, sizeof(guidelines));
+    constexpr double guideline_x = 12.25;
+    constexpr double guideline_y = 23.5;
+    std::memcpy(
+        storage.data() + guideline_resource.payload_offset +
+            sizeof(guidelines),
+        &guideline_x,
+        sizeof(guideline_x));
+    std::memcpy(
+        storage.data() + guideline_resource.payload_offset +
+            sizeof(guidelines) + sizeof(guideline_x),
+        &guideline_y,
+        sizeof(guideline_y));
+
+    progpu_native_scene_resource state_resource{};
+    state_resource.kind = PROGPU_NATIVE_SCENE_RESOURCE_STATE;
+    state_resource.payload_offset = 320U;
+    std::memcpy(
+        storage.data() + header.resource_offset +
+            sizeof(progpu_native_scene_resource),
+        &state_resource,
+        sizeof(state_resource));
+    auto state = progpu::native::semantic::semantic_identity_state();
+    state.flags = PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+    state.guideline_resource_index = 0U;
+    state.transform.m31 = 10.0F;
+    state.transform.m32 = 20.0F;
+    std::memcpy(storage.data() + state_resource.payload_offset,
+        &state, sizeof(state));
+
+    progpu::native::semantic::semantic_state_cursor cursor(
+        storage.data(), header, 1.0F);
+    progpu_native_scene_command save{};
+    save.kind = PROGPU_NATIVE_SCENE_COMMAND_SAVE;
+    save.state_index = 1U;
+    const auto snapped = cursor.advance(save);
+    require(snapped.transform.m31 == 9.75F);
+    require(snapped.transform.m32 == 20.5F);
+}
+
 void semantic_payload_validation_is_bounded_and_cpu_only() {
     progpu_native_scene_path_fill path{};
     path.segment_count = 1U;
@@ -957,6 +1016,7 @@ int main() {
     gpu_records_preserve_alignment_phase_and_cache_identity();
     semantic_state_is_cpu_only_and_target_relative();
     semantic_state_and_layer_cursors_restore_scopes();
+    semantic_static_guidelines_adjust_state_at_target_dpi();
     semantic_payload_validation_is_bounded_and_cpu_only();
     draw_state_resolution_is_cpu_only_and_bounded();
     return 0;

@@ -446,7 +446,8 @@ public enum NativeSceneResourceKind : uint
     StrokeBatch = 13,
     Line3DBatch = 14,
     Mesh3DBatch = 15,
-    HitTestIndex = 16
+    HitTestIndex = 16,
+    GuidelineSet = 17
 }
 
 public enum NativeGpuHitTestPrimitiveKind : uint
@@ -677,7 +678,8 @@ public enum NativeSceneStateFlags : uint
 {
     None = 0,
     ClipRect = 1U << 0,
-    Mask = 1U << 1
+    Mask = 1U << 1,
+    GuidelineSet = 1U << 2
 }
 
 [Flags]
@@ -1489,7 +1491,8 @@ public readonly struct NativeSceneState
         float opacity = 1f,
         NativeSceneStateFlags flags = NativeSceneStateFlags.None,
         NativeImageRect clipRect = default,
-        uint maskResourceIndex = 0U)
+        uint maskResourceIndex = 0U,
+        uint guidelineResourceIndex = 0U)
     {
         StructSize = (uint)Unsafe.SizeOf<NativeSceneState>();
         Flags = flags;
@@ -1498,7 +1501,7 @@ public readonly struct NativeSceneState
         Reserved = 0U;
         ClipRect = clipRect;
         MaskResourceIndex = maskResourceIndex;
-        Reserved1 = 0U;
+        GuidelineResourceIndex = guidelineResourceIndex;
     }
 
     public static NativeSceneState Identity => new(Matrix3x2.Identity);
@@ -1510,10 +1513,27 @@ public readonly struct NativeSceneState
     private readonly uint Reserved;
     public readonly NativeImageRect ClipRect;
     public readonly uint MaskResourceIndex;
-    private readonly uint Reserved1;
+    public readonly uint GuidelineResourceIndex;
 
     internal bool HasCanonicalReservedFields =>
-        Reserved == 0U && Reserved1 == 0U;
+        Reserved == 0U;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal readonly struct NativeSceneGuidelineSetHeader
+{
+    internal NativeSceneGuidelineSetHeader(uint xCount, uint yCount)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneGuidelineSetHeader>();
+        Flags = 0U;
+        GuidelineXCount = xCount;
+        GuidelineYCount = yCount;
+    }
+
+    internal readonly uint StructSize;
+    internal readonly uint Flags;
+    internal readonly uint GuidelineXCount;
+    internal readonly uint GuidelineYCount;
 }
 
 /// <summary>

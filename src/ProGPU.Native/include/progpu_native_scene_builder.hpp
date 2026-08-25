@@ -81,6 +81,10 @@ public:
     bool add_state(
         const progpu_native_scene_state& state,
         std::uint32_t& resource_index) noexcept;
+    bool add_guideline_set(
+        std::span<const double> guidelines_x,
+        std::span<const double> guidelines_y,
+        std::uint32_t& resource_index) noexcept;
     bool add_rgba8_image(
         std::uint32_t width,
         std::uint32_t height,

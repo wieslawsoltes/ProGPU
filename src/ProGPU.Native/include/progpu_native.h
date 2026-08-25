@@ -127,7 +127,9 @@ typedef enum progpu_native_scene_resource_kind {
     PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH = 13,
     PROGPU_NATIVE_SCENE_RESOURCE_LINE_3D_BATCH = 14,
     PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH = 15,
-    PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX = 16
+    PROGPU_NATIVE_SCENE_RESOURCE_HIT_TEST_INDEX = 16,
+    /* Device-space WPF/MIL pixel-snapping coordinates referenced by state. */
+    PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET = 17
 } progpu_native_scene_resource_kind;
 
 typedef enum progpu_native_scene_text_rendering_mode {
@@ -215,7 +217,8 @@ enum {
 
 enum {
     PROGPU_NATIVE_SCENE_STATE_CLIP_RECT = 1U << 0U,
-    PROGPU_NATIVE_SCENE_STATE_MASK = 1U << 1U
+    PROGPU_NATIVE_SCENE_STATE_MASK = 1U << 1U,
+    PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET = 1U << 2U
 };
 
 enum {
@@ -981,7 +984,8 @@ typedef struct progpu_native_image_rect {
  * PROGPU_NATIVE_SCENE_STATE_MASK is set, mask_resource_index references a
  * preceding LAYER_MASK resource and coverage is applied independently to each
  * draw. The index must be zero when the flag is absent. Reserved fields must
- * remain zero.
+ * remain zero. When PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET is set,
+ * guideline_resource_index references a preceding GUIDELINE_SET resource.
  */
 typedef struct progpu_native_scene_state {
     uint32_t struct_size;
@@ -991,8 +995,23 @@ typedef struct progpu_native_scene_state {
     uint32_t reserved;
     progpu_native_image_rect clip_rect;
     uint32_t mask_resource_index;
-    uint32_t reserved1;
+    uint32_t guideline_resource_index;
 } progpu_native_scene_state;
+
+/*
+ * Prefix of one immutable static WPF/MIL guideline resource. The prefix is
+ * followed by guideline_x_count doubles and then guideline_y_count doubles.
+ * Version one deliberately accepts at most one coordinate on each axis: that
+ * is the exact uniform-offset subset of WPF snapping and works for every
+ * semantic draw family. Multi-guide piecewise geometry deformation and
+ * dynamic leading/driven pairs are future append-only capabilities.
+ */
+typedef struct progpu_native_scene_guideline_set {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t guideline_x_count;
+    uint32_t guideline_y_count;
+} progpu_native_scene_guideline_set;
 
 /*
  * Pointer-free semantic isolated-layer descriptor stored directly in one

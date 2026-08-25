@@ -15,16 +15,20 @@ class semantic_state_cursor final {
 public:
     semantic_state_cursor(
         const std::byte* bytes,
-        const progpu_native_scene_header& header) noexcept;
+        const progpu_native_scene_header& header,
+        float dpi_scale = 0.0F) noexcept;
 
     progpu_native_scene_state advance(
         const progpu_native_scene_command& command) noexcept;
 
 private:
     progpu_native_scene_state read_state(std::uint32_t index) const noexcept;
+    progpu_native_scene_state resolve_guidelines(
+        progpu_native_scene_state state) const noexcept;
 
     const std::byte* bytes_;
     const progpu_native_scene_header& header_;
+    float dpi_scale_ = 0.0F;
     std::array<progpu_native_scene_state,
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> stack_{};
     std::uint32_t depth_ = 0U;

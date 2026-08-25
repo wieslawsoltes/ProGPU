@@ -682,6 +682,12 @@ struct channel::implementation {
         std::vector<std::byte> child_render_data;
     };
 
+    struct guideline_set_state {
+        bool is_dynamic{};
+        std::vector<double> guidelines_x;
+        std::vector<double> guidelines_y;
+    };
+
     struct drawing_group_state {
         double opacity{1.0};
         std::uint32_t clip_geometry_handle{};
@@ -708,6 +714,8 @@ struct channel::implementation {
             PROGPU_NATIVE_SCENE_NO_INDEX};
         std::uint32_t image_sampling{
             PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR};
+        std::uint32_t guideline_resource_index{
+            PROGPU_NATIVE_SCENE_NO_INDEX};
     };
 
     struct transform_state {
@@ -806,6 +814,7 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, bitmap_source_state> bitmap_sources;
     std::unordered_map<std::uint32_t, drawing_image_state> drawing_images;
     std::unordered_map<std::uint32_t, drawing_group_state> drawing_groups;
+    std::unordered_map<std::uint32_t, guideline_set_state> guideline_sets;
 
     bool require_resource(
         std::uint32_t handle,
@@ -1321,6 +1330,7 @@ struct channel::implementation {
             bitmap_sources.erase(handle);
             drawing_images.erase(handle);
             drawing_groups.erase(handle);
+            guideline_sets.erase(handle);
             resources.erase(found);
             ++metrics.deleted_resource_count;
             return status::success;
@@ -3107,6 +3117,67 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         }
+        case command::guideline_set: {
+            std::uint32_t guidelines_x_size = 0U;
+            std::uint32_t guidelines_y_size = 0U;
+            std::uint32_t is_dynamic = 0U;
+            if (view.packet.size() < 20U ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, guidelines_x_size) ||
+                !read_at(view.packet, 12U, guidelines_y_size) ||
+                !read_at(view.packet, 16U, is_dynamic) ||
+                guidelines_x_size % sizeof(double) != 0U ||
+                guidelines_y_size % sizeof(double) != 0U ||
+                static_cast<std::uint64_t>(guidelines_x_size) +
+                        guidelines_y_size !=
+                    view.packet.size() - 20U ||
+                guidelines_x_size / sizeof(double) >
+                    std::numeric_limits<std::uint16_t>::max() ||
+                guidelines_y_size / sizeof(double) >
+                    std::numeric_limits<std::uint16_t>::max() ||
+                is_dynamic > 1U ||
+                (is_dynamic != 0U &&
+                    ((guidelines_x_size / sizeof(double)) % 2U != 0U ||
+                     (guidelines_y_size / sizeof(double)) % 2U != 0U))) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_guideline_set)) {
+                return status::invalid_handle;
+            }
+            guideline_set_state guidelines{};
+            guidelines.is_dynamic = is_dynamic != 0U;
+            try {
+                guidelines.guidelines_x.resize(
+                    guidelines_x_size / sizeof(double));
+                guidelines.guidelines_y.resize(
+                    guidelines_y_size / sizeof(double));
+            } catch (const std::bad_alloc&) {
+                return status::capacity_exceeded;
+            }
+            std::size_t offset = 20U;
+            for (double& coordinate : guidelines.guidelines_x) {
+                if (!read_at(view.packet, offset, coordinate) ||
+                    !finite_double_as_float(coordinate)) {
+                    return status::malformed_batch;
+                }
+                offset += sizeof(coordinate);
+            }
+            for (double& coordinate : guidelines.guidelines_y) {
+                if (!read_at(view.packet, offset, coordinate) ||
+                    !finite_double_as_float(coordinate)) {
+                    return status::malformed_batch;
+                }
+                offset += sizeof(coordinate);
+            }
+            if (!guidelines.is_dynamic) {
+                std::ranges::sort(guidelines.guidelines_x);
+                std::ranges::sort(guidelines.guidelines_y);
+            }
+            guideline_sets.insert_or_assign(handle, std::move(guidelines));
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
         case command::drawing_group: {
             drawing_group_state group{};
             std::uint32_t children_size = 0U;
@@ -4312,6 +4383,12 @@ struct channel::implementation {
                 PROGPU_NATIVE_SCENE_NO_INDEX) {
                 state.flags |= PROGPU_NATIVE_SCENE_STATE_MASK;
                 state.mask_resource_index = source.mask_resource_index;
+            }
+            if (source.guideline_resource_index !=
+                PROGPU_NATIVE_SCENE_NO_INDEX) {
+                state.flags |= PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+                state.guideline_resource_index =
+                    source.guideline_resource_index;
             }
             std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             return builder.add_state(state, state_index) &&
@@ -6566,7 +6643,6 @@ struct channel::implementation {
                             : status::invalid_handle;
                     }
                     if (group->second.opacity_mask_handle != 0U ||
-                        group->second.guideline_set_handle != 0U ||
                         group->second.edge_mode != 0U ||
                         group->second.clear_type_hint != 0U) {
                         return status::unsupported_command;
@@ -6614,6 +6690,65 @@ struct channel::implementation {
                         next.transform = compose_affine(
                             group_transform,
                             current.transform);
+                    }
+                    if (group->second.guideline_set_handle != 0U) {
+                        const auto guidelines = guideline_sets.find(
+                            group->second.guideline_set_handle);
+                        if (guidelines == guideline_sets.end()) {
+                            active_drawings.erase(drawing_handle);
+                            return status::invalid_handle;
+                        }
+                        if (guidelines->second.is_dynamic ||
+                            guidelines->second.guidelines_x.size() > 1U ||
+                            guidelines->second.guidelines_y.size() > 1U) {
+                            active_drawings.erase(drawing_handle);
+                            return status::unsupported_command;
+                        }
+                        if (next.transform.m12 != 0.0 ||
+                            next.transform.m21 != 0.0) {
+                            // WPF pushes an empty snapping frame when the
+                            // effective transform is not scale/translate.
+                            next.guideline_resource_index =
+                                PROGPU_NATIVE_SCENE_NO_INDEX;
+                        } else if (guidelines->second.guidelines_x.empty() &&
+                            guidelines->second.guidelines_y.empty()) {
+                            next.guideline_resource_index =
+                                PROGPU_NATIVE_SCENE_NO_INDEX;
+                        } else {
+                            std::array<double, 1U> mapped_x{};
+                            std::array<double, 1U> mapped_y{};
+                            std::span<const double> mapped_x_span;
+                            std::span<const double> mapped_y_span;
+                            if (!guidelines->second.guidelines_x.empty()) {
+                                mapped_x[0] = static_cast<float>(
+                                    static_cast<float>(
+                                        guidelines->second.guidelines_x[0]) *
+                                        static_cast<float>(
+                                            next.transform.m11) +
+                                    static_cast<float>(next.transform.m31));
+                                mapped_x_span = mapped_x;
+                            }
+                            if (!guidelines->second.guidelines_y.empty()) {
+                                mapped_y[0] = static_cast<float>(
+                                    static_cast<float>(
+                                        guidelines->second.guidelines_y[0]) *
+                                        static_cast<float>(
+                                            next.transform.m22) +
+                                    static_cast<float>(next.transform.m32));
+                                mapped_y_span = mapped_y;
+                            }
+                            std::uint32_t guideline_resource_index =
+                                PROGPU_NATIVE_SCENE_NO_INDEX;
+                            if (!builder.add_guideline_set(
+                                    mapped_x_span,
+                                    mapped_y_span,
+                                    guideline_resource_index)) {
+                                active_drawings.erase(drawing_handle);
+                                return status::invalid_graph;
+                            }
+                            next.guideline_resource_index =
+                                guideline_resource_index;
+                        }
                     }
                     if (group->second.clip_geometry_handle != 0U) {
                         render_scope_state clipped = next;
