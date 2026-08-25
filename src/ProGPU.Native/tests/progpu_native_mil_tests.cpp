@@ -2326,7 +2326,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         PROGPU_REQUIRE(path.transform.m32 == 3.0F);
         if (path.segment_count == 28U) {
             PROGPU_REQUIRE(path.boolean_node_count == 11U);
-            PROGPU_REQUIRE(path.sample_grid == 4U);
+            PROGPU_REQUIRE(path.sample_grid == 8U);
             PROGPU_REQUIRE(path.segment_count == 28U);
             PROGPU_REQUIRE(path.min_x == 1.0F && path.min_y == 0.0F);
             PROGPU_REQUIRE(path.max_x == 35.0F && path.max_y == 15.0F);
@@ -2808,7 +2808,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         if (path.boolean_node_count != 11U || path.segment_count != 26U) {
             continue;
         }
-        PROGPU_REQUIRE(path.sample_grid == 4U);
+        PROGPU_REQUIRE(path.sample_grid == 8U);
         const auto arc = read_value<progpu_native_path_segment>(
             stream,
             resource.auxiliary_offset +
@@ -2945,6 +2945,61 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         }
     }
     PROGPU_REQUIRE(found_translated_arc);
+
+    std::vector<std::byte> second_group_arc_update;
+    append_path_geometry(
+        second_group_arc_update,
+        path_a,
+        0U,
+        1U,
+        make_arc_path_figures());
+    PROGPU_REQUIRE(state.apply(second_group_arc_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7003U, 71U, stream) == status::success);
+    const auto multi_arc_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_expanded_group_arcs = false;
+    for (std::uint32_t resource_index = 0U;
+         resource_index < multi_arc_header.resource_count;
+         ++resource_index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            multi_arc_header.resource_offset +
+                resource_index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            continue;
+        }
+        const auto path = read_value<progpu_native_scene_path_fill>(
+            stream,
+            resource.payload_offset);
+        if (path.boolean_node_count != 11U) {
+            continue;
+        }
+        std::size_t arc_count = 0U;
+        std::size_t cubic_count = 0U;
+        for (std::size_t segment_index = 0U;
+             segment_index < path.segment_count;
+             ++segment_index) {
+            const auto segment = read_value<progpu_native_path_segment>(
+                stream,
+                resource.auxiliary_offset +
+                    segment_index * sizeof(progpu_native_path_segment));
+            arc_count += segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC
+                ? 1U
+                : 0U;
+            cubic_count += segment.kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC
+                ? 1U
+                : 0U;
+        }
+        PROGPU_REQUIRE(arc_count == 0U);
+        PROGPU_REQUIRE(cubic_count >= 2U);
+        found_expanded_group_arcs = true;
+    }
+    PROGPU_REQUIRE(found_expanded_group_arcs);
+
+    std::vector<std::byte> restore_path_a;
+    append_path_geometry(restore_path_a, path_a, 0U, 1U, figures_a);
+    PROGPU_REQUIRE(state.apply(restore_path_a) == status::success);
 
     std::vector<std::byte> singular_arc_update;
     append_path_geometry(
