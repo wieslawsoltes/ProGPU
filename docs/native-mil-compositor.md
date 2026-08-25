@@ -210,14 +210,17 @@ primitives with native path-join records. Join tangents come from the exact
 segment derivative at each shared endpoint: line direction,
 quadratic/cubic endpoint-control fallbacks, or the resolved analytic arc axes
 and sweep. A closed contour also emits the final-to-first join, while an open
-contour preserves its start/end caps. Geometry-local affine transforms stay on
-every primitive and join; arcs map their resolved center/radii/rotation/angles
+contour emits native path-cap records for Square, Round, or Triangle start/end
+caps using those same exact endpoint tangents; Flat caps remain implicit.
+Geometry-gap boundaries use the pen's typed dash-cap value even when the dash
+interval list is empty. Geometry-local affine transforms stay on every
+primitive, cap, and join; arcs map their resolved center/radii/rotation/angles
 into the reusable two-axis analytic arc contract. Discontinuous endpoints or
-degenerate join tangents fail closed transactionally. Dashed curves, non-flat
-open-curve caps, `SegSmoothJoin`, and non-flat-cap zero-length runs remain
-unsupported until native cap and continuous curve-dash composition preserve
-WPF semantics. Unstroked curves remain valid topology gaps and do not prevent
-neighboring line runs from using the native path-pen lane.
+degenerate cap/join tangents fail closed transactionally. Dashed curves,
+`SegSmoothJoin`, and non-flat-cap zero-length runs remain unsupported until
+continuous curve-dash composition preserves WPF semantics. Unstroked curves
+remain valid topology gaps and do not prevent neighboring line runs from using
+the native path-pen lane.
 
 The first retained `MILCMD_GEOMETRYGROUP` slice validates the canonical
 variable child-handle payload, group fill rule, optional matrix transform,
@@ -299,8 +302,8 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds,
-  singular arc-transform fill semantics, curve dashes, non-flat curve caps,
-  and per-segment smooth joins,
+  singular arc-transform fill semantics, curve dashes and per-segment smooth
+  joins,
   exact translated-equivalent EvenOdd overlap execution,
   remaining pen draws,
   brushes, drawings, images, glyph runs, caches, guidelines, effects, and
@@ -738,6 +741,21 @@ draws, and 41,472 coverage bytes. Exact staged SHA-256 values were
 for `progpu_native.dll` and
 `efaad18f8ee89a1c53f0dc612e99371f9a3d24cbcfdf66b3129af5875ef1bb74`
 for `progpu_native_dawn.dll`.
+
+The curved-cap implementation at `4f5dcc20` then composed Square, Round, and
+Triangle open-contour caps as reusable native path-cap primitives with exact
+curve endpoint tangents and affine state. ARM64 MSVC rebuilt both native
+modules under `/W4 /WX`; the MIL and Dawn contract tests passed. Package
+checkpoint `48bea705` applied Round/Triangle caps to the retained analytic arc,
+compiled the unchanged 46-command/20-channel-resource seed through both MIL
+exports, and completed live D3D12 readback with 20 semantic resources, three
+draws, and 41,472 coverage bytes. Exact focused-build SHA-256 values were
+`2afaa42721aa4ca9b6faa714755117d518abe23d47878613d6ea585b2dbdb164`
+for `progpu_native.dll` and
+`e64c515b74c131ae8e7b17eb86e4c301cbb4f07bc58d3bdb5b7644b441106309`
+for `progpu_native_dawn.dll`. The complete differential matrix remains
+qualified at `3816050b`; this cap checkpoint used the focused strict-build,
+contract, and live-package lane.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
