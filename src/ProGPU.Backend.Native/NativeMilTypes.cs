@@ -35,7 +35,9 @@ public enum NativeMilResourceType : uint
     DashStyle = 84,
     Pen = 85,
     GeometryDrawing = 87,
-    DrawingGroup = 91
+    ImageDrawing = 89,
+    DrawingGroup = 91,
+    BitmapSource = 95
 }
 
 public enum NativeMilPathFillRule : uint

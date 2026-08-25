@@ -76,6 +76,19 @@ PROGPU_NATIVE_API progpu_native_mil_status progpu_native_mil_channel_apply(
     const void* batch,
     size_t batch_size,
     progpu_native_mil_batch_metrics* metrics);
+/*
+ * Binds copied RGBA8 pixels to a canonical TYPE_BITMAPSOURCE handle. This is
+ * the portable replacement for MilCmdBitmapSource's process-local WIC pointer.
+ */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_bitmap_source_rgba8(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    uint32_t width,
+    uint32_t height,
+    uint32_t row_bytes,
+    const void* pixels,
+    size_t pixel_size);
 PROGPU_NATIVE_API size_t progpu_native_mil_channel_get_resource_count(
     const progpu_native_mil_channel* channel);
 PROGPU_NATIVE_API uint8_t progpu_native_mil_channel_has_resource(

@@ -79,6 +79,27 @@ progpu_native_mil_status progpu_native_mil_channel_apply(
     return to_abi(result);
 }
 
+progpu_native_mil_status
+progpu_native_mil_channel_set_bitmap_source_rgba8(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    uint32_t width,
+    uint32_t height,
+    uint32_t row_bytes,
+    const void* pixels,
+    size_t pixel_size) {
+    if (channel == nullptr || (pixels == nullptr && pixel_size != 0U)) {
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    }
+    return to_abi(channel->state.set_bitmap_source_rgba8(
+        handle,
+        width,
+        height,
+        row_bytes,
+        std::span<const std::byte>{
+            static_cast<const std::byte*>(pixels), pixel_size}));
+}
+
 size_t progpu_native_mil_channel_get_resource_count(
     const progpu_native_mil_channel* channel) {
     return channel == nullptr ? 0U : channel->state.resource_count();

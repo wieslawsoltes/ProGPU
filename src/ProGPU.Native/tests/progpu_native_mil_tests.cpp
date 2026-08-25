@@ -4306,6 +4306,118 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
     return true;
 }
 
+bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t bitmap = 4U;
+    constexpr std::uint32_t drawing = 5U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, bitmap, 95U);
+    append_create(batch, drawing, 89U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::image_drawing,
+        drawing,
+        3.0,
+        5.0,
+        20.0,
+        10.0,
+        bitmap,
+        0U);
+    std::vector<std::byte> nested;
+    append_command(nested, command::draw_drawing, drawing, 0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7005U, 1U, stream, &metrics) ==
+        status::invalid_handle);
+
+    constexpr std::array<std::byte, 16U> pixels{
+        std::byte{255}, std::byte{0}, std::byte{0}, std::byte{255},
+        std::byte{0}, std::byte{255}, std::byte{0}, std::byte{255},
+        std::byte{0}, std::byte{0}, std::byte{255}, std::byte{255},
+        std::byte{255}, std::byte{255}, std::byte{255}, std::byte{255}};
+    PROGPU_REQUIRE(
+        state.set_bitmap_source_rgba8(bitmap, 2U, 2U, 8U, pixels) ==
+        status::success);
+    PROGPU_REQUIRE(state.resource_generation(bitmap) == 2U);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7005U, 2U, stream, &metrics) ==
+        status::success);
+
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_image = false;
+    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+            continue;
+        }
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                record.resource_index * sizeof(progpu_native_scene_resource));
+        const auto image = read_value<progpu_native_scene_image_draw>(
+            stream, record.payload_offset);
+        PROGPU_REQUIRE(resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE);
+        PROGPU_REQUIRE(resource.payload_size == pixels.size());
+        PROGPU_REQUIRE(image.image_width == 2U);
+        PROGPU_REQUIRE(image.image_height == 2U);
+        PROGPU_REQUIRE(image.row_bytes == 8U);
+        PROGPU_REQUIRE(image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR);
+        PROGPU_REQUIRE(image.source_rect.width == 2.0F);
+        PROGPU_REQUIRE(image.source_rect.height == 2.0F);
+        PROGPU_REQUIRE(image.destination_rect.x == 3.0F);
+        PROGPU_REQUIRE(image.destination_rect.y == 5.0F);
+        PROGPU_REQUIRE(image.destination_rect.width == 20.0F);
+        PROGPU_REQUIRE(image.destination_rect.height == 10.0F);
+        PROGPU_REQUIRE(record.bounds_x == 3.0F);
+        PROGPU_REQUIRE(record.bounds_y == 5.0F);
+        PROGPU_REQUIRE(record.bounds_width == 20.0F);
+        PROGPU_REQUIRE(record.bounds_height == 10.0F);
+        found_image = true;
+    }
+    PROGPU_REQUIRE(found_image);
+
+    std::vector<std::byte> delete_bitmap;
+    append_command(
+        delete_bitmap,
+        command::channel_delete_resource,
+        bitmap,
+        95U);
+    PROGPU_REQUIRE(state.apply(delete_bitmap) == status::invalid_graph);
+    PROGPU_REQUIRE(
+        state.set_bitmap_source_rgba8(bitmap, 2U, 2U, 7U, pixels) ==
+        status::invalid_argument);
+    PROGPU_REQUIRE(
+        state.set_bitmap_source_rgba8(target, 2U, 2U, 8U, pixels) ==
+        status::invalid_handle);
+    return true;
+}
+
 bool retained_geometry_group_compiles_to_one_semantic_path() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -6004,6 +6116,8 @@ int main() {
         retained_geometry_drawing_reuses_native_geometry_lowering());
     PROGPU_REQUIRE(
         retained_drawing_group_composes_children_transform_and_opacity());
+    PROGPU_REQUIRE(
+        retained_image_drawing_uses_pointer_free_bitmap_sideband());
     PROGPU_REQUIRE(retained_geometry_group_compiles_to_one_semantic_path());
     PROGPU_REQUIRE(
         retained_gradient_brushes_compile_with_wpf_mapping_and_animation());
