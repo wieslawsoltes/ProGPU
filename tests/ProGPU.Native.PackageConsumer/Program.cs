@@ -37,7 +37,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
         NativeMilCompiledScene scene = mil.CompileScene(42, 701, 1);
-        if (milMetrics.CommandCount != 38 || mil.ResourceCount != 16 ||
+        if (milMetrics.CommandCount != 40 || mil.ResourceCount != 17 ||
             !mil.TryGetVisual(41, out NativeMilVisualSnapshot visual) ||
             visual.Handle != 41 || scene.Stream.Length == 0 ||
             scene.Metrics.VisualCount != 1 ||
@@ -57,7 +57,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
         NativeMilCompiledScene scene = dawnMil.CompileScene(42, 702, 1);
-        if (milMetrics.CommandCount != 38 || dawnMil.ResourceCount != 16 ||
+        if (milMetrics.CommandCount != 40 || dawnMil.ResourceCount != 17 ||
             scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
             scene.Metrics.RectangleCount != 1 ||
             scene.Metrics.EllipseCount != 2 ||
