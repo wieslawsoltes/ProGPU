@@ -40,6 +40,8 @@ bool glyphRunDrawingOnly = args.Contains(
     "--mil-glyph-run-drawing-only", StringComparer.Ordinal);
 bool textRenderOptionsOnly = args.Contains(
     "--mil-text-render-options-only", StringComparer.Ordinal);
+bool visualClipOnly = args.Contains(
+    "--mil-visual-clip-only", StringComparer.Ordinal);
 bool drawingImageOnly = args.Contains(
     "--mil-drawing-image-only", StringComparer.Ordinal);
 bool guidelineOnly = args.Contains(
@@ -69,6 +71,8 @@ if (!renderOnly)
         ? CreateMilDrawingImageBatch()
         : textRenderOptionsOnly
         ? CreateMilGlyphRunDrawingBatch(includeTextRenderOptions: true)
+        : visualClipOnly
+        ? CreateMilVisualClipBatch()
         : glyphRunDrawingOnly
         ? CreateMilGlyphRunDrawingBatch()
         : imageDrawingOnly
@@ -87,7 +91,8 @@ if (!renderOnly)
             mixedArcGroup);
     bool focusedMil = gradientOnly || geometryDrawingOnly ||
         drawingGroupOnly || imageDrawingOnly || glyphRunDrawingOnly ||
-        textRenderOptionsOnly || drawingImageOnly || guidelineOnly;
+        textRenderOptionsOnly || visualClipOnly || drawingImageOnly ||
+        guidelineOnly;
     uint targetHandle = focusedMil ? 2U : 42U;
     uint visualHandle = focusedMil ? 1U : 41U;
     uint expectedCommandCount = guidelineOnly
@@ -95,6 +100,8 @@ if (!renderOnly)
         : drawingImageOnly
         ? 19U
         : textRenderOptionsOnly
+        ? 16U
+        : visualClipOnly
         ? 16U
         : glyphRunDrawingOnly
         ? 14U
@@ -107,11 +114,13 @@ if (!renderOnly)
         ? 8U
         : glyphRunDrawingOnly
         ? 6U
+        : visualClipOnly
+        ? 5U
         : imageDrawingOnly
         ? 5U
         : drawingGroupOnly ? 11U : focusedMil ? 6U : 36U;
     uint expectedRectangleCount = geometryDrawingOnly || drawingGroupOnly ||
-        drawingImageOnly || guidelineOnly
+        drawingImageOnly || guidelineOnly || visualClipOnly
         ? 1U
         : gradientOnly ? 2U : focusedMil ? 0U : 3U;
     uint expectedEllipseCount = gradientOnly ? 1U : focusedMil ? 0U : 4U;
@@ -430,6 +439,31 @@ static byte[] CreateMilGuidelineBatch()
         7,
         new NativeMilDrawingGroup(GuidelineSetHandle: 8),
         [6]);
+    batch.SetRenderData(3, renderData);
+    batch.CreateGenericTarget(2, 64, 64);
+    batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
+    batch.SetTargetRoot(2, 1);
+    return batch.ToArray();
+}
+
+static byte[] CreateMilVisualClipBatch()
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.DrawRectangle(-10, -10, 100, 100, 4, 0);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(1, NativeMilResourceType.Visual);
+    batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(3, NativeMilResourceType.RenderData);
+    batch.CreateResource(4, NativeMilResourceType.SolidColorBrush);
+    batch.CreateResource(5, NativeMilResourceType.RectangleGeometry);
+    batch.CreateVisual(1);
+    batch.SetVisualOffset(1, 3.4, 4.7);
+    batch.SetVisualScrollableAreaClip(
+        1, new NativeMilRect(2.2, 3.2, 30.8, 24.8));
+    batch.SetVisualClip(1, 5);
+    batch.SetVisualContent(1, 3);
+    batch.SetSolidColorBrush(4, new NativeMilColor(0.2f, 0.7f, 1, 1));
+    batch.SetRectangleGeometry(5, 0, 0, 40, 40);
     batch.SetRenderData(3, renderData);
     batch.CreateGenericTarget(2, 64, 64);
     batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
