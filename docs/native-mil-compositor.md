@@ -202,15 +202,20 @@ are never implicitly closed for stroking even though WPF fill closure remains
 unchanged. A nonempty dash pattern on a closed gapped figure whose continuous
 run crosses the original figure start fails closed: WPF resets dash phase at
 that start yet joins the two widened pieces, which cannot be represented by
-one current semantic polyline without changing phase or join shape. The first
-native curved-stroke slice retains the exact segment record beside the line
-topology and lowers one open solid quadratic, cubic, or analytic arc segment
-with flat endpoint caps directly to ProGPU geometry primitives. Geometry-local
-affine transforms stay on the primitive; arcs map their resolved center/radii/
-rotation/angles into the reusable two-axis analytic arc contract. Dashed
-curves, non-flat curve caps, `SegSmoothJoin`, joined or multi-segment curved
-contours, closed curved figures, and non-flat-cap zero-length runs still fail
-closed until native cap/join and continuous curve-dash composition preserves
+one current semantic polyline without changing phase or join shape. The native
+curved-stroke slice retains each exact segment record beside the line topology
+and lowers solid line/quadratic/cubic/analytic-arc contours to reusable ProGPU
+geometry primitives. Multi-segment and closed contours compose those
+primitives with native path-join records. Join tangents come from the exact
+segment derivative at each shared endpoint: line direction,
+quadratic/cubic endpoint-control fallbacks, or the resolved analytic arc axes
+and sweep. A closed contour also emits the final-to-first join, while an open
+contour preserves its start/end caps. Geometry-local affine transforms stay on
+every primitive and join; arcs map their resolved center/radii/rotation/angles
+into the reusable two-axis analytic arc contract. Discontinuous endpoints or
+degenerate join tangents fail closed transactionally. Dashed curves, non-flat
+open-curve caps, `SegSmoothJoin`, and non-flat-cap zero-length runs remain
+unsupported until native cap and continuous curve-dash composition preserve
 WPF semantics. Unstroked curves remain valid topology gaps and do not prevent
 neighboring line runs from using the native path-pen lane.
 
@@ -294,8 +299,8 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds,
-  singular arc-transform fill semantics, joined/closed curved path
-  strokes, curve dashes, non-flat curve caps, and per-segment smooth joins,
+  singular arc-transform fill semantics, curve dashes, non-flat curve caps,
+  and per-segment smooth joins,
   exact translated-equivalent EvenOdd overlap execution,
   remaining pen draws,
   brushes, drawings, images, glyph runs, caches, guidelines, effects, and
@@ -717,17 +722,22 @@ normal GPU path. Exact rendering for the guarded overlap remains an open parity
 item; fail-closed behavior is the supported interim contract.
 
 The isolated curved-stroke implementation at `e0a9d15f`, with the MSVC
-portability correction at `42e05f29`, passed the focused Windows ARM64 lane.
-Both wgpu-native and Dawn modules rebuilt under `/W4 /WX`; the MIL and Dawn
-contracts passed, including exact quadratic/cubic/arc primitive payloads,
-geometry-local affine state, and dashed/non-flat-cap fail-closed cases. The
-zero-warning project-reference package consumer checkpoint `fa463b86` added an
-open analytic arc stroke to its retained seed. Its 44 commands and 19 channel
-resources compiled through both MIL exports, then the wgpu-native stream
-completed live Parallels D3D12 readback with 19 semantic resources, three
-draws, and 41,472 coverage bytes. This is focused integration evidence; the
-complete differential matrix remains qualified at the preceding `ef6091e9`
-safety checkpoint and will be rerun after the joined-curve slice.
+portability correction at `42e05f29`, first passed the focused Windows ARM64
+lane. The joined/closed contour implementation at `38245edd` then added exact
+mixed line/quadratic/cubic/arc segment composition and native tangent joins;
+package checkpoint `3816050b` added a closed joined curve to the retained seed.
+At that exact checkpoint both wgpu-native and Dawn rebuilt under MSVC `/W4
+/WX`, all 11 CTests passed, and the complete bounded Windows D3D12 smoke profile
+passed: independent native and managed readback, zero-allocation probes,
+retained masks/effects, text shaping, path atlas, images, Overlay, ColorDodge,
+and the declared differential scenes. The zero-warning project-reference
+package consumer compiled the 46-command, 20-channel-resource seed through both
+MIL exports and completed live D3D12 readback with 20 semantic resources, three
+draws, and 41,472 coverage bytes. Exact staged SHA-256 values were
+`1c0e48225057db64eaf97eab5ba239b8be5c365525bc4b68bba58d5f906a7926`
+for `progpu_native.dll` and
+`efaad18f8ee89a1c53f0dc612e99371f9a3d24cbcfdf66b3129af5875ef1bb74`
+for `progpu_native_dawn.dll`.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
