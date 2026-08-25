@@ -404,6 +404,45 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWriteCanonicalVisualEffectPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetVisualEffect(7, 9);
+        batch.SetBlurEffect(9, 5.5, NativeMilEffectRenderingBias.Quality);
+        batch.SetDropShadowEffect(
+            10,
+            4.0,
+            new NativeMilColor(0.1f, 0.2f, 0.3f, 0.5f),
+            315.0,
+            0.4,
+            6.5);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(132, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x1dU, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(9U, ReadUInt32(encoded, 12));
+        Assert.Equal(32U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x6eU, ReadUInt32(encoded, 20));
+        Assert.Equal(9U, ReadUInt32(encoded, 24));
+        Assert.Equal(5.5, ReadDouble(encoded, 28));
+        Assert.Equal(0U, ReadUInt32(encoded, 36));
+        Assert.Equal(0U, ReadUInt32(encoded, 40));
+        Assert.Equal(1U, ReadUInt32(encoded, 44));
+        Assert.Equal(84U, ReadUInt32(encoded, 48));
+        Assert.Equal(0x6fU, ReadUInt32(encoded, 52));
+        Assert.Equal(10U, ReadUInt32(encoded, 56));
+        Assert.Equal(4.0, ReadDouble(encoded, 60));
+        Assert.Equal(0.1f, ReadSingle(encoded, 68));
+        Assert.Equal(0.5f, ReadSingle(encoded, 80));
+        Assert.Equal(315.0, ReadDouble(encoded, 84));
+        Assert.Equal(0.4, ReadDouble(encoded, 92));
+        Assert.Equal(6.5, ReadDouble(encoded, 100));
+        Assert.Equal(0U, ReadUInt32(encoded, 128));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalGradientPackets()
     {
         var stops = new[]
