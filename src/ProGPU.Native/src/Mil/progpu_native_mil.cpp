@@ -3107,6 +3107,13 @@ struct channel::implementation {
                             native_local_transform)) {
                         return status::invalid_graph;
                     }
+                    constexpr std::size_t
+                        maximum_eight_sample_group_segment_count = 20U;
+                    const std::uint32_t group_sample_grid =
+                        group_segments.size() <=
+                            maximum_eight_sample_group_segment_count
+                        ? 8U
+                        : 4U;
                     const std::array paths{
                         progpu_native_scene_path_fill{
                             0U,
@@ -3123,7 +3130,7 @@ struct channel::implementation {
                                 geometry_group->second.fill_rule == 0U
                                     ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
                                     : PROGPU_NATIVE_FILL_RULE_NON_ZERO),
-                            8U}};
+                            group_sample_grid}};
                     const std::array brushes{brush_index};
                     if (!builder.draw_paths(
                             paths,
