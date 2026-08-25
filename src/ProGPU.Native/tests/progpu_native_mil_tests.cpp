@@ -2219,7 +2219,51 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     PROGPU_REQUIRE(state.apply(seam_dashed_update) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7002U, 2U, stream, &metrics) ==
-        status::unsupported_command);
+        status::success);
+    const auto seam_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_wrapped_dashed_run = false;
+    for (std::uint32_t index = 0U;
+         index < seam_header.resource_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            seam_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
+            continue;
+        }
+        const auto stroke = read_value<progpu_native_scene_stroke>(
+            stream,
+            record.payload_offset);
+        if ((stroke.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U ||
+            stroke.point_count != 4U) {
+            continue;
+        }
+        const auto first = read_value<progpu_native_point>(
+            stream,
+            record.auxiliary_offset);
+        const auto second = read_value<progpu_native_point>(
+            stream,
+            record.auxiliary_offset + sizeof(progpu_native_point));
+        const auto third = read_value<progpu_native_point>(
+            stream,
+            record.auxiliary_offset + 2U * sizeof(progpu_native_point));
+        const auto fourth = read_value<progpu_native_point>(
+            stream,
+            record.auxiliary_offset + 3U * sizeof(progpu_native_point));
+        if (first.x != 28.0F || first.y != 0.0F) {
+            continue;
+        }
+        PROGPU_REQUIRE(second.x == 32.0F && second.y == 0.0F);
+        PROGPU_REQUIRE(third.x == 20.0F && third.y == 0.0F);
+        PROGPU_REQUIRE(fourth.x == 24.0F && fourth.y == 0.0F);
+        PROGPU_REQUIRE(stroke.start_cap == 3U && stroke.end_cap == 3U);
+        PROGPU_REQUIRE(stroke.dash_interval_count == 2U);
+        PROGPU_REQUIRE(stroke.dash_offset == 0.75);
+        found_wrapped_dashed_run = true;
+    }
+    PROGPU_REQUIRE(found_wrapped_dashed_run);
 
     auto smooth_figures = figures;
     const std::uint32_t smooth_join = 0x08U;
