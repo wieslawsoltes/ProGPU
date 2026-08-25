@@ -405,7 +405,8 @@ circle approximations.
 - Implement scalar animation resources, remaining transform kinds, curve dashes,
   exact translated-equivalent EvenOdd overlap execution,
   remaining pen draws,
-  brushes, drawings, images, glyph runs, caches, guidelines, effects, and
+  brushes, drawings, images, glyph runs, caches, multi-guide/dynamic
+  guidelines, effects, and
   complete render-data decoding.
 - Lower every supported update to stable semantic resource identities and
   generation numbers; unchanged resources must not be rebuilt.
@@ -1292,6 +1293,44 @@ qualified SHA-256 values are
 `812312ae4d91c30a363f801985d2f881a6aa528709331f0985279756a5337790`
 for `progpu_native.dll` and
 `8cf312ffadac52d7109239de3fee4f25e34358bcc963e6f33965799fe3d9f607`
+for `progpu_native_dawn.dll`.
+
+Static-guideline implementation `d4112930`, package gate `59851d8c`, and
+validator correction `dab52e58` next added the exact uniform-offset subset of
+WPF `GuidelineSet`. Canonical type `92` and command `0x8c` use the WPF
+20-byte fixed view followed by X and Y double arrays. Static arrays are sorted
+as WPF does. A DrawingGroup's handle at offset 36 selects the set for its
+children; no handle inherits the parent scope and an explicitly empty set
+disables snapping for that scope.
+
+WPF only constructs an active snapping frame under a finite scale/translate
+transform. Each static coordinate is transformed to device space with WPF's
+float evaluation, and its device offset is computed with the native
+`CFloatFPU::OffsetToRounded` tie rule (half coordinates choose the numerically
+larger integer). One coordinate per axis is therefore an exact uniform
+translation for every semantic draw family. ProGPU stores those device-space
+coordinates in resource kind 17, references them from the unchanged 64-byte
+semantic state using flag bit 2, and resolves the DPI-dependent offset in the
+shared state cursor used by wgpu-native and Dawn. A rotated/sheared transform
+pushes WPF's equivalent empty frame. Dynamic pairs and multiple coordinates
+require piecewise geometry deformation and deliberately fail closed in this
+first slice.
+
+The public package gate builds a focused 19-command, eight-channel-resource
+scene, compiles it through both MIL exports, and requires live retained
+readback. Integration testing exposed and fixed a registry-boundary defect:
+the typed kind-17 validator existed, but the known-resource range still ended
+at kind 16. A public scene-validation regression now covers a guideline
+resource referenced by state. All ten local native CTests and the focused
+managed builder/producer suites passed. Strict Windows ARM64 MSVC rebuilt both
+exports under `/W4 /WX`; all 11 native/Dawn CTests passed. The fresh app-local
+DLLs compiled the focused scene through both MIL channels and rendered on live
+D3D12 with five semantic resources, one batched draw, zero coverage-staging
+bytes, a valid nonblack retained readback, and 16,384 direct-render pixels.
+Qualified SHA-256 values are
+`9a76e7a16eb989cad3932e4d24e9e3ca1247069d8bd14114120cf073e038a270`
+for `progpu_native.dll` and
+`4a9e55ff26301d50138c7f02cd8be02645541ea29dd37081e2f787d2cc69c8b7`
 for `progpu_native_dawn.dll`.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
