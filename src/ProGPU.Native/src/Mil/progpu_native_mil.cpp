@@ -157,6 +157,142 @@ bool try_transform_bounds(
     return true;
 }
 
+bool try_transform_arc_segment(
+    const progpu_native_path_segment& source,
+    const affine_2d_double& transform,
+    progpu_native_path_segment& destination) noexcept {
+    if (source.kind != PROGPU_NATIVE_PATH_SEGMENT_ARC) {
+        return false;
+    }
+    const double theta1 = std::bit_cast<float>(source.pad0);
+    const double delta_theta = std::bit_cast<float>(source.pad1);
+    const double rotation = std::bit_cast<float>(source.pad2);
+    const double radius_x = source.p3.x;
+    const double radius_y = source.p3.y;
+    if (!std::isfinite(theta1) || !std::isfinite(delta_theta) ||
+        !std::isfinite(rotation) || radius_x <= 0.0 || radius_y <= 0.0) {
+        return false;
+    }
+    const auto map_point = [&transform](
+        progpu_native_point source_point,
+        progpu_native_point& result) noexcept {
+        const double mapped_x = source_point.x * transform.m11 +
+            source_point.y * transform.m21 + transform.m31;
+        const double mapped_y = source_point.x * transform.m12 +
+            source_point.y * transform.m22 + transform.m32;
+        if (!finite_double_as_float(mapped_x) ||
+            !finite_double_as_float(mapped_y)) {
+            return false;
+        }
+        result = {
+            static_cast<float>(mapped_x),
+            static_cast<float>(mapped_y)};
+        return true;
+    };
+    const double cosine_rotation = std::cos(rotation);
+    const double sine_rotation = std::sin(rotation);
+    const double basis_x_x = radius_x * cosine_rotation;
+    const double basis_x_y = radius_x * sine_rotation;
+    const double basis_y_x = -radius_y * sine_rotation;
+    const double basis_y_y = radius_y * cosine_rotation;
+    const double transformed_x_x =
+        basis_x_x * transform.m11 + basis_x_y * transform.m21;
+    const double transformed_x_y =
+        basis_x_x * transform.m12 + basis_x_y * transform.m22;
+    const double transformed_y_x =
+        basis_y_x * transform.m11 + basis_y_y * transform.m21;
+    const double transformed_y_y =
+        basis_y_x * transform.m12 + basis_y_y * transform.m22;
+    const double metric_xx = transformed_x_x * transformed_x_x +
+        transformed_y_x * transformed_y_x;
+    const double metric_xy = transformed_x_x * transformed_x_y +
+        transformed_y_x * transformed_y_y;
+    const double metric_yy = transformed_x_y * transformed_x_y +
+        transformed_y_y * transformed_y_y;
+    const double half_difference = (metric_xx - metric_yy) * 0.5;
+    const double maximum_eigenvalue =
+        (metric_xx + metric_yy) * 0.5 +
+        std::hypot(half_difference, metric_xy);
+    const double determinant = transformed_x_x * transformed_y_y -
+        transformed_x_y * transformed_y_x;
+    if (!std::isfinite(maximum_eigenvalue) ||
+        !std::isfinite(determinant) || maximum_eigenvalue <= 0.0 ||
+        determinant == 0.0) {
+        return false;
+    }
+    const double transformed_radius_x = std::sqrt(maximum_eigenvalue);
+    const double transformed_radius_y =
+        std::abs(determinant) / transformed_radius_x;
+    if (!finite_double_as_float(transformed_radius_x) ||
+        !finite_double_as_float(transformed_radius_y) ||
+        static_cast<float>(transformed_radius_x) <= 0.0F ||
+        static_cast<float>(transformed_radius_y) <= 0.0F) {
+        return false;
+    }
+    double axis_x = metric_xy;
+    double axis_y = maximum_eigenvalue - metric_xx;
+    const double alternate_x = maximum_eigenvalue - metric_yy;
+    const double alternate_y = metric_xy;
+    if (std::hypot(alternate_x, alternate_y) >
+        std::hypot(axis_x, axis_y)) {
+        axis_x = alternate_x;
+        axis_y = alternate_y;
+    }
+    double axis_length = std::hypot(axis_x, axis_y);
+    if (!std::isfinite(axis_length)) {
+        return false;
+    }
+    if (axis_length == 0.0) {
+        axis_x = 1.0;
+        axis_y = 0.0;
+        axis_length = 1.0;
+    }
+    axis_x /= axis_length;
+    axis_y /= axis_length;
+    const double perpendicular_x = -axis_y;
+    const double perpendicular_y = axis_x;
+
+    destination = source;
+    if (!map_point(source.p0, destination.p0) ||
+        !map_point(source.p1, destination.p1) ||
+        !map_point(source.p2, destination.p2)) {
+        return false;
+    }
+    const double start_x = destination.p0.x - destination.p2.x;
+    const double start_y = destination.p0.y - destination.p2.y;
+    double cosine_theta =
+        (start_x * axis_x + start_y * axis_y) /
+        transformed_radius_x;
+    double sine_theta =
+        (start_x * perpendicular_x + start_y * perpendicular_y) /
+        transformed_radius_y;
+    const double theta_length = std::hypot(cosine_theta, sine_theta);
+    if (!std::isfinite(theta_length) || theta_length == 0.0) {
+        return false;
+    }
+    cosine_theta /= theta_length;
+    sine_theta /= theta_length;
+    const double transformed_theta1 = std::atan2(sine_theta, cosine_theta);
+    const double transformed_delta_theta =
+        determinant > 0.0 ? delta_theta : -delta_theta;
+    const double transformed_rotation = std::atan2(axis_y, axis_x);
+    if (!finite_double_as_float(transformed_theta1) ||
+        !finite_double_as_float(transformed_delta_theta) ||
+        !finite_double_as_float(transformed_rotation)) {
+        return false;
+    }
+    destination.p3 = {
+        static_cast<float>(transformed_radius_x),
+        static_cast<float>(transformed_radius_y)};
+    destination.pad0 = std::bit_cast<std::uint32_t>(
+        static_cast<float>(transformed_theta1));
+    destination.pad1 = std::bit_cast<std::uint32_t>(
+        static_cast<float>(transformed_delta_theta));
+    destination.pad2 = std::bit_cast<std::uint32_t>(
+        static_cast<float>(transformed_rotation));
+    return true;
+}
+
 bool try_line_stroke_bounds(
     double x0,
     double y0,
@@ -1825,14 +1961,6 @@ struct channel::implementation {
                 leaf.right = path->second.right;
                 leaf.bottom = path->second.bottom;
             } else {
-                if (std::ranges::any_of(
-                        path->second.segments,
-                        [](const progpu_native_path_segment& segment) {
-                            return segment.kind ==
-                                PROGPU_NATIVE_PATH_SEGMENT_ARC;
-                        })) {
-                    return status::unsupported_command;
-                }
                 const std::size_t original_size = segments.size();
                 const auto map_point = [&transform](
                     progpu_native_point& point) noexcept {
@@ -1854,6 +1982,18 @@ struct channel::implementation {
                     return true;
                 };
                 for (const auto& source : path->second.segments) {
+                    if (source.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC) {
+                        progpu_native_path_segment transformed_arc{};
+                        if (!try_transform_arc_segment(
+                                source,
+                                transform,
+                                transformed_arc)) {
+                            segments.resize(original_size);
+                            return status::unsupported_command;
+                        }
+                        segments.push_back(transformed_arc);
+                        continue;
+                    }
                     auto segment = source;
                     bool mapped = map_point(segment.p0) &&
                         map_point(segment.p1);
