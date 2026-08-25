@@ -2235,9 +2235,11 @@ geometry, drawing, image, glyph, effect, guideline, cache, and animation
 generations. Cache-root bounds and raster-affecting state remain in that hash,
 while root offset, transform, and opacity are composite-only state. Outer-only
 changes therefore rebuild transformed composite vertices without invalidating
-the completed page. Root composite clips, spatial masks, guidelines,
-SnapsToDevicePixels, and ClearType remain fail-closed until their post-raster
-semantics are represented explicitly.
+the completed page. SnapsToDevicePixels follows `CMilVisualCache::Render`: it
+transforms the exact local bounds through outer placement, floors the
+world-space left/top, and post-offsets only the page composite. Root composite
+clips, spatial masks, guidelines, and ClearType remain fail-closed until their
+post-raster semantics are represented explicitly.
 
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then
