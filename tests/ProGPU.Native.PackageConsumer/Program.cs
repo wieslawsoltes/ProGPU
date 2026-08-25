@@ -342,9 +342,10 @@ static NativeMilPathGeometry CreateMilLineStrokePath()
                 IsClosed: true,
                 [
                     NativeMilPathSegment.Line(
-                        new NativeMilPoint(60, 4),
+                        new NativeMilPoint(60, 4)),
+                    NativeMilPathSegment.Line(
+                        new NativeMilPoint(60, 60),
                         isStroked: false),
-                    NativeMilPathSegment.Line(new NativeMilPoint(60, 60)),
                     NativeMilPathSegment.Line(new NativeMilPoint(4, 60))
                 ])
         ]);
