@@ -43,6 +43,8 @@ public sealed class SilkWindowController : IDisposable
     public NativeWindowBackdrop Backdrop => _state.Backdrop;
     public NativeWindowTheme Theme => _state.Theme;
     public NativeWindowHandle Parent => _state.Parent;
+    public bool IsInteractiveMoveResize =>
+        _platform?.IsInteractiveMoveResize ?? false;
 
     public bool Attach()
     {

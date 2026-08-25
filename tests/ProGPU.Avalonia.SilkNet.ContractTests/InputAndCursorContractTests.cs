@@ -1,5 +1,7 @@
+using Avalonia;
 using Avalonia.Input;
 using Avalonia.SilkNet;
+using System.Numerics;
 using SilkKey = Silk.NET.Input.Key;
 using SilkStandardCursor = Silk.NET.Input.StandardCursor;
 using Xunit;
@@ -8,6 +10,16 @@ namespace ProGPU.Avalonia.SilkNet.ContractTests;
 
 public sealed class InputAndCursorContractTests
 {
+    [Fact]
+    public void WindowsPointerPixelsConvertToAvaloniaLogicalCoordinates()
+    {
+        Assert.Equal(
+            new Point(200, 100),
+            SilkNetInputRouter.ToLogicalPoint(
+                new Vector2(300, 150),
+                desktopScaling: 1.5d));
+    }
+
     [Theory]
     [InlineData(true, false, true)]
     [InlineData(true, true, false)]

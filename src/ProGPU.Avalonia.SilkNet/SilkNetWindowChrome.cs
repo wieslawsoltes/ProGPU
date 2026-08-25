@@ -125,16 +125,18 @@ internal static class SilkNetWindowChrome
         };
 
     internal static NativeWindowSize ToMinimumSize(
-        Size size) =>
+        Size size,
+        double desktopScaling = 1d) =>
         new(
-            NormalizeMinimum(size.Width),
-            NormalizeMinimum(size.Height));
+            NormalizeMinimum(size.Width, desktopScaling),
+            NormalizeMinimum(size.Height, desktopScaling));
 
     internal static NativeWindowSize ToMaximumSize(
-        Size size) =>
+        Size size,
+        double desktopScaling = 1d) =>
         new(
-            NormalizeMaximum(size.Width),
-            NormalizeMaximum(size.Height));
+            NormalizeMaximum(size.Width, desktopScaling),
+            NormalizeMaximum(size.Height, desktopScaling));
 
 #if !AVALONIA11
     internal static PlatformAllowedWindowActions
@@ -186,23 +188,33 @@ internal static class SilkNetWindowChrome
     }
 #endif
 
-    private static int NormalizeMinimum(double value)
+    private static int NormalizeMinimum(
+        double value,
+        double desktopScaling)
     {
         if (!double.IsFinite(value) || value <= 0)
             return 0;
+        double scale =
+            DisplayScaleResolver.NormalizeDisplayScale(
+                desktopScaling);
         return checked(
             (int)Math.Min(
                 int.MaxValue,
-                Math.Ceiling(value)));
+                Math.Ceiling(value * scale)));
     }
 
-    private static int NormalizeMaximum(double value)
+    private static int NormalizeMaximum(
+        double value,
+        double desktopScaling)
     {
         if (!double.IsFinite(value) || value <= 0)
             return int.MaxValue;
+        double scale =
+            DisplayScaleResolver.NormalizeDisplayScale(
+                desktopScaling);
         return checked(
             (int)Math.Min(
                 int.MaxValue,
-                Math.Floor(value)));
+                Math.Floor(value * scale)));
     }
 }

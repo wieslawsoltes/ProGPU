@@ -257,5 +257,16 @@ public sealed class WindowChromeContractTests
                 new Size(
                     double.PositiveInfinity,
                     double.NaN)));
+
+        Assert.Equal(
+            new NativeWindowSize(16, 31),
+            SilkNetWindowChrome.ToMinimumSize(
+                new Size(10.1, 20.01),
+                desktopScaling: 1.5d));
+        Assert.Equal(
+            new NativeWindowSize(149, 299),
+            SilkNetWindowChrome.ToMaximumSize(
+                new Size(99.9, 199.8),
+                desktopScaling: 1.5d));
     }
 }

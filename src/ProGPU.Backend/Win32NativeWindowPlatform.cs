@@ -29,6 +29,8 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
     private const uint WmNcCalcSize = 0x0083;
     private const uint WmNcHitTest = 0x0084;
     private const uint WmNcLButtonDown = 0x00A1;
+    private const uint WmEnterSizeMove = 0x0231;
+    private const uint WmExitSizeMove = 0x0232;
     private const int HtClient = 1;
     private const int HtCaption = 2;
     private const int HtLeft = 10;
@@ -52,6 +54,7 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
     private nint _previousWndProc;
     private bool _extended;
     private bool _canResize = true;
+    private bool _isInteractiveMoveResize;
     private NativeWindowBackdrop _backdrop;
 
     public Win32NativeWindowPlatform(IWindow window, nint hwnd)
@@ -77,6 +80,8 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
     public override bool SupportsManagedMove => true;
     public override bool SupportsManagedResize => true;
     public override bool SupportsSystemChromeExtension => true;
+    public override bool IsInteractiveMoveResize =>
+        _isInteractiveMoveResize;
 
     public override bool ApplyChrome(in NativeWindowState state)
     {
@@ -251,7 +256,11 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
     public override bool TryBeginMove(NativeWindowPoint pointer)
     {
         ReleaseCapture();
-        SendMessage(_hwnd, WmNcLButtonDown, HtCaption, 0);
+        SendMessage(
+            _hwnd,
+            WmNcLButtonDown,
+            HtCaption,
+            PackScreenPoint(pointer));
         return true;
     }
 
@@ -263,12 +272,21 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
         }
 
         ReleaseCapture();
-        SendMessage(_hwnd, WmNcLButtonDown, MapHitTest(edge), 0);
+        SendMessage(
+            _hwnd,
+            WmNcLButtonDown,
+            MapHitTest(edge),
+            PackScreenPoint(pointer));
         return true;
     }
 
     private nint WindowProcedure(nint hwnd, uint message, nint wParam, nint lParam)
     {
+        if (message == WmEnterSizeMove)
+            _isInteractiveMoveResize = true;
+        else if (message == WmExitSizeMove)
+            _isInteractiveMoveResize = false;
+
         if (_extended && message == WmNcCalcSize)
         {
             return 0;
@@ -401,6 +419,14 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
         NativeResizeEdge.BottomLeft => HtBottomLeft,
         _ => HtBottomRight
     };
+
+    private static nint PackScreenPoint(
+        NativeWindowPoint pointer)
+    {
+        uint x = unchecked((ushort)(short)pointer.X);
+        uint y = unchecked((ushort)(short)pointer.Y);
+        return unchecked((nint)(x | (y << 16)));
+    }
 
     public override void Dispose()
     {

@@ -388,8 +388,22 @@ internal sealed class SilkNetInputRouter : IDisposable
             _ => RawInputModifiers.None
         };
 
-    private static Point ToPoint(Vector2 point) =>
-        new(point.X, point.Y);
+    private Point ToPoint(Vector2 point) =>
+        ToLogicalPoint(
+            point,
+            _owner.DesktopScaling);
+
+    internal static Point ToLogicalPoint(
+        Vector2 point,
+        double desktopScaling)
+    {
+        double scaling =
+            DisplayScaleResolver.NormalizeDisplayScale(
+                desktopScaling);
+        return new Point(
+            point.X / scaling,
+            point.Y / scaling);
+    }
 
     private static ulong Timestamp() =>
         (ulong)(Stopwatch.GetTimestamp() *

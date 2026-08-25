@@ -20,18 +20,50 @@ internal static class SilkNetDisplayMetrics
 
     internal static Size? ResolveFrameSize(
         Size clientSize,
-        NativeWindowFrameInsets? frameInsets)
+        NativeWindowFrameInsets? frameInsets,
+        double desktopScaling = 1d)
     {
         if (frameInsets is not { } insets)
             return null;
 
+        double scale =
+            DisplayScaleResolver.NormalizeDisplayScale(
+                desktopScaling);
+
         return new Size(
             Math.Max(
                 0,
-                clientSize.Width + insets.Left + insets.Right),
+                clientSize.Width +
+                (insets.Left + insets.Right) / scale),
             Math.Max(
                 0,
-                clientSize.Height + insets.Top + insets.Bottom));
+                clientSize.Height +
+                (insets.Top + insets.Bottom) / scale));
+    }
+
+    internal static Size ResolveLogicalClientSize(
+        int nativeWidth,
+        int nativeHeight,
+        double desktopScaling)
+    {
+        double scale =
+            DisplayScaleResolver.NormalizeDisplayScale(
+                desktopScaling);
+        return new Size(
+            Math.Max(0, nativeWidth) / scale,
+            Math.Max(0, nativeHeight) / scale);
+    }
+
+    internal static PixelSize ResolveNativeClientSize(
+        Size logicalSize,
+        double desktopScaling)
+    {
+        double scale =
+            DisplayScaleResolver.NormalizeDisplayScale(
+                desktopScaling);
+        return new PixelSize(
+            ScaleLength(logicalSize.Width, scale),
+            ScaleLength(logicalSize.Height, scale));
     }
 
     internal static double ResolveRenderScaling(
@@ -80,12 +112,19 @@ internal static class SilkNetDisplayMetrics
         int windowHeight,
         int framebufferWidth,
         int framebufferHeight,
-        double renderScaling)
+        double renderScaling,
+        double desktopScaling = 1d)
     {
-        double scale =
+        double renderScale =
             DisplayScaleResolver.NormalizeDisplayScale(renderScaling);
-        int scaledWidth = ScaleLength(windowWidth, scale);
-        int scaledHeight = ScaleLength(windowHeight, scale);
+        double desktopScale =
+            DisplayScaleResolver.NormalizeDisplayScale(desktopScaling);
+        int scaledWidth = ScaleLength(
+            windowWidth / desktopScale,
+            renderScale);
+        int scaledHeight = ScaleLength(
+            windowHeight / desktopScale,
+            renderScale);
         return new PixelSize(
             Math.Max(
                 Math.Max(1, framebufferWidth),
@@ -95,7 +134,7 @@ internal static class SilkNetDisplayMetrics
                 scaledHeight));
     }
 
-    private static int ScaleLength(int value, double scale) =>
+    private static int ScaleLength(double value, double scale) =>
         Math.Max(
             1,
             checked((int)Math.Ceiling(Math.Max(0, value) * scale)));

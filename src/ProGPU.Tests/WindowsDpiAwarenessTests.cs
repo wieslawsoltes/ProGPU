@@ -75,6 +75,62 @@ public sealed class WindowsDpiAwarenessTests
     }
 
     [Fact]
+    public void AvaloniaSilkWindowingPreservesWindowsInteractiveContracts()
+    {
+        string window = File.ReadAllText(
+            FindRepoFile(
+                "src",
+                "ProGPU.Avalonia.SilkNet",
+                "SilkNetDesktopWindow.cs"));
+        string win32 = File.ReadAllText(
+            FindRepoFile(
+                "src",
+                "ProGPU.Backend",
+                "Win32NativeWindowPlatform.cs"));
+
+        Assert.Contains(
+            "ResolveLogicalClientSize(",
+            window,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "result.X / scaling",
+            window,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "point.X / scaling",
+            window,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IsInteractiveMoveResize == true",
+            window,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Dispatcher.UIThread.Post(",
+            window,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_window?.IsInitialized == true",
+            window,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "OnRender(0d);",
+            window,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WmEnterSizeMove",
+            win32,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PackScreenPoint(pointer)",
+            win32,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "SendMessage(_hwnd, WmNcLButtonDown, HtCaption, 0)",
+            win32,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FeatureRenderSurfacesUseResolvedWindowDpiScale()
     {
         string shaderToy = File.ReadAllText(FindRepoFile("src", "ProGPU.Samples", "Controls", "ShaderToyControl.cs"));

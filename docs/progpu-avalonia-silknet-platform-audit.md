@@ -1,6 +1,6 @@
 # Avalonia Silk.NET platform contract audit
 
-Audit date: 2026-08-24
+Audit date: 2026-08-25
 
 Supported Avalonia lanes:
 
@@ -10,6 +10,49 @@ Supported Avalonia lanes:
   the latest stable 11.x release at audit time.
 
 ## Incident and root cause
+
+### Windows DPI, interactive resize, and custom title bar
+
+On Windows, GLFW reports both the client size and framebuffer size in physical
+pixels while its content scale describes the conversion from Avalonia logical
+units to those pixels. The Silk.NET host previously exposed the native client
+size as logical units and then multiplied it by the display scale again for
+framebuffer allocation. It also sent logical resize requests directly to the
+native pixel-sized window. This produced oversized layout, incorrect pointer
+coordinates, constraints, and frame insets at non-100% Windows display scales.
+
+The corrected boundary now converts exactly once in each direction: native
+client pixels and pointer coordinates are divided by `DesktopScaling` when
+entering Avalonia, while logical client sizes and constraints are multiplied
+when entering GLFW. Desktop positions remain physical `PixelPoint` values,
+and the actual GLFW framebuffer remains authoritative. Each conversion is
+bounded `O(1)` arithmetic with no retained allocation or renderer-boundary
+crossing.
+
+Windows enters a modal operating-system sizing loop between
+[`WM_ENTERSIZEMOVE`](https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-entersizemove)
+and `WM_EXITSIZEMOVE`. That loop prevents the normal outer GLFW render cadence
+from advancing. The Win32 adapter now tracks the modal interval and the resize
+callback synchronously pulses Avalonia layout and presentation only while that
+interval is active. Normal frame scheduling is unchanged.
+
+Custom title-bar dragging previously sent `WM_NCLBUTTONDOWN` synchronously
+with an empty coordinate. The corrected path releases Avalonia pointer capture,
+lets the routed press unwind through a send-priority dispatcher post, and sends
+the signed screen pointer packed in `lParam`, as required by the official
+[`WM_NCLBUTTONDOWN`](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-nclbuttondown)
+contract. This matches the ordering used by Avalonia's official
+[`WindowImpl.BeginMoveDrag`](https://github.com/AvaloniaUI/Avalonia/blob/12.1.1/src/Windows/Avalonia.Win32/WindowImpl.cs)
+without copying its implementation.
+
+GLFW's official [window guide](https://www.glfw.org/docs/3.4/window_guide.html)
+was used as the coordinate-space authority. Its distinction between content
+scale, screen coordinates, and framebuffer pixels was adopted. The prior
+derived framebuffer enlargement and synchronous zero-coordinate title-bar
+message were rejected because they conflict with the public platform
+contracts.
+
+### Platform settings
 
 `DataGridColumnHeader.ProcessSort` asks
 `KeyboardHelper.GetPlatformCtrlOrCmdKeyModifier` for the target platform's
@@ -71,8 +114,11 @@ contract cannot be established by compilation alone.
 
 - `DesktopScaling` follows the native backend coordinate contract: it is 1 on
   macOS while `RenderScaling` may be 2 or greater; Win32/X11 desktop scaling
-  follows the render scale. Deferred window positions are converted only after
-  the native window and its scaling are known.
+  follows the render scale. Avalonia client dimensions, input points, frame
+  insets, and constraints are logical; GLFW client dimensions and pointer
+  coordinates are native. Desktop positions remain physical pixels. Deferred
+  window sizes are converted only after the native window and its scaling are
+  known.
 - Framebuffer storage uses physical framebuffer pixels. `FrameSize` is unknown
   until native frame insets are available and then includes those insets rather
   than incorrectly returning the client size.
@@ -88,6 +134,13 @@ contract cannot be established by compilation alone.
   allocation-free tracker correlates the expected native size with the next
   callback, preserving application, layout, and DPI reasons without allowing
   a later unrelated user resize to inherit stale state.
+- Win32 modal move/resize state is tracked from the native message stream.
+  Each interactive size notification performs one immediate layout/render
+  pulse so content follows the window edge; steady-state and programmatic
+  resize scheduling retain the normal event-loop path.
+- Managed title-bar moves release pointer capture and are deferred until the
+  routed press has unwound. The native non-client message carries the actual
+  signed screen coordinate, including negative multi-monitor coordinates.
 - An unspecified Avalonia 12 frame theme now resolves through registered
   platform settings, as Avalonia.Native and Win32 do. Native backend defaults
   remain correct for direct controller users: Cocoa clears the explicit
@@ -164,8 +217,11 @@ completed with zero warnings and zero errors.
 
 ## Validation evidence
 
-- The shared Silk.NET contract suite passes in Debug and Release against both
-  exact lanes: 85 tests on Avalonia 12.1.1 and 72 tests on Avalonia 11.3.20.
+- The shared Silk.NET contract suite passes in Release against both exact
+  lanes: 91 tests on Avalonia 12.1.1 and 78 tests on Avalonia 11.3.20. The new
+  coverage includes logical/native client-size conversion, one-to-one Windows
+  framebuffer sizing, scaled frame insets and constraints, and scaled pointer
+  input.
 - Both windowing projects build in Release, and the focused backend windowing
   presenter suite passes 17 tests.
 - Package validation produced both
@@ -177,18 +233,27 @@ completed with zero warnings and zero errors.
 - A package-backed Release smoke run on macOS rendered the Charting sample
   through `ProGPU/Silk.NET + embedded ProGPU`, presented non-transparent output
   through the same-device WebGPU texture path at 2x DPI, and exited normally.
+- A self-contained Windows ARM64 package and a framework-dependent ARM64
+  package were launched in the running Parallels Windows 11 session. The first
+  run exposed and then verified removal of a pre-initialization framebuffer
+  query in the new constraint path. The corrected build proceeds past that
+  windowing boundary; the VM's subsequent `wgpu_native.dll` failure occurs in
+  the existing renderer bootstrap before `window.Initialize()` returns, so it
+  is recorded separately and is not attributed to the DPI/windowing change.
 
 ## Managed/native applicability
 
-The platform-settings, dispatcher, screen, window, input, and clipboard work
+The DPI conversion, modal resize pulse, custom title-bar ordering,
+platform-settings, dispatcher, screen, window, input, and clipboard work
 belongs to the managed Avalonia/Silk.NET host. Neither the managed ProGPU scene
 renderer nor the native C++ renderer implements those operating-system
-services, so there is no paired renderer change. The bitmap-encoder update is
-also specific to Avalonia 12's managed `IBitmapImpl` contract; the native C++
-renderer does not expose or consume that interface. Shared scene, shader,
-resource-identity, device-loss, upload, and presentation contracts are
-unchanged, so no managed/native differential fixture or canonical shader needs
-to move for this fix.
+services, so there is no paired renderer change. The same managed and native
+renderer binaries consume the corrected framebuffer dimensions; scene,
+shader, resource-identity, device-loss, upload, and presentation contracts are
+unchanged. The bitmap-encoder update is also specific to Avalonia 12's managed
+`IBitmapImpl` contract; the native C++ renderer does not expose or consume that
+interface. No managed/native differential fixture or canonical shader needs
+to move for these host-only fixes.
 
 No third-party implementation source was copied into ProGPU. The Avalonia and
 GLFW sources were used to identify public contracts and observable platform

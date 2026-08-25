@@ -42,6 +42,7 @@ internal unsafe class GlfwNativeWindowPlatform : INativeWindowPlatform
     public virtual bool SupportsManagedMove => Handle.Kind is not NativeWindowKind.Wayland;
     public virtual bool SupportsManagedResize => true;
     public virtual bool SupportsSystemChromeExtension => false;
+    public virtual bool IsInteractiveMoveResize => false;
 
     public virtual bool ApplyChrome(in NativeWindowState state)
     {

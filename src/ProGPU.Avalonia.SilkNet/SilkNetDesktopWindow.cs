@@ -15,6 +15,7 @@ using Avalonia.Controls.Platform.Surfaces;
 using Avalonia.Platform.Surfaces;
 #endif
 using Avalonia.Rendering.Composition;
+using Avalonia.Threading;
 using ProGPU.Backend;
 using Silk.NET.Core;
 using Silk.NET.Maths;
@@ -195,9 +196,10 @@ public sealed class WindowImpl :
             IWindow? window = _window;
             return window is null
                 ? _desiredSize
-                : new Size(
-                    Math.Max(0, window.Size.X),
-                    Math.Max(0, window.Size.Y));
+                : SilkNetDisplayMetrics.ResolveLogicalClientSize(
+                    window.Size.X,
+                    window.Size.Y,
+                    DesktopScaling);
         }
     }
 
@@ -250,7 +252,8 @@ public sealed class WindowImpl :
                 window.Size.Y,
                 window.FramebufferSize.X,
                 window.FramebufferSize.Y,
-                RenderScaling);
+                RenderScaling,
+                DesktopScaling);
         }
     }
 
@@ -288,7 +291,8 @@ public sealed class WindowImpl :
             ClientSize,
             _windowController is { IsAttached: true } controller
                 ? controller.FrameInsets
-                : null);
+                : null,
+            DesktopScaling);
 
     public PixelPoint Position
     {
@@ -297,12 +301,9 @@ public sealed class WindowImpl :
             IWindow? window = _window;
             if (window is null)
                 return _desiredPosition ?? default;
-            double scaling = DesktopScaling;
             return new PixelPoint(
-                checked((int)Math.Round(
-                    window.Position.X * scaling)),
-                checked((int)Math.Round(
-                    window.Position.Y * scaling)));
+                window.Position.X,
+                window.Position.Y);
         }
     }
 
@@ -363,9 +364,13 @@ public sealed class WindowImpl :
                 return default;
             }
 
+            double titleBarHeight = _titleBarHeight >= 0d
+                ? _titleBarHeight
+                : controller.ExtendedTitleBarHeight /
+                  DesktopScaling;
             return new Thickness(
                 0,
-                controller.ExtendedTitleBarHeight,
+                titleBarHeight,
                 0,
                 0);
         }
@@ -414,26 +419,28 @@ public sealed class WindowImpl :
     public Point PointToClient(PixelPoint point)
     {
         IWindow? window = _window;
-        double scaling = DesktopScaling;
         Vector2D<int> source = new(
-            checked((int)Math.Round(point.X / scaling)),
-            checked((int)Math.Round(point.Y / scaling)));
+            point.X,
+            point.Y);
         Vector2D<int> result =
             window?.PointToClient(source) ?? source;
-        return new Point(result.X, result.Y);
+        double scaling = DesktopScaling;
+        return new Point(
+            result.X / scaling,
+            result.Y / scaling);
     }
 
     public PixelPoint PointToScreen(Point point)
     {
+        double scaling = DesktopScaling;
         Vector2D<int> source = new(
-            checked((int)Math.Round(point.X)),
-            checked((int)Math.Round(point.Y)));
+            checked((int)Math.Round(point.X * scaling)),
+            checked((int)Math.Round(point.Y * scaling)));
         Vector2D<int> result =
             _window?.PointToScreen(source) ?? source;
-        double scaling = DesktopScaling;
         return new PixelPoint(
-            checked((int)Math.Round(result.X * scaling)),
-            checked((int)Math.Round(result.Y * scaling)));
+            result.X,
+            result.Y);
     }
 
     public void SetCursor(ICursorImpl? cursor)
@@ -633,9 +640,15 @@ public sealed class WindowImpl :
     public void BeginMoveDrag(PointerPressedEventArgs e)
     {
         ArgumentNullException.ThrowIfNull(e);
-        if (_input is not null)
-            _windowController?.BeginMove(
-                _input.CurrentNativePointer);
+        if (_input is null || !e.Pointer.IsPrimary)
+            return;
+
+        e.Pointer.Capture(null);
+        NativeWindowPoint pointer =
+            _input.CurrentNativePointer;
+        Dispatcher.UIThread.Post(
+            () => _windowController?.BeginMove(pointer),
+            DispatcherPriority.Send);
     }
 
     public void BeginResizeDrag(
@@ -675,15 +688,13 @@ public sealed class WindowImpl :
         _desiredSize = constrained;
         if (_window is not null)
         {
+            PixelSize pixels =
+                SilkNetDisplayMetrics.ResolveNativeClientSize(
+                    constrained,
+                    DesktopScaling);
             var nativeSize = new Vector2D<int>(
-                Math.Max(
-                    1,
-                    checked((int)Math.Round(
-                        constrained.Width))),
-                Math.Max(
-                    1,
-                    checked((int)Math.Round(
-                        constrained.Height))));
+                pixels.Width,
+                pixels.Height);
             if (_window.Size != nativeSize)
             {
                 _resizeReasons.Begin(nativeSize, reason);
@@ -697,10 +708,9 @@ public sealed class WindowImpl :
         _desiredPosition = point;
         if (_window is null)
             return;
-        double scaling = DesktopScaling;
         _window.Position = new Vector2D<int>(
-            checked((int)Math.Round(point.X / scaling)),
-            checked((int)Math.Round(point.Y / scaling)));
+            point.X,
+            point.Y);
     }
 
     public void SetMinMaxSize(Size minSize, Size maxSize)
@@ -713,9 +723,7 @@ public sealed class WindowImpl :
             maxSize.Height > 0
                 ? maxSize.Height
                 : double.PositiveInfinity);
-        _windowController?.SetSizeConstraints(
-            SilkNetWindowChrome.ToMinimumSize(_minSize),
-            SilkNetWindowChrome.ToMaximumSize(_maxSize));
+        ApplyNativeSizeConstraints();
     }
 
     public void SetExtendClientAreaToDecorationsHint(
@@ -930,6 +938,7 @@ public sealed class WindowImpl :
         if (_window is not null)
             return _window;
 
+        Size requestedLogicalSize = _desiredSize;
         Vector2D<int> size = new(
             Math.Max(
                 1,
@@ -978,6 +987,9 @@ public sealed class WindowImpl :
         window.Initialize();
         _resizeReasons.Cancel();
         NotifyScalingChanged();
+        Resize(
+            requestedLogicalSize,
+            WindowResizeReason.Layout);
         if (_desiredPosition is { } desired)
             Move(desired);
         _platform.EventLoop.Register(this);
@@ -1042,13 +1054,18 @@ public sealed class WindowImpl :
 
     private void OnResize(Vector2D<int> size)
     {
-        _desiredSize = new Size(
-            Math.Max(0, size.X),
-            Math.Max(0, size.Y));
+        NotifyScalingChanged();
+        _desiredSize =
+            SilkNetDisplayMetrics.ResolveLogicalClientSize(
+                size.X,
+                size.Y,
+                DesktopScaling);
         Resized?.Invoke(
             _desiredSize,
             _resizeReasons.Resolve(size));
         QueuePaint();
+        if (_windowController?.IsInteractiveMoveResize == true)
+            OnRender(0d);
     }
 
     private void OnFramebufferResize(Vector2D<int> size)
@@ -1088,6 +1105,7 @@ public sealed class WindowImpl :
 
         _reportedScaling = scaling;
         _screens.Invalidate();
+        ApplyNativeSizeConstraints();
         ScalingChanged?.Invoke(scaling);
     }
 
@@ -1222,9 +1240,7 @@ public sealed class WindowImpl :
         controller.SetTopMost(_topmost);
         controller.SetEnabled(_enabled);
         controller.SetShowInTaskbar(_showInTaskbar);
-        controller.SetSizeConstraints(
-            SilkNetWindowChrome.ToMinimumSize(_minSize),
-            SilkNetWindowChrome.ToMaximumSize(_maxSize));
+        ApplyNativeSizeConstraints();
 #if AVALONIA11
         controller.SetChromeHints(
             SilkNetWindowChrome.MapChromeHints(
@@ -1236,6 +1252,25 @@ public sealed class WindowImpl :
         controller.SetTheme(_theme);
         controller.SetBackdrop(_backdrop);
         controller.SetWindowShadow(_addShadow);
+    }
+
+    private void ApplyNativeSizeConstraints()
+    {
+        SilkWindowController? controller =
+            _windowController;
+        if (controller is null)
+            return;
+
+        double scaling = _window?.IsInitialized == true
+            ? DesktopScaling
+            : 1d;
+        controller.SetSizeConstraints(
+            SilkNetWindowChrome.ToMinimumSize(
+                _minSize,
+                scaling),
+            SilkNetWindowChrome.ToMaximumSize(
+                _maxSize,
+                scaling));
     }
 
     private void ApplyNativeParent()
