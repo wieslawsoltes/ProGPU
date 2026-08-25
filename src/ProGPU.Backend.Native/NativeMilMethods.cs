@@ -84,6 +84,16 @@ internal static unsafe partial class NativeMilMethods
         void* pixels,
         nuint pixelSize);
 
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_glyph_run_font_sfnt")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetGlyphRunFontSfnt(
+        nint channel,
+        uint handle,
+        uint faceIndex,
+        uint styleSimulations,
+        void* fontData,
+        nuint fontSize);
+
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_get_resource_count")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial nuint GetResourceCount(nint channel);
@@ -163,6 +173,16 @@ internal static unsafe partial class NativeMilDawnMethods
         uint rowBytes,
         void* pixels,
         nuint pixelSize);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_glyph_run_font_sfnt")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetGlyphRunFontSfnt(
+        nint channel,
+        uint handle,
+        uint faceIndex,
+        uint styleSimulations,
+        void* fontData,
+        nuint fontSize);
 
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_get_resource_count")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

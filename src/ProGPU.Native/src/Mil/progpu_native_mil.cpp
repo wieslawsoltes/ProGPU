@@ -1,5 +1,6 @@
 #include "progpu_native_mil.hpp"
 #include "progpu_native_scene_builder.hpp"
+#include "progpu_native_text.hpp"
 #include "../Geometry/progpu_native_arc.hpp"
 
 #include <algorithm>
@@ -20,6 +21,7 @@ namespace {
 
 constexpr std::uint32_t type_visual = 39U;
 constexpr std::uint32_t type_viewport3d_visual = 40U;
+constexpr std::uint32_t type_glyph_run = 42U;
 constexpr std::uint32_t type_render_data = 43U;
 constexpr std::uint32_t type_render_target = 45U;
 constexpr std::uint32_t type_hwnd_render_target = 46U;
@@ -45,6 +47,7 @@ constexpr std::uint32_t type_radial_gradient_brush = 78U;
 constexpr std::uint32_t type_dash_style = 84U;
 constexpr std::uint32_t type_pen = 85U;
 constexpr std::uint32_t type_geometry_drawing = 87U;
+constexpr std::uint32_t type_glyph_run_drawing = 88U;
 constexpr std::uint32_t type_image_drawing = 89U;
 constexpr std::uint32_t type_drawing_group = 91U;
 constexpr std::uint32_t type_guideline_set = 92U;
@@ -628,6 +631,30 @@ struct channel::implementation {
         std::uint32_t geometry_handle{};
     };
 
+    struct glyph_run_state {
+        std::uint16_t flags{};
+        float origin_x{};
+        float origin_y{};
+        float em_size{};
+        double bounds_x{};
+        double bounds_y{};
+        double bounds_width{};
+        double bounds_height{};
+        std::uint16_t bidi_level{};
+        std::uint16_t measuring_method{};
+        std::uint32_t face_index{};
+        std::uint32_t style_simulations{};
+        std::vector<std::uint16_t> glyph_indices;
+        std::vector<float> advances;
+        std::vector<progpu_native_point> offsets;
+        std::vector<std::byte> font_data;
+    };
+
+    struct glyph_run_drawing_state {
+        std::uint32_t glyph_run_handle{};
+        std::uint32_t foreground_brush_handle{};
+    };
+
     struct image_drawing_state {
         double x{};
         double y{};
@@ -759,6 +786,9 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, pen_state> pens;
     std::unordered_map<std::uint32_t, geometry_drawing_state>
         geometry_drawings;
+    std::unordered_map<std::uint32_t, glyph_run_state> glyph_runs;
+    std::unordered_map<std::uint32_t, glyph_run_drawing_state>
+        glyph_run_drawings;
     std::unordered_map<std::uint32_t, image_drawing_state> image_drawings;
     std::unordered_map<std::uint32_t, bitmap_source_state> bitmap_sources;
     std::unordered_map<std::uint32_t, drawing_group_state> drawing_groups;
@@ -1166,6 +1196,14 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
             }
+            for (const auto& [drawing_handle, drawing] :
+                 glyph_run_drawings) {
+                if (drawing_handle != handle &&
+                    (drawing.glyph_run_handle == handle ||
+                     drawing.foreground_brush_handle == handle)) {
+                    return status::invalid_graph;
+                }
+            }
             for (const auto& [drawing_handle, drawing] : image_drawings) {
                 if (drawing_handle != handle &&
                     (drawing.image_source_handle == handle ||
@@ -1257,6 +1295,8 @@ struct channel::implementation {
             dash_styles.erase(handle);
             pens.erase(handle);
             geometry_drawings.erase(handle);
+            glyph_run_drawings.erase(handle);
+            glyph_runs.erase(handle);
             image_drawings.erase(handle);
             bitmap_sources.erase(handle);
             drawing_groups.erase(handle);
@@ -2594,6 +2634,119 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         }
+        case command::glyph_run_create: {
+            constexpr std::size_t fixed_size = 76U;
+            std::uint64_t ignored_dwrite_font = 0U;
+            glyph_run_state glyph_run{};
+            std::uint16_t glyph_count = 0U;
+            if (view.packet.size() < fixed_size ||
+                !read_at(view.packet, 4U, handle) || handle == 0U ||
+                !read_at(view.packet, 8U, ignored_dwrite_font) ||
+                !read_at(view.packet, 16U, glyph_run.flags) ||
+                !read_at(view.packet, 20U, glyph_run.origin_x) ||
+                !read_at(view.packet, 24U, glyph_run.origin_y) ||
+                !read_at(view.packet, 28U, glyph_run.em_size) ||
+                !read_at(view.packet, 32U, glyph_run.bounds_x) ||
+                !read_at(view.packet, 40U, glyph_run.bounds_y) ||
+                !read_at(view.packet, 48U, glyph_run.bounds_width) ||
+                !read_at(view.packet, 56U, glyph_run.bounds_height) ||
+                !read_at(view.packet, 64U, glyph_count) ||
+                !read_at(view.packet, 68U, glyph_run.bidi_level) ||
+                !read_at(view.packet, 72U, glyph_run.measuring_method)) {
+                return status::malformed_batch;
+            }
+            (void)ignored_dwrite_font;
+            constexpr std::uint16_t sideways_flag = 0x0001U;
+            constexpr std::uint16_t has_offsets_flag = 0x0010U;
+            if (glyph_count == 0U ||
+                (glyph_run.flags & ~(sideways_flag | has_offsets_flag)) != 0U ||
+                !std::isfinite(glyph_run.origin_x) ||
+                !std::isfinite(glyph_run.origin_y) ||
+                !std::isfinite(glyph_run.em_size) ||
+                glyph_run.em_size <= 0.0F ||
+                !finite_double_as_float(glyph_run.bounds_x) ||
+                !finite_double_as_float(glyph_run.bounds_y) ||
+                !finite_double_as_float(glyph_run.bounds_width) ||
+                !finite_double_as_float(glyph_run.bounds_height) ||
+                glyph_run.bounds_width < 0.0 ||
+                glyph_run.bounds_height < 0.0 ||
+                glyph_run.measuring_method > 2U) {
+                return status::malformed_batch;
+            }
+            const std::size_t index_bytes =
+                static_cast<std::size_t>(glyph_count) * sizeof(std::uint16_t);
+            const std::size_t advance_bytes =
+                static_cast<std::size_t>(glyph_count) * sizeof(float);
+            const std::size_t offset_bytes =
+                (glyph_run.flags & has_offsets_flag) != 0U
+                    ? static_cast<std::size_t>(glyph_count) *
+                        sizeof(progpu_native_point)
+                    : 0U;
+            const std::size_t required_size = fixed_size + index_bytes +
+                advance_bytes + offset_bytes;
+            const std::size_t padded_size = (required_size + 3U) & ~3U;
+            if (view.packet.size() != padded_size) {
+                return status::malformed_batch;
+            }
+            for (std::size_t index = required_size;
+                 index < padded_size;
+                 ++index) {
+                if (view.packet[index] != std::byte{}) {
+                    return status::malformed_batch;
+                }
+            }
+            const auto existing_resource = resources.find(handle);
+            const bool created = existing_resource == resources.end();
+            if (!created && existing_resource->second.type != type_glyph_run) {
+                return status::resource_type_mismatch;
+            }
+            const auto existing_glyph_run = glyph_runs.find(handle);
+            if (existing_glyph_run != glyph_runs.end()) {
+                glyph_run.face_index = existing_glyph_run->second.face_index;
+                glyph_run.style_simulations =
+                    existing_glyph_run->second.style_simulations;
+                glyph_run.font_data = existing_glyph_run->second.font_data;
+            }
+            glyph_run.glyph_indices.resize(glyph_count);
+            glyph_run.advances.resize(glyph_count);
+            if (offset_bytes != 0U) {
+                glyph_run.offsets.resize(glyph_count);
+            }
+            std::memcpy(
+                glyph_run.glyph_indices.data(),
+                view.packet.data() + fixed_size,
+                index_bytes);
+            std::memcpy(
+                glyph_run.advances.data(),
+                view.packet.data() + fixed_size + index_bytes,
+                advance_bytes);
+            if (offset_bytes != 0U) {
+                std::memcpy(
+                    glyph_run.offsets.data(),
+                    view.packet.data() + fixed_size + index_bytes +
+                        advance_bytes,
+                    offset_bytes);
+            }
+            for (std::size_t index = 0U; index < glyph_count; ++index) {
+                if (!std::isfinite(glyph_run.advances[index]) ||
+                    (offset_bytes != 0U &&
+                     (!std::isfinite(glyph_run.offsets[index].x) ||
+                      !std::isfinite(glyph_run.offsets[index].y)))) {
+                    return status::malformed_batch;
+                }
+            }
+            if (created) {
+                resource_state resource{};
+                resource.type = type_glyph_run;
+                resources.emplace(handle, std::move(resource));
+                ++metrics.created_resource_count;
+            } else {
+                increment_generation(handle);
+            }
+            glyph_runs.insert_or_assign(handle, std::move(glyph_run));
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
         case command::linear_gradient_brush:
         case command::radial_gradient_brush: {
             const bool radial = view.kind == command::radial_gradient_brush;
@@ -2821,6 +2974,31 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         }
+        case command::glyph_run_drawing: {
+            glyph_run_drawing_state drawing{};
+            if (!has_exact_size(view, 16U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(
+                    view.packet, 8U, drawing.glyph_run_handle) ||
+                !read_at(
+                    view.packet,
+                    12U,
+                    drawing.foreground_brush_handle)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_glyph_run_drawing) ||
+                (drawing.glyph_run_handle != 0U &&
+                 !require_resource(
+                     drawing.glyph_run_handle, type_glyph_run)) ||
+                (drawing.foreground_brush_handle != 0U &&
+                 !require_brush(drawing.foreground_brush_handle))) {
+                return status::invalid_handle;
+            }
+            glyph_run_drawings.insert_or_assign(handle, drawing);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
         case command::image_drawing: {
             image_drawing_state drawing{};
             if (!has_exact_size(view, 48U) ||
@@ -2973,6 +3151,267 @@ struct channel::implementation {
         std::uint32_t fill_rule{PROGPU_NATIVE_FILL_RULE_NON_ZERO};
         bool has_bounds{};
     };
+
+    struct glyph_scene_resource {
+        std::uint32_t resource_index{PROGPU_NATIVE_SCENE_NO_INDEX};
+        std::uint16_t units_per_em{};
+        std::unordered_map<std::uint16_t, std::uint32_t> outline_indices;
+    };
+
+    static bool try_get_affine_scale(
+        const affine_2d_double& transform,
+        float& scale) noexcept {
+        const double metric_xx = transform.m11 * transform.m11 +
+            transform.m12 * transform.m12;
+        const double metric_xy = transform.m11 * transform.m21 +
+            transform.m12 * transform.m22;
+        const double metric_yy = transform.m21 * transform.m21 +
+            transform.m22 * transform.m22;
+        const double half_difference = (metric_xx - metric_yy) * 0.5;
+        const double maximum_eigenvalue =
+            (metric_xx + metric_yy) * 0.5 +
+            std::hypot(half_difference, metric_xy);
+        if (!std::isfinite(maximum_eigenvalue) ||
+            maximum_eigenvalue <= 0.0) {
+            return false;
+        }
+        const double result = std::sqrt(maximum_eigenvalue);
+        if (!finite_double_as_float(result) || result <= 0.0) {
+            return false;
+        }
+        scale = static_cast<float>(result);
+        return true;
+    }
+
+    status append_glyph_run(
+        std::uint32_t glyph_run_handle,
+        std::uint32_t foreground_brush_handle,
+        const render_scope_state& current,
+        native::semantic_scene_builder& builder,
+        std::unordered_map<std::uint64_t, glyph_scene_resource>&
+            glyph_resources) const {
+        if (glyph_run_handle == 0U || foreground_brush_handle == 0U) {
+            return status::success;
+        }
+        const auto glyph_run_entry = glyph_runs.find(glyph_run_handle);
+        if (glyph_run_entry == glyph_runs.end()) {
+            return status::invalid_handle;
+        }
+        const auto solid = solid_brushes.find(foreground_brush_handle);
+        if (solid == solid_brushes.end()) {
+            return require_brush(foreground_brush_handle)
+                ? status::unsupported_command
+                : status::invalid_handle;
+        }
+        const auto& glyph_run = glyph_run_entry->second;
+        if ((glyph_run.flags & 0x0001U) != 0U) {
+            return status::unsupported_command;
+        }
+        if (glyph_run.font_data.empty() ||
+            glyph_run.glyph_indices.empty() ||
+            glyph_run.glyph_indices.size() != glyph_run.advances.size() ||
+            (!glyph_run.offsets.empty() &&
+             glyph_run.offsets.size() != glyph_run.glyph_indices.size())) {
+            return status::invalid_handle;
+        }
+        float transform_scale = 0.0F;
+        if (!try_get_affine_scale(current.transform, transform_scale)) {
+            return status::invalid_graph;
+        }
+        const float target_raster_size = std::clamp(
+            glyph_run.em_size * transform_scale, 4.0F, 128.0F);
+        const std::uint64_t cache_key =
+            static_cast<std::uint64_t>(glyph_run_handle) << 32U |
+            std::bit_cast<std::uint32_t>(target_raster_size);
+        auto cached = glyph_resources.find(cache_key);
+        if (cached == glyph_resources.end()) {
+            text::sfnt_font_view font{};
+            text::font_error font_error = text::font_error::none;
+            if (!text::sfnt_font_view::try_create(
+                    glyph_run.font_data,
+                    glyph_run.face_index,
+                    font,
+                    &font_error)) {
+                return status::invalid_graph;
+            }
+            text::sfnt_header_metrics header{};
+            if (!font.try_get_header_metrics(header) ||
+                header.units_per_em == 0U) {
+                return status::invalid_graph;
+            }
+            glyph_scene_resource scene_resource{};
+            scene_resource.units_per_em = header.units_per_em;
+            std::vector<progpu_native_scene_glyph_outline> outlines;
+            std::vector<progpu_native_path_segment> segments;
+            outlines.reserve(glyph_run.glyph_indices.size());
+            scene_resource.outline_indices.reserve(
+                glyph_run.glyph_indices.size());
+            for (const std::uint16_t glyph_index :
+                 glyph_run.glyph_indices) {
+                if (scene_resource.outline_indices.contains(glyph_index)) {
+                    continue;
+                }
+                text::sfnt_glyph_data_view glyph_data{};
+                if (!font.try_get_glyph_data(glyph_index, glyph_data)) {
+                    return status::unsupported_command;
+                }
+                if (glyph_data.empty()) {
+                    continue;
+                }
+                text::sfnt_expanded_glyph_requirements requirements{};
+                if (!font.try_get_expanded_glyph_requirements(
+                        glyph_index, requirements, &font_error)) {
+                    return status::unsupported_command;
+                }
+                if (requirements.path_segment_count == 0U) {
+                    continue;
+                }
+                std::vector<std::uint16_t> contour_scratch(
+                    requirements.simple_contour_scratch_count);
+                std::vector<text::sfnt_outline_point> point_scratch(
+                    requirements.simple_point_scratch_count);
+                std::vector<progpu_native_point> points(
+                    requirements.point_count);
+                const std::size_t segment_offset = segments.size();
+                segments.resize(
+                    segment_offset + requirements.path_segment_count);
+                std::uint32_t points_written = 0U;
+                std::uint32_t segments_written = 0U;
+                if (!font.try_decode_glyph_outline(
+                        glyph_index,
+                        contour_scratch,
+                        point_scratch,
+                        points,
+                        std::span(segments).subspan(
+                            segment_offset,
+                            requirements.path_segment_count),
+                        points_written,
+                        segments_written,
+                        &font_error) ||
+                    points_written != requirements.point_count ||
+                    segments_written != requirements.path_segment_count ||
+                    glyph_data.x_max <= glyph_data.x_min ||
+                    glyph_data.y_max <= glyph_data.y_min) {
+                    segments.resize(segment_offset);
+                    return status::unsupported_command;
+                }
+                const auto outline_index = static_cast<std::uint32_t>(
+                    outlines.size());
+                scene_resource.outline_indices.emplace(
+                    glyph_index, outline_index);
+                outlines.push_back({
+                    segment_offset,
+                    segments_written,
+                    static_cast<float>(glyph_data.x_min),
+                    static_cast<float>(glyph_data.y_min),
+                    static_cast<float>(glyph_data.x_max),
+                    static_cast<float>(glyph_data.y_max),
+                    target_raster_size /
+                        static_cast<float>(header.units_per_em),
+                    0.0F});
+            }
+            if (!outlines.empty() &&
+                !builder.add_glyph_outlines(
+                    outlines,
+                    segments,
+                    scene_resource.resource_index)) {
+                return status::invalid_graph;
+            }
+            cached = glyph_resources.emplace(
+                cache_key, std::move(scene_resource)).first;
+        }
+
+        const auto& scene_resource = cached->second;
+        if (scene_resource.resource_index ==
+            PROGPU_NATIVE_SCENE_NO_INDEX) {
+            return status::success;
+        }
+        const bool bold = (glyph_run.style_simulations & 0x01U) != 0U;
+        const bool italic = (glyph_run.style_simulations & 0x02U) != 0U;
+        std::vector<progpu_native_positioned_glyph> positioned;
+        positioned.reserve(
+            glyph_run.glyph_indices.size() * (bold ? 2U : 1U));
+        float cursor_x = 0.0F;
+        float cursor_y = 0.0F;
+        for (std::size_t index = 0U;
+             index < glyph_run.glyph_indices.size();
+             ++index) {
+            const auto outline = scene_resource.outline_indices.find(
+                glyph_run.glyph_indices[index]);
+            const progpu_native_point offset = glyph_run.offsets.empty()
+                ? progpu_native_point{}
+                : glyph_run.offsets[index];
+            if (outline != scene_resource.outline_indices.end()) {
+                const progpu_native_point position{
+                    glyph_run.origin_x + cursor_x + offset.x,
+                    glyph_run.origin_y + cursor_y + offset.y};
+                const std::uint32_t pass_count = bold ? 2U : 1U;
+                for (std::uint32_t pass = 0U;
+                     pass < pass_count;
+                     ++pass) {
+                    positioned.push_back({
+                        outline->second,
+                        0U,
+                        position,
+                        {1.0F, 0.0F},
+                        {0.0F, 1.0F},
+                        {1.0F, 1.0F, 1.0F, 1.0F},
+                        glyph_run.em_size / target_raster_size,
+                        pass * glyph_run.em_size * 0.035F,
+                        italic ? 0.22F : 0.0F,
+                        0.0F});
+                }
+            }
+            cursor_x += glyph_run.advances[index];
+        }
+        if (positioned.empty()) {
+            return status::success;
+        }
+        progpu_native_color text_color = solid->second.color;
+        text_color.a *= static_cast<float>(solid->second.opacity);
+        const progpu_native_scene_text_style style{
+            text_color,
+            PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE,
+            0U,
+            0U,
+            0U};
+        std::uint32_t style_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder.add_text_style(style, style_index)) {
+            return status::invalid_graph;
+        }
+        progpu_native_image_rect bounds{};
+        if (!try_transform_bounds(
+                glyph_run.bounds_x,
+                glyph_run.bounds_y,
+                glyph_run.bounds_width,
+                glyph_run.bounds_height,
+                current.transform,
+                bounds)) {
+            return status::invalid_graph;
+        }
+        if (bounds.width == 0.0F || bounds.height == 0.0F) {
+            const double fallback_width = std::max(
+                double{glyph_run.em_size},
+                std::abs(double{cursor_x}) + glyph_run.em_size * 2.0);
+            if (!try_transform_bounds(
+                    glyph_run.origin_x - glyph_run.em_size,
+                    glyph_run.origin_y - glyph_run.em_size * 2.0F,
+                    fallback_width,
+                    glyph_run.em_size * 3.0F,
+                    current.transform,
+                    bounds)) {
+                return status::invalid_graph;
+            }
+        }
+        return builder.draw_glyph_run(
+                scene_resource.resource_index,
+                positioned,
+                bounds,
+                PROGPU_NATIVE_SCENE_NO_INDEX,
+                style_index)
+            ? status::success
+            : status::invalid_graph;
+    }
 
     static bool has_overlapping_translated_equivalent_leaves(
         std::span<const progpu_native_path_segment> segments,
@@ -3731,6 +4170,8 @@ struct channel::implementation {
         native::semantic_scene_builder& builder,
         std::unordered_map<std::uint32_t, std::uint32_t>& brush_indices,
         std::unordered_map<std::uint32_t, std::uint32_t>& image_indices,
+        std::unordered_map<std::uint64_t, glyph_scene_resource>&
+            glyph_resources,
         scene_metrics& metrics) const {
         const auto resource = resources.find(content_handle);
         if (resource == resources.end() ||
@@ -3753,6 +4194,7 @@ struct channel::implementation {
             builder,
             brush_indices,
             image_indices,
+            glyph_resources,
             active_drawings,
             clip_paths,
             clip_segments,
@@ -3767,6 +4209,8 @@ struct channel::implementation {
         native::semantic_scene_builder& builder,
         std::unordered_map<std::uint32_t, std::uint32_t>& brush_indices,
         std::unordered_map<std::uint32_t, std::uint32_t>& image_indices,
+        std::unordered_map<std::uint64_t, glyph_scene_resource>&
+            glyph_resources,
         std::unordered_set<std::uint32_t>& active_drawings,
         std::vector<progpu_native_scene_clip_path>& clip_paths,
         std::vector<progpu_native_path_segment>& clip_segments,
@@ -5655,6 +6099,26 @@ struct channel::implementation {
                 scope_states.pop_back();
                 continue;
             }
+            if (view.kind == command::draw_glyph_run) {
+                std::uint32_t foreground_brush_handle = 0U;
+                std::uint32_t glyph_run_handle = 0U;
+                if (!has_exact_size(view, 12U) ||
+                    !read_at(
+                        view.packet, 4U, foreground_brush_handle) ||
+                    !read_at(view.packet, 8U, glyph_run_handle)) {
+                    return status::malformed_batch;
+                }
+                const status glyph_status = append_glyph_run(
+                    glyph_run_handle,
+                    foreground_brush_handle,
+                    current,
+                    builder,
+                    glyph_resources);
+                if (glyph_status != status::success) {
+                    return glyph_status;
+                }
+                continue;
+            }
             if (view.kind == command::draw_line) {
                 double x0 = 0.0;
                 double y0 = 0.0;
@@ -5799,6 +6263,20 @@ struct channel::implementation {
                         }
                         continue;
                     }
+                    const auto glyph = glyph_run_drawings.find(
+                        drawing_handle);
+                    if (glyph != glyph_run_drawings.end()) {
+                        const status glyph_status = append_glyph_run(
+                            glyph->second.glyph_run_handle,
+                            glyph->second.foreground_brush_handle,
+                            current,
+                            builder,
+                            glyph_resources);
+                        if (glyph_status != status::success) {
+                            return glyph_status;
+                        }
+                        continue;
+                    }
                     const auto group = drawing_groups.find(drawing_handle);
                     if (group == drawing_groups.end()) {
                         const auto resource = resources.find(drawing_handle);
@@ -5873,6 +6351,7 @@ struct channel::implementation {
                         builder,
                         brush_indices,
                         image_indices,
+                        glyph_resources,
                         active_drawings,
                         clip_paths,
                         clip_segments,
@@ -6714,6 +7193,8 @@ struct channel::implementation {
         native::semantic_scene_builder& builder,
         std::unordered_map<std::uint32_t, std::uint32_t>& brush_indices,
         std::unordered_map<std::uint32_t, std::uint32_t>& image_indices,
+        std::unordered_map<std::uint64_t, glyph_scene_resource>&
+            glyph_resources,
         std::unordered_set<std::uint32_t>& active_visuals,
         scene_metrics& metrics) const {
         if (depth == 0U || depth > maximum_visual_depth ||
@@ -6777,6 +7258,7 @@ struct channel::implementation {
                 builder,
                 brush_indices,
                 image_indices,
+                glyph_resources,
                 metrics);
         }
         if (result == status::success) {
@@ -6789,6 +7271,7 @@ struct channel::implementation {
                     builder,
                     brush_indices,
                     image_indices,
+                    glyph_resources,
                     active_visuals,
                     metrics);
                 if (result != status::success) {
@@ -6898,6 +7381,42 @@ status channel::set_bitmap_source_rgba8(
     }
 }
 
+status channel::set_glyph_run_font_sfnt(
+    std::uint32_t handle,
+    std::uint32_t face_index,
+    std::uint32_t style_simulations,
+    std::span<const std::byte> font_data) noexcept {
+    constexpr std::uint32_t supported_style_simulations = 0x03U;
+    constexpr std::size_t maximum_font_bytes = 256U * 1024U * 1024U;
+    if (!implementation_->require_resource(handle, type_glyph_run) ||
+        !implementation_->glyph_runs.contains(handle)) {
+        return status::invalid_handle;
+    }
+    if (font_data.empty() || font_data.size() > maximum_font_bytes ||
+        face_index > std::numeric_limits<std::uint16_t>::max() ||
+        (style_simulations & ~supported_style_simulations) != 0U) {
+        return status::invalid_argument;
+    }
+    text::sfnt_font_view font{};
+    text::font_error font_error = text::font_error::none;
+    if (!text::sfnt_font_view::try_create(
+            font_data, face_index, font, &font_error)) {
+        return status::invalid_argument;
+    }
+    try {
+        auto& glyph_run = implementation_->glyph_runs.at(handle);
+        glyph_run.face_index = face_index;
+        glyph_run.style_simulations = style_simulations;
+        glyph_run.font_data.assign(font_data.begin(), font_data.end());
+        implementation_->increment_generation(handle);
+        return status::success;
+    } catch (const std::bad_alloc&) {
+        return status::capacity_exceeded;
+    } catch (...) {
+        return status::invalid_argument;
+    }
+}
+
 std::size_t channel::resource_count() const noexcept {
     return implementation_->resources.size();
 }
@@ -6985,6 +7504,8 @@ status channel::build_scene(
         native::semantic_scene_builder builder(scene_id, generation);
         std::unordered_map<std::uint32_t, std::uint32_t> brush_indices;
         std::unordered_map<std::uint32_t, std::uint32_t> image_indices;
+        std::unordered_map<std::uint64_t,
+            implementation::glyph_scene_resource> glyph_resources;
         std::unordered_set<std::uint32_t> active_visuals;
         if (target->second.root_handle != 0U) {
             const status append_status = implementation_->append_visual(
@@ -6995,6 +7516,7 @@ status channel::build_scene(
                 builder,
                 brush_indices,
                 image_indices,
+                glyph_resources,
                 active_visuals,
                 local_metrics);
             if (append_status != status::success) {

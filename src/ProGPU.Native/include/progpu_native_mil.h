@@ -67,6 +67,12 @@ typedef struct progpu_native_mil_scene_metrics {
     uint32_t line_count;
 } progpu_native_mil_scene_metrics;
 
+typedef enum progpu_native_mil_glyph_style_simulations {
+    PROGPU_NATIVE_MIL_GLYPH_STYLE_NONE = 0,
+    PROGPU_NATIVE_MIL_GLYPH_STYLE_BOLD = 1U << 0U,
+    PROGPU_NATIVE_MIL_GLYPH_STYLE_ITALIC = 1U << 1U
+} progpu_native_mil_glyph_style_simulations;
+
 PROGPU_NATIVE_API progpu_native_mil_status progpu_native_mil_channel_create(
     progpu_native_mil_channel** channel);
 PROGPU_NATIVE_API void progpu_native_mil_channel_destroy(
@@ -89,6 +95,20 @@ progpu_native_mil_channel_set_bitmap_source_rgba8(
     uint32_t row_bytes,
     const void* pixels,
     size_t pixel_size);
+/*
+ * Binds copied SFNT/TTC bytes to a canonical TYPE_GLYPHRUN handle. This is
+ * the portable replacement for MilCmdGlyphRunCreate's process-local
+ * IDWriteFont pointer. style_simulations is a bitwise combination of
+ * progpu_native_mil_glyph_style_simulations.
+ */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_glyph_run_font_sfnt(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    uint32_t face_index,
+    uint32_t style_simulations,
+    const void* font_data,
+    size_t font_size);
 PROGPU_NATIVE_API size_t progpu_native_mil_channel_get_resource_count(
     const progpu_native_mil_channel* channel);
 PROGPU_NATIVE_API uint8_t progpu_native_mil_channel_has_resource(

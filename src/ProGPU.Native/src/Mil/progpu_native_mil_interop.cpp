@@ -100,6 +100,25 @@ progpu_native_mil_channel_set_bitmap_source_rgba8(
             static_cast<const std::byte*>(pixels), pixel_size}));
 }
 
+progpu_native_mil_status
+progpu_native_mil_channel_set_glyph_run_font_sfnt(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    uint32_t face_index,
+    uint32_t style_simulations,
+    const void* font_data,
+    size_t font_size) {
+    if (channel == nullptr || font_data == nullptr || font_size == 0U) {
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    }
+    return to_abi(channel->state.set_glyph_run_font_sfnt(
+        handle,
+        face_index,
+        style_simulations,
+        std::span<const std::byte>{
+            static_cast<const std::byte*>(font_data), font_size}));
+}
+
 size_t progpu_native_mil_channel_get_resource_count(
     const progpu_native_mil_channel* channel) {
     return channel == nullptr ? 0U : channel->state.resource_count();

@@ -125,6 +125,56 @@ public sealed unsafe class NativeMilChannel : IDisposable
         }
     }
 
+    /// <summary>
+    /// Copies an SFNT/TTC font into the portable sideband for a canonical WPF
+    /// <see cref="NativeMilResourceType.GlyphRun"/> handle.
+    /// </summary>
+    /// <remarks>
+    /// Canonical MilCmdGlyphRunCreate transports an in-process IDWriteFont
+    /// pointer. The retained packet remains canonical; only font ownership is
+    /// replaced with typed, pointer-free bytes and a face index.
+    /// </remarks>
+    public void SetGlyphRunFontSfnt(
+        uint handle,
+        ReadOnlySpan<byte> fontData,
+        uint faceIndex = 0,
+        NativeMilGlyphStyleSimulations styleSimulations =
+            NativeMilGlyphStyleSimulations.None)
+    {
+        if (fontData.IsEmpty ||
+            (styleSimulations &
+             ~(NativeMilGlyphStyleSimulations.Bold |
+               NativeMilGlyphStyleSimulations.Italic)) != 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(fontData));
+        }
+        nint channel = GetChannel();
+        fixed (byte* fontPointer = fontData)
+        {
+            NativeMilStatus status = _backend == NativeMilBackend.Dawn
+                ? NativeMilDawnMethods.SetGlyphRunFontSfnt(
+                    channel,
+                    handle,
+                    faceIndex,
+                    (uint)styleSimulations,
+                    fontPointer,
+                    (nuint)fontData.Length)
+                : NativeMilMethods.SetGlyphRunFontSfnt(
+                    channel,
+                    handle,
+                    faceIndex,
+                    (uint)styleSimulations,
+                    fontPointer,
+                    (nuint)fontData.Length);
+            if (status != NativeMilStatus.Success)
+            {
+                throw new NativeMilException(
+                    status,
+                    $"The SFNT font binding for MIL glyph-run handle {handle} was rejected with {status}.");
+            }
+        }
+    }
+
     public bool HasResource(uint handle)
     {
         nint channel = GetChannel();

@@ -255,6 +255,16 @@ public:
         std::uint32_t row_bytes,
         std::span<const std::byte> pixels) noexcept;
 
+    // Binds copied SFNT/TTC bytes to a canonical TYPE_GLYPHRUN handle. The
+    // canonical MilCmdGlyphRunCreate keeps indices, advances, offsets, origin,
+    // and bounds on the wire but carries an in-process IDWriteFont pointer;
+    // portable hosts replace only that pointer through this typed sideband.
+    status set_glyph_run_font_sfnt(
+        std::uint32_t handle,
+        std::uint32_t face_index,
+        std::uint32_t style_simulations,
+        std::span<const std::byte> font_data) noexcept;
+
     std::size_t resource_count() const noexcept;
     bool has_resource(std::uint32_t handle) const noexcept;
     std::uint32_t resource_type(std::uint32_t handle) const noexcept;
