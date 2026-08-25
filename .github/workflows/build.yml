@@ -577,6 +577,10 @@ jobs:
 
       - name: Test
         shell: pwsh
+        # Allocation contracts measure optimized steady-state hot paths. Avoid
+        # crossing a tiered-compilation threshold inside a measured loop.
+        env:
+          DOTNET_TieredCompilation: "0"
         run: |
           $nativeRoot = Join-Path $env:GITHUB_WORKSPACE "${{ matrix.native_output }}"
           $nativeRidRoot = Join-Path $nativeRoot "runtimes/${{ matrix.rid }}/native"
