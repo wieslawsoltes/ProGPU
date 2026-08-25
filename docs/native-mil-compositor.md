@@ -167,13 +167,17 @@ fill and pen handles. Positive-radius solid outlines lower to ProGPU's exact
 rounded-rectangle analytic primitive with native stroke thickness, including
 affine semantic-state execution and bounds expanded by half the pen width.
 Fill-only, stroke-only, and fill-plus-stroke records share the native brush
-table. A zero radius keeps the closed-polyline rectangle path so WPF join and
-dash metadata are preserved. Degenerate uniform-radius solid outlines use the
-same WPF outer widened path with separately clamped X/Y corner radii, retaining
+table. If either radius is zero on a positive-area rectangle, WPF's
+`CShape::AddRoundedRectangle` normalizes the shape to a sharp rectangle before
+widening; native fill therefore uses the analytic rectangle and stroke keeps
+the closed-polyline rectangle path so WPF join and dash metadata are preserved.
+Degenerate uniform-radius solid outlines use the same WPF outer widened path
+with separately clamped X/Y corner radii, retaining
 analytic quarter arcs under affine transforms. Positive independent X/Y radii
 reuse the shared vector path and connected-curve stroke lanes. Nonempty dash
-patterns on curved corners and asymmetric cases with either radius zero fail
-closed until their exact curve or collapse semantics are available.
+patterns on curved corners fail closed until their exact curve semantics are
+available. Degenerate asymmetric records with either radius zero remain fail
+closed until their general-widener collapse semantics are proved.
 
 The retained fixed-geometry slice implements the exact fixed-size
 `MILCMD_LINEGEOMETRY`, `MILCMD_RECTANGLEGEOMETRY`, and
@@ -184,8 +188,10 @@ stroke path as `MILCMD_DRAW_LINE`. Rectangle and ellipse resources reuse the
 native analytic fill/stroke lowering used by their immediate draw commands,
 including uniform rounded rectangles and geometry-local affine transforms.
 Positive non-uniform rounded rectangles reuse the same path fill and connected
-curve stroke lane. Animated fields, zero-axis asymmetric radii, uninitialized
-or wrong-type resources fail closed transactionally.
+curve stroke lane. Positive-area zero-axis asymmetric records normalize to the
+same sharp rectangle fill/stroke lane as immediate draws. Animated fields,
+degenerate zero-axis asymmetric radii, uninitialized or wrong-type resources
+fail closed transactionally.
 
 The first retained general-path slice implements canonical variable-size
 `MILCMD_PATHGEOMETRY` updates and nested fill-only `MILCMD_DRAW_GEOMETRY`.
@@ -982,6 +988,25 @@ were
 `01dedafe1c059b043a422385f8d04085235d0f0b526be382fc8f3f97d2eb6641`
 for `progpu_native.dll` and
 `bcc551bf815c18ffb601d517f2c10be702fdf1e0b86a11cdd6b39b95c02b10a9`
+for `progpu_native_dawn.dll`.
+
+The zero-axis rounded-rectangle checkpoint then implemented WPF's earlier
+`CShape::AddRoundedRectangle` equivalence rule at native commit `9a615714`.
+For positive width and height, either zero radius now lowers immediate and
+retained rounded-rectangle records to the exact sharp rectangle analytic fill
+and closed-polyline stroke while retaining the rounded-rectangle metric.
+Degenerate zero-axis asymmetric rectangles continue to fail closed because
+they enter WPF's general widener rather than the optimized `CRectangle` path.
+All ten local native tests passed. Strict Windows ARM64 MSVC rebuilt both
+native modules under `/W4 /WX`, and all 11 native/Dawn CTests passed in the
+Parallels VM. Package checkpoint `6a4f9f90` compiled an immediate zero-axis
+draw and retained zero-axis `RectangleGeometry` through both MIL exports in a
+64-command, 29-channel-resource seed. The project-reference consumer built
+with zero warnings; live D3D12 readback retained 38 semantic resources, issued
+11 draws, and staged 78,848 coverage bytes. Exact qualified SHA-256 values were
+`4c773f255b27ef00990ca52b89e428750a4108289de60ba5a50412b19c354d2f`
+for `progpu_native.dll` and
+`9b7434a0d2bea32861f2b3018078cff8dd183271da4ebffb9657aa4282b83476`
 for `progpu_native_dawn.dll`.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
