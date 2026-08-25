@@ -8658,9 +8658,13 @@ struct channel::implementation {
         const render_scope_state& state,
         native::semantic_scene_builder& builder,
         bool& pushed,
-        bool& skip_content) const {
+        bool& skip_content,
+        bool& pushed_content_state,
+        render_scope_state& content_state) const {
         pushed = false;
         skip_content = false;
+        pushed_content_state = false;
+        content_state = state;
         if (cache_handle == 0U) {
             return status::success;
         }
@@ -8687,12 +8691,7 @@ struct channel::implementation {
             skip_content = true;
             return status::success;
         }
-        // The first canonical packet slice deliberately executes only the
-        // unit-scale, grayscale, unsnapped subset. The retained page is still
-        // target-sized; local cache bounds and WPF composite placement are the
-        // next semantic-layer capability and non-default values fail closed.
-        if (render_at_scale != 1.0 ||
-            cache->second.snaps_to_device_pixels ||
+        if (cache->second.snaps_to_device_pixels ||
             cache->second.enable_clear_type) {
             return status::unsupported_command;
         }
@@ -8700,8 +8699,29 @@ struct channel::implementation {
         if (!cache_visual.has_cache_bounds) {
             return status::unsupported_command;
         }
+        // Local cached pixels are independent of their outer Visual placement.
+        // Composite clips, masks, and guidelines need dedicated layer fields;
+        // fail closed until they can be applied after the retained page.
+        if (state.has_clip ||
+            state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+            state.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+            return status::unsupported_command;
+        }
+        const double raster_width =
+            cache_visual.cache_bounds_width * render_at_scale;
+        const double raster_height =
+            cache_visual.cache_bounds_height * render_at_scale;
+        if (!finite_double_as_float(raster_width) ||
+            !finite_double_as_float(raster_height) ||
+            raster_width <= 0.0 || raster_height <= 0.0) {
+            return status::invalid_graph;
+        }
         std::uint64_t content_revision = 14695981039346656037ULL;
         append_fnv1a64(content_revision, cache_resource->second.generation);
+        append_fnv1a64(content_revision, cache_visual.cache_bounds_x);
+        append_fnv1a64(content_revision, cache_visual.cache_bounds_y);
+        append_fnv1a64(content_revision, cache_visual.cache_bounds_width);
+        append_fnv1a64(content_revision, cache_visual.cache_bounds_height);
         if (cache->second.render_at_scale_animation_handle != 0U) {
             const auto animation = resources.find(
                 cache->second.render_at_scale_animation_handle);
@@ -8714,7 +8734,7 @@ struct channel::implementation {
         std::unordered_set<std::uint32_t> active_resources;
         const status revision_status = compute_visual_cache_content_revision(
             visual_handle,
-            true,
+            false,
             active_visuals,
             active_resources,
             content_revision);
@@ -8726,29 +8746,73 @@ struct channel::implementation {
         append_fnv1a64(owner_identity, owner_kind);
         append_fnv1a64(owner_identity, scene_id);
         append_fnv1a64(owner_identity, visual_handle);
+        const affine_2d_double raster_to_local{
+            1.0 / render_at_scale,
+            0.0,
+            0.0,
+            1.0 / render_at_scale,
+            cache_visual.cache_bounds_x,
+            cache_visual.cache_bounds_y};
+        const affine_2d_double composite_transform = compose_affine(
+            raster_to_local, state.transform);
+        auto composite_state =
+            native::semantic_scene_builder::identity_state();
+        if (!try_to_native_affine(
+                composite_transform, composite_state.transform)) {
+            return status::invalid_graph;
+        }
+        std::uint32_t composite_state_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder.add_state(composite_state, composite_state_index)) {
+            return status::invalid_graph;
+        }
+        content_state.transform = {
+            render_at_scale,
+            0.0,
+            0.0,
+            render_at_scale,
+            -cache_visual.cache_bounds_x * render_at_scale,
+            -cache_visual.cache_bounds_y * render_at_scale};
+        content_state.opacity = 1.0;
+        content_state.has_clip = false;
+        content_state.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        content_state.guideline_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX;
+        auto raster_state =
+            native::semantic_scene_builder::identity_state();
+        if (!try_to_native_affine(
+                content_state.transform, raster_state.transform)) {
+            return status::invalid_graph;
+        }
+        std::uint32_t raster_state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder.add_state(raster_state, raster_state_index)) {
+            return status::invalid_graph;
+        }
         progpu_native_scene_layer layer{};
         layer.struct_size = sizeof(layer);
-        layer.flags = PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT;
-        layer.opacity = 1.0F;
+        layer.flags = PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
+            PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+        layer.opacity = static_cast<float>(state.opacity);
         layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
         layer.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         layer.content_revision = finish_nonzero_hash(content_revision);
         layer.composite_revision = finish_nonzero_hash(owner_identity);
-        if (!try_transform_bounds(
-                cache_visual.cache_bounds_x,
-                cache_visual.cache_bounds_y,
-                cache_visual.cache_bounds_width,
-                cache_visual.cache_bounds_height,
-                state.transform,
-                layer.bounds)) {
-            return status::invalid_graph;
-        }
-        layer.flags |= PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+        layer.bounds = {
+            0.0F,
+            0.0F,
+            static_cast<float>(raster_width),
+            static_cast<float>(raster_height)};
+        layer.reserved0 = composite_state_index;
         if (!builder.push_layer(layer)) {
             return status::invalid_graph;
         }
         pushed = true;
+        if (!builder.save(raster_state_index)) {
+            return status::invalid_graph;
+        }
+        pushed_content_state = true;
         return status::success;
     }
 
@@ -8946,6 +9010,8 @@ struct channel::implementation {
 
         bool cache_layer_pushed = false;
         bool skip_cached_content = false;
+        bool cache_content_state_pushed = false;
+        render_scope_state content_scope = current;
         const status cache_status = add_visual_cache_layer(
             visual->second.cache_mode_handle,
             handle,
@@ -8953,8 +9019,16 @@ struct channel::implementation {
             current,
             builder,
             cache_layer_pushed,
-            skip_cached_content);
+            skip_cached_content,
+            cache_content_state_pushed,
+            content_scope);
         if (cache_status != status::success) {
+            if (cache_content_state_pushed) {
+                builder.restore();
+            }
+            if (cache_layer_pushed) {
+                builder.pop_layer();
+            }
             if (effect_layer_pushed) {
                 builder.pop_layer();
             }
@@ -8970,7 +9044,7 @@ struct channel::implementation {
         if (!skip_cached_content && visual->second.content_handle != 0U) {
             result = append_render_data(
                 visual->second.content_handle,
-                current,
+                content_scope,
                 builder,
                 brush_indices,
                 image_indices,
@@ -8981,7 +9055,7 @@ struct channel::implementation {
             for (const auto child : visual->second.children) {
                 result = append_visual(
                     child,
-                    current,
+                    content_scope,
                     depth + 1U,
                     scene_id,
                     builder,
@@ -8994,6 +9068,10 @@ struct channel::implementation {
                     break;
                 }
             }
+        }
+        if (cache_content_state_pushed && !builder.restore() &&
+            result == status::success) {
+            result = status::invalid_graph;
         }
         if (cache_layer_pushed && !builder.pop_layer() &&
             result == status::success) {

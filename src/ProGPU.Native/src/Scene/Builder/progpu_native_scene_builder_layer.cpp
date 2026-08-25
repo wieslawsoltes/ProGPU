@@ -285,13 +285,38 @@ bool semantic_scene_builder::push_layer(
     const progpu_native_scene_layer& source) noexcept {
     progpu_native_scene_layer layer = source;
     layer.struct_size = sizeof(layer);
-    layer.reserved0 = 0U;
+    if ((layer.flags &
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) == 0U) {
+        layer.reserved0 = 0U;
+    }
     layer.reserved1 = 0U;
     const auto valid_resource = [&](std::uint32_t index,
                                     std::uint32_t kind) noexcept {
         return index == PROGPU_NATIVE_SCENE_NO_INDEX ||
             (index < implementation_->resources.size() &&
                 implementation_->resources[index].record.kind == kind);
+    };
+    const auto valid_local_composite_state = [&]() noexcept {
+        if ((layer.flags &
+                PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) == 0U) {
+            return true;
+        }
+        if (layer.reserved0 >= implementation_->resources.size()) {
+            return false;
+        }
+        const auto& resource = implementation_->resources[layer.reserved0];
+        if (resource.record.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE ||
+            resource.payload.size() != sizeof(progpu_native_scene_state)) {
+            return false;
+        }
+        progpu_native_scene_state state{};
+        std::memcpy(&state, resource.payload.data(), sizeof(state));
+        return state.flags == 0U && state.opacity == 1.0F &&
+            state.clip_rect.x == 0.0F && state.clip_rect.y == 0.0F &&
+            state.clip_rect.width == 0.0F &&
+            state.clip_rect.height == 0.0F &&
+            state.mask_resource_index == 0U &&
+            state.guideline_resource_index == 0U;
     };
     const bool materialized = scene::layer_requires_materialization(layer);
     if (!semantic::is_valid_semantic_layer(layer) ||
@@ -300,7 +325,8 @@ bool semantic_scene_builder::push_layer(
             PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) ||
         !valid_resource(
             layer.effect_resource_index,
-            PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN)) {
+            PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) ||
+        !valid_local_composite_state()) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
     if (implementation_->stack_depth >=

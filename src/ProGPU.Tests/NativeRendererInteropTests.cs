@@ -3315,6 +3315,38 @@ public class NativeRendererInteropTests
             compositeRevision: 9U);
         Assert.False(BuildLayer(destination, in invalidCachedLayer, out _));
 
+        var localBuilder = new NativeSceneStreamBuilder(
+            destination,
+            11U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+        var compositeState = new NativeSceneState(
+            Matrix3x2.CreateTranslation(12f, 8f));
+        Assert.True(localBuilder.TryAddStateResource(
+            1U, 1U, in compositeState, out uint compositeStateIndex));
+        var localCachedLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent |
+                NativeSceneLayerFlags.CacheLocalSpace,
+            bounds: new NativeImageRect(0f, 0f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 9U,
+            compositeStateResourceIndex: compositeStateIndex);
+        Assert.True(localBuilder.TryPushLayer(1U, in localCachedLayer));
+        Assert.Equal(0U, localCachedLayer.CompositeStateResourceIndex);
+
+        var missingCompositeState = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent |
+                NativeSceneLayerFlags.CacheLocalSpace,
+            bounds: new NativeImageRect(0f, 0f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 9U,
+            compositeStateResourceIndex: 1U);
+        Assert.False(BuildLayer(
+            destination, in missingCompositeState, out _));
+
         NativeSceneLayer invalid = default;
         var invalidBuilder = new NativeSceneStreamBuilder(
             destination,

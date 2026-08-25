@@ -109,6 +109,16 @@ void append_semantic_layer_quad(
     float dpi_scale,
     float opacity);
 
+void append_semantic_transformed_layer_quad(
+    std::vector<vector_vertex>& vertices,
+    const semantic::scissor& source,
+    const semantic::scissor& target,
+    std::uint32_t source_texture_width,
+    std::uint32_t source_texture_height,
+    float dpi_scale,
+    float opacity,
+    const progpu_native_affine_2d& transform);
+
 bool create_semantic_layer_mask_binding(
     progpu_native_engine& engine,
     const std::byte* bytes,

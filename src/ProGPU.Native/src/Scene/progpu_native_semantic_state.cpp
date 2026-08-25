@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace progpu::native::semantic {
 
@@ -409,13 +410,33 @@ scissor semantic_layer_target_cursor::advance(
         const bool materialized = scene::layer_requires_materialization(layer);
         scope_materialized_[scope_depth_++] = materialized;
         if (materialized) {
-            const auto declared = resolve_semantic_layer_scissor(
-                layer,
-                frame_width_,
-                frame_height_,
-                dpi_scale_);
-            extents_[materialized_depth_++] =
-                intersect_semantic_scissors(current(), declared);
+            const bool local_cache =
+                (layer.flags &
+                    PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
+            if (local_cache) {
+                const auto local_extent = [&](float value) noexcept {
+                    const double pixels = std::ceil(
+                        static_cast<double>(value) * dpi_scale_);
+                    return pixels >= static_cast<double>(
+                            std::numeric_limits<std::uint32_t>::max())
+                        ? std::numeric_limits<std::uint32_t>::max()
+                        : static_cast<std::uint32_t>(pixels);
+                };
+                const std::uint32_t width = local_extent(
+                    layer.bounds.width);
+                const std::uint32_t height = local_extent(
+                    layer.bounds.height);
+                extents_[materialized_depth_++] = {
+                    0U, 0U, width, height, width != 0U && height != 0U};
+            } else {
+                const auto declared = resolve_semantic_layer_scissor(
+                    layer,
+                    frame_width_,
+                    frame_height_,
+                    dpi_scale_);
+                extents_[materialized_depth_++] =
+                    intersect_semantic_scissors(current(), declared);
+            }
         }
     } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
         if (scope_materialized_[--scope_depth_]) {

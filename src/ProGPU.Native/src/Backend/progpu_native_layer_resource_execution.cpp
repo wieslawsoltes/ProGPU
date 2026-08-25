@@ -777,6 +777,49 @@ void append_semantic_layer_quad(
     }
 }
 
+void append_semantic_transformed_layer_quad(
+    std::vector<::progpu::native::vector_vertex>& vertices,
+    const semantic_scissor& source,
+    const semantic_scissor& target,
+    std::uint32_t source_texture_width,
+    std::uint32_t source_texture_height,
+    float dpi_scale,
+    float opacity,
+    const progpu_native_affine_2d& transform) {
+    const float source_x0 = static_cast<float>(source.x) / dpi_scale;
+    const float source_y0 = static_cast<float>(source.y) / dpi_scale;
+    const float source_x1 = source_x0 +
+        static_cast<float>(source.width) / dpi_scale;
+    const float source_y1 = source_y0 +
+        static_cast<float>(source.height) / dpi_scale;
+    const float target_x = static_cast<float>(target.x) / dpi_scale;
+    const float target_y = static_cast<float>(target.y) / dpi_scale;
+    const float u1 = static_cast<float>(source.width) /
+        source_texture_width;
+    const float v1 = static_cast<float>(source.height) /
+        source_texture_height;
+    constexpr std::array<std::array<std::uint32_t, 2U>, 4U> corners{{
+        {0U, 0U}, {1U, 0U}, {1U, 1U}, {0U, 1U}
+    }};
+    for (const auto& corner : corners) {
+        const float x = corner[0] == 0U ? source_x0 : source_x1;
+        const float y = corner[1] == 0U ? source_y0 : source_y1;
+        ::progpu::native::vector_vertex vertex{};
+        vertex.position[0] = x * transform.m11 +
+            y * transform.m21 + transform.m31 - target_x;
+        vertex.position[1] = x * transform.m12 +
+            y * transform.m22 + transform.m32 - target_y;
+        vertex.color[0] = opacity;
+        vertex.color[1] = 1.0F;
+        vertex.color[2] = 0.0F;
+        vertex.color[3] = opacity;
+        vertex.texture_coordinate[0] = corner[0] == 0U ? 0.0F : u1;
+        vertex.texture_coordinate[1] = corner[1] == 0U ? 0.0F : v1;
+        vertex.stroke_thickness = 1.0F;
+        vertices.push_back(vertex);
+    }
+}
+
 bool create_semantic_layer_mask_binding(
     progpu_native_engine& engine,
     const std::byte* bytes,
