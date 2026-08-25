@@ -3043,6 +3043,33 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         }
     }
     PROGPU_REQUIRE(found_outer_fill_override);
+
+    std::vector<std::byte> overlapping_translation_update;
+    append_command(
+        overlapping_translation_update,
+        command::matrix_transform,
+        child_transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        1.0,
+        0U);
+    const std::array overlapping_translation_children{
+        path_a,
+        same_fill_group};
+    append_geometry_group(
+        overlapping_translation_update,
+        group,
+        transform,
+        0U,
+        overlapping_translation_children);
+    PROGPU_REQUIRE(
+        state.apply(overlapping_translation_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7003U, 9U, stream) ==
+        status::unsupported_command);
     return true;
 }
 

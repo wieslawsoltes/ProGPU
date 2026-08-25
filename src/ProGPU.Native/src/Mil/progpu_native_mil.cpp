@@ -1931,6 +1931,145 @@ struct channel::implementation {
         bool has_bounds{};
     };
 
+    static bool has_overlapping_translated_equivalent_leaves(
+        std::span<const progpu_native_path_segment> segments,
+        std::span<const shallow_fill_leaf> leaves) noexcept {
+        const auto nearly_equal = [](float first, float second) noexcept {
+            const float scale = std::max(
+                1.0F,
+                std::max(std::abs(first), std::abs(second)));
+            return std::abs(first - second) <= 0.00001F * scale;
+        };
+        const auto translated_point_equal = [
+            &nearly_equal](
+            progpu_native_point first,
+            progpu_native_point second,
+            float translation_x,
+            float translation_y) noexcept {
+            return nearly_equal(
+                       first.x + translation_x,
+                       second.x) &&
+                nearly_equal(first.y + translation_y, second.y);
+        };
+        const auto invariant_point_equal = [
+            &nearly_equal](
+            progpu_native_point first,
+            progpu_native_point second) noexcept {
+            return nearly_equal(first.x, second.x) &&
+                nearly_equal(first.y, second.y);
+        };
+        const auto translated_segment_equal = [
+            &translated_point_equal,
+            &invariant_point_equal](
+            const progpu_native_path_segment& first,
+            const progpu_native_path_segment& second,
+            float translation_x,
+            float translation_y) noexcept {
+            if (first.kind != second.kind || first.pad0 != second.pad0 ||
+                first.pad1 != second.pad1 || first.pad2 != second.pad2 ||
+                !translated_point_equal(
+                    first.p0,
+                    second.p0,
+                    translation_x,
+                    translation_y) ||
+                !translated_point_equal(
+                    first.p1,
+                    second.p1,
+                    translation_x,
+                    translation_y)) {
+                return false;
+            }
+            switch (first.kind) {
+            case PROGPU_NATIVE_PATH_SEGMENT_LINE:
+                return invariant_point_equal(first.p2, second.p2) &&
+                    invariant_point_equal(first.p3, second.p3);
+            case PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC:
+                return translated_point_equal(
+                           first.p2,
+                           second.p2,
+                           translation_x,
+                           translation_y) &&
+                    invariant_point_equal(first.p3, second.p3);
+            case PROGPU_NATIVE_PATH_SEGMENT_CUBIC:
+                return translated_point_equal(
+                           first.p2,
+                           second.p2,
+                           translation_x,
+                           translation_y) &&
+                    translated_point_equal(
+                        first.p3,
+                        second.p3,
+                        translation_x,
+                        translation_y);
+            case PROGPU_NATIVE_PATH_SEGMENT_ARC:
+                return translated_point_equal(
+                           first.p2,
+                           second.p2,
+                           translation_x,
+                           translation_y) &&
+                    invariant_point_equal(first.p3, second.p3);
+            default:
+                return false;
+            }
+        };
+
+        for (std::size_t first_index = 0U;
+             first_index < leaves.size();
+             ++first_index) {
+            const auto& first = leaves[first_index];
+            if (first.segment_count == 0U ||
+                first.segment_offset > segments.size() ||
+                first.segment_count >
+                    segments.size() - first.segment_offset) {
+                continue;
+            }
+            for (std::size_t second_index = first_index + 1U;
+                 second_index < leaves.size();
+                 ++second_index) {
+                const auto& second = leaves[second_index];
+                if (first.segment_count != second.segment_count ||
+                    second.segment_offset > segments.size() ||
+                    second.segment_count >
+                        segments.size() - second.segment_offset ||
+                    std::max(first.left, second.left) >=
+                        std::min(first.right, second.right) ||
+                    std::max(first.top, second.top) >=
+                        std::min(first.bottom, second.bottom)) {
+                    continue;
+                }
+                const auto& first_segment =
+                    segments[first.segment_offset];
+                const auto& second_segment =
+                    segments[second.segment_offset];
+                const float translation_x =
+                    second_segment.p0.x - first_segment.p0.x;
+                const float translation_y =
+                    second_segment.p0.y - first_segment.p0.y;
+                if (nearly_equal(translation_x, 0.0F) &&
+                    nearly_equal(translation_y, 0.0F)) {
+                    continue;
+                }
+                bool equivalent = true;
+                for (std::size_t segment_index = 0U;
+                     segment_index < first.segment_count;
+                     ++segment_index) {
+                    if (!translated_segment_equal(
+                            segments[first.segment_offset + segment_index],
+                            segments[second.segment_offset + segment_index],
+                            translation_x,
+                            translation_y)) {
+                        equivalent = false;
+                        break;
+                    }
+                }
+                if (equivalent) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     status append_shallow_fill_leaf(
         std::uint32_t geometry_handle,
         std::vector<progpu_native_path_segment>& segments,
@@ -3057,6 +3196,11 @@ struct channel::implementation {
                         group_leaves.size() > 1U &&
                         group_leaves.size() <= 32U;
                     if (use_even_odd_leaf_program) {
+                        if (has_overlapping_translated_equivalent_leaves(
+                                group_segments,
+                                group_leaves)) {
+                            return status::unsupported_command;
+                        }
                         group_boolean_nodes.reserve(
                             group_leaves.size() * 2U - 1U);
                         for (std::size_t leaf_index = 0U;
