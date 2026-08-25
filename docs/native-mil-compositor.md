@@ -232,7 +232,11 @@ shape. Nonzero groups keep that shared contour batch because cross-child winding
 cancellation is significant. EvenOdd groups compile the same child leaves into
 an exact postfix XOR program; XOR of the child-inside predicates is the outer
 EvenOdd result and bounds each raster operation to its own leaf without changing
-WPF parity semantics. Nonsingular affine transforms on native arc records are
+WPF parity semantics. A temporary typed compiler guard rejects overlapping
+nonzero translated-equivalent leaf streams before scene submission; that exact
+pattern removes the current Parallels D3D12 device in the shared path backend,
+so it remains an observable `unsupported_command` until the backend can execute
+it safely. Nonsingular affine transforms on native arc records are
 baked without flattening: ProGPU transforms the arc's two ellipse basis vectors,
 factors the resulting `T*T^T` metric into orthogonal output axes/radii, projects
 the start parameter into that basis, and reverses the sweep exactly when the
@@ -287,6 +291,7 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 - Implement scalar animation resources, remaining transform kinds,
   singular arc-transform fill semantics, curved path
   strokes/dashes and per-segment smooth joins,
+  exact translated-equivalent EvenOdd overlap execution,
   remaining pen draws,
   brushes, drawings, images, glyph runs, caches, guidelines, effects, and
   complete render-data decoding.
@@ -682,27 +687,37 @@ for `progpu_native.dll` and
 `a1f0c7067bd442b989708f4e7243927074a75e9419f8013d4cdef5d565b59807`
 for `progpu_native_dawn.dll`.
 
-One deliberately separate diagnostic is not qualified: an EvenOdd group whose
-two leaves are nearly translated equivalents can remove the Parallels D3D12
-device during retained readback. A single recursive group arc, a recursive
-boolean arc, and a mixed non-equivalent group all pass; the close-duplicate case
-also fails with affine line/quadratic/cubic leaves, so it is not arc
-factorization-specific. Translation preservation, bounded XOR leaf execution,
-row/bounds rejection, sample-grid changes, and curve approximations did not
-eliminate the backend failure; all approximation experiments were removed and
-analytic 8x8 rasterization retained. This diagnostic is excluded from the
-supported package seed. Before release, the compiler must either reject that
-overlap pattern transactionally or the shared path backend must execute it
-without device loss; it must not be treated as supported parity in the interim.
+At exact safety implementation commit `ef6091e9`, the close-translated-
+equivalent EvenOdd diagnostic was converted from a device-removal path into a
+deterministic fail-closed contract. The resource update remains transactional,
+while semantic scene compilation returns `unsupported_command` before WebGPU
+context/device creation. The strict Windows ARM64 build, both modules, all 11
+CTests, the independent C++/managed D3D12 readbacks, allocation probes, and the
+full differential matrix then passed again. Supported focused and broad package
+scenes retained 18 resources, three draws, and 40,960/41,472 coverage bytes;
+the guarded diagnostic exited at `NativeMilChannel.CompileScene` without GPU
+submission. Fresh staged SHA-256 values were
+`5b403c179cc0aa9ae9395b2e486aa36d8574fce510b560acf4c744daba6a0a9b`
+for `progpu_native.dll` and
+`5a39d04f8dcccae29c093e63dd5e3d5c2effa3b4b68418763afb8f90ee2af856`
+for `progpu_native_dawn.dll`.
 
-Three adapter-specific limitations remain explicit. Retained GPU hit-test
+Translation preservation, bounded XOR leaf execution, row/bounds rejection,
+sample-grid changes, and curve approximations had not eliminated the backend
+failure; all approximation experiments remain removed and analytic 8x8
+rasterization retained. The guard compares typed segment kinds, arc metadata,
+translated control/end/center points, invariant radii, and positive overlapping
+bounds. Non-overlapping equivalents and non-equivalent mixed leaves keep the
+normal GPU path. Exact rendering for the guarded overlap remains an open parity
+item; fail-closed behavior is the supported interim contract.
+
+Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
 The legacy managed renderer also removes the Parallels D3D12 device on the
 dense 384-command mixed-picture workload; the same workload passes through the
 C++ renderer, so this adapter's gate keeps full native stress and a bounded
-managed differential as separate processes. The close translated-equivalent
-EvenOdd-group failure above is the third tracked limitation. None is evidence of
+managed differential as separate processes. Neither is evidence of
 full DirectX/MIL parity; Stages 1–5 remain open until their listed protocol and
 integration surfaces are implemented.
 
