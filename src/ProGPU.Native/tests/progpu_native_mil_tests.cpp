@@ -4286,7 +4286,7 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
         0U,
         1U,
         0U,
-        0U,
+        1U,
         drawing);
     std::vector<std::byte> nested;
     append_command(nested, command::draw_drawing, group, 0U);
@@ -5079,6 +5079,36 @@ bool retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband() {
         ++glyph_draw_count;
     }
     PROGPU_REQUIRE(glyph_draw_count == 2U);
+
+    constexpr std::uint32_t clear_type_group = 7U;
+    std::vector<std::byte> clear_type_batch;
+    append_create(clear_type_batch, clear_type_group, 91U);
+    append_command(
+        clear_type_batch,
+        command::drawing_group,
+        clear_type_group,
+        1.0,
+        4U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        1U,
+        drawing);
+    std::vector<std::byte> clear_type_nested;
+    append_command(
+        clear_type_nested,
+        command::draw_drawing,
+        clear_type_group,
+        0U);
+    append_render_data(clear_type_batch, content, clear_type_nested);
+    PROGPU_REQUIRE(state.apply(clear_type_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7006U, 3U, stream, &metrics) ==
+        status::unsupported_command);
 
     std::vector<std::byte> delete_glyph;
     append_command(

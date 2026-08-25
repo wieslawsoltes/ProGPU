@@ -76,6 +76,10 @@ public sealed class PortableDrawingGroupState
 
     public object? ClearTypeHint { get; set; }
 
+    public bool HasPortableClearTypeHint { get; set; }
+
+    public PortableClearTypeHint PortableClearTypeHint { get; set; }
+
     public bool HasTextRenderingMode { get; set; }
 
     public object? TextRenderingMode { get; set; }

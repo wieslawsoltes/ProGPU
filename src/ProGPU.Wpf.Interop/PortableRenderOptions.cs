@@ -13,3 +13,9 @@ public enum PortableEdgeMode : byte
     Unspecified,
     Aliased
 }
+
+public enum PortableClearTypeHint : byte
+{
+    Auto,
+    Enabled
+}
