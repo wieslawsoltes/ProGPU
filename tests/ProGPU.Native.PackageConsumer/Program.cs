@@ -66,15 +66,15 @@ if (!renderOnly)
         if ((!gradientOnly &&
                 (milMetrics.CommandCount != 82 || mil.ResourceCount != 38)) ||
             (gradientOnly &&
-                (milMetrics.CommandCount != 13 || mil.ResourceCount != 5)) ||
+                (milMetrics.CommandCount != 15 || mil.ResourceCount != 6)) ||
             !mil.TryGetVisual(visualHandle, out NativeMilVisualSnapshot visual) ||
             visual.Handle != visualHandle || scene.Stream.Length == 0 ||
             scene.Metrics.VisualCount != 1 ||
-            scene.Metrics.RectangleCount != (gradientOnly ? 1U : 4U) ||
+            scene.Metrics.RectangleCount != (gradientOnly ? 2U : 4U) ||
             scene.Metrics.EllipseCount != (gradientOnly ? 1U : 5U) ||
             scene.Metrics.RoundedRectangleCount != (gradientOnly ? 0U : 6U) ||
             scene.Metrics.LineCount != (gradientOnly ? 0U : 3U) ||
-            scene.Metrics.BrushCount != (gradientOnly ? 2U : 3U))
+            scene.Metrics.BrushCount != 3)
         {
             throw new InvalidOperationException(
                 "The packaged wgpu-native MIL channel is incomplete.");
@@ -90,14 +90,14 @@ if (!renderOnly)
         if ((!gradientOnly &&
                 (milMetrics.CommandCount != 82 || dawnMil.ResourceCount != 38)) ||
             (gradientOnly &&
-                (milMetrics.CommandCount != 13 ||
-                 dawnMil.ResourceCount != 5)) ||
+                (milMetrics.CommandCount != 15 ||
+                 dawnMil.ResourceCount != 6)) ||
             scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
-            scene.Metrics.RectangleCount != (gradientOnly ? 1U : 4U) ||
+            scene.Metrics.RectangleCount != (gradientOnly ? 2U : 4U) ||
             scene.Metrics.EllipseCount != (gradientOnly ? 1U : 5U) ||
             scene.Metrics.RoundedRectangleCount != (gradientOnly ? 0U : 6U) ||
             scene.Metrics.LineCount != (gradientOnly ? 0U : 3U) ||
-            scene.Metrics.BrushCount != (gradientOnly ? 2U : 3U))
+            scene.Metrics.BrushCount != 3)
         {
             throw new InvalidOperationException(
                 "The packaged Dawn MIL channel is incomplete.");
@@ -212,12 +212,14 @@ static byte[] CreateMilGradientBatch()
     var renderData = new NativeMilRenderDataBuilder();
     renderData.DrawRectangle(4, 4, 56, 20, 4);
     renderData.DrawEllipse(32, 42, 24, 14, 5);
+    renderData.DrawRectangle(8, 28, 12, 28, 6);
     var batch = new NativeMilBatchBuilder();
     batch.CreateResource(1, NativeMilResourceType.Visual);
     batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
     batch.CreateResource(3, NativeMilResourceType.RenderData);
     batch.CreateResource(4, NativeMilResourceType.LinearGradientBrush);
     batch.CreateResource(5, NativeMilResourceType.RadialGradientBrush);
+    batch.CreateResource(6, NativeMilResourceType.SolidColorBrush);
     batch.CreateVisual(1);
     batch.SetVisualContent(1, 3);
     ReadOnlySpan<NativeMilGradientStop> stops =
@@ -240,6 +242,7 @@ static byte[] CreateMilGradientBatch()
             0.5,
             0.5),
         stops);
+    batch.SetSolidColorBrush(6, new NativeMilColor(1, 1, 1, 1));
     batch.SetRenderData(3, renderData);
     batch.CreateGenericTarget(2, 64, 64);
     batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
