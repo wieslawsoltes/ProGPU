@@ -165,9 +165,38 @@ public sealed class NativeMilBatchBuilder
         WriteSingle(packet, 28, color.Alpha);
     }
 
+    public void SetDoubleResource(uint handle, double value)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(value))
+        {
+            throw new ArgumentOutOfRangeException(nameof(value));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DoubleResource, 16);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, value);
+    }
+
+    public void SetMatrixResource(uint handle, NativeMilMatrix3x2 matrix)
+    {
+        ValidateHandle(handle);
+        ValidateMatrix(matrix);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.MatrixResource, 56);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, matrix.M11);
+        WriteDouble(packet, 16, matrix.M12);
+        WriteDouble(packet, 24, matrix.M21);
+        WriteDouble(packet, 32, matrix.M22);
+        WriteDouble(packet, 40, matrix.OffsetX);
+        WriteDouble(packet, 48, matrix.OffsetY);
+    }
+
     public void SetMatrixTransform(
         uint handle,
-        NativeMilMatrix3x2 matrix)
+        NativeMilMatrix3x2 matrix,
+        uint matrixAnimationHandle = 0)
     {
         ValidateHandle(handle);
         ValidateMatrix(matrix);
@@ -180,7 +209,7 @@ public sealed class NativeMilBatchBuilder
         WriteDouble(packet, 32, matrix.M22);
         WriteDouble(packet, 40, matrix.OffsetX);
         WriteDouble(packet, 48, matrix.OffsetY);
-        WriteUInt32(packet, 56, 0);
+        WriteUInt32(packet, 56, matrixAnimationHandle);
     }
 
     public void SetTransformGroup(uint handle, ReadOnlySpan<uint> children)
@@ -200,7 +229,12 @@ public sealed class NativeMilBatchBuilder
         }
     }
 
-    public void SetTranslateTransform(uint handle, double x, double y)
+    public void SetTranslateTransform(
+        uint handle,
+        double x,
+        double y,
+        uint xAnimationHandle = 0,
+        uint yAnimationHandle = 0)
     {
         ValidateHandle(handle);
         ValidateTransformValues(x, y);
@@ -209,8 +243,8 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 4, handle);
         WriteDouble(packet, 8, x);
         WriteDouble(packet, 16, y);
-        WriteUInt32(packet, 24, 0);
-        WriteUInt32(packet, 28, 0);
+        WriteUInt32(packet, 24, xAnimationHandle);
+        WriteUInt32(packet, 28, yAnimationHandle);
     }
 
     public void SetScaleTransform(
@@ -218,7 +252,11 @@ public sealed class NativeMilBatchBuilder
         double scaleX,
         double scaleY,
         double centerX = 0,
-        double centerY = 0)
+        double centerY = 0,
+        uint scaleXAnimationHandle = 0,
+        uint scaleYAnimationHandle = 0,
+        uint centerXAnimationHandle = 0,
+        uint centerYAnimationHandle = 0)
     {
         ValidateHandle(handle);
         ValidateTransformValues(scaleX, scaleY, centerX, centerY);
@@ -229,7 +267,10 @@ public sealed class NativeMilBatchBuilder
         WriteDouble(packet, 16, scaleY);
         WriteDouble(packet, 24, centerX);
         WriteDouble(packet, 32, centerY);
-        packet[40..56].Clear();
+        WriteUInt32(packet, 40, scaleXAnimationHandle);
+        WriteUInt32(packet, 44, scaleYAnimationHandle);
+        WriteUInt32(packet, 48, centerXAnimationHandle);
+        WriteUInt32(packet, 52, centerYAnimationHandle);
     }
 
     public void SetSkewTransform(
@@ -237,7 +278,11 @@ public sealed class NativeMilBatchBuilder
         double angleX,
         double angleY,
         double centerX = 0,
-        double centerY = 0)
+        double centerY = 0,
+        uint angleXAnimationHandle = 0,
+        uint angleYAnimationHandle = 0,
+        uint centerXAnimationHandle = 0,
+        uint centerYAnimationHandle = 0)
     {
         ValidateHandle(handle);
         ValidateTransformValues(angleX, angleY, centerX, centerY);
@@ -248,14 +293,20 @@ public sealed class NativeMilBatchBuilder
         WriteDouble(packet, 16, angleY);
         WriteDouble(packet, 24, centerX);
         WriteDouble(packet, 32, centerY);
-        packet[40..56].Clear();
+        WriteUInt32(packet, 40, angleXAnimationHandle);
+        WriteUInt32(packet, 44, angleYAnimationHandle);
+        WriteUInt32(packet, 48, centerXAnimationHandle);
+        WriteUInt32(packet, 52, centerYAnimationHandle);
     }
 
     public void SetRotateTransform(
         uint handle,
         double angle,
         double centerX = 0,
-        double centerY = 0)
+        double centerY = 0,
+        uint angleAnimationHandle = 0,
+        uint centerXAnimationHandle = 0,
+        uint centerYAnimationHandle = 0)
     {
         ValidateHandle(handle);
         ValidateTransformValues(angle, centerX, centerY);
@@ -265,7 +316,9 @@ public sealed class NativeMilBatchBuilder
         WriteDouble(packet, 8, angle);
         WriteDouble(packet, 16, centerX);
         WriteDouble(packet, 24, centerY);
-        packet[32..44].Clear();
+        WriteUInt32(packet, 32, angleAnimationHandle);
+        WriteUInt32(packet, 36, centerXAnimationHandle);
+        WriteUInt32(packet, 40, centerYAnimationHandle);
     }
 
     public void SetLineGeometry(
@@ -972,6 +1025,8 @@ internal static class NativeMilCommand
 {
     internal const uint CreateResource = 0x07;
     internal const uint DeleteResource = 0x08;
+    internal const uint DoubleResource = 0x0e;
+    internal const uint MatrixResource = 0x13;
     internal const uint RenderData = 0x18;
     internal const uint VisualCreate = 0x1a;
     internal const uint VisualSetOffset = 0x1b;

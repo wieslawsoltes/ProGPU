@@ -14,6 +14,8 @@ public enum NativeMilResourceType : uint
     RenderTarget = 45,
     HwndRenderTarget = 46,
     GenericRenderTarget = 47,
+    DoubleResource = 49,
+    MatrixResource = 54,
     TransformGroup = 61,
     TranslateTransform = 62,
     ScaleTransform = 63,

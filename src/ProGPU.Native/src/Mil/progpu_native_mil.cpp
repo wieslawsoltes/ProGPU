@@ -24,6 +24,8 @@ constexpr std::uint32_t type_render_data = 43U;
 constexpr std::uint32_t type_render_target = 45U;
 constexpr std::uint32_t type_hwnd_render_target = 46U;
 constexpr std::uint32_t type_generic_render_target = 47U;
+constexpr std::uint32_t type_double_resource = 49U;
+constexpr std::uint32_t type_matrix_resource = 54U;
 constexpr std::uint32_t type_transform_group = 61U;
 constexpr std::uint32_t type_translate_transform = 62U;
 constexpr std::uint32_t type_scale_transform = 63U;
@@ -522,9 +524,18 @@ struct channel::implementation {
     };
 
     struct transform_state {
+        enum class kind : std::uint32_t {
+            matrix,
+            translate,
+            scale,
+            skew,
+            rotate,
+            group
+        } type{kind::matrix};
         affine_2d_double matrix{};
+        std::array<double, 4U> values{};
+        std::array<std::uint32_t, 4U> animations{};
         std::vector<std::uint32_t> children;
-        bool is_group{};
     };
 
     enum class fixed_geometry_kind : std::uint32_t {
@@ -584,6 +595,8 @@ struct channel::implementation {
     };
 
     std::unordered_map<std::uint32_t, resource_state> resources;
+    std::unordered_map<std::uint32_t, double> double_resources;
+    std::unordered_map<std::uint32_t, affine_2d_double> matrix_resources;
     std::unordered_map<std::uint32_t, visual_state> visuals;
     std::unordered_map<std::uint32_t, target_state> targets;
     std::unordered_map<std::uint32_t, transform_state> transforms;
@@ -637,7 +650,8 @@ struct channel::implementation {
                 continue;
             }
             const auto found = transforms.find(current);
-            if (found == transforms.end() || !found->second.is_group) {
+            if (found == transforms.end() ||
+                found->second.type != transform_state::kind::group) {
                 continue;
             }
             pending.insert(
@@ -646,6 +660,105 @@ struct channel::implementation {
                 found->second.children.end());
         }
         return false;
+    }
+
+    status resolve_animated_double(
+        double base_value,
+        std::uint32_t animation_handle,
+        double& value) const noexcept {
+        if (animation_handle == 0U) {
+            value = base_value;
+            return status::success;
+        }
+        const auto animation = double_resources.find(animation_handle);
+        if (animation == double_resources.end()) {
+            return status::invalid_handle;
+        }
+        value = animation->second;
+        return status::success;
+    }
+
+    status resolve_leaf_transform(
+        const transform_state& transform,
+        affine_2d_double& matrix) const noexcept {
+        if (transform.type == transform_state::kind::matrix) {
+            if (transform.animations[0] == 0U) {
+                matrix = transform.matrix;
+                return status::success;
+            }
+            const auto animation = matrix_resources.find(
+                transform.animations[0]);
+            if (animation == matrix_resources.end()) {
+                return status::invalid_handle;
+            }
+            matrix = animation->second;
+            return status::success;
+        }
+
+        std::array<double, 4U> values{};
+        const std::size_t value_count =
+            transform.type == transform_state::kind::translate ? 2U
+            : transform.type == transform_state::kind::rotate ? 3U
+            : 4U;
+        for (std::size_t index = 0U; index < value_count; ++index) {
+            const status value_status = resolve_animated_double(
+                transform.values[index],
+                transform.animations[index],
+                values[index]);
+            if (value_status != status::success) {
+                return value_status;
+            }
+            if (!finite_double_as_float(values[index])) {
+                return status::invalid_graph;
+            }
+        }
+
+        const float first = static_cast<float>(values[0]);
+        const float second = static_cast<float>(values[1]);
+        if (transform.type == transform_state::kind::translate) {
+            matrix = {1.0, 0.0, 0.0, 1.0, first, second};
+            return status::success;
+        }
+
+        const float center_x = transform.type == transform_state::kind::rotate
+            ? static_cast<float>(values[1])
+            : static_cast<float>(values[2]);
+        const float center_y = transform.type == transform_state::kind::rotate
+            ? static_cast<float>(values[2])
+            : static_cast<float>(values[3]);
+        affine_2d_double core{};
+        if (transform.type == transform_state::kind::scale) {
+            core.m11 = first;
+            core.m22 = second;
+        } else if (transform.type == transform_state::kind::skew) {
+            const float angle_x = static_cast<float>(
+                std::fmod(values[0], 360.0)) *
+                std::numbers::pi_v<float> / 180.0F;
+            const float angle_y = static_cast<float>(
+                std::fmod(values[1], 360.0)) *
+                std::numbers::pi_v<float> / 180.0F;
+            core.m12 = std::tan(angle_y);
+            core.m21 = std::tan(angle_x);
+        } else if (transform.type == transform_state::kind::rotate) {
+            const float radians = static_cast<float>(
+                std::fmod(values[0], 360.0)) *
+                std::numbers::pi_v<float> / 180.0F;
+            const float cosine = std::cos(radians);
+            const float sine = std::sin(radians);
+            core = {cosine, sine, -sine, cosine, 0.0, 0.0};
+        } else {
+            return status::invalid_graph;
+        }
+        const affine_2d_double before{
+            1.0, 0.0, 0.0, 1.0, -center_x, -center_y};
+        const affine_2d_double after{
+            1.0, 0.0, 0.0, 1.0, center_x, center_y};
+        matrix = compose_wpf_affine(
+            compose_wpf_affine(before, core),
+            after);
+        return try_quantize_wpf_affine(matrix)
+            ? status::success
+            : status::invalid_graph;
     }
 
     status resolve_transform_core(
@@ -665,9 +778,8 @@ struct channel::implementation {
             transform == transforms.end()) {
             return status::invalid_handle;
         }
-        if (!transform->second.is_group) {
-            matrix = transform->second.matrix;
-            return status::success;
+        if (transform->second.type != transform_state::kind::group) {
+            return resolve_leaf_transform(transform->second, matrix);
         }
         active[depth] = handle;
         matrix = {};
@@ -834,10 +946,16 @@ struct channel::implementation {
                 }
             }
             for (const auto& [transform_handle, transform] : transforms) {
-                if (transform_handle != handle && transform.is_group &&
-                    std::ranges::find(transform.children, handle) !=
-                        transform.children.end()) {
-                    return status::invalid_graph;
+                if (transform_handle != handle) {
+                    if (transform.type == transform_state::kind::group &&
+                        std::ranges::find(transform.children, handle) !=
+                            transform.children.end()) {
+                        return status::invalid_graph;
+                    }
+                    if (std::ranges::find(transform.animations, handle) !=
+                        transform.animations.end()) {
+                        return status::invalid_graph;
+                    }
                 }
             }
             for (const auto& [geometry_handle, geometry] : fixed_geometries) {
@@ -872,6 +990,8 @@ struct channel::implementation {
             }
             visuals.erase(handle);
             targets.erase(handle);
+            double_resources.erase(handle);
+            matrix_resources.erase(handle);
             transforms.erase(handle);
             fixed_geometries.erase(handle);
             geometry_groups.erase(handle);
@@ -1125,6 +1245,47 @@ struct channel::implementation {
             }
             ++metrics.updated_resource_count;
             return status::success;
+        case command::double_resource: {
+            double value = 0.0;
+            if (!has_exact_size(view, 16U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, value)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_double_resource)) {
+                return status::invalid_handle;
+            }
+            if (!std::isfinite(value)) {
+                return status::malformed_batch;
+            }
+            double_resources.insert_or_assign(handle, value);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::matrix_resource: {
+            affine_2d_double matrix{};
+            if (!has_exact_size(view, 56U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, matrix.m11) ||
+                !read_at(view.packet, 16U, matrix.m12) ||
+                !read_at(view.packet, 24U, matrix.m21) ||
+                !read_at(view.packet, 32U, matrix.m22) ||
+                !read_at(view.packet, 40U, matrix.m31) ||
+                !read_at(view.packet, 48U, matrix.m32)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_matrix_resource)) {
+                return status::invalid_handle;
+            }
+            if (!try_quantize_wpf_affine(matrix)) {
+                return status::malformed_batch;
+            }
+            matrix_resources.insert_or_assign(handle, matrix);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
         case command::render_data: {
             std::uint32_t data_size = 0U;
             if (view.packet.size() < 12U ||
@@ -1160,7 +1321,7 @@ struct channel::implementation {
                 return status::invalid_handle;
             }
             transform_state transform{};
-            transform.is_group = true;
+            transform.type = transform_state::kind::group;
             transform.children.reserve(
                 children_size / sizeof(std::uint32_t));
             for (std::size_t index = 0U;
@@ -1202,13 +1363,19 @@ struct channel::implementation {
             if (!require_resource(handle, type_translate_transform)) {
                 return status::invalid_handle;
             }
-            if (x_animations != 0U || y_animations != 0U) {
-                return status::unsupported_command;
+            if ((x_animations != 0U &&
+                 !require_resource(x_animations, type_double_resource)) ||
+                (y_animations != 0U &&
+                 !require_resource(y_animations, type_double_resource))) {
+                return status::invalid_handle;
             }
             transform_state transform{};
-            transform.matrix.m31 = static_cast<float>(x);
-            transform.matrix.m32 = static_cast<float>(y);
-            if (!try_quantize_wpf_affine(transform.matrix)) {
+            transform.type = transform_state::kind::translate;
+            transform.values[0] = x;
+            transform.values[1] = y;
+            transform.animations[0] = x_animations;
+            transform.animations[1] = y_animations;
+            if (!finite_double_as_float(x) || !finite_double_as_float(y)) {
                 return status::malformed_batch;
             }
             transforms.insert_or_assign(handle, std::move(transform));
@@ -1242,42 +1409,22 @@ struct channel::implementation {
             if (!require_resource(handle, expected_type)) {
                 return status::invalid_handle;
             }
-            if (std::ranges::any_of(
-                    animations,
-                    [](std::uint32_t animation) noexcept {
-                        return animation != 0U;
-                    })) {
-                return status::unsupported_command;
+            for (const std::uint32_t animation : animations) {
+                if (animation != 0U &&
+                    !require_resource(animation, type_double_resource)) {
+                    return status::invalid_handle;
+                }
             }
-            affine_2d_double core{};
-            const float first_value = static_cast<float>(first);
-            const float second_value = static_cast<float>(second);
-            const float center_x_value = static_cast<float>(center_x);
-            const float center_y_value = static_cast<float>(center_y);
-            if (view.kind == command::scale_transform) {
-                core.m11 = first_value;
-                core.m22 = second_value;
-            } else {
-                const float angle_x = static_cast<float>(
-                    std::fmod(first, 360.0)) *
-                    std::numbers::pi_v<float> / 180.0F;
-                const float angle_y = static_cast<float>(
-                    std::fmod(second, 360.0)) *
-                    std::numbers::pi_v<float> / 180.0F;
-                core.m12 = std::tan(angle_y);
-                core.m21 = std::tan(angle_x);
-            }
-            const affine_2d_double before{
-                1.0, 0.0, 0.0, 1.0,
-                -center_x_value, -center_y_value};
-            const affine_2d_double after{
-                1.0, 0.0, 0.0, 1.0,
-                center_x_value, center_y_value};
             transform_state transform{};
-            transform.matrix = compose_wpf_affine(
-                compose_wpf_affine(before, core),
-                after);
-            if (!try_quantize_wpf_affine(transform.matrix)) {
+            transform.type = view.kind == command::scale_transform
+                ? transform_state::kind::scale
+                : transform_state::kind::skew;
+            transform.values = {first, second, center_x, center_y};
+            transform.animations = animations;
+            if (!finite_double_as_float(first) ||
+                !finite_double_as_float(second) ||
+                !finite_double_as_float(center_x) ||
+                !finite_double_as_float(center_y)) {
                 return status::malformed_batch;
             }
             transforms.insert_or_assign(handle, std::move(transform));
@@ -1303,33 +1450,21 @@ struct channel::implementation {
             if (!require_resource(handle, type_rotate_transform)) {
                 return status::invalid_handle;
             }
-            if (std::ranges::any_of(
-                    animations,
-                    [](std::uint32_t animation) noexcept {
-                        return animation != 0U;
-                    })) {
-                return status::unsupported_command;
+            for (const std::uint32_t animation : animations) {
+                if (animation != 0U &&
+                    !require_resource(animation, type_double_resource)) {
+                    return status::invalid_handle;
+                }
             }
-            const float radians = static_cast<float>(
-                std::fmod(angle, 360.0)) *
-                std::numbers::pi_v<float> / 180.0F;
-            const float cosine = std::cos(radians);
-            const float sine = std::sin(radians);
-            const float center_x_value = static_cast<float>(center_x);
-            const float center_y_value = static_cast<float>(center_y);
-            const affine_2d_double before{
-                1.0, 0.0, 0.0, 1.0,
-                -center_x_value, -center_y_value};
-            const affine_2d_double rotation{
-                cosine, sine, -sine, cosine, 0.0, 0.0};
-            const affine_2d_double after{
-                1.0, 0.0, 0.0, 1.0,
-                center_x_value, center_y_value};
             transform_state transform{};
-            transform.matrix = compose_wpf_affine(
-                compose_wpf_affine(before, rotation),
-                after);
-            if (!try_quantize_wpf_affine(transform.matrix)) {
+            transform.type = transform_state::kind::rotate;
+            transform.values = {angle, center_x, center_y, 0.0};
+            transform.animations[0] = animations[0];
+            transform.animations[1] = animations[1];
+            transform.animations[2] = animations[2];
+            if (!finite_double_as_float(angle) ||
+                !finite_double_as_float(center_x) ||
+                !finite_double_as_float(center_y)) {
                 return status::malformed_batch;
             }
             transforms.insert_or_assign(handle, std::move(transform));
@@ -1354,8 +1489,9 @@ struct channel::implementation {
             if (!require_resource(handle, type_matrix_transform)) {
                 return status::invalid_handle;
             }
-            if (animations != 0U) {
-                return status::unsupported_command;
+            if (animations != 0U &&
+                !require_resource(animations, type_matrix_resource)) {
+                return status::invalid_handle;
             }
             progpu_native_affine_2d native_matrix{};
             if (!try_to_native_affine(matrix, native_matrix)) {
@@ -1369,7 +1505,9 @@ struct channel::implementation {
                 native_matrix.m31,
                 native_matrix.m32};
             transform_state transform{};
+            transform.type = transform_state::kind::matrix;
             transform.matrix = matrix;
+            transform.animations[0] = animations;
             transforms.insert_or_assign(handle, std::move(transform));
             increment_generation(handle);
             ++metrics.updated_resource_count;

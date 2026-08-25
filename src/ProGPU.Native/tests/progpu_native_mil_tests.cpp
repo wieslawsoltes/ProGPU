@@ -943,7 +943,7 @@ bool matrix_transform_scopes_compile_to_semantic_state() {
         99.0,
         1U);
     PROGPU_REQUIRE(
-        state.apply(animated_update) == status::unsupported_command);
+        state.apply(animated_update) == status::invalid_handle);
     PROGPU_REQUIRE(
         state.resource_generation(scope_transform) == transform_generation);
 
@@ -1024,6 +1024,9 @@ bool static_transform_resources_compose_and_retain_dependencies() {
     constexpr std::uint32_t rotate = 8U;
     constexpr std::uint32_t group = 9U;
     constexpr std::uint32_t nested_group = 10U;
+    constexpr std::uint32_t double_animation = 11U;
+    constexpr std::uint32_t matrix_animation = 12U;
+    constexpr std::uint32_t matrix = 13U;
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
     append_create(batch, content, 43U);
@@ -1035,14 +1038,43 @@ bool static_transform_resources_compose_and_retain_dependencies() {
     append_create(batch, rotate, 65U);
     append_create(batch, group, 61U);
     append_create(batch, nested_group, 61U);
+    append_create(batch, double_animation, 49U);
+    append_create(batch, matrix_animation, 54U);
+    append_create(batch, matrix, 66U);
     append_command(batch, command::visual_create, visual);
+    append_command(
+        batch,
+        command::double_resource,
+        double_animation,
+        3.0);
+    append_command(
+        batch,
+        command::matrix_resource,
+        matrix_animation,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0);
+    append_command(
+        batch,
+        command::matrix_transform,
+        matrix,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        99.0,
+        99.0,
+        matrix_animation);
     append_command(
         batch,
         command::translate_transform,
         translate,
-        3.0,
+        99.0,
         4.0,
-        0U,
+        double_animation,
         0U);
     append_command(
         batch,
@@ -1078,7 +1110,8 @@ bool static_transform_resources_compose_and_retain_dependencies() {
         0U,
         0U,
         0U);
-    const std::array transform_children{translate, scale, skew, rotate};
+    const std::array transform_children{
+        matrix, translate, scale, skew, rotate};
     append_transform_group(batch, group, transform_children);
     const std::array nested_children{group};
     append_transform_group(batch, nested_group, nested_children);
@@ -1152,16 +1185,29 @@ bool static_transform_resources_compose_and_retain_dependencies() {
     std::vector<std::byte> child_update;
     append_command(
         child_update,
-        command::translate_transform,
-        translate,
-        5.0,
-        4.0,
-        0U,
-        0U);
+        command::double_resource,
+        double_animation,
+        5.0);
     PROGPU_REQUIRE(state.apply(child_update) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7002U, 2U, stream) == status::success);
     PROGPU_REQUIRE(has_transform(-12.0F, 22.0F));
+
+    std::vector<std::byte> matrix_update;
+    append_command(
+        matrix_update,
+        command::matrix_resource,
+        matrix_animation,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        0.0);
+    PROGPU_REQUIRE(state.apply(matrix_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 3U, stream) == status::success);
+    PROGPU_REQUIRE(has_transform(-12.0F, 24.0F));
 
     const auto rotate_generation = state.resource_generation(rotate);
     std::vector<std::byte> animated_update;
@@ -1172,11 +1218,11 @@ bool static_transform_resources_compose_and_retain_dependencies() {
         180.0,
         0.0,
         0.0,
-        1U,
+        brush,
         0U,
         0U);
     PROGPU_REQUIRE(
-        state.apply(animated_update) == status::unsupported_command);
+        state.apply(animated_update) == status::invalid_handle);
     PROGPU_REQUIRE(state.resource_generation(rotate) == rotate_generation);
 
     std::vector<std::byte> cycle;
@@ -1191,6 +1237,14 @@ bool static_transform_resources_compose_and_retain_dependencies() {
         translate,
         62U);
     PROGPU_REQUIRE(state.apply(delete_dependency) == status::invalid_graph);
+
+    std::vector<std::byte> delete_animation;
+    append_command(
+        delete_animation,
+        command::channel_delete_resource,
+        double_animation,
+        49U);
+    PROGPU_REQUIRE(state.apply(delete_animation) == status::invalid_graph);
     return true;
 }
 
