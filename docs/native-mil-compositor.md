@@ -1333,6 +1333,36 @@ for `progpu_native.dll` and
 `4a9e55ff26301d50138c7f02cd8be02645541ea29dd37081e2f787d2cc69c8b7`
 for `progpu_native_dawn.dll`.
 
+Solid-opacity-mask implementation `f9f49b86` and package gate `9ecc8a9b`
+then added the exact spatially uniform subset of canonical DrawingGroup
+opacity masks. A transform-free static SolidColorBrush contributes
+`brush.Opacity * brush.Color.A` to the inherited group opacity, so applying
+that value before recursively lowering the group's children is exactly
+equivalent to WPF's alpha-mask composition for every semantic draw family.
+The mask remains a retained canonical brush dependency and updates through
+the normal SolidColorBrush command; no backend-specific mask material or
+semantic ABI expansion is required.
+
+The decoder distinguishes unsupported and invalid input: known linear or
+radial gradient masks fail with `unsupported_command`, while a missing or
+wrongly typed brush handle fails with `invalid_handle`. Tile, animated,
+transformed, gradient, and other spatially varying masks remain fail closed
+until group bounds and reusable mask-render-target/material resources exist.
+Native tests cover the initial alpha product and a retained brush update.
+
+The public package consumer added `--mil-drawing-group-only` to the JIT,
+NativeAOT, build, release, and package-verification lanes. All ten local MIL
+CTests passed; strict Windows ARM64 MSVC rebuilt both exports under `/W4 /WX`
+and all 11 native/Dawn CTests passed. Fresh app-local DLLs compiled the
+focused scene through both MIL exports and rendered on live D3D12 with four
+semantic resources, one batched draw, zero coverage-staging bytes, a valid
+nonblack retained readback, and 16,384 direct-render pixels. Qualified
+SHA-256 values are
+`3b5aa2a63c1335877e8ca49ecb37abcc705be1a9940a77fbf5f19150219f69c1`
+for `progpu_native.dll` and
+`341e01504aeb9380a33676704f1712cf25ee433f80554344bb080a3e0514be93`
+for `progpu_native_dawn.dll`.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
