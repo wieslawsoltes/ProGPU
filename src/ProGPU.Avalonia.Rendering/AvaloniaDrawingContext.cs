@@ -14,6 +14,7 @@ using ProGPU.Scene;
 using ProGPU.Text;
 using ProGPU.Vector;
 using Silk.NET.WebGPU;
+using SkiaSharp;
 using AVector = Avalonia.Vector;
 using SceneBrush = ProGPU.Vector.Brush;
 using ScenePen = ProGPU.Vector.Pen;
@@ -21,6 +22,10 @@ using SceneRect = ProGPU.Scene.Rect;
 using AColor = Avalonia.Media.Color;
 
 namespace Avalonia.ProGpu;
+
+internal readonly record struct AvaloniaSkiaClipState(
+    SKRectI DeviceBounds,
+    bool IsRect);
 
 /// <summary>
 /// Records Avalonia drawing contracts as typed ProGPU retained commands.
@@ -51,6 +56,7 @@ internal partial class DrawingContextImpl :
     private readonly AvaloniaDrawingState _drawingState;
     private readonly Stack<double> _opacityFrames;
     private readonly Stack<bool> _clipFrames;
+    private readonly Stack<AvaloniaSkiaClipState> _skiaClipFrames;
     private readonly Stack<RenderOptions> _renderOptionFrames;
     private readonly Stack<RenderCommandPresentationDependencies>
         _renderOptionDependencyFrames;
@@ -65,6 +71,7 @@ internal partial class DrawingContextImpl :
     private bool _leased;
     private bool _disposed;
     private bool _recordingReturned;
+    private AvaloniaSkiaClipState _skiaClipState;
     private RenderCommandPresentationDependencies
         _presentationDependencies;
     private bool _insideRetainedVisual;
@@ -116,6 +123,7 @@ internal partial class DrawingContextImpl :
             : _resources.RentDrawingState();
         _opacityFrames = _drawingState.OpacityFrames;
         _clipFrames = _drawingState.GeometryClipFrames;
+        _skiaClipFrames = _drawingState.SkiaClipFrames;
         _renderOptionFrames = _drawingState.RenderOptionFrames;
         _renderOptionDependencyFrames =
             _drawingState.RenderOptionDependencyFrames;
@@ -148,6 +156,7 @@ internal partial class DrawingContextImpl :
             : createInfo.Size ??
               _framebuffer?.Size ??
               default;
+        _skiaClipState = CreateFullSkiaClipState();
 
         if (createInfo.ScaleDrawingToDpi &&
             TryGetScale(Dpi, out double scaleX, out double scaleY) &&
@@ -216,6 +225,8 @@ internal partial class DrawingContextImpl :
         _opacity = 1d;
         _opacityFrames.Clear();
         _clipFrames.Clear();
+        _skiaClipFrames.Clear();
+        _skiaClipState = CreateFullSkiaClipState();
         _renderOptionFrames.Clear();
         _renderOptionDependencyFrames.Clear();
 #if !AVALONIA11
@@ -515,6 +526,7 @@ internal partial class DrawingContextImpl :
             ToLocalRect(clip),
             ToProGpuMatrix(CommandTransform));
         _clipFrames.Push(false);
+        PushSkiaClipState(clip, isGeometryClip: false);
     }
 
     public void PushClip(RoundedRect clip)
@@ -529,6 +541,7 @@ internal partial class DrawingContextImpl :
             CreateRoundedRectPath(clip),
             ToProGpuMatrix(CommandTransform));
         _clipFrames.Push(true);
+        PushSkiaClipState(clip.Rect, isGeometryClip: true);
     }
 
     public void PushClip(IPlatformRenderInterfaceRegion region)
@@ -553,6 +566,7 @@ internal partial class DrawingContextImpl :
             DrawingContext.PopGeometryClip();
         else
             DrawingContext.PopClip();
+        PopSkiaClipState();
     }
 
     public void PushLayer(Rect bounds)
@@ -592,12 +606,14 @@ internal partial class DrawingContextImpl :
             DrawingContext.PushGeometryClip(
                 path.Path,
                 ToProGpuMatrix(CommandTransform));
+            PushSkiaClipState(clip.Bounds, isGeometryClip: true);
         }
         else
         {
             DrawingContext.PushClip(
                 ToLocalRect(clip.Bounds),
                 ToProGpuMatrix(CommandTransform));
+            PushSkiaClipState(clip.Bounds, isGeometryClip: false);
         }
     }
 
@@ -605,6 +621,7 @@ internal partial class DrawingContextImpl :
     {
         EnsureAvailable();
         DrawingContext.PopGeometryClip();
+        PopSkiaClipState();
     }
 
     public void PushOpacityMask(IBrush mask, Rect bounds)
@@ -692,8 +709,12 @@ internal partial class DrawingContextImpl :
     public object? GetFeature(Type featureType)
     {
         ArgumentNullException.ThrowIfNull(featureType);
-        if (featureType == typeof(IProGpuApiLeaseFeature))
+        if (featureType == typeof(IProGpuApiLeaseFeature) ||
+            featureType ==
+                typeof(Avalonia.Skia.ISkiaSharpApiLeaseFeature))
+        {
             return new LeaseFeature(this);
+        }
 #if PROGPU_AVALONIA_SOURCE_COMPOSITOR
         if (featureType == typeof(ICompositionRenderDataDrawingContextFeature))
             return this;
@@ -908,6 +929,75 @@ internal partial class DrawingContextImpl :
             ? (float)Math.Clamp(value, 0d, 1d)
             : 0f;
 
+    private AvaloniaSkiaClipState CreateFullSkiaClipState()
+    {
+        SKRectI bounds = _size.Width > 0 && _size.Height > 0
+            ? new SKRectI(0, 0, _size.Width, _size.Height)
+            : SKRectI.Empty;
+        return new AvaloniaSkiaClipState(
+            bounds,
+            IsRect: bounds.Right > bounds.Left &&
+                bounds.Bottom > bounds.Top);
+    }
+
+    private void PushSkiaClipState(
+        Rect localBounds,
+        bool isGeometryClip)
+    {
+        Rect deviceBounds = localBounds.TransformToAABB(CommandTransform);
+        bool isDeviceRect = !isGeometryClip &&
+            IsAxisAlignedSkiaClipTransform(CommandTransform);
+        PushSkiaDeviceClipState(
+            ToLocalRect(deviceBounds),
+            isDeviceRect);
+    }
+
+    private void PushSkiaDeviceClipState(
+        SceneRect deviceBounds,
+        bool isDeviceRect)
+    {
+        _skiaClipFrames.Push(_skiaClipState);
+        if (_skiaClipState.DeviceBounds.Right <=
+                _skiaClipState.DeviceBounds.Left ||
+            _skiaClipState.DeviceBounds.Bottom <=
+                _skiaClipState.DeviceBounds.Top)
+        {
+            return;
+        }
+
+        SKRectI incoming = SKCanvas.ToDeviceBounds(
+            new SKRect(
+                deviceBounds.X,
+                deviceBounds.Y,
+                deviceBounds.Right,
+                deviceBounds.Bottom),
+            roundToNearest: isDeviceRect);
+        SKRectI intersection = SKRectI.Intersect(
+            _skiaClipState.DeviceBounds,
+            incoming);
+        _skiaClipState = intersection.Right > intersection.Left &&
+            intersection.Bottom > intersection.Top
+                ? new AvaloniaSkiaClipState(
+                    intersection,
+                    _skiaClipState.IsRect && isDeviceRect)
+                : new AvaloniaSkiaClipState(
+                    SKRectI.Empty,
+                    IsRect: false);
+    }
+
+    private void PopSkiaClipState()
+    {
+        if (_skiaClipFrames.Count > 0)
+            _skiaClipState = _skiaClipFrames.Pop();
+    }
+
+    private static bool IsAxisAlignedSkiaClipTransform(Matrix matrix)
+    {
+        const double epsilon = 0.0001;
+        return Math.Abs(matrix.M12) <= epsilon &&
+            Math.Abs(matrix.M21) <= epsilon;
+    }
+
     private TextureSamplingMode GetTextureSampling() =>
         RenderOptions.BitmapInterpolationMode switch
         {
@@ -967,7 +1057,9 @@ internal partial class DrawingContextImpl :
 #endif
     }
 
-    private sealed class LeaseFeature : IProGpuApiLeaseFeature
+    private sealed class LeaseFeature :
+        IProGpuApiLeaseFeature,
+        Avalonia.Skia.ISkiaSharpApiLeaseFeature
     {
         private readonly DrawingContextImpl _owner;
 
@@ -977,6 +1069,12 @@ internal partial class DrawingContextImpl :
         }
 
         public IProGpuApiLease Lease() => new Lease(_owner);
+
+        Avalonia.Skia.ISkiaSharpApiLease
+            Avalonia.Skia.ISkiaSharpApiLeaseFeature.Lease() =>
+                new ProGpuSkiaSharpApiLease(
+                    new Lease(_owner),
+                    _owner._skiaClipState);
     }
 
     private sealed class Lease : IProGpuApiLease

@@ -363,6 +363,14 @@ public static AppBuilder BuildAvaloniaApp() =>
 
 `UseSkia()` remains available as a compatibility alias for the ProGPU renderer, but `UseProGpu()` avoids ambiguity with Avalonia's Skia package.
 
+The renderer also exposes Avalonia's `ISkiaSharpApiLeaseFeature` source
+contract over `ProGPU.SkiaSharp`, allowing existing custom draw operations to
+keep using `lease.SkCanvas` after recompilation. Do not reference the official
+`Avalonia.Skia` package in this lane; its assembly and native SkiaSharp
+identities are a different binary contract. See
+`docs/AVALONIA_SKIASHARP_LEASE_COMPATIBILITY_RESEARCH.md` for the design and
+conformance record.
+
 Use `IProGpuApiLeaseFeature` from `ICustomDrawOperation.Render` for scoped
 access to the ProGPU scene command recorder and active `WgpuContext`. The
 lease lifetime and package-facing API contract are documented in

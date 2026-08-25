@@ -21,4 +21,7 @@
     <ProjectReference Include="..\ProGPU.Text\ProGPU.Text.csproj" />
     <ProjectReference Include="..\ProGPU.Scene\ProGPU.Scene.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Avalonia.ProGpu, PublicKey=$(ProGPUPublicKey)" />
+  </ItemGroup>
 </Project>
