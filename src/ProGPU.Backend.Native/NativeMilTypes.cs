@@ -15,6 +15,7 @@ public enum NativeMilResourceType : uint
     HwndRenderTarget = 46,
     GenericRenderTarget = 47,
     DoubleResource = 49,
+    PointResource = 51,
     MatrixResource = 54,
     TransformGroup = 61,
     TranslateTransform = 62,
@@ -29,6 +30,8 @@ public enum NativeMilResourceType : uint
     CombinedGeometry = 72,
     PathGeometry = 73,
     SolidColorBrush = 75,
+    LinearGradientBrush = 77,
+    RadialGradientBrush = 78,
     DashStyle = 84,
     Pen = 85
 }
@@ -164,6 +167,65 @@ public readonly record struct NativeMilColor(
     float Green,
     float Blue,
     float Alpha);
+
+public enum NativeMilGradientInterpolation : uint
+{
+    ScRgb,
+    SRgb
+}
+
+public enum NativeMilBrushMappingMode : uint
+{
+    Absolute,
+    RelativeToBoundingBox
+}
+
+public enum NativeMilGradientSpreadMethod : uint
+{
+    Pad,
+    Reflect,
+    Repeat
+}
+
+public readonly record struct NativeMilGradientStop(
+    double Offset,
+    NativeMilColor Color);
+
+public readonly record struct NativeMilLinearGradientBrush(
+    NativeMilPoint StartPoint,
+    NativeMilPoint EndPoint,
+    double Opacity = 1.0,
+    NativeMilGradientInterpolation Interpolation =
+        NativeMilGradientInterpolation.SRgb,
+    NativeMilBrushMappingMode MappingMode =
+        NativeMilBrushMappingMode.RelativeToBoundingBox,
+    NativeMilGradientSpreadMethod SpreadMethod =
+        NativeMilGradientSpreadMethod.Pad,
+    uint OpacityAnimationHandle = 0,
+    uint TransformHandle = 0,
+    uint RelativeTransformHandle = 0,
+    uint StartPointAnimationHandle = 0,
+    uint EndPointAnimationHandle = 0);
+
+public readonly record struct NativeMilRadialGradientBrush(
+    NativeMilPoint Center,
+    NativeMilPoint GradientOrigin,
+    double RadiusX,
+    double RadiusY,
+    double Opacity = 1.0,
+    NativeMilGradientInterpolation Interpolation =
+        NativeMilGradientInterpolation.SRgb,
+    NativeMilBrushMappingMode MappingMode =
+        NativeMilBrushMappingMode.RelativeToBoundingBox,
+    NativeMilGradientSpreadMethod SpreadMethod =
+        NativeMilGradientSpreadMethod.Pad,
+    uint OpacityAnimationHandle = 0,
+    uint TransformHandle = 0,
+    uint RelativeTransformHandle = 0,
+    uint CenterAnimationHandle = 0,
+    uint RadiusXAnimationHandle = 0,
+    uint RadiusYAnimationHandle = 0,
+    uint GradientOriginAnimationHandle = 0);
 
 public enum NativeMilPenLineCap : uint
 {

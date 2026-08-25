@@ -119,6 +119,78 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWriteCanonicalGradientPackets()
+    {
+        var stops = new[]
+        {
+            new NativeMilGradientStop(
+                -0.25,
+                new NativeMilColor(1f, 0f, 0f, 1f)),
+            new NativeMilGradientStop(
+                1.25,
+                new NativeMilColor(0f, 0f, 1f, 0.5f))
+        };
+        var batch = new NativeMilBatchBuilder();
+        batch.SetPointResource(3, new NativeMilPoint(0.25, 0.75));
+        batch.SetLinearGradientBrush(
+            4,
+            new NativeMilLinearGradientBrush(
+                new NativeMilPoint(0, 0),
+                new NativeMilPoint(1, 1),
+                Opacity: 0.75,
+                Interpolation: NativeMilGradientInterpolation.ScRgb,
+                MappingMode: NativeMilBrushMappingMode.RelativeToBoundingBox,
+                SpreadMethod: NativeMilGradientSpreadMethod.Reflect,
+                OpacityAnimationHandle: 8,
+                TransformHandle: 9,
+                RelativeTransformHandle: 10,
+                StartPointAnimationHandle: 3,
+                EndPointAnimationHandle: 5),
+            stops);
+        batch.SetRadialGradientBrush(
+            6,
+            new NativeMilRadialGradientBrush(
+                new NativeMilPoint(20, 30),
+                new NativeMilPoint(18, 29),
+                12,
+                8,
+                Opacity: 0.5,
+                Interpolation: NativeMilGradientInterpolation.SRgb,
+                MappingMode: NativeMilBrushMappingMode.Absolute,
+                SpreadMethod: NativeMilGradientSpreadMethod.Repeat,
+                RadiusXAnimationHandle: 11,
+                RadiusYAnimationHandle: 12),
+            stops[..1]);
+
+        byte[] encoded = batch.ToArray();
+        Assert.Equal(28U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x10U, ReadUInt32(encoded, 4));
+        Assert.Equal(3U, ReadUInt32(encoded, 8));
+        Assert.Equal(0.25, ReadDouble(encoded, 12));
+        Assert.Equal(0.75, ReadDouble(encoded, 20));
+
+        const int linearItemOffset = 28;
+        Assert.Equal(136U, ReadUInt32(encoded, linearItemOffset));
+        Assert.Equal(0x7fU, ReadUInt32(encoded, linearItemOffset + 4));
+        Assert.Equal(4U, ReadUInt32(encoded, linearItemOffset + 8));
+        Assert.Equal(0.75, ReadDouble(encoded, linearItemOffset + 12));
+        Assert.Equal(48U, ReadUInt32(encoded, linearItemOffset + 76));
+        Assert.Equal(3U, ReadUInt32(encoded, linearItemOffset + 80));
+        Assert.Equal(5U, ReadUInt32(encoded, linearItemOffset + 84));
+        Assert.Equal(-0.25, ReadDouble(encoded, linearItemOffset + 88));
+
+        const int radialItemOffset = linearItemOffset + 136;
+        Assert.Equal(136U, ReadUInt32(encoded, radialItemOffset));
+        Assert.Equal(0x80U, ReadUInt32(encoded, radialItemOffset + 4));
+        Assert.Equal(6U, ReadUInt32(encoded, radialItemOffset + 8));
+        Assert.Equal(12.0, ReadDouble(encoded, radialItemOffset + 36));
+        Assert.Equal(8.0, ReadDouble(encoded, radialItemOffset + 44));
+        Assert.Equal(24U, ReadUInt32(encoded, radialItemOffset + 92));
+        Assert.Equal(11U, ReadUInt32(encoded, radialItemOffset + 100));
+        Assert.Equal(12U, ReadUInt32(encoded, radialItemOffset + 104));
+    }
+
+    [Fact]
     public void NativeMilBuildersWritePenOnlyClosedPrimitivePackets()
     {
         var renderData = new NativeMilRenderDataBuilder();
