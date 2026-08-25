@@ -58,7 +58,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
         NativeMilCompiledScene scene = mil.CompileScene(42, 701, 1);
-        if (milMetrics.CommandCount != 48 || mil.ResourceCount != 21 ||
+        if (milMetrics.CommandCount != 50 || mil.ResourceCount != 22 ||
             !mil.TryGetVisual(41, out NativeMilVisualSnapshot visual) ||
             visual.Handle != 41 || scene.Stream.Length == 0 ||
             scene.Metrics.VisualCount != 1 ||
@@ -78,7 +78,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
         NativeMilCompiledScene scene = dawnMil.CompileScene(42, 702, 1);
-        if (milMetrics.CommandCount != 48 || dawnMil.ResourceCount != 21 ||
+        if (milMetrics.CommandCount != 50 || dawnMil.ResourceCount != 22 ||
             scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
             scene.Metrics.RectangleCount != 1 ||
             scene.Metrics.EllipseCount != 2 ||
@@ -218,6 +218,13 @@ static byte[] CreateMilSeedBatch(
     renderData.Pop();
     renderData.Pop();
     renderData.Pop();
+    renderData.PushTransform(62);
+    renderData.DrawLine(4, 4, 60, 60, 46);
+    renderData.DrawGeometry(44, 48, 54);
+    renderData.DrawGeometry(44, 48, 55);
+    renderData.DrawGeometry(44, 48, 52);
+    renderData.DrawGeometry(44, 48, 50);
+    renderData.Pop();
     var batch = new NativeMilBatchBuilder();
     batch.CreateResource(41, NativeMilResourceType.Visual);
     batch.CreateResource(42, NativeMilResourceType.GenericRenderTarget);
@@ -240,11 +247,15 @@ static byte[] CreateMilSeedBatch(
     batch.CreateResource(59, NativeMilResourceType.PathGeometry);
     batch.CreateResource(60, NativeMilResourceType.PathGeometry);
     batch.CreateResource(61, NativeMilResourceType.RectangleGeometry);
+    batch.CreateResource(62, NativeMilResourceType.MatrixTransform);
     batch.CreateVisual(41);
     batch.SetVisualOffset(41, 1, 2);
     batch.SetMatrixTransform(
         45,
         new NativeMilMatrix3x2(1, 0, 0, 1, 1, 1));
+    batch.SetMatrixTransform(
+        62,
+        new NativeMilMatrix3x2(1, 0, 0, 0, 0, 0));
     batch.SetVisualTransform(41, 45);
     batch.SetVisualOpacity(41, 0.9);
     batch.SetVisualContent(41, 43);
