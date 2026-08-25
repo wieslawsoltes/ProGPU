@@ -36,6 +36,8 @@ if (!renderOnly)
         args.Contains("--mil-arc-group-only", StringComparer.Ordinal);
     bool arcBooleanOnly =
         args.Contains("--mil-arc-boolean-only", StringComparer.Ordinal);
+    bool minimalArcGroup =
+        args.Contains("--mil-arc-group-minimal", StringComparer.Ordinal);
     bool affineRecursiveOnly =
         args.Contains("--mil-affine-recursive-only", StringComparer.Ordinal);
     bool includeRecursiveGroupArc =
@@ -44,7 +46,8 @@ if (!renderOnly)
         !affineRecursiveOnly && !arcGroupOnly;
     byte[] milBatch = CreateMilSeedBatch(
         includeRecursiveGroupArc,
-        includeRecursiveBooleanArc);
+        includeRecursiveBooleanArc,
+        minimalArcGroup);
     using (var mil = new NativeMilChannel())
     {
         NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
@@ -184,7 +187,8 @@ Console.WriteLine(
 
 static byte[] CreateMilSeedBatch(
     bool includeRecursiveGroupArc,
-    bool includeRecursiveBooleanArc)
+    bool includeRecursiveBooleanArc,
+    bool minimalArcGroup)
 {
     var renderData = new NativeMilRenderDataBuilder();
     renderData.PushTransform(45);
@@ -258,8 +262,10 @@ static byte[] CreateMilSeedBatch(
     batch.SetGeometryGroup(
         54,
         NativeMilPathFillRule.EvenOdd,
-        includeRecursiveGroupArc
-            ? [52, 53, 50, 51, 57]
+        minimalArcGroup
+            ? [57]
+            : includeRecursiveGroupArc
+                ? [52, 53, 50, 51, 57]
             : [52, 53, 50, 51],
         45);
     batch.SetCombinedGeometry(
