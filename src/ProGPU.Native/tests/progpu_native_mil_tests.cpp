@@ -1573,6 +1573,189 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     PROGPU_REQUIRE(degenerate_ellipse_cap_count == 2U);
     PROGPU_REQUIRE(degenerate_ellipse_draw_count == 3U);
 
+    constexpr std::uint32_t round_pen = 12U;
+    constexpr std::uint32_t bevel_pen = 13U;
+    std::vector<std::byte> degenerate_rectangle_pen_batch;
+    append_create(degenerate_rectangle_pen_batch, round_pen, 85U);
+    append_create(degenerate_rectangle_pen_batch, bevel_pen, 85U);
+    append_command(
+        degenerate_rectangle_pen_batch,
+        command::pen,
+        round_pen,
+        2.0,
+        10.0,
+        brush,
+        0U,
+        0U,
+        0U,
+        0U,
+        2U,
+        0U);
+    append_command(
+        degenerate_rectangle_pen_batch,
+        command::pen,
+        bevel_pen,
+        2.0,
+        10.0,
+        brush,
+        0U,
+        0U,
+        0U,
+        0U,
+        1U,
+        0U);
+    PROGPU_REQUIRE(
+        state.apply(degenerate_rectangle_pen_batch) == status::success);
+    std::vector<std::byte> degenerate_rectangle_batch;
+    std::vector<std::byte> degenerate_rectangles;
+    append_command(
+        degenerate_rectangles,
+        command::draw_rectangle,
+        3.0,
+        4.0,
+        0.0,
+        4.0,
+        brush,
+        solid_pen);
+    append_command(
+        degenerate_rectangles,
+        command::draw_rectangle,
+        8.0,
+        4.0,
+        0.0,
+        4.0,
+        0U,
+        round_pen);
+    append_command(
+        degenerate_rectangles,
+        command::draw_rounded_rectangle,
+        12.0,
+        4.0,
+        0.0,
+        4.0,
+        2.0,
+        2.0,
+        brush,
+        bevel_pen);
+    append_command(
+        degenerate_rectangles,
+        command::draw_rectangle,
+        16.0,
+        4.0,
+        0.0,
+        0.0,
+        0U,
+        bevel_pen);
+    append_render_data(
+        degenerate_rectangle_batch,
+        content,
+        degenerate_rectangles);
+    PROGPU_REQUIRE(
+        state.apply(degenerate_rectangle_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 50U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rectangle_count == 3U);
+    PROGPU_REQUIRE(metrics.rounded_rectangle_count == 1U);
+    const auto degenerate_rectangle_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t degenerate_rectangle_path_count = 0U;
+    for (std::uint32_t index = 0U;
+         index < degenerate_rectangle_header.resource_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            degenerate_rectangle_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        PROGPU_REQUIRE(
+            record.kind != PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH);
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            continue;
+        }
+        const auto path = read_value<progpu_native_scene_path_fill>(
+            stream,
+            record.payload_offset);
+        PROGPU_REQUIRE(path.fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD);
+        PROGPU_REQUIRE(path.transform.m11 == 1.0F);
+        PROGPU_REQUIRE(path.transform.m22 == 1.0F);
+        std::uint32_t arc_count = 0U;
+        for (std::size_t segment_index = 0U;
+             segment_index < path.segment_count;
+             ++segment_index) {
+            const auto segment = read_value<progpu_native_path_segment>(
+                stream,
+                record.auxiliary_offset +
+                    segment_index * sizeof(progpu_native_path_segment));
+            arc_count += segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC
+                ? 1U
+                : 0U;
+            if (degenerate_rectangle_path_count == 2U &&
+                segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC) {
+                PROGPU_REQUIRE(segment.p3.x == 1.0F);
+                PROGPU_REQUIRE(segment.p3.y == 3.0F);
+            }
+        }
+        if (degenerate_rectangle_path_count == 0U) {
+            PROGPU_REQUIRE(path.segment_count == 4U);
+            PROGPU_REQUIRE(arc_count == 0U);
+        } else if (degenerate_rectangle_path_count == 1U ||
+            degenerate_rectangle_path_count == 2U) {
+            PROGPU_REQUIRE(path.segment_count == 8U);
+            PROGPU_REQUIRE(arc_count == 4U);
+        } else {
+            PROGPU_REQUIRE(path.segment_count == 8U);
+            PROGPU_REQUIRE(arc_count == 0U);
+        }
+        ++degenerate_rectangle_path_count;
+    }
+    PROGPU_REQUIRE(degenerate_rectangle_path_count == 4U);
+    const std::array expected_degenerate_rectangle_bounds{
+        progpu_native_image_rect{14.0F, 26.0F, 4.0F, 12.0F},
+        progpu_native_image_rect{24.0F, 26.0F, 4.0F, 12.0F},
+        progpu_native_image_rect{32.0F, 26.0F, 4.0F, 12.0F},
+        progpu_native_image_rect{40.0F, 26.0F, 4.0F, 4.0F}};
+    std::uint32_t degenerate_rectangle_draw_count = 0U;
+    for (std::uint32_t index = 0U;
+         index < degenerate_rectangle_header.command_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            degenerate_rectangle_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
+            continue;
+        }
+        const auto& expected = expected_degenerate_rectangle_bounds[
+            degenerate_rectangle_draw_count];
+        PROGPU_REQUIRE(record.bounds_x == expected.x);
+        PROGPU_REQUIRE(record.bounds_y == expected.y);
+        PROGPU_REQUIRE(record.bounds_width == expected.width);
+        PROGPU_REQUIRE(record.bounds_height == expected.height);
+        ++degenerate_rectangle_draw_count;
+    }
+    PROGPU_REQUIRE(degenerate_rectangle_draw_count == 4U);
+
+    std::vector<std::byte> dashed_degenerate_rectangle_batch;
+    std::vector<std::byte> dashed_degenerate_rectangle;
+    append_command(
+        dashed_degenerate_rectangle,
+        command::draw_rectangle,
+        3.0,
+        4.0,
+        0.0,
+        4.0,
+        0U,
+        pen);
+    append_render_data(
+        dashed_degenerate_rectangle_batch,
+        content,
+        dashed_degenerate_rectangle);
+    PROGPU_REQUIRE(
+        state.apply(dashed_degenerate_rectangle_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 51U, stream, &metrics) ==
+        status::unsupported_command);
+
     std::vector<std::byte> rounded_batch;
     std::vector<std::byte> rounded;
     append_command(
@@ -1890,6 +2073,81 @@ bool solid_pen_line_compiles_to_geometry_scene() {
         ++retained_degenerate_ellipse_line_count;
     }
     PROGPU_REQUIRE(retained_degenerate_ellipse_line_count == 1U);
+
+    std::vector<std::byte> degenerate_rectangle_geometry_update;
+    append_command(
+        degenerate_rectangle_geometry_update,
+        command::rectangle_geometry,
+        rectangle_geometry,
+        0.0,
+        0.0,
+        3.0,
+        4.0,
+        0.0,
+        4.0,
+        transform,
+        0U,
+        0U,
+        0U);
+    std::vector<std::byte> degenerate_rectangle_geometry_draw;
+    append_command(
+        degenerate_rectangle_geometry_draw,
+        command::draw_geometry,
+        0U,
+        bevel_pen,
+        rectangle_geometry,
+        0U);
+    append_render_data(
+        degenerate_rectangle_geometry_update,
+        content,
+        degenerate_rectangle_geometry_draw);
+    PROGPU_REQUIRE(
+        state.apply(degenerate_rectangle_geometry_update) ==
+        status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 12U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rectangle_count == 1U);
+    const auto degenerate_rectangle_geometry_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t retained_degenerate_rectangle_path_count = 0U;
+    for (std::uint32_t index = 0U;
+         index < degenerate_rectangle_geometry_header.resource_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            degenerate_rectangle_geometry_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            continue;
+        }
+        const auto path = read_value<progpu_native_scene_path_fill>(
+            stream,
+            record.payload_offset);
+        PROGPU_REQUIRE(path.segment_count == 8U);
+        PROGPU_REQUIRE(path.transform.m11 == 2.0F);
+        PROGPU_REQUIRE(path.transform.m22 == 2.0F);
+        ++retained_degenerate_rectangle_path_count;
+    }
+    PROGPU_REQUIRE(retained_degenerate_rectangle_path_count == 1U);
+    std::uint32_t retained_degenerate_rectangle_draw_count = 0U;
+    for (std::uint32_t index = 0U;
+         index < degenerate_rectangle_geometry_header.command_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            degenerate_rectangle_geometry_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
+            continue;
+        }
+        PROGPU_REQUIRE(record.bounds_x == 18.0F);
+        PROGPU_REQUIRE(record.bounds_y == 32.0F);
+        PROGPU_REQUIRE(record.bounds_width == 8.0F);
+        PROGPU_REQUIRE(record.bounds_height == 24.0F);
+        ++retained_degenerate_rectangle_draw_count;
+    }
+    PROGPU_REQUIRE(retained_degenerate_rectangle_draw_count == 1U);
 
     const auto rectangle_generation =
         state.resource_generation(rectangle_geometry);

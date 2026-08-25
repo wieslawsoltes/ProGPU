@@ -3807,6 +3807,238 @@ struct channel::implementation {
             }
             return status::success;
         };
+        const auto append_degenerate_rectangle_stroke = [
+            this,
+            &builder,
+            &resolve_brush_index](
+            double x,
+            double y,
+            double width,
+            double height,
+            double radius,
+            const pen_state& pen,
+            const affine_2d_double& local_transform,
+            const affine_2d_double& effective_transform) noexcept {
+            if (pen.brush_handle == 0U || pen.thickness == 0.0) {
+                return status::success;
+            }
+            if (pen.dash_style_handle != 0U) {
+                const auto dash = dash_styles.find(pen.dash_style_handle);
+                if (dash == dash_styles.end()) {
+                    return status::invalid_handle;
+                }
+                if (!dash->second.intervals.empty()) {
+                    return status::unsupported_command;
+                }
+            }
+            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            const status brush_status = resolve_brush_index(
+                pen.brush_handle,
+                brush_index);
+            if (brush_status != status::success) {
+                return brush_status;
+            }
+            const double half_thickness = pen.thickness * 0.5;
+            const double left = x - half_thickness;
+            const double top = y - half_thickness;
+            const double right = x + width + half_thickness;
+            const double bottom = y + height + half_thickness;
+            progpu_native_image_rect stroke_bounds{};
+            if (!try_transform_bounds(
+                    left,
+                    top,
+                    right - left,
+                    bottom - top,
+                    effective_transform,
+                    stroke_bounds)) {
+                return status::invalid_graph;
+            }
+            progpu_native_affine_2d native_local_transform{};
+            if (!try_to_native_affine(
+                    local_transform,
+                    native_local_transform)) {
+                return status::invalid_graph;
+            }
+            std::vector<progpu_native_path_segment> segments;
+            const auto append_line = [&segments](
+                double x0,
+                double y0,
+                double x1,
+                double y1) {
+                progpu_native_path_segment segment{};
+                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                segment.p0 = {
+                    static_cast<float>(x0), static_cast<float>(y0)};
+                segment.p1 = {
+                    static_cast<float>(x1), static_cast<float>(y1)};
+                segments.push_back(segment);
+            };
+            const auto append_arc = [&segments](
+                double x0,
+                double y0,
+                double x1,
+                double y1,
+                double center_x,
+                double center_y,
+                double radius_x,
+                double radius_y,
+                float theta1) {
+                progpu_native_path_segment segment{};
+                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_ARC;
+                segment.p0 = {
+                    static_cast<float>(x0), static_cast<float>(y0)};
+                segment.p1 = {
+                    static_cast<float>(x1), static_cast<float>(y1)};
+                segment.p2 = {static_cast<float>(center_x),
+                    static_cast<float>(center_y)};
+                segment.p3 = {static_cast<float>(radius_x),
+                    static_cast<float>(radius_y)};
+                segment.pad0 = std::bit_cast<std::uint32_t>(theta1);
+                segment.pad1 = std::bit_cast<std::uint32_t>(
+                    std::numbers::pi_v<float> * 0.5F);
+                segment.pad2 = std::bit_cast<std::uint32_t>(0.0F);
+                segments.push_back(segment);
+            };
+            if (radius > 0.0 ||
+                pen.line_join == PROGPU_NATIVE_STROKE_JOIN_ROUND) {
+                const double outer_radius = radius + half_thickness;
+                const double radius_x = std::min(
+                    outer_radius, (right - left) * 0.5);
+                const double radius_y = std::min(
+                    outer_radius, (bottom - top) * 0.5);
+                constexpr float half_pi =
+                    std::numbers::pi_v<float> * 0.5F;
+                append_arc(
+                    left,
+                    top + radius_y,
+                    left + radius_x,
+                    top,
+                    left + radius_x,
+                    top + radius_y,
+                    radius_x,
+                    radius_y,
+                    std::numbers::pi_v<float>);
+                append_line(
+                    left + radius_x, top, right - radius_x, top);
+                append_arc(
+                    right - radius_x,
+                    top,
+                    right,
+                    top + radius_y,
+                    right - radius_x,
+                    top + radius_y,
+                    radius_x,
+                    radius_y,
+                    std::numbers::pi_v<float> + half_pi);
+                append_line(
+                    right, top + radius_y, right, bottom - radius_y);
+                append_arc(
+                    right,
+                    bottom - radius_y,
+                    right - radius_x,
+                    bottom,
+                    right - radius_x,
+                    bottom - radius_y,
+                    radius_x,
+                    radius_y,
+                    0.0F);
+                append_line(
+                    right - radius_x, bottom, left + radius_x, bottom);
+                append_arc(
+                    left + radius_x,
+                    bottom,
+                    left,
+                    bottom - radius_y,
+                    left + radius_x,
+                    bottom - radius_y,
+                    radius_x,
+                    radius_y,
+                    half_pi);
+                append_line(
+                    left, bottom - radius_y, left, top + radius_y);
+            } else {
+                double bevel_offset = 0.0;
+                if (pen.line_join == PROGPU_NATIVE_STROKE_JOIN_BEVEL) {
+                    bevel_offset = half_thickness;
+                } else {
+                    bevel_offset = std::clamp(
+                        2.0 - std::numbers::sqrt2_v<double> *
+                            pen.miter_limit,
+                        0.0,
+                        1.0) * half_thickness;
+                }
+                bevel_offset = std::clamp(
+                    bevel_offset,
+                    0.0,
+                    0.5 * std::min(right - left, bottom - top));
+                if (bevel_offset == 0.0) {
+                    append_line(left, top, right, top);
+                    append_line(right, top, right, bottom);
+                    append_line(right, bottom, left, bottom);
+                    append_line(left, bottom, left, top);
+                } else {
+                    append_line(
+                        left, top + bevel_offset, left + bevel_offset, top);
+                    append_line(
+                        left + bevel_offset,
+                        top,
+                        right - bevel_offset,
+                        top);
+                    append_line(
+                        right - bevel_offset,
+                        top,
+                        right,
+                        top + bevel_offset);
+                    append_line(
+                        right,
+                        top + bevel_offset,
+                        right,
+                        bottom - bevel_offset);
+                    append_line(
+                        right,
+                        bottom - bevel_offset,
+                        right - bevel_offset,
+                        bottom);
+                    append_line(
+                        right - bevel_offset,
+                        bottom,
+                        left + bevel_offset,
+                        bottom);
+                    append_line(
+                        left + bevel_offset,
+                        bottom,
+                        left,
+                        bottom - bevel_offset);
+                    append_line(
+                        left,
+                        bottom - bevel_offset,
+                        left,
+                        top + bevel_offset);
+                }
+            }
+            const std::array paths{
+                progpu_native_scene_path_fill{
+                    0U,
+                    segments.size(),
+                    0U,
+                    0U,
+                    static_cast<float>(left),
+                    static_cast<float>(top),
+                    static_cast<float>(right),
+                    static_cast<float>(bottom),
+                    {1.0F, 1.0F, 1.0F, 1.0F},
+                    native_local_transform,
+                    PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+                    8U}};
+            const std::array brushes{brush_index};
+            return builder.draw_paths(
+                    paths,
+                    segments,
+                    brushes,
+                    stroke_bounds)
+                ? status::success
+                : status::invalid_graph;
+        };
         for (;;) {
             const status read_status = reader.next(view);
             if (read_status == status::end_of_batch) {
@@ -4612,18 +4844,24 @@ struct channel::implementation {
                 if (pen->second.brush_handle != 0U &&
                     pen->second.thickness > 0.0) {
                     if (width == 0.0 || height == 0.0) {
-                        if (!is_ellipse) {
-                            return status::unsupported_command;
-                        }
-                        const status stroke_status =
-                            append_degenerate_ellipse_stroke(
-                                first,
-                                second,
-                                third,
-                                fourth,
-                                pen->second,
-                                local_transform,
-                                effective_transform);
+                        const status stroke_status = is_ellipse
+                            ? append_degenerate_ellipse_stroke(
+                                  first,
+                                  second,
+                                  third,
+                                  fourth,
+                                  pen->second,
+                                  local_transform,
+                                  effective_transform)
+                            : append_degenerate_rectangle_stroke(
+                                  x,
+                                  y,
+                                  width,
+                                  height,
+                                  is_rounded ? radius_x : 0.0,
+                                  pen->second,
+                                  local_transform,
+                                  effective_transform);
                         if (stroke_status != status::success) {
                             return stroke_status;
                         }
