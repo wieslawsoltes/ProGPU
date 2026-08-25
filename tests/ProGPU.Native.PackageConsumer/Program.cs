@@ -38,6 +38,8 @@ bool imageDrawingOnly = args.Contains(
     "--mil-image-drawing-only", StringComparer.Ordinal);
 bool glyphRunDrawingOnly = args.Contains(
     "--mil-glyph-run-drawing-only", StringComparer.Ordinal);
+bool textRenderOptionsOnly = args.Contains(
+    "--mil-text-render-options-only", StringComparer.Ordinal);
 bool drawingImageOnly = args.Contains(
     "--mil-drawing-image-only", StringComparer.Ordinal);
 bool guidelineOnly = args.Contains(
@@ -65,6 +67,8 @@ if (!renderOnly)
         ? CreateMilGuidelineBatch()
         : drawingImageOnly
         ? CreateMilDrawingImageBatch()
+        : textRenderOptionsOnly
+        ? CreateMilGlyphRunDrawingBatch(includeTextRenderOptions: true)
         : glyphRunDrawingOnly
         ? CreateMilGlyphRunDrawingBatch()
         : imageDrawingOnly
@@ -83,13 +87,15 @@ if (!renderOnly)
             mixedArcGroup);
     bool focusedMil = gradientOnly || geometryDrawingOnly ||
         drawingGroupOnly || imageDrawingOnly || glyphRunDrawingOnly ||
-        drawingImageOnly || guidelineOnly;
+        textRenderOptionsOnly || drawingImageOnly || guidelineOnly;
     uint targetHandle = focusedMil ? 2U : 42U;
     uint visualHandle = focusedMil ? 1U : 41U;
     uint expectedCommandCount = guidelineOnly
         ? 19U
         : drawingImageOnly
         ? 19U
+        : textRenderOptionsOnly
+        ? 16U
         : glyphRunDrawingOnly
         ? 14U
         : imageDrawingOnly
@@ -111,7 +117,8 @@ if (!renderOnly)
     uint expectedEllipseCount = gradientOnly ? 1U : focusedMil ? 0U : 4U;
     uint expectedRoundedRectangleCount = focusedMil ? 0U : 6U;
     uint expectedLineCount = focusedMil ? 0U : 3U;
-    uint expectedBrushCount = imageDrawingOnly || glyphRunDrawingOnly
+    uint expectedBrushCount = imageDrawingOnly || glyphRunDrawingOnly ||
+        textRenderOptionsOnly
         ? 0U
         : gradientOnly ? 3U : 1U;
     using (var mil = new NativeMilChannel())
@@ -121,7 +128,7 @@ if (!renderOnly)
         {
             BindFocusedBitmapSource(mil);
         }
-        if (glyphRunDrawingOnly)
+        if (glyphRunDrawingOnly || textRenderOptionsOnly)
         {
             BindFocusedGlyphRunFont(mil);
         }
@@ -155,7 +162,7 @@ if (!renderOnly)
         {
             BindFocusedBitmapSource(dawnMil);
         }
-        if (glyphRunDrawingOnly)
+        if (glyphRunDrawingOnly || textRenderOptionsOnly)
         {
             BindFocusedGlyphRunFont(dawnMil);
         }
@@ -450,7 +457,8 @@ static byte[] CreateMilImageDrawingBatch()
     return batch.ToArray();
 }
 
-static byte[] CreateMilGlyphRunDrawingBatch()
+static byte[] CreateMilGlyphRunDrawingBatch(
+    bool includeTextRenderOptions = false)
 {
     var renderData = new NativeMilRenderDataBuilder();
     renderData.DrawDrawing(6);
@@ -462,6 +470,17 @@ static byte[] CreateMilGlyphRunDrawingBatch()
     batch.CreateResource(4, NativeMilResourceType.SolidColorBrush);
     batch.CreateResource(6, NativeMilResourceType.GlyphRunDrawing);
     batch.CreateVisual(1);
+    if (includeTextRenderOptions)
+    {
+        batch.SetVisualOffset(1, 0.375, 0.4);
+        batch.SetVisualRenderOptions(
+            1,
+            new NativeMilRenderOptions(
+                NativeMilRenderOptionFlags.TextRenderingMode |
+                NativeMilRenderOptionFlags.TextHintingMode,
+                TextRenderingMode: NativeMilTextRenderingMode.ClearType,
+                TextHintingMode: NativeMilTextHintingMode.Fixed));
+    }
     batch.SetVisualContent(1, 3);
     batch.SetSolidColorBrush(4, new NativeMilColor(0.2f, 0.6f, 1, 1));
     batch.SetGlyphRun(
