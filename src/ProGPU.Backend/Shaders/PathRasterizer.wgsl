@@ -255,6 +255,20 @@ fn row_coverage_mask(
     sampleGrid: u32,
     scaleX: f32,
     record: PathRecord) -> u32 {
+    let firstSampleX = path_sample_x(
+        pixelX,
+        0u,
+        sampleGrid,
+        scaleX);
+    let lastSampleX = path_sample_x(
+        pixelX,
+        sampleGrid - 1u,
+        sampleGrid,
+        scaleX);
+    if (sampleY < record.minY || sampleY > record.maxY ||
+        lastSampleX < record.minX || firstSampleX > record.maxX) {
+        return 0u;
+    }
     var winding = WindingRow(vec4<i32>(0), vec4<i32>(0));
     let samplePositionsX = SampleRow(
         vec4<f32>(
@@ -294,6 +308,10 @@ fn row_coverage_mask(
             let A = seg.p0;
             let B = seg.p1;
             let C = seg.p2;
+            if (sampleY < min(A.y, min(B.y, C.y)) ||
+                sampleY > max(A.y, max(B.y, C.y))) {
+                continue;
+            }
 
             let a = A.y - 2.0 * B.y + C.y;
             let b = 2.0 * (B.y - A.y);
@@ -420,6 +438,10 @@ fn row_coverage_mask(
             let B = seg.p1;
             let C = seg.p2;
             let D_pt = seg.p3;
+            if (sampleY < min(min(A.y, B.y), min(C.y, D_pt.y)) ||
+                sampleY > max(max(A.y, B.y), max(C.y, D_pt.y))) {
+                continue;
+            }
             let rational = seg.segmentType == 5u;
             let weight1 = select(1.0, bitcast<f32>(seg._pad0), rational);
             let weight2 = select(1.0, bitcast<f32>(seg._pad1), rational);
