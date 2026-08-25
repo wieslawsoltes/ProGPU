@@ -32,7 +32,19 @@ bool renderOnly = args.Contains("--render-only", StringComparer.Ordinal);
 byte[]? compiledMilStream = null;
 if (!renderOnly)
 {
-    byte[] milBatch = CreateMilSeedBatch();
+    bool arcGroupOnly =
+        args.Contains("--mil-arc-group-only", StringComparer.Ordinal);
+    bool arcBooleanOnly =
+        args.Contains("--mil-arc-boolean-only", StringComparer.Ordinal);
+    bool affineRecursiveOnly =
+        args.Contains("--mil-affine-recursive-only", StringComparer.Ordinal);
+    bool includeRecursiveGroupArc =
+        !affineRecursiveOnly && !arcBooleanOnly;
+    bool includeRecursiveBooleanArc =
+        !affineRecursiveOnly && !arcGroupOnly;
+    byte[] milBatch = CreateMilSeedBatch(
+        includeRecursiveGroupArc,
+        includeRecursiveBooleanArc);
     using (var mil = new NativeMilChannel())
     {
         NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
@@ -170,7 +182,9 @@ Console.WriteLine(
     $"Dawn ABI {NativeDawnAdapter.AdapterAbiVersion}, " +
     $"draws={metrics.DrawCallCount}, pixels={pixels.Length}.");
 
-static byte[] CreateMilSeedBatch()
+static byte[] CreateMilSeedBatch(
+    bool includeRecursiveGroupArc,
+    bool includeRecursiveBooleanArc)
 {
     var renderData = new NativeMilRenderDataBuilder();
     renderData.PushTransform(45);
@@ -237,17 +251,21 @@ static byte[] CreateMilSeedBatch()
     batch.SetGeometryGroup(
         57,
         NativeMilPathFillRule.EvenOdd,
-        [52],
+        includeRecursiveGroupArc || includeRecursiveBooleanArc
+            ? [52]
+            : [53],
         45);
     batch.SetGeometryGroup(
         54,
         NativeMilPathFillRule.EvenOdd,
-        [52, 53, 50, 51, 57],
+        includeRecursiveGroupArc
+            ? [52, 53, 50, 51, 57]
+            : [52, 53, 50, 51],
         45);
     batch.SetCombinedGeometry(
         58,
         NativeMilGeometryCombineMode.Intersect,
-        57,
+        includeRecursiveBooleanArc ? 57U : 53U,
         50,
         45);
     batch.SetCombinedGeometry(
