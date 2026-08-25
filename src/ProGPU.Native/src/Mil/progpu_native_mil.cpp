@@ -794,6 +794,7 @@ struct channel::implementation {
             PROGPU_NATIVE_SCENE_NO_INDEX};
         bool edge_aliased{};
         bool clear_type_enabled{};
+        bool subpixel_text_disabled{};
         std::uint32_t text_rendering_mode{};
         std::uint32_t text_hinting_mode{};
     };
@@ -4002,9 +4003,10 @@ struct channel::implementation {
         const std::uint32_t text_rendering_mode =
             current.text_rendering_mode == 1U
             ? PROGPU_NATIVE_SCENE_TEXT_ALIASED
-            : current.text_rendering_mode == 3U ||
+            : !current.subpixel_text_disabled &&
+                (current.text_rendering_mode == 3U ||
                 (current.text_rendering_mode == 0U &&
-                 current.clear_type_enabled)
+                 current.clear_type_enabled))
             ? PROGPU_NATIVE_SCENE_TEXT_CLEARTYPE
             : PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE;
         const progpu_native_scene_text_style style{
@@ -8691,9 +8693,6 @@ struct channel::implementation {
             skip_content = true;
             return status::success;
         }
-        if (cache->second.enable_clear_type) {
-            return status::unsupported_command;
-        }
         const auto& cache_visual = visuals.at(visual_handle);
         if (!cache_visual.has_cache_bounds) {
             return status::unsupported_command;
@@ -8800,6 +8799,9 @@ struct channel::implementation {
         content_state.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         content_state.guideline_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX;
+        content_state.subpixel_text_disabled =
+            state.subpixel_text_disabled ||
+            !cache->second.enable_clear_type;
         auto raster_state =
             native::semantic_scene_builder::identity_state();
         if (!try_to_native_affine(

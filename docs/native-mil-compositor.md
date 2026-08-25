@@ -1714,8 +1714,10 @@ page. Positive finite static or animated RenderAtScale values resize and
 rerasterize it, and exact resolved scale zero suppresses the subtree.
 SnapsToDevicePixels transforms the exact local bounds through outer placement,
 floors the resulting world-space left/top, and applies the fractional
-correction only to the cached-page composite. EnableClearType still returns
-`unsupported_command`.
+correction only to the cached-page composite. EnableClearType controls the
+cache raster scope: false suppresses requested subpixel glyph styles to
+grayscale, while true permits the existing inherited or explicit ClearType
+mode without forcing unrelated text into ClearType.
 Root composite clips, spatial masks, and guideline state also fail closed until
 the local-cache layer carries those post-raster operations explicitly.
 
@@ -1774,13 +1776,13 @@ The implementation sequence is intentionally architectural:
    composite-only placement, and positive finite RenderAtScale.)
 4. Publish neutral typed cache state from source-built WPF and emit it from
    LibreWPF without reflection.
-5. Qualify pixel snapping, ClearType policy, composite clip/mask/guideline
-   ordering, nested cache lifetime, effects ordering, and LibreWPF package
-   lanes. (Live D3D12 is qualified for the current local-space subset.)
+5. Qualify composite clip/mask/guideline ordering, nested cache lifetime,
+   effects ordering, LibreWPF package lanes, and the combined snapping/ClearType
+   checkpoint on live D3D12.
 
 The persistent page and composite-transform path are executable, but full cache
-parity is not claimed until the remaining post-raster state and text policies
-above are exact. Treating BitmapCache as a no-op, an ephemeral full-target
+parity is not claimed until the remaining post-raster state and ordering
+policies above are exact. Treating BitmapCache as a no-op, an ephemeral full-target
 layer, or a depth-slot effect-cache alias would preserve neither WPF pixels nor
 its performance contract and remains explicitly excluded.
 
