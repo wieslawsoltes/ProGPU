@@ -2230,6 +2230,19 @@ root's outer state in that pixel hash to prevent stale placement; the planned
 local-space representation will split those fields into composite identity so
 outer-only changes avoid rerasterization exactly as WPF does.
 
+The exact-bounds implementation at `dd3857a4` is qualified on Windows 11 ARM64
+under Parallels. Both wgpu-native and provider-resolved Dawn modules rebuilt
+with strict MSVC warnings-as-errors, all 11 native/Dawn CTests and both export
+allowlists passed, and the C++ plus managed samples executed on the live
+Parallels D3D12 adapter with successful allocation and readback checks. The
+bounded D3D12 differential smoke matrix and managed/C++ text-shaping parity
+also passed. Packaged `progpu_native.dll` and `progpu_native_dawn.dll` hashes
+are respectively
+`D17701FB0669A241183AF064080A1FD1ADD29AE1B000A531CCE5E7307B2650C6` and
+`02414A74F7C6CB1A84F2846D5E5B701102E4812B5AEFCBA25688AE881592BD42`.
+This is evidence for the current target-coordinate subset only; the local-space
+raster/composite split remains a required cache-parity gate.
+
 The command vocabulary is deliberately semantic:
 
 - save/restore transform and rectangular/rounded/vector clip state;
