@@ -4624,6 +4624,12 @@ public class NativeRendererInteropTests
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
+            "target_link_libraries(progpu_native_dawn PRIVATE\n" +
+            "        progpu_native_mil\n" +
+            "        progpu_native_text)",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
             "target_link_libraries(progpu_native_dawn PRIVATE progpu_native_text)",
             cmake,
             StringComparison.Ordinal);
