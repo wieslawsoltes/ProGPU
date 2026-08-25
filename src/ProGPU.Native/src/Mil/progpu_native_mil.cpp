@@ -584,6 +584,8 @@ struct channel::implementation {
         std::uint32_t clear_type_hint{};
         std::uint32_t text_rendering_mode{};
         std::uint32_t text_hinting_mode{};
+        std::vector<double> guidelines_x;
+        std::vector<double> guidelines_y;
         std::vector<std::uint32_t> children;
     };
 
@@ -1535,6 +1537,62 @@ struct channel::implementation {
                 return status::invalid_handle;
             }
             visuals.at(handle).alpha_mask_handle = alpha_mask;
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::visual_set_guideline_collection: {
+            std::uint16_t count_x = 0U;
+            std::uint16_t padding_x = 0U;
+            std::uint16_t count_y = 0U;
+            std::uint16_t padding_y = 0U;
+            if (view.packet.size() < 16U ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, count_x) ||
+                !read_at(view.packet, 10U, padding_x) ||
+                !read_at(view.packet, 12U, count_y) ||
+                !read_at(view.packet, 14U, padding_y) ||
+                padding_x != 0U || padding_y != 0U ||
+                static_cast<std::uint64_t>(count_x + count_y) *
+                        sizeof(float) !=
+                    view.packet.size() - 16U) {
+                return status::malformed_batch;
+            }
+            if (!require_visual(handle)) {
+                return status::invalid_handle;
+            }
+            std::vector<double> guidelines_x;
+            std::vector<double> guidelines_y;
+            try {
+                guidelines_x.resize(count_x);
+                guidelines_y.resize(count_y);
+            } catch (const std::bad_alloc&) {
+                return status::capacity_exceeded;
+            }
+            std::size_t offset = 16U;
+            for (double& coordinate : guidelines_x) {
+                float value = 0.0F;
+                if (!read_at(view.packet, offset, value) ||
+                    !std::isfinite(value)) {
+                    return status::malformed_batch;
+                }
+                coordinate = value;
+                offset += sizeof(value);
+            }
+            for (double& coordinate : guidelines_y) {
+                float value = 0.0F;
+                if (!read_at(view.packet, offset, value) ||
+                    !std::isfinite(value)) {
+                    return status::malformed_batch;
+                }
+                coordinate = value;
+                offset += sizeof(value);
+            }
+            std::ranges::sort(guidelines_x);
+            std::ranges::sort(guidelines_y);
+            auto& visual = visuals.at(handle);
+            visual.guidelines_x = std::move(guidelines_x);
+            visual.guidelines_y = std::move(guidelines_y);
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -6972,50 +7030,15 @@ struct channel::implementation {
                             active_drawings.erase(drawing_handle);
                             return status::unsupported_command;
                         }
-                        if (next.transform.m12 != 0.0 ||
-                            next.transform.m21 != 0.0) {
-                            // WPF pushes an empty snapping frame when the
-                            // effective transform is not scale/translate.
-                            next.guideline_resource_index =
-                                PROGPU_NATIVE_SCENE_NO_INDEX;
-                        } else if (guidelines->second.guidelines_x.empty() &&
-                            guidelines->second.guidelines_y.empty()) {
-                            next.guideline_resource_index =
-                                PROGPU_NATIVE_SCENE_NO_INDEX;
-                        } else {
-                            std::array<double, 1U> mapped_x{};
-                            std::array<double, 1U> mapped_y{};
-                            std::span<const double> mapped_x_span;
-                            std::span<const double> mapped_y_span;
-                            if (!guidelines->second.guidelines_x.empty()) {
-                                mapped_x[0] = static_cast<float>(
-                                    static_cast<float>(
-                                        guidelines->second.guidelines_x[0]) *
-                                        static_cast<float>(
-                                            next.transform.m11) +
-                                    static_cast<float>(next.transform.m31));
-                                mapped_x_span = mapped_x;
-                            }
-                            if (!guidelines->second.guidelines_y.empty()) {
-                                mapped_y[0] = static_cast<float>(
-                                    static_cast<float>(
-                                        guidelines->second.guidelines_y[0]) *
-                                        static_cast<float>(
-                                            next.transform.m22) +
-                                    static_cast<float>(next.transform.m32));
-                                mapped_y_span = mapped_y;
-                            }
-                            std::uint32_t guideline_resource_index =
-                                PROGPU_NATIVE_SCENE_NO_INDEX;
-                            if (!builder.add_guideline_set(
-                                    mapped_x_span,
-                                    mapped_y_span,
-                                    guideline_resource_index)) {
-                                active_drawings.erase(drawing_handle);
-                                return status::invalid_graph;
-                            }
-                            next.guideline_resource_index =
-                                guideline_resource_index;
+                        const status guideline_status =
+                            apply_static_guidelines(
+                                guidelines->second.guidelines_x,
+                                guidelines->second.guidelines_y,
+                                next,
+                                builder);
+                        if (guideline_status != status::success) {
+                            active_drawings.erase(drawing_handle);
+                            return guideline_status;
                         }
                     }
                     if (group->second.clip_geometry_handle != 0U) {
@@ -7926,6 +7949,50 @@ struct channel::implementation {
         return status::success;
     }
 
+    static status apply_static_guidelines(
+        std::span<const double> guidelines_x,
+        std::span<const double> guidelines_y,
+        render_scope_state& state,
+        native::semantic_scene_builder& builder) {
+        if (guidelines_x.size() > 1U || guidelines_y.size() > 1U) {
+            return status::unsupported_command;
+        }
+        if (state.transform.m12 != 0.0 || state.transform.m21 != 0.0 ||
+            (guidelines_x.empty() && guidelines_y.empty())) {
+            state.guideline_resource_index =
+                PROGPU_NATIVE_SCENE_NO_INDEX;
+            return status::success;
+        }
+        std::array<double, 1U> mapped_x{};
+        std::array<double, 1U> mapped_y{};
+        std::span<const double> mapped_x_span;
+        std::span<const double> mapped_y_span;
+        if (!guidelines_x.empty()) {
+            mapped_x[0] = static_cast<float>(
+                static_cast<float>(guidelines_x[0]) *
+                    static_cast<float>(state.transform.m11) +
+                static_cast<float>(state.transform.m31));
+            mapped_x_span = mapped_x;
+        }
+        if (!guidelines_y.empty()) {
+            mapped_y[0] = static_cast<float>(
+                static_cast<float>(guidelines_y[0]) *
+                    static_cast<float>(state.transform.m22) +
+                static_cast<float>(state.transform.m32));
+            mapped_y_span = mapped_y;
+        }
+        std::uint32_t guideline_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder.add_guideline_set(
+                mapped_x_span,
+                mapped_y_span,
+                guideline_resource_index)) {
+            return status::invalid_graph;
+        }
+        state.guideline_resource_index = guideline_resource_index;
+        return status::success;
+    }
+
     status apply_visual_rectangle_clip(
         std::uint32_t geometry_handle,
         render_scope_state& state) const {
@@ -8059,6 +8126,17 @@ struct channel::implementation {
             compose_affine(local_transform, offset_transform),
             parent_state.transform);
         current.transform = transform;
+        // WPF Visual content never inherits the parent's guideline frame.
+        current.guideline_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        const status guideline_status = apply_static_guidelines(
+            visual->second.guidelines_x,
+            visual->second.guidelines_y,
+            current,
+            builder);
+        if (guideline_status != status::success) {
+            active_visuals.erase(handle);
+            return guideline_status;
+        }
         double opacity_mask_alpha = 1.0;
         const status opacity_mask_status =
             resolve_uniform_opacity_mask_alpha(
@@ -8125,6 +8203,12 @@ struct channel::implementation {
             PROGPU_NATIVE_SCENE_NO_INDEX) {
             state.flags |= PROGPU_NATIVE_SCENE_STATE_MASK;
             state.mask_resource_index = current.mask_resource_index;
+        }
+        if (current.guideline_resource_index !=
+            PROGPU_NATIVE_SCENE_NO_INDEX) {
+            state.flags |= PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+            state.guideline_resource_index =
+                current.guideline_resource_index;
         }
         std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         if (!builder.add_state(state, state_index) ||

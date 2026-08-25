@@ -1330,6 +1330,172 @@ bool visual_solid_opacity_mask_composes_and_updates() {
     return true;
 }
 
+bool visual_static_guidelines_reset_at_child_boundaries() {
+    constexpr std::uint32_t root = 1U;
+    constexpr std::uint32_t child = 2U;
+    constexpr std::uint32_t root_content = 3U;
+    constexpr std::uint32_t child_content = 4U;
+    constexpr std::uint32_t target = 5U;
+    constexpr std::uint32_t brush = 6U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, root, 39U);
+    append_create(batch, child, 39U);
+    append_create(batch, root_content, 43U);
+    append_create(batch, child_content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_command(batch, command::visual_create, root);
+    append_command(batch, command::visual_create, child);
+    append_command(batch, command::visual_set_offset, root, 10.0, 20.0);
+    append_command(batch, command::visual_set_offset, child, 5.0, 0.0);
+    append_command(
+        batch,
+        command::visual_set_guideline_collection,
+        root,
+        std::uint16_t{1U},
+        std::uint16_t{0U},
+        std::uint16_t{1U},
+        std::uint16_t{0U},
+        2.25F,
+        3.5F);
+    append_command(
+        batch, command::visual_set_content, root, root_content);
+    append_command(
+        batch, command::visual_set_content, child, child_content);
+    append_command(
+        batch, command::visual_insert_child_at, root, child, 0U);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.2F, 0.7F, 1.0F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    std::vector<std::byte> root_records;
+    append_command(
+        root_records,
+        command::draw_rectangle,
+        0.0,
+        0.0,
+        20.0,
+        20.0,
+        brush,
+        0U);
+    append_render_data(batch, root_content, root_records);
+    std::vector<std::byte> child_records;
+    append_command(
+        child_records,
+        command::draw_rectangle,
+        0.0,
+        0.0,
+        20.0,
+        20.0,
+        brush,
+        0U);
+    append_render_data(batch, child_content, child_records);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, root);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9012U, 1U, stream, &metrics) ==
+        status::success);
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_guidelines = false;
+    bool found_root_state = false;
+    bool found_child_reset = false;
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET) {
+            const auto value = read_value<progpu_native_scene_guideline_set>(
+                stream, resource.payload_offset);
+            PROGPU_REQUIRE(value.guideline_x_count == 1U);
+            PROGPU_REQUIRE(value.guideline_y_count == 1U);
+            PROGPU_REQUIRE(read_value<double>(
+                stream, resource.payload_offset + sizeof(value)) == 12.25);
+            PROGPU_REQUIRE(read_value<double>(
+                stream,
+                resource.payload_offset + sizeof(value) + sizeof(double)) ==
+                23.5);
+            found_guidelines = true;
+        } else if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            const auto scene_state = read_value<progpu_native_scene_state>(
+                stream, resource.payload_offset);
+            const bool has_guidelines = (scene_state.flags &
+                PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U;
+            found_root_state |= has_guidelines &&
+                scene_state.transform.m31 == 10.0F &&
+                scene_state.transform.m32 == 20.0F;
+            found_child_reset |= !has_guidelines &&
+                scene_state.transform.m31 == 15.0F &&
+                scene_state.transform.m32 == 20.0F;
+        }
+    }
+    PROGPU_REQUIRE(found_guidelines);
+    PROGPU_REQUIRE(found_root_state);
+    PROGPU_REQUIRE(found_child_reset);
+
+    std::vector<std::byte> multiple;
+    append_command(
+        multiple,
+        command::visual_set_guideline_collection,
+        root,
+        std::uint16_t{2U},
+        std::uint16_t{0U},
+        std::uint16_t{0U},
+        std::uint16_t{0U},
+        1.0F,
+        2.0F);
+    PROGPU_REQUIRE(state.apply(multiple) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9012U, 2U, stream, &metrics) ==
+        status::unsupported_command);
+
+    std::vector<std::byte> clear;
+    append_command(
+        clear,
+        command::visual_set_guideline_collection,
+        root,
+        std::uint16_t{0U},
+        std::uint16_t{0U},
+        std::uint16_t{0U},
+        std::uint16_t{0U});
+    PROGPU_REQUIRE(state.apply(clear) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9012U, 3U, stream, &metrics) ==
+        status::success);
+
+    std::vector<std::byte> malformed;
+    append_command(
+        malformed,
+        command::visual_set_guideline_collection,
+        root,
+        std::uint16_t{0U},
+        std::uint16_t{1U},
+        std::uint16_t{0U},
+        std::uint16_t{0U});
+    PROGPU_REQUIRE(state.apply(malformed) == status::malformed_batch);
+    return true;
+}
+
 bool matrix_transform_scopes_compile_to_semantic_state() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -7363,6 +7529,7 @@ int main() {
     PROGPU_REQUIRE(solid_rectangle_compiles_to_semantic_scene());
     PROGPU_REQUIRE(visual_clips_compile_to_exact_semantic_state());
     PROGPU_REQUIRE(visual_solid_opacity_mask_composes_and_updates());
+    PROGPU_REQUIRE(visual_static_guidelines_reset_at_child_boundaries());
     PROGPU_REQUIRE(matrix_transform_scopes_compile_to_semantic_state());
     PROGPU_REQUIRE(
         static_transform_resources_compose_and_retain_dependencies());
