@@ -112,7 +112,8 @@ bool semantic_scene_builder::add_state(
         !std::isfinite(source.opacity) || source.opacity < 0.0F ||
         source.opacity > 1.0F ||
         (source.flags & ~(PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
-            PROGPU_NATIVE_SCENE_STATE_MASK)) != 0U ||
+            PROGPU_NATIVE_SCENE_STATE_MASK |
+            PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET)) != 0U ||
         ((source.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U &&
             !finite_rect(source.clip_rect)) ||
         ((source.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U &&
@@ -121,6 +122,12 @@ bool semantic_scene_builder::add_state(
                 implementation_->resources[source.mask_resource_index]
                         .record.kind !=
                     PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK)) ||
+        ((source.flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U &&
+            (source.guideline_resource_index >=
+                    implementation_->resources.size() ||
+                implementation_->resources[source.guideline_resource_index]
+                        .record.kind !=
+                    PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET)) ||
         implementation_->resources.size() >=
             PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
         return implementation_->fail(scene_build_error::invalid_argument);
@@ -135,7 +142,10 @@ bool semantic_scene_builder::add_state(
             (state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U
             ? source.mask_resource_index
             : 0U;
-        state.reserved1 = 0U;
+        state.guideline_resource_index =
+            (state.flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U
+            ? source.guideline_resource_index
+            : 0U;
         implementation::resource_entry resource{};
         resource.record.struct_size = sizeof(resource.record);
         resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_STATE;
@@ -144,6 +154,60 @@ bool semantic_scene_builder::add_state(
         resource.record.generation = implementation_->generation;
         resource.payload = copy_bytes(
             std::span<const progpu_native_scene_state>(&state, 1U));
+        resource_index = static_cast<std::uint32_t>(
+            implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+bool semantic_scene_builder::add_guideline_set(
+    std::span<const double> guidelines_x,
+    std::span<const double> guidelines_y,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (guidelines_x.size() > 1U || guidelines_y.size() > 1U ||
+        implementation_->resources.size() >=
+            PROGPU_NATIVE_SCENE_MAX_RESOURCES ||
+        std::ranges::any_of(guidelines_x,
+            [](double value) { return !std::isfinite(value); }) ||
+        std::ranges::any_of(guidelines_y,
+            [](double value) { return !std::isfinite(value); })) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    try {
+        implementation_->resources.reserve(
+            implementation_->resources.size() + 1U);
+        progpu_native_scene_guideline_set header{};
+        header.struct_size = sizeof(header);
+        header.guideline_x_count =
+            static_cast<std::uint32_t>(guidelines_x.size());
+        header.guideline_y_count =
+            static_cast<std::uint32_t>(guidelines_y.size());
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload.resize(sizeof(header) +
+            (guidelines_x.size() + guidelines_y.size()) * sizeof(double));
+        std::memcpy(resource.payload.data(), &header, sizeof(header));
+        std::size_t offset = sizeof(header);
+        if (!guidelines_x.empty()) {
+            std::memcpy(resource.payload.data() + offset,
+                guidelines_x.data(), guidelines_x.size_bytes());
+            offset += guidelines_x.size_bytes();
+        }
+        if (!guidelines_y.empty()) {
+            std::memcpy(resource.payload.data() + offset,
+                guidelines_y.data(), guidelines_y.size_bytes());
+        }
         resource_index = static_cast<std::uint32_t>(
             implementation_->resources.size());
         implementation_->resources.push_back(std::move(resource));

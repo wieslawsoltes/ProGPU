@@ -2646,6 +2646,80 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void SemanticSceneBuilderWritesBoundedStaticGuidelineState()
+    {
+        Span<byte> destination = stackalloc byte[2048];
+        Span<double> guidelinesX = stackalloc double[1] { 12.25 };
+        Span<double> guidelinesY = stackalloc double[1] { 23.5 };
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 83U,
+            generation: 1U,
+            commandCapacity: 0,
+            resourceCapacity: 2);
+        Assert.True(builder.TryAddGuidelineSetResource(
+            1U,
+            1U,
+            guidelinesX,
+            guidelinesY,
+            out uint guidelineIndex));
+        var state = new NativeSceneState(
+            Matrix3x2.Identity,
+            flags: NativeSceneStateFlags.GuidelineSet,
+            guidelineResourceIndex: guidelineIndex);
+        Assert.True(builder.TryAddStateResource(
+            2U,
+            1U,
+            in state,
+            out uint stateIndex));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var guidelineResource =
+            MemoryMarshal.Read<NativeMethods.SceneResource>(
+                stream[(int)header.ResourceOffset..]);
+        var stateResource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[((int)header.ResourceOffset + 48)..]);
+        var storedState = MemoryMarshal.Read<NativeSceneState>(
+            stream[(int)stateResource.PayloadOffset..]);
+        Assert.Equal(0U, guidelineIndex);
+        Assert.Equal(1U, stateIndex);
+        Assert.Equal(
+            NativeSceneResourceKind.GuidelineSet,
+            guidelineResource.Kind);
+        Assert.Equal(32U, guidelineResource.PayloadSize);
+        Assert.Equal(
+            12.25,
+            MemoryMarshal.Read<double>(
+                stream[((int)guidelineResource.PayloadOffset + 16)..]));
+        Assert.Equal(
+            23.5,
+            MemoryMarshal.Read<double>(
+                stream[((int)guidelineResource.PayloadOffset + 24)..]));
+        Assert.Equal(
+            NativeSceneStateFlags.GuidelineSet,
+            storedState.Flags);
+        Assert.Equal(guidelineIndex, storedState.GuidelineResourceIndex);
+
+        Span<double> tooMany = stackalloc double[2] { 1, 2 };
+        Assert.False(builder.TryAddGuidelineSetResource(
+            3U,
+            1U,
+            tooMany,
+            [],
+            out _));
+        var missingResource = new NativeSceneState(
+            Matrix3x2.Identity,
+            flags: NativeSceneStateFlags.GuidelineSet,
+            guidelineResourceIndex: NativeMethods.SceneNoIndex);
+        Assert.False(builder.TryAddStateResource(
+            4U,
+            1U,
+            in missingResource,
+            out _));
+    }
+
+    [Fact]
     public void SemanticSceneBuilderWritesBoundedMaskChainWithoutAllocation()
     {
         Span<byte> destination = stackalloc byte[4096];

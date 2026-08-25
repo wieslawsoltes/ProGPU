@@ -4398,6 +4398,175 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
     return true;
 }
 
+bool retained_static_guideline_set_snaps_one_guide_per_axis() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t geometry = 5U;
+    constexpr std::uint32_t drawing = 6U;
+    constexpr std::uint32_t group = 7U;
+    constexpr std::uint32_t transform = 8U;
+    constexpr std::uint32_t guidelines = 9U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, geometry, 69U);
+    append_create(batch, drawing, 87U);
+    append_create(batch, group, 91U);
+    append_create(batch, transform, 66U);
+    append_create(batch, guidelines, 92U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.25F, 0.5F, 0.75F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::rectangle_geometry,
+        geometry,
+        0.0,
+        0.0,
+        2.0,
+        3.0,
+        20.0,
+        10.0,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::geometry_drawing,
+        drawing,
+        brush,
+        0U,
+        geometry);
+    append_command(
+        batch,
+        command::matrix_transform,
+        transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        10.0,
+        20.0,
+        0U);
+    append_command(
+        batch,
+        command::guideline_set,
+        guidelines,
+        8U,
+        8U,
+        0U,
+        2.25,
+        3.5);
+    append_command(
+        batch,
+        command::drawing_group,
+        group,
+        1.0,
+        4U,
+        0U,
+        0U,
+        0U,
+        transform,
+        guidelines,
+        0U,
+        0U,
+        0U,
+        drawing);
+    std::vector<std::byte> nested;
+    append_command(nested, command::draw_drawing, group, 0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7007U, 1U, stream, &metrics) ==
+        status::success);
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_guidelines = false;
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET) {
+            continue;
+        }
+        const auto value = read_value<progpu_native_scene_guideline_set>(
+            stream, resource.payload_offset);
+        PROGPU_REQUIRE(value.guideline_x_count == 1U);
+        PROGPU_REQUIRE(value.guideline_y_count == 1U);
+        PROGPU_REQUIRE(read_value<double>(
+            stream, resource.payload_offset + sizeof(value)) == 12.25);
+        PROGPU_REQUIRE(read_value<double>(
+            stream,
+            resource.payload_offset + sizeof(value) + sizeof(double)) ==
+            23.5);
+        found_guidelines = true;
+    }
+    PROGPU_REQUIRE(found_guidelines);
+
+    bool found_guideline_state = false;
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            continue;
+        }
+        const auto scene_state = read_value<progpu_native_scene_state>(
+            stream, resource.payload_offset);
+        found_guideline_state |= (scene_state.flags &
+            PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U &&
+            scene_state.transform.m31 == 10.0F &&
+            scene_state.transform.m32 == 20.0F;
+    }
+    PROGPU_REQUIRE(found_guideline_state);
+
+    std::vector<std::byte> multiple_update;
+    append_command(
+        multiple_update,
+        command::guideline_set,
+        guidelines,
+        16U,
+        0U,
+        0U,
+        1.0,
+        2.0);
+    PROGPU_REQUIRE(state.apply(multiple_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7007U, 2U, stream, &metrics) ==
+        status::unsupported_command);
+    return true;
+}
+
 bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -6602,6 +6771,8 @@ int main() {
         retained_geometry_drawing_reuses_native_geometry_lowering());
     PROGPU_REQUIRE(
         retained_drawing_group_composes_children_transform_and_opacity());
+    PROGPU_REQUIRE(
+        retained_static_guideline_set_snaps_one_guide_per_axis());
     PROGPU_REQUIRE(
         retained_image_drawing_uses_pointer_free_bitmap_sideband());
     PROGPU_REQUIRE(

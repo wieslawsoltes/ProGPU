@@ -283,7 +283,8 @@ hit_test_resource_validation validate_hit_test_resource(
 bool valid_scene_state(const progpu_native_scene_state& state) noexcept {
     constexpr std::uint32_t known_flags =
         PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
-        PROGPU_NATIVE_SCENE_STATE_MASK;
+        PROGPU_NATIVE_SCENE_STATE_MASK |
+        PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
     const bool clip_is_canonical =
         (state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U ||
         (state.clip_rect.x == 0.0F && state.clip_rect.y == 0.0F &&
@@ -292,10 +293,12 @@ bool valid_scene_state(const progpu_native_scene_state& state) noexcept {
     const bool mask_is_canonical =
         (state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U ||
         state.mask_resource_index == 0U;
+    const bool guidelines_are_canonical =
+        (state.flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U ||
+        state.guideline_resource_index == 0U;
     return state.struct_size == sizeof(progpu_native_scene_state) &&
         (state.flags & ~known_flags) == 0U &&
         state.reserved == 0U &&
-        state.reserved1 == 0U &&
         std::isfinite(state.transform.m11) &&
         std::isfinite(state.transform.m12) &&
         std::isfinite(state.transform.m21) &&
@@ -310,7 +313,7 @@ bool valid_scene_state(const progpu_native_scene_state& state) noexcept {
         std::isfinite(state.clip_rect.height) &&
         state.clip_rect.width >= 0.0F &&
         state.clip_rect.height >= 0.0F && clip_is_canonical &&
-        mask_is_canonical;
+        mask_is_canonical && guidelines_are_canonical;
 }
 
 bool valid_scene_layer(const progpu_native_scene_layer& layer) noexcept {
@@ -543,6 +546,73 @@ validation_result validate(
                         header,
                         PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
                         resource.payload_offset);
+                }
+            }
+            if ((state.flags &
+                    PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U) {
+                if (state.guideline_resource_index >= index) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                        resource.payload_offset);
+                }
+                const auto guideline_resource =
+                    read_record<progpu_native_scene_resource>(
+                        bytes,
+                        header.resource_offset +
+                            static_cast<std::size_t>(
+                                state.guideline_resource_index) *
+                                header.resource_stride);
+                if (guideline_resource.kind !=
+                    PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                        resource.payload_offset);
+                }
+            }
+        }
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET) {
+            if (resource.payload_size <
+                    sizeof(progpu_native_scene_guideline_set) ||
+                resource.auxiliary_size != 0U) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                    offset);
+            }
+            const auto guidelines =
+                read_record<progpu_native_scene_guideline_set>(
+                    bytes, resource.payload_offset);
+            const std::uint64_t coordinate_count =
+                static_cast<std::uint64_t>(guidelines.guideline_x_count) +
+                guidelines.guideline_y_count;
+            const std::uint64_t expected_size = sizeof(guidelines) +
+                coordinate_count * sizeof(double);
+            if (guidelines.struct_size != sizeof(guidelines) ||
+                guidelines.flags != 0U ||
+                guidelines.guideline_x_count > 1U ||
+                guidelines.guideline_y_count > 1U ||
+                expected_size != resource.payload_size) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                    resource.payload_offset);
+            }
+            for (std::uint64_t coordinate_index = 0U;
+                 coordinate_index < coordinate_count;
+                 ++coordinate_index) {
+                const auto coordinate = read_record<double>(
+                    bytes,
+                    resource.payload_offset + sizeof(guidelines) +
+                        coordinate_index * sizeof(double));
+                if (!std::isfinite(coordinate)) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                        resource.payload_offset + sizeof(guidelines) +
+                            static_cast<std::uint32_t>(
+                                coordinate_index * sizeof(double)));
                 }
             }
         }

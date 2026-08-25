@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Numerics;
+using System.Runtime.InteropServices;
 
 namespace ProGPU.Backend.Native;
 
@@ -1032,6 +1033,50 @@ public sealed class NativeMilBatchBuilder
         }
     }
 
+    /// <summary>Writes canonical MilCmdGuidelineSet state.</summary>
+    public void SetGuidelineSet(
+        uint handle,
+        bool isDynamic,
+        ReadOnlySpan<double> guidelinesX,
+        ReadOnlySpan<double> guidelinesY)
+    {
+        ValidateHandle(handle);
+        if (guidelinesX.Length > ushort.MaxValue ||
+            guidelinesY.Length > ushort.MaxValue ||
+            (isDynamic &&
+                ((guidelinesX.Length & 1) != 0 ||
+                 (guidelinesY.Length & 1) != 0)))
+        {
+            throw new ArgumentOutOfRangeException(nameof(guidelinesX));
+        }
+        foreach (double coordinate in guidelinesX)
+        {
+            if (!double.IsFinite(coordinate))
+            {
+                throw new ArgumentOutOfRangeException(nameof(guidelinesX));
+            }
+        }
+        foreach (double coordinate in guidelinesY)
+        {
+            if (!double.IsFinite(coordinate))
+            {
+                throw new ArgumentOutOfRangeException(nameof(guidelinesY));
+            }
+        }
+        int xBytes = checked(guidelinesX.Length * sizeof(double));
+        int yBytes = checked(guidelinesY.Length * sizeof(double));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.GuidelineSet,
+            checked(20 + xBytes + yBytes));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, checked((uint)xBytes));
+        WriteUInt32(packet, 12, checked((uint)yBytes));
+        WriteUInt32(packet, 16, isDynamic ? 1U : 0U);
+        MemoryMarshal.AsBytes(guidelinesX).CopyTo(packet[20..]);
+        MemoryMarshal.AsBytes(guidelinesY).CopyTo(packet[(20 + xBytes)..]);
+    }
+
     public void SetDashStyle(
         uint handle,
         double offset,
@@ -1445,4 +1490,5 @@ internal static class NativeMilCommand
     internal const uint GlyphRunDrawing = 0x88;
     internal const uint ImageDrawing = 0x89;
     internal const uint DrawingGroup = 0x8b;
+    internal const uint GuidelineSet = 0x8c;
 }
