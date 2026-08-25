@@ -1542,6 +1542,36 @@ for `progpu_native.dll`, and 1,999,872 bytes with SHA-256
 for `progpu_native_dawn.dll`. Gradient, tile, transformed, animated, and other
 spatial Visual masks remain part of the reusable ProGPU mask-target work.
 
+Static Visual guideline implementation `31cd23ca` next adds canonical
+`MilCmdVisualSetGuidelineCollection` (`0x27`), including its packed UInt16
+counts and trailing float coordinates. The native channel retains sorted
+coordinates, validates padding, payload size, and finite float values, and
+keeps multi-guide packets transactionally valid while returning
+`unsupported_command` at scene compilation until piecewise deformation exists.
+
+The exact zero/one guide per axis subset reuses the shared semantic GuidelineSet
+resource already consumed by WebGPU/Dawn and DirectX. Scale/translate mapping
+preserves WPF's float conversion and target-space coordinate behavior;
+rotated/sheared Visuals push an empty snapping frame. Unlike DrawingGroup, each
+WPF Visual resets the parent guideline frame before applying its own. Native
+tests prove both mapped values and that a child Visual with no guidelines does
+not inherit the root's resource.
+
+Package checkpoint `50710315` adds `--mil-visual-guideline-only` to JIT,
+NativeAOT, package verification, build, and release lanes. All ten local native
+CTests, the canonical managed packet test, two focused typed producer tests,
+and the zero-warning consumer build pass. Strict Windows ARM64 MSVC rebuilt
+both exports and all 11 native/Dawn CTests passed. Fresh app-local DLLs compiled
+the focused scene through both MIL exports and live D3D12 rendered four
+semantic resources, one draw, zero coverage-staging bytes, a nonblack retained
+readback, and 16,384 direct pixels. Qualified binaries from 2026-08-25 17:39
+are 1,964,032 bytes with SHA-256
+`36406b7138010c2c3b47e136a32efa62f07e148027640b68edafc0b67ea07318`
+for `progpu_native.dll`, and 2,002,432 bytes with SHA-256
+`deaa21c42b156f0aa5f78bcb10593bfc53c650da69dab320cb625fdcd8a585be`
+for `progpu_native_dawn.dll`. Multiple guides per axis remain the same explicit
+piecewise-deformation gap as canonical GuidelineSet.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
