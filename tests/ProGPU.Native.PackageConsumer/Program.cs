@@ -34,6 +34,8 @@ bool geometryDrawingOnly = args.Contains(
     "--mil-geometry-drawing-only", StringComparer.Ordinal);
 bool drawingGroupOnly = args.Contains(
     "--mil-drawing-group-only", StringComparer.Ordinal);
+bool imageDrawingOnly = args.Contains(
+    "--mil-image-drawing-only", StringComparer.Ordinal);
 byte[]? compiledMilStream = null;
 if (!renderOnly)
 {
@@ -53,7 +55,9 @@ if (!renderOnly)
         !affineRecursiveOnly && !arcBooleanOnly;
     bool includeRecursiveBooleanArc =
         !affineRecursiveOnly && !arcGroupOnly;
-    byte[] milBatch = drawingGroupOnly
+    byte[] milBatch = imageDrawingOnly
+        ? CreateMilImageDrawingBatch()
+        : drawingGroupOnly
         ? CreateMilDrawingGroupBatch()
         : geometryDrawingOnly
             ? CreateMilGeometryDrawingBatch()
@@ -65,21 +69,30 @@ if (!renderOnly)
             minimalArcGroup,
             duplicateArcGroup,
             mixedArcGroup);
-    bool focusedMil = gradientOnly || geometryDrawingOnly || drawingGroupOnly;
+    bool focusedMil = gradientOnly || geometryDrawingOnly ||
+        drawingGroupOnly || imageDrawingOnly;
     uint targetHandle = focusedMil ? 2U : 42U;
     uint visualHandle = focusedMil ? 1U : 41U;
-    uint expectedCommandCount = drawingGroupOnly ? 23U : focusedMil ? 15U : 78U;
-    uint expectedResourceCount = drawingGroupOnly ? 10U : focusedMil ? 6U : 36U;
+    uint expectedCommandCount = imageDrawingOnly
+        ? 12U
+        : drawingGroupOnly ? 23U : focusedMil ? 15U : 78U;
+    uint expectedResourceCount = imageDrawingOnly
+        ? 5U
+        : drawingGroupOnly ? 10U : focusedMil ? 6U : 36U;
     uint expectedRectangleCount = geometryDrawingOnly || drawingGroupOnly
         ? 1U
         : gradientOnly ? 2U : 3U;
     uint expectedEllipseCount = gradientOnly ? 1U : focusedMil ? 0U : 4U;
     uint expectedRoundedRectangleCount = focusedMil ? 0U : 6U;
     uint expectedLineCount = focusedMil ? 0U : 3U;
-    uint expectedBrushCount = gradientOnly ? 3U : 1U;
+    uint expectedBrushCount = imageDrawingOnly ? 0U : gradientOnly ? 3U : 1U;
     using (var mil = new NativeMilChannel())
     {
         NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
+        if (imageDrawingOnly)
+        {
+            BindFocusedBitmapSource(mil);
+        }
         NativeMilCompiledScene scene = mil.CompileScene(targetHandle, 701, 1);
         if (milMetrics.CommandCount != expectedCommandCount ||
             mil.ResourceCount != expectedResourceCount ||
@@ -102,6 +115,10 @@ if (!renderOnly)
     using (var dawnMil = new NativeMilChannel(NativeMilBackend.Dawn))
     {
         NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
+        if (imageDrawingOnly)
+        {
+            BindFocusedBitmapSource(dawnMil);
+        }
         NativeMilCompiledScene scene = dawnMil.CompileScene(
             targetHandle, 702, 1);
         if (milMetrics.CommandCount != expectedCommandCount ||
@@ -324,6 +341,46 @@ static byte[] CreateMilDrawingGroupBatch()
     batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
     batch.SetTargetRoot(2, 1);
     return batch.ToArray();
+}
+
+static byte[] CreateMilImageDrawingBatch()
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.DrawDrawing(5);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(1, NativeMilResourceType.Visual);
+    batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(3, NativeMilResourceType.RenderData);
+    batch.CreateResource(4, NativeMilResourceType.BitmapSource);
+    batch.CreateResource(5, NativeMilResourceType.ImageDrawing);
+    batch.CreateVisual(1);
+    batch.SetVisualContent(1, 3);
+    batch.SetImageDrawing(5, 8, 12, 48, 40, 4);
+    batch.SetRenderData(3, renderData);
+    batch.CreateGenericTarget(2, 64, 64);
+    batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
+    batch.SetTargetRoot(2, 1);
+    return batch.ToArray();
+}
+
+static void BindFocusedBitmapSource(NativeMilChannel channel)
+{
+    const uint width = 4;
+    const uint height = 4;
+    const uint rowBytes = width * 4;
+    byte[] pixels = new byte[rowBytes * height];
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            int offset = checked((int)(y * rowBytes + x * 4));
+            pixels[offset] = checked((byte)(48 + x * 48));
+            pixels[offset + 1] = checked((byte)(32 + y * 56));
+            pixels[offset + 2] = checked((byte)(224 - x * 32));
+            pixels[offset + 3] = 255;
+        }
+    }
+    channel.SetBitmapSourceRgba8(4, width, height, rowBytes, pixels);
 }
 
 static byte[] CreateMilSeedBatch(
