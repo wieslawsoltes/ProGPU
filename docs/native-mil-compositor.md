@@ -1742,6 +1742,24 @@ for `progpu_native_dawn.dll`. This qualifies the preceding exact-bounds
 target-space checkpoint on DirectX; Windows qualification of the new
 local-space/RenderAtScale checkpoint is tracked separately.
 
+The local-space/RenderAtScale checkpoint was then qualified on 2026-08-25 from
+the clean detached ProGPU documentation commit `1a75a958` (native
+implementation `dee81dff`) in the same Windows 11 ARM64 VM. Strict MSVC rebuilt
+both native modules under `/W4 /WX`; all 11 native/Dawn CTests and both export
+contracts passed. The independent C++ and managed samples selected the live
+`Parallels Display Adapter (WDDM)` D3D12 adapter and completed retained render,
+allocation, and pixel-readback checks. The expected Parallels-only retained GPU
+hit-test deferral remained isolated to that optional probe. The complete
+bounded D3D12 smoke matrix passed opacity, zero-copy image/mask, retained
+semantic scene, mask/effect chain, vector clip, image effect, Overlay,
+ColorDodge, and managed/C++ text-shaping contracts; the final Overlay and
+ColorDodge scenes were pixel-exact. The win-arm64 package was staged with
+SHA-256 `FBC4EC3D71A1BB63CA2DE3A092C7F25D63747C47C40AF7FC9D19EA4A379FE5B4`
+for `progpu_native.dll` and
+`ECC81DF8437FE0C4EC8BB18D9692E248048F04270471E04DC053BF7610E5B173`
+for `progpu_native_dawn.dll`. This closes the strict DirectX gate for the
+current local-space cache execution subset.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
@@ -1754,8 +1772,8 @@ The implementation sequence is intentionally architectural:
 4. Publish neutral typed cache state from source-built WPF and emit it from
    LibreWPF without reflection.
 5. Qualify pixel snapping, ClearType policy, composite clip/mask/guideline
-   ordering, nested cache lifetime, effects ordering, package lanes, and live
-   D3D12 for the local-space checkpoint.
+   ordering, nested cache lifetime, effects ordering, and LibreWPF package
+   lanes. (Live D3D12 is qualified for the current local-space subset.)
 
 The persistent page and composite-transform path are executable, but full cache
 parity is not claimed until the remaining post-raster state and text policies

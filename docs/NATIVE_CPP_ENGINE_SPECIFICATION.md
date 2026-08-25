@@ -2259,6 +2259,22 @@ are respectively
 This is evidence for the preceding target-coordinate subset only; the new
 local-space/RenderAtScale checkpoint requires its own strict Windows gate.
 
+That strict gate completed on 2026-08-25 from clean detached ProGPU commit
+`1a75a958` (native implementation `dee81dff`) in the Parallels Windows 11 ARM64
+guest. Both modules rebuilt with MSVC `/W4 /WX`; all 11 native/Dawn CTests,
+both export allowlists, the independent C++ and managed D3D12 samples, managed
+allocation/readback checks, managed/C++ text shaping, and the bounded D3D12
+differential smoke matrix passed. The expected Parallels-only retained GPU
+hit-test deferral remained isolated from the required renderer sample. The
+staged win-arm64 package hashes are
+`FBC4EC3D71A1BB63CA2DE3A092C7F25D63747C47C40AF7FC9D19EA4A379FE5B4` for
+`progpu_native.dll` and
+`ECC81DF8437FE0C4EC8BB18D9692E248048F04270471E04DC053BF7610E5B173` for
+`progpu_native_dawn.dll`. This qualifies the executable local-space and
+positive-finite RenderAtScale subset on DirectX; the remaining cache work is
+post-raster policy/ordering and LibreWPF package integration, not native D3D12
+execution.
+
 The command vocabulary is deliberately semantic:
 
 - save/restore transform and rectangular/rounded/vector clip state;
