@@ -169,6 +169,100 @@ std::vector<std::byte> make_rectangle_path_figures(
     return figures;
 }
 
+std::vector<std::byte> make_curve_path_figures() {
+    constexpr std::uint32_t line_size = 32U;
+    constexpr std::uint32_t quadratic_size = 48U;
+    constexpr std::uint32_t cubic_size = 64U;
+    constexpr std::uint32_t figure_size =
+        40U + line_size + quadratic_size + cubic_size;
+    constexpr std::uint32_t figures_size = 48U + figure_size;
+    std::vector<std::byte> figures;
+    append_value(figures, figures_size);
+    append_value(figures, 0x02U);
+    append_value(figures, 6.0);
+    append_value(figures, 2.0);
+    append_value(figures, 15.0);
+    append_value(figures, 8.0);
+    append_value(figures, 1U);
+    append_value(figures, 0U);
+
+    append_value(figures, 0U);
+    append_value(figures, 0x0eU);
+    append_value(figures, 3U);
+    append_value(figures, figure_size);
+    append_value(figures, 6.0);
+    append_value(figures, 4.0);
+    append_value(figures, 40U + line_size + quadratic_size);
+    append_value(figures, 0U);
+
+    append_value(figures, 1U);
+    append_value(figures, 0U);
+    append_value(figures, 0U);
+    append_value(figures, 0U);
+    append_value(figures, 8.0);
+    append_value(figures, 4.0);
+
+    append_value(figures, 3U);
+    append_value(figures, 0x20U);
+    append_value(figures, line_size);
+    append_value(figures, 0U);
+    append_value(figures, 10.0);
+    append_value(figures, 2.0);
+    append_value(figures, 12.0);
+    append_value(figures, 6.0);
+
+    append_value(figures, 2U);
+    append_value(figures, 0x20U);
+    append_value(figures, quadratic_size);
+    append_value(figures, 0U);
+    append_value(figures, 13.0);
+    append_value(figures, 8.0);
+    append_value(figures, 14.0);
+    append_value(figures, 3.0);
+    append_value(figures, 15.0);
+    append_value(figures, 7.0);
+    PROGPU_REQUIRE(figures.size() == figures_size);
+    return figures;
+}
+
+std::vector<std::byte> make_arc_path_figures() {
+    constexpr std::uint32_t arc_size = 64U;
+    constexpr std::uint32_t figure_size = 40U + arc_size;
+    constexpr std::uint32_t figures_size = 48U + figure_size;
+    std::vector<std::byte> figures;
+    append_value(figures, figures_size);
+    append_value(figures, 0x02U);
+    append_value(figures, 1.0);
+    append_value(figures, 2.0);
+    append_value(figures, 9.0);
+    append_value(figures, 8.0);
+    append_value(figures, 1U);
+    append_value(figures, 0U);
+
+    append_value(figures, 0U);
+    append_value(figures, 0x0eU);
+    append_value(figures, 1U);
+    append_value(figures, figure_size);
+    append_value(figures, 1.0);
+    append_value(figures, 2.0);
+    append_value(figures, 40U);
+    append_value(figures, 0U);
+
+    append_value(figures, 4U);
+    append_value(figures, 0x20U);
+    append_value(figures, 0U);
+    append_value(figures, 0U);
+    append_value(figures, 9.0);
+    append_value(figures, 8.0);
+    append_value(figures, 8.0);
+    append_value(figures, 6.0);
+    append_value(figures, 30.0);
+    append_value(figures, 1U);
+    append_value(figures, 0U);
+    PROGPU_REQUIRE(figures.size() == figures_size);
+    return figures;
+}
+
 void append_dash_style(
     std::vector<std::byte>& batch,
     std::uint32_t handle,
@@ -2108,9 +2202,13 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         0U,
         0U);
     const auto figures_a = make_rectangle_path_figures(1.0, 2.0, 9.0, 10.0);
-    const auto figures_b = make_rectangle_path_figures(6.0, 4.0, 15.0, 12.0);
     append_path_geometry(batch, path_a, 0U, 1U, figures_a);
-    append_path_geometry(batch, path_b, 0U, 1U, figures_b);
+    append_path_geometry(
+        batch,
+        path_b,
+        child_transform,
+        1U,
+        make_curve_path_figures());
     const std::array children{
         path_a,
         path_b,
@@ -2180,7 +2278,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         if (path.boolean_node_count == 0U) {
             PROGPU_REQUIRE(path.segment_count == 24U);
             PROGPU_REQUIRE(path.min_x == 1.0F && path.min_y == 0.0F);
-            PROGPU_REQUIRE(path.max_x == 32.0F && path.max_y == 12.0F);
+            PROGPU_REQUIRE(path.max_x == 35.0F && path.max_y == 13.0F);
             PROGPU_REQUIRE(
                 path.fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD);
             const auto rectangle_line =
@@ -2290,7 +2388,44 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         if (path.boolean_node_count == 3U) {
             PROGPU_REQUIRE(path.segment_count == 8U);
             PROGPU_REQUIRE(path.min_x == 1.0F && path.min_y == 2.0F);
-            PROGPU_REQUIRE(path.max_x == 15.0F && path.max_y == 12.0F);
+            PROGPU_REQUIRE(path.max_x == 35.0F && path.max_y == 13.0F);
+            const auto transformed_line =
+                read_value<progpu_native_path_segment>(
+                    stream,
+                    resource.auxiliary_offset +
+                        4U * sizeof(progpu_native_path_segment));
+            const auto transformed_quadratic =
+                read_value<progpu_native_path_segment>(
+                    stream,
+                    resource.auxiliary_offset +
+                        5U * sizeof(progpu_native_path_segment));
+            const auto transformed_cubic =
+                read_value<progpu_native_path_segment>(
+                    stream,
+                    resource.auxiliary_offset +
+                        6U * sizeof(progpu_native_path_segment));
+            PROGPU_REQUIRE(
+                transformed_line.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE &&
+                transformed_line.p0.x == 26.0F &&
+                transformed_line.p0.y == 9.0F &&
+                transformed_line.p1.x == 28.0F &&
+                transformed_line.p1.y == 9.0F);
+            PROGPU_REQUIRE(
+                transformed_quadratic.kind ==
+                    PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC &&
+                transformed_quadratic.p1.x == 30.0F &&
+                transformed_quadratic.p1.y == 7.0F &&
+                transformed_quadratic.p2.x == 32.0F &&
+                transformed_quadratic.p2.y == 11.0F);
+            PROGPU_REQUIRE(
+                transformed_cubic.kind ==
+                    PROGPU_NATIVE_PATH_SEGMENT_CUBIC &&
+                transformed_cubic.p1.x == 33.0F &&
+                transformed_cubic.p1.y == 13.0F &&
+                transformed_cubic.p2.x == 34.0F &&
+                transformed_cubic.p2.y == 8.0F &&
+                transformed_cubic.p3.x == 35.0F &&
+                transformed_cubic.p3.y == 12.0F);
             found_path_operands = true;
         }
     }
@@ -2383,6 +2518,18 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         combined_child);
     PROGPU_REQUIRE(state.apply(cross_kind_cycle) == status::invalid_graph);
     PROGPU_REQUIRE(state.resource_generation(group) == generation);
+
+    std::vector<std::byte> transformed_arc_update;
+    append_path_geometry(
+        transformed_arc_update,
+        path_b,
+        child_transform,
+        1U,
+        make_arc_path_figures());
+    PROGPU_REQUIRE(state.apply(transformed_arc_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7003U, 4U, stream) ==
+        status::unsupported_command);
     return true;
 }
 

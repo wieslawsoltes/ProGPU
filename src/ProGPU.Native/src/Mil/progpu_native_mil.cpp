@@ -1796,21 +1796,88 @@ struct channel::implementation {
         leaf.segment_offset = segments.size();
         const auto path = path_geometries.find(geometry_handle);
         if (path != path_geometries.end()) {
-            if (path->second.transform_handle != 0U) {
-                return status::unsupported_command;
-            }
             if (path->second.segments.empty()) {
                 return status::success;
             }
-            segments.insert(
-                segments.end(),
-                path->second.segments.begin(),
-                path->second.segments.end());
+            if (path->second.transform_handle == 0U) {
+                segments.insert(
+                    segments.end(),
+                    path->second.segments.begin(),
+                    path->second.segments.end());
+                leaf.left = path->second.left;
+                leaf.top = path->second.top;
+                leaf.right = path->second.right;
+                leaf.bottom = path->second.bottom;
+            } else {
+                const auto transform = matrix_transforms.find(
+                    path->second.transform_handle);
+                if (transform == matrix_transforms.end()) {
+                    return status::invalid_handle;
+                }
+                if (std::ranges::any_of(
+                        path->second.segments,
+                        [](const progpu_native_path_segment& segment) {
+                            return segment.kind ==
+                                PROGPU_NATIVE_PATH_SEGMENT_ARC;
+                        })) {
+                    return status::unsupported_command;
+                }
+                const std::size_t original_size = segments.size();
+                const auto map_point = [&transform](
+                    progpu_native_point& point) noexcept {
+                    const double mapped_x =
+                        point.x * transform->second.m11 +
+                        point.y * transform->second.m21 +
+                        transform->second.m31;
+                    const double mapped_y =
+                        point.x * transform->second.m12 +
+                        point.y * transform->second.m22 +
+                        transform->second.m32;
+                    if (!finite_double_as_float(mapped_x) ||
+                        !finite_double_as_float(mapped_y)) {
+                        return false;
+                    }
+                    point = {
+                        static_cast<float>(mapped_x),
+                        static_cast<float>(mapped_y)};
+                    return true;
+                };
+                for (const auto& source : path->second.segments) {
+                    auto segment = source;
+                    bool mapped = map_point(segment.p0) &&
+                        map_point(segment.p1);
+                    if (segment.kind ==
+                            PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC ||
+                        segment.kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC) {
+                        mapped = mapped && map_point(segment.p2);
+                    }
+                    if (segment.kind ==
+                        PROGPU_NATIVE_PATH_SEGMENT_CUBIC) {
+                        mapped = mapped && map_point(segment.p3);
+                    }
+                    if (!mapped) {
+                        segments.resize(original_size);
+                        return status::invalid_graph;
+                    }
+                    segments.push_back(segment);
+                }
+                progpu_native_image_rect bounds{};
+                if (!try_transform_bounds(
+                        path->second.left,
+                        path->second.top,
+                        path->second.right - path->second.left,
+                        path->second.bottom - path->second.top,
+                        transform->second,
+                        bounds)) {
+                    segments.resize(original_size);
+                    return status::invalid_graph;
+                }
+                leaf.left = bounds.x;
+                leaf.top = bounds.y;
+                leaf.right = bounds.x + bounds.width;
+                leaf.bottom = bounds.y + bounds.height;
+            }
             leaf.segment_count = path->second.segments.size();
-            leaf.left = path->second.left;
-            leaf.top = path->second.top;
-            leaf.right = path->second.right;
-            leaf.bottom = path->second.bottom;
             leaf.fill_rule = path->second.fill_rule == 0U
                 ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
                 : PROGPU_NATIVE_FILL_RULE_NON_ZERO;
