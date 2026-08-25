@@ -126,9 +126,11 @@ semantic connected-stroke engine, preserving thickness-relative intervals,
 offset, dash cap, odd-pattern repetition, and backend-independent execution.
 Null pen handles and zero-width/null-brush pens are no-op draws. Thickness and
 dash-offset animation, invalid dash values/enums, unresolved handles, nonzero
-padding, and non-flat degenerate line caps fail closed transactionally. The
-size-stable MIL scene metrics ABI now publishes `line_count` in its former
-reserved tail field.
+padding, and nonempty dash phase on zero-length lines fail closed
+transactionally. Solid zero-length lines use WPF's horizontal shape-space
+direction and compose the configured non-Flat start/end point caps from native
+cap primitives. Flat/Flat remains an exact no-op. The size-stable MIL scene
+metrics ABI now publishes `line_count` in its former reserved tail field.
 
 Axis-aligned `MILCMD_DRAW_RECTANGLE` records now accept independent fill and
 pen handles. Rectangle pens lower to closed four-point semantic polylines, so
@@ -216,13 +218,18 @@ Geometry-gap boundaries use the pen's typed dash-cap value even when the dash
 interval list is empty. Geometry-local affine transforms stay on every
 primitive, cap, and join; arcs map their resolved center/radii/rotation/angles
 into the reusable two-axis analytic arc contract. Discontinuous endpoints or
-degenerate cap/join tangents fail closed transactionally. `SegSmoothJoin` is
-retained per incoming segment and forces only that endpoint's join to Round,
-matching WPF `CWidener::DoSegment`/`CSimplePen::DoCorner`; the closing join uses
-the last segment's flag. Dashed curves, dashed smooth joins, and non-flat-cap
-zero-length runs remain unsupported until continuous curve-dash composition
-preserves WPF semantics. Unstroked curves remain valid topology gaps and do not
-prevent neighboring line runs from using the native path-pen lane.
+degenerate tangents adjacent to nondegenerate cap/join composition fail closed
+transactionally. A wholly degenerate solid open contour instead composes its
+typed start/end (or gap-boundary DashCap) pair around WPF's horizontal
+shape-space direction. A wholly degenerate solid closed contour forces
+Round/Round caps, matching `CWidener::WidenClosedFigure` and yielding an exact
+point disk independent of the pen's line caps. `SegSmoothJoin` is retained per
+incoming segment and forces only that endpoint's join to Round, matching WPF
+`CWidener::DoSegment`/`CSimplePen::DoCorner`; the closing join uses the last
+segment's flag. Dashed curves, dashed smooth joins, and dashed zero-length runs
+remain unsupported until continuous curve-dash composition preserves WPF
+semantics. Unstroked curves remain valid topology gaps and do not prevent
+neighboring line runs from using the native path-pen lane.
 
 The first retained `MILCMD_GEOMETRYGROUP` slice validates the canonical
 variable child-handle payload, group fill rule, optional matrix transform,
@@ -859,6 +866,25 @@ three visible draws, and 41,472 coverage bytes. Exact staged SHA-256 values were
 `1dec50b6aef18b22f894739a9bff477a31bd0751cae1baabd9d3efc562212b65`
 for `progpu_native.dll` and
 `83ff9ae3133fbe9ecd789202f10ea5dfc483528f207c8ef3d34af05e45c038d9`
+for `progpu_native_dawn.dll`.
+
+The degenerate point-cap implementation at `957adfdd` then matched WPF's
+unstarted-widener behavior without manufacturing a line direction from object
+shape or flattening. Immediate zero-length lines and wholly degenerate open
+path contours use a horizontal shape-space tangent and compose their typed
+non-Flat cap halves; wholly degenerate closed contours force Round/Round and
+therefore form one point disk. The hot path uses two fixed stack arrays, and
+nonempty dashed zero-length strokes remain fail closed until their initial dash
+phase is represented exactly. All ten local native tests passed. Strict
+Windows ARM64 MSVC rebuilt both modules under `/W4 /WX`, and all 11 native/Dawn
+CTests passed on the Parallels VM. Package checkpoint `9d3d0033` added immediate
+and retained open/closed degenerate strokes. Both MIL exports compiled its
+52-command, 23-channel-resource seed; live D3D12 readback retained 27 semantic
+resources, three draws, and 41,472 coverage bytes. Exact staged SHA-256 values
+were
+`6afa15e6fff5a41e274674be9678d80f6bb88085078a0685eb3673d5e5467f4e`
+for `progpu_native.dll` and
+`560c4691baa714d366cc4817c853e41ae8d17a6140d74f06b3db5a505636d666`
 for `progpu_native_dawn.dll`.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
