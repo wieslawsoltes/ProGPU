@@ -532,6 +532,28 @@ transformed rounded-rectangle and ellipse children. The installed wgpu-native
 stream then completed live D3D12 readback with 18 semantic resources, three
 draws, and 16,384 pixels before the independent immediate renderer smoke.
 
+The shared fixed-operand `CombinedGeometry` checkpoint at exact ProGPU commit
+`7d0fad61` passed the complete Windows ARM64 MSVC gate. The refactored shallow
+fill lowerer compiled into both native modules under `/W4 /WX`; all 11 CTests
+passed, including transformed fixed boolean leaves, non-uniform rounded
+rectangles, preserved identity-local path operands, and the Dawn contract. Live
+C++ and managed D3D12 rendering/readback, allocation probes, and the complete
+bounded differential matrix passed. The mixed differential remained at maximum
+delta 2/255, zero pixels above 3/255, and mean `0.0000622`; path-atlas,
+image/mask/effect, text, Overlay, and ColorDodge results stayed within their
+established contracts. The synchronized eight-frame native diagnostic measured
+`0.1618 ms/frame` on this VM before fresh package staging.
+
+The zero-warning project-reference consumer then verified exact app-local
+matches for the staged modules: SHA-256
+`288438736839fc4e673fe4dbd7a714eda8158df181c694d0efd3d92dadf1e984`
+for `progpu_native.dll` and
+`31b0fe54964b8163b4a1d132359e89de58367b31550020d924c681f6cc4732b6`
+for `progpu_native_dawn.dll`. Both MIL exports compiled transformed fixed
+rounded-rectangle and ellipse boolean operands, and the installed wgpu-native
+stream completed live D3D12 readback with 18 semantic resources, three draws,
+and 16,384 pixels.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
