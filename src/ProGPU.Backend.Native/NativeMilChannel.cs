@@ -204,6 +204,36 @@ public sealed unsafe class NativeMilChannel : IDisposable
         }
     }
 
+    /// <summary>
+    /// Sets exact source-built Visual descendant bounds used to size its
+    /// native target-space BitmapCache page.
+    /// </summary>
+    public void SetVisualCacheBounds(
+        uint handle,
+        NativeMilRect bounds)
+    {
+        if (!double.IsFinite(bounds.X) || !double.IsFinite(bounds.Y) ||
+            !double.IsFinite(bounds.Width) || bounds.Width <= 0 ||
+            !double.IsFinite(bounds.Height) || bounds.Height <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(bounds));
+        }
+        nint channel = GetChannel();
+        NativeMilStatus status = _backend == NativeMilBackend.Dawn
+            ? NativeMilDawnMethods.SetVisualCacheBounds(
+                channel, handle, bounds.X, bounds.Y,
+                bounds.Width, bounds.Height)
+            : NativeMilMethods.SetVisualCacheBounds(
+                channel, handle, bounds.X, bounds.Y,
+                bounds.Width, bounds.Height);
+        if (status != NativeMilStatus.Success)
+        {
+            throw new NativeMilException(
+                status,
+                $"The cache bounds binding for MIL Visual handle {handle} was rejected with {status}.");
+        }
+    }
+
     public bool HasResource(uint handle)
     {
         nint channel = GetChannel();

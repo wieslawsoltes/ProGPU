@@ -1663,10 +1663,15 @@ across an unrelated sibling update. Texture extent/generation or content
 version changes force a redraw; disappearance, owner replacement, and device
 teardown release or invalidate the page. Portable C++ validation, managed
 builder validation, and the Dawn/Metal provider integration test cover the
-contract. This checkpoint still uses target coordinates at raster scale one;
-the explicit local-space descriptor, outer transform, RenderAtScale,
-SnapsToDevicePixels, and ClearType policy remain required before MIL
-`BitmapCache` parity can be claimed.
+contract. The typed Visual-bounds checkpoint now prevents the cache from
+becoming a full-target allocation. Portable hosts bind source-built WPF
+descendant bounds through
+`progpu_native_mil_channel_set_visual_cache_bounds`; the compiler transforms
+those local bounds through current Visual placement and emits exact semantic
+layer bounds. Missing/nonfinite/empty metadata fails closed. This remains a
+target-coordinate raster-scale-one page: the explicit local-space descriptor,
+composite transform, RenderAtScale, SnapsToDevicePixels, and ClearType policy
+are still required before MIL `BitmapCache` parity can be claimed.
 
 The canonical MIL checkpoint is now executable on that foundation. The C++
 channel decodes the exact 12-byte `MILCMD_VISUAL_SETCACHEMODE` command and the
@@ -1692,7 +1697,10 @@ image, glyph, effect, guideline, nested-cache, and animation dependency graph.
 Consequently an unrelated sibling update preserves the cache version, while a
 brush/resource update inside the cached subtree changes it without managed
 invalidation assistance. Exact resolved scale zero suppresses the cached
-subtree. Until local cache bounds and composite placement land, non-unit scale,
+subtree. Exact source-built Visual descendant bounds are required through the
+typed channel sideband and become the transformed target-space cache extent;
+missing bounds fail closed instead of allocating the full render target. Until
+local-space raster and composite placement land, non-unit scale,
 SnapsToDevicePixels, and EnableClearType return `unsupported_command` instead
 of rendering approximate pixels. Root outer state is also included in the
 pixel revision in this target-coordinate checkpoint so an offset/transform/

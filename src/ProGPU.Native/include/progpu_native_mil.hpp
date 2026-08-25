@@ -264,6 +264,16 @@ public:
         double width,
         double height) noexcept;
 
+    // Binds source-built WPF Visual descendant bounds used to size an exact
+    // target-space BitmapCache page. Canonical MIL does not serialize this
+    // compositor-owned derived metadata.
+    status set_visual_cache_bounds(
+        std::uint32_t handle,
+        double x,
+        double y,
+        double width,
+        double height) noexcept;
+
     // Binds copied SFNT/TTC bytes to a canonical TYPE_GLYPHRUN handle. The
     // canonical MilCmdGlyphRunCreate keeps indices, advances, offsets, origin,
     // and bounds on the wire but carries an in-process IDWriteFont pointer;

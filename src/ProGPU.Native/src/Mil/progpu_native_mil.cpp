@@ -608,6 +608,11 @@ struct channel::implementation {
         std::uint32_t clear_type_hint{};
         std::uint32_t text_rendering_mode{};
         std::uint32_t text_hinting_mode{};
+        double cache_bounds_x{};
+        double cache_bounds_y{};
+        double cache_bounds_width{};
+        double cache_bounds_height{};
+        bool has_cache_bounds{};
         std::vector<double> guidelines_x;
         std::vector<double> guidelines_y;
         std::vector<std::uint32_t> children;
@@ -8617,6 +8622,11 @@ struct channel::implementation {
             append_fnv1a64(hash, visual->second.scroll_clip_y);
             append_fnv1a64(hash, visual->second.scroll_clip_width);
             append_fnv1a64(hash, visual->second.scroll_clip_height);
+            append_fnv1a64(hash, visual->second.has_cache_bounds);
+            append_fnv1a64(hash, visual->second.cache_bounds_x);
+            append_fnv1a64(hash, visual->second.cache_bounds_y);
+            append_fnv1a64(hash, visual->second.cache_bounds_width);
+            append_fnv1a64(hash, visual->second.cache_bounds_height);
             if (!append_resource(visual->second.transform_handle) ||
                 !append_resource(visual->second.effect_handle) ||
                 !append_resource(visual->second.cache_mode_handle) ||
@@ -8645,6 +8655,7 @@ struct channel::implementation {
         std::uint32_t cache_handle,
         std::uint32_t visual_handle,
         std::uint64_t scene_id,
+        const render_scope_state& state,
         native::semantic_scene_builder& builder,
         bool& pushed,
         bool& skip_content) const {
@@ -8685,6 +8696,10 @@ struct channel::implementation {
             cache->second.enable_clear_type) {
             return status::unsupported_command;
         }
+        const auto& cache_visual = visuals.at(visual_handle);
+        if (!cache_visual.has_cache_bounds) {
+            return status::unsupported_command;
+        }
         std::uint64_t content_revision = 14695981039346656037ULL;
         append_fnv1a64(content_revision, cache_resource->second.generation);
         if (cache->second.render_at_scale_animation_handle != 0U) {
@@ -8720,6 +8735,16 @@ struct channel::implementation {
         layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         layer.content_revision = finish_nonzero_hash(content_revision);
         layer.composite_revision = finish_nonzero_hash(owner_identity);
+        if (!try_transform_bounds(
+                cache_visual.cache_bounds_x,
+                cache_visual.cache_bounds_y,
+                cache_visual.cache_bounds_width,
+                cache_visual.cache_bounds_height,
+                state.transform,
+                layer.bounds)) {
+            return status::invalid_graph;
+        }
+        layer.flags |= PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
         if (!builder.push_layer(layer)) {
             return status::invalid_graph;
         }
@@ -8925,6 +8950,7 @@ struct channel::implementation {
             visual->second.cache_mode_handle,
             handle,
             scene_id,
+            current,
             builder,
             cache_layer_pushed,
             skip_cached_content);
@@ -9100,6 +9126,31 @@ status channel::set_drawing_image_bounds(
     image.bounds_width = width;
     image.bounds_height = height;
     image.has_bounds = true;
+    implementation_->increment_generation(handle);
+    return status::success;
+}
+
+status channel::set_visual_cache_bounds(
+    std::uint32_t handle,
+    double x,
+    double y,
+    double width,
+    double height) noexcept {
+    if (!implementation_->require_resource(handle, type_visual) ||
+        !implementation_->visuals.contains(handle)) {
+        return status::invalid_handle;
+    }
+    if (!finite_double_as_float(x) || !finite_double_as_float(y) ||
+        !finite_double_as_float(width) || !finite_double_as_float(height) ||
+        width <= 0.0 || height <= 0.0) {
+        return status::invalid_argument;
+    }
+    auto& visual = implementation_->visuals.at(handle);
+    visual.cache_bounds_x = x;
+    visual.cache_bounds_y = y;
+    visual.cache_bounds_width = width;
+    visual.cache_bounds_height = height;
+    visual.has_cache_bounds = true;
     implementation_->increment_generation(handle);
     return status::success;
 }

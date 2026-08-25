@@ -1594,16 +1594,27 @@ bool visual_bitmap_cache_uses_canonical_typed_retention() {
 
     channel state;
     PROGPU_REQUIRE(state.apply(batch) == status::success);
-    PROGPU_REQUIRE(state.resource_generation(cache) == 2U);
     std::vector<std::byte> stream;
     progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9015U, 1U, stream, &metrics) ==
+        status::unsupported_command);
+    PROGPU_REQUIRE(
+        state.set_visual_cache_bounds(
+            cached_visual, 4.0, 6.0, 24.0, 18.0) == status::success);
+    PROGPU_REQUIRE(state.resource_generation(cache) == 2U);
     PROGPU_REQUIRE(
         state.build_scene(target, 9015U, 1U, stream, &metrics) ==
         status::success);
     progpu_native_scene_layer first{};
     PROGPU_REQUIRE(try_get_cached_layer(stream, first));
     PROGPU_REQUIRE(
-        first.flags == PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT);
+        first.flags == (PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+            PROGPU_NATIVE_SCENE_LAYER_BOUNDS));
+    PROGPU_REQUIRE(first.bounds.x == 4.0F);
+    PROGPU_REQUIRE(first.bounds.y == 6.0F);
+    PROGPU_REQUIRE(first.bounds.width == 24.0F);
+    PROGPU_REQUIRE(first.bounds.height == 18.0F);
     PROGPU_REQUIRE(first.content_revision != 0U);
     PROGPU_REQUIRE(first.composite_revision != 0U);
 
@@ -1660,6 +1671,10 @@ bool visual_bitmap_cache_uses_canonical_typed_retention() {
         cached_changed.content_revision != brush_changed.content_revision);
     PROGPU_REQUIRE(
         cached_changed.composite_revision == first.composite_revision);
+    PROGPU_REQUIRE(cached_changed.bounds.x == 6.0F);
+    PROGPU_REQUIRE(cached_changed.bounds.y == 6.0F);
+    PROGPU_REQUIRE(cached_changed.bounds.width == 24.0F);
+    PROGPU_REQUIRE(cached_changed.bounds.height == 18.0F);
 
     const auto cache_generation = state.resource_generation(cache);
     std::vector<std::byte> malformed_boolean;
@@ -1727,6 +1742,13 @@ bool visual_bitmap_cache_uses_canonical_typed_retention() {
         cached_visual,
         brush);
     PROGPU_REQUIRE(state.apply(wrong_type) == status::invalid_handle);
+    PROGPU_REQUIRE(
+        state.set_visual_cache_bounds(
+            cached_visual, 0.0, 0.0, 0.0, 1.0) ==
+        status::invalid_argument);
+    PROGPU_REQUIRE(
+        state.set_visual_cache_bounds(
+            brush, 0.0, 0.0, 1.0, 1.0) == status::invalid_handle);
     return true;
 }
 

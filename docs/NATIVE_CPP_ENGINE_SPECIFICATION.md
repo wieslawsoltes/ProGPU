@@ -2200,11 +2200,15 @@ layers use a separate bounded pool of 16 stable owner slots, while both pools
 and their effect intermediates remain inside the aggregate 256 MiB layer
 budget. Missing owners are evicted after preflight, owner replacement
 invalidates the completed-output key, texture reallocation increments the slot
-generation, and normal engine/device teardown releases every page. This first
-semantic execution checkpoint is target-coordinate and raster-scale-one; it is
-the persistent lifetime primitive for, not yet a parity claim for, WPF
-`BitmapCache` local bounds, RenderAtScale, ClearType, pixel snapping, or outer
-transform composition.
+generation, and normal engine/device teardown releases every page. This
+semantic execution checkpoint is target-coordinate and raster-scale-one.
+Source-built WPF descendant bounds arrive through the typed
+`progpu_native_mil_channel_set_visual_cache_bounds` sideband, are transformed
+by current Visual placement, and bound the retained page; missing bounds fail
+closed instead of allocating the full target. It remains the persistent
+lifetime primitive for, not yet a parity claim for, WPF local-space cache
+rasterization, RenderAtScale, ClearType, pixel snapping, or outer-transform
+composition.
 
 The canonical MIL channel now consumes WPF's packed cache protocol on top of
 that primitive: `VisualSetCacheMode` is an exact 12-byte command payload,
@@ -2214,8 +2218,8 @@ cache and cache-to-animation edges participate in transactional deletion
 protection. The initial executable subset resolves scale at compile time,
 suppresses an exact non-positive result, and emits a persistent cached layer
 only for scale one with pixel snapping and ClearType disabled. Other values
-fail closed until the semantic cache record carries WPF local bounds, raster
-scale, and composite placement.
+fail closed until the semantic cache record separates WPF local bounds/raster
+scale from composite placement.
 
 MIL cache content identity is independent of scene generation and unrelated
 sibling updates. It hashes the typed cached Visual/resource dependency graph,

@@ -108,6 +108,19 @@ progpu_native_mil_channel_set_drawing_image_bounds(
     double width,
     double height);
 /*
+ * Binds exact source-built Visual descendant bounds for target-space
+ * BitmapCache page sizing. The canonical Visual/cache packets do not carry
+ * this compositor-derived metadata.
+ */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_visual_cache_bounds(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    double x,
+    double y,
+    double width,
+    double height);
+/*
  * Binds copied SFNT/TTC bytes to a canonical TYPE_GLYPHRUN handle. This is
  * the portable replacement for MilCmdGlyphRunCreate's process-local
  * IDWriteFont pointer. style_simulations is a bitwise combination of
