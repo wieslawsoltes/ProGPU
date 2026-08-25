@@ -78,7 +78,7 @@ if (!renderOnly)
     uint targetHandle = focusedMil ? 2U : 42U;
     uint visualHandle = focusedMil ? 1U : 41U;
     uint expectedCommandCount = glyphRunDrawingOnly
-        ? 15U
+        ? 14U
         : imageDrawingOnly
         ? 12U
         : drawingGroupOnly ? 23U : focusedMil ? 15U : 78U;
@@ -391,7 +391,6 @@ static byte[] CreateMilGlyphRunDrawingBatch()
     batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
     batch.CreateResource(3, NativeMilResourceType.RenderData);
     batch.CreateResource(4, NativeMilResourceType.SolidColorBrush);
-    batch.CreateResource(5, NativeMilResourceType.GlyphRun);
     batch.CreateResource(6, NativeMilResourceType.GlyphRunDrawing);
     batch.CreateVisual(1);
     batch.SetVisualContent(1, 3);
