@@ -385,7 +385,8 @@ static byte[] CreateMilDrawingGroupBatch()
             OpacityAnimationHandle: 9,
             OpacityMaskHandle: 11,
             TransformHandle: 7,
-            EdgeMode: NativeMilEdgeMode.Aliased),
+            EdgeMode: NativeMilEdgeMode.Aliased,
+            ClearTypeHint: NativeMilClearTypeHint.Enabled),
         [6]);
     batch.SetRenderData(3, renderData);
     batch.CreateGenericTarget(2, 64, 64);
