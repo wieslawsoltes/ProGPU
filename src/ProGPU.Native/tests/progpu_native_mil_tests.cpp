@@ -2101,6 +2101,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     constexpr std::uint32_t rounded_rectangle = 15U;
     constexpr std::uint32_t same_fill_group = 16U;
     constexpr std::uint32_t different_fill_group = 17U;
+    constexpr std::uint32_t nested_combined = 18U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -2120,6 +2121,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     append_create(batch, rounded_rectangle, 69U);
     append_create(batch, same_fill_group, 71U);
     append_create(batch, different_fill_group, 71U);
+    append_create(batch, nested_combined, 72U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -2509,6 +2511,109 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     }
     PROGPU_REQUIRE(found_group_operand);
 
+    std::vector<std::byte> recursive_combined_update;
+    append_command(
+        recursive_combined_update,
+        command::combined_geometry,
+        nested_combined,
+        child_transform,
+        1U,
+        same_fill_group,
+        rectangle);
+    append_command(
+        recursive_combined_update,
+        command::combined_geometry,
+        combined,
+        transform,
+        3U,
+        nested_combined,
+        rounded_rectangle);
+    PROGPU_REQUIRE(
+        state.apply(recursive_combined_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7003U, 4U, stream) == status::success);
+    const auto recursive_combined_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_recursive_combined = false;
+    for (std::uint32_t index = 0U;
+         index < recursive_combined_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            recursive_combined_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            continue;
+        }
+        const auto path = read_value<progpu_native_scene_path_fill>(
+            stream,
+            resource.payload_offset);
+        if (path.boolean_node_count != 5U) {
+            continue;
+        }
+        PROGPU_REQUIRE(path.segment_count == 16U);
+        PROGPU_REQUIRE(path.min_x == 16.0F && path.min_y == 0.0F);
+        PROGPU_REQUIRE(path.max_x == 49.0F && path.max_y == 20.0F);
+        const std::size_t boolean_offset =
+            resource.auxiliary_offset +
+            16U * sizeof(progpu_native_path_segment);
+        const auto nested_group_leaf =
+            read_value<progpu_native_scene_path_boolean_node>(
+                stream,
+                boolean_offset);
+        const auto nested_rectangle_leaf =
+            read_value<progpu_native_scene_path_boolean_node>(
+                stream,
+                boolean_offset + sizeof(nested_group_leaf));
+        const auto nested_operation =
+            read_value<progpu_native_scene_path_boolean_node>(
+                stream,
+                boolean_offset + 2U * sizeof(nested_group_leaf));
+        const auto outer_leaf =
+            read_value<progpu_native_scene_path_boolean_node>(
+                stream,
+                boolean_offset + 3U * sizeof(nested_group_leaf));
+        const auto outer_operation =
+            read_value<progpu_native_scene_path_boolean_node>(
+                stream,
+                boolean_offset + 4U * sizeof(nested_group_leaf));
+        PROGPU_REQUIRE(
+            nested_group_leaf.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
+            nested_group_leaf.segment_offset == 0U &&
+            nested_group_leaf.segment_count == 4U &&
+            nested_group_leaf.fill_rule ==
+                PROGPU_NATIVE_FILL_RULE_EVEN_ODD &&
+            nested_group_leaf.min_x == 41.0F &&
+            nested_group_leaf.min_y == 12.0F &&
+            nested_group_leaf.max_x == 49.0F &&
+            nested_group_leaf.max_y == 20.0F);
+        PROGPU_REQUIRE(
+            nested_rectangle_leaf.kind ==
+                PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
+            nested_rectangle_leaf.segment_offset == 4U &&
+            nested_rectangle_leaf.segment_count == 4U &&
+            nested_rectangle_leaf.fill_rule ==
+                PROGPU_NATIVE_FILL_RULE_NON_ZERO &&
+            nested_rectangle_leaf.min_x == 40.0F &&
+            nested_rectangle_leaf.min_y == 10.0F &&
+            nested_rectangle_leaf.max_x == 44.0F &&
+            nested_rectangle_leaf.max_y == 13.0F);
+        PROGPU_REQUIRE(
+            nested_operation.kind ==
+                PROGPU_NATIVE_PATH_BOOLEAN_INTERSECT);
+        PROGPU_REQUIRE(
+            outer_leaf.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
+            outer_leaf.segment_offset == 8U &&
+            outer_leaf.segment_count == 8U &&
+            outer_leaf.min_x == 16.0F && outer_leaf.min_y == 0.0F &&
+            outer_leaf.max_x == 26.0F && outer_leaf.max_y == 8.0F);
+        PROGPU_REQUIRE(
+            outer_operation.kind ==
+                PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE);
+        found_recursive_combined = true;
+    }
+    PROGPU_REQUIRE(found_recursive_combined);
+
     const auto generation = state.resource_generation(group);
     std::vector<std::byte> malformed;
     append_command(
@@ -2533,7 +2638,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         0U);
     PROGPU_REQUIRE(state.apply(null_operand_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7003U, 4U, stream) == status::success);
+        state.build_scene(target, 7003U, 5U, stream) == status::success);
     const auto combined_generation = state.resource_generation(combined);
     std::vector<std::byte> invalid_combine;
     append_command(
@@ -2606,7 +2711,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         make_arc_path_figures());
     PROGPU_REQUIRE(state.apply(transformed_arc_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7003U, 5U, stream) ==
+        state.build_scene(target, 7003U, 6U, stream) ==
         status::unsupported_command);
 
     std::vector<std::byte> different_nested_fill;
@@ -2619,7 +2724,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         different_fill_child);
     PROGPU_REQUIRE(state.apply(different_nested_fill) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7003U, 6U, stream) == status::success);
+        state.build_scene(target, 7003U, 7U, stream) == status::success);
     const auto different_fill_header =
         read_value<progpu_native_scene_header>(stream, 0U);
     bool found_outer_fill_override = false;
