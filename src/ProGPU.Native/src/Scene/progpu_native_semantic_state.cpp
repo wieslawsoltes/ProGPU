@@ -73,7 +73,7 @@ progpu_native_scene_state semantic_state_cursor::advance(
         command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
         stack_[depth_++] = current_;
         if (command.state_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
-            current_ = resolve_guidelines(read_state(command.state_index));
+            current_ = resolve_state(command.state_index);
         }
         return current_;
     }
@@ -83,9 +83,14 @@ progpu_native_scene_state semantic_state_cursor::advance(
         return current_;
     }
     if (command.state_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
-        return resolve_guidelines(read_state(command.state_index));
+        return resolve_state(command.state_index);
     }
     return current_;
+}
+
+progpu_native_scene_state semantic_state_cursor::resolve_state(
+    std::uint32_t index) const noexcept {
+    return resolve_guidelines(read_state(index));
 }
 
 progpu_native_scene_state semantic_state_cursor::resolve_guidelines(

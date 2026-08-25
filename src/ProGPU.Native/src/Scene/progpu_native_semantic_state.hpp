@@ -21,6 +21,9 @@ public:
     progpu_native_scene_state advance(
         const progpu_native_scene_command& command) noexcept;
 
+    progpu_native_scene_state resolve_state(
+        std::uint32_t index) const noexcept;
+
 private:
     progpu_native_scene_state read_state(std::uint32_t index) const noexcept;
     progpu_native_scene_state resolve_guidelines(
