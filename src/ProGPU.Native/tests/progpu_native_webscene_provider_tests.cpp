@@ -1466,6 +1466,94 @@ std::vector<std::byte> create_semantic_local_retained_cache_scene_stream(
     return stream;
 }
 
+std::vector<std::byte>
+create_semantic_local_retained_cache_brush_mask_scene_stream(
+    std::uint64_t generation,
+    std::uint64_t content_revision,
+    float mask_opacity) {
+    using progpu::native::semantic_scene_builder;
+    semantic_scene_builder builder(1095U, generation);
+
+    auto composite_state = semantic_scene_builder::identity_state();
+    composite_state.transform.m31 = 36.0F;
+    composite_state.transform.m32 = 6.0F;
+    std::uint32_t composite_state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    require(builder.add_state(composite_state, composite_state_index),
+        "local cache mask composite-state recording failed");
+
+    auto raster_state = semantic_scene_builder::identity_state();
+    std::uint32_t raster_state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    require(builder.add_state(raster_state, raster_state_index),
+        "local cache mask raster-state recording failed");
+
+    progpu_native_scene_brush brush{};
+    brush.type = PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT;
+    brush.opacity = mask_opacity;
+    brush.start_point = {36.0F, 6.0F};
+    brush.end_point = {60.0F, 6.0F};
+    brush.stop_count = 2U;
+    brush.spread_method = PROGPU_NATIVE_SCENE_GRADIENT_PAD;
+    brush.color_interpolation_mode =
+        PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB;
+    brush.coordinate_transform0[0] = 1.0F;
+    brush.coordinate_transform1[1] = 1.0F;
+    const std::array stops{
+        progpu_native_scene_gradient_stop{
+            {1.0F, 1.0F, 1.0F, 0.0F}, 0.0F, 0U, 0U, 0U},
+        progpu_native_scene_gradient_stop{
+            {1.0F, 1.0F, 1.0F, 1.0F}, 1.0F, 0U, 0U, 0U}};
+    progpu_native_scene_layer_brush_mask mask{};
+    mask.struct_size = sizeof(mask);
+    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH;
+    mask.gradient_stop_count = static_cast<std::uint32_t>(stops.size());
+    mask.bounds = {36.0F, 6.0F, 24.0F, 18.0F};
+    mask.transform = semantic_scene_builder::identity_transform();
+    mask.opacity = 1.0F;
+    mask.brush = brush;
+    std::uint32_t mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    require(builder.add_brush_mask(mask, stops, mask_resource_index),
+        "local cache brush-mask recording failed");
+
+    progpu_native_scene_layer layer{};
+    layer.struct_size = sizeof(layer);
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE;
+    layer.bounds = {0.0F, 0.0F, 24.0F, 18.0F};
+    layer.opacity = 1.0F;
+    layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    layer.mask_resource_index = mask_resource_index;
+    layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    layer.content_revision = content_revision;
+    layer.composite_revision = 7003U;
+    layer.reserved0 = composite_state_index;
+    require(builder.push_layer(layer),
+        "local cache masked-layer recording failed");
+    require(builder.save(raster_state_index),
+        "local cache mask raster save failed");
+    const progpu_native_analytic_primitive content{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        0.0F,
+        0.0F,
+        24.0F,
+        18.0F,
+        0.0F,
+        0.0F,
+        {0.2F, 0.7F, 0.3F, 1.0F},
+        semantic_scene_builder::identity_transform()};
+    require(builder.draw_analytic(
+        std::span<const progpu_native_analytic_primitive>(&content, 1U),
+        {},
+        {0.0F, 0.0F, 24.0F, 18.0F}),
+        "local cache mask content recording failed");
+    require(builder.restore(), "local cache mask raster restore failed");
+    require(builder.pop_layer(), "local cache masked-layer pop failed");
+    std::vector<std::byte> stream;
+    require(builder.build(stream), "local cache brush-mask build failed");
+    return stream;
+}
+
 std::vector<std::byte> create_semantic_opacity_layer_scene_stream(
     std::uint64_t generation = 1U,
     float glyph_raster_scale = 1.0F) {
@@ -5437,6 +5525,70 @@ int main(int argc, char** argv) {
         semantic_layer_metrics.content_pass_count == 0U &&
         semantic_layer_metrics.composite_pass_count == 1U,
         "semantic local retained cache nearest sampling redrew content");
+
+    auto local_cache_mask_scene =
+        create_semantic_local_retained_cache_brush_mask_scene_stream(
+            1U, 1U, 1.0F);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        local_cache_mask_scene.data(),
+        local_cache_mask_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic local retained cache brush-mask update failed");
+    progpu_native_scene_frame local_cache_mask_frame = semantic_frame;
+    local_cache_mask_frame.target_view =
+        reinterpret_cast<std::uintptr_t>(view);
+    local_cache_mask_frame.scene_id = 1095U;
+    local_cache_mask_frame.generation = 1U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &local_cache_mask_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic local retained cache brush-mask first render failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.mask_kind ==
+            PROGPU_NATIVE_GROUP_MASK_TEXTURE &&
+        semantic_layer_metrics.content_pass_count == 1U &&
+        semantic_layer_metrics.composite_pass_count == 1U,
+        "semantic local retained cache brush-mask metrics are incorrect");
+
+    local_cache_mask_scene =
+        create_semantic_local_retained_cache_brush_mask_scene_stream(
+            2U, 1U, 0.5F);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        local_cache_mask_scene.data(),
+        local_cache_mask_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic local retained cache brush-mask opacity update failed");
+    local_cache_mask_frame.generation = 2U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &local_cache_mask_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic local retained cache brush-mask opacity replay failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.mask_kind ==
+            PROGPU_NATIVE_GROUP_MASK_TEXTURE &&
+        semantic_layer_metrics.content_pass_count == 0U &&
+        semantic_layer_metrics.composite_pass_count == 1U,
+        "semantic local retained cache brush-mask update redrew content");
 
     scene_metrics = {};
     scene_metrics.struct_size = sizeof(scene_metrics);

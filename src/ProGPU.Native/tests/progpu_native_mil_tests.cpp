@@ -125,6 +125,40 @@ bool try_get_state_resource(
     return true;
 }
 
+bool try_get_brush_mask_resource(
+    const std::vector<std::byte>& stream,
+    std::uint32_t resource_index,
+    progpu_native_scene_layer_brush_mask& mask,
+    std::vector<progpu_native_scene_gradient_stop>& stops) {
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    if (resource_index >= header.resource_count) {
+        return false;
+    }
+    const auto resource = read_value<progpu_native_scene_resource>(
+        stream,
+        header.resource_offset +
+            resource_index * sizeof(progpu_native_scene_resource));
+    if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+        resource.payload_size !=
+            sizeof(progpu_native_scene_layer_brush_mask) ||
+        resource.auxiliary_size %
+            sizeof(progpu_native_scene_gradient_stop) != 0U) {
+        return false;
+    }
+    mask = read_value<progpu_native_scene_layer_brush_mask>(
+        stream, resource.payload_offset);
+    const std::size_t stop_count = resource.auxiliary_size /
+        sizeof(progpu_native_scene_gradient_stop);
+    stops.resize(stop_count);
+    for (std::size_t index = 0U; index < stop_count; ++index) {
+        stops[index] = read_value<progpu_native_scene_gradient_stop>(
+            stream,
+            resource.auxiliary_offset +
+                index * sizeof(progpu_native_scene_gradient_stop));
+    }
+    return true;
+}
+
 bool try_get_cached_raster_state(
     const std::vector<std::byte>& stream,
     progpu_native_scene_state& state) {
@@ -2240,6 +2274,192 @@ bool visual_bitmap_cache_applies_root_state_at_composite() {
     PROGPU_REQUIRE(state.apply(unsupported_cubic) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 9017U, 4U, stream, &metrics) ==
+        status::unsupported_command);
+    return true;
+}
+
+bool visual_bitmap_cache_applies_gradient_mask_at_composite() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t content_brush = 4U;
+    constexpr std::uint32_t cache = 5U;
+    constexpr std::uint32_t mask_brush = 6U;
+    constexpr std::uint32_t radial_mask_brush = 7U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, content_brush, 75U);
+    append_create(batch, cache, 94U);
+    append_create(batch, mask_brush, 77U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(batch, command::visual_set_offset, visual, 3.0, 4.0);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        content_brush,
+        1.0,
+        progpu_native_color{0.2F, 0.7F, 1.0F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    const std::array mask_stops{
+        mil_gradient_stop{0.0, {1.0F, 1.0F, 1.0F, 0.0F}},
+        mil_gradient_stop{1.0, {1.0F, 1.0F, 1.0F, 1.0F}}};
+    append_linear_gradient_brush(
+        batch,
+        mask_brush,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0U,
+        0U,
+        0U,
+        1U,
+        1U,
+        0U,
+        0U,
+        0U,
+        mask_stops);
+    append_command(
+        batch, command::visual_set_alpha_mask, visual, mask_brush);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_rectangle,
+        0.0,
+        0.0,
+        24.0,
+        18.0,
+        content_brush,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::bitmap_cache,
+        cache,
+        1.0,
+        0U,
+        0U,
+        0U);
+    append_command(batch, command::visual_set_cache_mode, visual, cache);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    PROGPU_REQUIRE(
+        state.set_visual_cache_bounds(
+            visual, 0.0, 0.0, 24.0, 18.0) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9018U, 1U, stream, &metrics) ==
+        status::success);
+    progpu_native_scene_layer first{};
+    PROGPU_REQUIRE(try_get_cached_layer(stream, first));
+    PROGPU_REQUIRE(
+        first.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX);
+    progpu_native_scene_layer_brush_mask first_mask{};
+    std::vector<progpu_native_scene_gradient_stop> first_stops;
+    PROGPU_REQUIRE(try_get_brush_mask_resource(
+        stream,
+        first.mask_resource_index,
+        first_mask,
+        first_stops));
+    PROGPU_REQUIRE(
+        first_mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH);
+    PROGPU_REQUIRE(first_mask.bounds.x == 0.0F);
+    PROGPU_REQUIRE(first_mask.bounds.y == 0.0F);
+    PROGPU_REQUIRE(first_mask.bounds.width == 24.0F);
+    PROGPU_REQUIRE(first_mask.bounds.height == 18.0F);
+    PROGPU_REQUIRE(first_mask.transform.m31 == 3.0F);
+    PROGPU_REQUIRE(first_mask.transform.m32 == 4.0F);
+    PROGPU_REQUIRE(
+        first_mask.brush.type ==
+            PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT);
+    PROGPU_REQUIRE(first_mask.brush.start_point.x == 0.0F);
+    PROGPU_REQUIRE(first_mask.brush.end_point.x == 24.0F);
+    PROGPU_REQUIRE(first_mask.brush.coordinate_transform0[2] == -3.0F);
+    PROGPU_REQUIRE(first_mask.brush.coordinate_transform1[2] == -4.0F);
+    PROGPU_REQUIRE(first_stops.size() == 2U);
+    PROGPU_REQUIRE(first_stops.front().color.a == 0.0F);
+    PROGPU_REQUIRE(first_stops.back().color.a == 1.0F);
+
+    std::vector<std::byte> mask_update;
+    append_create(mask_update, radial_mask_brush, 78U);
+    append_radial_gradient_brush(
+        mask_update,
+        radial_mask_brush,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
+        1U,
+        1U,
+        0U,
+        0U,
+        0U,
+        mask_stops);
+    append_command(
+        mask_update,
+        command::visual_set_alpha_mask,
+        visual,
+        radial_mask_brush);
+    PROGPU_REQUIRE(state.apply(mask_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9018U, 2U, stream, &metrics) ==
+        status::success);
+    progpu_native_scene_layer changed{};
+    PROGPU_REQUIRE(try_get_cached_layer(stream, changed));
+    PROGPU_REQUIRE(changed.content_revision == first.content_revision);
+    progpu_native_scene_layer_brush_mask changed_mask{};
+    std::vector<progpu_native_scene_gradient_stop> changed_stops;
+    PROGPU_REQUIRE(try_get_brush_mask_resource(
+        stream,
+        changed.mask_resource_index,
+        changed_mask,
+        changed_stops));
+    PROGPU_REQUIRE(changed_mask.brush.opacity == 0.5F);
+    PROGPU_REQUIRE(
+        changed_mask.brush.type ==
+            PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT);
+    PROGPU_REQUIRE(changed_mask.brush.center.x == 12.0F);
+    PROGPU_REQUIRE(changed_mask.brush.center.y == 9.0F);
+    PROGPU_REQUIRE(changed_mask.brush.radius == 12.0F);
+    PROGPU_REQUIRE(changed_mask.brush.radius_y == 9.0F);
+
+    std::vector<std::byte> unsupported_ordering;
+    append_command(
+        unsupported_ordering,
+        command::visual_set_guideline_collection,
+        visual,
+        std::uint16_t{1U},
+        std::uint16_t{0U},
+        std::uint16_t{1U},
+        std::uint16_t{0U},
+        2.25F,
+        3.5F);
+    PROGPU_REQUIRE(state.apply(unsupported_ordering) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9018U, 3U, stream, &metrics) ==
         status::unsupported_command);
     return true;
 }
@@ -8447,6 +8667,8 @@ int main() {
     PROGPU_REQUIRE(visual_bitmap_cache_uses_canonical_typed_retention());
     PROGPU_REQUIRE(visual_bitmap_cache_controls_clear_type_rasterization());
     PROGPU_REQUIRE(visual_bitmap_cache_applies_root_state_at_composite());
+    PROGPU_REQUIRE(
+        visual_bitmap_cache_applies_gradient_mask_at_composite());
     PROGPU_REQUIRE(visual_static_guidelines_reset_at_child_boundaries());
     PROGPU_REQUIRE(matrix_transform_scopes_compile_to_semantic_state());
     PROGPU_REQUIRE(

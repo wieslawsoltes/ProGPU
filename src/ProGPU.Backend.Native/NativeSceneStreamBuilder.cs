@@ -2881,7 +2881,6 @@ public ref struct NativeSceneStreamBuilder
                     layer.Bounds.X == 0f && layer.Bounds.Y == 0f &&
                     layer.Bounds.Width > 0f && layer.Bounds.Height > 0f &&
                     layer.BlendMode == GpuBlendMode.SrcOver &&
-                    layer.MaskResourceIndex == NativeMethods.SceneNoIndex &&
                     layer.EffectResourceIndex == NativeMethods.SceneNoIndex)) &&
             ((layer.Flags & NativeSceneLayerFlags.CacheNearest) == 0 ||
                 localCache) &&

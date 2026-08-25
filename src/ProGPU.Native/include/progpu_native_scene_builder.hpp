@@ -126,6 +126,11 @@ public:
         const progpu_native_scene_layer_coverage_mask& mask,
         std::span<const std::byte> coverage,
         std::uint32_t& resource_index) noexcept;
+    // Records one canonical typed brush mask and its inline gradient stops.
+    bool add_brush_mask(
+        const progpu_native_scene_layer_brush_mask& mask,
+        std::span<const progpu_native_scene_gradient_stop> gradient_stops,
+        std::uint32_t& resource_index) noexcept;
     bool add_analytic_mask_chain(
         std::span<const progpu_native_scene_layer_mask> masks,
         std::uint32_t& resource_index) noexcept;

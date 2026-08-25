@@ -2209,8 +2209,9 @@ fail closed instead of allocating the full target.
 contract. It preserves the 64-byte layer ABI: bounds are a positive zero-origin
 raster-page extent, and `reserved0` references a preceding transform-only State
 resource that maps page logical coordinates into the parent target. The local
-flag requires `CACHE_CONTENT`, `BOUNDS`, source-over, and no layer-local mask or
-effect. The target cursor does not intersect the page allocation with parent
+flag requires `CACHE_CONTENT`, `BOUNDS`, source-over, and no layer-local effect;
+an optional typed layer mask is evaluated only while compositing the retained
+page. The target cursor does not intersect the page allocation with parent
 placement; the executor instead transforms the four composite vertices and
 localizes them to the parent materialized target. This representation is
 backend-neutral and is shared by wgpu-native, provider-resolved Dawn, and
@@ -2249,9 +2250,14 @@ per axis. The shared executor resolves guideline translation and a target-local
 scissor when drawing the page, including empty-clip suppression, without
 rerasterizing it. Cache-root NearestNeighbor bitmap scaling selects the
 retained page's nearest bind group and is composite-only; validation rejects
-that flag without local-cache state. Cubic/Fant cache-bitmap sampling and
-spatial masks remain fail-closed. BitmapCache EnableClearType is a raster-scope
-policy: false
+that flag without local-cache state. A cache-root linear or radial gradient
+opacity mask now resolves against the exact Visual-local bounds and reuses the
+typed GPU brush-mask resource at composite time. Its outer transform and
+SnapsToDevicePixels correction match the retained quad; mask-only updates keep
+the content revision and skip the content pass. Solid masks remain uniform
+opacity. Inherited masks, mask/effect ordering, gradient-mask plus guideline
+composition, and Cubic/Fant cache-bitmap sampling remain fail-closed.
+BitmapCache EnableClearType is a raster-scope policy: false
 converts requested descendant subpixel glyph styles to grayscale; true
 preserves descendant inherited/explicit text rendering mode without forcing
 unrequested ClearType. A cache-root text mode does not leak into the retained
@@ -2312,8 +2318,9 @@ package contains nine files, with SHA-256
 `FC95E25FF8E5313D6151F199E236D376E28C9FF7243AD0887F8FA360B89AA73E` for
 `progpu_native_dawn.dll`. This qualifies the executable local-space,
 RenderAtScale, pixel-snapping, and ClearType cache subset on DirectX; the
-remaining cache work is spatial mask, cubic/Fant sampling, multi-guideline,
-nested-cache/effect ordering, and LibreWPF package integration.
+remaining cache work is inherited/ordered spatial-mask composition,
+cubic/Fant sampling, multi-guideline, nested-cache/effect ordering, and
+LibreWPF package integration.
 
 The post-raster cache-root State checkpoint passed that strict Windows gate on
 2026-08-26 from clean detached ProGPU commit `7eb17727`. MSVC rebuilt both

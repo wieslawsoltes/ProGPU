@@ -97,6 +97,54 @@ bool semantic_scene_builder::add_coverage_mask(
     }
 }
 
+bool semantic_scene_builder::add_brush_mask(
+    const progpu_native_scene_layer_brush_mask& source,
+    std::span<const progpu_native_scene_gradient_stop> gradient_stops,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (gradient_stops.size() >
+            std::numeric_limits<std::uint32_t>::max() ||
+        gradient_stops.size() > PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS ||
+        implementation_->resources.size() >=
+            PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    progpu_native_scene_layer_brush_mask mask = source;
+    mask.struct_size = sizeof(mask);
+    mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH;
+    mask.flags = 0U;
+    mask.gradient_stop_count = static_cast<std::uint32_t>(
+        gradient_stops.size());
+    mask.reserved0 = 0U;
+    mask.brush.stop_offset = 0U;
+    if (!semantic::is_valid_semantic_layer_brush_mask(
+            mask, gradient_stops)) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    try {
+        implementation_->resources.reserve(
+            implementation_->resources.size() + 1U);
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload = copy_bytes(
+            std::span<const progpu_native_scene_layer_brush_mask>(&mask, 1U));
+        resource.auxiliary = copy_bytes(gradient_stops);
+        resource_index = static_cast<std::uint32_t>(
+            implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
 bool semantic_scene_builder::add_analytic_mask_chain(
     std::span<const progpu_native_scene_layer_mask> masks,
     std::uint32_t& resource_index) noexcept {

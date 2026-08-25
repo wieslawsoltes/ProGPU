@@ -1037,8 +1037,11 @@ typedef struct progpu_native_scene_guideline_set {
  * nonzero. With LAYER_CACHE_LOCAL_SPACE, bounds describe the zero-origin
  * raster-page extent and reserved0 is a preceding transform-only
  * PROGPU_NATIVE_SCENE_RESOURCE_STATE used to place the cached quad in its
- * parent target. LAYER_CACHE_NEAREST selects nearest-neighbor sampling for
- * that local cached quad and is invalid without LAYER_CACHE_LOCAL_SPACE.
+ * parent target. Its optional mask_resource_index is applied to the cached
+ * quad during that composite and does not participate in retained content
+ * reuse; effects remain unsupported on local cached layers. LAYER_CACHE_NEAREST
+ * selects nearest-neighbor sampling for that local cached quad and is invalid
+ * without LAYER_CACHE_LOCAL_SPACE.
  * The 64-byte version-one record remains unchanged.
  */
 typedef struct progpu_native_scene_layer {

@@ -414,7 +414,6 @@ bool is_valid_semantic_layer(
                 layer.bounds.x == 0.0F && layer.bounds.y == 0.0F &&
                 layer.bounds.width > 0.0F && layer.bounds.height > 0.0F &&
                 layer.blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER &&
-                layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
                 layer.effect_resource_index ==
                     PROGPU_NATIVE_SCENE_NO_INDEX)) &&
         (((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST) == 0U) ||

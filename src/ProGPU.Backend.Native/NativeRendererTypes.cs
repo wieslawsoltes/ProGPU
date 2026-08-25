@@ -1566,8 +1566,11 @@ internal readonly struct NativeSceneGuidelineSetHeader
 /// subtree pixel version; both must be nonzero. A local-space cache uses
 /// <see cref="CompositeStateResourceIndex"/> to reference a preceding
 /// transform-only <see cref="NativeSceneState"/> resource while retaining the
-/// exact 64-byte layer ABI. <see cref="NativeSceneLayerFlags.CacheNearest"/>
-/// selects nearest-neighbor filtering for that cached-page composite.
+/// exact 64-byte layer ABI. Its optional <see cref="MaskResourceIndex"/> is
+/// applied while compositing the retained page and does not invalidate cached
+/// content; effects remain unsupported on local cached layers.
+/// <see cref="NativeSceneLayerFlags.CacheNearest"/> selects nearest-neighbor
+/// filtering for that cached-page composite.
 /// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct NativeSceneLayer

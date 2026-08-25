@@ -3336,6 +3336,39 @@ public class NativeRendererInteropTests
         Assert.True(localBuilder.TryPushLayer(1U, in localCachedLayer));
         Assert.Equal(0U, localCachedLayer.CompositeStateResourceIndex);
 
+        var maskedLocalBuilder = new NativeSceneStreamBuilder(
+            destination,
+            12U,
+            1U,
+            commandCapacity: 2,
+            resourceCapacity: 2);
+        Assert.True(maskedLocalBuilder.TryAddStateResource(
+            1U, 1U, in compositeState, out uint maskedCompositeStateIndex));
+        var localMask = new NativeSceneLayerBrushMask(
+            new NativeImageRect(0f, 0f, 40f, 50f),
+            Matrix3x2.Identity,
+            NativeSceneBrush.Solid(Vector4.One),
+            gradientStopCount: 0U);
+        Assert.True(maskedLocalBuilder.TryAddLayerBrushMaskResource(
+            2U,
+            1U,
+            in localMask,
+            [],
+            out uint localMaskIndex));
+        var maskedLocalCachedLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent |
+                NativeSceneLayerFlags.CacheLocalSpace,
+            bounds: new NativeImageRect(0f, 0f, 40f, 50f),
+            maskResourceIndex: localMaskIndex,
+            contentRevision: 7U,
+            compositeRevision: 9U,
+            compositeStateResourceIndex: maskedCompositeStateIndex);
+        Assert.True(maskedLocalBuilder.TryPushLayer(
+            1U, in maskedLocalCachedLayer));
+        Assert.True(maskedLocalBuilder.TryPopLayer(2U));
+        Assert.True(maskedLocalBuilder.TryBuild(out _));
+
         var nearestLocalCachedLayer = new NativeSceneLayer(
             flags: NativeSceneLayerFlags.Bounds |
                 NativeSceneLayerFlags.CacheContent |

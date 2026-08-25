@@ -799,6 +799,14 @@ struct channel::implementation {
         std::uint32_t text_hinting_mode{};
     };
 
+    struct brush_use_state {
+        double x{};
+        double y{};
+        double width{};
+        double height{};
+        affine_2d_double effective_transform{};
+    };
+
     struct transform_state {
         enum class kind : std::uint32_t {
             matrix,
@@ -5266,13 +5274,6 @@ struct channel::implementation {
             destination.mask_resource_index = mask_resource_index;
             return status::success;
         };
-        struct brush_use_state {
-            double x{};
-            double y{};
-            double width{};
-            double height{};
-            affine_2d_double effective_transform{};
-        };
         const auto resolve_brush_index = [
             this,
             &builder,
@@ -5298,271 +5299,22 @@ struct channel::implementation {
                 result = added;
                 return status::success;
             }
-            const auto gradient = gradient_brushes.find(brush_handle);
-            if (gradient == gradient_brushes.end()) {
-                return status::invalid_handle;
-            }
-            if (use == nullptr || use->width <= 0.0 || use->height <= 0.0) {
+            if (use == nullptr) {
                 return status::unsupported_command;
-            }
-            const auto& source = gradient->second;
-            double opacity = 0.0;
-            const status opacity_status = resolve_animated_double(
-                source.opacity,
-                source.opacity_animation,
-                opacity);
-            if (opacity_status != status::success) {
-                return opacity_status;
-            }
-            if (!finite_double_as_float(opacity) ||
-                opacity < 0.0 || opacity > 1.0) {
-                return status::invalid_graph;
-            }
-            double first_x = 0.0;
-            double first_y = 0.0;
-            double second_x = 0.0;
-            double second_y = 0.0;
-            const status first_status = resolve_animated_point(
-                source.first_x,
-                source.first_y,
-                source.first_point_animation,
-                first_x,
-                first_y);
-            const status second_status = resolve_animated_point(
-                source.second_x,
-                source.second_y,
-                source.second_point_animation,
-                second_x,
-                second_y);
-            if (first_status != status::success) {
-                return first_status;
-            }
-            if (second_status != status::success) {
-                return second_status;
-            }
-            double radius_x = source.radius_x;
-            double radius_y = source.radius_y;
-            if (source.type == gradient_brush_state::kind::radial) {
-                const status radius_x_status = resolve_animated_double(
-                    source.radius_x,
-                    source.radius_x_animation,
-                    radius_x);
-                const status radius_y_status = resolve_animated_double(
-                    source.radius_y,
-                    source.radius_y_animation,
-                    radius_y);
-                if (radius_x_status != status::success) {
-                    return radius_x_status;
-                }
-                if (radius_y_status != status::success) {
-                    return radius_y_status;
-                }
-            }
-            if (source.mapping_mode == 1U) {
-                first_x = use->x + first_x * use->width;
-                first_y = use->y + first_y * use->height;
-                second_x = use->x + second_x * use->width;
-                second_y = use->y + second_y * use->height;
-                radius_x *= use->width;
-                radius_y *= use->height;
-            }
-            if (!finite_double_as_float(first_x) ||
-                !finite_double_as_float(first_y) ||
-                !finite_double_as_float(second_x) ||
-                !finite_double_as_float(second_y) ||
-                (source.type == gradient_brush_state::kind::radial &&
-                    (!finite_double_as_float(radius_x) ||
-                     !finite_double_as_float(radius_y) ||
-                     radius_x < 0.0 || radius_y < 0.0 ||
-                     (radius_x == 0.0 && radius_y == 0.0)))) {
-                return status::invalid_graph;
-            }
-            affine_2d_double brush_transform{};
-            if (source.relative_transform_handle != 0U) {
-                affine_2d_double relative{};
-                const status relative_status = resolve_transform(
-                    source.relative_transform_handle,
-                    relative);
-                if (relative_status != status::success) {
-                    return relative_status;
-                }
-                const affine_2d_double to_relative{
-                    1.0 / use->width,
-                    0.0,
-                    0.0,
-                    1.0 / use->height,
-                    -use->x / use->width,
-                    -use->y / use->height};
-                const affine_2d_double from_relative{
-                    use->width,
-                    0.0,
-                    0.0,
-                    use->height,
-                    use->x,
-                    use->y};
-                brush_transform = compose_affine(
-                    compose_affine(to_relative, relative),
-                    from_relative);
-            }
-            if (source.transform_handle != 0U) {
-                affine_2d_double absolute{};
-                const status absolute_status = resolve_transform(
-                    source.transform_handle,
-                    absolute);
-                if (absolute_status != status::success) {
-                    return absolute_status;
-                }
-                brush_transform = compose_affine(
-                    brush_transform,
-                    absolute);
-            }
-            affine_2d_double inverse_draw{};
-            affine_2d_double inverse_brush{};
-            if (!try_invert_affine(use->effective_transform, inverse_draw) ||
-                !try_invert_affine(brush_transform, inverse_brush)) {
-                return status::unsupported_command;
-            }
-            const affine_2d_double coordinate = compose_affine(
-                inverse_draw,
-                inverse_brush);
-            progpu_native_affine_2d native_coordinate{};
-            if (!try_to_native_affine(coordinate, native_coordinate)) {
-                return status::invalid_graph;
-            }
-
-            if (source.stops.empty()) {
-                return builder.add_solid_brush({}, 0.0F, result)
-                    ? status::success
-                    : status::invalid_graph;
-            }
-            if (source.stops.size() == 1U) {
-                const auto color = sc_rgb_to_s_rgb(source.stops[0].color);
-                return builder.add_solid_brush(
-                        color,
-                        static_cast<float>(opacity),
-                        result)
-                    ? status::success
-                    : status::invalid_graph;
-            }
-            std::vector<gradient_stop_state> working;
-            try {
-                working = source.stops;
-            } catch (const std::bad_alloc&) {
-                return status::capacity_exceeded;
-            }
-            for (auto& stop : working) {
-                stop.position = static_cast<float>(stop.position);
-                if (source.color_interpolation_mode == 1U) {
-                    stop.color = sc_rgb_to_s_rgb(stop.color);
-                }
-            }
-            std::stable_sort(
-                working.begin(),
-                working.end(),
-                [](const gradient_stop_state& left,
-                   const gradient_stop_state& right) {
-                    return left.position < right.position;
-                });
-            const auto color_at = [&working](
-                float position,
-                bool prefer_first_exact) noexcept {
-                auto first_exact = working.end();
-                auto last_exact = working.end();
-                for (auto current = working.begin();
-                     current != working.end();
-                     ++current) {
-                    const float current_position =
-                        static_cast<float>(current->position);
-                    if (current_position == position) {
-                        if (first_exact == working.end()) {
-                            first_exact = current;
-                        }
-                        last_exact = current;
-                    }
-                }
-                if (first_exact != working.end()) {
-                    return (prefer_first_exact ? first_exact : last_exact)->color;
-                }
-                if (working.front().position > position) {
-                    return working.front().color;
-                }
-                if (working.back().position < position) {
-                    return working.back().color;
-                }
-                for (std::size_t index = 1U;
-                     index < working.size();
-                     ++index) {
-                    const float right =
-                        static_cast<float>(working[index].position);
-                    if (right > position) {
-                        const float left = static_cast<float>(
-                            working[index - 1U].position);
-                        const float factor =
-                            (position - left) / (right - left);
-                        return interpolate_color(
-                            working[index - 1U].color,
-                            working[index].color,
-                            factor);
-                    }
-                }
-                return working.back().color;
-            };
-            const progpu_native_color first_color = color_at(0.0F, false);
-            const progpu_native_color last_color = color_at(1.0F, true);
-            std::vector<progpu_native_scene_gradient_stop> stops;
-            try {
-                stops.reserve(working.size() + 2U);
-                stops.push_back({first_color, 0.0F, 0U, 0U, 0U});
-                for (const auto& stop : working) {
-                    const float position = static_cast<float>(stop.position);
-                    if (position > 0.0F && position < 1.0F) {
-                        stops.push_back({
-                            stop.color, position, 0U, 0U, 0U});
-                    }
-                }
-                stops.push_back({last_color, 1.0F, 0U, 0U, 0U});
-            } catch (const std::bad_alloc&) {
-                return status::capacity_exceeded;
-            }
-            if (source.color_interpolation_mode == 0U) {
-                for (auto& stop : stops) {
-                    stop.color = sc_rgb_to_s_rgb(stop.color);
-                }
             }
             progpu_native_scene_brush native{};
-            native.type = source.type == gradient_brush_state::kind::linear
-                ? PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT
-                : PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT;
-            native.opacity = static_cast<float>(opacity);
-            native.start_point = {
-                static_cast<float>(
-                    source.type == gradient_brush_state::kind::linear
-                        ? first_x
-                        : second_x),
-                static_cast<float>(
-                    source.type == gradient_brush_state::kind::linear
-                        ? first_y
-                        : second_y)};
-            native.end_point = {
-                static_cast<float>(second_x),
-                static_cast<float>(second_y)};
-            native.center = {
-                static_cast<float>(first_x),
-                static_cast<float>(first_y)};
-            native.radius = static_cast<float>(radius_x);
-            native.radius_y = static_cast<float>(radius_y);
-            native.stop_count = static_cast<std::uint32_t>(stops.size());
-            native.spread_method = source.spread_method;
-            native.color_interpolation_mode =
-                source.color_interpolation_mode == 0U
-                    ? PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SCRGB
-                    : PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB;
-            native.coordinate_transform0[0] = native_coordinate.m11;
-            native.coordinate_transform0[1] = native_coordinate.m21;
-            native.coordinate_transform0[2] = native_coordinate.m31;
-            native.coordinate_transform1[0] = native_coordinate.m12;
-            native.coordinate_transform1[1] = native_coordinate.m22;
-            native.coordinate_transform1[2] = native_coordinate.m32;
+            std::vector<progpu_native_scene_gradient_stop> stops;
+            const status brush_status = resolve_gradient_scene_brush(
+                brush_handle, *use, native, stops);
+            if (brush_status != status::success) {
+                return brush_status;
+            }
+            if (native.type == PROGPU_NATIVE_SCENE_BRUSH_SOLID) {
+                return builder.add_solid_brush(
+                        native.colors[0], native.opacity, result)
+                    ? status::success
+                    : status::invalid_graph;
+            }
             return builder.add_brush(native, stops, result)
                 ? status::success
                 : status::invalid_graph;
@@ -8159,6 +7911,284 @@ struct channel::implementation {
         return status::success;
     }
 
+    status resolve_gradient_scene_brush(
+        std::uint32_t brush_handle,
+        const brush_use_state& use,
+        progpu_native_scene_brush& native,
+        std::vector<progpu_native_scene_gradient_stop>& stops) const {
+        native = {};
+        stops.clear();
+        const auto gradient = gradient_brushes.find(brush_handle);
+        if (gradient == gradient_brushes.end()) {
+            return status::invalid_handle;
+        }
+        if (use.width <= 0.0 || use.height <= 0.0) {
+            return status::unsupported_command;
+        }
+        const auto& source = gradient->second;
+        double opacity = 0.0;
+        const status opacity_status = resolve_animated_double(
+            source.opacity,
+            source.opacity_animation,
+            opacity);
+        if (opacity_status != status::success) {
+            return opacity_status;
+        }
+        if (!finite_double_as_float(opacity) ||
+            opacity < 0.0 || opacity > 1.0) {
+            return status::invalid_graph;
+        }
+        double first_x = 0.0;
+        double first_y = 0.0;
+        double second_x = 0.0;
+        double second_y = 0.0;
+        const status first_status = resolve_animated_point(
+            source.first_x,
+            source.first_y,
+            source.first_point_animation,
+            first_x,
+            first_y);
+        const status second_status = resolve_animated_point(
+            source.second_x,
+            source.second_y,
+            source.second_point_animation,
+            second_x,
+            second_y);
+        if (first_status != status::success) {
+            return first_status;
+        }
+        if (second_status != status::success) {
+            return second_status;
+        }
+        double radius_x = source.radius_x;
+        double radius_y = source.radius_y;
+        if (source.type == gradient_brush_state::kind::radial) {
+            const status radius_x_status = resolve_animated_double(
+                source.radius_x,
+                source.radius_x_animation,
+                radius_x);
+            const status radius_y_status = resolve_animated_double(
+                source.radius_y,
+                source.radius_y_animation,
+                radius_y);
+            if (radius_x_status != status::success) {
+                return radius_x_status;
+            }
+            if (radius_y_status != status::success) {
+                return radius_y_status;
+            }
+        }
+        if (source.mapping_mode == 1U) {
+            first_x = use.x + first_x * use.width;
+            first_y = use.y + first_y * use.height;
+            second_x = use.x + second_x * use.width;
+            second_y = use.y + second_y * use.height;
+            radius_x *= use.width;
+            radius_y *= use.height;
+        }
+        if (!finite_double_as_float(first_x) ||
+            !finite_double_as_float(first_y) ||
+            !finite_double_as_float(second_x) ||
+            !finite_double_as_float(second_y) ||
+            (source.type == gradient_brush_state::kind::radial &&
+                (!finite_double_as_float(radius_x) ||
+                 !finite_double_as_float(radius_y) ||
+                 radius_x < 0.0 || radius_y < 0.0 ||
+                 (radius_x == 0.0 && radius_y == 0.0)))) {
+            return status::invalid_graph;
+        }
+        affine_2d_double brush_transform{};
+        if (source.relative_transform_handle != 0U) {
+            affine_2d_double relative{};
+            const status relative_status = resolve_transform(
+                source.relative_transform_handle,
+                relative);
+            if (relative_status != status::success) {
+                return relative_status;
+            }
+            const affine_2d_double to_relative{
+                1.0 / use.width,
+                0.0,
+                0.0,
+                1.0 / use.height,
+                -use.x / use.width,
+                -use.y / use.height};
+            const affine_2d_double from_relative{
+                use.width,
+                0.0,
+                0.0,
+                use.height,
+                use.x,
+                use.y};
+            brush_transform = compose_affine(
+                compose_affine(to_relative, relative),
+                from_relative);
+        }
+        if (source.transform_handle != 0U) {
+            affine_2d_double absolute{};
+            const status absolute_status = resolve_transform(
+                source.transform_handle,
+                absolute);
+            if (absolute_status != status::success) {
+                return absolute_status;
+            }
+            brush_transform = compose_affine(
+                brush_transform,
+                absolute);
+        }
+        affine_2d_double inverse_draw{};
+        affine_2d_double inverse_brush{};
+        if (!try_invert_affine(use.effective_transform, inverse_draw) ||
+            !try_invert_affine(brush_transform, inverse_brush)) {
+            return status::unsupported_command;
+        }
+        const affine_2d_double coordinate = compose_affine(
+            inverse_draw,
+            inverse_brush);
+        progpu_native_affine_2d native_coordinate{};
+        if (!try_to_native_affine(coordinate, native_coordinate)) {
+            return status::invalid_graph;
+        }
+
+        native.coordinate_transform0[0] = 1.0F;
+        native.coordinate_transform1[1] = 1.0F;
+        if (source.stops.empty()) {
+            native.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+            native.opacity = 0.0F;
+            return status::success;
+        }
+        if (source.stops.size() == 1U) {
+            native.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+            native.opacity = static_cast<float>(opacity);
+            native.colors[0] = sc_rgb_to_s_rgb(source.stops[0].color);
+            return status::success;
+        }
+        std::vector<gradient_stop_state> working;
+        try {
+            working = source.stops;
+        } catch (const std::bad_alloc&) {
+            return status::capacity_exceeded;
+        }
+        for (auto& stop : working) {
+            stop.position = static_cast<float>(stop.position);
+            if (source.color_interpolation_mode == 1U) {
+                stop.color = sc_rgb_to_s_rgb(stop.color);
+            }
+        }
+        try {
+            std::stable_sort(
+                working.begin(),
+                working.end(),
+                [](const gradient_stop_state& left,
+                   const gradient_stop_state& right) {
+                    return left.position < right.position;
+                });
+        } catch (const std::bad_alloc&) {
+            return status::capacity_exceeded;
+        }
+        const auto color_at = [&working](
+            float position,
+            bool prefer_first_exact) noexcept {
+            auto first_exact = working.end();
+            auto last_exact = working.end();
+            for (auto current = working.begin();
+                 current != working.end();
+                 ++current) {
+                const float current_position =
+                    static_cast<float>(current->position);
+                if (current_position == position) {
+                    if (first_exact == working.end()) {
+                        first_exact = current;
+                    }
+                    last_exact = current;
+                }
+            }
+            if (first_exact != working.end()) {
+                return (prefer_first_exact
+                    ? first_exact
+                    : last_exact)->color;
+            }
+            if (working.front().position > position) {
+                return working.front().color;
+            }
+            if (working.back().position < position) {
+                return working.back().color;
+            }
+            for (std::size_t index = 1U;
+                 index < working.size();
+                 ++index) {
+                const float right = static_cast<float>(
+                    working[index].position);
+                if (right > position) {
+                    const float left = static_cast<float>(
+                        working[index - 1U].position);
+                    const float factor =
+                        (position - left) / (right - left);
+                    return interpolate_color(
+                        working[index - 1U].color,
+                        working[index].color,
+                        factor);
+                }
+            }
+            return working.back().color;
+        };
+        const progpu_native_color first_color = color_at(0.0F, false);
+        const progpu_native_color last_color = color_at(1.0F, true);
+        try {
+            stops.reserve(working.size() + 2U);
+            stops.push_back({first_color, 0.0F, 0U, 0U, 0U});
+            for (const auto& stop : working) {
+                const float position = static_cast<float>(stop.position);
+                if (position > 0.0F && position < 1.0F) {
+                    stops.push_back({stop.color, position, 0U, 0U, 0U});
+                }
+            }
+            stops.push_back({last_color, 1.0F, 0U, 0U, 0U});
+        } catch (const std::bad_alloc&) {
+            return status::capacity_exceeded;
+        }
+        if (source.color_interpolation_mode == 0U) {
+            for (auto& stop : stops) {
+                stop.color = sc_rgb_to_s_rgb(stop.color);
+            }
+        }
+        native = {};
+        native.type = source.type == gradient_brush_state::kind::linear
+            ? PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT
+            : PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT;
+        native.opacity = static_cast<float>(opacity);
+        native.start_point = {
+            static_cast<float>(
+                source.type == gradient_brush_state::kind::linear
+                    ? first_x
+                    : second_x),
+            static_cast<float>(
+                source.type == gradient_brush_state::kind::linear
+                    ? first_y
+                    : second_y)};
+        native.end_point = {
+            static_cast<float>(second_x),
+            static_cast<float>(second_y)};
+        native.center = {
+            static_cast<float>(first_x),
+            static_cast<float>(first_y)};
+        native.radius = static_cast<float>(radius_x);
+        native.radius_y = static_cast<float>(radius_y);
+        native.stop_count = static_cast<std::uint32_t>(stops.size());
+        native.spread_method = source.spread_method;
+        native.color_interpolation_mode =
+            source.color_interpolation_mode == 0U
+                ? PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SCRGB
+                : PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB;
+        native.coordinate_transform0[0] = native_coordinate.m11;
+        native.coordinate_transform0[1] = native_coordinate.m21;
+        native.coordinate_transform0[2] = native_coordinate.m31;
+        native.coordinate_transform1[0] = native_coordinate.m12;
+        native.coordinate_transform1[1] = native_coordinate.m22;
+        native.coordinate_transform1[2] = native_coordinate.m32;
+        return status::success;
+    }
+
     static status apply_static_guidelines(
         std::span<const double> guidelines_x,
         std::span<const double> guidelines_y,
@@ -8653,6 +8683,48 @@ struct channel::implementation {
         return status::success;
     }
 
+    status add_cache_opacity_mask(
+        std::uint32_t brush_handle,
+        const visual_state& visual,
+        const affine_2d_double& mask_transform,
+        native::semantic_scene_builder& builder,
+        std::uint32_t& mask_resource_index) const {
+        mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (brush_handle == 0U) {
+            return status::success;
+        }
+        const brush_use_state use{
+            visual.cache_bounds_x,
+            visual.cache_bounds_y,
+            visual.cache_bounds_width,
+            visual.cache_bounds_height,
+            mask_transform};
+        progpu_native_scene_brush brush{};
+        std::vector<progpu_native_scene_gradient_stop> stops;
+        const status brush_status = resolve_gradient_scene_brush(
+            brush_handle, use, brush, stops);
+        if (brush_status != status::success) {
+            return brush_status;
+        }
+        progpu_native_scene_layer_brush_mask mask{};
+        mask.struct_size = sizeof(mask);
+        mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH;
+        mask.gradient_stop_count = static_cast<std::uint32_t>(stops.size());
+        mask.bounds = {
+            static_cast<float>(visual.cache_bounds_x),
+            static_cast<float>(visual.cache_bounds_y),
+            static_cast<float>(visual.cache_bounds_width),
+            static_cast<float>(visual.cache_bounds_height)};
+        if (!try_to_native_affine(mask_transform, mask.transform)) {
+            return status::invalid_graph;
+        }
+        mask.opacity = 1.0F;
+        mask.brush = brush;
+        return builder.add_brush_mask(mask, stops, mask_resource_index)
+            ? status::success
+            : status::invalid_graph;
+    }
+
     status add_visual_cache_layer(
         std::uint32_t cache_handle,
         std::uint32_t visual_handle,
@@ -8697,11 +8769,20 @@ struct channel::implementation {
         if (!cache_visual.has_cache_bounds) {
             return status::unsupported_command;
         }
+        const bool has_spatial_opacity_mask =
+            cache_visual.alpha_mask_handle != 0U &&
+            gradient_brushes.contains(cache_visual.alpha_mask_handle);
         // Local cached pixels are independent of the cache-root Visual's
         // properties. WPF applies those properties while drawing the retained
-        // bitmap. Spatial masks and cubic/Fant cache-bitmap sampling still
-        // require dedicated composite support and therefore fail closed.
+        // bitmap. A single typed linear/radial opacity brush can use the
+        // reusable GPU brush-mask resource at composite time. Inherited mask
+        // composition, mask/effect ordering, and cubic/Fant cache sampling
+        // remain explicit fail-closed gaps.
         if (state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+            (has_spatial_opacity_mask &&
+                (cache_visual.effect_handle != 0U ||
+                    state.guideline_resource_index !=
+                        PROGPU_NATIVE_SCENE_NO_INDEX)) ||
             (state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR &&
                 state.image_sampling !=
                     PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST)) {
@@ -8755,6 +8836,7 @@ struct channel::implementation {
             1.0 / render_at_scale,
             cache_visual.cache_bounds_x,
             cache_visual.cache_bounds_y};
+        affine_2d_double mask_transform = state.transform;
         affine_2d_double composite_transform = compose_affine(
             raster_to_local, state.transform);
         if (cache->second.snaps_to_device_pixels) {
@@ -8779,6 +8861,7 @@ struct channel::implementation {
                     world_bounds.y - std::floor(world_bounds.y))};
             composite_transform = compose_affine(
                 composite_transform, snap_offset);
+            mask_transform = compose_affine(mask_transform, snap_offset);
         }
         auto composite_state =
             native::semantic_scene_builder::identity_state();
@@ -8801,6 +8884,19 @@ struct channel::implementation {
             PROGPU_NATIVE_SCENE_NO_INDEX;
         if (!builder.add_state(composite_state, composite_state_index)) {
             return status::invalid_graph;
+        }
+        std::uint32_t opacity_mask_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (has_spatial_opacity_mask) {
+            const status opacity_mask_status = add_cache_opacity_mask(
+                cache_visual.alpha_mask_handle,
+                cache_visual,
+                mask_transform,
+                builder,
+                opacity_mask_resource_index);
+            if (opacity_mask_status != status::success) {
+                return opacity_mask_status;
+            }
         }
         content_state.transform = {
             render_at_scale,
@@ -8842,7 +8938,7 @@ struct channel::implementation {
         }
         layer.opacity = static_cast<float>(state.opacity);
         layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
-        layer.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        layer.mask_resource_index = opacity_mask_resource_index;
         layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         layer.content_revision = finish_nonzero_hash(content_revision);
         layer.composite_revision = finish_nonzero_hash(owner_identity);
@@ -8964,8 +9060,14 @@ struct channel::implementation {
             return guideline_status;
         }
         double opacity_mask_alpha = 1.0;
-        const status opacity_mask_status =
-            resolve_uniform_opacity_mask_alpha(
+        const bool deferred_cache_opacity_mask =
+            visual->second.cache_mode_handle != 0U &&
+            visual->second.alpha_mask_handle != 0U &&
+            gradient_brushes.contains(
+                visual->second.alpha_mask_handle);
+        const status opacity_mask_status = deferred_cache_opacity_mask
+            ? status::success
+            : resolve_uniform_opacity_mask_alpha(
                 visual->second.alpha_mask_handle,
                 opacity_mask_alpha);
         if (opacity_mask_status != status::success) {
