@@ -1462,11 +1462,23 @@ outline decoding or managed objects.
 The local native build and all ten configured CTests pass, including retained
 SFNT glyph tests for grayscale, ClearType hint promotion, explicit Aliased plus
 Fixed snapping, and Animated unsnapped placement. The canonical managed packet
-test also passes. This establishes parity with ProGPU's current managed
-WebGPU/DirectX text modes, not pixel identity with WPF's DirectWrite glyph
-hinting or system display parameters; those remain an explicit platform-text
-parity gate. Canonical DrawingGroup has no text-rendering or text-hinting
-fields, so object-level DrawingGroup text options continue to fail closed.
+test also passes. Package checkpoint `c7139459` adds
+`--mil-text-render-options-only` to source, package, release, and NativeAOT
+lanes. Strict Windows ARM64 MSVC rebuilt both exports and all 11 native/Dawn
+CTests passed. With fresh native, Dawn, and wgpu-native DLLs copied app-local,
+the focused ClearType/Fixed scene compiled through both exports and live D3D12
+rendered three semantic resources, one draw, 53,248 coverage-staging bytes,
+and 16,384 direct pixels. Qualified hashes are
+`4703ddeaebf3ddea3ce7f503e935093e79cabb5bac5c3d26ff2890444f011fa2`
+for `progpu_native.dll` and
+`9de7c391543e027410523b75dc8a394255ca1045e2359f9049f27ba387939a15`
+for `progpu_native_dawn.dll`.
+
+This establishes parity with ProGPU's current managed WebGPU/DirectX text
+modes, not pixel identity with WPF's DirectWrite glyph hinting or system
+display parameters; those remain an explicit platform-text parity gate.
+Canonical DrawingGroup has no text-rendering or text-hinting fields, so
+object-level DrawingGroup text options continue to fail closed.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
