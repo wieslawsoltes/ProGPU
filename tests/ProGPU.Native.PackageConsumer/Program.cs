@@ -40,6 +40,8 @@ bool glyphRunDrawingOnly = args.Contains(
     "--mil-glyph-run-drawing-only", StringComparer.Ordinal);
 bool drawingImageOnly = args.Contains(
     "--mil-drawing-image-only", StringComparer.Ordinal);
+bool guidelineOnly = args.Contains(
+    "--mil-guideline-only", StringComparer.Ordinal);
 byte[]? compiledMilStream = null;
 if (!renderOnly)
 {
@@ -59,7 +61,9 @@ if (!renderOnly)
         !affineRecursiveOnly && !arcBooleanOnly;
     bool includeRecursiveBooleanArc =
         !affineRecursiveOnly && !arcGroupOnly;
-    byte[] milBatch = drawingImageOnly
+    byte[] milBatch = guidelineOnly
+        ? CreateMilGuidelineBatch()
+        : drawingImageOnly
         ? CreateMilDrawingImageBatch()
         : glyphRunDrawingOnly
         ? CreateMilGlyphRunDrawingBatch()
@@ -79,17 +83,21 @@ if (!renderOnly)
             mixedArcGroup);
     bool focusedMil = gradientOnly || geometryDrawingOnly ||
         drawingGroupOnly || imageDrawingOnly || glyphRunDrawingOnly ||
-        drawingImageOnly;
+        drawingImageOnly || guidelineOnly;
     uint targetHandle = focusedMil ? 2U : 42U;
     uint visualHandle = focusedMil ? 1U : 41U;
-    uint expectedCommandCount = drawingImageOnly
+    uint expectedCommandCount = guidelineOnly
+        ? 19U
+        : drawingImageOnly
         ? 19U
         : glyphRunDrawingOnly
         ? 14U
         : imageDrawingOnly
         ? 12U
         : drawingGroupOnly ? 23U : focusedMil ? 15U : 78U;
-    uint expectedResourceCount = drawingImageOnly
+    uint expectedResourceCount = guidelineOnly
+        ? 8U
+        : drawingImageOnly
         ? 8U
         : glyphRunDrawingOnly
         ? 6U
@@ -97,7 +105,7 @@ if (!renderOnly)
         ? 5U
         : drawingGroupOnly ? 10U : focusedMil ? 6U : 36U;
     uint expectedRectangleCount = geometryDrawingOnly || drawingGroupOnly ||
-        drawingImageOnly
+        drawingImageOnly || guidelineOnly
         ? 1U
         : gradientOnly ? 2U : focusedMil ? 0U : 3U;
     uint expectedEllipseCount = gradientOnly ? 1U : focusedMil ? 0U : 4U;
@@ -371,6 +379,36 @@ static byte[] CreateMilDrawingGroupBatch()
             ClipGeometryHandle: 8,
             OpacityAnimationHandle: 9,
             TransformHandle: 7),
+        [6]);
+    batch.SetRenderData(3, renderData);
+    batch.CreateGenericTarget(2, 64, 64);
+    batch.SetTargetClearColor(2, new NativeMilColor(0, 0, 0, 1));
+    batch.SetTargetRoot(2, 1);
+    return batch.ToArray();
+}
+
+static byte[] CreateMilGuidelineBatch()
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.DrawDrawing(7);
+    var batch = new NativeMilBatchBuilder();
+    batch.CreateResource(1, NativeMilResourceType.Visual);
+    batch.CreateResource(2, NativeMilResourceType.GenericRenderTarget);
+    batch.CreateResource(3, NativeMilResourceType.RenderData);
+    batch.CreateResource(4, NativeMilResourceType.SolidColorBrush);
+    batch.CreateResource(5, NativeMilResourceType.RectangleGeometry);
+    batch.CreateResource(6, NativeMilResourceType.GeometryDrawing);
+    batch.CreateResource(7, NativeMilResourceType.DrawingGroup);
+    batch.CreateResource(8, NativeMilResourceType.GuidelineSet);
+    batch.CreateVisual(1);
+    batch.SetVisualContent(1, 3);
+    batch.SetSolidColorBrush(4, new NativeMilColor(0.2f, 0.7f, 1, 1));
+    batch.SetRectangleGeometry(5, 8.25, 12.5, 32, 24);
+    batch.SetGeometryDrawing(6, 4, 0, 5);
+    batch.SetGuidelineSet(8, false, [8.25], [12.5]);
+    batch.SetDrawingGroup(
+        7,
+        new NativeMilDrawingGroup(GuidelineSetHandle: 8),
         [6]);
     batch.SetRenderData(3, renderData);
     batch.CreateGenericTarget(2, 64, 64);
