@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${repo_root}/eng/progpu-package-list.sh"
 
-package_version="${PROGPU_PACKAGE_VERSION:-0.1.0-preview.57}"
+package_version="${PROGPU_PACKAGE_VERSION:-0.1.0-preview.58}"
 package_output="${PROGPU_PACKAGE_OUTPUT:-${repo_root}/artifacts/packages/Release}"
 package_group="${PROGPU_PACKAGE_GROUP:-all}"
 
@@ -95,6 +95,21 @@ for package_id in "${selected_package_ids[@]}"; do
       ProGPU.Xaml.Roslyn.pdb; do
       if ! unzip -Z1 "${package}" | grep -Fx "analyzers/dotnet/cs/${analyzer_pdb}" >/dev/null; then
         echo "${package_id} is missing analyzer symbols ${analyzer_pdb}." >&2
+        exit 1
+      fi
+    done
+  elif [[ "${package_id}" == "ProGPU.BinaryCompatibility" ]]; then
+    if [[ -f "${symbols}" ]]; then
+      echo "Asset-only package must not produce a symbol package: ${symbols}" >&2
+      exit 1
+    fi
+    for compatibility_entry in \
+      build/ProGPU.BinaryCompatibility.targets \
+      buildTransitive/ProGPU.BinaryCompatibility.targets \
+      tools/net10.0/SkiaSharp.dll \
+      tools/net10.0/Avalonia.Skia.dll; do
+      if ! unzip -Z1 "${package}" | grep -Fx "${compatibility_entry}" >/dev/null; then
+        echo "${package_id} is missing ${compatibility_entry}." >&2
         exit 1
       fi
     done

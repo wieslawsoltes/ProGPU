@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <ProGpuBinaryCompatibility>true</ProGpuBinaryCompatibility>
+    <ProGpuBinaryCompatibilityPackageVersion Condition="'$(ProGpuBinaryCompatibilityPackageVersion)' == ''">0.1.0-binary-compat-test</ProGpuBinaryCompatibilityPackageVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Headless" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Skia" Version="12.1.1" />
+    <PackageReference Include="SkiaSharp" Version="4.151.1" />
+    <PackageReference Include="Svg.Skia" Version="5.2.2" />
+    <PackageReference Include="Svg.Controls.Avalonia" Version="12.0.0.16" />
+    <PackageReference Include="Svg.Controls.Skia.Avalonia" Version="12.0.0.16" />
+    <PackageReference Include="WebScene" Version="1.0.23" />
+    <PackageReference Include="WebScene.Backend.Avalonia" Version="1.0.23" />
+    <PackageReference Include="WebScene.Sdk.Avalonia" Version="1.0.23" />
+    <PackageReference Include="ProGPU.BinaryCompatibility"
+                      Version="$(ProGpuBinaryCompatibilityPackageVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\ProGPU.Avalonia.Rendering\ProGPU.Avalonia.Rendering.csproj" />
+  </ItemGroup>
+</Project>

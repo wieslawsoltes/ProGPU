@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <AssemblyName>OfficialBinaryCompatibilityConsumer</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <ProGpuContractKind Condition="'$(ProGpuContractKind)' == ''">SkiaSharp</ProGpuContractKind>
+    <ProGpuSkiaSharpPackageVersion Condition="'$(ProGpuSkiaSharpPackageVersion)' == ''">4.151.1</ProGpuSkiaSharpPackageVersion>
+    <ProGpuAvaloniaSkiaPackageVersion Condition="'$(ProGpuAvaloniaSkiaPackageVersion)' == ''">12.1.1</ProGpuAvaloniaSkiaPackageVersion>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(ProGpuContractKind)' == 'SkiaSharp'">
+    <Compile Include="SkiaSharpCompatibilityConsumer.cs" />
+    <PackageReference Include="SkiaSharp"
+                      Version="$(ProGpuSkiaSharpPackageVersion)" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(ProGpuContractKind)' == 'Avalonia.Skia'">
+    <Compile Include="AvaloniaSkiaCompatibilityConsumer.cs" />
+    <PackageReference Include="Avalonia.Skia"
+                      Version="$(ProGpuAvaloniaSkiaPackageVersion)" />
+  </ItemGroup>
+
+  <Target Name="ValidateBinaryCompatibilityContractKind"
+          BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(ProGpuContractKind)' != 'SkiaSharp' And '$(ProGpuContractKind)' != 'Avalonia.Skia'"
+           Text="ProGpuContractKind must be SkiaSharp or Avalonia.Skia." />
+  </Target>
+</Project>
