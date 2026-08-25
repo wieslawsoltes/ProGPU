@@ -1368,6 +1368,28 @@ allowlists to include the public DrawingImage bounds sideband entry point.
 Linux ARM64 had built successfully and passed all 15 native suites before its
 symbol-surface guard exposed that earlier packaging omission.
 
+Aliased-edge implementation `55bf8628` and package gate `3f5f72dc` then
+enabled canonical DrawingGroup `EdgeMode.Aliased` for vector content. The
+group scope inherits WPF's unspecified value and makes an explicit aliased
+value sticky for descendants. Shared semantic analytic primitives and
+polylines receive their existing edge-aliased flags, while vector-path fills,
+strokes, caps, and joins select the one-sample raster path instead of the
+eight-sample antialiasing grid. Image and glyph sampling are intentionally
+unchanged, and clip-mask geometry remains exact rather than being broadened
+or converted into an aliased bounds clip.
+
+The canonical parser continues to validate the existing DrawingGroup edge
+field and rejects values outside Unspecified/Aliased transactionally. Native
+tests assert the emitted primitive flag, while the public
+`--mil-drawing-group-only` scene now carries Aliased through both native MIL
+exports. All eight configured local native suites passed. Strict Windows
+ARM64 MSVC rebuilt `progpu_native.dll` and `progpu_native_dawn.dll`; all 11
+native/Dawn CTests passed. After the fresh DLLs and `wgpu_native.dll` were
+copied beside the project-reference consumer, both exports compiled the
+focused scene and live D3D12 retained/direct rendering completed with four
+semantic resources, one draw, zero coverage-staging bytes, and 16,384 direct
+pixels.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
