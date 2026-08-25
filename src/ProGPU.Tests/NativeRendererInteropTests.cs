@@ -308,6 +308,40 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWriteCanonicalVisualRenderOptionsPacket()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetVisualRenderOptions(
+            7,
+            new NativeMilRenderOptions(
+                NativeMilRenderOptionFlags.BitmapScalingMode |
+                NativeMilRenderOptionFlags.EdgeMode |
+                NativeMilRenderOptionFlags.ClearTypeHint,
+                NativeMilEdgeMode.Aliased,
+                NativeMilBitmapScalingMode.NearestNeighbor,
+                NativeMilClearTypeHint.Enabled));
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(40, encoded.Length);
+        Assert.Equal(40U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x21U, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(0x0bU, ReadUInt32(encoded, 12));
+        Assert.Equal(1U, ReadUInt32(encoded, 16));
+        Assert.Equal(0U, ReadUInt32(encoded, 20));
+        Assert.Equal(3U, ReadUInt32(encoded, 24));
+        Assert.Equal(1U, ReadUInt32(encoded, 28));
+        Assert.Equal(0U, ReadUInt32(encoded, 32));
+        Assert.Equal(0U, ReadUInt32(encoded, 36));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetVisualRenderOptions(
+                7,
+                new NativeMilRenderOptions(
+                    NativeMilRenderOptionFlags.TextRenderingMode)));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalGradientPackets()
     {
         var stops = new[]
