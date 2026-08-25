@@ -6642,8 +6642,7 @@ struct channel::implementation {
                             ? status::unsupported_command
                             : status::invalid_handle;
                     }
-                    if (group->second.opacity_mask_handle != 0U ||
-                        group->second.edge_mode != 0U ||
+                    if (group->second.edge_mode != 0U ||
                         group->second.clear_type_hint != 0U) {
                         return status::unsupported_command;
                     }
@@ -6672,7 +6671,27 @@ struct channel::implementation {
                             ? PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
                             : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
                     }
-                    next.opacity *= group_opacity;
+                    double opacity_mask_alpha = 1.0;
+                    if (group->second.opacity_mask_handle != 0U) {
+                        const auto mask = solid_brushes.find(
+                            group->second.opacity_mask_handle);
+                        if (mask == solid_brushes.end()) {
+                            active_drawings.erase(drawing_handle);
+                            return has_brush_state(
+                                group->second.opacity_mask_handle)
+                                ? status::unsupported_command
+                                : status::invalid_handle;
+                        }
+                        opacity_mask_alpha = mask->second.opacity *
+                            static_cast<double>(mask->second.color.a);
+                        if (!finite_double_as_float(opacity_mask_alpha) ||
+                            opacity_mask_alpha < 0.0 ||
+                            opacity_mask_alpha > 1.0) {
+                            active_drawings.erase(drawing_handle);
+                            return status::invalid_graph;
+                        }
+                    }
+                    next.opacity *= group_opacity * opacity_mask_alpha;
                     if (!finite_double_as_float(next.opacity) ||
                         next.opacity < 0.0 || next.opacity > 1.0) {
                         active_drawings.erase(drawing_handle);

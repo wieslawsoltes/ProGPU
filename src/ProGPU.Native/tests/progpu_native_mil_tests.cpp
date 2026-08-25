@@ -4190,6 +4190,7 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
     constexpr std::uint32_t transform = 8U;
     constexpr std::uint32_t opacity = 9U;
     constexpr std::uint32_t clip = 10U;
+    constexpr std::uint32_t opacity_mask = 11U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -4202,6 +4203,7 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
     append_create(batch, transform, 66U);
     append_create(batch, opacity, 49U);
     append_create(batch, clip, 69U);
+    append_create(batch, opacity_mask, 75U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -4249,6 +4251,16 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
     append_command(batch, command::double_resource, opacity, 0.5);
     append_command(
         batch,
+        command::solid_color_brush,
+        opacity_mask,
+        0.5,
+        progpu_native_color{1.0F, 1.0F, 1.0F, 0.5F},
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
         command::rectangle_geometry,
         clip,
         0.0,
@@ -4269,7 +4281,7 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
         4U,
         clip,
         opacity,
-        0U,
+        opacity_mask,
         transform,
         0U,
         0U,
@@ -4311,7 +4323,7 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
             const auto scene_state = read_value<progpu_native_scene_state>(
                 stream,
                 resource.payload_offset);
-            if (scene_state.opacity == 0.5F &&
+            if (scene_state.opacity == 0.125F &&
                 scene_state.transform.m31 == 10.0F &&
                 scene_state.transform.m32 == 20.0F &&
                 (scene_state.flags &
@@ -4359,7 +4371,7 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
             const auto scene_state = read_value<progpu_native_scene_state>(
                 stream,
                 resource.payload_offset);
-            found_updated_opacity |= scene_state.opacity == 0.25F &&
+            found_updated_opacity |= scene_state.opacity == 0.0625F &&
                 scene_state.transform.m31 == 10.0F &&
                 scene_state.transform.m32 == 20.0F;
         }
