@@ -2280,6 +2280,22 @@ positive-finite RenderAtScale subset on DirectX; the remaining cache work is
 post-raster policy/ordering and LibreWPF package integration, not native D3D12
 execution.
 
+The combined SnapsToDevicePixels/EnableClearType checkpoint then passed the
+same strict gate on 2026-08-25 from clean detached ProGPU commit `bff32414`.
+Both modules rebuilt with MSVC `/W4 /WX`; all 11 native/Dawn CTests, both export
+allowlists, the independent C++ and managed D3D12 samples, allocation/readback
+checks, managed/C++ text shaping, and the bounded D3D12 differential smoke
+matrix passed. The expected Parallels-only retained GPU hit-test deferral
+remained isolated from the required renderer sample. The staged win-arm64
+package contains nine files, with SHA-256
+`768BE3DB0A8970334FE6B4574370CCC96E63A653C94B9ECBD769FAEAD3825891` for
+`progpu_native.dll` and
+`FC95E25FF8E5313D6151F199E236D376E28C9FF7243AD0887F8FA360B89AA73E` for
+`progpu_native_dawn.dll`. This qualifies the executable local-space,
+RenderAtScale, pixel-snapping, and ClearType cache subset on DirectX; the
+remaining cache work is post-raster clip/mask/guideline and effect ordering
+plus LibreWPF package integration.
+
 The command vocabulary is deliberately semantic:
 
 - save/restore transform and rectangular/rounded/vector clip state;

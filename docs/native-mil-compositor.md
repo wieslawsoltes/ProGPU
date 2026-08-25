@@ -1765,6 +1765,24 @@ for `progpu_native.dll` and
 for `progpu_native_dawn.dll`. This closes the strict DirectX gate for the
 current local-space cache execution subset.
 
+The combined SnapsToDevicePixels/EnableClearType checkpoint was qualified on
+2026-08-25 from clean detached ProGPU commit `bff32414` in the same Windows 11
+ARM64 VM. Strict MSVC rebuilt both native modules under `/W4 /WX`; all 11
+native/Dawn CTests and both export contracts passed. The independent C++ and
+managed samples selected the live `Parallels Display Adapter (WDDM)` D3D12
+adapter and completed retained render, allocation, and pixel-readback checks.
+The expected Parallels-only retained GPU hit-test deferral remained isolated to
+the optional probe. The bounded D3D12 differential matrix passed group opacity,
+zero-copy image/mask, retained semantic, mask/effect, path-atlas, image-effect,
+Overlay, ColorDodge, and managed/C++ text-shaping contracts; Overlay was
+pixel-exact. The staged win-arm64 package contains nine files and the native DLL
+SHA-256 values are
+`768BE3DB0A8970334FE6B4574370CCC96E63A653C94B9ECBD769FAEAD3825891` for
+`progpu_native.dll` and
+`FC95E25FF8E5313D6151F199E236D376E28C9FF7243AD0887F8FA360B89AA73E` for
+`progpu_native_dawn.dll`. This closes the strict DirectX gate for the current
+local-space, RenderAtScale, snapping, and ClearType cache subset.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
@@ -1777,8 +1795,8 @@ The implementation sequence is intentionally architectural:
 4. Publish neutral typed cache state from source-built WPF and emit it from
    LibreWPF without reflection.
 5. Qualify composite clip/mask/guideline ordering, nested cache lifetime,
-   effects ordering, LibreWPF package lanes, and the combined snapping/ClearType
-   checkpoint on live D3D12.
+   effects ordering, and LibreWPF package lanes. (The combined
+   snapping/ClearType checkpoint is qualified on live D3D12.)
 
 The persistent page and composite-transform path are executable, but full cache
 parity is not claimed until the remaining post-raster state and ordering
