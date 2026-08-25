@@ -229,11 +229,14 @@ matrix transform, two geometry dependencies, and WPF Union/Intersect/Xor/
 Exclude operation. Null operands become explicit empty leaves. Identity-local
 `PathGeometry` operands lower to ProGPU's existing bounded three-instruction
 postfix boolean program, preserving each operand's own fill rule and executing
-the result in the native path atlas on every backend. Group/combined references
-share one cycle-checked geometry DAG; deletion and malformed operation updates
-fail transactionally. Fixed, transformed, group, nested-combined, and stroked
-operands remain fail closed until exact recursive contour lowering is shared by
-both resource kinds.
+the result in the native path atlas on every backend. The same shared shallow
+fill lowerer now accepts fixed rectangle and ellipse operands, including
+geometry-local affine transforms and non-uniform rounded rectangles with WPF's
+radius clamping, point order, and cubic constant; line operands become explicit
+empty leaves. Group/combined references share one cycle-checked geometry DAG;
+deletion and malformed operation updates fail transactionally. Transformed
+general paths, groups, nested combined geometries, and stroked operands remain
+fail closed until exact recursive contour lowering is available.
 
 `NativeMilBatchBuilder` and `NativeMilRenderDataBuilder` provide the matching
 managed producer for this supported subset. They write the canonical WPF
@@ -244,7 +247,7 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds, recursive
-  transformed-path/nested/combined group widening, curved path strokes/dashes
+  transformed-path/group/nested-combined widening, curved path strokes/dashes
   and per-segment smooth joins,
   remaining pen draws,
   brushes, drawings, images, glyph runs, caches, guidelines, effects, and
