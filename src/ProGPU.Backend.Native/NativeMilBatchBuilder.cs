@@ -72,6 +72,38 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 8, transformHandle);
     }
 
+    public void SetVisualClip(uint handle, uint clipGeometryHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VisualSetClip, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, clipGeometryHandle);
+    }
+
+    public void SetVisualScrollableAreaClip(
+        uint handle,
+        NativeMilRect? clip)
+    {
+        ValidateHandle(handle);
+        if (clip is { } value &&
+            (!double.IsFinite(value.X) || !double.IsFinite(value.Y) ||
+             !double.IsFinite(value.Width) || !double.IsFinite(value.Height) ||
+             value.Width < 0.0 || value.Height < 0.0))
+        {
+            throw new ArgumentOutOfRangeException(nameof(clip));
+        }
+        NativeMilRect rect = clip ?? default;
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VisualSetScrollableAreaClip, 44);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, rect.X);
+        WriteDouble(packet, 16, rect.Y);
+        WriteDouble(packet, 24, rect.Width);
+        WriteDouble(packet, 32, rect.Height);
+        WriteUInt32(packet, 40, clip.HasValue ? 1U : 0U);
+    }
+
     public void SetVisualOpacity(uint handle, double opacity)
     {
         ValidateHandle(handle);
@@ -1494,10 +1526,12 @@ internal static class NativeMilCommand
     internal const uint VisualCreate = 0x1a;
     internal const uint VisualSetOffset = 0x1b;
     internal const uint VisualSetTransform = 0x1c;
+    internal const uint VisualSetClip = 0x1f;
     internal const uint VisualSetAlpha = 0x20;
     internal const uint VisualSetRenderOptions = 0x21;
     internal const uint VisualSetContent = 0x22;
     internal const uint VisualInsertChildAt = 0x26;
+    internal const uint VisualSetScrollableAreaClip = 0x28;
     internal const uint GenericTargetCreate = 0x34;
     internal const uint TargetSetRoot = 0x35;
     internal const uint TargetSetClearColor = 0x36;

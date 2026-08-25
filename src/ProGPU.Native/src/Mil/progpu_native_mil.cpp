@@ -570,7 +570,13 @@ struct channel::implementation {
         double offset_y{};
         double opacity{1.0};
         std::uint32_t transform_handle{};
+        std::uint32_t clip_geometry_handle{};
         std::uint32_t content_handle{};
+        double scroll_clip_x{};
+        double scroll_clip_y{};
+        double scroll_clip_width{};
+        double scroll_clip_height{};
+        bool has_scroll_clip{};
         std::uint32_t render_options_flags{};
         std::uint32_t edge_mode{};
         std::uint32_t bitmap_scaling_mode{};
@@ -1216,6 +1222,7 @@ struct channel::implementation {
             for (const auto& [visual_handle, visual] : visuals) {
                 if (visual_handle != handle &&
                     (visual.transform_handle == handle ||
+                     visual.clip_geometry_handle == handle ||
                      visual.content_handle == handle ||
                      std::ranges::find(visual.children, handle) !=
                         visual.children.end())) {
@@ -1413,6 +1420,23 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         }
+        case command::visual_set_clip: {
+            std::uint32_t clip_geometry = 0U;
+            if (!has_exact_size(view, 12U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, clip_geometry)) {
+                return status::malformed_batch;
+            }
+            if (!require_visual(handle) ||
+                (clip_geometry != 0U &&
+                 !require_geometry(clip_geometry))) {
+                return status::invalid_handle;
+            }
+            visuals.at(handle).clip_geometry_handle = clip_geometry;
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
         case command::visual_set_alpha: {
             double opacity = 0.0;
             if (!has_exact_size(view, 16U) ||
@@ -1493,6 +1517,41 @@ struct channel::implementation {
                 return status::invalid_handle;
             }
             visuals.at(handle).content_handle = content;
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::visual_set_scrollable_area_clip: {
+            double x = 0.0;
+            double y = 0.0;
+            double width = 0.0;
+            double height = 0.0;
+            std::uint32_t enabled = 0U;
+            if (!has_exact_size(view, 44U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, x) ||
+                !read_at(view.packet, 16U, y) ||
+                !read_at(view.packet, 24U, width) ||
+                !read_at(view.packet, 32U, height) ||
+                !read_at(view.packet, 40U, enabled)) {
+                return status::malformed_batch;
+            }
+            if (!require_visual(handle)) {
+                return status::invalid_handle;
+            }
+            if (enabled > 1U ||
+                (enabled != 0U &&
+                 (!std::isfinite(x) || !std::isfinite(y) ||
+                  !std::isfinite(width) || !std::isfinite(height) ||
+                  width < 0.0 || height < 0.0))) {
+                return status::malformed_batch;
+            }
+            auto& visual = visuals.at(handle);
+            visual.scroll_clip_x = x;
+            visual.scroll_clip_y = y;
+            visual.scroll_clip_width = width;
+            visual.scroll_clip_height = height;
+            visual.has_scroll_clip = enabled != 0U;
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -7815,6 +7874,74 @@ struct channel::implementation {
         }
     }
 
+    static void intersect_scope_clip(
+        render_scope_state& state,
+        const progpu_native_image_rect& clip) noexcept {
+        if (!state.has_clip) {
+            state.clip_rect = clip;
+            state.has_clip = true;
+            return;
+        }
+        const float left = std::max(state.clip_rect.x, clip.x);
+        const float top = std::max(state.clip_rect.y, clip.y);
+        const float right = std::min(
+            state.clip_rect.x + state.clip_rect.width,
+            clip.x + clip.width);
+        const float bottom = std::min(
+            state.clip_rect.y + state.clip_rect.height,
+            clip.y + clip.height);
+        state.clip_rect = {
+            left,
+            top,
+            std::max(0.0F, right - left),
+            std::max(0.0F, bottom - top)};
+    }
+
+    status apply_visual_rectangle_clip(
+        std::uint32_t geometry_handle,
+        render_scope_state& state) const {
+        const auto geometry = fixed_geometries.find(geometry_handle);
+        if (geometry == fixed_geometries.end() ||
+            geometry->second.kind != fixed_geometry_kind::rectangle ||
+            (geometry->second.radius_x != 0.0 &&
+             geometry->second.radius_y != 0.0)) {
+            return require_geometry(geometry_handle)
+                ? status::unsupported_command
+                : status::invalid_handle;
+        }
+        affine_2d_double local_transform{};
+        if (geometry->second.transform_handle != 0U) {
+            const status transform_status = resolve_transform(
+                geometry->second.transform_handle,
+                local_transform);
+            if (transform_status != status::success) {
+                return transform_status;
+            }
+        }
+        const affine_2d_double effective_transform = compose_affine(
+            local_transform, state.transform);
+        const bool preserves_axis_alignment =
+            (effective_transform.m12 == 0.0 &&
+             effective_transform.m21 == 0.0) ||
+            (effective_transform.m11 == 0.0 &&
+             effective_transform.m22 == 0.0);
+        if (!preserves_axis_alignment) {
+            return status::unsupported_command;
+        }
+        progpu_native_image_rect clip{};
+        if (!try_transform_bounds(
+                geometry->second.first,
+                geometry->second.second,
+                geometry->second.third,
+                geometry->second.fourth,
+                effective_transform,
+                clip)) {
+            return status::invalid_graph;
+        }
+        intersect_scope_clip(state, clip);
+        return status::success;
+    }
+
     status append_visual(
         std::uint32_t handle,
         const render_scope_state& parent_state,
@@ -7845,17 +7972,63 @@ struct channel::implementation {
                 return transform_status;
             }
         }
+        double offset_x = visual->second.offset_x;
+        double offset_y = visual->second.offset_y;
+        render_scope_state current = parent_state;
+        if (visual->second.has_scroll_clip) {
+            progpu_native_image_rect scroll_clip{};
+            if (!try_transform_bounds(
+                    visual->second.scroll_clip_x,
+                    visual->second.scroll_clip_y,
+                    visual->second.scroll_clip_width,
+                    visual->second.scroll_clip_height,
+                    parent_state.transform,
+                    scroll_clip)) {
+                active_visuals.erase(handle);
+                return status::invalid_graph;
+            }
+            const float left = std::ceil(scroll_clip.x);
+            const float top = std::ceil(scroll_clip.y);
+            const float right = std::floor(
+                scroll_clip.x + scroll_clip.width);
+            const float bottom = std::floor(
+                scroll_clip.y + scroll_clip.height);
+            scroll_clip = {
+                left,
+                top,
+                std::max(0.0F, right - left),
+                std::max(0.0F, bottom - top)};
+            intersect_scope_clip(current, scroll_clip);
+
+            const progpu_native_point offset_world =
+                transform_affine_point(
+                    {static_cast<float>(offset_x),
+                     static_cast<float>(offset_y)},
+                    parent_state.transform);
+            affine_2d_double inverse_parent{};
+            if (!try_invert_affine(
+                    parent_state.transform, inverse_parent)) {
+                active_visuals.erase(handle);
+                return status::invalid_graph;
+            }
+            const progpu_native_point snapped_offset =
+                transform_affine_point(
+                    {std::floor(offset_world.x),
+                     std::floor(offset_world.y)},
+                    inverse_parent);
+            offset_x = snapped_offset.x;
+            offset_y = snapped_offset.y;
+        }
         const affine_2d_double offset_transform{
             1.0,
             0.0,
             0.0,
             1.0,
-            visual->second.offset_x,
-            visual->second.offset_y};
+            offset_x,
+            offset_y};
         const affine_2d_double transform = compose_affine(
             compose_affine(local_transform, offset_transform),
             parent_state.transform);
-        render_scope_state current = parent_state;
         current.transform = transform;
         current.opacity *= visual->second.opacity;
         if (!std::isfinite(current.opacity) ||
@@ -7890,6 +8063,15 @@ struct channel::implementation {
                 render_option_text_hinting_mode) != 0U) {
             current.text_hinting_mode = visual->second.text_hinting_mode;
         }
+        if (visual->second.clip_geometry_handle != 0U) {
+            const status clip_status = apply_visual_rectangle_clip(
+                visual->second.clip_geometry_handle,
+                current);
+            if (clip_status != status::success) {
+                active_visuals.erase(handle);
+                return clip_status;
+            }
+        }
 
         auto state = native::semantic_scene_builder::identity_state();
         if (!try_to_native_affine(current.transform, state.transform)) {
@@ -7897,6 +8079,15 @@ struct channel::implementation {
             return status::invalid_graph;
         }
         state.opacity = static_cast<float>(current.opacity);
+        if (current.has_clip) {
+            state.flags |= PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+            state.clip_rect = current.clip_rect;
+        }
+        if (current.mask_resource_index !=
+            PROGPU_NATIVE_SCENE_NO_INDEX) {
+            state.flags |= PROGPU_NATIVE_SCENE_STATE_MASK;
+            state.mask_resource_index = current.mask_resource_index;
+        }
         std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         if (!builder.add_state(state, state_index) ||
             !builder.save(state_index)) {
