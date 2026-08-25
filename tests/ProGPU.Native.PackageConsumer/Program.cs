@@ -366,6 +366,13 @@ static byte[] CreateMilDrawingGroupBatch()
     batch.CreateResource(10, NativeMilResourceType.DrawingGroup);
     batch.CreateResource(11, NativeMilResourceType.SolidColorBrush);
     batch.CreateVisual(1);
+    batch.SetVisualRenderOptions(
+        1,
+        new NativeMilRenderOptions(
+            NativeMilRenderOptionFlags.EdgeMode |
+            NativeMilRenderOptionFlags.ClearTypeHint,
+            EdgeMode: NativeMilEdgeMode.Aliased,
+            ClearTypeHint: NativeMilClearTypeHint.Enabled));
     batch.SetVisualContent(1, 3);
     batch.SetSolidColorBrush(4, new NativeMilColor(0.85f, 0.25f, 0.1f, 1));
     batch.SetRectangleGeometry(5, 8, 12, 48, 40);
@@ -384,9 +391,7 @@ static byte[] CreateMilDrawingGroupBatch()
             ClipGeometryHandle: 8,
             OpacityAnimationHandle: 9,
             OpacityMaskHandle: 11,
-            TransformHandle: 7,
-            EdgeMode: NativeMilEdgeMode.Aliased,
-            ClearTypeHint: NativeMilClearTypeHint.Enabled),
+            TransformHandle: 7),
         [6]);
     batch.SetRenderData(3, renderData);
     batch.CreateGenericTarget(2, 64, 64);
