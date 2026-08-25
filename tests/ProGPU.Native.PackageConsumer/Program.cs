@@ -110,6 +110,14 @@ if (compiledMilStream is not null)
         701,
         1,
         new Vector4(0f, 0f, 0f, 1f));
+    NativeSubmissionToken retainedSubmission =
+        compositor.GetLastSubmissionToken();
+    if (!retainedSubmission.IsValid)
+    {
+        throw new InvalidOperationException(
+            "The retained MIL renderer did not publish a submission token.");
+    }
+    compositor.WaitForSubmission(retainedSubmission);
     byte[] retainedPixels = target.ReadPixels();
     if (update.ResourceCount == 0 || update.DrawCount == 0 ||
         retainedMetrics.DrawCallCount == 0 ||
@@ -120,7 +128,8 @@ if (compiledMilStream is not null)
     }
     Console.WriteLine(
         $"package-consumer: retained MIL render " +
-        $"resources={update.ResourceCount}, draws={retainedMetrics.DrawCallCount}");
+        $"resources={update.ResourceCount}, draws={retainedMetrics.DrawCallCount}, " +
+        $"coverage={retainedMetrics.CoverageStagingBytes}");
 }
 NativeFrameMetrics metrics = compositor.Render(
     target,
