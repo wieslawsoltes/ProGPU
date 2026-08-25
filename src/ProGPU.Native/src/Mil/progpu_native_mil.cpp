@@ -706,6 +706,8 @@ struct channel::implementation {
         std::size_t clip_boolean_node_count{};
         std::uint32_t mask_resource_index{
             PROGPU_NATIVE_SCENE_NO_INDEX};
+        std::uint32_t image_sampling{
+            PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR};
     };
 
     struct transform_state {
@@ -6437,7 +6439,7 @@ struct channel::implementation {
                                 bitmap->second.width,
                                 bitmap->second.height,
                                 bitmap->second.row_bytes,
-                                PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR,
+                                current.image_sampling,
                                 {0.0F,
                                  0.0F,
                                  static_cast<float>(bitmap->second.width),
@@ -6449,10 +6451,24 @@ struct channel::implementation {
                                 native_transform,
                                 1.0F,
                                 1U};
+                            const progpu_native_scene_image_sampling_options
+                                cubic_options{
+                                    sizeof(
+                                        progpu_native_scene_image_sampling_options),
+                                    0U,
+                                    1.0F / 3.0F,
+                                    1.0F / 3.0F};
+                            const auto* sampling_options =
+                                current.image_sampling ==
+                                    PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
+                                ? &cubic_options
+                                : nullptr;
                             if (!builder.draw_image(
                                     image_index,
                                     image_draw,
-                                    bounds)) {
+                                    bounds,
+                                    PROGPU_NATIVE_SCENE_NO_INDEX,
+                                    sampling_options)) {
                                 return status::invalid_graph;
                             }
                             continue;
@@ -6552,7 +6568,6 @@ struct channel::implementation {
                     if (group->second.opacity_mask_handle != 0U ||
                         group->second.guideline_set_handle != 0U ||
                         group->second.edge_mode != 0U ||
-                        group->second.bitmap_scaling_mode != 0U ||
                         group->second.clear_type_hint != 0U) {
                         return status::unsupported_command;
                     }
@@ -6573,6 +6588,14 @@ struct channel::implementation {
                             : status::invalid_graph;
                     }
                     render_scope_state next = current;
+                    if (group->second.bitmap_scaling_mode != 0U) {
+                        next.image_sampling =
+                            group->second.bitmap_scaling_mode == 3U
+                            ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
+                            : group->second.bitmap_scaling_mode == 2U
+                            ? PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
+                            : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+                    }
                     next.opacity *= group_opacity;
                     if (!finite_double_as_float(next.opacity) ||
                         next.opacity < 0.0 || next.opacity > 1.0) {
