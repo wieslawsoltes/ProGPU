@@ -1414,6 +1414,28 @@ rendering completed with four semantic resources, one draw, zero
 coverage-staging bytes, and 16,384 direct pixels. True ClearType text remains
 an explicit shared glyph-rasterization/backend follow-up.
 
+Canonical visual render-options implementation `7db3ddb9` and package gate
+`0e1b4029` next add `MilCmdVisualSetRenderOptions` (`0x21`) to the retained
+visual protocol. The decoder consumes the canonical 36-byte payload and the
+WPF flag mask for bitmap scaling, edge mode, compositing mode, ClearType hint,
+text rendering mode, and text hinting mode. Bitmap scaling, aliased edges, and
+the vector-only ClearType subset are retained per visual and inherited through
+child visuals into nested DrawingGroup/ImageDrawing content. Default values
+remain no-op/inherit, matching WPF's `PushRenderOptions` behavior.
+
+Unknown flags and invalid enums are malformed input. Known compositing,
+TextRenderingMode, and TextHintingMode flags return `unsupported_command`
+transactionally, and a visual ClearType hint reached by real glyph content
+also fails closed until the shared text rasterizer provides true ClearType.
+Native tests cover root-to-child inheritance, nearest-neighbor image sampling,
+aliased vector output, rejected glyph content, and transactional rejection.
+All eight configured local native suites and the managed canonical packet test
+passed. Strict Windows ARM64 MSVC rebuilt both exports; all 11 native/Dawn
+CTests passed. With fresh native, Dawn, and wgpu-native DLLs copied app-local,
+the visual-to-DrawingGroup inheritance scene compiled through both exports and
+live D3D12 retained/direct rendering completed with four semantic resources,
+one draw, zero coverage-staging bytes, and 16,384 direct pixels.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
