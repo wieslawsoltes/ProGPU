@@ -473,6 +473,11 @@ jobs:
         shell: bash
         run: ./tools/prepare-avalonia-12.1.1-source.sh
 
+      - name: Build Dawn-compatible AvaloniaNative
+        if: runner.os == 'macOS'
+        shell: bash
+        run: ./tools/build-avalonia-native-dawn.sh
+
       - name: Build native-window ControlCatalog and contracts
         shell: bash
         run: |
@@ -499,11 +504,6 @@ jobs:
             --configuration Release
           dotnet build integration/AvaloniaSilkNetInputHarness/AvaloniaSilkNetInputHarness.csproj \
             --configuration Release
-
-      - name: Build Dawn-compatible AvaloniaNative
-        if: runner.os == 'macOS'
-        shell: bash
-        run: ./tools/build-avalonia-native-dawn.sh
 
       - name: Run X11 Vulkan ControlCatalog telemetry smoke
         if: runner.os == 'Linux'
