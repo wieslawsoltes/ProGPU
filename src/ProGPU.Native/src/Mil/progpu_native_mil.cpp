@@ -189,6 +189,13 @@ bool try_transform_arc_segment(
             static_cast<float>(mapped_y)};
         return true;
     };
+    if (transform.m11 == 1.0 && transform.m12 == 0.0 &&
+        transform.m21 == 0.0 && transform.m22 == 1.0) {
+        destination = source;
+        return map_point(source.p0, destination.p0) &&
+            map_point(source.p1, destination.p1) &&
+            map_point(source.p2, destination.p2);
+    }
     const double cosine_rotation = std::cos(rotation);
     const double sine_rotation = std::sin(rotation);
     const double basis_x_x = radius_x * cosine_rotation;

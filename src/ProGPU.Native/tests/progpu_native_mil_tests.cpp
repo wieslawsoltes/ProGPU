@@ -2839,6 +2839,81 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     PROGPU_REQUIRE(found_transformed_arc);
     PROGPU_REQUIRE(found_transformed_boolean_arc);
 
+    std::vector<std::byte> translated_arc_update;
+    append_path_geometry(
+        translated_arc_update,
+        path_b,
+        child_transform,
+        1U,
+        make_arc_path_figures());
+    PROGPU_REQUIRE(state.apply(translated_arc_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7003U, 70U, stream) == status::success);
+    const auto translated_arc_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_translated_arc = false;
+    for (std::uint32_t resource_index = 0U;
+         resource_index < translated_arc_header.resource_count &&
+             !found_translated_arc;
+         ++resource_index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            translated_arc_header.resource_offset +
+                resource_index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            continue;
+        }
+        const auto path = read_value<progpu_native_scene_path_fill>(
+            stream,
+            resource.payload_offset);
+        if (path.boolean_node_count != 0U) {
+            continue;
+        }
+        for (std::size_t segment_index = 0U;
+             segment_index < path.segment_count;
+             ++segment_index) {
+            const auto arc = read_value<progpu_native_path_segment>(
+                stream,
+                resource.auxiliary_offset +
+                    segment_index * sizeof(progpu_native_path_segment));
+            if (arc.kind != PROGPU_NATIVE_PATH_SEGMENT_ARC) {
+                continue;
+            }
+            progpu::native::geometry::arc_point source_center{};
+            float source_theta1 = 0.0F;
+            float source_delta = 0.0F;
+            float source_radius_x = 0.0F;
+            float source_radius_y = 0.0F;
+            PROGPU_REQUIRE(progpu::native::geometry::resolve_arc(
+                {1.0F, 2.0F},
+                {9.0F, 8.0F},
+                {8.0F, 6.0F},
+                30.0F,
+                false,
+                true,
+                source_center,
+                source_theta1,
+                source_delta,
+                source_radius_x,
+                source_radius_y));
+            PROGPU_REQUIRE(
+                arc.p0.x == 21.0F && arc.p0.y == 7.0F &&
+                arc.p1.x == 29.0F && arc.p1.y == 13.0F &&
+                arc.p2.x == source_center.x + 20.0F &&
+                arc.p2.y == source_center.y + 5.0F &&
+                arc.p3.x == source_radius_x &&
+                arc.p3.y == source_radius_y);
+            PROGPU_REQUIRE(
+                arc.pad0 == std::bit_cast<std::uint32_t>(source_theta1) &&
+                arc.pad1 == std::bit_cast<std::uint32_t>(source_delta) &&
+                arc.pad2 == std::bit_cast<std::uint32_t>(
+                    30.0F * std::numbers::pi_v<float> / 180.0F));
+            found_translated_arc = true;
+            break;
+        }
+    }
+    PROGPU_REQUIRE(found_translated_arc);
+
     std::vector<std::byte> singular_arc_update;
     append_path_geometry(
         singular_arc_update,
