@@ -100,15 +100,18 @@ Typed `MILCMD_MATRIXTRANSFORM`, `MILCMD_TRANSLATETRANSFORM`,
 `MILCMD_SCALETRANSFORM`, `MILCMD_SKEWTRANSFORM`,
 `MILCMD_ROTATETRANSFORM`, variable-size `MILCMD_TRANSFORMGROUP`,
 `MILCMD_VISUAL_SETTRANSFORM`, and nested `MILCMD_PUSH_TRANSFORM` are also
-implemented. Leaf values are range-checked and quantized to the same float
-matrix state used by WPF MIL. Transform groups retain ordered child handles and
-resolve them on demand in WPF row-vector collection order, so a child update is
-visible without flattening or rebuilding the group. Cycles, deletion of a live
-child dependency, excessive recursion, animation handles, missing/wrong-type
-nonzero transforms, nonzero packet padding, and unbalanced scopes fail closed
-transactionally. Resolved transforms compose as local visual transform, visual
-offset, parent transform, and then nested drawing scopes; draw culling bounds
-are the axis-aligned bounds of all four transformed primitive corners.
+implemented. `MILCMD_DOUBLERESOURCE` and `MILCMD_MATRIXRESOURCE` supply current
+animated field values for those transform packets; a nonzero animation handle
+replaces its corresponding base packet value exactly. Leaf values are
+range-checked and quantized to the same float matrix state used by WPF MIL.
+Transform groups retain ordered child handles and resolve them on demand in WPF
+row-vector collection order, so child or animation-resource updates are visible
+without flattening or rebuilding the group. Cycles, deletion of a live child or
+animation dependency, excessive recursion, missing/wrong-type nonzero handles,
+nonzero packet padding, and unbalanced scopes fail closed transactionally.
+Resolved transforms compose as local visual transform, visual offset, parent
+transform, and then nested drawing scopes; draw culling bounds are the
+axis-aligned bounds of all four transformed primitive corners.
 Transform handle zero retains WPF's defined balanced no-op scope. Animated
 brushes and pens and other nested commands deliberately fail closed until their
 typed resources are implemented.
@@ -1034,6 +1037,27 @@ qualified SHA-256 values were
 `301561a6f02de5a392b042f763134720a9a4b3d29f47b379c1018fc31c429d9c`
 for `progpu_native.dll` and
 `c3a800ba100508178a0d9f5837b07f9c6428a2bb616b1bb0d6a4708d0529da06`
+for `progpu_native_dawn.dll`.
+
+Transform-animation implementation `04ae7747` then added canonical
+`DoubleResource` and `MatrixResource` current-value packets and retained their
+typed dependencies from every static transform family. Native resolution reads
+the current referenced scalar/matrix on each scene compilation, preserves base
+values only when the animation handle is zero, and propagates resource updates
+through nested groups without transform-packet rewrites. Fixtures cover scalar
+and matrix replacement, live updates, wrong resource types, rollback, and
+referenced-animation deletion rejection. All eight locally configured native
+suites passed. After merging the latest ProGPU `main`, strict Windows ARM64
+MSVC rebuilt both complete native modules under `/W4 /WX`; all 11 native/Dawn
+CTests passed in the Parallels VM. Package checkpoint `d07ab05d` exercised the
+two new resource builders and animated transform handles through both exports
+in a 78-command, 36-channel-resource seed. Its identity-equivalent current
+values preserved live D3D12 output at 38 semantic resources, 11 draws, and
+78,848 coverage bytes; the project-reference consumer built with zero warnings.
+Exact qualified SHA-256 values were
+`a903edec8bb58e314e2738d64f8246ccc7a9f83e2d0c33755f3855ff043c233e`
+for `progpu_native.dll` and
+`e19d905e42d5030bf2aded0182fa1c8eb9bfc27f9a974cc3aa4d21b6507d33b0`
 for `progpu_native_dawn.dll`.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
