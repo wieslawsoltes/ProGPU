@@ -90,9 +90,9 @@ decodes the exact WPF `MILCMD_SOLIDCOLORBRUSH`, nested
 retained visual offsets and opacity, supports balanced nested
 `MILCMD_PUSH_OPACITY`/`MILCMD_POP` scopes, walks the target's visual tree with
 cycle/depth validation, and emits the shared pointer-free ProGPU semantic scene
-stream. Uniform-radius `MILCMD_DRAW_ROUNDED_RECTANGLE` is also lowered exactly;
-non-uniform X/Y radii fail closed until the native analytic primitive carries
-both axes. Ellipse centers/radii are converted exactly to native analytic
+stream. `MILCMD_DRAW_ROUNDED_RECTANGLE` is also lowered with either the
+uniform analytic primitive or the exact positive non-uniform vector-path lane.
+Ellipse centers/radii are converted exactly to native analytic
 bounds, and every primitive kind is reported separately in typed scene metrics.
 Scope opacity is composed with retained visual opacity in native semantic
 state; malformed opacity and over/underflowed scope stacks fail closed.
@@ -170,9 +170,10 @@ Fill-only, stroke-only, and fill-plus-stroke records share the native brush
 table. A zero radius keeps the closed-polyline rectangle path so WPF join and
 dash metadata are preserved. Degenerate uniform-radius solid outlines use the
 same WPF outer widened path with separately clamped X/Y corner radii, retaining
-analytic quarter arcs under affine transforms. Nonempty dash patterns on
-curved corners and non-uniform radii fail closed until their exact curve
-semantics are available.
+analytic quarter arcs under affine transforms. Positive independent X/Y radii
+reuse the shared vector path and connected-curve stroke lanes. Nonempty dash
+patterns on curved corners and asymmetric cases with either radius zero fail
+closed until their exact curve or collapse semantics are available.
 
 The retained fixed-geometry slice implements the exact fixed-size
 `MILCMD_LINEGEOMETRY`, `MILCMD_RECTANGLEGEOMETRY`, and
@@ -182,8 +183,9 @@ handle. Line fills remain empty while solid and dashed pens reuse the same
 stroke path as `MILCMD_DRAW_LINE`. Rectangle and ellipse resources reuse the
 native analytic fill/stroke lowering used by their immediate draw commands,
 including uniform rounded rectangles and geometry-local affine transforms.
-Animated fields, non-uniform rounded-rectangle radii, uninitialized or
-wrong-type resources fail closed transactionally.
+Positive non-uniform rounded rectangles reuse the same path fill and connected
+curve stroke lane. Animated fields, zero-axis asymmetric radii, uninitialized
+or wrong-type resources fail closed transactionally.
 
 The first retained general-path slice implements canonical variable-size
 `MILCMD_PATHGEOMETRY` updates and nested fill-only `MILCMD_DRAW_GEOMETRY`.
@@ -958,6 +960,28 @@ coverage bytes. Exact staged SHA-256 values were
 `35610b8e6e6250d8d150e4a855e52a306f28af12dde286b41822baf5d5bab3eb`
 for `progpu_native.dll` and
 `7f3cf20154beb9c305de9b2477fbd6cb967292da61405afb35b2f46f936fa19a`
+for `progpu_native_dawn.dll`.
+
+The non-uniform rounded-rectangle implementation at `e17acda6` then removed
+the single-radius analytic-primitive restriction for positive independent X/Y
+radii. Immediate and retained rectangles construct the same eight-segment
+typed contour: four exact elliptical quarter arcs, four connecting lines, and
+the `SmoothJoin` bit on every incoming WPF segment. Fill uses the shared vector
+path batch, while solid stroke reuses ProGPU's connected arc/line geometry and
+emits eight native Round joins. Geometry-local affine state remains on both
+resources and the wgpu-native/Dawn scene stream is identical. Nonempty curved
+dashes and asymmetric cases with either radius zero remain fail closed. All ten
+local native tests passed. Strict Windows ARM64 MSVC rebuilt both modules under
+`/W4 /WX`, and all 11 native/Dawn CTests passed on the Parallels VM. Package
+checkpoint `f7fef044` made the immediate package draw non-uniform and changed
+the retained `RectangleGeometry` used directly and recursively to independent
+radii. Both MIL exports compiled the unchanged 62-command,
+28-channel-resource seed; live D3D12 readback retained 34 semantic resources,
+issued ten draws, and staged 78,848 coverage bytes. Exact staged SHA-256 values
+were
+`01dedafe1c059b043a422385f8d04085235d0f0b526be382fc8f3f97d2eb6641`
+for `progpu_native.dll` and
+`bcc551bf815c18ffb601d517f2c10be702fdf1e0b86a11cdd6b39b95c02b10a9`
 for `progpu_native_dawn.dll`.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
