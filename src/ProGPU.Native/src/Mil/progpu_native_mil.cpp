@@ -2194,6 +2194,127 @@ struct channel::implementation {
         return status::success;
     }
 
+    status append_boolean_geometry(
+        std::uint32_t geometry_handle,
+        std::vector<progpu_native_path_segment>& segments,
+        std::vector<progpu_native_scene_path_boolean_node>& nodes,
+        shallow_fill_leaf& tree,
+        affine_2d_double parent_transform = {},
+        std::uint32_t depth = 1U) const {
+        if (depth == 0U || depth > maximum_visual_depth) {
+            return status::invalid_graph;
+        }
+        const std::size_t original_segment_size = segments.size();
+        const std::size_t original_node_size = nodes.size();
+        tree = {};
+        tree.segment_offset = original_segment_size;
+        if (geometry_handle == 0U) {
+            progpu_native_scene_path_boolean_node empty{};
+            empty.kind = PROGPU_NATIVE_PATH_BOOLEAN_EMPTY;
+            nodes.push_back(empty);
+            return status::success;
+        }
+
+        const auto combined = combined_geometries.find(geometry_handle);
+        if (combined == combined_geometries.end()) {
+            const status leaf_status = append_group_fill_leaf(
+                geometry_handle,
+                segments,
+                tree,
+                parent_transform,
+                depth);
+            if (leaf_status != status::success) {
+                segments.resize(original_segment_size);
+                nodes.resize(original_node_size);
+                return leaf_status;
+            }
+            progpu_native_scene_path_boolean_node leaf{};
+            if (!tree.has_bounds) {
+                leaf.kind = PROGPU_NATIVE_PATH_BOOLEAN_EMPTY;
+            } else {
+                leaf.segment_offset = tree.segment_offset;
+                leaf.segment_count = tree.segment_count;
+                leaf.min_x = static_cast<float>(tree.left);
+                leaf.min_y = static_cast<float>(tree.top);
+                leaf.max_x = static_cast<float>(tree.right);
+                leaf.max_y = static_cast<float>(tree.bottom);
+                leaf.fill_rule = tree.fill_rule;
+                leaf.kind = PROGPU_NATIVE_PATH_BOOLEAN_LEAF;
+            }
+            nodes.push_back(leaf);
+            return status::success;
+        }
+
+        affine_2d_double transform = parent_transform;
+        if (combined->second.transform_handle != 0U) {
+            const auto found = matrix_transforms.find(
+                combined->second.transform_handle);
+            if (found == matrix_transforms.end()) {
+                return status::invalid_handle;
+            }
+            transform = compose_affine(found->second, parent_transform);
+        }
+        const std::array operands{
+            combined->second.geometry1_handle,
+            combined->second.geometry2_handle};
+        for (const std::uint32_t operand_handle : operands) {
+            shallow_fill_leaf operand{};
+            const status operand_status = append_boolean_geometry(
+                operand_handle,
+                segments,
+                nodes,
+                operand,
+                transform,
+                depth + 1U);
+            if (operand_status != status::success) {
+                segments.resize(original_segment_size);
+                nodes.resize(original_node_size);
+                tree = {};
+                tree.segment_offset = original_segment_size;
+                return operand_status;
+            }
+            if (!operand.has_bounds) {
+                continue;
+            }
+            if (!tree.has_bounds) {
+                tree.left = operand.left;
+                tree.top = operand.top;
+                tree.right = operand.right;
+                tree.bottom = operand.bottom;
+                tree.has_bounds = true;
+            } else {
+                tree.left = std::min(tree.left, operand.left);
+                tree.top = std::min(tree.top, operand.top);
+                tree.right = std::max(tree.right, operand.right);
+                tree.bottom = std::max(tree.bottom, operand.bottom);
+            }
+        }
+        progpu_native_scene_path_boolean_node operation{};
+        switch (combined->second.combine_mode) {
+        case 0U:
+            operation.kind = PROGPU_NATIVE_PATH_BOOLEAN_UNION;
+            break;
+        case 1U:
+            operation.kind = PROGPU_NATIVE_PATH_BOOLEAN_INTERSECT;
+            break;
+        case 2U:
+            operation.kind = PROGPU_NATIVE_PATH_BOOLEAN_XOR;
+            break;
+        case 3U:
+            operation.kind = PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE;
+            break;
+        default:
+            segments.resize(original_segment_size);
+            nodes.resize(original_node_size);
+            tree = {};
+            tree.segment_offset = original_segment_size;
+            return status::invalid_graph;
+        }
+        nodes.push_back(operation);
+        tree.segment_count = segments.size() - original_segment_size;
+        return status::success;
+    }
+
     status append_render_data(
         std::uint32_t content_handle,
         const affine_2d_double& base_transform,
@@ -2843,88 +2964,66 @@ struct channel::implementation {
                     }
                     std::vector<progpu_native_path_segment>
                         combined_segments;
-                    std::array<progpu_native_scene_path_boolean_node, 3U>
-                        boolean_nodes{};
-                    bool has_combined_bounds = false;
-                    double combined_left = 0.0;
-                    double combined_top = 0.0;
-                    double combined_right = 0.0;
-                    double combined_bottom = 0.0;
+                    std::vector<progpu_native_scene_path_boolean_node>
+                        boolean_nodes;
+                    boolean_nodes.reserve(3U);
                     const std::array operands{
                         combined_geometry->second.geometry1_handle,
                         combined_geometry->second.geometry2_handle};
-                    for (std::size_t index = 0U;
-                         index < operands.size();
-                         ++index) {
-                        const std::uint32_t operand_handle = operands[index];
-                        if (operand_handle == 0U) {
-                            boolean_nodes[index].kind =
-                                PROGPU_NATIVE_PATH_BOOLEAN_EMPTY;
-                            continue;
-                        }
+                    shallow_fill_leaf combined_tree{};
+                    for (const std::uint32_t operand_handle : operands) {
                         shallow_fill_leaf operand{};
                         const status operand_status =
-                            append_group_fill_leaf(
+                            append_boolean_geometry(
                                 operand_handle,
                                 combined_segments,
+                                boolean_nodes,
                                 operand);
                         if (operand_status != status::success) {
                             return operand_status;
                         }
                         if (!operand.has_bounds) {
-                            boolean_nodes[index].kind =
-                                PROGPU_NATIVE_PATH_BOOLEAN_EMPTY;
                             continue;
                         }
-                        auto& leaf = boolean_nodes[index];
-                        leaf.segment_offset = operand.segment_offset;
-                        leaf.segment_count = operand.segment_count;
-                        leaf.min_x = static_cast<float>(operand.left);
-                        leaf.min_y = static_cast<float>(operand.top);
-                        leaf.max_x = static_cast<float>(operand.right);
-                        leaf.max_y = static_cast<float>(operand.bottom);
-                        leaf.fill_rule = operand.fill_rule;
-                        leaf.kind = PROGPU_NATIVE_PATH_BOOLEAN_LEAF;
-                        if (!has_combined_bounds) {
-                            combined_left = operand.left;
-                            combined_top = operand.top;
-                            combined_right = operand.right;
-                            combined_bottom = operand.bottom;
-                            has_combined_bounds = true;
+                        if (!combined_tree.has_bounds) {
+                            combined_tree.left = operand.left;
+                            combined_tree.top = operand.top;
+                            combined_tree.right = operand.right;
+                            combined_tree.bottom = operand.bottom;
+                            combined_tree.has_bounds = true;
                         } else {
-                            combined_left = std::min(
-                                combined_left, operand.left);
-                            combined_top = std::min(
-                                combined_top, operand.top);
-                            combined_right = std::max(
-                                combined_right, operand.right);
-                            combined_bottom = std::max(
-                                combined_bottom, operand.bottom);
+                            combined_tree.left = std::min(
+                                combined_tree.left, operand.left);
+                            combined_tree.top = std::min(
+                                combined_tree.top, operand.top);
+                            combined_tree.right = std::max(
+                                combined_tree.right, operand.right);
+                            combined_tree.bottom = std::max(
+                                combined_tree.bottom, operand.bottom);
                         }
                     }
-                    if (combined_segments.empty() || !has_combined_bounds) {
+                    if (combined_segments.empty() ||
+                        !combined_tree.has_bounds) {
                         continue;
                     }
+                    progpu_native_scene_path_boolean_node operation{};
                     switch (combined_geometry->second.combine_mode) {
                     case 0U:
-                        boolean_nodes[2U].kind =
-                            PROGPU_NATIVE_PATH_BOOLEAN_UNION;
+                        operation.kind = PROGPU_NATIVE_PATH_BOOLEAN_UNION;
                         break;
                     case 1U:
-                        boolean_nodes[2U].kind =
-                            PROGPU_NATIVE_PATH_BOOLEAN_INTERSECT;
+                        operation.kind = PROGPU_NATIVE_PATH_BOOLEAN_INTERSECT;
                         break;
                     case 2U:
-                        boolean_nodes[2U].kind =
-                            PROGPU_NATIVE_PATH_BOOLEAN_XOR;
+                        operation.kind = PROGPU_NATIVE_PATH_BOOLEAN_XOR;
                         break;
                     case 3U:
-                        boolean_nodes[2U].kind =
-                            PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE;
+                        operation.kind = PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE;
                         break;
                     default:
                         return status::invalid_graph;
                     }
+                    boolean_nodes.push_back(operation);
                     std::uint32_t brush_index =
                         PROGPU_NATIVE_SCENE_NO_INDEX;
                     const status brush_status = resolve_brush_index(
@@ -2935,10 +3034,10 @@ struct channel::implementation {
                     }
                     progpu_native_image_rect path_bounds{};
                     if (!try_transform_bounds(
-                            combined_left,
-                            combined_top,
-                            combined_right - combined_left,
-                            combined_bottom - combined_top,
+                            combined_tree.left,
+                            combined_tree.top,
+                            combined_tree.right - combined_tree.left,
+                            combined_tree.bottom - combined_tree.top,
                             effective_transform,
                             path_bounds)) {
                         return status::invalid_graph;
@@ -2955,10 +3054,10 @@ struct channel::implementation {
                             combined_segments.size(),
                             0U,
                             boolean_nodes.size(),
-                            static_cast<float>(combined_left),
-                            static_cast<float>(combined_top),
-                            static_cast<float>(combined_right),
-                            static_cast<float>(combined_bottom),
+                            static_cast<float>(combined_tree.left),
+                            static_cast<float>(combined_tree.top),
+                            static_cast<float>(combined_tree.right),
+                            static_cast<float>(combined_tree.bottom),
                             {1.0F, 1.0F, 1.0F, 1.0F},
                             native_local_transform,
                             PROGPU_NATIVE_FILL_RULE_NON_ZERO,
