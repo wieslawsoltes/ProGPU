@@ -228,9 +228,13 @@ lowerer, compose each group/leaf transform in WPF order, and intentionally
 ignore nested fill rules before applying the outer root fill rule. This matches
 `CMilGeometryGroupDuce::GetShapeDataCore`, which copies every child figure with
 `CShape::AddShapeData` and calls `SetFillMode` only on the resulting outer
-shape. Transformed path children containing native arc records,
-combined-geometry children, and meaningful group pens currently fail closed
-until their contours or strokes can be composed without approximation.
+shape. Nonsingular affine transforms on native arc records are baked without
+flattening: ProGPU transforms the arc's two ellipse basis vectors, factors the
+resulting `T*T^T` metric into orthogonal output axes/radii, projects the start
+parameter into that basis, and reverses the sweep exactly when the affine
+determinant is negative. Combined-geometry children, singular arc transforms,
+and meaningful group pens currently fail closed until their contours or
+strokes can be composed without approximation.
 
 Canonical fixed-size `MILCMD_COMBINEDGEOMETRY` state now retains the optional
 matrix transform, two geometry dependencies, and WPF Union/Intersect/Xor/
@@ -251,10 +255,12 @@ order. Nested combined transforms compose into descendant leaf transforms;
 segment/node appends roll back together on failure, and conservative bounds
 cover all nonempty descendants. Group/combined references share one cycle-
 checked geometry DAG; deletion and malformed operation updates fail
-transactionally. Transformed arc-bearing paths and stroked operands remain fail
-closed until exact transform/stroke lowering is available. Combined children
-inside a `GeometryGroup` also remain fail closed because treating a boolean
-result as raw outer-fill contours would change WPF semantics.
+transactionally. The same exact nonsingular affine arc factorization is shared
+by group leaves and arbitrary-depth boolean leaves, including reflected/sheared
+arcs and sweep reversal. Singular arc transforms and stroked operands remain
+fail closed. Combined children inside a `GeometryGroup` also remain fail closed
+because treating a boolean result as raw outer-fill contours would change WPF
+semantics.
 
 `NativeMilBatchBuilder` and `NativeMilRenderDataBuilder` provide the matching
 managed producer for this supported subset. They write the canonical WPF
@@ -265,7 +271,7 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds,
-  arc-preserving affine transforms, curved path
+  singular arc-transform fill semantics, curved path
   strokes/dashes and per-segment smooth joins,
   remaining pen draws,
   brushes, drawings, images, glyph runs, caches, guidelines, effects, and
