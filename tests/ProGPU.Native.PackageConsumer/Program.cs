@@ -124,7 +124,9 @@ using var target = new GpuTexture(
 using var compositor = new NativeCompositor(context, TextureFormat.Rgba8Unorm);
 if (compiledMilStream is not null)
 {
+    Console.WriteLine("package-consumer: retained MIL update begin");
     NativeSceneUpdateMetrics update = compositor.UpdateScene(compiledMilStream);
+    Console.WriteLine("package-consumer: retained MIL render begin");
     NativeSceneFrameMetrics retainedMetrics = compositor.RenderScene(
         target,
         1f,
@@ -133,6 +135,7 @@ if (compiledMilStream is not null)
         new Vector4(0f, 0f, 0f, 1f));
     NativeSubmissionToken retainedSubmission =
         compositor.GetLastSubmissionToken();
+    Console.WriteLine("package-consumer: retained MIL wait begin");
     if (!retainedSubmission.IsValid)
     {
         throw new InvalidOperationException(
