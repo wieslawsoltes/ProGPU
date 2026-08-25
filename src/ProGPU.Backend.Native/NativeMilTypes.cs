@@ -310,6 +310,25 @@ public enum NativeMilClearTypeHint : uint
     Enabled
 }
 
+[Flags]
+public enum NativeMilRenderOptionFlags : uint
+{
+    None = 0,
+    BitmapScalingMode = 0x01,
+    EdgeMode = 0x02,
+    CompositingMode = 0x04,
+    ClearTypeHint = 0x08,
+    TextRenderingMode = 0x10,
+    TextHintingMode = 0x20
+}
+
+public readonly record struct NativeMilRenderOptions(
+    NativeMilRenderOptionFlags Flags,
+    NativeMilEdgeMode EdgeMode = NativeMilEdgeMode.Unspecified,
+    NativeMilBitmapScalingMode BitmapScalingMode =
+        NativeMilBitmapScalingMode.Unspecified,
+    NativeMilClearTypeHint ClearTypeHint = NativeMilClearTypeHint.Auto);
+
 public readonly record struct NativeMilDrawingGroup(
     double Opacity = 1.0,
     uint ClipGeometryHandle = 0,

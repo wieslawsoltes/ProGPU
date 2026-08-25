@@ -85,6 +85,35 @@ public sealed class NativeMilBatchBuilder
         WriteDouble(packet, 8, opacity);
     }
 
+    public void SetVisualRenderOptions(
+        uint handle,
+        NativeMilRenderOptions options)
+    {
+        ValidateHandle(handle);
+        const NativeMilRenderOptionFlags supported =
+            NativeMilRenderOptionFlags.BitmapScalingMode |
+            NativeMilRenderOptionFlags.EdgeMode |
+            NativeMilRenderOptionFlags.ClearTypeHint;
+        if ((options.Flags & ~supported) != 0 ||
+            options.EdgeMode > NativeMilEdgeMode.Aliased ||
+            options.BitmapScalingMode >
+                NativeMilBitmapScalingMode.NearestNeighbor ||
+            options.ClearTypeHint > NativeMilClearTypeHint.Enabled)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VisualSetRenderOptions, 36);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, (uint)options.Flags);
+        WriteUInt32(packet, 12, (uint)options.EdgeMode);
+        WriteUInt32(packet, 16, 0);
+        WriteUInt32(packet, 20, (uint)options.BitmapScalingMode);
+        WriteUInt32(packet, 24, (uint)options.ClearTypeHint);
+        WriteUInt32(packet, 28, 0);
+        WriteUInt32(packet, 32, 0);
+    }
+
     public void SetVisualContent(uint handle, uint contentHandle)
     {
         ValidateHandle(handle);
@@ -1451,6 +1480,7 @@ internal static class NativeMilCommand
     internal const uint VisualSetOffset = 0x1b;
     internal const uint VisualSetTransform = 0x1c;
     internal const uint VisualSetAlpha = 0x20;
+    internal const uint VisualSetRenderOptions = 0x21;
     internal const uint VisualSetContent = 0x22;
     internal const uint VisualInsertChildAt = 0x26;
     internal const uint GenericTargetCreate = 0x34;

@@ -56,6 +56,18 @@ constexpr std::uint32_t type_bitmap_source = 95U;
 constexpr std::uint32_t type_last = 98U;
 constexpr std::uint32_t maximum_visual_depth = 256U;
 constexpr std::uint32_t maximum_path_record_count = 1U << 20U;
+constexpr std::uint32_t render_option_bitmap_scaling = 0x01U;
+constexpr std::uint32_t render_option_edge_mode = 0x02U;
+constexpr std::uint32_t render_option_compositing_mode = 0x04U;
+constexpr std::uint32_t render_option_clear_type_hint = 0x08U;
+constexpr std::uint32_t render_option_text_rendering_mode = 0x10U;
+constexpr std::uint32_t render_option_text_hinting_mode = 0x20U;
+constexpr std::uint32_t render_option_supported_mask =
+    render_option_bitmap_scaling | render_option_edge_mode |
+    render_option_clear_type_hint;
+constexpr std::uint32_t render_option_known_mask =
+    render_option_supported_mask | render_option_compositing_mode |
+    render_option_text_rendering_mode | render_option_text_hinting_mode;
 
 template<typename T>
 bool read_at(
@@ -558,6 +570,10 @@ struct channel::implementation {
         double opacity{1.0};
         std::uint32_t transform_handle{};
         std::uint32_t content_handle{};
+        std::uint32_t render_options_flags{};
+        std::uint32_t edge_mode{};
+        std::uint32_t bitmap_scaling_mode{};
+        std::uint32_t clear_type_hint{};
         std::vector<std::uint32_t> children;
     };
 
@@ -1406,6 +1422,49 @@ struct channel::implementation {
                 return status::malformed_batch;
             }
             visuals.at(handle).opacity = opacity;
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::visual_set_render_options: {
+            std::uint32_t flags = 0U;
+            std::uint32_t edge_mode = 0U;
+            std::uint32_t compositing_mode = 0U;
+            std::uint32_t bitmap_scaling_mode = 0U;
+            std::uint32_t clear_type_hint = 0U;
+            std::uint32_t text_rendering_mode = 0U;
+            std::uint32_t text_hinting_mode = 0U;
+            if (!has_exact_size(view, 36U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, flags) ||
+                !read_at(view.packet, 12U, edge_mode) ||
+                !read_at(view.packet, 16U, compositing_mode) ||
+                !read_at(view.packet, 20U, bitmap_scaling_mode) ||
+                !read_at(view.packet, 24U, clear_type_hint) ||
+                !read_at(view.packet, 28U, text_rendering_mode) ||
+                !read_at(view.packet, 32U, text_hinting_mode)) {
+                return status::malformed_batch;
+            }
+            if (!require_visual(handle)) {
+                return status::invalid_handle;
+            }
+            if ((flags & ~render_option_known_mask) != 0U ||
+                edge_mode > 1U || bitmap_scaling_mode > 3U ||
+                clear_type_hint > 1U) {
+                return status::malformed_batch;
+            }
+            if ((flags & ~render_option_supported_mask) != 0U) {
+                return status::unsupported_command;
+            }
+            if (compositing_mode != 0U || text_rendering_mode != 0U ||
+                text_hinting_mode != 0U) {
+                return status::malformed_batch;
+            }
+            auto& visual = visuals.at(handle);
+            visual.render_options_flags = flags;
+            visual.edge_mode = edge_mode;
+            visual.bitmap_scaling_mode = bitmap_scaling_mode;
+            visual.clear_type_hint = clear_type_hint;
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -4316,8 +4375,7 @@ struct channel::implementation {
 
     status append_render_data(
         std::uint32_t content_handle,
-        const affine_2d_double& base_transform,
-        double base_opacity,
+        const render_scope_state& base_state,
         native::semantic_scene_builder& builder,
         std::unordered_map<std::uint32_t, std::uint32_t>& brush_indices,
         std::unordered_map<std::uint32_t, std::uint32_t>& image_indices,
@@ -4330,9 +4388,6 @@ struct channel::implementation {
             return status::invalid_handle;
         }
 
-        render_scope_state initial{};
-        initial.transform = base_transform;
-        initial.opacity = base_opacity;
         std::unordered_set<std::uint32_t> active_drawings;
         std::vector<progpu_native_scene_clip_path> clip_paths;
         std::vector<progpu_native_path_segment> clip_segments;
@@ -4340,7 +4395,7 @@ struct channel::implementation {
             clip_boolean_nodes;
         return append_render_stream(
             resource->second.render_data,
-            initial,
+            base_state,
             1U,
             builder,
             brush_indices,
@@ -7677,8 +7732,7 @@ struct channel::implementation {
 
     status append_visual(
         std::uint32_t handle,
-        const affine_2d_double& parent_transform,
-        double parent_opacity,
+        const render_scope_state& parent_state,
         std::uint32_t depth,
         native::semantic_scene_builder& builder,
         std::unordered_map<std::uint32_t, std::uint32_t>& brush_indices,
@@ -7715,20 +7769,42 @@ struct channel::implementation {
             visual->second.offset_y};
         const affine_2d_double transform = compose_affine(
             compose_affine(local_transform, offset_transform),
-            parent_transform);
-        const double opacity = parent_opacity * visual->second.opacity;
-        if (!std::isfinite(opacity) ||
-            opacity < 0.0 || opacity > 1.0) {
+            parent_state.transform);
+        render_scope_state current = parent_state;
+        current.transform = transform;
+        current.opacity *= visual->second.opacity;
+        if (!std::isfinite(current.opacity) ||
+            current.opacity < 0.0 || current.opacity > 1.0) {
             active_visuals.erase(handle);
             return status::invalid_graph;
+        }
+        if ((visual->second.render_options_flags &
+                render_option_bitmap_scaling) != 0U &&
+            visual->second.bitmap_scaling_mode != 0U) {
+            current.image_sampling =
+                visual->second.bitmap_scaling_mode == 3U
+                ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
+                : visual->second.bitmap_scaling_mode == 2U
+                ? PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
+                : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+        }
+        if ((visual->second.render_options_flags &
+                render_option_edge_mode) != 0U &&
+            visual->second.edge_mode != 0U) {
+            current.edge_aliased = true;
+        }
+        if ((visual->second.render_options_flags &
+                render_option_clear_type_hint) != 0U &&
+            visual->second.clear_type_hint != 0U) {
+            current.clear_type_enabled = true;
         }
 
         auto state = native::semantic_scene_builder::identity_state();
-        if (!try_to_native_affine(transform, state.transform)) {
+        if (!try_to_native_affine(current.transform, state.transform)) {
             active_visuals.erase(handle);
             return status::invalid_graph;
         }
-        state.opacity = static_cast<float>(opacity);
+        state.opacity = static_cast<float>(current.opacity);
         std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         if (!builder.add_state(state, state_index) ||
             !builder.save(state_index)) {
@@ -7743,8 +7819,7 @@ struct channel::implementation {
         if (visual->second.content_handle != 0U) {
             result = append_render_data(
                 visual->second.content_handle,
-                transform,
-                opacity,
+                current,
                 builder,
                 brush_indices,
                 image_indices,
@@ -7755,8 +7830,7 @@ struct channel::implementation {
             for (const auto child : visual->second.children) {
                 result = append_visual(
                     child,
-                    transform,
-                    opacity,
+                    current,
                     depth + 1U,
                     builder,
                     brush_indices,
@@ -8043,8 +8117,7 @@ status channel::build_scene(
         if (target->second.root_handle != 0U) {
             const status append_status = implementation_->append_visual(
                 target->second.root_handle,
-                affine_2d_double{},
-                1.0,
+                implementation::render_scope_state{},
                 1U,
                 builder,
                 brush_indices,

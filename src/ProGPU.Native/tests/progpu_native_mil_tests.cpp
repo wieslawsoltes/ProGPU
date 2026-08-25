@@ -687,6 +687,17 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     append_command(batch, command::visual_create, child);
     append_command(batch, command::visual_set_offset, root, 10.0, 20.0);
     append_command(batch, command::visual_set_alpha, root, 0.8);
+    append_command(
+        batch,
+        command::visual_set_render_options,
+        root,
+        0x0bU,
+        1U,
+        0U,
+        3U,
+        1U,
+        0U,
+        0U);
     append_command(batch, command::visual_set_offset, child, 3.0, 4.0);
     append_command(batch, command::visual_set_alpha, child, 0.5);
     append_command(batch, command::visual_set_content, child, content);
@@ -795,6 +806,9 @@ bool solid_rectangle_compiles_to_semantic_scene() {
             const auto primitive =
                 read_value<progpu_native_analytic_primitive>(
                     stream, record.payload_offset);
+            PROGPU_REQUIRE(
+                (primitive.flags &
+                    PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) != 0U);
             if (primitive.kind == PROGPU_NATIVE_PRIMITIVE_RECTANGLE) {
                 PROGPU_REQUIRE(primitive.x == 2.0F);
                 PROGPU_REQUIRE(primitive.y == 6.0F);
@@ -916,6 +930,35 @@ bool solid_rectangle_compiles_to_semantic_scene() {
             nullptr) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
     PROGPU_REQUIRE(abi_stream == stream);
     progpu_native_mil_channel_destroy(native_channel);
+
+    std::vector<std::byte> unsupported_options;
+    append_command(
+        unsupported_options,
+        command::visual_set_render_options,
+        root,
+        0x04U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U);
+    PROGPU_REQUIRE(
+        state.apply(unsupported_options) == status::unsupported_command);
+    std::vector<std::byte> malformed_options;
+    append_command(
+        malformed_options,
+        command::visual_set_render_options,
+        root,
+        0x40U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U);
+    PROGPU_REQUIRE(
+        state.apply(malformed_options) == status::malformed_batch);
     return true;
 }
 
@@ -4606,6 +4649,17 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
     append_create(batch, drawing, 89U);
     append_create(batch, group, 91U);
     append_command(batch, command::visual_create, visual);
+    append_command(
+        batch,
+        command::visual_set_render_options,
+        visual,
+        0x09U,
+        0U,
+        0U,
+        3U,
+        1U,
+        0U,
+        0U);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
         batch,
@@ -4629,7 +4683,7 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
         0U,
         0U,
         0U,
-        3U,
+        0U,
         0U,
         drawing);
     std::vector<std::byte> nested;
@@ -5108,6 +5162,38 @@ bool retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband() {
     PROGPU_REQUIRE(state.apply(clear_type_batch) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7006U, 3U, stream, &metrics) ==
+        status::unsupported_command);
+
+    std::vector<std::byte> visual_clear_type_batch;
+    append_command(
+        visual_clear_type_batch,
+        command::drawing_group,
+        clear_type_group,
+        1.0,
+        4U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        drawing);
+    append_command(
+        visual_clear_type_batch,
+        command::visual_set_render_options,
+        visual,
+        0x08U,
+        0U,
+        0U,
+        0U,
+        1U,
+        0U,
+        0U);
+    PROGPU_REQUIRE(state.apply(visual_clear_type_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7006U, 4U, stream, &metrics) ==
         status::unsupported_command);
 
     std::vector<std::byte> delete_glyph;
