@@ -3020,7 +3020,52 @@ struct channel::implementation {
                     return status::invalid_handle;
                 }
                 if (!dash->second.intervals.empty()) {
-                    return status::unsupported_command;
+                    const std::size_t source_count =
+                        dash->second.intervals.size();
+                    if (source_count >
+                        std::numeric_limits<std::size_t>::max() / 2U) {
+                        return status::unsupported_command;
+                    }
+                    const std::size_t effective_count =
+                        (source_count & 1U) == 0U
+                            ? source_count
+                            : source_count * 2U;
+                    double pattern_length = 0.0;
+                    for (std::size_t index = 0U;
+                         index < effective_count;
+                         ++index) {
+                        const double interval = dash->second.intervals[
+                            index % source_count];
+                        if (pattern_length >
+                            std::numeric_limits<double>::max() - interval) {
+                            return status::unsupported_command;
+                        }
+                        pattern_length += interval;
+                    }
+                    if (!std::isfinite(pattern_length) ||
+                        pattern_length <= 0.0) {
+                        return status::unsupported_command;
+                    }
+                    double offset = std::fmod(
+                        dash->second.offset,
+                        pattern_length);
+                    if (!std::isfinite(offset)) {
+                        return status::unsupported_command;
+                    }
+                    if (offset < 0.0) {
+                        offset += pattern_length;
+                    }
+                    std::size_t dash_index = 0U;
+                    double dash_end = dash->second.intervals[0U];
+                    while (dash_index + 1U < effective_count &&
+                        dash_end < offset) {
+                        ++dash_index;
+                        dash_end += dash->second.intervals[
+                            dash_index % source_count];
+                    }
+                    if ((dash_index & 1U) != 0U) {
+                        return status::success;
+                    }
                 }
             }
             progpu_native_affine_2d native_local_transform{};
