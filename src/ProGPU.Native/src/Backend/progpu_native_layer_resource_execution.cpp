@@ -36,6 +36,7 @@ namespace progpu::native::execution {
 
 using semantic_scissor = semantic::scissor;
 using semantic_layer_budget = semantic::layer_budget;
+using semantic_cache_budget = semantic::cache_budget;
 using semantic_compilation_budget = semantic::compilation_budget;
 inline constexpr std::uint32_t semantic_effect_uniform_alignment =
     semantic::effect_uniform_alignment;
@@ -647,6 +648,7 @@ bool ensure_semantic_effect_textures(
 bool prepare_semantic_layer_resources(
     progpu_native_engine& engine,
     const semantic_layer_budget& budget,
+    const semantic_cache_budget& cache_budget,
     std::uint32_t frame_width,
     std::uint32_t frame_height,
     float dpi_scale,
@@ -673,6 +675,36 @@ bool prepare_semantic_layer_resources(
                 slot,
                 budget.slot_widths[index],
                 budget.slot_heights[index])) {
+            return false;
+        }
+        const gpu_uniforms uniforms = create_uniforms(
+            slot.width,
+            slot.height,
+            dpi_scale);
+        if (engine.upload_uniform_if_changed(
+                slot.uniform_buffer,
+                uniforms,
+                slot.cached_uniforms,
+                slot.uniform_cache_valid)) {
+            uploaded_uniform_bytes += sizeof(gpu_uniforms);
+        }
+    }
+    for (std::uint32_t index = 0U; index < cache_budget.count; ++index) {
+        const std::uint32_t slot_index = cache_budget.slots[index];
+        if (!ensure_semantic_layer_slot(
+                engine,
+                slot_index,
+                cache_budget.widths[index],
+                cache_budget.heights[index])) {
+            return false;
+        }
+        auto& slot = engine.semantic_layer_slots[slot_index];
+        if (cache_budget.effected[index] &&
+            !ensure_semantic_effect_textures(
+                engine,
+                slot,
+                cache_budget.widths[index],
+                cache_budget.heights[index])) {
             return false;
         }
         const gpu_uniforms uniforms = create_uniforms(

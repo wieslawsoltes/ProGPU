@@ -3012,7 +3012,8 @@ public ref struct NativeSceneStreamBuilder
         const NativeSceneLayerFlags knownFlags =
             NativeSceneLayerFlags.Bounds |
             NativeSceneLayerFlags.Backdrop |
-            NativeSceneLayerFlags.ForceIsolation;
+            NativeSceneLayerFlags.ForceIsolation |
+            NativeSceneLayerFlags.CacheContent;
         bool hasBounds =
             (layer.Flags & NativeSceneLayerFlags.Bounds) != 0;
         bool canonicalBounds = hasBounds ||
@@ -3024,6 +3025,10 @@ public ref struct NativeSceneStreamBuilder
             float.IsFinite(layer.Opacity) &&
             layer.Opacity is >= 0f and <= 1f &&
             (uint)layer.BlendMode <= (uint)GpuBlendMode.Modulate &&
+            ((layer.Flags & NativeSceneLayerFlags.CacheContent) == 0 ||
+                ((layer.Flags & NativeSceneLayerFlags.Backdrop) == 0 &&
+                    layer.ContentRevision != 0 &&
+                    layer.CompositeRevision != 0)) &&
             layer.HasCanonicalReservedFields;
     }
 
@@ -3394,7 +3399,8 @@ public ref struct NativeSceneStreamBuilder
 
     private static bool RequiresMaterialization(in NativeSceneLayer layer) =>
         (layer.Flags & (NativeSceneLayerFlags.Backdrop |
-            NativeSceneLayerFlags.ForceIsolation)) != 0 ||
+            NativeSceneLayerFlags.ForceIsolation |
+            NativeSceneLayerFlags.CacheContent)) != 0 ||
         layer.Opacity != 1f ||
         layer.BlendMode != GpuBlendMode.SrcOver ||
         layer.MaskResourceIndex != NativeMethods.SceneNoIndex ||

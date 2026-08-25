@@ -1087,6 +1087,27 @@ void semantic_scene_layer_descriptors_are_exact_and_canonical() {
     invalid.reserved0 = 1U;
     rejects_value(invalid);
 
+    auto cached = layer;
+    cached.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT;
+    cached.opacity = 1.0F;
+    cached.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    stream = create_layer_descriptor_scene(cached);
+    metrics = {};
+    metrics.struct_size = sizeof(metrics);
+    PROGPU_REQUIRE(progpu_native_scene_validate(
+        stream.data(), stream.size(), &metrics) ==
+        PROGPU_NATIVE_STATUS_SUCCESS);
+    invalid = cached;
+    invalid.content_revision = 0U;
+    rejects_value(invalid);
+    invalid = cached;
+    invalid.composite_revision = 0U;
+    rejects_value(invalid);
+    invalid = cached;
+    invalid.flags |= PROGPU_NATIVE_SCENE_LAYER_BACKDROP;
+    rejects_value(invalid);
+
     stream = create_layer_descriptor_scene(layer);
     progpu_native_scene_header header{};
     std::memcpy(&header, stream.data(), sizeof(header));
