@@ -93,12 +93,27 @@ public sealed class NativeMilBatchBuilder
         const NativeMilRenderOptionFlags supported =
             NativeMilRenderOptionFlags.BitmapScalingMode |
             NativeMilRenderOptionFlags.EdgeMode |
-            NativeMilRenderOptionFlags.ClearTypeHint;
+            NativeMilRenderOptionFlags.ClearTypeHint |
+            NativeMilRenderOptionFlags.TextRenderingMode |
+            NativeMilRenderOptionFlags.TextHintingMode;
         if ((options.Flags & ~supported) != 0 ||
             options.EdgeMode > NativeMilEdgeMode.Aliased ||
             options.BitmapScalingMode >
                 NativeMilBitmapScalingMode.NearestNeighbor ||
-            options.ClearTypeHint > NativeMilClearTypeHint.Enabled)
+            options.ClearTypeHint > NativeMilClearTypeHint.Enabled ||
+            options.TextRenderingMode > NativeMilTextRenderingMode.ClearType ||
+            options.TextHintingMode > NativeMilTextHintingMode.Animated ||
+            ((options.Flags & NativeMilRenderOptionFlags.EdgeMode) == 0 &&
+                options.EdgeMode != NativeMilEdgeMode.Unspecified) ||
+            ((options.Flags & NativeMilRenderOptionFlags.BitmapScalingMode) == 0 &&
+                options.BitmapScalingMode !=
+                    NativeMilBitmapScalingMode.Unspecified) ||
+            ((options.Flags & NativeMilRenderOptionFlags.ClearTypeHint) == 0 &&
+                options.ClearTypeHint != NativeMilClearTypeHint.Auto) ||
+            ((options.Flags & NativeMilRenderOptionFlags.TextRenderingMode) == 0 &&
+                options.TextRenderingMode != NativeMilTextRenderingMode.Auto) ||
+            ((options.Flags & NativeMilRenderOptionFlags.TextHintingMode) == 0 &&
+                options.TextHintingMode != NativeMilTextHintingMode.Auto))
         {
             throw new ArgumentOutOfRangeException(nameof(options));
         }
@@ -110,8 +125,8 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 16, 0);
         WriteUInt32(packet, 20, (uint)options.BitmapScalingMode);
         WriteUInt32(packet, 24, (uint)options.ClearTypeHint);
-        WriteUInt32(packet, 28, 0);
-        WriteUInt32(packet, 32, 0);
+        WriteUInt32(packet, 28, (uint)options.TextRenderingMode);
+        WriteUInt32(packet, 32, (uint)options.TextHintingMode);
     }
 
     public void SetVisualContent(uint handle, uint contentHandle)

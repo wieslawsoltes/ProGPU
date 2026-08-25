@@ -19,3 +19,18 @@ public enum PortableClearTypeHint : byte
     Auto,
     Enabled
 }
+
+public enum PortableTextRenderingMode : byte
+{
+    Auto,
+    Aliased,
+    Grayscale,
+    ClearType
+}
+
+public enum PortableTextHintingMode : byte
+{
+    Auto,
+    Fixed,
+    Animated
+}
