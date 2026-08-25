@@ -52,12 +52,17 @@ public class NativeRendererInteropTests
 
         var renderData = new NativeMilRenderDataBuilder();
         renderData.PushTransform(5);
+        renderData.PushClip(6);
         byte[] nested = renderData.WrittenSpan.ToArray();
-        Assert.Equal(16, nested.Length);
+        Assert.Equal(32, nested.Length);
         Assert.Equal(16U, ReadUInt32(nested, 0));
         Assert.Equal(0x51U, ReadUInt32(nested, 4));
         Assert.Equal(5U, ReadUInt32(nested, 8));
         Assert.Equal(0U, ReadUInt32(nested, 12));
+        Assert.Equal(16U, ReadUInt32(nested, 16));
+        Assert.Equal(0x4dU, ReadUInt32(nested, 20));
+        Assert.Equal(6U, ReadUInt32(nested, 24));
+        Assert.Equal(0U, ReadUInt32(nested, 28));
 
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             batch.SetMatrixTransform(
@@ -66,6 +71,7 @@ public class NativeRendererInteropTests
         renderData.Clear();
         renderData.PushTransform(0);
         Assert.Equal(0U, ReadUInt32(renderData.WrittenSpan.ToArray(), 8));
+        Assert.Throws<ArgumentOutOfRangeException>(() => renderData.PushClip(0));
     }
 
     [Fact]
