@@ -1146,6 +1146,32 @@ for `progpu_native.dll` and
 `5abd082989ae7df2b77cd727081f761d1211d5803d71cfd9102056f1a2d6034c`
 for `progpu_native_dawn.dll`.
 
+DrawingGroup implementation `49d448af` and focused package gate `85f55ab2`
+then added canonical resource type `91` and command `0x8b`, including WPF's
+52-byte command-view prefix (56 bytes when framed) followed by its ordered
+child-handle payload. Groups retain typed child drawings, transform, exact
+geometry clip, static opacity, and live `DoubleResource` opacity dependencies;
+nested compilation reuses the same `DrawDrawing`/`DrawGeometry` lowering and
+preserves the parent semantic scope. Native fixtures cover live opacity
+updates, transformed clips and analytic bounds, protected dependencies,
+cycles, wrong child types, and transactional rollback. Opacity masks,
+guideline sets, effects/cache state, and nondefault edge, bitmap-scaling, or
+ClearType options remain explicit compile-time unsupported states until their
+native semantic resources are implemented.
+
+All ten local native CTests passed, the managed canonical-builder filter passed
+7/7, and the project-reference package consumer built with zero warnings.
+Strict Windows ARM64 MSVC rebuilt both native modules under `/W4 /WX`, and all
+11 native/Dawn CTests passed in the Parallels VM. The focused 23-command,
+ten-channel-resource DrawingGroup scene compiled through both MIL exports and
+rendered on live D3D12 with four semantic resources, one batched draw, zero
+coverage-staging bytes, a valid submission, nonblack retained readback, and
+16,384 direct-render pixels. Exact qualified SHA-256 values were
+`d20b7d78eff8905c7d1130c12980bbe2bc02a70337cbb4461c1279562fe624da`
+for `progpu_native.dll` and
+`e8c7dce855f34877abe3c211a7970235444402a37bfd940f0a4afbfea5f1a6a2`
+for `progpu_native_dawn.dll`.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
