@@ -29,6 +29,8 @@ constexpr std::uint32_t type_generic_render_target = 47U;
 constexpr std::uint32_t type_double_resource = 49U;
 constexpr std::uint32_t type_point_resource = 51U;
 constexpr std::uint32_t type_matrix_resource = 54U;
+constexpr std::uint32_t type_blur_effect = 36U;
+constexpr std::uint32_t type_drop_shadow_effect = 37U;
 constexpr std::uint32_t type_drawing_image = 59U;
 constexpr std::uint32_t type_transform_group = 61U;
 constexpr std::uint32_t type_translate_transform = 62U;
@@ -103,6 +105,10 @@ bool is_transform_type(std::uint32_t type) noexcept {
 
 bool is_drawing_type(std::uint32_t type) noexcept {
     return type >= type_geometry_drawing && type <= type_drawing_group;
+}
+
+bool is_effect_type(std::uint32_t type) noexcept {
+    return type == type_blur_effect || type == type_drop_shadow_effect;
 }
 
 bool finite_double_as_float(double value) noexcept {
@@ -570,6 +576,7 @@ struct channel::implementation {
         double offset_y{};
         double opacity{1.0};
         std::uint32_t transform_handle{};
+        std::uint32_t effect_handle{};
         std::uint32_t clip_geometry_handle{};
         std::uint32_t content_handle{};
         std::uint32_t alpha_mask_handle{};
@@ -587,6 +594,18 @@ struct channel::implementation {
         std::vector<double> guidelines_x;
         std::vector<double> guidelines_y;
         std::vector<std::uint32_t> children;
+    };
+
+    struct effect_state {
+        enum class kind : std::uint32_t {
+            blur,
+            drop_shadow
+        } type{kind::blur};
+        double radius{};
+        double shadow_depth{};
+        double direction{};
+        double opacity{1.0};
+        progpu_native_color color{};
     };
 
     struct target_state {
@@ -847,6 +866,7 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, drawing_image_state> drawing_images;
     std::unordered_map<std::uint32_t, drawing_group_state> drawing_groups;
     std::unordered_map<std::uint32_t, guideline_set_state> guideline_sets;
+    std::unordered_map<std::uint32_t, effect_state> effects;
 
     bool require_resource(
         std::uint32_t handle,
@@ -880,6 +900,12 @@ struct channel::implementation {
             (found->second.type == type_solid_color_brush ||
              found->second.type == type_linear_gradient_brush ||
              found->second.type == type_radial_gradient_brush);
+    }
+
+    bool require_effect(std::uint32_t handle) const noexcept {
+        const auto found = resources.find(handle);
+        return found != resources.end() && is_effect_type(found->second.type) &&
+            effects.contains(handle);
     }
 
     bool has_brush_state(std::uint32_t handle) const noexcept {
@@ -1225,6 +1251,7 @@ struct channel::implementation {
             for (const auto& [visual_handle, visual] : visuals) {
                 if (visual_handle != handle &&
                     (visual.transform_handle == handle ||
+                     visual.effect_handle == handle ||
                      visual.clip_geometry_handle == handle ||
                      visual.content_handle == handle ||
                      visual.alpha_mask_handle == handle ||
@@ -1365,6 +1392,7 @@ struct channel::implementation {
             drawing_images.erase(handle);
             drawing_groups.erase(handle);
             guideline_sets.erase(handle);
+            effects.erase(handle);
             resources.erase(found);
             ++metrics.deleted_resource_count;
             return status::success;
@@ -1420,6 +1448,22 @@ struct channel::implementation {
                 return status::invalid_handle;
             }
             visuals.at(handle).transform_handle = transform;
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::visual_set_effect: {
+            std::uint32_t effect = 0U;
+            if (!has_exact_size(view, 12U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, effect)) {
+                return status::malformed_batch;
+            }
+            if (!require_visual(handle) ||
+                (effect != 0U && !require_effect(effect))) {
+                return status::invalid_handle;
+            }
+            visuals.at(handle).effect_handle = effect;
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -2868,6 +2912,82 @@ struct channel::implementation {
             }
             solid_brushes.insert_or_assign(
                 handle, solid_brush_state{opacity, color});
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::blur_effect: {
+            double radius = 0.0;
+            std::uint32_t radius_animation = 0U;
+            std::uint32_t kernel_type = 0U;
+            std::uint32_t rendering_bias = 0U;
+            if (!has_exact_size(view, 28U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, radius) ||
+                !read_at(view.packet, 16U, radius_animation) ||
+                !read_at(view.packet, 20U, kernel_type) ||
+                !read_at(view.packet, 24U, rendering_bias)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_blur_effect)) {
+                return status::invalid_handle;
+            }
+            if (radius_animation != 0U || kernel_type != 0U) {
+                return status::unsupported_command;
+            }
+            if (!std::isfinite(radius) || rendering_bias > 1U) {
+                return status::malformed_batch;
+            }
+            effect_state effect{};
+            effect.type = effect_state::kind::blur;
+            effect.radius = std::max(0.0, radius);
+            effects.insert_or_assign(handle, effect);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::drop_shadow_effect: {
+            effect_state effect{};
+            effect.type = effect_state::kind::drop_shadow;
+            std::array<std::uint32_t, 5U> animations{};
+            std::uint32_t rendering_bias = 0U;
+            if (!has_exact_size(view, 80U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, effect.shadow_depth) ||
+                !read_at(view.packet, 16U, effect.color) ||
+                !read_at(view.packet, 32U, effect.direction) ||
+                !read_at(view.packet, 40U, effect.opacity) ||
+                !read_at(view.packet, 48U, effect.radius) ||
+                !read_at(view.packet, 56U, animations[0]) ||
+                !read_at(view.packet, 60U, animations[1]) ||
+                !read_at(view.packet, 64U, animations[2]) ||
+                !read_at(view.packet, 68U, animations[3]) ||
+                !read_at(view.packet, 72U, animations[4]) ||
+                !read_at(view.packet, 76U, rendering_bias)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_drop_shadow_effect)) {
+                return status::invalid_handle;
+            }
+            if (std::ranges::any_of(
+                    animations,
+                    [](std::uint32_t value) { return value != 0U; })) {
+                return status::unsupported_command;
+            }
+            if (!std::isfinite(effect.shadow_depth) ||
+                !std::isfinite(effect.direction) ||
+                !std::isfinite(effect.opacity) ||
+                !std::isfinite(effect.radius) ||
+                !std::isfinite(effect.color.r) ||
+                !std::isfinite(effect.color.g) ||
+                !std::isfinite(effect.color.b) ||
+                !std::isfinite(effect.color.a) || rendering_bias > 1U) {
+                return status::malformed_batch;
+            }
+            effect.shadow_depth = std::max(0.0, effect.shadow_depth);
+            effect.radius = std::max(0.0, effect.radius);
+            effect.opacity = std::clamp(effect.opacity, 0.0, 1.0);
+            effects.insert_or_assign(handle, effect);
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -8038,6 +8158,128 @@ struct channel::implementation {
         return status::success;
     }
 
+    status add_visual_effect_layer(
+        std::uint32_t effect_handle,
+        const render_scope_state& state,
+        native::semantic_scene_builder& builder,
+        bool& pushed) const {
+        pushed = false;
+        if (effect_handle == 0U) {
+            return status::success;
+        }
+        const auto effect = effects.find(effect_handle);
+        const auto resource = resources.find(effect_handle);
+        if (effect == effects.end() || resource == resources.end()) {
+            return status::invalid_handle;
+        }
+        // WPF composes Clip > Effect > OpacityMask/Opacity. Until the
+        // semantic layer carries separate source and composite clips, do not
+        // move any of those modifiers below the effect.
+        if (state.has_clip ||
+            state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+            state.opacity != 1.0) {
+            return status::unsupported_command;
+        }
+        const double scale_x = std::hypot(
+            state.transform.m11, state.transform.m12);
+        const double scale_y = std::hypot(
+            state.transform.m21, state.transform.m22);
+        if (!finite_double_as_float(scale_x) ||
+            !finite_double_as_float(scale_y) ||
+            scale_x <= 0.0 || scale_y <= 0.0) {
+            return status::invalid_graph;
+        }
+        const double row_dot =
+            state.transform.m11 * state.transform.m21 +
+            state.transform.m12 * state.transform.m22;
+        if (!std::isfinite(row_dot) ||
+            std::abs(row_dot) > 1.0e-9 * scale_x * scale_y) {
+            return status::unsupported_command;
+        }
+        const double minimum_scale = std::min(scale_x, scale_y);
+        const auto wpf_scaled_radius = [&](double radius,
+                                           float& sigma) noexcept {
+            if (radius > static_cast<double>(
+                    std::numeric_limits<std::uint32_t>::max())) {
+                return false;
+            }
+            const double local_radius = std::floor(radius);
+            const double scaled = std::min(
+                100.0, std::floor(local_radius * minimum_scale));
+            sigma = static_cast<float>(scaled / 3.0);
+            return std::isfinite(sigma);
+        };
+        progpu_native_group_effect descriptor{};
+        descriptor.struct_size = sizeof(descriptor);
+        descriptor.revision = static_cast<std::uint32_t>(
+            resource->second.generation ^
+            (resource->second.generation >> 32U));
+        if (descriptor.revision == 0U) {
+            descriptor.revision = 1U;
+        }
+        if (!wpf_scaled_radius(
+                effect->second.radius, descriptor.sigma_x)) {
+            return status::unsupported_command;
+        }
+        descriptor.sigma_y = descriptor.sigma_x;
+        if (effect->second.type == effect_state::kind::blur) {
+            if (descriptor.sigma_x <= 0.01F) {
+                return status::success;
+            }
+            descriptor.kind = PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR;
+        } else {
+            descriptor.kind = PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW;
+            const double radians = effect->second.direction *
+                std::numbers::pi_v<double> / 180.0;
+            const double distance =
+                effect->second.shadow_depth * minimum_scale;
+            const double offset_x = distance * std::cos(radians);
+            const double offset_y = -distance * std::sin(radians);
+            const double rest_m11 = state.transform.m11 / scale_x;
+            const double rest_m12 = state.transform.m12 / scale_x;
+            const double rest_m21 = state.transform.m21 / scale_y;
+            const double rest_m22 = state.transform.m22 / scale_y;
+            descriptor.offset_x = static_cast<float>(
+                offset_x * rest_m11 + offset_y * rest_m21);
+            descriptor.offset_y = static_cast<float>(
+                offset_x * rest_m12 + offset_y * rest_m22);
+            descriptor.color_r = effect->second.color.r;
+            descriptor.color_g = effect->second.color.g;
+            descriptor.color_b = effect->second.color.b;
+            descriptor.color_a = effect->second.color.a *
+                static_cast<float>(effect->second.opacity);
+            if (!std::isfinite(descriptor.offset_x) ||
+                !std::isfinite(descriptor.offset_y) ||
+                descriptor.color_r < 0.0F || descriptor.color_r > 1.0F ||
+                descriptor.color_g < 0.0F || descriptor.color_g > 1.0F ||
+                descriptor.color_b < 0.0F || descriptor.color_b > 1.0F ||
+                descriptor.color_a < 0.0F || descriptor.color_a > 1.0F) {
+                return status::unsupported_command;
+            }
+        }
+        std::uint32_t effect_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder.add_effect_chain(
+                std::span<const progpu_native_group_effect>(
+                    &descriptor, 1U),
+                descriptor.revision,
+                effect_index)) {
+            return status::invalid_graph;
+        }
+        progpu_native_scene_layer layer{};
+        layer.struct_size = sizeof(layer);
+        layer.opacity = 1.0F;
+        layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+        layer.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        layer.effect_resource_index = effect_index;
+        layer.content_revision = resource->second.generation;
+        layer.composite_revision = resource->second.generation;
+        if (!builder.push_layer(layer)) {
+            return status::invalid_graph;
+        }
+        pushed = true;
+        return status::success;
+    }
+
     status append_visual(
         std::uint32_t handle,
         const render_scope_state& parent_state,
@@ -8217,6 +8459,18 @@ struct channel::implementation {
             return status::invalid_graph;
         }
 
+        bool effect_layer_pushed = false;
+        const status effect_status = add_visual_effect_layer(
+            visual->second.effect_handle,
+            current,
+            builder,
+            effect_layer_pushed);
+        if (effect_status != status::success) {
+            builder.restore();
+            active_visuals.erase(handle);
+            return effect_status;
+        }
+
         ++metrics.visual_count;
         metrics.maximum_visual_depth =
             std::max(metrics.maximum_visual_depth, depth);
@@ -8247,6 +8501,10 @@ struct channel::implementation {
                     break;
                 }
             }
+        }
+        if (effect_layer_pushed && !builder.pop_layer() &&
+            result == status::success) {
+            result = status::invalid_graph;
         }
         if (!builder.restore() && result == status::success) {
             result = status::invalid_graph;

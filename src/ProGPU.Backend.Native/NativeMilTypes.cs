@@ -8,6 +8,8 @@ public enum NativeMilBackend : byte
 
 public enum NativeMilResourceType : uint
 {
+    BlurEffect = 36,
+    DropShadowEffect = 37,
     Visual = 39,
     Viewport3DVisual = 40,
     GlyphRun = 42,
@@ -42,6 +44,12 @@ public enum NativeMilResourceType : uint
     DrawingGroup = 91,
     GuidelineSet = 92,
     BitmapSource = 95
+}
+
+public enum NativeMilEffectRenderingBias : uint
+{
+    Performance,
+    Quality
 }
 
 [Flags]

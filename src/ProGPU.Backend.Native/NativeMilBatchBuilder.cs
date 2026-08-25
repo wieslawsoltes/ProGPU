@@ -72,6 +72,15 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 8, transformHandle);
     }
 
+    public void SetVisualEffect(uint handle, uint effectHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VisualSetEffect, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, effectHandle);
+    }
+
     public void SetVisualClip(uint handle, uint clipGeometryHandle)
     {
         ValidateHandle(handle);
@@ -230,6 +239,62 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 4, handle);
         WriteUInt32(packet, 8, childHandle);
         WriteUInt32(packet, 12, index);
+    }
+
+    public void SetBlurEffect(
+        uint handle,
+        double radius,
+        NativeMilEffectRenderingBias renderingBias =
+            NativeMilEffectRenderingBias.Performance)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(radius) ||
+            renderingBias > NativeMilEffectRenderingBias.Quality)
+        {
+            throw new ArgumentOutOfRangeException(nameof(radius));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.BlurEffect, 28);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, radius);
+        WriteUInt32(packet, 16, 0);
+        WriteUInt32(packet, 20, 0); // KernelType.Gaussian
+        WriteUInt32(packet, 24, (uint)renderingBias);
+    }
+
+    public void SetDropShadowEffect(
+        uint handle,
+        double shadowDepth,
+        NativeMilColor color,
+        double direction,
+        double opacity,
+        double blurRadius,
+        NativeMilEffectRenderingBias renderingBias =
+            NativeMilEffectRenderingBias.Performance)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(shadowDepth) ||
+            !double.IsFinite(direction) ||
+            !double.IsFinite(opacity) ||
+            !double.IsFinite(blurRadius) ||
+            !float.IsFinite(color.Red) || !float.IsFinite(color.Green) ||
+            !float.IsFinite(color.Blue) || !float.IsFinite(color.Alpha) ||
+            renderingBias > NativeMilEffectRenderingBias.Quality)
+        {
+            throw new ArgumentOutOfRangeException(nameof(shadowDepth));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DropShadowEffect, 80);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, shadowDepth);
+        WriteSingle(packet, 16, color.Red);
+        WriteSingle(packet, 20, color.Green);
+        WriteSingle(packet, 24, color.Blue);
+        WriteSingle(packet, 28, color.Alpha);
+        WriteDouble(packet, 32, direction);
+        WriteDouble(packet, 40, opacity);
+        WriteDouble(packet, 48, blurRadius);
+        WriteUInt32(packet, 76, (uint)renderingBias);
     }
 
     public void CreateGenericTarget(
@@ -1577,6 +1642,7 @@ internal static class NativeMilCommand
     internal const uint VisualCreate = 0x1a;
     internal const uint VisualSetOffset = 0x1b;
     internal const uint VisualSetTransform = 0x1c;
+    internal const uint VisualSetEffect = 0x1d;
     internal const uint VisualSetClip = 0x1f;
     internal const uint VisualSetAlpha = 0x20;
     internal const uint VisualSetRenderOptions = 0x21;
@@ -1600,6 +1666,8 @@ internal static class NativeMilCommand
     internal const uint PushOpacity = 0x4f;
     internal const uint PushTransform = 0x51;
     internal const uint Pop = 0x56;
+    internal const uint BlurEffect = 0x6e;
+    internal const uint DropShadowEffect = 0x6f;
     internal const uint DrawingImage = 0x71;
     internal const uint TransformGroup = 0x72;
     internal const uint TranslateTransform = 0x73;

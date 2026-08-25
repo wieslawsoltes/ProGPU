@@ -1330,6 +1330,155 @@ bool visual_solid_opacity_mask_composes_and_updates() {
     return true;
 }
 
+bool visual_gaussian_effects_compile_to_isolated_layers() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t blur = 5U;
+    constexpr std::uint32_t shadow = 6U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, blur, 36U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.2F, 0.7F, 1.0F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_rectangle,
+        8.0,
+        10.0,
+        32.0,
+        24.0,
+        brush,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::blur_effect,
+        blur,
+        9.75,
+        0U,
+        0U,
+        1U);
+    append_command(batch, command::visual_set_effect, visual, blur);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    const auto read_effect = [&]() {
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+            const auto resource = read_value<progpu_native_scene_resource>(
+                stream,
+                header.resource_offset +
+                    index * sizeof(progpu_native_scene_resource));
+            if (resource.kind ==
+                    PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) {
+                return read_value<progpu_native_group_effect>(
+                    stream, resource.auxiliary_offset);
+            }
+        }
+        return progpu_native_group_effect{};
+    };
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9014U, 1U, stream, &metrics) ==
+        status::success);
+    auto effect = read_effect();
+    PROGPU_REQUIRE(
+        effect.kind == PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR);
+    PROGPU_REQUIRE(effect.sigma_x == 3.0F && effect.sigma_y == 3.0F);
+
+    std::vector<std::byte> unsupported_box;
+    append_command(
+        unsupported_box,
+        command::blur_effect,
+        blur,
+        9.0,
+        0U,
+        1U,
+        0U);
+    PROGPU_REQUIRE(
+        state.apply(unsupported_box) == status::unsupported_command);
+
+    std::vector<std::byte> replace;
+    append_create(replace, shadow, 37U);
+    append_command(
+        replace,
+        command::drop_shadow_effect,
+        shadow,
+        5.0,
+        progpu_native_color{0.1F, 0.2F, 0.3F, 0.5F},
+        315.0,
+        0.4,
+        6.9,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(replace, command::visual_set_effect, visual, shadow);
+    PROGPU_REQUIRE(state.apply(replace) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9014U, 2U, stream, &metrics) ==
+        status::success);
+    effect = read_effect();
+    PROGPU_REQUIRE(effect.kind == PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW);
+    PROGPU_REQUIRE(effect.sigma_x == 2.0F && effect.sigma_y == 2.0F);
+    PROGPU_REQUIRE(std::abs(effect.offset_x - 3.535534F) < 0.00001F);
+    PROGPU_REQUIRE(std::abs(effect.offset_y - 3.535534F) < 0.00001F);
+    PROGPU_REQUIRE(effect.color_r == 0.1F && effect.color_g == 0.2F &&
+        effect.color_b == 0.3F &&
+        std::abs(effect.color_a - 0.2F) < 0.00001F);
+
+    std::vector<std::byte> delete_referenced;
+    append_command(
+        delete_referenced,
+        command::channel_delete_resource,
+        shadow,
+        37U);
+    PROGPU_REQUIRE(state.apply(delete_referenced) == status::invalid_graph);
+    std::vector<std::byte> clear;
+    append_command(clear, command::visual_set_effect, visual, 0U);
+    PROGPU_REQUIRE(state.apply(clear) == status::success);
+    PROGPU_REQUIRE(state.apply(delete_referenced) == status::success);
+
+    std::vector<std::byte> clipped_effect;
+    append_command(clipped_effect, command::visual_set_effect, visual, blur);
+    append_command(clipped_effect, command::visual_set_alpha, visual, 0.5);
+    PROGPU_REQUIRE(state.apply(clipped_effect) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9014U, 3U, stream, &metrics) ==
+        status::unsupported_command);
+    return true;
+}
+
 bool visual_static_guidelines_reset_at_child_boundaries() {
     constexpr std::uint32_t root = 1U;
     constexpr std::uint32_t child = 2U;
@@ -7529,6 +7678,7 @@ int main() {
     PROGPU_REQUIRE(solid_rectangle_compiles_to_semantic_scene());
     PROGPU_REQUIRE(visual_clips_compile_to_exact_semantic_state());
     PROGPU_REQUIRE(visual_solid_opacity_mask_composes_and_updates());
+    PROGPU_REQUIRE(visual_gaussian_effects_compile_to_isolated_layers());
     PROGPU_REQUIRE(visual_static_guidelines_reset_at_child_boundaries());
     PROGPU_REQUIRE(matrix_transform_scopes_compile_to_semantic_state());
     PROGPU_REQUIRE(
