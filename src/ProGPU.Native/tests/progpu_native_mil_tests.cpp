@@ -2991,8 +2991,8 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
                 ? 1U
                 : 0U;
         }
-        PROGPU_REQUIRE(arc_count == 0U);
-        PROGPU_REQUIRE(line_count >= 20U);
+        PROGPU_REQUIRE(arc_count == 1U);
+        PROGPU_REQUIRE(line_count >= 10U);
         found_expanded_group_arcs = true;
     }
     PROGPU_REQUIRE(found_expanded_group_arcs);

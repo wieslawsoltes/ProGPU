@@ -3133,6 +3133,7 @@ struct channel::implementation {
                         std::vector<shallow_fill_leaf> expanded_group_leaves;
                         expanded_group_leaves.reserve(group_leaves.size());
                         std::size_t covered_segment_count = 0U;
+                        bool preserved_group_arc = false;
                         for (const auto& source_leaf : group_leaves) {
                             if (source_leaf.segment_offset !=
                                 covered_segment_count) {
@@ -3152,10 +3153,16 @@ struct channel::implementation {
                                     group_segments[segment_index];
                                 if (segment.kind ==
                                     PROGPU_NATIVE_PATH_SEGMENT_ARC) {
-                                    if (!append_arc_line_segments(
-                                            segment,
-                                            expanded_group_segments)) {
-                                        return status::unsupported_command;
+                                    if (!preserved_group_arc) {
+                                        expanded_group_segments.push_back(
+                                            segment);
+                                        preserved_group_arc = true;
+                                    } else {
+                                        if (!append_arc_line_segments(
+                                                segment,
+                                                expanded_group_segments)) {
+                                            return status::unsupported_command;
+                                        }
                                     }
                                 } else {
                                     expanded_group_segments.push_back(segment);
