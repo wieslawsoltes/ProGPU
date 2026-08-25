@@ -1173,14 +1173,12 @@ validation_result validate(
                 const auto composite_state = read_record<
                     progpu_native_scene_state>(
                         bytes, composite_resource.payload_offset);
-                if (composite_state.flags != 0U ||
+                constexpr std::uint32_t composite_flags =
+                    PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
+                    PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+                if ((composite_state.flags & ~composite_flags) != 0U ||
                     composite_state.opacity != 1.0F ||
-                    composite_state.clip_rect.x != 0.0F ||
-                    composite_state.clip_rect.y != 0.0F ||
-                    composite_state.clip_rect.width != 0.0F ||
-                    composite_state.clip_rect.height != 0.0F ||
-                    composite_state.mask_resource_index != 0U ||
-                    composite_state.guideline_resource_index != 0U) {
+                    composite_state.mask_resource_index != 0U) {
                     return fail(
                         header,
                         PROGPU_NATIVE_SCENE_VALIDATION_VALUE,

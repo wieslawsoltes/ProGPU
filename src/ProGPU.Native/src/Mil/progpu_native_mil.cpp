@@ -8599,23 +8599,23 @@ struct channel::implementation {
                 dependency, active_resources, hash) == status::success;
         };
         append_fnv1a64(hash, handle);
-        append_fnv1a64(hash, visual->second.render_options_flags);
-        append_fnv1a64(hash, visual->second.edge_mode);
-        append_fnv1a64(hash, visual->second.bitmap_scaling_mode);
-        append_fnv1a64(hash, visual->second.clear_type_hint);
-        append_fnv1a64(hash, visual->second.text_rendering_mode);
-        append_fnv1a64(hash, visual->second.text_hinting_mode);
-        for (const double coordinate : visual->second.guidelines_x) {
-            append_fnv1a64(hash, coordinate);
-        }
-        for (const double coordinate : visual->second.guidelines_y) {
-            append_fnv1a64(hash, coordinate);
-        }
         if (!append_resource(visual->second.content_handle)) {
             active_visuals.erase(handle);
             return status::invalid_handle;
         }
         if (include_outer_state) {
+            append_fnv1a64(hash, visual->second.render_options_flags);
+            append_fnv1a64(hash, visual->second.edge_mode);
+            append_fnv1a64(hash, visual->second.bitmap_scaling_mode);
+            append_fnv1a64(hash, visual->second.clear_type_hint);
+            append_fnv1a64(hash, visual->second.text_rendering_mode);
+            append_fnv1a64(hash, visual->second.text_hinting_mode);
+            for (const double coordinate : visual->second.guidelines_x) {
+                append_fnv1a64(hash, coordinate);
+            }
+            for (const double coordinate : visual->second.guidelines_y) {
+                append_fnv1a64(hash, coordinate);
+            }
             append_fnv1a64(hash, visual->second.offset_x);
             append_fnv1a64(hash, visual->second.offset_y);
             append_fnv1a64(hash, visual->second.opacity);
@@ -8697,12 +8697,12 @@ struct channel::implementation {
         if (!cache_visual.has_cache_bounds) {
             return status::unsupported_command;
         }
-        // Local cached pixels are independent of their outer Visual placement.
-        // Composite clips, masks, and guidelines need dedicated layer fields;
-        // fail closed until they can be applied after the retained page.
-        if (state.has_clip ||
-            state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
-            state.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+        // Local cached pixels are independent of the cache-root Visual's
+        // properties. WPF applies those properties while drawing the retained
+        // bitmap. Spatial masks and non-linear cache-bitmap sampling still
+        // require dedicated composite support and therefore fail closed.
+        if (state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+            state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR) {
             return status::unsupported_command;
         }
         const double raster_width =
@@ -8715,7 +8715,9 @@ struct channel::implementation {
             return status::invalid_graph;
         }
         std::uint64_t content_revision = 14695981039346656037ULL;
-        append_fnv1a64(content_revision, cache_resource->second.generation);
+        append_fnv1a64(content_revision, cache_handle);
+        append_fnv1a64(content_revision, render_at_scale);
+        append_fnv1a64(content_revision, cache->second.enable_clear_type);
         append_fnv1a64(content_revision, cache_visual.cache_bounds_x);
         append_fnv1a64(content_revision, cache_visual.cache_bounds_y);
         append_fnv1a64(content_revision, cache_visual.cache_bounds_width);
@@ -8782,6 +8784,17 @@ struct channel::implementation {
                 composite_transform, composite_state.transform)) {
             return status::invalid_graph;
         }
+        if (state.has_clip) {
+            composite_state.flags |= PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+            composite_state.clip_rect = state.clip_rect;
+        }
+        if (state.guideline_resource_index !=
+            PROGPU_NATIVE_SCENE_NO_INDEX) {
+            composite_state.flags |=
+                PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+            composite_state.guideline_resource_index =
+                state.guideline_resource_index;
+        }
         std::uint32_t composite_state_index =
             PROGPU_NATIVE_SCENE_NO_INDEX;
         if (!builder.add_state(composite_state, composite_state_index)) {
@@ -8799,8 +8812,13 @@ struct channel::implementation {
         content_state.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         content_state.guideline_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX;
+        content_state.image_sampling =
+            PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
+        content_state.edge_aliased = false;
+        content_state.clear_type_enabled = false;
+        content_state.text_rendering_mode = 0U;
+        content_state.text_hinting_mode = 0U;
         content_state.subpixel_text_disabled =
-            state.subpixel_text_disabled ||
             !cache->second.enable_clear_type;
         auto raster_state =
             native::semantic_scene_builder::identity_state();

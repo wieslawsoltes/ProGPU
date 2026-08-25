@@ -4028,14 +4028,28 @@ progpu_native_status render_scene(
                         (layer.flags &
                             PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) !=
                         0U;
+                    semantic_scissor composite_scissor{
+                        0U,
+                        0U,
+                        target_extent.width,
+                        target_extent.height,
+                        target_extent.drawable};
+                    bool has_composite_scissor = true;
+                    bool composite_drawable = target_extent.drawable;
                     if (local_cache) {
-                        const auto composite_resource = read_resource(
-                            layer.reserved0);
-                        progpu_native_scene_state composite_state{};
-                        std::memcpy(
-                            &composite_state,
-                            bytes + composite_resource.payload_offset,
-                            sizeof(composite_state));
+                        const auto composite_state =
+                            state_cursor.resolve_state(layer.reserved0);
+                        if ((composite_state.flags &
+                                PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) {
+                            composite_scissor =
+                                resolve_semantic_target_scissor(
+                                    composite_state,
+                                    target_extent,
+                                    frame->width,
+                                    frame->height,
+                                    frame->dpi_scale);
+                            composite_drawable = composite_scissor.drawable;
+                        }
                         append_semantic_transformed_layer_quad(
                             semantic_layer_vertices,
                             source_extent,
@@ -4071,6 +4085,15 @@ progpu_native_status render_scene(
                     operation.cache_identity = layer.composite_revision;
                     operation.cache_content_revision =
                         layer.content_revision;
+                    operation.has_composite_scissor =
+                        has_composite_scissor;
+                    operation.composite_drawable = composite_drawable;
+                    if (has_composite_scissor && composite_drawable) {
+                        operation.clip_x = composite_scissor.x;
+                        operation.clip_y = composite_scissor.y;
+                        operation.clip_width = composite_scissor.width;
+                        operation.clip_height = composite_scissor.height;
+                    }
                     const bool advanced_blend =
                         is_advanced_group_blend(layer.blend_mode);
                     if (!operation.backdrop) {
@@ -4205,7 +4228,9 @@ progpu_native_status render_scene(
                     compiled_spans.push_back(operation);
                     current_target_layer = operation.target_layer;
                     has_active_scissor = false;
-                    draw_calls += advanced_blend ? 3U : 1U;
+                    draw_calls += composite_drawable
+                        ? (advanced_blend ? 3U : 1U)
+                        : 0U;
                 }
                 continue;
             }
@@ -4938,7 +4963,9 @@ progpu_native_status render_scene(
                     return fail_replay(
                         "A semantic isolated-layer composite pass could not be encoded.");
                 }
-                executed_draw_calls += advanced_blend ? 3U : 1U;
+                executed_draw_calls += operation.composite_drawable
+                    ? (advanced_blend ? 3U : 1U)
+                    : 0U;
                 continue;
             }
             if (operation.target_layer != active_target_layer) {

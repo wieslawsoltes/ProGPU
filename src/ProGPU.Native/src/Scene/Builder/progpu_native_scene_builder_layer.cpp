@@ -311,12 +311,19 @@ bool semantic_scene_builder::push_layer(
         }
         progpu_native_scene_state state{};
         std::memcpy(&state, resource.payload.data(), sizeof(state));
-        return state.flags == 0U && state.opacity == 1.0F &&
-            state.clip_rect.x == 0.0F && state.clip_rect.y == 0.0F &&
-            state.clip_rect.width == 0.0F &&
-            state.clip_rect.height == 0.0F &&
-            state.mask_resource_index == 0U &&
-            state.guideline_resource_index == 0U;
+        constexpr std::uint32_t composite_flags =
+            PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
+            PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+        const bool guideline_is_valid =
+            (state.flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) == 0U ||
+            (state.guideline_resource_index <
+                    implementation_->resources.size() &&
+                implementation_->resources[state.guideline_resource_index]
+                        .record.kind ==
+                    PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET);
+        return (state.flags & ~composite_flags) == 0U &&
+            state.opacity == 1.0F && state.mask_resource_index == 0U &&
+            guideline_is_valid;
     };
     const bool materialized = scene::layer_requires_materialization(layer);
     if (!semantic::is_valid_semantic_layer(layer) ||

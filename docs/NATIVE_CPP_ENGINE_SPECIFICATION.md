@@ -2237,12 +2237,20 @@ while root offset, transform, and opacity are composite-only state. Outer-only
 changes therefore rebuild transformed composite vertices without invalidating
 the completed page. SnapsToDevicePixels follows `CMilVisualCache::Render`: it
 transforms the exact local bounds through outer placement, floors the
-world-space left/top, and post-offsets only the page composite. Root composite
-clips, spatial masks, and guidelines remain fail-closed until their post-raster
-semantics are represented explicitly. BitmapCache EnableClearType is a raster
-scope policy: false converts requested subpixel glyph styles to grayscale;
-true preserves the inherited/explicit text rendering mode without forcing
-unrequested ClearType.
+world-space left/top, and post-offsets only the page composite. WPF
+`DrawCacheVisualTree` renders the root content/children directly rather than
+running the root through `PreSubgraph`, so cache-root render options, clip,
+guidelines, transform, opacity, and offset are composite-only; descendant
+Visual state remains part of retained raster content. The local-cache State
+resource now carries exact rectangle composite clips and one static guideline
+per axis. The shared executor resolves guideline translation and a target-local
+scissor when drawing the page, including empty-clip suppression, without
+rerasterizing it. Non-linear cache-bitmap sampling and spatial masks remain
+fail-closed. BitmapCache EnableClearType is a raster-scope policy: false
+converts requested descendant subpixel glyph styles to grayscale; true
+preserves descendant inherited/explicit text rendering mode without forcing
+unrequested ClearType. A cache-root text mode does not leak into the retained
+page because WPF applies that root state to the bitmap composite.
 
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then
@@ -2250,6 +2258,11 @@ composite-only translation, and scale-driven rerasterization at 24x18 then
 device-loss recreation pass at provider revision
 `02823bf8d2e56548b2780d6b92ae7065be1d8605` and Dawn revision
 `710c33013c53ab2700d332c25ff51430251a8cc4`.
+The composite-state checkpoint also changes only the local-cache rectangle
+clip on a live Metal frame and observes zero content passes. All 12
+provider-configured native CTests, the base export allowlist, package-mode
+managed Dawn readback, and forced device-loss recovery pass with unchanged
+capture hashes.
 
 The exact-bounds implementation at `dd3857a4` is qualified on Windows 11 ARM64
 under Parallels. Both wgpu-native and provider-resolved Dawn modules rebuilt
@@ -2293,8 +2306,8 @@ package contains nine files, with SHA-256
 `FC95E25FF8E5313D6151F199E236D376E28C9FF7243AD0887F8FA360B89AA73E` for
 `progpu_native_dawn.dll`. This qualifies the executable local-space,
 RenderAtScale, pixel-snapping, and ClearType cache subset on DirectX; the
-remaining cache work is post-raster clip/mask/guideline and effect ordering
-plus LibreWPF package integration.
+remaining cache work is spatial mask, non-linear sampling, multi-guideline,
+nested-cache/effect ordering, and LibreWPF package integration.
 
 The command vocabulary is deliberately semantic:
 

@@ -1302,7 +1302,8 @@ std::vector<std::byte> create_semantic_local_retained_cache_scene_stream(
     std::uint64_t generation,
     std::uint64_t content_revision,
     float outer_offset_x,
-    float raster_scale) {
+    float raster_scale,
+    bool composite_clip = false) {
     constexpr std::uint64_t scene_id = 1094U;
     constexpr std::uint64_t cache_identity = 7002U;
     constexpr std::uint32_t command_count = 5U;
@@ -1338,6 +1339,14 @@ std::vector<std::byte> create_semantic_local_retained_cache_scene_stream(
         4.0F + outer_offset_x,
         6.0F};
     composite_state.opacity = 1.0F;
+    if (composite_clip) {
+        composite_state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+        composite_state.clip_rect = {
+            4.0F + outer_offset_x,
+            6.0F,
+            12.0F,
+            18.0F};
+    }
     progpu_native_scene_state raster_state{};
     raster_state.struct_size = sizeof(raster_state);
     raster_state.transform = {
@@ -5367,6 +5376,34 @@ int main(int argc, char** argv) {
         semantic_layer_metrics.texture_height == 9U &&
         semantic_layer_metrics.content_pass_count == 1U,
         "semantic local retained cache raster-scale metrics are incorrect");
+
+    local_cache_scene = create_semantic_local_retained_cache_scene_stream(
+        4U, 2U, 32.0F, 0.5F, true);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        local_cache_scene.data(),
+        local_cache_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic local retained cache composite-clip update failed");
+    local_cache_frame.generation = 4U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &local_cache_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 1U,
+        "semantic local retained cache clipped composite replay failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.content_pass_count == 0U &&
+        semantic_layer_metrics.composite_pass_count == 1U,
+        "semantic local retained cache composite clip redrew content");
 
     scene_metrics = {};
     scene_metrics.struct_size = sizeof(scene_metrics);

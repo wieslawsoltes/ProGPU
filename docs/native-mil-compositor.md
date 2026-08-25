@@ -1718,8 +1718,16 @@ correction only to the cached-page composite. EnableClearType controls the
 cache raster scope: false suppresses requested subpixel glyph styles to
 grayscale, while true permits the existing inherited or explicit ClearType
 mode without forcing unrelated text into ClearType.
-Root composite clips, spatial masks, and guideline state also fail closed until
-the local-cache layer carries those post-raster operations explicitly.
+The cache-root boundary now follows `DrawCacheVisualTree` as well: root Visual
+render options, clip, guidelines, opacity, transform, and offset are excluded
+from retained pixels, while descendant Visual state remains raster state.
+Exact root/ancestor rectangle clips and one static guideline per axis travel in
+the typed local-cache composite State resource and are resolved only when the
+page quad is drawn. Composite-only clip, guideline, placement, opacity, and
+SnapsToDevicePixels changes therefore retain the page; RenderAtScale,
+EnableClearType, bounds, and descendant content changes rerasterize it. Root
+non-linear bitmap sampling and spatial masks fail closed until the composite
+pipeline represents those operations explicitly.
 
 The pinned provider/Dawn Metal hardware gate now exercises the local page
 directly: its first 24x18 render performs one content and one composite pass, a
@@ -1728,6 +1736,11 @@ composite-only translation reuses the page with zero content passes, and a
 package-mode managed Dawn render/readback and forced device-loss recovery pass
 at provider revision `02823bf8d2e56548b2780d6b92ae7065be1d8605` and Dawn
 revision `710c33013c53ab2700d332c25ff51430251a8cc4`.
+The post-raster root-state regression additionally changes only the composite
+clip on the retained local page and observes zero content passes on the next
+live Metal frame. All 12 provider-configured native CTests, the base export
+allowlist, package-mode managed Dawn render/readback, and forced device-loss
+recovery pass with unchanged capture hashes.
 
 Windows ARM64 qualification for this exact cache-bounds checkpoint completed
 on 2026-08-25 from clean detached commit `dd3857a4` in the Parallels Windows 11
@@ -1795,8 +1808,9 @@ The implementation sequence is intentionally architectural:
 4. Publish neutral typed cache state from source-built WPF and emit it from
    LibreWPF without reflection.
 5. Qualify composite clip/mask/guideline ordering, nested cache lifetime,
-   effects ordering, and LibreWPF package lanes. (The combined
-   snapping/ClearType checkpoint is qualified on live D3D12.)
+   effects ordering, and LibreWPF package lanes. (Exact rectangle composite
+   clips, one static guideline per axis, and the combined snapping/ClearType
+   checkpoint are implemented; the latter is qualified on live D3D12.)
 
 The persistent page and composite-transform path are executable, but full cache
 parity is not claimed until the remaining post-raster state and ordering

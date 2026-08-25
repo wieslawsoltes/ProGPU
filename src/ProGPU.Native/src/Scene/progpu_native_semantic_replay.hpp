@@ -247,6 +247,8 @@ struct semantic_render_bundle_span {
     bool can_skip_content_on_effect_cache = false;
     bool cache_content = false;
     bool mask_uses_alpha_channel = false;
+    bool has_composite_scissor = false;
+    bool composite_drawable = true;
 };
 
 struct semantic_layer_slot {
