@@ -588,6 +588,28 @@ line/quadratic/cubic path leaf in the retained group, and the installed
 wgpu-native stream completed live D3D12 readback with 18 semantic resources,
 three draws, and 16,384 pixels.
 
+The recursive `GeometryGroup` checkpoint at exact native implementation commit
+`e0281b69` passed the complete Windows ARM64 MSVC gate. Both modules rebuilt
+under `/W4 /WX`, all 11 CTests passed, and the MIL contract covered nested group
+transform composition, outer-fill-rule ownership, groups as combined-geometry
+boolean leaves, cycles, rollback, and transformed-arc fail-closed behavior. Live
+C++/managed D3D12 rendering and readback, allocation probes, text, path atlas,
+image/mask/effect, Overlay, ColorDodge, and the bounded differential matrix all
+passed. The mixed differential remained at maximum delta 2/255, zero pixels
+above 3/255, and mean `0.0000622`; the synchronized eight-frame native
+diagnostic measured `0.1562 ms/frame` before fresh package staging.
+
+Package-consumer checkpoint `14603fa2` then verified identical staged/app-local
+SHA-256 values:
+`e6e71dbca0b0e846de332c7bbade0362a9d19f2e4d16eef93aa73dce8640352e`
+for `progpu_native.dll` and
+`5a0bae5f610cfecf5a945b850a91251c725f97d7592903c78e9e2d24a5fcd79d`
+for `progpu_native_dawn.dll`. Its 40-command, 17-resource seed compiled a
+recursively transformed affine path group through both MIL exports. The
+installed wgpu-native stream completed live Parallels D3D12 readback with 18
+semantic resources, three draws, and 16,384 pixels; the separate immediate
+renderer smoke also passed.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
