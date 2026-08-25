@@ -265,6 +265,48 @@ std::vector<std::byte> make_arc_path_figures() {
     return figures;
 }
 
+std::vector<std::byte> make_single_bezier_path_figures(
+    std::uint32_t segment_type,
+    std::span<const std::array<double, 2U>> points) {
+    const std::size_t expected_point_count = segment_type == 3U ? 2U : 3U;
+    PROGPU_REQUIRE(
+        (segment_type == 2U || segment_type == 3U) &&
+        points.size() == expected_point_count);
+    const auto segment_size = static_cast<std::uint32_t>(
+        16U + points.size() * 16U);
+    const std::uint32_t figure_size = 40U + segment_size;
+    const std::uint32_t figures_size = 48U + figure_size;
+    std::vector<std::byte> figures;
+    append_value(figures, figures_size);
+    append_value(figures, 0x02U);
+    append_value(figures, 1.0);
+    append_value(figures, 1.0);
+    append_value(figures, 12.0);
+    append_value(figures, 10.0);
+    append_value(figures, 1U);
+    append_value(figures, 0U);
+
+    append_value(figures, 0U);
+    append_value(figures, 0x0aU);
+    append_value(figures, 1U);
+    append_value(figures, figure_size);
+    append_value(figures, 1.0);
+    append_value(figures, 2.0);
+    append_value(figures, 40U);
+    append_value(figures, 0U);
+
+    append_value(figures, segment_type);
+    append_value(figures, 0x20U);
+    append_value(figures, 0U);
+    append_value(figures, 0U);
+    for (const auto& point : points) {
+        append_value(figures, point[0]);
+        append_value(figures, point[1]);
+    }
+    PROGPU_REQUIRE(figures.size() == figures_size);
+    return figures;
+}
+
 void append_dash_style(
     std::vector<std::byte>& batch,
     std::uint32_t handle,
@@ -2081,6 +2123,165 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     PROGPU_REQUIRE(state.apply(smooth_update) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7002U, 3U, stream, &metrics) ==
+        status::unsupported_command);
+
+    auto open_arc_figures = make_arc_path_figures();
+    const std::uint32_t open_curve_figure = 0x0aU;
+    std::memcpy(
+        open_arc_figures.data() + 52U,
+        &open_curve_figure,
+        sizeof(open_curve_figure));
+    std::vector<std::byte> solid_arc_update;
+    append_command(
+        solid_arc_update,
+        command::pen,
+        pen,
+        2.0,
+        4.0,
+        brush,
+        0U,
+        0U,
+        0U,
+        0U,
+        1U,
+        0U);
+    append_path_geometry(
+        solid_arc_update,
+        geometry,
+        transform,
+        0U,
+        open_arc_figures);
+    PROGPU_REQUIRE(state.apply(solid_arc_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 4U, stream, &metrics) ==
+        status::success);
+    const auto arc_header = read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_arc_stroke = false;
+    for (std::uint32_t index = 0U;
+         index < arc_header.resource_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            arc_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            continue;
+        }
+        const auto primitive = read_value<progpu_native_geometry_primitive>(
+            stream,
+            record.payload_offset);
+        if (primitive.kind != PROGPU_NATIVE_GEOMETRY_ARC) {
+            continue;
+        }
+        PROGPU_REQUIRE(primitive.stroke_thickness == 2.0F);
+        PROGPU_REQUIRE(primitive.transform.m11 == 1.5F);
+        PROGPU_REQUIRE(primitive.transform.m22 == 1.5F);
+        PROGPU_REQUIRE(primitive.transform.m31 == 2.0F);
+        PROGPU_REQUIRE(primitive.transform.m32 == 3.0F);
+        PROGPU_REQUIRE(primitive.p3.y > 0.0F);
+        found_arc_stroke = true;
+    }
+    PROGPU_REQUIRE(found_arc_stroke);
+
+    const auto contains_geometry_kind = [](const std::vector<std::byte>& scene,
+                                            std::uint32_t kind) {
+        const auto scene_header =
+            read_value<progpu_native_scene_header>(scene, 0U);
+        for (std::uint32_t index = 0U;
+             index < scene_header.resource_count;
+             ++index) {
+            const auto record = read_value<progpu_native_scene_resource>(
+                scene,
+                scene_header.resource_offset +
+                    index * sizeof(progpu_native_scene_resource));
+            if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+                continue;
+            }
+            const auto primitive =
+                read_value<progpu_native_geometry_primitive>(
+                    scene,
+                    record.payload_offset);
+            if (primitive.kind == kind) {
+                return true;
+            }
+        }
+        return false;
+    };
+    const std::array quadratic_points{
+        std::array{5.0, 9.0},
+        std::array{11.0, 3.0}};
+    std::vector<std::byte> quadratic_update;
+    append_path_geometry(
+        quadratic_update,
+        geometry,
+        transform,
+        0U,
+        make_single_bezier_path_figures(3U, quadratic_points));
+    PROGPU_REQUIRE(state.apply(quadratic_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 5U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(contains_geometry_kind(
+        stream,
+        PROGPU_NATIVE_GEOMETRY_QUADRATIC_BEZIER));
+
+    const std::array cubic_points{
+        std::array{4.0, 10.0},
+        std::array{8.0, -2.0},
+        std::array{12.0, 6.0}};
+    std::vector<std::byte> cubic_update;
+    append_path_geometry(
+        cubic_update,
+        geometry,
+        transform,
+        0U,
+        make_single_bezier_path_figures(2U, cubic_points));
+    PROGPU_REQUIRE(state.apply(cubic_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 6U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(contains_geometry_kind(
+        stream,
+        PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER));
+
+    PROGPU_REQUIRE(state.apply(solid_arc_update) == status::success);
+
+    std::vector<std::byte> dashed_arc_update;
+    append_command(
+        dashed_arc_update,
+        command::pen,
+        pen,
+        2.0,
+        4.0,
+        brush,
+        0U,
+        0U,
+        0U,
+        0U,
+        1U,
+        dash);
+    PROGPU_REQUIRE(state.apply(dashed_arc_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 7U, stream, &metrics) ==
+        status::unsupported_command);
+
+    std::vector<std::byte> capped_arc_update;
+    append_command(
+        capped_arc_update,
+        command::pen,
+        pen,
+        2.0,
+        4.0,
+        brush,
+        0U,
+        1U,
+        0U,
+        0U,
+        1U,
+        0U);
+    PROGPU_REQUIRE(state.apply(capped_arc_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 8U, stream, &metrics) ==
         status::unsupported_command);
     return true;
 }

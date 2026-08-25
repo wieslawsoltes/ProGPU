@@ -488,6 +488,7 @@ struct channel::implementation {
 
     struct path_stroke_contour_state {
         std::vector<progpu_native_point> points;
+        std::vector<progpu_native_path_segment> segments;
         bool closed{};
         bool start_uses_dash_cap{};
         bool end_uses_dash_cap{};
@@ -1336,9 +1337,9 @@ struct channel::implementation {
                 return true;
             };
             struct parsed_stroke_edge {
-                progpu_native_point start{};
-                progpu_native_point end{};
+                progpu_native_path_segment segment{};
                 bool stroked{};
+                bool smooth_join{};
             };
             std::size_t offset = 48U;
             std::uint32_t previous_figure_size = 0U;
@@ -1464,16 +1465,14 @@ struct channel::implementation {
                             radius_x < 0.0 || radius_y < 0.0) {
                             return status::malformed_batch;
                         }
-                        stroke_edges.push_back({
-                            current,
-                            end,
-                            segment_is_stroked});
-                        if (segment_is_stroked) {
-                            geometry.stroke_supported = false;
-                        }
                         if (segment_is_stroked && segment_is_smooth_join) {
                             geometry.stroke_supported = false;
                         }
+                        progpu_native_path_segment stroke_segment{};
+                        stroke_segment.p0 = current;
+                        stroke_segment.p1 = end;
+                        stroke_segment.kind =
+                            PROGPU_NATIVE_PATH_SEGMENT_LINE;
                         const progpu::native::geometry::arc_point arc_start{
                             current.x,
                             current.y};
@@ -1513,6 +1512,7 @@ struct channel::implementation {
                             segment.pad2 = std::bit_cast<std::uint32_t>(
                                 static_cast<float>(rotation) *
                                 std::numbers::pi_v<float> / 180.0F);
+                            stroke_segment = segment;
                             figure_segments.push_back(segment);
                             include_bounds_point(segment.p0);
                             include_bounds_point(segment.p1);
@@ -1564,6 +1564,10 @@ struct channel::implementation {
                             include_bounds_point(segment.p0);
                             include_bounds_point(segment.p1);
                         }
+                        stroke_edges.push_back({
+                            stroke_segment,
+                            segment_is_stroked,
+                            segment_is_smooth_join});
                         current = end;
                         offset += arc_segment_size;
                         previous_segment_size = static_cast<std::uint32_t>(
@@ -1635,12 +1639,10 @@ struct channel::implementation {
                             include_bounds_point(segment.p3);
                         }
                         stroke_edges.push_back({
-                            segment.p0,
-                            current,
-                            segment_is_stroked});
-                        if (segment_is_stroked &&
-                            (native_kind != PROGPU_NATIVE_PATH_SEGMENT_LINE ||
-                             segment_is_smooth_join)) {
+                            segment,
+                            segment_is_stroked,
+                            segment_is_smooth_join});
+                        if (segment_is_stroked && segment_is_smooth_join) {
                             geometry.stroke_supported = false;
                         }
                         figure_segments.push_back(segment);
@@ -1671,7 +1673,11 @@ struct channel::implementation {
                 const bool figure_is_closed = (figure_flags & 0x04U) != 0U;
                 if (figure_is_closed &&
                     (current.x != start.x || current.y != start.y)) {
-                    stroke_edges.push_back({current, start, true});
+                    progpu_native_path_segment closing{};
+                    closing.p0 = current;
+                    closing.p1 = start;
+                    closing.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                    stroke_edges.push_back({closing, true, false});
                 }
                 if (!stroke_edges.empty() && geometry.stroke_supported) {
                     const auto append_open_run = [
@@ -1689,11 +1695,20 @@ struct channel::implementation {
                             crosses_closed_figure_start;
                         contour.points.reserve(count + 1U);
                         contour.points.push_back(
-                            stroke_edges[first % stroke_edges.size()].start);
+                            stroke_edges[first % stroke_edges.size()].segment.p0);
+                        contour.segments.reserve(count);
                         for (std::size_t index = 0U; index < count; ++index) {
+                            const auto& edge = stroke_edges[
+                                (first + index) % stroke_edges.size()];
                             contour.points.push_back(
-                                stroke_edges[
-                                    (first + index) % stroke_edges.size()].end);
+                                edge.segment.kind ==
+                                        PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC
+                                    ? edge.segment.p2
+                                    : edge.segment.kind ==
+                                            PROGPU_NATIVE_PATH_SEGMENT_CUBIC
+                                        ? edge.segment.p3
+                                        : edge.segment.p1);
+                            contour.segments.push_back(edge.segment);
                         }
                         geometry.stroke_contours.push_back(
                             std::move(contour));
@@ -1707,12 +1722,28 @@ struct channel::implementation {
                         path_stroke_contour_state contour{};
                         contour.closed = true;
                         contour.points.reserve(stroke_edges.size());
-                        contour.points.push_back(stroke_edges.front().start);
+                        contour.segments.reserve(stroke_edges.size());
+                        contour.points.push_back(
+                            stroke_edges.front().segment.p0);
                         for (std::size_t index = 0U;
                              index + 1U < stroke_edges.size();
                              ++index) {
-                            contour.points.push_back(stroke_edges[index].end);
+                            const auto& edge = stroke_edges[index];
+                            contour.points.push_back(
+                                edge.segment.kind ==
+                                        PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC
+                                    ? edge.segment.p2
+                                    : edge.segment.kind ==
+                                            PROGPU_NATIVE_PATH_SEGMENT_CUBIC
+                                        ? edge.segment.p3
+                                        : edge.segment.p1);
                         }
+                        std::ranges::transform(
+                            stroke_edges,
+                            std::back_inserter(contour.segments),
+                            [](const parsed_stroke_edge& edge) {
+                                return edge.segment;
+                            });
                         geometry.stroke_contours.push_back(
                             std::move(contour));
                     } else if (figure_is_closed) {
@@ -2830,6 +2861,7 @@ struct channel::implementation {
         };
         const auto append_path_strokes = [
             this,
+            &builder,
             &resolve_brush_index,
             &append_polyline_stroke](
             const path_geometry_state& geometry,
@@ -2865,6 +2897,12 @@ struct channel::implementation {
                 return status::invalid_graph;
             }
             for (const auto& contour : geometry.stroke_contours) {
+                const bool has_curves = std::ranges::any_of(
+                    contour.segments,
+                    [](const progpu_native_path_segment& segment) {
+                        return segment.kind !=
+                            PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                    });
                 if (contour.crosses_closed_figure_start &&
                     pen.dash_style_handle != 0U) {
                     const auto dash = dash_styles.find(
@@ -2923,6 +2961,85 @@ struct channel::implementation {
                         effective_transform,
                         stroke_bounds)) {
                     return status::invalid_graph;
+                }
+                if (has_curves) {
+                    if (contour.closed || contour.segments.size() != 1U) {
+                        return status::unsupported_command;
+                    }
+                    if (pen.dash_style_handle != 0U) {
+                        const auto dash = dash_styles.find(
+                            pen.dash_style_handle);
+                        if (dash == dash_styles.end()) {
+                            return status::invalid_handle;
+                        }
+                        if (!dash->second.intervals.empty()) {
+                            return status::unsupported_command;
+                        }
+                    }
+                    const std::uint32_t start_cap =
+                        contour.start_uses_dash_cap
+                            ? pen.dash_cap
+                            : pen.start_line_cap;
+                    const std::uint32_t end_cap =
+                        contour.end_uses_dash_cap
+                            ? pen.dash_cap
+                            : pen.end_line_cap;
+                    if (start_cap != PROGPU_NATIVE_STROKE_CAP_FLAT ||
+                        end_cap != PROGPU_NATIVE_STROKE_CAP_FLAT) {
+                        return status::unsupported_command;
+                    }
+                    const auto& segment = contour.segments.front();
+                    progpu_native_geometry_primitive primitive{};
+                    primitive.stroke_thickness =
+                        static_cast<float>(pen.thickness);
+                    primitive.color = {1.0F, 1.0F, 1.0F, 1.0F};
+                    primitive.transform = native_local_transform;
+                    switch (segment.kind) {
+                    case PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC:
+                        primitive.kind =
+                            PROGPU_NATIVE_GEOMETRY_QUADRATIC_BEZIER;
+                        primitive.p0 = segment.p0;
+                        primitive.p1 = segment.p1;
+                        primitive.p2 = segment.p2;
+                        break;
+                    case PROGPU_NATIVE_PATH_SEGMENT_CUBIC:
+                        primitive.kind =
+                            PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER;
+                        primitive.p0 = segment.p0;
+                        primitive.p1 = segment.p1;
+                        primitive.p2 = segment.p2;
+                        primitive.p3 = segment.p3;
+                        break;
+                    case PROGPU_NATIVE_PATH_SEGMENT_ARC: {
+                        primitive.kind = PROGPU_NATIVE_GEOMETRY_ARC;
+                        primitive.p0 = segment.p2;
+                        const float rotation =
+                            std::bit_cast<float>(segment.pad2);
+                        const float cosine_rotation = std::cos(rotation);
+                        const float sine_rotation = std::sin(rotation);
+                        primitive.p1 = {
+                            segment.p3.x * cosine_rotation,
+                            segment.p3.x * sine_rotation};
+                        primitive.p2 = {
+                            -segment.p3.y * sine_rotation,
+                            segment.p3.y * cosine_rotation};
+                        primitive.p3 = {
+                            std::bit_cast<float>(segment.pad0),
+                            std::bit_cast<float>(segment.pad1)};
+                        break;
+                    }
+                    default:
+                        return status::invalid_graph;
+                    }
+                    const std::array primitives{primitive};
+                    const std::array brushes{brush_index};
+                    if (!builder.draw_geometry(
+                            primitives,
+                            brushes,
+                            stroke_bounds)) {
+                        return status::invalid_graph;
+                    }
+                    continue;
                 }
                 const status stroke_status = append_polyline_stroke(
                     pen,
