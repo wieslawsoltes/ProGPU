@@ -23,10 +23,14 @@ public unsafe class GpuBuffer : IDisposable
 
     public GpuBuffer(WgpuContext context, uint size, BufferUsage usage, string label = "GpuBuffer")
     {
+        ArgumentNullException.ThrowIfNull(context);
         _context = context;
         Size = size;
         Usage = usage;
-        var allocatedSize = AlignToQueueWriteSize(size);
+        var allocatedSize = ValidateAndAlignAllocationSize(
+            size,
+            context.MaxBufferSize,
+            label);
         AllocatedSize = allocatedSize;
 
         var labelPtr = SilkMarshal.StringToPtr(label);
@@ -143,9 +147,20 @@ public unsafe class GpuBuffer : IDisposable
         _partialWriteShadow = new byte[AllocatedSize];
     }
 
-    private static uint AlignToQueueWriteSize(uint size)
+    internal static uint ValidateAndAlignAllocationSize(
+        uint size,
+        ulong maxBufferSize,
+        string label)
     {
-        return (size + 3) & ~3u;
+        ulong allocatedSize = ((ulong)size + 3UL) & ~3UL;
+        ulong effectiveLimit = Math.Min(maxBufferSize, uint.MaxValue & ~3UL);
+        if (allocatedSize > effectiveLimit)
+        {
+            throw new InvalidOperationException(
+                $"GPU buffer '{label}' requests {allocatedSize} bytes, exceeding the device maximum of {effectiveLimit} bytes.");
+        }
+
+        return checked((uint)allocatedSize);
     }
 
     public void WriteSingle<T>(T value, uint offsetBytes = 0) where T : unmanaged

@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using ProGPU.Backend;
 
 namespace ProGPU.Browser;
 
@@ -44,6 +45,8 @@ public sealed record BrowserGpuCapabilities
     public bool SupportsSharedArrayBuffer { get; init; }
     public bool SupportsOffscreenCanvas { get; init; }
     public bool SupportsBgra8UnormStorage { get; init; }
+    public ulong MaxBufferSize { get; init; } =
+        WgpuContext.DefaultMaxBufferSize;
     public string[] Features { get; init; } = [];
     public string[] Diagnostics { get; init; } = [];
 }

@@ -3,6 +3,7 @@
 // Internal engine ownership is compiled only after the selected WebGPU C
 // header and ProGPU dispatch compatibility layer have declared WGPU handles.
 #include "progpu_native.h"
+#include "progpu_native_buffer_capacity.hpp"
 #include "progpu_native_geometry_base.hpp"
 #include "progpu_native_geometry_spline.hpp"
 #include "progpu_native_gpu_records.hpp"
@@ -45,6 +46,8 @@ struct progpu_native_engine {
     WGPUInstance instance = nullptr;
     WGPUDevice device = nullptr;
     WGPUQueue queue = nullptr;
+    std::uint64_t max_buffer_size =
+        progpu::native::portable_max_buffer_size;
     WGPUTextureFormat target_format = WGPUTextureFormat_Undefined;
     WGPUShaderModule shader = nullptr;
     WGPURenderPipeline pipeline = nullptr;
@@ -1272,32 +1275,23 @@ struct progpu_native_engine {
         std::uint64_t required_vertex_bytes,
         std::uint64_t required_index_bytes) noexcept {
         auto& page = semantic_analytic_cache;
-        const auto required_capacity = [](std::uint64_t current,
-                                          std::uint64_t required,
-                                          std::uint64_t& capacity) noexcept {
-            capacity = std::max<std::uint64_t>(256U, current);
-            while (capacity < required) {
-                if (capacity >
-                    std::numeric_limits<std::uint64_t>::max() / 2U) {
-                    return false;
-                }
-                capacity *= 2U;
-            }
-            return true;
-        };
         const bool grow_vertex = page.vertex_buffer == nullptr ||
             required_vertex_bytes > page.vertex_buffer_size;
         const bool grow_index = page.index_buffer == nullptr ||
             required_index_bytes > page.index_buffer_size;
         std::uint64_t vertex_capacity = page.vertex_buffer_size;
         std::uint64_t index_capacity = page.index_buffer_size;
-        if ((grow_vertex && !required_capacity(
+        if ((grow_vertex && !progpu::native::try_calculate_buffer_capacity(
                 page.vertex_buffer_size,
                 required_vertex_bytes,
+                256U,
+                max_buffer_size,
                 vertex_capacity)) ||
-            (grow_index && !required_capacity(
+            (grow_index && !progpu::native::try_calculate_buffer_capacity(
                 page.index_buffer_size,
                 required_index_bytes,
+                256U,
+                max_buffer_size,
                 index_capacity))) {
             return false;
         }
@@ -1784,14 +1778,14 @@ struct progpu_native_engine {
             return true;
         }
 
-        std::uint64_t new_size = std::max(
-            initial_vertex_buffer_size,
-            vertex_buffer_size);
-        while (new_size < required_size) {
-            if (new_size > std::numeric_limits<std::uint64_t>::max() / 2U) {
-                return false;
-            }
-            new_size *= 2U;
+        std::uint64_t new_size = 0U;
+        if (!progpu::native::try_calculate_buffer_capacity(
+                vertex_buffer_size,
+                required_size,
+                initial_vertex_buffer_size,
+                max_buffer_size,
+                new_size)) {
+            return false;
         }
 
         WGPUBufferDescriptor descriptor{};
@@ -1818,14 +1812,14 @@ struct progpu_native_engine {
             return true;
         }
 
-        std::uint64_t new_size = std::max(
-            initial_index_buffer_size,
-            index_buffer_size);
-        while (new_size < required_size) {
-            if (new_size > std::numeric_limits<std::uint64_t>::max() / 2U) {
-                return false;
-            }
-            new_size *= 2U;
+        std::uint64_t new_size = 0U;
+        if (!progpu::native::try_calculate_buffer_capacity(
+                index_buffer_size,
+                required_size,
+                initial_index_buffer_size,
+                max_buffer_size,
+                new_size)) {
+            return false;
         }
 
         WGPUBufferDescriptor descriptor{};
@@ -1852,14 +1846,14 @@ struct progpu_native_engine {
             path_vertex_buffer != nullptr) {
             return true;
         }
-        std::uint64_t new_size = std::max(
-            initial_vertex_buffer_size,
-            path_vertex_buffer_size);
-        while (new_size < required_size) {
-            if (new_size > std::numeric_limits<std::uint64_t>::max() / 2U) {
-                return false;
-            }
-            new_size *= 2U;
+        std::uint64_t new_size = 0U;
+        if (!progpu::native::try_calculate_buffer_capacity(
+                path_vertex_buffer_size,
+                required_size,
+                initial_vertex_buffer_size,
+                max_buffer_size,
+                new_size)) {
+            return false;
         }
         WGPUBufferDescriptor descriptor{};
         descriptor.label = progpu::native::webgpu::string_view(
@@ -1885,14 +1879,14 @@ struct progpu_native_engine {
             path_index_buffer != nullptr) {
             return true;
         }
-        std::uint64_t new_size = std::max(
-            initial_index_buffer_size,
-            path_index_buffer_size);
-        while (new_size < required_size) {
-            if (new_size > std::numeric_limits<std::uint64_t>::max() / 2U) {
-                return false;
-            }
-            new_size *= 2U;
+        std::uint64_t new_size = 0U;
+        if (!progpu::native::try_calculate_buffer_capacity(
+                path_index_buffer_size,
+                required_size,
+                initial_index_buffer_size,
+                max_buffer_size,
+                new_size)) {
+            return false;
         }
         WGPUBufferDescriptor descriptor{};
         descriptor.label = progpu::native::webgpu::string_view(
@@ -1918,14 +1912,14 @@ struct progpu_native_engine {
             text_vertex_buffer != nullptr) {
             return true;
         }
-        std::uint64_t new_size = std::max(
-            initial_vertex_buffer_size,
-            text_vertex_buffer_size);
-        while (new_size < required_size) {
-            if (new_size > std::numeric_limits<std::uint64_t>::max() / 2U) {
-                return false;
-            }
-            new_size *= 2U;
+        std::uint64_t new_size = 0U;
+        if (!progpu::native::try_calculate_buffer_capacity(
+                text_vertex_buffer_size,
+                required_size,
+                initial_vertex_buffer_size,
+                max_buffer_size,
+                new_size)) {
+            return false;
         }
         WGPUBufferDescriptor descriptor{};
         descriptor.label = progpu::native::webgpu::string_view("ProGPU native positioned glyph instances");

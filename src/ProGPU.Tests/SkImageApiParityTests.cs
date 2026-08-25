@@ -178,6 +178,45 @@ public sealed class SkImageApiParityTests
     }
 
     [Fact]
+    public void TextureBackedPeekPixelsDoesNotReadBackOrMutateDestination()
+    {
+        using var surface = SKSurface.Create(
+            new SKImageInfo(2, 1, SKColorType.Rgba8888, SKAlphaType.Premul));
+        surface.Canvas.Clear(SKColors.Red);
+        using var image = surface.Snapshot();
+        var sentinelInfo = new SKImageInfo(
+            1,
+            1,
+            SKColorType.Bgra8888,
+            SKAlphaType.Opaque);
+        IntPtr sentinelPixels = Marshal.AllocHGlobal(4);
+        try
+        {
+            using var destination = new SKPixmap(
+                sentinelInfo,
+                sentinelPixels,
+                sentinelInfo.RowBytes);
+
+            Assert.True(image.IsTextureBacked);
+            Assert.False(image.PeekPixels(destination));
+            Assert.Equal(sentinelInfo, destination.Info);
+            Assert.Equal(sentinelPixels, destination.GetPixels());
+            Assert.Equal(sentinelInfo.RowBytes, destination.RowBytes);
+            Assert.Null(image.PeekPixels());
+
+            using var raster = image.ToRasterImage();
+            Assert.Null(image.PeekPixels());
+            using var rasterPixels = raster.PeekPixels();
+            Assert.NotNull(rasterPixels);
+            Assert.Equal(SKColors.Red, rasterPixels.GetPixelColor(0, 0));
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(sentinelPixels);
+        }
+    }
+
+    [Fact]
     public unsafe void TextureBackedSubsetReadPixelsUsesViewRelativeCoordinates()
     {
         using var surface = SKSurface.Create(

@@ -11,6 +11,7 @@ public unsafe partial class Compositor
 {
     private const int IncrementalUploadPageBytes = 4096;
     private const int InitialSceneUploadArenaBytes = 4096;
+    private const uint MaximumSceneUploadBatchBytes = 64U * 1024U * 1024U;
 
     private readonly record struct PendingSceneBufferUpload(
         GpuBuffer Destination,
@@ -195,18 +196,65 @@ public unsafe partial class Compositor
                 "Batched scene uploads require 4-byte aligned offsets and sizes.");
         }
 
-        int sourceOffset = AlignToFour(_pendingSceneUploadByteCount);
-        int requiredSize = checked(sourceOffset + data.Length);
-        EnsurePendingSceneUploadCapacity(requiredSize);
-        data.CopyTo(
-            _pendingSceneUploadBytes!.AsSpan(sourceOffset, data.Length));
-        _pendingSceneUploadByteCount = requiredSize;
-        _pendingSceneBufferUploads.Add(
-            new PendingSceneBufferUpload(
-                destination,
-                destinationOffset,
-                checked((uint)sourceOffset),
-                checked((uint)data.Length)));
+        int batchCapacity = checked((int)GetSceneUploadBatchCapacity(
+            _context.MaxBufferSize));
+        int consumed = 0;
+        while (consumed < data.Length)
+        {
+            int sourceOffset = AlignToFour(_pendingSceneUploadByteCount);
+            int available = batchCapacity - sourceOffset;
+            if (available == 0)
+            {
+                FlushPendingSceneUploadsToQueue();
+                continue;
+            }
+
+            int chunkSize = Math.Min(data.Length - consumed, available) & ~3;
+            if (chunkSize == 0)
+            {
+                FlushPendingSceneUploadsToQueue();
+                continue;
+            }
+
+            int requiredSize = checked(sourceOffset + chunkSize);
+            EnsurePendingSceneUploadCapacity(requiredSize, batchCapacity);
+            data.Slice(consumed, chunkSize).CopyTo(
+                _pendingSceneUploadBytes!.AsSpan(sourceOffset, chunkSize));
+            _pendingSceneUploadByteCount = requiredSize;
+            _pendingSceneBufferUploads.Add(
+                new PendingSceneBufferUpload(
+                    destination,
+                    checked(destinationOffset + (uint)consumed),
+                    checked((uint)sourceOffset),
+                    checked((uint)chunkSize)));
+            consumed += chunkSize;
+        }
+    }
+
+    private void FlushPendingSceneUploadsToQueue()
+    {
+        if (_pendingSceneBufferUploads.Count == 0)
+        {
+            return;
+        }
+
+        for (int index = 0;
+             index < _pendingSceneBufferUploads.Count;
+             index++)
+        {
+            PendingSceneBufferUpload upload =
+                _pendingSceneBufferUploads[index];
+            upload.Destination.WriteAlignedBytes(
+                _pendingSceneUploadBytes.AsSpan(
+                    checked((int)upload.SourceOffset),
+                    checked((int)upload.Size)),
+                upload.DestinationOffset);
+        }
+
+        _sceneUploadBatchCount++;
+        _sceneUploadCopyCount += _pendingSceneBufferUploads.Count;
+        _pendingSceneBufferUploads.Clear();
+        _pendingSceneUploadByteCount = 0;
     }
 
     private void EncodePendingSceneUploads(CommandEncoder* encoder)
@@ -268,7 +316,9 @@ public unsafe partial class Compositor
         _sceneMappedUploadRing?.RecallAfterSubmit();
     }
 
-    private void EnsurePendingSceneUploadCapacity(int requiredSize)
+    private void EnsurePendingSceneUploadCapacity(
+        int requiredSize,
+        int maximumCapacity)
     {
         if (_pendingSceneUploadBytes != null &&
             _pendingSceneUploadBytes.Length >= requiredSize)
@@ -276,10 +326,14 @@ public unsafe partial class Compositor
             return;
         }
 
-        int capacity = InitialSceneUploadArenaBytes;
+        int capacity = Math.Min(
+            InitialSceneUploadArenaBytes,
+            maximumCapacity);
         while (capacity < requiredSize)
         {
-            capacity = checked(capacity * 2);
+            capacity = capacity > maximumCapacity / 2
+                ? maximumCapacity
+                : checked(capacity * 2);
         }
 
         byte[] replacement = ArrayPool<byte>.Shared.Rent(capacity);
@@ -302,11 +356,10 @@ public unsafe partial class Compositor
             return;
         }
 
-        uint capacity = InitialSceneUploadArenaBytes;
-        while (capacity < requiredSize)
-        {
-            capacity = checked(capacity * 2);
-        }
+        uint capacity = CalculateSceneUploadBufferCapacity(
+            _sceneUploadStagingBuffer?.Size ?? 0U,
+            requiredSize,
+            GetSceneUploadBatchCapacity(_context.MaxBufferSize));
 
         var replacement = new GpuBuffer(
             _context,
@@ -325,19 +378,58 @@ public unsafe partial class Compositor
             return;
         }
 
-        uint capacity = InitialSceneUploadArenaBytes;
-        while (capacity < requiredSize)
-        {
-            capacity = checked(capacity * 2);
-        }
-
-        _sceneMappedUploadRing?.Dispose();
-        _sceneMappedUploadRing = new GpuMappedUploadBufferRing(
+        uint capacity = CalculateSceneUploadBufferCapacity(
+            _sceneMappedUploadRing?.Capacity ?? 0U,
+            requiredSize,
+            GetSceneUploadBatchCapacity(_context.MaxBufferSize));
+        var replacement = new GpuMappedUploadBufferRing(
             _context,
             capacity,
             slotCount: 2);
+        _sceneMappedUploadRing?.Dispose();
+        _sceneMappedUploadRing = replacement;
         _sceneUploadStagingBuffer?.Dispose();
         _sceneUploadStagingBuffer = null;
+    }
+
+    internal static uint GetSceneUploadBatchCapacity(ulong maxBufferSize)
+    {
+        ulong capacity = Math.Min(
+            maxBufferSize,
+            MaximumSceneUploadBatchBytes);
+        capacity = Math.Min(capacity, int.MaxValue & ~3UL);
+        capacity &= ~3UL;
+        if (capacity < 4UL)
+        {
+            throw new InvalidOperationException(
+                $"The WebGPU device maximum buffer size of {maxBufferSize} bytes cannot hold an aligned scene upload.");
+        }
+
+        return checked((uint)capacity);
+    }
+
+    internal static uint CalculateSceneUploadBufferCapacity(
+        uint currentSize,
+        uint requiredSize,
+        uint maximumCapacity)
+    {
+        if (requiredSize > maximumCapacity)
+        {
+            throw new InvalidOperationException(
+                $"Scene upload requires {requiredSize} bytes, exceeding the bounded batch capacity of {maximumCapacity} bytes.");
+        }
+
+        uint capacity = Math.Max(
+            currentSize,
+            Math.Min((uint)InitialSceneUploadArenaBytes, maximumCapacity));
+        while (capacity < requiredSize)
+        {
+            capacity = capacity > maximumCapacity / 2U
+                ? maximumCapacity
+                : checked(capacity * 2U);
+        }
+
+        return capacity;
     }
 
     private static int AlignToFour(int value) =>

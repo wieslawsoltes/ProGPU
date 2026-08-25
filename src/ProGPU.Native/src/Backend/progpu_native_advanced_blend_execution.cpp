@@ -129,11 +129,14 @@ bool ensure_uniform_buffer(
                 engine.semantic_advanced_blend_uniform_buffer_size)) {
         return true;
     }
-    std::uint64_t capacity = std::max<std::uint64_t>(
-        advanced_uniform_alignment,
-        engine.semantic_advanced_blend_uniform_buffer_size);
-    while (capacity < required) {
-        capacity *= 2U;
+    std::uint64_t capacity = 0U;
+    if (!progpu::native::try_calculate_buffer_capacity(
+            engine.semantic_advanced_blend_uniform_buffer_size,
+            required,
+            advanced_uniform_alignment,
+            engine.max_buffer_size,
+            capacity)) {
+        return false;
     }
     WGPUBufferDescriptor descriptor{};
     descriptor.label = webgpu::string_view(

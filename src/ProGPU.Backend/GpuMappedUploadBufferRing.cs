@@ -60,6 +60,11 @@ public unsafe sealed class GpuMappedUploadBufferRing : IDisposable
             throw new ArgumentOutOfRangeException(nameof(slotCount));
         }
 
+        GpuBuffer.ValidateAndAlignAllocationSize(
+            capacity,
+            context.MaxBufferSize,
+            label);
+
         _context = context;
         _capacity = capacity;
         _slots = new Slot[slotCount];

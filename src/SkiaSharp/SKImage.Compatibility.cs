@@ -142,15 +142,13 @@ public partial class SKImage
     public bool PeekPixels(SKPixmap pixmap)
     {
         ArgumentNullException.ThrowIfNull(pixmap);
-        var optionalState = Volatile.Read(ref _optionalState);
-        if (IsTextureBacked && optionalState?.RasterPixels is null)
+        if (IsTextureBacked)
         {
-            pixmap.Reset();
             return false;
         }
 
         EnsureRasterPixels();
-        optionalState = EnsureOptionalState();
+        var optionalState = EnsureOptionalState();
         var info = Info;
         pixmap.Reset(
             info,
