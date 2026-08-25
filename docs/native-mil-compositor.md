@@ -615,6 +615,28 @@ installed wgpu-native stream completed live Parallels D3D12 readback with 18
 semantic resources, three draws, and 16,384 pixels; the separate immediate
 renderer smoke also passed.
 
+The recursive `CombinedGeometry` checkpoint at exact ProGPU commit `8bf9a0c5`
+(native implementation `6326cdf2`) passed the complete Windows ARM64 MSVC
+gate. Both modules rebuilt under `/W4 /WX`, all 11 CTests passed, and the MIL
+fixture verified a five-node postfix boolean tree with exact segment offsets,
+leaf fill rules, nested group/combined transform composition, operation order,
+conservative bounds, and rollback. Live C++/managed D3D12 rendering/readback,
+allocation probes, text, path atlas, image/mask/effect, Overlay, ColorDodge,
+and the bounded differential matrix passed. The mixed differential remained at
+maximum delta 2/255, zero pixels above 3/255, and mean `0.0000622`; the noisy
+eight-frame VM diagnostic measured `0.6330 ms/frame` before package staging.
+
+The zero-warning project-reference consumer verified exact staged/app-local
+SHA-256 matches:
+`6ac27898f1f067854ac3e79bf415ecd41f9f79c3208a0d45618e0cf47047520d`
+for `progpu_native.dll` and
+`d98b7f7dd3a0315c5420ca5ca63f85354e9daec5bb8ede4468e097fd191dd906`
+for `progpu_native_dawn.dll`. Its 42-command, 18-resource channel seed compiled
+a nested group/combined boolean tree through both MIL exports. The installed
+wgpu-native stream completed live Parallels D3D12 readback with 18 semantic
+resources, three draws, and 16,384 pixels; the immediate renderer smoke also
+passed.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
