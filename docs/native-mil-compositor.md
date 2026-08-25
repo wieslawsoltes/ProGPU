@@ -216,11 +216,13 @@ Geometry-gap boundaries use the pen's typed dash-cap value even when the dash
 interval list is empty. Geometry-local affine transforms stay on every
 primitive, cap, and join; arcs map their resolved center/radii/rotation/angles
 into the reusable two-axis analytic arc contract. Discontinuous endpoints or
-degenerate cap/join tangents fail closed transactionally. Dashed curves,
-`SegSmoothJoin`, and non-flat-cap zero-length runs remain unsupported until
-continuous curve-dash composition preserves WPF semantics. Unstroked curves
-remain valid topology gaps and do not prevent neighboring line runs from using
-the native path-pen lane.
+degenerate cap/join tangents fail closed transactionally. `SegSmoothJoin` is
+retained per incoming segment and forces only that endpoint's join to Round,
+matching WPF `CWidener::DoSegment`/`CSimplePen::DoCorner`; the closing join uses
+the last segment's flag. Dashed curves, dashed smooth joins, and non-flat-cap
+zero-length runs remain unsupported until continuous curve-dash composition
+preserves WPF semantics. Unstroked curves remain valid topology gaps and do not
+prevent neighboring line runs from using the native path-pen lane.
 
 The first retained `MILCMD_GEOMETRYGROUP` slice validates the canonical
 variable child-handle payload, group fill rule, optional matrix transform,
@@ -302,8 +304,7 @@ tests so LibreWPF does not need private-structure probes or hand-coded arrays.
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds,
-  singular arc-transform fill semantics, curve dashes and per-segment smooth
-  joins,
+  singular arc-transform fill semantics and curve dashes,
   exact translated-equivalent EvenOdd overlap execution,
   remaining pen draws,
   brushes, drawings, images, glyph runs, caches, guidelines, effects, and
@@ -756,6 +757,22 @@ for `progpu_native.dll` and
 for `progpu_native_dawn.dll`. The complete differential matrix remains
 qualified at `3816050b`; this cap checkpoint used the focused strict-build,
 contract, and live-package lane.
+
+The smooth-join implementation at `1431509c` then replaced the former broad
+rejection with per-segment typed state. The WPF source trace established that
+`SegSmoothJoin` is read after widening its segment and passed as `fRound` to the
+next `DoCorner`, so the native compiler emits a Round path join regardless of
+the pen's default join only at that endpoint. Solid mixed and line-only
+contours use this exact geometry composition; dashed smooth joins still fail
+closed. Strict ARM64 MSVC rebuilt both modules and the MIL/Dawn contracts
+passed. Package checkpoint `6868d909` marked the line-to-quadratic corner in the
+closed mixed-curve seed as smooth; both exports compiled it and live D3D12
+readback retained 20 semantic resources, three draws, and 41,472 coverage
+bytes. Exact focused-build SHA-256 values were
+`b932861929989d6f847df95c0562a5629849507bace4e44dcdcc410b11e76237`
+for `progpu_native.dll` and
+`20806036f956a84b0b217329183f85ca8f130c7c4aba6fc4394705d6df6170e8`
+for `progpu_native_dawn.dll`.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
