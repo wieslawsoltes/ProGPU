@@ -493,7 +493,6 @@ struct channel::implementation {
         bool closed{};
         bool start_uses_dash_cap{};
         bool end_uses_dash_cap{};
-        bool crosses_closed_figure_start{};
     };
 
     struct path_geometry_state {
@@ -1680,13 +1679,10 @@ struct channel::implementation {
                         std::size_t first,
                         std::size_t count,
                         bool start_uses_dash_cap,
-                        bool end_uses_dash_cap,
-                        bool crosses_closed_figure_start = false) {
+                        bool end_uses_dash_cap) {
                         path_stroke_contour_state contour{};
                         contour.start_uses_dash_cap = start_uses_dash_cap;
                         contour.end_uses_dash_cap = end_uses_dash_cap;
-                        contour.crosses_closed_figure_start =
-                            crosses_closed_figure_start;
                         contour.points.reserve(count + 1U);
                         contour.points.push_back(
                             stroke_edges[first % stroke_edges.size()].segment.p0);
@@ -1773,11 +1769,7 @@ struct channel::implementation {
                                     first_after_gap + first,
                                     consumed - first,
                                     true,
-                                    true,
-                                    first_after_gap + first <
-                                            stroke_edges.size() &&
-                                        first_after_gap + consumed >
-                                            stroke_edges.size());
+                                    true);
                             }
                         }
                     } else {
@@ -1797,8 +1789,7 @@ struct channel::implementation {
                                     first,
                                     index - first,
                                     first != 0U,
-                                    index != stroke_edges.size(),
-                                    false);
+                                    index != stroke_edges.size());
                             }
                         }
                     }
@@ -3155,17 +3146,6 @@ struct channel::implementation {
                     [](std::uint8_t smooth_join) {
                         return smooth_join != 0U;
                     });
-                if (contour.crosses_closed_figure_start &&
-                    pen.dash_style_handle != 0U) {
-                    const auto dash = dash_styles.find(
-                        pen.dash_style_handle);
-                    if (dash == dash_styles.end()) {
-                        return status::invalid_handle;
-                    }
-                    if (!dash->second.intervals.empty()) {
-                        return status::unsupported_command;
-                    }
-                }
                 if (contour.points.size() < 2U) {
                     if (pen.start_line_cap != 0U ||
                         pen.end_line_cap != 0U) {
