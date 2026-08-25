@@ -2334,15 +2334,71 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         4.0,
         brush,
         0U,
-        1U,
-        0U,
+        2U,
+        3U,
         0U,
         1U,
         0U);
     PROGPU_REQUIRE(state.apply(capped_arc_update) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7002U, 9U, stream, &metrics) ==
-        status::unsupported_command);
+        status::success);
+    const auto capped_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t capped_arc_count = 0U;
+    std::uint32_t start_cap_count = 0U;
+    std::uint32_t end_cap_count = 0U;
+    for (std::uint32_t resource_index = 0U;
+         resource_index < capped_header.resource_count;
+         ++resource_index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            capped_header.resource_offset +
+                resource_index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            continue;
+        }
+        const std::size_t primitive_count =
+            record.payload_size / sizeof(progpu_native_geometry_primitive);
+        for (std::size_t primitive_index = 0U;
+             primitive_index < primitive_count;
+             ++primitive_index) {
+            const auto primitive =
+                read_value<progpu_native_geometry_primitive>(
+                    stream,
+                    record.payload_offset +
+                        primitive_index *
+                            sizeof(progpu_native_geometry_primitive));
+            if (primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC) {
+                ++capped_arc_count;
+                continue;
+            }
+            if (primitive.kind != PROGPU_NATIVE_GEOMETRY_PATH_CAP) {
+                continue;
+            }
+            const std::uint32_t cap =
+                (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
+                    PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+            PROGPU_REQUIRE(primitive.stroke_thickness == 2.0F);
+            PROGPU_REQUIRE(primitive.transform.m11 == 1.5F);
+            PROGPU_REQUIRE(primitive.transform.m22 == 1.5F);
+            if (primitive.p2.x == 1.0F) {
+                PROGPU_REQUIRE(cap == PROGPU_NATIVE_STROKE_CAP_ROUND);
+                PROGPU_REQUIRE(primitive.p0.x == 1.0F);
+                PROGPU_REQUIRE(primitive.p0.y == 2.0F);
+                ++start_cap_count;
+            } else {
+                PROGPU_REQUIRE(primitive.p2.x == 0.0F);
+                PROGPU_REQUIRE(cap == PROGPU_NATIVE_STROKE_CAP_TRIANGLE);
+                PROGPU_REQUIRE(primitive.p0.x == 9.0F);
+                PROGPU_REQUIRE(primitive.p0.y == 8.0F);
+                ++end_cap_count;
+            }
+        }
+    }
+    PROGPU_REQUIRE(capped_arc_count == 1U);
+    PROGPU_REQUIRE(start_cap_count == 1U);
+    PROGPU_REQUIRE(end_cap_count == 1U);
     return true;
 }
 
