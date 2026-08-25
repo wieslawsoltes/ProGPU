@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Microsoft.Win32;
 using Silk.NET.Windowing;
 
 namespace ProGPU.Backend;
@@ -75,10 +76,13 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
     }
     public override bool SupportsManagedMove => true;
     public override bool SupportsManagedResize => true;
+    public override bool SupportsSystemChromeExtension => true;
 
     public override bool ApplyChrome(in NativeWindowState state)
     {
-        _extended = state.ExtendClientArea;
+        _extended = state.ExtendClientArea &&
+            !SilkWindowController.UsesSystemChrome(
+                state.ChromeHints);
         _canResize = state.CanResize;
         var nativeResizable = RequiresNativeResizableStyle(state);
         var style = GetWindowLongPtr(_hwnd, GwlStyle).ToInt64();
@@ -162,8 +166,29 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
 
     public override bool SetTheme(NativeWindowTheme theme)
     {
-        var dark = theme == NativeWindowTheme.Dark ? 1 : 0;
+        var dark = theme == NativeWindowTheme.Dark ||
+            theme == NativeWindowTheme.Default &&
+            SystemUsesDarkTheme()
+                ? 1
+                : 0;
         return DwmSetWindowAttribute(_hwnd, DwmwaUseImmersiveDarkMode, ref dark, sizeof(int)) >= 0;
+    }
+
+    private static bool SystemUsesDarkTheme()
+    {
+        try
+        {
+            object? value = Registry.GetValue(
+                @"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+                "AppsUseLightTheme",
+                1);
+            return value is int appsUseLightTheme &&
+                appsUseLightTheme == 0;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     public override bool SetBackdrop(NativeWindowBackdrop backdrop)

@@ -1,21 +1,21 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Platform;
-using Silk.NET.Windowing;
-using SilkRectangle = Silk.NET.Maths.Rectangle<int>;
 
 namespace Avalonia.SilkNet;
 
-internal sealed class SilkNetScreenImpl : IScreenImpl
+internal sealed class SilkNetScreenImpl : IScreenImpl, IDisposable
 {
     private readonly WindowImpl _owner;
+    private readonly SilkNetMonitorProvider _provider;
     private IReadOnlyList<Screen>? _screens;
 
     internal SilkNetScreenImpl(WindowImpl owner)
     {
         _owner = owner;
+        _provider = owner.Platform.Monitors;
+        _provider.Changed += Invalidate;
     }
 
     public int ScreenCount => AllScreens.Count;
@@ -30,37 +30,57 @@ internal sealed class SilkNetScreenImpl : IScreenImpl
 
     public Screen? ScreenFromTopLevel(ITopLevelImpl topLevel)
     {
-        PixelPoint center = topLevel.PointToScreen(
-            new Point(
-                topLevel.ClientSize.Width / 2,
-                topLevel.ClientSize.Height / 2));
-        return ScreenFromPoint(center);
+        if (topLevel is not IWindowBaseImpl window)
+            return null;
+
+        PixelSize size = PixelSize.FromSize(
+            window.FrameSize ?? window.ClientSize,
+            window.DesktopScaling);
+        return ScreenFromRect(
+            new PixelRect(window.Position, size));
     }
 
     public Screen? ScreenFromPoint(PixelPoint point)
     {
         foreach (Screen screen in AllScreens)
         {
-            if (screen.Bounds.Contains(point))
+            if (SilkNetScreenGeometry.Contains(
+                    screen.Bounds,
+                    point))
                 return screen;
         }
 
-        return AllScreens.Count == 0 ? null : AllScreens[0];
+        return null;
     }
 
     public Screen? ScreenFromRect(PixelRect rect)
     {
+        Screen? best = null;
+        double largestArea = 0;
         foreach (Screen screen in AllScreens)
         {
-            if (screen.Bounds.Intersects(rect))
-                return screen;
+            double area = SilkNetScreenGeometry.IntersectionArea(
+                screen.Bounds,
+                rect);
+            if (area > largestArea)
+            {
+                largestArea = area;
+                best = screen;
+            }
         }
 
-        return AllScreens.Count == 0 ? null : AllScreens[0];
+        return best;
     }
 
     public Task<bool> RequestScreenDetails() =>
         Task.FromResult(true);
+
+    public void Dispose()
+    {
+        _provider.Changed -= Invalidate;
+        _screens = null;
+        Changed = null;
+    }
 
     internal void Invalidate()
     {
@@ -70,50 +90,59 @@ internal sealed class SilkNetScreenImpl : IScreenImpl
 
     private IReadOnlyList<Screen> ReadScreens()
     {
-        try
-        {
-            return Monitor
-                .GetMonitors(_owner.NativeWindow)
-                .Select(
-                    (monitor, index) =>
-                        (Screen)new SilkNetScreen(
-                            monitor,
-                            index == 0,
-                            _owner.RenderScaling))
-                .ToArray();
-        }
-        catch (PlatformNotSupportedException)
-        {
-            return Array.Empty<Screen>();
-        }
+        IReadOnlyList<SilkNetMonitorInfo> monitors =
+            _provider.ReadMonitors();
+        var screens = new Screen[monitors.Count];
+        for (int index = 0; index < monitors.Count; index++)
+            screens[index] = new SilkNetScreen(monitors[index]);
+        return screens;
     }
 
     private sealed class SilkNetScreen : PlatformScreen
     {
-        internal SilkNetScreen(
-            IMonitor monitor,
-            bool primary,
-            double scaling)
-            : base(
-                new PlatformHandle(
-                    (IntPtr)monitor.Index,
-                    "SilkMonitor"))
+        internal SilkNetScreen(SilkNetMonitorInfo monitor)
+            : base(new PlatformHandle(
+                monitor.Handle,
+                "GLFWmonitor"))
         {
             DisplayName = monitor.Name;
-            Scaling = scaling > 0 ? scaling : 1;
-            SilkRectangle bounds = monitor.Bounds;
-            Bounds = new PixelRect(
-                bounds.Origin.X,
-                bounds.Origin.Y,
-                bounds.Size.X,
-                bounds.Size.Y);
-            WorkingArea = Bounds;
-            IsPrimary = primary;
+            Scaling = monitor.Scaling;
+            Bounds = monitor.Bounds;
+            WorkingArea = monitor.WorkingArea;
+            IsPrimary = monitor.IsPrimary;
             CurrentOrientation =
                 Bounds.Width >= Bounds.Height
                     ? ScreenOrientation.Landscape
                     : ScreenOrientation.Portrait;
         }
+    }
+}
 
+internal static class SilkNetScreenGeometry
+{
+    internal static bool Contains(
+        PixelRect bounds,
+        PixelPoint point) =>
+        point.X >= bounds.X &&
+        point.X < bounds.X + bounds.Width &&
+        point.Y >= bounds.Y &&
+        point.Y < bounds.Y + bounds.Height;
+
+    internal static double IntersectionArea(
+        PixelRect left,
+        PixelRect right)
+    {
+        int intersectionLeft = Math.Max(left.X, right.X);
+        int intersectionTop = Math.Max(left.Y, right.Y);
+        int intersectionRight = Math.Min(
+            left.X + left.Width,
+            right.X + right.Width);
+        int intersectionBottom = Math.Min(
+            left.Y + left.Height,
+            right.Y + right.Height);
+        return Math.Max(0, intersectionRight - intersectionLeft) *
+            (double)Math.Max(
+                0,
+                intersectionBottom - intersectionTop);
     }
 }

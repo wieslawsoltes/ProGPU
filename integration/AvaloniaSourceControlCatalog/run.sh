@@ -2,11 +2,11 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-avalonia_root="${PROGPU_AVALONIA_ROOT:-${repo_root}/.worktrees/avalonia-12.0.5}"
+avalonia_root="${PROGPU_AVALONIA_ROOT:-${repo_root}/.worktrees/avalonia-12.1.1}"
 project="${repo_root}/integration/AvaloniaSourceControlCatalog/AvaloniaSourceControlCatalog.csproj"
 
 PROGPU_AVALONIA_ROOT="${avalonia_root}" \
-  "${repo_root}/tools/prepare-avalonia-12.0.5-source.sh"
+  "${repo_root}/tools/prepare-avalonia-12.1.1-source.sh"
 
 dotnet run \
   --project "${project}" \

@@ -2,15 +2,15 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-avalonia_root="${PROGPU_AVALONIA_ROOT:-${repo_root}/.worktrees/avalonia-12.0.5}"
+avalonia_root="${PROGPU_AVALONIA_ROOT:-${repo_root}/.worktrees/avalonia-12.1.1}"
 package_output="${PROGPU_AVALONIA_REPLACEMENT_OUTPUT:-${repo_root}/artifacts/avalonia-replacement}"
 package_root="${NUGET_PACKAGES:-${HOME}/.nuget/packages}"
-package_version="12.0.5"
+package_version="12.1.1"
 official_package="${package_root}/avalonia/${package_version}/avalonia.${package_version}.nupkg"
 replacement_package="${package_output}/Avalonia.${package_version}.nupkg"
 merged_package="${avalonia_root}/artifacts/nuget/Avalonia.${package_version}.nupkg"
 
-"${repo_root}/tools/prepare-avalonia-12.0.5-source.sh"
+"${repo_root}/tools/prepare-avalonia-12.1.1-source.sh"
 "${repo_root}/tools/validate-avalonia-source-abi.sh"
 
 if [[ ! -f "${official_package}" ]]; then

@@ -10,6 +10,30 @@ namespace Avalonia.SilkNet;
 /// </summary>
 internal static class SilkNetDisplayMetrics
 {
+    internal static double ResolveDesktopScaling(
+        bool isMacOS,
+        double renderScaling) =>
+        isMacOS
+            ? 1d
+            : DisplayScaleResolver.NormalizeDisplayScale(
+                renderScaling);
+
+    internal static Size? ResolveFrameSize(
+        Size clientSize,
+        NativeWindowFrameInsets? frameInsets)
+    {
+        if (frameInsets is not { } insets)
+            return null;
+
+        return new Size(
+            Math.Max(
+                0,
+                clientSize.Width + insets.Left + insets.Right),
+            Math.Max(
+                0,
+                clientSize.Height + insets.Top + insets.Bottom));
+    }
+
     internal static double ResolveRenderScaling(
         int windowWidth,
         int windowHeight,

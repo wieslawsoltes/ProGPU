@@ -8,9 +8,9 @@ Silk.NET windowing or Avalonia's existing native windowing backend.
 | `ProGPU.Avalonia.Rendering` | Avalonia renderer backed by ProGPU and WebGPU |
 | `ProGPU.Avalonia.SilkNet` | Cross-platform Silk.NET desktop windowing backend |
 
-Version `12.0.5-preview.56` is built against exactly Avalonia `12.0.5` and
+Version `12.1.1-preview.56` is built against exactly Avalonia `12.1.1` and
 ProGPU `0.1.0-preview.56` on .NET 10. Avalonia 11 applications use the same
-package IDs at `11.3.18-preview.56`, built against exactly Avalonia `11.3.18`.
+package IDs at `11.3.20-preview.56`, built against exactly Avalonia `11.3.20`.
 
 ## Install
 
@@ -18,10 +18,10 @@ Reference the renderer, windowing backend, text shaper, and font package:
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="Avalonia" Version="12.0.5" />
-  <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.5" />
-  <PackageReference Include="ProGPU.Avalonia.Rendering" Version="12.0.5-preview.56" />
-  <PackageReference Include="ProGPU.Avalonia.SilkNet" Version="12.0.5-preview.56" />
+  <PackageReference Include="Avalonia" Version="12.1.1" />
+  <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.1" />
+  <PackageReference Include="ProGPU.Avalonia.Rendering" Version="12.1.1-preview.56" />
+  <PackageReference Include="ProGPU.Avalonia.SilkNet" Version="12.1.1-preview.56" />
 </ItemGroup>
 ```
 
@@ -91,6 +91,39 @@ drawable then releases the attempted Dawn device and uses Avalonia's
 framebuffer surface.
 
 ## Use the ProGPU API lease
+
+### Keep existing Avalonia SkiaSharp custom draw operations
+
+`ProGPU.Avalonia.Rendering` exposes Avalonia's
+`ISkiaSharpApiLeaseFeature` source contract through the ProGPU SkiaSharp
+shim. Existing custom draw operation source can keep its backend probe and
+drawing code:
+
+```csharp
+using Avalonia.Skia;
+
+public void Render(ImmediateDrawingContext context)
+{
+    var feature = context.TryGetFeature<ISkiaSharpApiLeaseFeature>();
+    if (feature is null)
+        return;
+
+    using var lease = feature.Lease();
+    SKCanvas canvas = lease.SkCanvas;
+    RenderCore(canvas);
+}
+```
+
+The canvas already uses the active ProGPU recorder, WebGPU device, physical
+target size, Avalonia transform, clip, and opacity stack. Do not apply the
+Avalonia transform or current opacity again. `SkSurface` and
+`TryLeasePlatformGraphicsApi()` return `null` because the ProGPU recorder is
+not backed by an Avalonia Skia surface or platform graphics context.
+
+This compatibility is for source rebuilt against the ProGPU package set.
+Do not add the official `Avalonia.Skia` package: a precompiled library tied to
+the official `Avalonia.Skia` and native `SkiaSharp` assembly identities must
+be recompiled for ProGPU.
 
 Custom controls can submit ProGPU scene commands from an Avalonia custom draw operation. Acquire `IProGpuApiLeaseFeature` only inside `ICustomDrawOperation.Render`, dispose the lease before returning, and pass `CurrentTransform` to transform-aware ProGPU methods.
 
@@ -226,7 +259,7 @@ Use packages freshly built from the checkout:
 ./integration/ProGpuAvaloniaPackageSmoke/run.sh local
 ```
 
-Use the exact-identity Avalonia 12.0.5 replacement package from an isolated
+Use the exact-identity Avalonia 12.1.1 replacement package from an isolated
 local feed:
 
 ```bash
@@ -268,8 +301,8 @@ Set `PROGPU_INTEGRATION_PACKAGE_VERSION` to test another integration preview.
 For the Avalonia 11 lane, set both versions:
 
 ```bash
-PROGPU_AVALONIA_PACKAGE_VERSION=11.3.18 \
-PROGPU_INTEGRATION_PACKAGE_VERSION=11.3.18-preview.56 \
+PROGPU_AVALONIA_PACKAGE_VERSION=11.3.20 \
+PROGPU_INTEGRATION_PACKAGE_VERSION=11.3.20-preview.56 \
 PROGPU_INTEGRATION_BUILD_ONLY=1 \
   ./integration/ProGpuAvaloniaPackageSmoke/run.sh local
 ```

@@ -239,10 +239,20 @@ internal unsafe class WriteableBitmapImpl :
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
         using FileStream destination = File.Create(fileName);
+#if AVALONIA11
         Save(destination, quality);
+#else
+        Save(destination, PngBitmapEncoderOptions.Default);
+#endif
     }
 
-    public void Save(Stream stream, int? quality = null)
+    public void Save(
+        Stream stream,
+#if AVALONIA11
+        int? quality = null)
+#else
+        BitmapEncoderOptions options)
+#endif
     {
         ArgumentNullException.ThrowIfNull(stream);
         Rgba32[] pixels;
@@ -261,7 +271,11 @@ internal unsafe class WriteableBitmapImpl :
             pixels,
             PixelSize.Width,
             PixelSize.Height);
+#if AVALONIA11
         image.SaveAsPng(stream);
+#else
+        AvaloniaBitmapEncoding.Save(image, stream, options);
+#endif
     }
 
     public virtual void Dispose()

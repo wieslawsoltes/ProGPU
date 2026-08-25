@@ -44,6 +44,7 @@
   <Folder Name="/Avalonia 11/">
     <Project Path="ProGPU.Avalonia.Rendering.V11/ProGPU.Avalonia.Rendering.V11.csproj" />
     <Project Path="ProGPU.Avalonia.SilkNet.V11/ProGPU.Avalonia.SilkNet.V11.csproj" />
+    <Project Path="../tests/ProGPU.Avalonia.SilkNet.ContractTests.V11/ProGPU.Avalonia.SilkNet.ContractTests.V11.csproj" />
   </Folder>
   <Project Path="ProGPU.Uno/ProGPU.Uno.csproj" />
   <Project Path="ProGPU.Samples/ProGPU.Samples.csproj" />

@@ -33,6 +33,7 @@ internal sealed class SilkNetInputRouter : IDisposable
     private IInputRoot? _inputRoot;
     private RawInputModifiers _pointerButtons;
     private Vector2 _lastPointerPosition;
+    private bool _pointerInside;
 
     internal SilkNetInputRouter(
         WindowImpl owner,
@@ -72,6 +73,24 @@ internal sealed class SilkNetInputRouter : IDisposable
         _owner.ToNativeScreenPoint(
             _lastPointerPosition.X,
             _lastPointerPosition.Y);
+
+    internal void ProcessNativeState(IWindow window)
+    {
+        bool hovered = _owner.Platform.Monitors
+            .IsWindowHovered(window.Handle);
+        if (!ShouldEmitPointerLeave(_pointerInside, hovered))
+            return;
+
+        _pointerInside = false;
+        EmitPointer(
+            _lastPointerPosition,
+            RawPointerEventType.LeaveWindow);
+    }
+
+    internal static bool ShouldEmitPointerLeave(
+        bool wasInside,
+        bool isHovered) =>
+        wasInside && !isHovered;
 
     public void Dispose()
     {
@@ -176,7 +195,7 @@ internal sealed class SilkNetInputRouter : IDisposable
         RawKeyEventType eventType)
     {
         IInputRoot? root = _inputRoot;
-        if (root is null || !_owner.AcceptsInput)
+        if (root is null || !_owner.TryAcceptInput())
             return;
 
         SilkNetKeyMapping mapped =
@@ -198,7 +217,7 @@ internal sealed class SilkNetInputRouter : IDisposable
         char character)
     {
         IInputRoot? root = _inputRoot;
-        if (root is null || !_owner.AcceptsInput)
+        if (root is null || !_owner.TryAcceptInput())
             return;
 
         _owner.EmitInput(
@@ -213,6 +232,7 @@ internal sealed class SilkNetInputRouter : IDisposable
         IMouse mouse,
         SilkMouseButton button)
     {
+        _pointerInside = true;
         _lastPointerPosition = mouse.Position;
         RawPointerEventType? eventType =
             MapButton(button, pressed: true);
@@ -228,6 +248,7 @@ internal sealed class SilkNetInputRouter : IDisposable
         IMouse mouse,
         SilkMouseButton button)
     {
+        _pointerInside = true;
         _lastPointerPosition = mouse.Position;
         _owner.UpdateNativeDrag(
             CurrentNativePointer);
@@ -247,6 +268,7 @@ internal sealed class SilkNetInputRouter : IDisposable
         IMouse mouse,
         Vector2 position)
     {
+        _pointerInside = true;
         _lastPointerPosition = position;
         _owner.UpdateNativeDrag(
             CurrentNativePointer);
@@ -259,9 +281,10 @@ internal sealed class SilkNetInputRouter : IDisposable
         IMouse mouse,
         ScrollWheel wheel)
     {
+        _pointerInside = true;
         _lastPointerPosition = mouse.Position;
         IInputRoot? root = _inputRoot;
-        if (root is null || !_owner.AcceptsInput)
+        if (root is null || !_owner.TryAcceptInput())
             return;
 
         _owner.EmitInput(
@@ -279,7 +302,7 @@ internal sealed class SilkNetInputRouter : IDisposable
         RawPointerEventType eventType)
     {
         IInputRoot? root = _inputRoot;
-        if (root is null || !_owner.AcceptsInput)
+        if (root is null || !_owner.TryAcceptInput())
             return;
 
         _owner.EmitInput(

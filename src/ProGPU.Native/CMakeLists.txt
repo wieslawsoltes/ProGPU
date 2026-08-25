@@ -1321,6 +1321,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         tests/progpu_native_semantic_layer_mask_tests.hpp
         src/Backend/progpu_native_draw_state.cpp
         src/Backend/progpu_native_draw_state.hpp
+        src/Backend/progpu_native_buffer_capacity.hpp
         src/Backend/progpu_native_effect_plan.cpp
         src/Backend/progpu_native_effect_plan.hpp
         src/Backend/progpu_native_geometry_analytic.hpp

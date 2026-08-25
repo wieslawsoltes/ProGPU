@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-avalonia_root="${PROGPU_AVALONIA_ROOT:-$repo_root/.worktrees/avalonia-12.0.5}"
+avalonia_root="${PROGPU_AVALONIA_ROOT:-$repo_root/.worktrees/avalonia-12.1.1}"
 source_file="$avalonia_root/native/Avalonia.Native/src/OSX/metal.mm"
 project="$avalonia_root/native/Avalonia.Native/src/OSX/Avalonia.Native.OSX.xcodeproj"
 generated_header="$avalonia_root/native/Avalonia.Native/inc/avalonia-native.h"
@@ -18,7 +18,7 @@ if ! command -v xcodebuild >/dev/null 2>&1; then
   exit 2
 fi
 if [[ ! -f "$source_file" || ! -d "$project" ]]; then
-  echo "The exact Avalonia source tree is missing. Run tools/prepare-avalonia-12.0.5-source.sh first." >&2
+  echo "The exact Avalonia source tree is missing. Run tools/prepare-avalonia-12.1.1-source.sh first." >&2
   exit 3
 fi
 if ! rg -q '_layer\.framebufferOnly[[:space:]]*=[[:space:]]*false;' "$source_file"; then

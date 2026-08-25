@@ -29,6 +29,7 @@ public enum WgpuBackendKind
 
 public unsafe class WgpuContext : IDisposable
 {
+    public const ulong DefaultMaxBufferSize = 256UL * 1024UL * 1024UL;
     // Device polling can materialize internal Metal signal/transition command
     // buffers even when the renderer has no callbacks to service. Keep progress
     // bounded without injecting that work into every retained frame.
@@ -49,6 +50,7 @@ public unsafe class WgpuContext : IDisposable
     public uint MaxSampledTexturesPerShaderStage { get; private set; } = 16;
     public uint MaxSamplersPerShaderStage { get; private set; } = 16;
     public uint MaxBindGroups { get; private set; } = 4;
+    public ulong MaxBufferSize { get; private set; } = DefaultMaxBufferSize;
     public bool SupportsReadOnlyAndReadWriteStorageTextures { get; private set; }
     public bool SupportsTextureFormatsTier1 { get; private set; }
     public BackendType AdapterBackendType { get; private set; } = BackendType.Undefined;
@@ -1038,6 +1040,10 @@ public unsafe class WgpuContext : IDisposable
         MaxSampledTexturesPerShaderStage = Math.Max(16, deviceLimits.Limits.MaxSampledTexturesPerShaderStage);
         MaxSamplersPerShaderStage = Math.Max(16, deviceLimits.Limits.MaxSamplersPerShaderStage);
         MaxBindGroups = Math.Max(4, deviceLimits.Limits.MaxBindGroups);
+        if (deviceLimits.Limits.MaxBufferSize != 0)
+        {
+            MaxBufferSize = deviceLimits.Limits.MaxBufferSize;
+        }
         SupportsReadOnlyAndReadWriteStorageTextures = IsReadWriteStorageTextureSupportEnabled();
 
         // 5. Retrieve Default Queue
@@ -1422,7 +1428,8 @@ public unsafe class WgpuContext : IDisposable
         uint maxSampledTexturesPerShaderStage = 16,
         uint maxSamplersPerShaderStage = 16,
         uint maxBindGroups = 4,
-        bool supportsReadOnlyAndReadWriteStorageTextures = false)
+        bool supportsReadOnlyAndReadWriteStorageTextures = false,
+        ulong maxBufferSize = DefaultMaxBufferSize)
     {
         ArgumentNullException.ThrowIfNull(api);
         if (Api != null || Device != null || _isDisposed)
@@ -1440,6 +1447,7 @@ public unsafe class WgpuContext : IDisposable
         MaxSampledTexturesPerShaderStage = Math.Max(16, maxSampledTexturesPerShaderStage);
         MaxSamplersPerShaderStage = Math.Max(16, maxSamplersPerShaderStage);
         MaxBindGroups = Math.Max(4, maxBindGroups);
+        MaxBufferSize = NormalizeMaxBufferSize(maxBufferSize);
         SupportsReadOnlyAndReadWriteStorageTextures = supportsReadOnlyAndReadWriteStorageTextures;
         _deviceResourceDomain = new WgpuDeviceResourceDomain(Api, Device);
         _isSurfaceConfigured = true;
@@ -1490,7 +1498,8 @@ public unsafe class WgpuContext : IDisposable
         AdapterType adapterType = AdapterType.Unknown,
         string? adapterDriverDescription = null,
         uint adapterVendorId = 0,
-        uint adapterDeviceId = 0)
+        uint adapterDeviceId = 0,
+        ulong maxBufferSize = DefaultMaxBufferSize)
     {
         ArgumentNullException.ThrowIfNull(api);
         ArgumentNullException.ThrowIfNull(lifetime);
@@ -1516,6 +1525,7 @@ public unsafe class WgpuContext : IDisposable
         MaxSamplersPerShaderStage =
             Math.Max(16, maxSamplersPerShaderStage);
         MaxBindGroups = Math.Max(4, maxBindGroups);
+        MaxBufferSize = NormalizeMaxBufferSize(maxBufferSize);
         SupportsReadOnlyAndReadWriteStorageTextures =
             supportsReadOnlyAndReadWriteStorageTextures;
         SupportsTextureFormatsTier1 =
@@ -1620,6 +1630,7 @@ public unsafe class WgpuContext : IDisposable
         MaxSampledTexturesPerShaderStage = deviceOwner.MaxSampledTexturesPerShaderStage;
         MaxSamplersPerShaderStage = deviceOwner.MaxSamplersPerShaderStage;
         MaxBindGroups = deviceOwner.MaxBindGroups;
+        MaxBufferSize = deviceOwner.MaxBufferSize;
         SupportsReadOnlyAndReadWriteStorageTextures = deviceOwner.SupportsReadOnlyAndReadWriteStorageTextures;
         SupportsTextureFormatsTier1 =
             deviceOwner.SupportsTextureFormatsTier1;
@@ -1951,6 +1962,9 @@ public unsafe class WgpuContext : IDisposable
             && maxSampledTexturesPerShaderStage >= requiredTextureAndSamplerCount
             && maxSamplersPerShaderStage >= requiredTextureAndSamplerCount;
     }
+
+    private static ulong NormalizeMaxBufferSize(ulong maxBufferSize) =>
+        maxBufferSize == 0 ? DefaultMaxBufferSize : maxBufferSize;
 
     private static RequiredLimits CreateRequiredLimits(SupportedLimits adapterLimits)
     {

@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -48,46 +47,48 @@ public sealed class AvaloniaControlCatalogPatchTests
     }
 
     [Fact]
-    public void ControlCatalogPagesAreDeferredThroughTypedFactories()
+    public void ControlCatalogUsesUpstreamLazyFactoriesAndTypedInitialSelection()
     {
         string patch = File.ReadAllText(
             FindRepoFile(
                 "eng",
                 "avalonia",
-                "12.0.5",
-                "progpu-controlcatalog.patch"));
-        int deferredFileStart = patch.IndexOf(
-            "diff --git a/samples/ControlCatalog/DeferredCatalogPage.cs",
+                "12.1.1",
+                "progpu.patch"));
+        int catalogStart = patch.IndexOf(
+            "diff --git a/samples/ControlCatalog/App.xaml.cs",
             StringComparison.Ordinal);
-
-        Assert.True(deferredFileStart >= 0);
-        string deferredFile = patch[deferredFileStart..];
+        int catalogEnd = patch.IndexOf(
+            "diff --git a/samples/RenderDemo/RenderDemo.csproj",
+            catalogStart,
+            StringComparison.Ordinal);
+        Assert.True(catalogStart >= 0);
+        Assert.True(catalogEnd > catalogStart);
+        string catalogPatch = patch[catalogStart..catalogEnd];
         Assert.Contains(
-            "+internal sealed class DeferredCatalogPage : ContentControl",
-            deferredFile,
+            "+        public static string? InitialPage { get; set; }",
+            catalogPatch,
             StringComparison.Ordinal);
         Assert.Contains(
-            "+    protected override void OnAttachedToVisualTree(",
-            deferredFile,
+            "+            ViewModel.SelectedPageIndex = FindInitialPageIndex(",
+            catalogPatch,
             StringComparison.Ordinal);
         Assert.Contains(
-            "+            Content = CreatePage(PageKind);",
-            deferredFile,
+            "+        private int FindInitialPageIndex(string initialPage)",
+            catalogPatch,
             StringComparison.Ordinal);
-        Assert.DoesNotContain("Activator.CreateInstance", deferredFile, StringComparison.Ordinal);
-        Assert.DoesNotContain("System.Reflection", deferredFile, StringComparison.Ordinal);
-
-        int typedFactories = Regex.Matches(
-            deferredFile,
-            @"^\+\s+CatalogPageKind\.\w+\s+=>\s+new\s+\w+\(\),$",
-            RegexOptions.Multiline).Count;
-        int deferredHosts = Regex.Matches(
-            patch,
-            @"^\+\s+<local:DeferredCatalogPage PageKind=""\w+"" />$",
-            RegexOptions.Multiline).Count;
-
-        Assert.Equal(69, typedFactories);
-        Assert.Equal(70, deferredHosts);
+        Assert.DoesNotContain(
+            "DeferredCatalogPage",
+            catalogPatch,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Activator.CreateInstance",
+            catalogPatch,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "System.Reflection",
+            catalogPatch,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -199,8 +200,8 @@ public sealed class AvaloniaControlCatalogPatchTests
             FindRepoFile(
                 "eng",
                 "avalonia",
-                "12.0.5",
-                "progpu-compositor.patch"));
+                "12.1.1",
+                "progpu.patch"));
         string fontCatalog = File.ReadAllText(
             FindRepoFile(
                 "src",
@@ -257,8 +258,8 @@ public sealed class AvaloniaControlCatalogPatchTests
             FindRepoFile(
                 "eng",
                 "avalonia",
-                "12.0.5",
-                "progpu-compositor.patch"));
+                "12.1.1",
+                "progpu.patch"));
 
         Assert.Contains(
             "diff --git a/src/Avalonia.Base/Rendering/PlatformRenderInterfaceContextManager.cs",
@@ -549,8 +550,8 @@ public sealed class AvaloniaControlCatalogPatchTests
             FindRepoFile(
                 "eng",
                 "avalonia",
-                "12.0.5",
-                "progpu-compositor.patch"));
+                "12.1.1",
+                "progpu.patch"));
         string scene = File.ReadAllText(
             FindRepoFile(
                 "src",

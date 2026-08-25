@@ -2838,6 +2838,7 @@ async function initializeGpu(request, canvas, executionMode, diagnostics) {
     supportsSharedArrayBuffer: typeof SharedArrayBuffer !== 'undefined',
     supportsOffscreenCanvas: typeof OffscreenCanvas !== 'undefined',
     supportsBgra8UnormStorage: supportsBgraStorage,
+    maxBufferSize: state.device.limits.maxBufferSize,
     features: [...state.adapter.features],
     diagnostics
   };

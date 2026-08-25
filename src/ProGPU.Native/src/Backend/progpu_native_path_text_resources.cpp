@@ -421,14 +421,14 @@ bool ensure_text_style_buffer(
         required_size <= engine.text_style_buffer_size) {
         return true;
     }
-    std::uint64_t capacity = std::max<std::uint64_t>(
-        32U,
-        engine.text_style_buffer_size);
-    while (capacity < required_size) {
-        if (capacity > std::numeric_limits<std::uint64_t>::max() / 2U) {
-            return false;
-        }
-        capacity *= 2U;
+    std::uint64_t capacity = 0U;
+    if (!progpu::native::try_calculate_buffer_capacity(
+            engine.text_style_buffer_size,
+            required_size,
+            32U,
+            engine.max_buffer_size,
+            capacity)) {
+        return false;
     }
     WGPUBufferDescriptor descriptor{};
     descriptor.label = progpu::native::webgpu::string_view(

@@ -18,8 +18,8 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
     private const long FloatingWindowLevel = 3;
 
     private readonly nint _nsWindow;
-    private readonly double _defaultTitleBarHeight;
     private nint _visualEffectView;
+    private nint _toolbar;
     private NativeWindowState _state = NativeWindowState.Default;
     private nint _parentWindow;
     private bool _enabled = true;
@@ -28,16 +28,17 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
         : base(window)
     {
         _nsWindow = nsWindow;
-        _defaultTitleBarHeight = Math.Max(22d, base.FrameInsets.Top);
     }
 
     public override NativeWindowHandle Handle => new(NativeWindowKind.Cocoa, _nsWindow, 0, "NSWindow");
     public override NativeWindowCapabilities Capabilities => NativeWindowCapabilities.ForKind(NativeWindowKind.Cocoa);
     public override bool RequiresManagedDecorations => false;
     public override NativeWindowFrameInsets FrameInsets => base.FrameInsets;
-    public override double DefaultTitleBarHeight => _defaultTitleBarHeight;
+    public override double DefaultTitleBarHeight =>
+        Math.Max(22d, base.FrameInsets.Top);
     public override bool SupportsManagedMove => true;
     public override bool SupportsManagedResize => true;
+    public override bool SupportsSystemChromeExtension => true;
 
     public override bool ApplyChrome(in NativeWindowState state)
     {
@@ -48,6 +49,15 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
         switch (state.Decorations)
         {
             case NativeWindowDecorations.None:
+                if (state.IsPopup)
+                {
+                    // Popup surfaces (ComboBox/ContextMenu/ToolTip drop-downs) must be truly
+                    // borderless: NSWindowStyleMaskTitled forces the OS-drawn rounded window
+                    // corners even with the title bar hidden/transparent, which real WPF popups
+                    // never have. Leave styleMask cleared (NSWindowStyleMaskBorderless = 0) so
+                    // the popup renders as a plain rectangle, matching Win32 popup chrome.
+                    break;
+                }
                 style |= StyleTitled | StyleFullSizeContentView;
                 if (nativeResizable)
                 {
@@ -79,15 +89,26 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
         }
 
         SendVoidUInt64(_nsWindow, "setStyleMask:", style);
+        bool wantsSystemChrome =
+            (state.ChromeHints &
+             (NativeWindowChromeHints.SystemChrome |
+              NativeWindowChromeHints.PreferSystemChrome)) != 0;
         var hideNativeTitle = state.ExtendClientArea || state.Decorations != NativeWindowDecorations.Full;
         SendVoidBool(_nsWindow, "setTitlebarAppearsTransparent:", hideNativeTitle);
         SendVoidInt64(_nsWindow, "setTitleVisibility:", hideNativeTitle ? 1 : 0);
         SendVoidBool(_nsWindow, "setMovableByWindowBackground:", false);
         SendVoidBool(_nsWindow, "setHasShadow:", state.Decorations != NativeWindowDecorations.None);
-        var showButtons = state.Decorations == NativeWindowDecorations.Full;
+        var showButtons =
+            state.Decorations == NativeWindowDecorations.Full &&
+            (!state.ExtendClientArea || wantsSystemChrome);
         SetStandardButtonState(0, showButtons, _enabled);
         SetStandardButtonState(1, showButtons, state.CanMinimize && _enabled);
         SetStandardButtonState(2, showButtons, state.CanMaximize && state.CanResize && _enabled);
+        ApplyToolbar(
+            state.ExtendClientArea &&
+            (state.ChromeHints &
+             NativeWindowChromeHints.MacOsThickTitleBar) != 0 &&
+            Window.WindowState != WindowState.Fullscreen);
         return true;
     }
 
@@ -251,6 +272,38 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
         _visualEffectView = 0;
     }
 
+    private void ApplyToolbar(bool enabled)
+    {
+        if (enabled && _toolbar == 0)
+        {
+            nint toolbarClass = objc_getClass("NSToolbar");
+            nint allocated = SendObject(toolbarClass, "alloc");
+            nint identifier = CreateNSString(
+                "ProGPU.Avalonia.ThickTitleBar");
+            _toolbar = SendObjectObject(
+                allocated,
+                "initWithIdentifier:",
+                identifier);
+            if (_toolbar != 0)
+            {
+                SendVoidBool(
+                    _toolbar,
+                    "setShowsBaselineSeparator:",
+                    false);
+                SendVoidObject(
+                    _nsWindow,
+                    "setToolbar:",
+                    _toolbar);
+            }
+        }
+        else if (!enabled && _toolbar != 0)
+        {
+            SendVoidObject(_nsWindow, "setToolbar:", 0);
+            SendVoid(_toolbar, "release");
+            _toolbar = 0;
+        }
+    }
+
     private static long MapMaterial(NativeWindowBackdrop backdrop) => backdrop switch
     {
         NativeWindowBackdrop.Blur => 12,
@@ -328,6 +381,7 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
             SendVoidObject(_parentWindow, "removeChildWindow:", _nsWindow);
             _parentWindow = 0;
         }
+        ApplyToolbar(false);
         RemoveVisualEffectView();
         base.Dispose();
     }

@@ -2,10 +2,10 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-avalonia_root="${PROGPU_AVALONIA_ROOT:-${repo_root}/.worktrees/avalonia-12.0.5}"
-expected_revision="fee9c561ce036e8a3e8cee2397c75ca599b4790d"
+avalonia_root="${PROGPU_AVALONIA_ROOT:-${repo_root}/.worktrees/avalonia-12.1.1}"
+expected_revision="e33eaed9c106846b200680751022385d9cc5dc6f"
 actual_revision="$(git -C "${avalonia_root}" rev-parse HEAD)"
-avalonia_version="${PROGPU_AVALONIA_VERSION:-12.0.5}"
+avalonia_version="${PROGPU_AVALONIA_VERSION:-12.1.1}"
 target_framework="${PROGPU_AVALONIA_TARGET_FRAMEWORK:-net10.0}"
 package_root="${NUGET_PACKAGES:-${HOME}/.nuget/packages}"
 contract_assembly="${package_root}/avalonia/${avalonia_version}/lib/${target_framework}/Avalonia.Base.dll"

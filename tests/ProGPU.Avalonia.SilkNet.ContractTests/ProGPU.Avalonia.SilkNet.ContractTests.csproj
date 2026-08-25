@@ -7,13 +7,18 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <AssemblyName>ProGPU.Avalonia.SilkNet.ContractTests</AssemblyName>
     <RootNamespace>ProGPU.Avalonia.SilkNet.ContractTests</RootNamespace>
+    <AvaloniaAccessUnstablePrivateApis>true</AvaloniaAccessUnstablePrivateApis>
+    <Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>true</Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="ClipboardContractTests.cs" />
     <Compile Include="DisplayMetricsContractTests.cs" />
     <Compile Include="FramebufferStorageContractTests.cs" />
     <Compile Include="InputAndCursorContractTests.cs" />
+    <Compile Include="PlatformSettingsContractTests.cs" />
     <Compile Include="PlatformTimingContractTests.cs" />
+    <Compile Include="ScreenInventoryContractTests.cs" />
     <Compile Include="SharedWebGpuDevicesContractTests.cs" />
     <Compile Include="WindowChromeContractTests.cs" />
   </ItemGroup>

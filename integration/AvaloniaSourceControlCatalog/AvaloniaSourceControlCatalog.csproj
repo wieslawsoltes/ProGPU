@@ -6,7 +6,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ProGpuDependencyMode>Source</ProGpuDependencyMode>
     <ProGpuSourceRoot>$(MSBuildThisFileDirectory)..\..</ProGpuSourceRoot>
-    <ProGpuAvaloniaSourceRoot Condition="'$(ProGpuAvaloniaSourceRoot)' == ''">$(ProGpuSourceRoot)\.worktrees\avalonia-12.0.5</ProGpuAvaloniaSourceRoot>
+    <ProGpuAvaloniaSourceRoot Condition="'$(ProGpuAvaloniaSourceRoot)' == ''">$(ProGpuSourceRoot)\.worktrees\avalonia-12.1.1</ProGpuAvaloniaSourceRoot>
     <UseSkiaSharpShim>true</UseSkiaSharpShim>
     <AvaloniaSingleProject>false</AvaloniaSingleProject>
     <DefineConstants>$(DefineConstants);PROGPU_AVALONIA_BACKEND</DefineConstants>
