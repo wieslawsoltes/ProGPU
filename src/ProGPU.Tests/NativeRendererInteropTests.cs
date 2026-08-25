@@ -385,6 +385,25 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWriteCanonicalVisualGuidelinePacket()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetVisualGuidelines(7, [2.25], [3.5]);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(28, encoded.Length);
+        Assert.Equal(28U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x27U, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(1U, ReadUInt16(encoded, 12));
+        Assert.Equal(0U, ReadUInt16(encoded, 14));
+        Assert.Equal(1U, ReadUInt16(encoded, 16));
+        Assert.Equal(0U, ReadUInt16(encoded, 18));
+        Assert.Equal(2.25F, ReadSingle(encoded, 20));
+        Assert.Equal(3.5F, ReadSingle(encoded, 24));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalGradientPackets()
     {
         var stops = new[]

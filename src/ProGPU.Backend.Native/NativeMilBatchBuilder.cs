@@ -179,6 +179,48 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 8, opacityMaskHandle);
     }
 
+    public void SetVisualGuidelines(
+        uint handle,
+        ReadOnlySpan<double> guidelinesX,
+        ReadOnlySpan<double> guidelinesY)
+    {
+        ValidateHandle(handle);
+        if (guidelinesX.Length > ushort.MaxValue ||
+            guidelinesY.Length > ushort.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(guidelinesX));
+        }
+        int count = checked(guidelinesX.Length + guidelinesY.Length);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.VisualSetGuidelineCollection,
+            checked(16 + count * sizeof(float)));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt16(packet, 8, checked((ushort)guidelinesX.Length));
+        WriteUInt16(packet, 12, checked((ushort)guidelinesY.Length));
+        int offset = 16;
+        foreach (double coordinate in guidelinesX)
+        {
+            float value = (float)coordinate;
+            if (!float.IsFinite(value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(guidelinesX));
+            }
+            WriteSingle(packet, offset, value);
+            offset += sizeof(float);
+        }
+        foreach (double coordinate in guidelinesY)
+        {
+            float value = (float)coordinate;
+            if (!float.IsFinite(value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(guidelinesY));
+            }
+            WriteSingle(packet, offset, value);
+            offset += sizeof(float);
+        }
+    }
+
     public void InsertVisualChild(uint handle, uint childHandle, uint index)
     {
         ValidateHandle(handle);
@@ -1541,6 +1583,7 @@ internal static class NativeMilCommand
     internal const uint VisualSetContent = 0x22;
     internal const uint VisualSetAlphaMask = 0x23;
     internal const uint VisualInsertChildAt = 0x26;
+    internal const uint VisualSetGuidelineCollection = 0x27;
     internal const uint VisualSetScrollableAreaClip = 0x28;
     internal const uint GenericTargetCreate = 0x34;
     internal const uint TargetSetRoot = 0x35;
