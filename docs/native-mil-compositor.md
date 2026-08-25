@@ -1621,6 +1621,55 @@ for `progpu_native.dll`, and 2,011,648 bytes with SHA-256
 `2c9c1f5fc1ee4f41b9361280d53a32201e3b4215c3cd70a0c0cf68c130766eda`
 for `progpu_native_dawn.dll`.
 
+### BitmapCache execution design
+
+Canonical cache support is the next retained Visual slice. WPF defines
+`MilCmdVisualSetCacheMode` (`0x1e`) as a 12-byte command view containing the
+Visual and CacheMode handles. `MilCmdBitmapCache` (`0x8d`) is a 28-byte command
+view for resource type 94 and carries RenderAtScale, an optional animated
+DoubleResource handle, SnapsToDevicePixels, and EnableClearType. The native
+resource clamps the current scale to zero or greater; a scale sufficiently
+close to zero draws no cached content.
+
+WPF's `CMilVisualCache` evidence also fixes the execution model. Cache bounds
+are local Visual content bounds. Realization dimensions are the ceiling of
+those bounds multiplied by RenderAtScale and system DPI, capped by the backend
+texture limit. Cache update renders only the Visual's content and descendants,
+ignoring the root Visual's outer offset, transform, clip, opacity, mask, and
+effect. Normal tree rendering then draws the cached texture through the outer
+Visual transform; opacity is applied at that composite, and
+SnapsToDevicePixels post-offsets the transformed cache origin by its fractional
+device coordinates. WPF may reuse the cache as effect input only under its
+explicit no-opacity/no-mask/no-inflation conditions.
+
+The shared native representation therefore needs an owner-keyed retained
+cache page, not the existing depth-indexed temporary layer slot. Its stable
+identity is independent of command position and sibling updates; a content
+revision invalidates raster content, while a composite revision changes only
+placement, opacity, clip, mask, or other outer state. Cache pages participate
+in the existing 256 MiB bounded layer budget, carry explicit logical bounds,
+raster scale, pixel-snap, and text-mode fields, and are released when their
+owner disappears or the device is lost. Nested caches require independent
+pages rather than sharing one slot at a materialized depth.
+
+The implementation sequence is intentionally architectural:
+
+1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
+   shared by wgpu-native/Dawn and DirectX.
+2. Prove cache hits survive unrelated sibling/composite changes, while content,
+   scale, size, text mode, and device generation changes invalidate the page.
+3. Decode canonical BitmapCache/Visual packets into that descriptor and retain
+   dependency lifetime transactionally.
+4. Publish neutral typed cache state from source-built WPF and emit it from
+   LibreWPF without reflection.
+5. Qualify scale, zero-scale suppression, pixel snapping, ClearType policy,
+   nested cache lifetime, effects ordering, package lanes, and live D3D12.
+
+No cache parity is claimed until the persistent page and composite-transform
+path are executable. Treating BitmapCache as a no-op, an ephemeral full-target
+layer, or a depth-slot effect-cache alias would preserve neither WPF pixels nor
+its performance contract and is explicitly excluded.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
