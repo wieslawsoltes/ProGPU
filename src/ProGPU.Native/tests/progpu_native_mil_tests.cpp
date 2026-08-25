@@ -4284,7 +4284,7 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
         opacity_mask,
         transform,
         0U,
-        0U,
+        1U,
         0U,
         0U,
         drawing);
@@ -4314,6 +4314,7 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
     const auto header = read_value<progpu_native_scene_header>(stream, 0U);
     bool found_group_state = false;
     bool found_bounds = false;
+    bool found_aliased_edge = false;
     for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
         const auto resource = read_value<progpu_native_scene_resource>(
             stream,
@@ -4334,6 +4335,15 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
                 scene_state.clip_rect.height == 10.0F) {
                 found_group_state = true;
             }
+        } else if (
+            resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH) {
+            const auto primitive =
+                read_value<progpu_native_analytic_primitive>(
+                    stream,
+                    resource.payload_offset);
+            found_aliased_edge |=
+                (primitive.flags &
+                    PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) != 0U;
         }
     }
     for (std::uint32_t index = 0U; index < header.command_count; ++index) {
@@ -4350,6 +4360,7 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
     }
     PROGPU_REQUIRE(found_group_state);
     PROGPU_REQUIRE(found_bounds);
+    PROGPU_REQUIRE(found_aliased_edge);
 
     std::vector<std::byte> opacity_update;
     append_command(opacity_update, command::double_resource, opacity, 0.25);

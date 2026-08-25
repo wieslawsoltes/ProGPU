@@ -7,3 +7,9 @@ public enum PortableBitmapScalingMode : byte
     Fant,
     NearestNeighbor
 }
+
+public enum PortableEdgeMode : byte
+{
+    Unspecified,
+    Aliased
+}
