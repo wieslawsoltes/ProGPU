@@ -225,7 +225,7 @@ static byte[] CreateMilSeedBatch()
     batch.SetGeometryGroup(
         54,
         NativeMilPathFillRule.EvenOdd,
-        [52, 53],
+        [52, 53, 50, 51],
         45);
     batch.SetCombinedGeometry(
         55,
