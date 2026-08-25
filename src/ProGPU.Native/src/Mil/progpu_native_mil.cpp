@@ -3998,7 +3998,8 @@ struct channel::implementation {
             stroke.struct_size = sizeof(stroke);
             stroke.kind = PROGPU_NATIVE_SCENE_STROKE_POLYLINE;
             stroke.flags = closed
-                ? PROGPU_NATIVE_POLYLINE_FLAG_CLOSED
+                ? static_cast<std::uint32_t>(
+                    PROGPU_NATIVE_POLYLINE_FLAG_CLOSED)
                 : 0U;
             stroke.point_count = points.size();
             stroke.dash_interval_count = intervals.size();
@@ -4517,12 +4518,14 @@ struct channel::implementation {
                 }
                 if (!has_length) {
                     const std::uint32_t start_cap = contour.closed
-                        ? PROGPU_NATIVE_STROKE_CAP_ROUND
+                        ? static_cast<std::uint32_t>(
+                            PROGPU_NATIVE_STROKE_CAP_ROUND)
                         : contour.start_uses_dash_cap
                             ? pen.dash_cap
                             : pen.start_line_cap;
                     const std::uint32_t end_cap = contour.closed
-                        ? PROGPU_NATIVE_STROKE_CAP_ROUND
+                        ? static_cast<std::uint32_t>(
+                            PROGPU_NATIVE_STROKE_CAP_ROUND)
                         : contour.end_uses_dash_cap
                             ? pen.dash_cap
                             : pen.end_line_cap;
@@ -4780,7 +4783,8 @@ struct channel::implementation {
                         progpu_native_geometry_primitive join{};
                         join.kind = PROGPU_NATIVE_GEOMETRY_PATH_JOIN;
                         join.flags = (smooth_join
-                                ? PROGPU_NATIVE_STROKE_JOIN_ROUND
+                                ? static_cast<std::uint32_t>(
+                                    PROGPU_NATIVE_STROKE_JOIN_ROUND)
                                 : pen.line_join) <<
                             PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
                         join.p0 = join_point;

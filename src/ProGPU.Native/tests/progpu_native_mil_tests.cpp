@@ -3187,6 +3187,8 @@ bool retained_path_geometry_compiles_to_semantic_scene() {
 }
 
 bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
+    constexpr std::uint32_t primitive_stride =
+        sizeof(progpu_native_geometry_primitive);
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
     constexpr std::uint32_t target = 3U;
@@ -3601,20 +3603,15 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
             continue;
         }
-        PROGPU_REQUIRE(
-            record.payload_size % sizeof(progpu_native_geometry_primitive) ==
-            0U);
-        const std::size_t primitive_count =
-            record.payload_size / sizeof(progpu_native_geometry_primitive);
-        for (std::size_t primitive_index = 0U;
-             primitive_index < primitive_count;
-             ++primitive_index) {
+        PROGPU_REQUIRE(record.payload_size >= primitive_stride);
+        std::uint32_t primitive_offset = 0U;
+        for (;
+             primitive_offset + primitive_stride <= record.payload_size;
+             primitive_offset += primitive_stride) {
             const auto primitive =
                 read_value<progpu_native_geometry_primitive>(
                     stream,
-                    record.payload_offset +
-                        primitive_index *
-                            sizeof(progpu_native_geometry_primitive));
+                    record.payload_offset + primitive_offset);
             joined_line_count +=
                 primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE ? 1U : 0U;
             joined_quadratic_count +=
@@ -3628,6 +3625,7 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
             joined_join_count +=
                 primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_JOIN ? 1U : 0U;
         }
+        PROGPU_REQUIRE(primitive_offset == record.payload_size);
     }
     PROGPU_REQUIRE(joined_line_count == 2U);
     PROGPU_REQUIRE(joined_quadratic_count == 1U);
@@ -3665,17 +3663,15 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
             continue;
         }
-        const std::size_t primitive_count =
-            record.payload_size / sizeof(progpu_native_geometry_primitive);
-        for (std::size_t primitive_index = 0U;
-             primitive_index < primitive_count;
-             ++primitive_index) {
+        PROGPU_REQUIRE(record.payload_size >= primitive_stride);
+        std::uint32_t primitive_offset = 0U;
+        for (;
+             primitive_offset + primitive_stride <= record.payload_size;
+             primitive_offset += primitive_stride) {
             const auto primitive =
                 read_value<progpu_native_geometry_primitive>(
                     stream,
-                    record.payload_offset +
-                        primitive_index *
-                            sizeof(progpu_native_geometry_primitive));
+                    record.payload_offset + primitive_offset);
             if (primitive.kind != PROGPU_NATIVE_GEOMETRY_PATH_JOIN) {
                 continue;
             }
@@ -3687,6 +3683,7 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
             round_join_count +=
                 join == PROGPU_NATIVE_STROKE_JOIN_ROUND ? 1U : 0U;
         }
+        PROGPU_REQUIRE(primitive_offset == record.payload_size);
     }
     PROGPU_REQUIRE(bevel_join_count == 3U);
     PROGPU_REQUIRE(round_join_count == 1U);
@@ -3745,17 +3742,15 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
             continue;
         }
-        const std::size_t primitive_count =
-            record.payload_size / sizeof(progpu_native_geometry_primitive);
-        for (std::size_t primitive_index = 0U;
-             primitive_index < primitive_count;
-             ++primitive_index) {
+        PROGPU_REQUIRE(record.payload_size >= primitive_stride);
+        std::uint32_t primitive_offset = 0U;
+        for (;
+             primitive_offset + primitive_stride <= record.payload_size;
+             primitive_offset += primitive_stride) {
             const auto primitive =
                 read_value<progpu_native_geometry_primitive>(
                     stream,
-                    record.payload_offset +
-                        primitive_index *
-                            sizeof(progpu_native_geometry_primitive));
+                    record.payload_offset + primitive_offset);
             if (primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC) {
                 ++capped_arc_count;
                 continue;
@@ -3782,6 +3777,7 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
                 ++end_cap_count;
             }
         }
+        PROGPU_REQUIRE(primitive_offset == record.payload_size);
     }
     PROGPU_REQUIRE(capped_arc_count == 1U);
     PROGPU_REQUIRE(start_cap_count == 1U);
@@ -3852,17 +3848,15 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
             continue;
         }
-        const std::size_t primitive_count =
-            record.payload_size / sizeof(progpu_native_geometry_primitive);
-        for (std::size_t primitive_index = 0U;
-             primitive_index < primitive_count;
-             ++primitive_index) {
+        PROGPU_REQUIRE(record.payload_size >= primitive_stride);
+        std::uint32_t primitive_offset = 0U;
+        for (;
+             primitive_offset + primitive_stride <= record.payload_size;
+             primitive_offset += primitive_stride) {
             const auto primitive =
                 read_value<progpu_native_geometry_primitive>(
                     stream,
-                    record.payload_offset +
-                        primitive_index *
-                            sizeof(progpu_native_geometry_primitive));
+                    record.payload_offset + primitive_offset);
             PROGPU_REQUIRE(
                 primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP);
             PROGPU_REQUIRE(primitive.p1.x == 1.0F);
@@ -3877,6 +3871,7 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
             zero_start_cap_count += primitive.p2.x == 1.0F ? 1U : 0U;
             zero_end_cap_count += primitive.p2.x == 0.0F ? 1U : 0U;
         }
+        PROGPU_REQUIRE(primitive_offset == record.payload_size);
     }
     PROGPU_REQUIRE(zero_round_cap_count == 3U);
     PROGPU_REQUIRE(zero_triangle_cap_count == 1U);
@@ -3920,21 +3915,20 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
             continue;
         }
-        const std::size_t primitive_count =
-            record.payload_size / sizeof(progpu_native_geometry_primitive);
-        for (std::size_t primitive_index = 0U;
-             primitive_index < primitive_count;
-             ++primitive_index) {
+        PROGPU_REQUIRE(record.payload_size >= primitive_stride);
+        std::uint32_t primitive_offset = 0U;
+        for (;
+             primitive_offset + primitive_stride <= record.payload_size;
+             primitive_offset += primitive_stride) {
             const auto primitive =
                 read_value<progpu_native_geometry_primitive>(
                     stream,
-                    record.payload_offset +
-                        primitive_index *
-                            sizeof(progpu_native_geometry_primitive));
+                    record.payload_offset + primitive_offset);
             if (primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP) {
                 ++boundary_dash_cap_count;
             }
         }
+        PROGPU_REQUIRE(primitive_offset == record.payload_size);
     }
     PROGPU_REQUIRE(boundary_dash_cap_count == 2U);
 
