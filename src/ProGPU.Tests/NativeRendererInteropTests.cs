@@ -13,6 +13,52 @@ namespace Avalonia.ProGpu.UnitTests;
 public class NativeRendererInteropTests
 {
     [Fact]
+    public void NativeMilBuildersWriteCanonicalBitmapCachePackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(8, NativeMilResourceType.BitmapCache);
+        batch.CreateResource(9, NativeMilResourceType.DoubleResource);
+        batch.SetDoubleResource(9, 1.5);
+        batch.SetBitmapCache(
+            8,
+            new NativeMilBitmapCache(
+                RenderAtScale: 7.0,
+                SnapsToDevicePixels: true,
+                EnableClearType: true,
+                RenderAtScaleAnimationHandle: 9));
+        batch.SetVisualCacheMode(2, 8);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(100, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x07U, ReadUInt32(encoded, 4));
+        Assert.Equal(8U, ReadUInt32(encoded, 8));
+        Assert.Equal(94U, ReadUInt32(encoded, 12));
+        Assert.Equal(20U, ReadUInt32(encoded, 32));
+        Assert.Equal(0x0eU, ReadUInt32(encoded, 36));
+        Assert.Equal(9U, ReadUInt32(encoded, 40));
+        Assert.Equal(1.5, ReadDouble(encoded, 44));
+        Assert.Equal(32U, ReadUInt32(encoded, 52));
+        Assert.Equal(0x8dU, ReadUInt32(encoded, 56));
+        Assert.Equal(8U, ReadUInt32(encoded, 60));
+        Assert.Equal(7.0, ReadDouble(encoded, 64));
+        Assert.Equal(9U, ReadUInt32(encoded, 72));
+        Assert.Equal(1U, ReadUInt32(encoded, 76));
+        Assert.Equal(1U, ReadUInt32(encoded, 80));
+        Assert.Equal(16U, ReadUInt32(encoded, 84));
+        Assert.Equal(0x1eU, ReadUInt32(encoded, 88));
+        Assert.Equal(2U, ReadUInt32(encoded, 92));
+        Assert.Equal(8U, ReadUInt32(encoded, 96));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetBitmapCache(
+                8,
+                new NativeMilBitmapCache(RenderAtScale: double.NaN)));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetVisualCacheMode(0, 8));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalTransformPackets()
     {
         var matrix = new NativeMilMatrix3x2(

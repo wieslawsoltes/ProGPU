@@ -1677,6 +1677,13 @@ transactionally. Packet booleans must be canonical zero or one, non-finite
 scale values fail closed, and animated scale is resolved from the live resource
 on every scene compilation.
 
+`NativeMilBatchBuilder` exposes the same contract through
+`NativeMilResourceType.BitmapCache`, `NativeMilBitmapCache`,
+`SetBitmapCache(...)`, and `SetVisualCacheMode(...)`. The WPF-neutral
+`IPortableBitmapCacheSource`/`PortableBitmapCache` seam carries the current
+scale, snapping, and ClearType values without referencing PresentationCore or
+using reflection; source-built LibreWPF is responsible for publishing it.
+
 For the currently executable unit-scale subset, the MIL compiler emits one
 owner-keyed cached semantic layer around the Visual subtree. The stable owner
 identity is derived from scene identity plus Visual handle; the pixel revision
