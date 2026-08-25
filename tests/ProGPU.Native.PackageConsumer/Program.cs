@@ -58,7 +58,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
         NativeMilCompiledScene scene = mil.CompileScene(42, 701, 1);
-        if (milMetrics.CommandCount != 74 || mil.ResourceCount != 34 ||
+        if (milMetrics.CommandCount != 78 || mil.ResourceCount != 36 ||
             !mil.TryGetVisual(41, out NativeMilVisualSnapshot visual) ||
             visual.Handle != 41 || scene.Stream.Length == 0 ||
             scene.Metrics.VisualCount != 1 ||
@@ -78,7 +78,7 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
         NativeMilCompiledScene scene = dawnMil.CompileScene(42, 702, 1);
-        if (milMetrics.CommandCount != 74 || dawnMil.ResourceCount != 34 ||
+        if (milMetrics.CommandCount != 78 || dawnMil.ResourceCount != 36 ||
             scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
             scene.Metrics.RectangleCount != 3 ||
             scene.Metrics.EllipseCount != 4 ||
@@ -270,15 +270,22 @@ static byte[] CreateMilSeedBatch(
     batch.CreateResource(72, NativeMilResourceType.ScaleTransform);
     batch.CreateResource(73, NativeMilResourceType.SkewTransform);
     batch.CreateResource(74, NativeMilResourceType.RotateTransform);
+    batch.CreateResource(75, NativeMilResourceType.DoubleResource);
+    batch.CreateResource(76, NativeMilResourceType.MatrixResource);
     batch.CreateVisual(41);
     batch.SetVisualOffset(41, 1, 2);
     batch.SetMatrixTransform(
         45,
-        new NativeMilMatrix3x2(1, 0, 0, 1, 1, 1));
+        new NativeMilMatrix3x2(1, 0, 0, 1, 99, 99),
+        76);
     batch.SetMatrixTransform(
         62,
         new NativeMilMatrix3x2(1, 0, 0, 0, 0, 0));
-    batch.SetTranslateTransform(71, 0, 0);
+    batch.SetDoubleResource(75, 0);
+    batch.SetMatrixResource(
+        76,
+        new NativeMilMatrix3x2(1, 0, 0, 1, 1, 1));
+    batch.SetTranslateTransform(71, 99, 0, 75);
     batch.SetScaleTransform(72, 1, 1, 8, 12);
     batch.SetSkewTransform(73, 0, 0, 8, 12);
     batch.SetRotateTransform(74, 0, 8, 12);
