@@ -953,8 +953,44 @@ bool matrix_transform_scopes_compile_to_semantic_state() {
         0U);
     PROGPU_REQUIRE(state.apply(rounded_clip_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7001U, 4U, stream) ==
-        status::unsupported_command);
+        state.build_scene(target, 7001U, 4U, stream) == status::success);
+    const auto rounded_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_vector_clip = false;
+    bool found_masked_state = false;
+    for (std::uint32_t index = 0U;
+         index < rounded_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            rounded_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
+            const auto mask =
+                read_value<progpu_native_scene_layer_vector_mask>(
+                    stream,
+                    resource.payload_offset);
+            if (mask.kind ==
+                PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN) {
+                PROGPU_REQUIRE(mask.path_count == 1U);
+                PROGPU_REQUIRE(mask.segment_count == 8U);
+                PROGPU_REQUIRE(mask.boolean_node_count == 0U);
+                found_vector_clip = true;
+            }
+        } else if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            const auto scene_state = read_value<progpu_native_scene_state>(
+                stream,
+                resource.payload_offset);
+            if ((scene_state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U) {
+                PROGPU_REQUIRE(
+                    scene_state.mask_resource_index <
+                    rounded_header.resource_count);
+                found_masked_state = true;
+            }
+        }
+    }
+    PROGPU_REQUIRE(found_vector_clip);
+    PROGPU_REQUIRE(found_masked_state);
     return true;
 }
 
@@ -2818,12 +2854,12 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
                     stream,
                     resource.auxiliary_offset +
                         8U * sizeof(progpu_native_path_segment));
-            const auto ellipse_cubic =
+            const auto ellipse_arc =
                 read_value<progpu_native_path_segment>(
                     stream,
                     resource.auxiliary_offset +
                         12U * sizeof(progpu_native_path_segment));
-            const auto rounded_cubic =
+            const auto rounded_arc =
                 read_value<progpu_native_path_segment>(
                     stream,
                     resource.auxiliary_offset +
@@ -2840,17 +2876,25 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
                 rectangle_line.p1.x == 24.0F &&
                 rectangle_line.p1.y == 5.0F);
             PROGPU_REQUIRE(
-                ellipse_cubic.kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC &&
-                ellipse_cubic.p0.x == 32.0F &&
-                ellipse_cubic.p0.y == 6.0F &&
-                ellipse_cubic.p3.x == 30.0F &&
-                ellipse_cubic.p3.y == 7.0F);
+                ellipse_arc.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC &&
+                ellipse_arc.p0.x == 32.0F &&
+                ellipse_arc.p0.y == 6.0F &&
+                ellipse_arc.p1.x == 30.0F &&
+                ellipse_arc.p1.y == 7.0F &&
+                ellipse_arc.p2.x == 30.0F &&
+                ellipse_arc.p2.y == 6.0F &&
+                ellipse_arc.p3.x == 2.0F &&
+                ellipse_arc.p3.y == 1.0F);
             PROGPU_REQUIRE(
-                rounded_cubic.kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC &&
-                rounded_cubic.p0.x == 16.0F &&
-                rounded_cubic.p0.y == 2.0F &&
-                rounded_cubic.p3.x == 19.0F &&
-                rounded_cubic.p3.y == 0.0F);
+                rounded_arc.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC &&
+                rounded_arc.p0.x == 16.0F &&
+                rounded_arc.p0.y == 2.0F &&
+                rounded_arc.p1.x == 19.0F &&
+                rounded_arc.p1.y == 0.0F &&
+                rounded_arc.p2.x == 19.0F &&
+                rounded_arc.p2.y == 2.0F &&
+                rounded_arc.p3.x == 3.0F &&
+                rounded_arc.p3.y == 2.0F);
             PROGPU_REQUIRE(
                 nested_line.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE &&
                 nested_line.p0.x == 21.0F && nested_line.p0.y == 7.0F &&
@@ -3439,7 +3483,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
                 ? 1U
                 : 0U;
         }
-        PROGPU_REQUIRE(arc_count == 3U);
+        PROGPU_REQUIRE(arc_count == 11U);
         found_preserved_group_arcs = true;
     }
     PROGPU_REQUIRE(found_preserved_group_arcs);
@@ -3522,6 +3566,152 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     PROGPU_REQUIRE(
         state.build_scene(target, 7003U, 9U, stream) ==
         status::unsupported_command);
+
+    std::vector<std::byte> clip_update;
+    append_path_geometry(
+        clip_update,
+        path_b,
+        child_transform,
+        1U,
+        make_curve_path_figures());
+    const std::array clip_group_children{path_a, path_b};
+    append_geometry_group(
+        clip_update,
+        group,
+        transform,
+        0U,
+        clip_group_children);
+    append_command(
+        clip_update,
+        command::combined_geometry,
+        combined,
+        transform,
+        3U,
+        path_a,
+        rounded_rectangle);
+    std::vector<std::byte> clipped_render_data;
+    append_command(clipped_render_data, command::push_clip, path_a, 0U);
+    append_command(clipped_render_data, command::push_clip, group, 0U);
+    append_command(clipped_render_data, command::push_clip, combined, 0U);
+    append_command(
+        clipped_render_data,
+        command::draw_rectangle,
+        0.0,
+        0.0,
+        64.0,
+        64.0,
+        brush,
+        0U);
+    append_command(clipped_render_data, command::pop);
+    append_command(clipped_render_data, command::pop);
+    append_command(clipped_render_data, command::pop);
+    append_command(
+        clipped_render_data,
+        command::push_clip,
+        rounded_rectangle,
+        0U);
+    append_command(
+        clipped_render_data,
+        command::draw_rectangle,
+        0.0,
+        0.0,
+        8.0,
+        8.0,
+        brush,
+        0U);
+    append_command(clipped_render_data, command::pop);
+    append_render_data(clip_update, content, clipped_render_data);
+    PROGPU_REQUIRE(state.apply(clip_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7003U, 10U, stream) == status::success);
+    const auto clip_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_complete_clip_chain = false;
+    bool found_complete_clip_state = false;
+    bool found_restored_clip_chain = false;
+    for (std::uint32_t index = 0U;
+         index < clip_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            clip_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
+            const auto mask =
+                read_value<progpu_native_scene_layer_vector_mask>(
+                    stream,
+                    resource.payload_offset);
+            if (mask.kind !=
+                    PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN ||
+                mask.path_count != 3U) {
+                if (mask.kind ==
+                        PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN &&
+                    mask.path_count == 1U &&
+                    mask.segment_count == 8U) {
+                    const auto segment =
+                        read_value<progpu_native_path_segment>(
+                            stream,
+                            resource.auxiliary_offset +
+                                sizeof(progpu_native_scene_clip_path));
+                    if (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC) {
+                        found_restored_clip_chain = true;
+                    }
+                }
+                continue;
+            }
+            PROGPU_REQUIRE(mask.segment_count == 24U);
+            PROGPU_REQUIRE(mask.boolean_node_count == 6U);
+            const auto first_path =
+                read_value<progpu_native_scene_clip_path>(
+                    stream,
+                    resource.auxiliary_offset);
+            const auto group_path =
+                read_value<progpu_native_scene_clip_path>(
+                    stream,
+                    resource.auxiliary_offset +
+                        sizeof(progpu_native_scene_clip_path));
+            const auto combined_path =
+                read_value<progpu_native_scene_clip_path>(
+                    stream,
+                    resource.auxiliary_offset +
+                        2U * sizeof(progpu_native_scene_clip_path));
+            PROGPU_REQUIRE(
+                first_path.segment_count == 4U &&
+                first_path.boolean_node_count == 0U &&
+                first_path.operation == PROGPU_NATIVE_CLIP_INTERSECT);
+            PROGPU_REQUIRE(
+                group_path.segment_count == 8U &&
+                group_path.boolean_node_count == 3U &&
+                group_path.operation == PROGPU_NATIVE_CLIP_INTERSECT);
+            PROGPU_REQUIRE(
+                combined_path.segment_count == 12U &&
+                combined_path.boolean_node_count == 3U &&
+                combined_path.operation == PROGPU_NATIVE_CLIP_INTERSECT);
+            found_complete_clip_chain = true;
+        } else if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            const auto scene_state = read_value<progpu_native_scene_state>(
+                stream,
+                resource.payload_offset);
+            if ((scene_state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U) {
+                const auto mask_resource =
+                    read_value<progpu_native_scene_resource>(
+                        stream,
+                        clip_header.resource_offset +
+                            scene_state.mask_resource_index *
+                                sizeof(progpu_native_scene_resource));
+                const auto mask =
+                    read_value<progpu_native_scene_layer_vector_mask>(
+                        stream,
+                        mask_resource.payload_offset);
+                if (mask.path_count == 3U) {
+                    found_complete_clip_state = true;
+                }
+            }
+        }
+    }
+    PROGPU_REQUIRE(found_complete_clip_chain);
+    PROGPU_REQUIRE(found_complete_clip_state);
+    PROGPU_REQUIRE(found_restored_clip_chain);
     return true;
 }
 
