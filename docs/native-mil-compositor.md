@@ -1796,6 +1796,26 @@ SHA-256 values are
 `progpu_native_dawn.dll`. This closes the strict DirectX gate for the current
 local-space, RenderAtScale, snapping, and ClearType cache subset.
 
+The post-raster cache-root State checkpoint was qualified on 2026-08-26 from
+clean detached ProGPU commit `7eb17727` in the same Windows 11 ARM64 VM.
+Strict MSVC rebuilt the modified MIL compiler, scene validation, composite
+executor, and both native modules under `/W4 /WX`; all 11 native/Dawn CTests
+and both export contracts passed. The independent C++ and managed samples used
+the live `Parallels Display Adapter (WDDM)` D3D12 adapter and passed retained
+render, allocation, and pixel-readback checks; both managed builds completed
+with zero warnings. The expected Parallels-only retained GPU hit-test deferral
+remained isolated to the optional probe. The complete bounded differential
+matrix passed group opacity, zero-copy image/mask, retained semantic,
+mask/effect, path-atlas, image-effect, Overlay, ColorDodge, and managed/C++
+text-shaping contracts; group opacity, zero-copy image, Overlay, and ColorDodge
+were pixel-exact. The staged nine-file win-arm64 package has SHA-256
+`B2258721E6AFA621ADB5AC6E284DBF392342288A5620B22156667EE357E7D710` for
+`progpu_native.dll` and
+`73327D9C482EEE4F387789A9B2561220FD41C8659A4C781AF094CBFC8FB2C3E1` for
+`progpu_native_dawn.dll`. This closes the strict DirectX gate for exact
+rectangle post-raster clips, one static composite guideline per axis, and
+cache-root raster/composite state separation.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
@@ -1810,7 +1830,7 @@ The implementation sequence is intentionally architectural:
 5. Qualify composite clip/mask/guideline ordering, nested cache lifetime,
    effects ordering, and LibreWPF package lanes. (Exact rectangle composite
    clips, one static guideline per axis, and the combined snapping/ClearType
-   checkpoint are implemented; the latter is qualified on live D3D12.)
+   checkpoint are implemented and qualified on live D3D12.)
 
 The persistent page and composite-transform path are executable, but full cache
 parity is not claimed until the remaining post-raster state and ordering

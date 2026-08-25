@@ -2309,6 +2309,21 @@ RenderAtScale, pixel-snapping, and ClearType cache subset on DirectX; the
 remaining cache work is spatial mask, non-linear sampling, multi-guideline,
 nested-cache/effect ordering, and LibreWPF package integration.
 
+The post-raster cache-root State checkpoint passed that strict Windows gate on
+2026-08-26 from clean detached ProGPU commit `7eb17727`. MSVC rebuilt both
+modules under `/W4 /WX`; all 11 native/Dawn CTests, both export allowlists, the
+independent C++ and managed D3D12 samples, managed allocation/readback checks,
+managed/C++ text shaping, and the bounded D3D12 differential matrix passed.
+Both managed builds had zero warnings, and the expected Parallels-only retained
+GPU hit-test deferral remained isolated from the required renderer sample. The
+staged nine-file win-arm64 package hashes are
+`B2258721E6AFA621ADB5AC6E284DBF392342288A5620B22156667EE357E7D710` for
+`progpu_native.dll` and
+`73327D9C482EEE4F387789A9B2561220FD41C8659A4C781AF094CBFC8FB2C3E1` for
+`progpu_native_dawn.dll`. Exact rectangle post-raster clips, one static
+composite guideline per axis, and cache-root raster/composite state separation
+are therefore qualified on DirectX as well as Metal/Dawn.
+
 The command vocabulary is deliberately semantic:
 
 - save/restore transform and rectangular/rounded/vector clip state;
