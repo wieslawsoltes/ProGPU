@@ -1824,6 +1824,94 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     }
     PROGPU_REQUIRE(found_rounded_stroke_bounds);
 
+    std::vector<std::byte> nonuniform_rounded_batch;
+    std::vector<std::byte> nonuniform_rounded;
+    append_command(
+        nonuniform_rounded,
+        command::draw_rounded_rectangle,
+        2.0,
+        3.0,
+        8.0,
+        6.0,
+        2.0,
+        1.0,
+        brush,
+        solid_pen);
+    append_render_data(
+        nonuniform_rounded_batch,
+        content,
+        nonuniform_rounded);
+    PROGPU_REQUIRE(
+        state.apply(nonuniform_rounded_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 61U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rounded_rectangle_count == 1U);
+    const auto nonuniform_rounded_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t nonuniform_fill_arc_count = 0U;
+    std::uint32_t nonuniform_stroke_arc_count = 0U;
+    std::uint32_t nonuniform_round_join_count = 0U;
+    for (std::uint32_t index = 0U;
+         index < nonuniform_rounded_header.resource_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            nonuniform_rounded_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        PROGPU_REQUIRE(
+            record.kind != PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH);
+        if (record.kind == PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            const auto path = read_value<progpu_native_scene_path_fill>(
+                stream,
+                record.payload_offset);
+            PROGPU_REQUIRE(path.segment_count == 8U);
+            for (std::size_t segment_index = 0U;
+                 segment_index < path.segment_count;
+                 ++segment_index) {
+                const auto segment = read_value<progpu_native_path_segment>(
+                    stream,
+                    record.auxiliary_offset + segment_index *
+                        sizeof(progpu_native_path_segment));
+                if (segment.kind != PROGPU_NATIVE_PATH_SEGMENT_ARC) {
+                    continue;
+                }
+                PROGPU_REQUIRE(segment.p3.x == 2.0F);
+                PROGPU_REQUIRE(segment.p3.y == 1.0F);
+                ++nonuniform_fill_arc_count;
+            }
+        } else if (record.kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            const std::size_t primitive_count = record.payload_size /
+                sizeof(progpu_native_geometry_primitive);
+            for (std::size_t primitive_index = 0U;
+                 primitive_index < primitive_count;
+                 ++primitive_index) {
+                const auto primitive =
+                    read_value<progpu_native_geometry_primitive>(
+                        stream,
+                        record.payload_offset + primitive_index *
+                            sizeof(progpu_native_geometry_primitive));
+                if (primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC) {
+                    PROGPU_REQUIRE(primitive.p1.x == 2.0F);
+                    PROGPU_REQUIRE(primitive.p2.y == 1.0F);
+                    ++nonuniform_stroke_arc_count;
+                } else if (primitive.kind ==
+                    PROGPU_NATIVE_GEOMETRY_PATH_JOIN) {
+                    PROGPU_REQUIRE(
+                        (primitive.flags &
+                            PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) ==
+                        (PROGPU_NATIVE_STROKE_JOIN_ROUND <<
+                            PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT));
+                    ++nonuniform_round_join_count;
+                }
+            }
+        }
+    }
+    PROGPU_REQUIRE(nonuniform_fill_arc_count == 4U);
+    PROGPU_REQUIRE(nonuniform_stroke_arc_count == 4U);
+    PROGPU_REQUIRE(nonuniform_round_join_count == 8U);
+
     std::vector<std::byte> dashed_ellipse_batch;
     std::vector<std::byte> dashed_ellipse;
     append_command(
@@ -2012,6 +2100,85 @@ bool solid_pen_line_compiles_to_geometry_scene() {
         ++transformed_analytic_count;
     }
     PROGPU_REQUIRE(transformed_analytic_count >= 3U);
+
+    std::vector<std::byte> nonuniform_rectangle_geometry_update;
+    append_command(
+        nonuniform_rectangle_geometry_update,
+        command::rectangle_geometry,
+        rectangle_geometry,
+        3.0,
+        1.0,
+        4.0,
+        4.0,
+        12.0,
+        8.0,
+        transform,
+        0U,
+        0U,
+        0U);
+    std::vector<std::byte> nonuniform_rectangle_geometry_draw;
+    append_command(
+        nonuniform_rectangle_geometry_draw,
+        command::draw_geometry,
+        brush,
+        solid_pen,
+        rectangle_geometry,
+        0U);
+    append_render_data(
+        nonuniform_rectangle_geometry_update,
+        content,
+        nonuniform_rectangle_geometry_draw);
+    PROGPU_REQUIRE(
+        state.apply(nonuniform_rectangle_geometry_update) ==
+        status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 62U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rounded_rectangle_count == 1U);
+    const auto nonuniform_rectangle_geometry_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t retained_nonuniform_path_count = 0U;
+    std::uint32_t retained_nonuniform_arc_count = 0U;
+    for (std::uint32_t index = 0U;
+         index < nonuniform_rectangle_geometry_header.resource_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            nonuniform_rectangle_geometry_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind == PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            const auto path = read_value<progpu_native_scene_path_fill>(
+                stream,
+                record.payload_offset);
+            PROGPU_REQUIRE(path.segment_count == 8U);
+            PROGPU_REQUIRE(path.transform.m11 == 2.0F);
+            PROGPU_REQUIRE(path.transform.m22 == 2.0F);
+            ++retained_nonuniform_path_count;
+        } else if (record.kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            const std::size_t primitive_count = record.payload_size /
+                sizeof(progpu_native_geometry_primitive);
+            for (std::size_t primitive_index = 0U;
+                 primitive_index < primitive_count;
+                 ++primitive_index) {
+                const auto primitive =
+                    read_value<progpu_native_geometry_primitive>(
+                        stream,
+                        record.payload_offset + primitive_index *
+                            sizeof(progpu_native_geometry_primitive));
+                if (primitive.kind != PROGPU_NATIVE_GEOMETRY_ARC) {
+                    continue;
+                }
+                PROGPU_REQUIRE(primitive.p1.x == 3.0F);
+                PROGPU_REQUIRE(primitive.p2.y == 1.0F);
+                PROGPU_REQUIRE(primitive.transform.m11 == 2.0F);
+                PROGPU_REQUIRE(primitive.transform.m22 == 2.0F);
+                ++retained_nonuniform_arc_count;
+            }
+        }
+    }
+    PROGPU_REQUIRE(retained_nonuniform_path_count == 1U);
+    PROGPU_REQUIRE(retained_nonuniform_arc_count == 4U);
 
     std::vector<std::byte> degenerate_ellipse_geometry_update;
     append_command(
@@ -4668,7 +4835,7 @@ bool render_data_scope_errors_fail_closed() {
         0.0,
         10.0,
         10.0,
-        2.0,
+        0.0,
         3.0,
         visual,
         0U);
