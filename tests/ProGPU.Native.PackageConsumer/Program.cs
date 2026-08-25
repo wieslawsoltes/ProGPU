@@ -221,7 +221,8 @@ static byte[] CreateMilSeedBatch()
         CreateMilPath(0));
     batch.SetPathGeometry(
         53,
-        CreateMilPath(8));
+        CreateMilAffinePath(8),
+        45);
     batch.SetGeometryGroup(
         54,
         NativeMilPathFillRule.EvenOdd,
@@ -263,6 +264,33 @@ static NativeMilPathGeometry CreateMilLineStrokePath()
                         isStroked: false),
                     NativeMilPathSegment.Line(new NativeMilPoint(60, 60)),
                     NativeMilPathSegment.Line(new NativeMilPoint(4, 60))
+                ])
+        ]);
+}
+
+static NativeMilPathGeometry CreateMilAffinePath(double offsetX)
+{
+    return new NativeMilPathGeometry(
+        NativeMilPathFillRule.Nonzero,
+        8 + offsetX,
+        4,
+        42,
+        44,
+        [
+            new NativeMilPathFigure(
+                new NativeMilPoint(10 + offsetX, 44),
+                IsFilled: true,
+                IsClosed: true,
+                [
+                    NativeMilPathSegment.Line(
+                        new NativeMilPoint(10 + offsetX, 16)),
+                    NativeMilPathSegment.QuadraticBezier(
+                        new NativeMilPoint(32 + offsetX, 4),
+                        new NativeMilPoint(48 + offsetX, 16)),
+                    NativeMilPathSegment.CubicBezier(
+                        new NativeMilPoint(52 + offsetX, 24),
+                        new NativeMilPoint(40 + offsetX, 40),
+                        new NativeMilPoint(10 + offsetX, 44))
                 ])
         ]);
 }
