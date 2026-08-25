@@ -58,14 +58,14 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = mil.Apply(milBatch);
         NativeMilCompiledScene scene = mil.CompileScene(42, 701, 1);
-        if (milMetrics.CommandCount != 50 || mil.ResourceCount != 22 ||
+        if (milMetrics.CommandCount != 52 || mil.ResourceCount != 23 ||
             !mil.TryGetVisual(41, out NativeMilVisualSnapshot visual) ||
             visual.Handle != 41 || scene.Stream.Length == 0 ||
             scene.Metrics.VisualCount != 1 ||
             scene.Metrics.RectangleCount != 1 ||
             scene.Metrics.EllipseCount != 2 ||
             scene.Metrics.RoundedRectangleCount != 2 ||
-            scene.Metrics.LineCount != 2 ||
+            scene.Metrics.LineCount != 3 ||
             scene.Metrics.BrushCount != 1)
         {
             throw new InvalidOperationException(
@@ -78,12 +78,12 @@ if (!renderOnly)
     {
         NativeMilBatchMetrics milMetrics = dawnMil.Apply(milBatch);
         NativeMilCompiledScene scene = dawnMil.CompileScene(42, 702, 1);
-        if (milMetrics.CommandCount != 50 || dawnMil.ResourceCount != 22 ||
+        if (milMetrics.CommandCount != 52 || dawnMil.ResourceCount != 23 ||
             scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
             scene.Metrics.RectangleCount != 1 ||
             scene.Metrics.EllipseCount != 2 ||
             scene.Metrics.RoundedRectangleCount != 2 ||
-            scene.Metrics.LineCount != 2 ||
+            scene.Metrics.LineCount != 3 ||
             scene.Metrics.BrushCount != 1)
         {
             throw new InvalidOperationException(
@@ -204,6 +204,7 @@ static byte[] CreateMilSeedBatch(
     renderData.PushClip(52);
     renderData.DrawRectangle(8, 8, 48, 48, 44, 46);
     renderData.DrawLine(8, 8, 56, 56, 46);
+    renderData.DrawLine(24, 24, 24, 24, 48);
     renderData.DrawEllipse(32, 32, 16, 12, 44, 48);
     renderData.DrawRoundedRectangle(12, 16, 40, 32, 8, 8, 0, 48);
     renderData.DrawGeometry(0, 48, 49);
@@ -215,6 +216,7 @@ static byte[] CreateMilSeedBatch(
     renderData.DrawGeometry(0, 46, 56);
     renderData.DrawGeometry(0, 48, 59);
     renderData.DrawGeometry(0, 48, 60);
+    renderData.DrawGeometry(0, 48, 63);
     renderData.Pop();
     renderData.Pop();
     renderData.Pop();
@@ -248,6 +250,7 @@ static byte[] CreateMilSeedBatch(
     batch.CreateResource(60, NativeMilResourceType.PathGeometry);
     batch.CreateResource(61, NativeMilResourceType.RectangleGeometry);
     batch.CreateResource(62, NativeMilResourceType.MatrixTransform);
+    batch.CreateResource(63, NativeMilResourceType.PathGeometry);
     batch.CreateVisual(41);
     batch.SetVisualOffset(41, 1, 2);
     batch.SetMatrixTransform(
@@ -330,6 +333,10 @@ static byte[] CreateMilSeedBatch(
         60,
         CreateMilJoinedCurveStrokePath(),
         45);
+    batch.SetPathGeometry(
+        63,
+        CreateMilDegenerateStrokePath(),
+        45);
     batch.SetRectangleGeometry(61, -1000, -1000, 2000, 2000);
     batch.SetRenderData(43, renderData);
     batch.CreateGenericTarget(42, 64, 64);
@@ -411,6 +418,34 @@ static NativeMilPathGeometry CreateMilJoinedCurveStrokePath()
                         new NativeMilPoint(54, 28),
                         new NativeMilPoint(38, 48),
                         new NativeMilPoint(10, 44))
+                ])
+        ]);
+}
+
+static NativeMilPathGeometry CreateMilDegenerateStrokePath()
+{
+    return new NativeMilPathGeometry(
+        NativeMilPathFillRule.Nonzero,
+        30,
+        30,
+        10,
+        10,
+        [
+            new NativeMilPathFigure(
+                new NativeMilPoint(30, 30),
+                IsFilled: false,
+                IsClosed: false,
+                [
+                    NativeMilPathSegment.Line(
+                        new NativeMilPoint(30, 30))
+                ]),
+            new NativeMilPathFigure(
+                new NativeMilPoint(40, 40),
+                IsFilled: false,
+                IsClosed: true,
+                [
+                    NativeMilPathSegment.Line(
+                        new NativeMilPoint(40, 40))
                 ])
         ]);
 }
