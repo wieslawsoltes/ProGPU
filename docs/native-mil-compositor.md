@@ -508,6 +508,27 @@ D3D12 readback. The installed graph reported 18 semantic resources and three
 draw calls before the independent immediate renderer completed its
 16,384-pixel readback.
 
+The fixed-child `GeometryGroup` checkpoint at exact ProGPU commit `18ccb55c`
+passed the complete Windows ARM64 MSVC gate. Both wgpu-native and
+provider-resolved Dawn modules rebuilt under `/W4 /WX`; all 11 CTests passed,
+including exact transformed rectangle, ellipse, non-uniform rounded-rectangle,
+and empty line-child group contours. The independent C++ and managed hosts
+completed live D3D12 rendering/readback and allocation probes. The bounded
+mixed differential remained at maximum delta 2/255, zero pixels above 3/255,
+and mean `0.0000622`; external and masked images, semantic mask/effect layers,
+path atlas, blur/drop-shadow, text, Overlay, and ColorDodge contracts also
+passed before fresh `win-arm64` package staging.
+
+The zero-warning project-reference package consumer copied both staged DLLs
+app-locally and verified identical source/destination SHA-256 values:
+`73fcc3871408d4642d6ace3817b30c36194e9938c36dd60f8e4d09325ec4495f`
+for `progpu_native.dll` and
+`709e59f97f484dc74dd5693f207dbbe96ba568d1f692b93c6df186e5d535c8c8`
+for `progpu_native_dawn.dll`. Both MIL exports compiled the group containing
+transformed rounded-rectangle and ellipse children. The installed wgpu-native
+stream then completed live D3D12 readback with 18 semantic resources, three
+draws, and 16,384 pixels before the independent immediate renderer smoke.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
