@@ -1791,7 +1791,8 @@ struct channel::implementation {
     status append_shallow_fill_leaf(
         std::uint32_t geometry_handle,
         std::vector<progpu_native_path_segment>& segments,
-        shallow_fill_leaf& leaf) const {
+        shallow_fill_leaf& leaf,
+        affine_2d_double parent_transform = {}) const {
         leaf = {};
         leaf.segment_offset = segments.size();
         const auto path = path_geometries.find(geometry_handle);
@@ -1799,7 +1800,22 @@ struct channel::implementation {
             if (path->second.segments.empty()) {
                 return status::success;
             }
-            if (path->second.transform_handle == 0U) {
+            affine_2d_double transform = parent_transform;
+            if (path->second.transform_handle != 0U) {
+                const auto found = matrix_transforms.find(
+                    path->second.transform_handle);
+                if (found == matrix_transforms.end()) {
+                    return status::invalid_handle;
+                }
+                transform = compose_affine(
+                    found->second,
+                    parent_transform);
+            }
+            const bool transform_is_identity =
+                transform.m11 == 1.0 && transform.m12 == 0.0 &&
+                transform.m21 == 0.0 && transform.m22 == 1.0 &&
+                transform.m31 == 0.0 && transform.m32 == 0.0;
+            if (transform_is_identity) {
                 segments.insert(
                     segments.end(),
                     path->second.segments.begin(),
@@ -1809,11 +1825,6 @@ struct channel::implementation {
                 leaf.right = path->second.right;
                 leaf.bottom = path->second.bottom;
             } else {
-                const auto transform = matrix_transforms.find(
-                    path->second.transform_handle);
-                if (transform == matrix_transforms.end()) {
-                    return status::invalid_handle;
-                }
                 if (std::ranges::any_of(
                         path->second.segments,
                         [](const progpu_native_path_segment& segment) {
@@ -1826,13 +1837,13 @@ struct channel::implementation {
                 const auto map_point = [&transform](
                     progpu_native_point& point) noexcept {
                     const double mapped_x =
-                        point.x * transform->second.m11 +
-                        point.y * transform->second.m21 +
-                        transform->second.m31;
+                        point.x * transform.m11 +
+                        point.y * transform.m21 +
+                        transform.m31;
                     const double mapped_y =
-                        point.x * transform->second.m12 +
-                        point.y * transform->second.m22 +
-                        transform->second.m32;
+                        point.x * transform.m12 +
+                        point.y * transform.m22 +
+                        transform.m32;
                     if (!finite_double_as_float(mapped_x) ||
                         !finite_double_as_float(mapped_y)) {
                         return false;
@@ -1867,7 +1878,7 @@ struct channel::implementation {
                         path->second.top,
                         path->second.right - path->second.left,
                         path->second.bottom - path->second.top,
-                        transform->second,
+                        transform,
                         bounds)) {
                     segments.resize(original_size);
                     return status::invalid_graph;
@@ -1892,14 +1903,16 @@ struct channel::implementation {
         if (fixed->second.kind == fixed_geometry_kind::line) {
             return status::success;
         }
-        affine_2d_double transform{};
+        affine_2d_double transform = parent_transform;
         if (fixed->second.transform_handle != 0U) {
             const auto found = matrix_transforms.find(
                 fixed->second.transform_handle);
             if (found == matrix_transforms.end()) {
                 return status::invalid_handle;
             }
-            transform = found->second;
+            transform = compose_affine(
+                found->second,
+                parent_transform);
         }
         const std::size_t original_size = segments.size();
         const auto include_point = [&leaf](progpu_native_point point) noexcept {
@@ -2110,6 +2123,72 @@ struct channel::implementation {
             leaf = {};
             leaf.segment_offset = original_size;
             return status::invalid_graph;
+        }
+        leaf.segment_count = segments.size() - original_size;
+        return status::success;
+    }
+
+    status append_group_fill_leaf(
+        std::uint32_t geometry_handle,
+        std::vector<progpu_native_path_segment>& segments,
+        shallow_fill_leaf& leaf,
+        affine_2d_double parent_transform = {},
+        std::uint32_t depth = 1U) const {
+        const auto group = geometry_groups.find(geometry_handle);
+        if (group == geometry_groups.end()) {
+            return append_shallow_fill_leaf(
+                geometry_handle,
+                segments,
+                leaf,
+                parent_transform);
+        }
+        if (depth == 0U || depth > maximum_visual_depth) {
+            return status::invalid_graph;
+        }
+        affine_2d_double transform = parent_transform;
+        if (group->second.transform_handle != 0U) {
+            const auto found = matrix_transforms.find(
+                group->second.transform_handle);
+            if (found == matrix_transforms.end()) {
+                return status::invalid_handle;
+            }
+            transform = compose_affine(found->second, parent_transform);
+        }
+        const std::size_t original_size = segments.size();
+        leaf = {};
+        leaf.segment_offset = original_size;
+        leaf.fill_rule = group->second.fill_rule == 0U
+            ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+            : PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+        for (const std::uint32_t child_handle : group->second.children) {
+            shallow_fill_leaf child{};
+            const status child_status = append_group_fill_leaf(
+                child_handle,
+                segments,
+                child,
+                transform,
+                depth + 1U);
+            if (child_status != status::success) {
+                segments.resize(original_size);
+                leaf = {};
+                leaf.segment_offset = original_size;
+                return child_status;
+            }
+            if (!child.has_bounds) {
+                continue;
+            }
+            if (!leaf.has_bounds) {
+                leaf.left = child.left;
+                leaf.top = child.top;
+                leaf.right = child.right;
+                leaf.bottom = child.bottom;
+                leaf.has_bounds = true;
+            } else {
+                leaf.left = std::min(leaf.left, child.left);
+                leaf.top = std::min(leaf.top, child.top);
+                leaf.right = std::max(leaf.right, child.right);
+                leaf.bottom = std::max(leaf.bottom, child.bottom);
+            }
         }
         leaf.segment_count = segments.size() - original_size;
         return status::success;
@@ -2678,7 +2757,7 @@ struct channel::implementation {
                     for (const std::uint32_t child_handle :
                          geometry_group->second.children) {
                         shallow_fill_leaf child{};
-                        const status child_status = append_shallow_fill_leaf(
+                        const status child_status = append_group_fill_leaf(
                             child_handle,
                             group_segments,
                             child);
@@ -2785,7 +2864,7 @@ struct channel::implementation {
                         }
                         shallow_fill_leaf operand{};
                         const status operand_status =
-                            append_shallow_fill_leaf(
+                            append_group_fill_leaf(
                                 operand_handle,
                                 combined_segments,
                                 operand);

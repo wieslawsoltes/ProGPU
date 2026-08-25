@@ -2099,6 +2099,8 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     constexpr std::uint32_t ellipse = 13U;
     constexpr std::uint32_t line = 14U;
     constexpr std::uint32_t rounded_rectangle = 15U;
+    constexpr std::uint32_t same_fill_group = 16U;
+    constexpr std::uint32_t different_fill_group = 17U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -2116,6 +2118,8 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     append_create(batch, ellipse, 70U);
     append_create(batch, line, 68U);
     append_create(batch, rounded_rectangle, 69U);
+    append_create(batch, same_fill_group, 71U);
+    append_create(batch, different_fill_group, 71U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -2209,13 +2213,28 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         child_transform,
         1U,
         make_curve_path_figures());
+    const std::array same_fill_children{path_a};
+    append_geometry_group(
+        batch,
+        same_fill_group,
+        child_transform,
+        0U,
+        same_fill_children);
+    const std::array different_fill_children{path_a};
+    append_geometry_group(
+        batch,
+        different_fill_group,
+        0U,
+        1U,
+        different_fill_children);
     const std::array children{
         path_a,
         path_b,
         rectangle,
         ellipse,
         line,
-        rounded_rectangle};
+        rounded_rectangle,
+        same_fill_group};
     append_geometry_group(batch, group, transform, 0U, children);
     append_command(
         batch,
@@ -2276,9 +2295,9 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         PROGPU_REQUIRE(path.transform.m31 == 2.0F);
         PROGPU_REQUIRE(path.transform.m32 == 3.0F);
         if (path.boolean_node_count == 0U) {
-            PROGPU_REQUIRE(path.segment_count == 24U);
+            PROGPU_REQUIRE(path.segment_count == 28U);
             PROGPU_REQUIRE(path.min_x == 1.0F && path.min_y == 0.0F);
-            PROGPU_REQUIRE(path.max_x == 35.0F && path.max_y == 13.0F);
+            PROGPU_REQUIRE(path.max_x == 35.0F && path.max_y == 15.0F);
             PROGPU_REQUIRE(
                 path.fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD);
             const auto rectangle_line =
@@ -2296,6 +2315,11 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
                     stream,
                     resource.auxiliary_offset +
                         16U * sizeof(progpu_native_path_segment));
+            const auto nested_line =
+                read_value<progpu_native_path_segment>(
+                    stream,
+                    resource.auxiliary_offset +
+                        24U * sizeof(progpu_native_path_segment));
             PROGPU_REQUIRE(
                 rectangle_line.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE &&
                 rectangle_line.p0.x == 20.0F &&
@@ -2314,6 +2338,10 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
                 rounded_cubic.p0.y == 2.0F &&
                 rounded_cubic.p3.x == 19.0F &&
                 rounded_cubic.p3.y == 0.0F);
+            PROGPU_REQUIRE(
+                nested_line.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE &&
+                nested_line.p0.x == 21.0F && nested_line.p0.y == 7.0F &&
+                nested_line.p1.x == 29.0F && nested_line.p1.y == 7.0F);
             found_group_path = true;
             continue;
         }
@@ -2431,6 +2459,56 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     }
     PROGPU_REQUIRE(found_path_operands);
 
+    std::vector<std::byte> group_operand_update;
+    append_command(
+        group_operand_update,
+        command::combined_geometry,
+        combined,
+        transform,
+        3U,
+        same_fill_group,
+        rounded_rectangle);
+    PROGPU_REQUIRE(state.apply(group_operand_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7003U, 3U, stream) == status::success);
+    const auto group_operand_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_group_operand = false;
+    for (std::uint32_t index = 0U;
+         index < group_operand_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            group_operand_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            continue;
+        }
+        const auto path = read_value<progpu_native_scene_path_fill>(
+            stream,
+            resource.payload_offset);
+        if (path.boolean_node_count != 3U) {
+            continue;
+        }
+        PROGPU_REQUIRE(path.segment_count == 12U);
+        const std::size_t boolean_offset =
+            resource.auxiliary_offset +
+            12U * sizeof(progpu_native_path_segment);
+        const auto group_leaf =
+            read_value<progpu_native_scene_path_boolean_node>(
+                stream,
+                boolean_offset);
+        PROGPU_REQUIRE(
+            group_leaf.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
+            group_leaf.segment_offset == 0U &&
+            group_leaf.segment_count == 4U &&
+            group_leaf.fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD &&
+            group_leaf.min_x == 21.0F && group_leaf.min_y == 7.0F &&
+            group_leaf.max_x == 29.0F && group_leaf.max_y == 15.0F);
+        found_group_operand = true;
+    }
+    PROGPU_REQUIRE(found_group_operand);
+
     const auto generation = state.resource_generation(group);
     std::vector<std::byte> malformed;
     append_command(
@@ -2455,7 +2533,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         0U);
     PROGPU_REQUIRE(state.apply(null_operand_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7003U, 3U, stream) == status::success);
+        state.build_scene(target, 7003U, 4U, stream) == status::success);
     const auto combined_generation = state.resource_generation(combined);
     std::vector<std::byte> invalid_combine;
     append_command(
@@ -2528,8 +2606,43 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         make_arc_path_figures());
     PROGPU_REQUIRE(state.apply(transformed_arc_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7003U, 4U, stream) ==
+        state.build_scene(target, 7003U, 5U, stream) ==
         status::unsupported_command);
+
+    std::vector<std::byte> different_nested_fill;
+    const std::array different_fill_child{different_fill_group};
+    append_geometry_group(
+        different_nested_fill,
+        group,
+        transform,
+        0U,
+        different_fill_child);
+    PROGPU_REQUIRE(state.apply(different_nested_fill) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7003U, 6U, stream) == status::success);
+    const auto different_fill_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_outer_fill_override = false;
+    for (std::uint32_t index = 0U;
+         index < different_fill_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            different_fill_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            continue;
+        }
+        const auto path = read_value<progpu_native_scene_path_fill>(
+            stream,
+            resource.payload_offset);
+        if (path.boolean_node_count == 0U && path.segment_count == 4U) {
+            PROGPU_REQUIRE(
+                path.fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD);
+            found_outer_fill_override = true;
+        }
+    }
+    PROGPU_REQUIRE(found_outer_fill_override);
     return true;
 }
 

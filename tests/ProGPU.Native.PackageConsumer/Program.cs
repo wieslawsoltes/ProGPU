@@ -194,6 +194,7 @@ static byte[] CreateMilSeedBatch()
     batch.CreateResource(54, NativeMilResourceType.GeometryGroup);
     batch.CreateResource(55, NativeMilResourceType.CombinedGeometry);
     batch.CreateResource(56, NativeMilResourceType.PathGeometry);
+    batch.CreateResource(57, NativeMilResourceType.GeometryGroup);
     batch.CreateVisual(41);
     batch.SetVisualOffset(41, 1, 2);
     batch.SetMatrixTransform(
@@ -224,14 +225,19 @@ static byte[] CreateMilSeedBatch()
         CreateMilAffinePath(8),
         45);
     batch.SetGeometryGroup(
+        57,
+        NativeMilPathFillRule.EvenOdd,
+        [52],
+        45);
+    batch.SetGeometryGroup(
         54,
         NativeMilPathFillRule.EvenOdd,
-        [52, 53, 50, 51],
+        [52, 53, 50, 51, 57],
         45);
     batch.SetCombinedGeometry(
         55,
         NativeMilGeometryCombineMode.Exclude,
-        50,
+        57,
         51,
         45);
     batch.SetPathGeometry(
