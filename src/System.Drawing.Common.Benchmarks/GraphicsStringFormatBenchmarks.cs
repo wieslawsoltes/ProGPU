@@ -1,4 +1,6 @@
 using BenchmarkDotNet.Attributes;
+using ProGPU.Scene;
+using System.Drawing.Text;
 
 namespace System.Drawing.Benchmarks;
 
@@ -10,6 +12,10 @@ public class GraphicsStringFormatBenchmarks
     private Font _font = null!;
     private StringFormat _format = null!;
     private StringFormat _advancedFormat = null!;
+    private DrawingContext _recordingContext = null!;
+    private Graphics _recordingGraphics = null!;
+    private SolidBrush _brush = null!;
+    private StringFormat _mnemonicFormat = null!;
     private char[] _text = null!;
     private char[] _advancedText = null!;
 
@@ -24,10 +30,18 @@ public class GraphicsStringFormatBenchmarks
             StringFormatFlags.NoWrap | StringFormatFlags.MeasureTrailingSpaces);
         _advancedFormat.SetTabStops(8f, [40f, 40f]);
         _advancedFormat.SetDigitSubstitution(0x0C01, StringDigitSubstitute.National);
+        _recordingContext = new DrawingContext();
+        _recordingGraphics = Graphics.FromProGpuDrawingContext(_recordingContext);
+        _brush = new SolidBrush(Color.Black);
+        _mnemonicFormat = new StringFormat(StringFormatFlags.NoWrap)
+        {
+            HotkeyPrefix = HotkeyPrefix.Show
+        };
         _text = "LibreWinForms text".ToCharArray();
         _advancedText = "A\t123  ".ToCharArray();
         MeasureSpan();
         MeasureAdvancedFormatSpan();
+        RecordMnemonicString();
     }
 
     [Benchmark]
@@ -42,11 +56,22 @@ public class GraphicsStringFormatBenchmarks
             new SizeF(160f, 60f),
             _advancedFormat);
 
+    [Benchmark]
+    public int RecordMnemonicString()
+    {
+        _recordingContext.Commands.Clear();
+        _recordingGraphics.DrawString("Sa&ve", _font, _brush, PointF.Empty, _mnemonicFormat);
+        return _recordingContext.Commands.Count;
+    }
+
     [GlobalCleanup]
     public void Dispose()
     {
         _format.Dispose();
         _advancedFormat.Dispose();
+        _mnemonicFormat.Dispose();
+        _brush.Dispose();
+        _recordingGraphics.Dispose();
         _font.Dispose();
         _graphics.Dispose();
         _bitmap.Dispose();

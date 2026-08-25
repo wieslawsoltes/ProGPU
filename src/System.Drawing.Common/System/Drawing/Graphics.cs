@@ -1942,11 +1942,62 @@ public class Graphics :
         }
 
         DrawFormattedGlyphRuns(formatted.Layout, font, brush, origin, transform);
+        if (formatted.MnemonicIndex >= 0)
+        {
+            DrawMnemonicUnderline(formatted.Layout, formatted.MnemonicIndex, brush, origin, transform);
+        }
 
         if (useClip)
         {
             _context.PopClip();
         }
+    }
+
+    private void DrawMnemonicUnderline(
+        ProGPU.Text.TextLayout layout,
+        int mnemonicIndex,
+        Brush brush,
+        Vector2 origin,
+        Matrix4x4 transform)
+    {
+        float left = float.PositiveInfinity;
+        float right = float.NegativeInfinity;
+        float baseline = 0f;
+        ProGPU.Text.TtfFont? mnemonicFont = null;
+
+        for (int index = 0; index < layout.Glyphs.Count; index++)
+        {
+            ProGPU.Text.TextRunGlyph glyph = layout.Glyphs[index];
+            if (glyph.Cluster != mnemonicIndex)
+            {
+                continue;
+            }
+
+            left = MathF.Min(left, glyph.Position.X);
+            right = MathF.Max(
+                right,
+                glyph.Position.X + MathF.Max(MathF.Abs(glyph.Glyph.Advance), glyph.Glyph.Width));
+            baseline = glyph.Position.Y;
+            mnemonicFont ??= glyph.Font;
+        }
+
+        if (mnemonicFont is null || mnemonicFont.UnitsPerEm == 0 || !(right > left))
+        {
+            return;
+        }
+
+        float scale = MathF.Abs(layout.FontSize) / mnemonicFont.UnitsPerEm;
+        float thickness = MathF.Max(1f, MathF.Abs(mnemonicFont.UnderlineThickness ?? 0) * scale);
+        float position = mnemonicFont.UnderlinePosition ?? (short)(-mnemonicFont.UnitsPerEm / 10);
+        _context.DrawRectangle(
+            brush.ToProGpuBrush(),
+            null,
+            new Rect(
+                origin.X + left,
+                origin.Y + baseline - (position * scale) - (thickness * 0.5f),
+                right - left,
+                thickness),
+            transform);
     }
 
     private void DrawFormattedGlyphRuns(
@@ -2010,8 +2061,9 @@ public class Graphics :
         format.EnsureNotDisposed();
 
         StringFormatFlags flags = format.FormatFlags;
+        HotkeyText hotkeyText = ApplyHotkeyPrefix(text, format.HotkeyPrefix);
         string displayText = ApplyDigitSubstitution(
-            ApplyHotkeyPrefix(text, format.HotkeyPrefix),
+            hotkeyText.Text,
             format,
             out CultureInfo? digitCulture);
         float maxWidth = layoutArea.Width > 0f && float.IsFinite(layoutArea.Width)
@@ -2091,7 +2143,14 @@ public class Graphics :
         }
 
         int linesFilled = GetLineCount(layout, font, fontSize);
-        return new FormattedTextLayout(layout, Math.Min(charactersFitted, text.Length), linesFilled);
+        int mnemonicIndex = hotkeyText.MnemonicIndex >= 0 && hotkeyText.MnemonicIndex < charactersFitted
+            ? hotkeyText.MnemonicIndex
+            : -1;
+        return new FormattedTextLayout(
+            layout,
+            Math.Min(charactersFitted, text.Length),
+            linesFilled,
+            mnemonicIndex);
     }
 
     private static string TrimTextToLayout(
@@ -2218,14 +2277,15 @@ public class Graphics :
         return boundary == 0 ? length : boundary;
     }
 
-    private static string ApplyHotkeyPrefix(string text, HotkeyPrefix hotkeyPrefix)
+    private static HotkeyText ApplyHotkeyPrefix(string text, HotkeyPrefix hotkeyPrefix)
     {
         if (hotkeyPrefix == HotkeyPrefix.None || text.IndexOf('&') < 0)
         {
-            return text;
+            return new HotkeyText(text, -1);
         }
 
         var builder = new StringBuilder(text.Length);
+        int mnemonicIndex = -1;
         for (int i = 0; i < text.Length; i++)
         {
             if (text[i] != '&')
@@ -2239,9 +2299,13 @@ public class Graphics :
                 builder.Append('&');
                 i++;
             }
+            else if (hotkeyPrefix == HotkeyPrefix.Show && mnemonicIndex < 0 && i + 1 < text.Length)
+            {
+                mnemonicIndex = builder.Length;
+            }
         }
 
-        return builder.ToString();
+        return new HotkeyText(builder.ToString(), mnemonicIndex);
     }
 
     private static string ApplyDigitSubstitution(
@@ -2444,7 +2508,10 @@ public class Graphics :
     private readonly record struct FormattedTextLayout(
         ProGPU.Text.TextLayout Layout,
         int CharactersFitted,
-        int LinesFilled);
+        int LinesFilled,
+        int MnemonicIndex);
+
+    private readonly record struct HotkeyText(string Text, int MnemonicIndex);
 
     private sealed class GlyphRunBuilder
     {

@@ -1,6 +1,7 @@
 using ProGPU.Scene;
 using ProGPU.Text;
 using System.Drawing.Drawing2D;
+using System.Drawing.Text;
 using Xunit;
 
 namespace System.Drawing.Tests;
@@ -223,6 +224,99 @@ public sealed class GraphicsStringFormatQualityTests
             static command => command.Type == RenderCommandType.DrawGlyphRun).Font!;
         Assert.NotSame(disabledFont, enabledFont);
         Assert.Same(requested, disabledFont);
+    }
+
+    [Fact]
+    public void DisplayFormatControlRecordsAVisibleRepresentativeGlyph()
+    {
+        var hiddenContext = new DrawingContext();
+        var visibleContext = new DrawingContext();
+        using Graphics hiddenGraphics = Graphics.FromProGpuDrawingContext(hiddenContext);
+        using Graphics visibleGraphics = Graphics.FromProGpuDrawingContext(visibleContext);
+        using var font = new Font(FontFamily.GenericSansSerif, 18f);
+        using var brush = new SolidBrush(Color.Black);
+        using var hidden = new StringFormat(StringFormatFlags.NoWrap);
+        using var visible = new StringFormat(
+            StringFormatFlags.NoWrap | StringFormatFlags.DisplayFormatControl);
+
+        hiddenGraphics.DrawString("A\u200eB", font, brush, PointF.Empty, hidden);
+        visibleGraphics.DrawString("A\u200eB", font, brush, PointF.Empty, visible);
+
+        RenderCommand hiddenRun = Assert.Single(
+            hiddenContext.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun);
+        RenderCommand visibleRun = Assert.Single(
+            visibleContext.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun);
+        Assert.Equal(3, hiddenRun.GlyphIndices!.Length);
+        Assert.Equal(3, visibleRun.GlyphIndices!.Length);
+        Assert.NotEqual(hiddenRun.GlyphIndices[1], visibleRun.GlyphIndices[1]);
+        Assert.NotNull(visibleRun.Font!.GetFlippedGlyphOutline(visibleRun.GlyphIndices[1]));
+    }
+
+    [Fact]
+    public void ShowHotkeyPrefixRecordsOnlyTheMnemonicUnderline()
+    {
+        var showContext = new DrawingContext();
+        var hideContext = new DrawingContext();
+        using Graphics showGraphics = Graphics.FromProGpuDrawingContext(showContext);
+        using Graphics hideGraphics = Graphics.FromProGpuDrawingContext(hideContext);
+        using var font = new Font(FontFamily.GenericSansSerif, 18f);
+        using var brush = new SolidBrush(Color.Black);
+        using var show = new StringFormat(StringFormatFlags.NoWrap)
+        {
+            HotkeyPrefix = HotkeyPrefix.Show
+        };
+        using var hide = new StringFormat(StringFormatFlags.NoWrap)
+        {
+            HotkeyPrefix = HotkeyPrefix.Hide
+        };
+
+        showGraphics.DrawString("Sa&ve && Close", font, brush, PointF.Empty, show);
+        hideGraphics.DrawString("Sa&ve && Close", font, brush, PointF.Empty, hide);
+
+        RenderCommand showRun = Assert.Single(
+            showContext.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun);
+        RenderCommand hideRun = Assert.Single(
+            hideContext.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun);
+        RenderCommand underline = Assert.Single(
+            showContext.Commands,
+            static command => command.Type == RenderCommandType.DrawRect);
+        Assert.Equal(showRun.GlyphIndices, hideRun.GlyphIndices);
+        Assert.DoesNotContain(
+            hideContext.Commands,
+            static command => command.Type == RenderCommandType.DrawRect);
+        Assert.True(underline.Rect.Width > 0f);
+        Assert.True(underline.Rect.Height >= 1f);
+        Assert.True(underline.Rect.X > showRun.GlyphPositions![0].X);
+    }
+
+    [Fact]
+    public void WarmedMnemonicRecordingHasBoundedManagedAllocation()
+    {
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        using var font = new Font(FontFamily.GenericSansSerif, 18f);
+        using var brush = new SolidBrush(Color.Black);
+        using var format = new StringFormat(StringFormatFlags.NoWrap)
+        {
+            HotkeyPrefix = HotkeyPrefix.Show
+        };
+        const string Text = "Sa&ve";
+        graphics.DrawString(Text, font, brush, PointF.Empty, format);
+
+        const int Iterations = 128;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < Iterations; index++)
+        {
+            context.Commands.Clear();
+            graphics.DrawString(Text, font, brush, PointF.Empty, format);
+        }
+
+        long bytesPerRecord = (GC.GetAllocatedBytesForCurrentThread() - before) / Iterations;
+        Assert.InRange(bytesPerRecord, 1_024, 24_576);
     }
 
     [Fact]
