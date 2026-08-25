@@ -1777,6 +1777,277 @@ struct channel::implementation {
     }
 
 
+    struct shallow_fill_leaf {
+        std::size_t segment_offset{};
+        std::size_t segment_count{};
+        double left{};
+        double top{};
+        double right{};
+        double bottom{};
+        std::uint32_t fill_rule{PROGPU_NATIVE_FILL_RULE_NON_ZERO};
+        bool has_bounds{};
+    };
+
+    status append_shallow_fill_leaf(
+        std::uint32_t geometry_handle,
+        std::vector<progpu_native_path_segment>& segments,
+        shallow_fill_leaf& leaf) const {
+        leaf = {};
+        leaf.segment_offset = segments.size();
+        const auto path = path_geometries.find(geometry_handle);
+        if (path != path_geometries.end()) {
+            if (path->second.transform_handle != 0U) {
+                return status::unsupported_command;
+            }
+            if (path->second.segments.empty()) {
+                return status::success;
+            }
+            segments.insert(
+                segments.end(),
+                path->second.segments.begin(),
+                path->second.segments.end());
+            leaf.segment_count = path->second.segments.size();
+            leaf.left = path->second.left;
+            leaf.top = path->second.top;
+            leaf.right = path->second.right;
+            leaf.bottom = path->second.bottom;
+            leaf.fill_rule = path->second.fill_rule == 0U
+                ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                : PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+            leaf.has_bounds = true;
+            return status::success;
+        }
+
+        const auto fixed = fixed_geometries.find(geometry_handle);
+        if (fixed == fixed_geometries.end()) {
+            return status::unsupported_command;
+        }
+        if (fixed->second.kind == fixed_geometry_kind::line) {
+            return status::success;
+        }
+        affine_2d_double transform{};
+        if (fixed->second.transform_handle != 0U) {
+            const auto found = matrix_transforms.find(
+                fixed->second.transform_handle);
+            if (found == matrix_transforms.end()) {
+                return status::invalid_handle;
+            }
+            transform = found->second;
+        }
+        const std::size_t original_size = segments.size();
+        const auto include_point = [&leaf](progpu_native_point point) noexcept {
+            if (!leaf.has_bounds) {
+                leaf.left = point.x;
+                leaf.top = point.y;
+                leaf.right = point.x;
+                leaf.bottom = point.y;
+                leaf.has_bounds = true;
+                return;
+            }
+            leaf.left = std::min(leaf.left, double{point.x});
+            leaf.top = std::min(leaf.top, double{point.y});
+            leaf.right = std::max(leaf.right, double{point.x});
+            leaf.bottom = std::max(leaf.bottom, double{point.y});
+        };
+        const auto map_point = [&transform](
+            double x,
+            double y,
+            progpu_native_point& point) noexcept {
+            const double mapped_x =
+                x * transform.m11 + y * transform.m21 + transform.m31;
+            const double mapped_y =
+                x * transform.m12 + y * transform.m22 + transform.m32;
+            if (!finite_double_as_float(mapped_x) ||
+                !finite_double_as_float(mapped_y)) {
+                return false;
+            }
+            point = {
+                static_cast<float>(mapped_x),
+                static_cast<float>(mapped_y)};
+            return true;
+        };
+        const auto append_line = [
+            &segments,
+            &include_point,
+            &map_point](
+            double x0,
+            double y0,
+            double x1,
+            double y1) {
+            progpu_native_path_segment segment{};
+            if (!map_point(x0, y0, segment.p0) ||
+                !map_point(x1, y1, segment.p1)) {
+                return false;
+            }
+            segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+            include_point(segment.p0);
+            include_point(segment.p1);
+            segments.push_back(segment);
+            return true;
+        };
+        const auto append_cubic = [
+            &segments,
+            &include_point,
+            &map_point](
+            double x0,
+            double y0,
+            double x1,
+            double y1,
+            double x2,
+            double y2,
+            double x3,
+            double y3) {
+            progpu_native_path_segment segment{};
+            if (!map_point(x0, y0, segment.p0) ||
+                !map_point(x1, y1, segment.p1) ||
+                !map_point(x2, y2, segment.p2) ||
+                !map_point(x3, y3, segment.p3)) {
+                return false;
+            }
+            segment.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
+            include_point(segment.p0);
+            include_point(segment.p1);
+            include_point(segment.p2);
+            include_point(segment.p3);
+            segments.push_back(segment);
+            return true;
+        };
+        bool appended = false;
+        if (fixed->second.kind == fixed_geometry_kind::ellipse) {
+            constexpr double arc_as_bezier = 0.5522847498307933984;
+            const double center_x = fixed->second.first;
+            const double center_y = fixed->second.second;
+            const double radius_x = fixed->second.third;
+            const double radius_y = fixed->second.fourth;
+            const double mid_x = radius_x * arc_as_bezier;
+            const double mid_y = radius_y * arc_as_bezier;
+            appended = append_cubic(
+                    center_x + radius_x,
+                    center_y,
+                    center_x + radius_x,
+                    center_y + mid_y,
+                    center_x + mid_x,
+                    center_y + radius_y,
+                    center_x,
+                    center_y + radius_y) &&
+                append_cubic(
+                    center_x,
+                    center_y + radius_y,
+                    center_x - mid_x,
+                    center_y + radius_y,
+                    center_x - radius_x,
+                    center_y + mid_y,
+                    center_x - radius_x,
+                    center_y) &&
+                append_cubic(
+                    center_x - radius_x,
+                    center_y,
+                    center_x - radius_x,
+                    center_y - mid_y,
+                    center_x - mid_x,
+                    center_y - radius_y,
+                    center_x,
+                    center_y - radius_y) &&
+                append_cubic(
+                    center_x,
+                    center_y - radius_y,
+                    center_x + mid_x,
+                    center_y - radius_y,
+                    center_x + radius_x,
+                    center_y - mid_y,
+                    center_x + radius_x,
+                    center_y);
+        } else {
+            const double left = fixed->second.first;
+            const double top = fixed->second.second;
+            const double right = left + fixed->second.third;
+            const double bottom = top + fixed->second.fourth;
+            const double radius_x = std::min(
+                fixed->second.radius_x,
+                fixed->second.third * 0.5);
+            const double radius_y = std::min(
+                fixed->second.radius_y,
+                fixed->second.fourth * 0.5);
+            if (radius_x == 0.0 && radius_y == 0.0) {
+                appended = append_line(left, top, right, top) &&
+                    append_line(right, top, right, bottom) &&
+                    append_line(right, bottom, left, bottom) &&
+                    append_line(left, bottom, left, top);
+            } else {
+                constexpr double one_minus_arc_as_bezier =
+                    1.0 - 0.5522847498307933984;
+                const double bezier_x =
+                    radius_x * one_minus_arc_as_bezier;
+                const double bezier_y =
+                    radius_y * one_minus_arc_as_bezier;
+                appended = append_cubic(
+                        left,
+                        top + radius_y,
+                        left,
+                        top + bezier_y,
+                        left + bezier_x,
+                        top,
+                        left + radius_x,
+                        top) &&
+                    append_line(
+                        left + radius_x,
+                        top,
+                        right - radius_x,
+                        top) &&
+                    append_cubic(
+                        right - radius_x,
+                        top,
+                        right - bezier_x,
+                        top,
+                        right,
+                        top + bezier_y,
+                        right,
+                        top + radius_y) &&
+                    append_line(
+                        right,
+                        top + radius_y,
+                        right,
+                        bottom - radius_y) &&
+                    append_cubic(
+                        right,
+                        bottom - radius_y,
+                        right,
+                        bottom - bezier_y,
+                        right - bezier_x,
+                        bottom,
+                        right - radius_x,
+                        bottom) &&
+                    append_line(
+                        right - radius_x,
+                        bottom,
+                        left + radius_x,
+                        bottom) &&
+                    append_cubic(
+                        left + radius_x,
+                        bottom,
+                        left + bezier_x,
+                        bottom,
+                        left,
+                        bottom - bezier_y,
+                        left,
+                        bottom - radius_y) &&
+                    append_line(
+                        left,
+                        bottom - radius_y,
+                        left,
+                        top + radius_y);
+            }
+        }
+        if (!appended) {
+            segments.resize(original_size);
+            leaf = {};
+            leaf.segment_offset = original_size;
+            return status::invalid_graph;
+        }
+        leaf.segment_count = segments.size() - original_size;
+        return status::success;
+    }
+
     status append_render_data(
         std::uint32_t content_handle,
         const affine_2d_double& base_transform,
@@ -2339,246 +2610,21 @@ struct channel::implementation {
                     };
                     for (const std::uint32_t child_handle :
                          geometry_group->second.children) {
-                        const auto child = path_geometries.find(child_handle);
-                        if (child != path_geometries.end()) {
-                            if (child->second.transform_handle != 0U) {
-                                return status::unsupported_command;
-                            }
-                            group_segments.insert(
-                                group_segments.end(),
-                                child->second.segments.begin(),
-                                child->second.segments.end());
-                            if (!child->second.segments.empty()) {
-                                include_group_point({
-                                    static_cast<float>(child->second.left),
-                                    static_cast<float>(child->second.top)});
-                                include_group_point({
-                                    static_cast<float>(child->second.right),
-                                    static_cast<float>(child->second.bottom)});
-                            }
-                            continue;
+                        shallow_fill_leaf child{};
+                        const status child_status = append_shallow_fill_leaf(
+                            child_handle,
+                            group_segments,
+                            child);
+                        if (child_status != status::success) {
+                            return child_status;
                         }
-                        const auto fixed = fixed_geometries.find(child_handle);
-                        if (fixed == fixed_geometries.end()) {
-                            return status::unsupported_command;
-                        }
-                        if (fixed->second.kind == fixed_geometry_kind::line) {
-                            continue;
-                        }
-                        affine_2d_double child_transform{};
-                        if (fixed->second.transform_handle != 0U) {
-                            const auto transform = matrix_transforms.find(
-                                fixed->second.transform_handle);
-                            if (transform == matrix_transforms.end()) {
-                                return status::invalid_handle;
-                            }
-                            child_transform = transform->second;
-                        }
-                        const auto map_point = [
-                            &child_transform](
-                            double x,
-                            double y,
-                            progpu_native_point& point) noexcept {
-                            const double mapped_x =
-                                x * child_transform.m11 +
-                                y * child_transform.m21 +
-                                child_transform.m31;
-                            const double mapped_y =
-                                x * child_transform.m12 +
-                                y * child_transform.m22 +
-                                child_transform.m32;
-                            if (!finite_double_as_float(mapped_x) ||
-                                !finite_double_as_float(mapped_y)) {
-                                return false;
-                            }
-                            point = {
-                                static_cast<float>(mapped_x),
-                                static_cast<float>(mapped_y)};
-                            return true;
-                        };
-                        const auto append_line = [
-                            &group_segments,
-                            &include_group_point,
-                            &map_point](
-                            double x0,
-                            double y0,
-                            double x1,
-                            double y1) {
-                            progpu_native_path_segment segment{};
-                            if (!map_point(x0, y0, segment.p0) ||
-                                !map_point(x1, y1, segment.p1)) {
-                                return false;
-                            }
-                            segment.kind =
-                                PROGPU_NATIVE_PATH_SEGMENT_LINE;
-                            include_group_point(segment.p0);
-                            include_group_point(segment.p1);
-                            group_segments.push_back(segment);
-                            return true;
-                        };
-                        const auto append_cubic = [
-                            &group_segments,
-                            &include_group_point,
-                            &map_point](
-                            double x0,
-                            double y0,
-                            double x1,
-                            double y1,
-                            double x2,
-                            double y2,
-                            double x3,
-                            double y3) {
-                            progpu_native_path_segment segment{};
-                            if (!map_point(x0, y0, segment.p0) ||
-                                !map_point(x1, y1, segment.p1) ||
-                                !map_point(x2, y2, segment.p2) ||
-                                !map_point(x3, y3, segment.p3)) {
-                                return false;
-                            }
-                            segment.kind =
-                                PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
-                            include_group_point(segment.p0);
-                            include_group_point(segment.p1);
-                            include_group_point(segment.p2);
-                            include_group_point(segment.p3);
-                            group_segments.push_back(segment);
-                            return true;
-                        };
-                        if (fixed->second.kind ==
-                            fixed_geometry_kind::ellipse) {
-                            constexpr double arc_as_bezier =
-                                0.5522847498307933984;
-                            const double center_x = fixed->second.first;
-                            const double center_y = fixed->second.second;
-                            const double child_radius_x = fixed->second.third;
-                            const double child_radius_y = fixed->second.fourth;
-                            const double mid_x =
-                                child_radius_x * arc_as_bezier;
-                            const double mid_y =
-                                child_radius_y * arc_as_bezier;
-                            if (!append_cubic(
-                                    center_x + child_radius_x,
-                                    center_y,
-                                    center_x + child_radius_x,
-                                    center_y + mid_y,
-                                    center_x + mid_x,
-                                    center_y + child_radius_y,
-                                    center_x,
-                                    center_y + child_radius_y) ||
-                                !append_cubic(
-                                    center_x,
-                                    center_y + child_radius_y,
-                                    center_x - mid_x,
-                                    center_y + child_radius_y,
-                                    center_x - child_radius_x,
-                                    center_y + mid_y,
-                                    center_x - child_radius_x,
-                                    center_y) ||
-                                !append_cubic(
-                                    center_x - child_radius_x,
-                                    center_y,
-                                    center_x - child_radius_x,
-                                    center_y - mid_y,
-                                    center_x - mid_x,
-                                    center_y - child_radius_y,
-                                    center_x,
-                                    center_y - child_radius_y) ||
-                                !append_cubic(
-                                    center_x,
-                                    center_y - child_radius_y,
-                                    center_x + mid_x,
-                                    center_y - child_radius_y,
-                                    center_x + child_radius_x,
-                                    center_y - mid_y,
-                                    center_x + child_radius_x,
-                                    center_y)) {
-                                return status::invalid_graph;
-                            }
-                            continue;
-                        }
-                        const double left = fixed->second.first;
-                        const double top = fixed->second.second;
-                        const double right = left + fixed->second.third;
-                        const double bottom = top + fixed->second.fourth;
-                        const double clamped_radius_x = std::min(
-                            fixed->second.radius_x,
-                            fixed->second.third * 0.5);
-                        const double clamped_radius_y = std::min(
-                            fixed->second.radius_y,
-                            fixed->second.fourth * 0.5);
-                        if (clamped_radius_x == 0.0 &&
-                            clamped_radius_y == 0.0) {
-                            if (!append_line(left, top, right, top) ||
-                                !append_line(right, top, right, bottom) ||
-                                !append_line(right, bottom, left, bottom) ||
-                                !append_line(left, bottom, left, top)) {
-                                return status::invalid_graph;
-                            }
-                            continue;
-                        }
-                        constexpr double one_minus_arc_as_bezier =
-                            1.0 - 0.5522847498307933984;
-                        const double bezier_x =
-                            clamped_radius_x * one_minus_arc_as_bezier;
-                        const double bezier_y =
-                            clamped_radius_y * one_minus_arc_as_bezier;
-                        if (!append_cubic(
-                                left,
-                                top + clamped_radius_y,
-                                left,
-                                top + bezier_y,
-                                left + bezier_x,
-                                top,
-                                left + clamped_radius_x,
-                                top) ||
-                            !append_line(
-                                left + clamped_radius_x,
-                                top,
-                                right - clamped_radius_x,
-                                top) ||
-                            !append_cubic(
-                                right - clamped_radius_x,
-                                top,
-                                right - bezier_x,
-                                top,
-                                right,
-                                top + bezier_y,
-                                right,
-                                top + clamped_radius_y) ||
-                            !append_line(
-                                right,
-                                top + clamped_radius_y,
-                                right,
-                                bottom - clamped_radius_y) ||
-                            !append_cubic(
-                                right,
-                                bottom - clamped_radius_y,
-                                right,
-                                bottom - bezier_y,
-                                right - bezier_x,
-                                bottom,
-                                right - clamped_radius_x,
-                                bottom) ||
-                            !append_line(
-                                right - clamped_radius_x,
-                                bottom,
-                                left + clamped_radius_x,
-                                bottom) ||
-                            !append_cubic(
-                                left + clamped_radius_x,
-                                bottom,
-                                left + bezier_x,
-                                bottom,
-                                left,
-                                bottom - bezier_y,
-                                left,
-                                bottom - clamped_radius_y) ||
-                            !append_line(
-                                left,
-                                bottom - clamped_radius_y,
-                                left,
-                                top + clamped_radius_y)) {
-                            return status::invalid_graph;
+                        if (child.has_bounds) {
+                            include_group_point({
+                                static_cast<float>(child.left),
+                                static_cast<float>(child.top)});
+                            include_group_point({
+                                static_cast<float>(child.right),
+                                static_cast<float>(child.bottom)});
                         }
                     }
                     if (group_segments.empty() || !has_group_bounds) {
@@ -2670,53 +2716,44 @@ struct channel::implementation {
                                 PROGPU_NATIVE_PATH_BOOLEAN_EMPTY;
                             continue;
                         }
-                        const auto operand = path_geometries.find(
-                            operand_handle);
-                        if (operand == path_geometries.end() ||
-                            operand->second.transform_handle != 0U) {
-                            return status::unsupported_command;
+                        shallow_fill_leaf operand{};
+                        const status operand_status =
+                            append_shallow_fill_leaf(
+                                operand_handle,
+                                combined_segments,
+                                operand);
+                        if (operand_status != status::success) {
+                            return operand_status;
                         }
-                        if (operand->second.segments.empty()) {
+                        if (!operand.has_bounds) {
                             boolean_nodes[index].kind =
                                 PROGPU_NATIVE_PATH_BOOLEAN_EMPTY;
                             continue;
                         }
                         auto& leaf = boolean_nodes[index];
-                        leaf.segment_offset = combined_segments.size();
-                        leaf.segment_count =
-                            operand->second.segments.size();
-                        leaf.min_x = static_cast<float>(
-                            operand->second.left);
-                        leaf.min_y = static_cast<float>(
-                            operand->second.top);
-                        leaf.max_x = static_cast<float>(
-                            operand->second.right);
-                        leaf.max_y = static_cast<float>(
-                            operand->second.bottom);
-                        leaf.fill_rule = static_cast<std::uint32_t>(
-                            operand->second.fill_rule == 0U
-                                ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
-                                : PROGPU_NATIVE_FILL_RULE_NON_ZERO);
+                        leaf.segment_offset = operand.segment_offset;
+                        leaf.segment_count = operand.segment_count;
+                        leaf.min_x = static_cast<float>(operand.left);
+                        leaf.min_y = static_cast<float>(operand.top);
+                        leaf.max_x = static_cast<float>(operand.right);
+                        leaf.max_y = static_cast<float>(operand.bottom);
+                        leaf.fill_rule = operand.fill_rule;
                         leaf.kind = PROGPU_NATIVE_PATH_BOOLEAN_LEAF;
-                        combined_segments.insert(
-                            combined_segments.end(),
-                            operand->second.segments.begin(),
-                            operand->second.segments.end());
                         if (!has_combined_bounds) {
-                            combined_left = operand->second.left;
-                            combined_top = operand->second.top;
-                            combined_right = operand->second.right;
-                            combined_bottom = operand->second.bottom;
+                            combined_left = operand.left;
+                            combined_top = operand.top;
+                            combined_right = operand.right;
+                            combined_bottom = operand.bottom;
                             has_combined_bounds = true;
                         } else {
                             combined_left = std::min(
-                                combined_left, operand->second.left);
+                                combined_left, operand.left);
                             combined_top = std::min(
-                                combined_top, operand->second.top);
+                                combined_top, operand.top);
                             combined_right = std::max(
-                                combined_right, operand->second.right);
+                                combined_right, operand.right);
                             combined_bottom = std::max(
-                                combined_bottom, operand->second.bottom);
+                                combined_bottom, operand.bottom);
                         }
                     }
                     if (combined_segments.empty() || !has_combined_bounds) {
