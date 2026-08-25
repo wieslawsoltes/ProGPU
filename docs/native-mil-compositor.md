@@ -151,8 +151,11 @@ stroke-only, and fill-plus-stroke records share the native brush table; stroke
 culling expands the local ellipse bounds by half the pen width before the
 four-corner affine bounds transform. A nonempty dash pattern on an ellipse
 fails closed until the native curve path can preserve phase continuously around
-the full circumference. Degenerate ellipse strokes remain unsupported in this
-checkpoint rather than being approximated.
+the full circumference or along a one-axis collapse. Degenerate ellipse fills
+produce no coverage. A solid one-axis ellipse lowers to the exact round-ended
+capsule implied by WPF's four SmoothJoin cubic segments; a fully collapsed
+ellipse uses the same Round/Round point-disk path as the native widener. Both
+retain their geometry-local affine transform without curve flattening.
 
 Uniform-radius `MILCMD_DRAW_ROUNDED_RECTANGLE` records now accept independent
 fill and pen handles. Positive-radius solid outlines lower to ProGPU's exact
@@ -907,6 +910,24 @@ three draws, and 41,472 coverage bytes. Exact staged SHA-256 values were
 `53d589f6580afd495e2bcb98d64c23c7acb1b450baf60027a5b7b371618774c3`
 for `progpu_native.dll` and
 `81a9450fc3af12677152fdb8777ab1ba346c1f5017e425858d476bd6e9076feb`
+for `progpu_native_dawn.dll`.
+
+The degenerate ellipse implementation at `bbb4b2c2` then traced
+`CFigureData::InitAsEllipse`, whose four cubic segment types all carry
+`SmoothJoin`. A zero X or Y radius therefore lowers exactly to one line with
+Round/Round ends, while two zero radii reuse the point-disk cap pair. Degenerate
+fills remain empty, immediate and retained `EllipseGeometry` paths share the
+same lowering, and local affine state stays on the reusable geometry primitive.
+Nonempty dashes on a one-axis ellipse remain fail closed with the broader curve
+dash gate. All ten local native tests passed. Strict Windows ARM64 MSVC rebuilt
+both modules under `/W4 /WX`, and all 11 native/Dawn CTests passed on the
+Parallels VM. Package checkpoint `e909fd60` added immediate and retained
+one-axis ellipses. Both MIL exports compiled its 58-command,
+26-channel-resource seed; live D3D12 readback retained 29 semantic resources,
+three draws, and 41,472 coverage bytes. Exact staged SHA-256 values were
+`8e235e440a980fcdf63c4770c33a2afbcd9f92a06667671daa33c7406e50457a`
+for `progpu_native.dll` and
+`2ecd3a808e9ee65d50cae7637e365d00820febb02a63067849ace0b73d54df58`
 for `progpu_native_dawn.dll`.
 
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
