@@ -18,6 +18,14 @@ internal static class SilkNetDisplayMetrics
             : DisplayScaleResolver.NormalizeDisplayScale(
                 renderScaling);
 
+    internal static double ResolveNativeCoordinateScaling(
+        bool isWindows,
+        double desktopScaling) =>
+        isWindows
+            ? DisplayScaleResolver.NormalizeDisplayScale(
+                desktopScaling)
+            : 1d;
+
     internal static Size? ResolveFrameSize(
         Size clientSize,
         NativeWindowFrameInsets? frameInsets,

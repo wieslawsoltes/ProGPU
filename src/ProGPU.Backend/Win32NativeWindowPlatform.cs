@@ -116,7 +116,7 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
         }
 
         SetWindowLongPtr(_hwnd, GwlStyle, (nint)style);
-        EnsureWindowProcedure(_extended);
+        EnsureWindowProcedure(true);
         RefreshFrame();
         SetBackdrop(_backdrop);
         return true;
@@ -160,7 +160,7 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
     public override bool SetClientAreaExtension(bool enabled, double titleBarHeight)
     {
         _extended = enabled;
-        EnsureWindowProcedure(enabled);
+        EnsureWindowProcedure(true);
         var margins = enabled
             ? new Margins { Left = -1, Right = -1, Top = -1, Bottom = -1 }
             : default;

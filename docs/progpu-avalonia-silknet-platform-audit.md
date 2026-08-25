@@ -21,20 +21,24 @@ framebuffer allocation. It also sent logical resize requests directly to the
 native pixel-sized window. This produced oversized layout, incorrect pointer
 coordinates, constraints, and frame insets at non-100% Windows display scales.
 
-The corrected boundary now converts exactly once in each direction: native
-client pixels and pointer coordinates are divided by `DesktopScaling` when
-entering Avalonia, while logical client sizes and constraints are multiplied
-when entering GLFW. Desktop positions remain physical `PixelPoint` values,
-and the actual GLFW framebuffer remains authoritative. Each conversion is
-bounded `O(1)` arithmetic with no retained allocation or renderer-boundary
-crossing.
+The corrected Windows boundary now converts exactly once in each direction:
+native client pixels and pointer coordinates are divided by `DesktopScaling`
+when entering Avalonia, while logical client sizes and constraints are
+multiplied when entering GLFW. These conversions are deliberately gated to
+Win32. GLFW already reports logical screen coordinates for macOS and scaled
+X11/Wayland desktops, so applying the Win32 conversion there would scale
+layout, input, and constraints twice. Desktop positions remain physical
+`PixelPoint` values, and the actual GLFW framebuffer remains authoritative.
+Each conversion is bounded `O(1)` arithmetic with no retained allocation or
+renderer-boundary crossing.
 
 Windows enters a modal operating-system sizing loop between
 [`WM_ENTERSIZEMOVE`](https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-entersizemove)
 and `WM_EXITSIZEMOVE`. That loop prevents the normal outer GLFW render cadence
-from advancing. The Win32 adapter now tracks the modal interval and the resize
-callback synchronously pulses Avalonia layout and presentation only while that
-interval is active. Normal frame scheduling is unchanged.
+from advancing. The Win32 adapter now keeps its window procedure installed for
+both extended-client and ordinary system-chrome windows, tracks the modal
+interval, and synchronously pulses Avalonia layout and presentation only while
+that interval is active. Normal frame scheduling is unchanged.
 
 Custom title-bar dragging previously sent `WM_NCLBUTTONDOWN` synchronously
 with an empty coordinate. The corrected path releases Avalonia pointer capture,
@@ -115,10 +119,11 @@ contract cannot be established by compilation alone.
 - `DesktopScaling` follows the native backend coordinate contract: it is 1 on
   macOS while `RenderScaling` may be 2 or greater; Win32/X11 desktop scaling
   follows the render scale. Avalonia client dimensions, input points, frame
-  insets, and constraints are logical; GLFW client dimensions and pointer
-  coordinates are native. Desktop positions remain physical pixels. Deferred
-  window sizes are converted only after the native window and its scaling are
-  known.
+  insets, and constraints are logical. GLFW client dimensions and pointer
+  coordinates require physical-to-logical conversion only on Win32; macOS and
+  scaled X11/Wayland already expose screen-coordinate units. Desktop positions
+  remain physical pixels. Deferred window sizes are converted only after the
+  native window and its scaling are known.
 - Framebuffer storage uses physical framebuffer pixels. `FrameSize` is unknown
   until native frame insets are available and then includes those insets rather
   than incorrectly returning the client size.
@@ -134,10 +139,11 @@ contract cannot be established by compilation alone.
   allocation-free tracker correlates the expected native size with the next
   callback, preserving application, layout, and DPI reasons without allowing
   a later unrelated user resize to inherit stale state.
-- Win32 modal move/resize state is tracked from the native message stream.
-  Each interactive size notification performs one immediate layout/render
-  pulse so content follows the window edge; steady-state and programmatic
-  resize scheduling retain the normal event-loop path.
+- Win32 modal move/resize state is tracked from the native message stream for
+  both managed custom chrome and ordinary system chrome. Each interactive size
+  notification performs one immediate layout/render pulse so content follows
+  the window edge; steady-state and programmatic resize scheduling retain the
+  normal event-loop path.
 - Managed title-bar moves release pointer capture and are deferred until the
   routed press has unwound. The native non-client message carries the actual
   signed screen coordinate, including negative multi-monitor coordinates.
@@ -219,9 +225,9 @@ completed with zero warnings and zero errors.
 
 - The shared Silk.NET contract suite passes in Release against both exact
   lanes: 91 tests on Avalonia 12.1.1 and 78 tests on Avalonia 11.3.20. The new
-  coverage includes logical/native client-size conversion, one-to-one Windows
-  framebuffer sizing, scaled frame insets and constraints, and scaled pointer
-  input.
+  coverage includes Windows logical/native client-size conversion, one-to-one
+  Windows framebuffer sizing, scaled frame insets and constraints, scaled
+  Windows pointer input, and unchanged Linux screen-coordinate layout/input.
 - Both windowing projects build in Release, and the focused backend windowing
   presenter suite passes 17 tests.
 - Package validation produced both

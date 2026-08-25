@@ -391,7 +391,7 @@ internal sealed class SilkNetInputRouter : IDisposable
     private Point ToPoint(Vector2 point) =>
         ToLogicalPoint(
             point,
-            _owner.DesktopScaling);
+            _owner.NativeCoordinateScaling);
 
     internal static Point ToLogicalPoint(
         Vector2 point,

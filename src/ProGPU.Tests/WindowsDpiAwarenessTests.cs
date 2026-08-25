@@ -121,6 +121,10 @@ public sealed class WindowsDpiAwarenessTests
             win32,
             StringComparison.Ordinal);
         Assert.Contains(
+            "EnsureWindowProcedure(true);",
+            win32,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "PackScreenPoint(pointer)",
             win32,
             StringComparison.Ordinal);

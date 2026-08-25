@@ -162,6 +162,11 @@ public sealed class WindowImpl :
             OperatingSystem.IsMacOS(),
             RenderScaling);
 
+    internal double NativeCoordinateScaling =>
+        SilkNetDisplayMetrics.ResolveNativeCoordinateScaling(
+            OperatingSystem.IsWindows(),
+            DesktopScaling);
+
     public IPlatformHandle? Handle
     {
         get
@@ -199,7 +204,7 @@ public sealed class WindowImpl :
                 : SilkNetDisplayMetrics.ResolveLogicalClientSize(
                     window.Size.X,
                     window.Size.Y,
-                    DesktopScaling);
+                    NativeCoordinateScaling);
         }
     }
 
@@ -253,7 +258,7 @@ public sealed class WindowImpl :
                 window.FramebufferSize.X,
                 window.FramebufferSize.Y,
                 RenderScaling,
-                DesktopScaling);
+                NativeCoordinateScaling);
         }
     }
 
@@ -292,7 +297,7 @@ public sealed class WindowImpl :
             _windowController is { IsAttached: true } controller
                 ? controller.FrameInsets
                 : null,
-            DesktopScaling);
+            NativeCoordinateScaling);
 
     public PixelPoint Position
     {
@@ -367,7 +372,7 @@ public sealed class WindowImpl :
             double titleBarHeight = _titleBarHeight >= 0d
                 ? _titleBarHeight
                 : controller.ExtendedTitleBarHeight /
-                  DesktopScaling;
+                  NativeCoordinateScaling;
             return new Thickness(
                 0,
                 titleBarHeight,
@@ -424,7 +429,7 @@ public sealed class WindowImpl :
             point.Y);
         Vector2D<int> result =
             window?.PointToClient(source) ?? source;
-        double scaling = DesktopScaling;
+        double scaling = NativeCoordinateScaling;
         return new Point(
             result.X / scaling,
             result.Y / scaling);
@@ -432,7 +437,7 @@ public sealed class WindowImpl :
 
     public PixelPoint PointToScreen(Point point)
     {
-        double scaling = DesktopScaling;
+        double scaling = NativeCoordinateScaling;
         Vector2D<int> source = new(
             checked((int)Math.Round(point.X * scaling)),
             checked((int)Math.Round(point.Y * scaling)));
@@ -691,7 +696,7 @@ public sealed class WindowImpl :
             PixelSize pixels =
                 SilkNetDisplayMetrics.ResolveNativeClientSize(
                     constrained,
-                    DesktopScaling);
+                    NativeCoordinateScaling);
             var nativeSize = new Vector2D<int>(
                 pixels.Width,
                 pixels.Height);
@@ -1059,7 +1064,7 @@ public sealed class WindowImpl :
             SilkNetDisplayMetrics.ResolveLogicalClientSize(
                 size.X,
                 size.Y,
-                DesktopScaling);
+                NativeCoordinateScaling);
         Resized?.Invoke(
             _desiredSize,
             _resizeReasons.Resolve(size));
@@ -1262,7 +1267,7 @@ public sealed class WindowImpl :
             return;
 
         double scaling = _window?.IsInitialized == true
-            ? DesktopScaling
+            ? NativeCoordinateScaling
             : 1d;
         controller.SetSizeConstraints(
             SilkNetWindowChrome.ToMinimumSize(

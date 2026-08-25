@@ -23,6 +23,22 @@ public sealed class DisplayMetricsContractTests
                 renderScaling));
     }
 
+    [Theory]
+    [InlineData(true, 1.5d, 1.5d)]
+    [InlineData(false, 1.5d, 1d)]
+    [InlineData(true, 0d, 1d)]
+    public void OnlyWindowsUsesPhysicalClientAndPointerCoordinates(
+        bool isWindows,
+        double desktopScaling,
+        double expected)
+    {
+        Assert.Equal(
+            expected,
+            SilkNetDisplayMetrics.ResolveNativeCoordinateScaling(
+                isWindows,
+                desktopScaling));
+    }
+
     [Fact]
     public void FrameSizeIncludesNativeChromeInsets()
     {

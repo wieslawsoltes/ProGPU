@@ -20,6 +20,21 @@ public sealed class InputAndCursorContractTests
                 desktopScaling: 1.5d));
     }
 
+    [Fact]
+    public void LinuxPointerScreenCoordinatesRemainLogical()
+    {
+        double coordinateScaling =
+            SilkNetDisplayMetrics.ResolveNativeCoordinateScaling(
+                isWindows: false,
+                desktopScaling: 1.5d);
+
+        Assert.Equal(
+            new Point(300, 150),
+            SilkNetInputRouter.ToLogicalPoint(
+                new Vector2(300, 150),
+                coordinateScaling));
+    }
+
     [Theory]
     [InlineData(true, false, true)]
     [InlineData(true, true, false)]
