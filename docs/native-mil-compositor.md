@@ -1276,6 +1276,24 @@ for `progpu_native_dawn.dll`. DrawingImage used as an ImageBrush source,
 animated destination rectangles, incremental source-bounds updates, and
 effects/cache state remain explicit follow-up work.
 
+Bitmap-scaling checkpoint `ebe966b6` next made DrawingGroup's canonical
+`bitmapScalingMode` field executable for nested retained images, including
+bitmap-backed ImageDrawing reached through DrawingImage or another group.
+Unspecified inherits the parent scope, LowQuality/Linear selects shared linear
+sampling, HighQuality/Fant selects ProGPU's Mitchell-Netravali cubic sampler,
+and NearestNeighbor selects shared nearest sampling. The state is host-neutral
+and is consumed identically by wgpu-native and Dawn.
+
+The native fixture verifies nearest and cubic payload selection, and all ten
+local CTests passed. Strict Windows ARM64 MSVC rebuilt both modules under `/W4
+/WX`; all 11 native/Dawn CTests passed. The existing DrawingImage package
+scene then passed both exports and live D3D12 retained/direct readback. Current
+qualified SHA-256 values are
+`812312ae4d91c30a363f801985d2f881a6aa528709331f0985279756a5337790`
+for `progpu_native.dll` and
+`8cf312ffadac52d7109239de3fee4f25e34358bcc963e6f33965799fe3d9f607`
+for `progpu_native_dawn.dll`.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
