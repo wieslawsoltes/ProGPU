@@ -11,6 +11,7 @@
 #include <limits>
 #include <new>
 #include <numbers>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -54,6 +55,7 @@ constexpr std::uint32_t type_glyph_run_drawing = 88U;
 constexpr std::uint32_t type_image_drawing = 89U;
 constexpr std::uint32_t type_drawing_group = 91U;
 constexpr std::uint32_t type_guideline_set = 92U;
+constexpr std::uint32_t type_bitmap_cache = 94U;
 constexpr std::uint32_t type_bitmap_source = 95U;
 constexpr std::uint32_t type_last = 98U;
 constexpr std::uint32_t maximum_visual_depth = 256U;
@@ -115,6 +117,20 @@ bool finite_double_as_float(double value) noexcept {
     constexpr auto maximum =
         static_cast<double>(std::numeric_limits<float>::max());
     return std::isfinite(value) && value >= -maximum && value <= maximum;
+}
+
+template<typename T>
+void append_fnv1a64(std::uint64_t& hash, const T& value) noexcept {
+    static_assert(std::is_trivially_copyable_v<T>);
+    const auto* bytes = reinterpret_cast<const unsigned char*>(&value);
+    for (std::size_t index = 0U; index < sizeof(T); ++index) {
+        hash ^= bytes[index];
+        hash *= 1099511628211ULL;
+    }
+}
+
+std::uint64_t finish_nonzero_hash(std::uint64_t hash) noexcept {
+    return hash == 0U ? 1U : hash;
 }
 
 struct affine_2d_double {
@@ -577,6 +593,7 @@ struct channel::implementation {
         double opacity{1.0};
         std::uint32_t transform_handle{};
         std::uint32_t effect_handle{};
+        std::uint32_t cache_mode_handle{};
         std::uint32_t clip_geometry_handle{};
         std::uint32_t content_handle{};
         std::uint32_t alpha_mask_handle{};
@@ -735,6 +752,13 @@ struct channel::implementation {
         std::vector<double> guidelines_y;
     };
 
+    struct bitmap_cache_state {
+        double render_at_scale{1.0};
+        std::uint32_t render_at_scale_animation_handle{};
+        bool snaps_to_device_pixels{};
+        bool enable_clear_type{};
+    };
+
     struct drawing_group_state {
         double opacity{1.0};
         std::uint32_t clip_geometry_handle{};
@@ -866,6 +890,7 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, drawing_image_state> drawing_images;
     std::unordered_map<std::uint32_t, drawing_group_state> drawing_groups;
     std::unordered_map<std::uint32_t, guideline_set_state> guideline_sets;
+    std::unordered_map<std::uint32_t, bitmap_cache_state> bitmap_caches;
     std::unordered_map<std::uint32_t, effect_state> effects;
 
     bool require_resource(
@@ -1252,6 +1277,7 @@ struct channel::implementation {
                 if (visual_handle != handle &&
                     (visual.transform_handle == handle ||
                      visual.effect_handle == handle ||
+                     visual.cache_mode_handle == handle ||
                      visual.clip_geometry_handle == handle ||
                      visual.content_handle == handle ||
                      visual.alpha_mask_handle == handle ||
@@ -1327,6 +1353,12 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
             }
+            for (const auto& [cache_handle, cache] : bitmap_caches) {
+                if (cache_handle != handle &&
+                    cache.render_at_scale_animation_handle == handle) {
+                    return status::invalid_graph;
+                }
+            }
             for (const auto& [transform_handle, transform] : transforms) {
                 if (transform_handle != handle) {
                     if (transform.type == transform_state::kind::group &&
@@ -1392,6 +1424,7 @@ struct channel::implementation {
             drawing_images.erase(handle);
             drawing_groups.erase(handle);
             guideline_sets.erase(handle);
+            bitmap_caches.erase(handle);
             effects.erase(handle);
             resources.erase(found);
             ++metrics.deleted_resource_count;
@@ -1464,6 +1497,23 @@ struct channel::implementation {
                 return status::invalid_handle;
             }
             visuals.at(handle).effect_handle = effect;
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::visual_set_cache_mode: {
+            std::uint32_t cache_mode = 0U;
+            if (!has_exact_size(view, 12U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, cache_mode)) {
+                return status::malformed_batch;
+            }
+            if (!require_visual(handle) ||
+                (cache_mode != 0U &&
+                 !require_resource(cache_mode, type_bitmap_cache))) {
+                return status::invalid_handle;
+            }
+            visuals.at(handle).cache_mode_handle = cache_mode;
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -3600,6 +3650,39 @@ struct channel::implementation {
                     sizeof(child_padding));
             }
             drawing_groups.insert_or_assign(handle, std::move(group));
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::bitmap_cache: {
+            bitmap_cache_state cache{};
+            std::uint32_t snaps_to_device_pixels = 0U;
+            std::uint32_t enable_clear_type = 0U;
+            if (!has_exact_size(view, 28U) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, cache.render_at_scale) ||
+                !read_at(
+                    view.packet,
+                    16U,
+                    cache.render_at_scale_animation_handle) ||
+                !read_at(view.packet, 20U, snaps_to_device_pixels) ||
+                !read_at(view.packet, 24U, enable_clear_type)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_bitmap_cache) ||
+                (cache.render_at_scale_animation_handle != 0U &&
+                 !require_resource(
+                     cache.render_at_scale_animation_handle,
+                     type_double_resource))) {
+                return status::invalid_handle;
+            }
+            if (!std::isfinite(cache.render_at_scale) ||
+                snaps_to_device_pixels > 1U || enable_clear_type > 1U) {
+                return status::malformed_batch;
+            }
+            cache.snaps_to_device_pixels = snaps_to_device_pixels != 0U;
+            cache.enable_clear_type = enable_clear_type != 0U;
+            bitmap_caches.insert_or_assign(handle, cache);
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -8280,10 +8363,375 @@ struct channel::implementation {
         return status::success;
     }
 
+    status append_cache_resource_revision(
+        std::uint32_t handle,
+        std::unordered_set<std::uint32_t>& active_resources,
+        std::uint64_t& hash) const {
+        append_fnv1a64(hash, handle);
+        if (handle == 0U) {
+            return status::success;
+        }
+        if (!active_resources.insert(handle).second) {
+            return status::invalid_graph;
+        }
+        const auto resource = resources.find(handle);
+        if (resource == resources.end()) {
+            active_resources.erase(handle);
+            return status::invalid_handle;
+        }
+        append_fnv1a64(hash, resource->second.type);
+        append_fnv1a64(hash, resource->second.generation);
+        const auto append_dependency = [&](std::uint32_t dependency) {
+            return append_cache_resource_revision(
+                dependency, active_resources, hash);
+        };
+        status result = status::success;
+        const auto append_if_success = [&](std::uint32_t dependency) {
+            if (result == status::success) {
+                result = append_dependency(dependency);
+            }
+        };
+        if (is_transform_type(resource->second.type)) {
+            const auto transform = transforms.find(handle);
+            if (transform == transforms.end()) {
+                result = status::invalid_handle;
+            } else {
+                for (const std::uint32_t child : transform->second.children) {
+                    append_if_success(child);
+                }
+                for (const std::uint32_t animation :
+                     transform->second.animations) {
+                    append_if_success(animation);
+                }
+            }
+        } else if (resource->second.type == type_linear_gradient_brush ||
+            resource->second.type == type_radial_gradient_brush) {
+            const auto brush = gradient_brushes.find(handle);
+            if (brush == gradient_brushes.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(brush->second.opacity_animation);
+                append_if_success(brush->second.transform_handle);
+                append_if_success(brush->second.relative_transform_handle);
+                append_if_success(brush->second.first_point_animation);
+                append_if_success(brush->second.second_point_animation);
+                append_if_success(brush->second.radius_x_animation);
+                append_if_success(brush->second.radius_y_animation);
+            }
+        } else if (resource->second.type == type_pen) {
+            const auto pen = pens.find(handle);
+            if (pen == pens.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(pen->second.brush_handle);
+                append_if_success(pen->second.dash_style_handle);
+            }
+        } else if (resource->second.type == type_line_geometry ||
+            resource->second.type == type_rectangle_geometry ||
+            resource->second.type == type_ellipse_geometry) {
+            const auto geometry = fixed_geometries.find(handle);
+            if (geometry == fixed_geometries.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(geometry->second.transform_handle);
+            }
+        } else if (resource->second.type == type_path_geometry) {
+            const auto geometry = path_geometries.find(handle);
+            if (geometry == path_geometries.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(geometry->second.transform_handle);
+            }
+        } else if (resource->second.type == type_geometry_group) {
+            const auto geometry = geometry_groups.find(handle);
+            if (geometry == geometry_groups.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(geometry->second.transform_handle);
+                for (const std::uint32_t child : geometry->second.children) {
+                    append_if_success(child);
+                }
+            }
+        } else if (resource->second.type == type_combined_geometry) {
+            const auto geometry = combined_geometries.find(handle);
+            if (geometry == combined_geometries.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(geometry->second.transform_handle);
+                append_if_success(geometry->second.geometry1_handle);
+                append_if_success(geometry->second.geometry2_handle);
+            }
+        } else if (resource->second.type == type_geometry_drawing) {
+            const auto drawing = geometry_drawings.find(handle);
+            if (drawing == geometry_drawings.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(drawing->second.brush_handle);
+                append_if_success(drawing->second.pen_handle);
+                append_if_success(drawing->second.geometry_handle);
+            }
+        } else if (resource->second.type == type_glyph_run_drawing) {
+            const auto drawing = glyph_run_drawings.find(handle);
+            if (drawing == glyph_run_drawings.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(drawing->second.glyph_run_handle);
+                append_if_success(drawing->second.foreground_brush_handle);
+            }
+        } else if (resource->second.type == type_image_drawing) {
+            const auto drawing = image_drawings.find(handle);
+            if (drawing == image_drawings.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(drawing->second.image_source_handle);
+                append_if_success(drawing->second.rect_animation_handle);
+            }
+        } else if (resource->second.type == type_drawing_image) {
+            const auto image = drawing_images.find(handle);
+            if (image == drawing_images.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(image->second.drawing_handle);
+            }
+        } else if (resource->second.type == type_drawing_group) {
+            const auto group = drawing_groups.find(handle);
+            if (group == drawing_groups.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(group->second.clip_geometry_handle);
+                append_if_success(group->second.opacity_animation_handle);
+                append_if_success(group->second.opacity_mask_handle);
+                append_if_success(group->second.transform_handle);
+                append_if_success(group->second.guideline_set_handle);
+                for (const std::uint32_t child : group->second.children) {
+                    append_if_success(child);
+                }
+            }
+        } else if (resource->second.type == type_bitmap_cache) {
+            const auto cache = bitmap_caches.find(handle);
+            if (cache == bitmap_caches.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(
+                    cache->second.render_at_scale_animation_handle);
+            }
+        } else if (resource->second.type == type_render_data) {
+            batch_reader reader(resource->second.render_data);
+            command_view view{};
+            for (;;) {
+                const status read_status = reader.next(view);
+                if (read_status == status::end_of_batch) {
+                    break;
+                }
+                if (read_status != status::success) {
+                    result = read_status;
+                    break;
+                }
+                const auto append_packet_handle = [&](std::size_t offset) {
+                    std::uint32_t dependency = 0U;
+                    if (result == status::success &&
+                        !read_at(view.packet, offset, dependency)) {
+                        result = status::malformed_batch;
+                    } else if (result == status::success) {
+                        append_if_success(dependency);
+                    }
+                };
+                if (view.kind == command::push_opacity ||
+                    view.kind == command::pop) {
+                    continue;
+                }
+                if (view.kind == command::push_clip ||
+                    view.kind == command::push_transform ||
+                    view.kind == command::draw_drawing) {
+                    append_packet_handle(4U);
+                } else if (view.kind == command::draw_glyph_run) {
+                    append_packet_handle(4U);
+                    append_packet_handle(8U);
+                } else if (view.kind == command::draw_line) {
+                    append_packet_handle(36U);
+                } else if (view.kind == command::draw_geometry) {
+                    append_packet_handle(4U);
+                    append_packet_handle(8U);
+                    append_packet_handle(12U);
+                } else if (view.kind == command::draw_rectangle ||
+                    view.kind == command::draw_ellipse) {
+                    append_packet_handle(36U);
+                    append_packet_handle(40U);
+                } else if (view.kind == command::draw_rounded_rectangle) {
+                    append_packet_handle(52U);
+                    append_packet_handle(56U);
+                } else {
+                    result = status::unsupported_command;
+                }
+                if (result != status::success) {
+                    break;
+                }
+            }
+        }
+        active_resources.erase(handle);
+        return result;
+    }
+
+    status compute_visual_cache_content_revision(
+        std::uint32_t handle,
+        bool include_outer_state,
+        std::unordered_set<std::uint32_t>& active_visuals,
+        std::unordered_set<std::uint32_t>& active_resources,
+        std::uint64_t& hash) const {
+        if (!active_visuals.insert(handle).second) {
+            return status::invalid_graph;
+        }
+        const auto visual = visuals.find(handle);
+        const auto resource = resources.find(handle);
+        if (visual == visuals.end() || resource == resources.end()) {
+            active_visuals.erase(handle);
+            return status::invalid_handle;
+        }
+        const auto append_resource = [&](std::uint32_t dependency) {
+            return append_cache_resource_revision(
+                dependency, active_resources, hash) == status::success;
+        };
+        append_fnv1a64(hash, handle);
+        append_fnv1a64(hash, visual->second.render_options_flags);
+        append_fnv1a64(hash, visual->second.edge_mode);
+        append_fnv1a64(hash, visual->second.bitmap_scaling_mode);
+        append_fnv1a64(hash, visual->second.clear_type_hint);
+        append_fnv1a64(hash, visual->second.text_rendering_mode);
+        append_fnv1a64(hash, visual->second.text_hinting_mode);
+        for (const double coordinate : visual->second.guidelines_x) {
+            append_fnv1a64(hash, coordinate);
+        }
+        for (const double coordinate : visual->second.guidelines_y) {
+            append_fnv1a64(hash, coordinate);
+        }
+        if (!append_resource(visual->second.content_handle)) {
+            active_visuals.erase(handle);
+            return status::invalid_handle;
+        }
+        if (include_outer_state) {
+            append_fnv1a64(hash, visual->second.offset_x);
+            append_fnv1a64(hash, visual->second.offset_y);
+            append_fnv1a64(hash, visual->second.opacity);
+            append_fnv1a64(hash, visual->second.has_scroll_clip);
+            append_fnv1a64(hash, visual->second.scroll_clip_x);
+            append_fnv1a64(hash, visual->second.scroll_clip_y);
+            append_fnv1a64(hash, visual->second.scroll_clip_width);
+            append_fnv1a64(hash, visual->second.scroll_clip_height);
+            if (!append_resource(visual->second.transform_handle) ||
+                !append_resource(visual->second.effect_handle) ||
+                !append_resource(visual->second.cache_mode_handle) ||
+                !append_resource(visual->second.clip_geometry_handle) ||
+                !append_resource(visual->second.alpha_mask_handle)) {
+                active_visuals.erase(handle);
+                return status::invalid_handle;
+            }
+        }
+        append_fnv1a64(
+            hash,
+            static_cast<std::uint64_t>(visual->second.children.size()));
+        for (const std::uint32_t child : visual->second.children) {
+            const status child_status = compute_visual_cache_content_revision(
+                child, true, active_visuals, active_resources, hash);
+            if (child_status != status::success) {
+                active_visuals.erase(handle);
+                return child_status;
+            }
+        }
+        active_visuals.erase(handle);
+        return status::success;
+    }
+
+    status add_visual_cache_layer(
+        std::uint32_t cache_handle,
+        std::uint32_t visual_handle,
+        std::uint64_t scene_id,
+        native::semantic_scene_builder& builder,
+        bool& pushed,
+        bool& skip_content) const {
+        pushed = false;
+        skip_content = false;
+        if (cache_handle == 0U) {
+            return status::success;
+        }
+        const auto cache = bitmap_caches.find(cache_handle);
+        const auto cache_resource = resources.find(cache_handle);
+        if (cache == bitmap_caches.end() ||
+            cache_resource == resources.end() ||
+            cache_resource->second.type != type_bitmap_cache) {
+            return status::invalid_handle;
+        }
+        double render_at_scale = 1.0;
+        const status scale_status = resolve_animated_double(
+            cache->second.render_at_scale,
+            cache->second.render_at_scale_animation_handle,
+            render_at_scale);
+        if (scale_status != status::success ||
+            !std::isfinite(render_at_scale)) {
+            return scale_status == status::success
+                ? status::invalid_graph
+                : scale_status;
+        }
+        render_at_scale = std::max(0.0, render_at_scale);
+        if (render_at_scale == 0.0) {
+            skip_content = true;
+            return status::success;
+        }
+        // The first canonical packet slice deliberately executes only the
+        // unit-scale, grayscale, unsnapped subset. The retained page is still
+        // target-sized; local cache bounds and WPF composite placement are the
+        // next semantic-layer capability and non-default values fail closed.
+        if (render_at_scale != 1.0 ||
+            cache->second.snaps_to_device_pixels ||
+            cache->second.enable_clear_type) {
+            return status::unsupported_command;
+        }
+        std::uint64_t content_revision = 14695981039346656037ULL;
+        append_fnv1a64(content_revision, cache_resource->second.generation);
+        if (cache->second.render_at_scale_animation_handle != 0U) {
+            const auto animation = resources.find(
+                cache->second.render_at_scale_animation_handle);
+            if (animation == resources.end()) {
+                return status::invalid_handle;
+            }
+            append_fnv1a64(content_revision, animation->second.generation);
+        }
+        std::unordered_set<std::uint32_t> active_visuals;
+        std::unordered_set<std::uint32_t> active_resources;
+        const status revision_status = compute_visual_cache_content_revision(
+            visual_handle,
+            true,
+            active_visuals,
+            active_resources,
+            content_revision);
+        if (revision_status != status::success) {
+            return revision_status;
+        }
+        std::uint64_t owner_identity = 14695981039346656037ULL;
+        constexpr std::uint32_t owner_kind = 0x43414348U; // CACH
+        append_fnv1a64(owner_identity, owner_kind);
+        append_fnv1a64(owner_identity, scene_id);
+        append_fnv1a64(owner_identity, visual_handle);
+        progpu_native_scene_layer layer{};
+        layer.struct_size = sizeof(layer);
+        layer.flags = PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT;
+        layer.opacity = 1.0F;
+        layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+        layer.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        layer.content_revision = finish_nonzero_hash(content_revision);
+        layer.composite_revision = finish_nonzero_hash(owner_identity);
+        if (!builder.push_layer(layer)) {
+            return status::invalid_graph;
+        }
+        pushed = true;
+        return status::success;
+    }
+
     status append_visual(
         std::uint32_t handle,
         const render_scope_state& parent_state,
         std::uint32_t depth,
+        std::uint64_t scene_id,
         native::semantic_scene_builder& builder,
         std::unordered_map<std::uint32_t, std::uint32_t>& brush_indices,
         std::unordered_map<std::uint32_t, std::uint32_t>& image_indices,
@@ -8471,11 +8919,29 @@ struct channel::implementation {
             return effect_status;
         }
 
+        bool cache_layer_pushed = false;
+        bool skip_cached_content = false;
+        const status cache_status = add_visual_cache_layer(
+            visual->second.cache_mode_handle,
+            handle,
+            scene_id,
+            builder,
+            cache_layer_pushed,
+            skip_cached_content);
+        if (cache_status != status::success) {
+            if (effect_layer_pushed) {
+                builder.pop_layer();
+            }
+            builder.restore();
+            active_visuals.erase(handle);
+            return cache_status;
+        }
+
         ++metrics.visual_count;
         metrics.maximum_visual_depth =
             std::max(metrics.maximum_visual_depth, depth);
         status result = status::success;
-        if (visual->second.content_handle != 0U) {
+        if (!skip_cached_content && visual->second.content_handle != 0U) {
             result = append_render_data(
                 visual->second.content_handle,
                 current,
@@ -8485,12 +8951,13 @@ struct channel::implementation {
                 glyph_resources,
                 metrics);
         }
-        if (result == status::success) {
+        if (!skip_cached_content && result == status::success) {
             for (const auto child : visual->second.children) {
                 result = append_visual(
                     child,
                     current,
                     depth + 1U,
+                    scene_id,
                     builder,
                     brush_indices,
                     image_indices,
@@ -8501,6 +8968,10 @@ struct channel::implementation {
                     break;
                 }
             }
+        }
+        if (cache_layer_pushed && !builder.pop_layer() &&
+            result == status::success) {
+            result = status::invalid_graph;
         }
         if (effect_layer_pushed && !builder.pop_layer() &&
             result == status::success) {
@@ -8782,6 +9253,7 @@ status channel::build_scene(
                 target->second.root_handle,
                 implementation::render_scope_state{},
                 1U,
+                scene_id,
                 builder,
                 brush_indices,
                 image_indices,

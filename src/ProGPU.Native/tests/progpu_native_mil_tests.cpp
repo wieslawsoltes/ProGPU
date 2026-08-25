@@ -80,6 +80,30 @@ bool scene_contains_text_style_mode(
     return false;
 }
 
+bool try_get_cached_layer(
+    const std::vector<std::byte>& stream,
+    progpu_native_scene_layer& layer) {
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+        const auto command_record = read_value<progpu_native_scene_command>(
+            stream,
+            header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (command_record.kind != PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
+            command_record.payload_size != sizeof(progpu_native_scene_layer)) {
+            continue;
+        }
+        const auto candidate = read_value<progpu_native_scene_layer>(
+            stream, command_record.payload_offset);
+        if ((candidate.flags &
+                PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U) {
+            layer = candidate;
+            return true;
+        }
+    }
+    return false;
+}
+
 template<typename T>
 void write_value(
     std::vector<std::byte>& bytes,
@@ -1476,6 +1500,233 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     PROGPU_REQUIRE(
         state.build_scene(target, 9014U, 3U, stream, &metrics) ==
         status::unsupported_command);
+    return true;
+}
+
+bool visual_bitmap_cache_uses_canonical_typed_retention() {
+    constexpr std::uint32_t root = 1U;
+    constexpr std::uint32_t cached_visual = 2U;
+    constexpr std::uint32_t sibling = 3U;
+    constexpr std::uint32_t cached_content = 4U;
+    constexpr std::uint32_t sibling_content = 5U;
+    constexpr std::uint32_t target = 6U;
+    constexpr std::uint32_t brush = 7U;
+    constexpr std::uint32_t cache = 8U;
+    constexpr std::uint32_t scale_animation = 9U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, root, 39U);
+    append_create(batch, cached_visual, 39U);
+    append_create(batch, sibling, 39U);
+    append_create(batch, cached_content, 43U);
+    append_create(batch, sibling_content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, cache, 94U);
+    append_create(batch, scale_animation, 49U);
+    append_command(batch, command::visual_create, root);
+    append_command(batch, command::visual_create, cached_visual);
+    append_command(batch, command::visual_create, sibling);
+    append_command(
+        batch, command::visual_set_content, cached_visual, cached_content);
+    append_command(
+        batch, command::visual_set_content, sibling, sibling_content);
+    append_command(
+        batch, command::visual_insert_child_at, root, cached_visual, 0U);
+    append_command(
+        batch, command::visual_insert_child_at, root, sibling, 1U);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.25F, 0.5F, 0.75F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    std::vector<std::byte> cached_draw;
+    append_command(
+        cached_draw,
+        command::draw_rectangle,
+        4.0,
+        6.0,
+        24.0,
+        18.0,
+        brush,
+        0U);
+    append_render_data(batch, cached_content, cached_draw);
+    std::vector<std::byte> sibling_draw;
+    append_command(
+        sibling_draw,
+        command::draw_rectangle,
+        40.0,
+        2.0,
+        12.0,
+        10.0,
+        brush,
+        0U);
+    append_render_data(batch, sibling_content, sibling_draw);
+    append_command(batch, command::double_resource, scale_animation, 1.0);
+    append_command(
+        batch,
+        command::bitmap_cache,
+        cache,
+        7.0,
+        scale_animation,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::visual_set_cache_mode,
+        cached_visual,
+        cache);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, root);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    PROGPU_REQUIRE(state.resource_generation(cache) == 2U);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9015U, 1U, stream, &metrics) ==
+        status::success);
+    progpu_native_scene_layer first{};
+    PROGPU_REQUIRE(try_get_cached_layer(stream, first));
+    PROGPU_REQUIRE(
+        first.flags == PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT);
+    PROGPU_REQUIRE(first.content_revision != 0U);
+    PROGPU_REQUIRE(first.composite_revision != 0U);
+
+    std::vector<std::byte> sibling_update;
+    append_command(
+        sibling_update, command::visual_set_offset, sibling, 3.0, 1.0);
+    PROGPU_REQUIRE(state.apply(sibling_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9015U, 2U, stream, &metrics) ==
+        status::success);
+    progpu_native_scene_layer sibling_changed{};
+    PROGPU_REQUIRE(try_get_cached_layer(stream, sibling_changed));
+    PROGPU_REQUIRE(
+        sibling_changed.content_revision == first.content_revision);
+    PROGPU_REQUIRE(
+        sibling_changed.composite_revision == first.composite_revision);
+
+    std::vector<std::byte> brush_update;
+    append_command(
+        brush_update,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.75F, 0.25F, 0.5F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    PROGPU_REQUIRE(state.apply(brush_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9015U, 3U, stream, &metrics) ==
+        status::success);
+    progpu_native_scene_layer brush_changed{};
+    PROGPU_REQUIRE(try_get_cached_layer(stream, brush_changed));
+    PROGPU_REQUIRE(
+        brush_changed.content_revision != first.content_revision);
+    PROGPU_REQUIRE(
+        brush_changed.composite_revision == first.composite_revision);
+
+    std::vector<std::byte> cached_update;
+    append_command(
+        cached_update,
+        command::visual_set_offset,
+        cached_visual,
+        2.0,
+        0.0);
+    PROGPU_REQUIRE(state.apply(cached_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9015U, 4U, stream, &metrics) ==
+        status::success);
+    progpu_native_scene_layer cached_changed{};
+    PROGPU_REQUIRE(try_get_cached_layer(stream, cached_changed));
+    PROGPU_REQUIRE(
+        cached_changed.content_revision != brush_changed.content_revision);
+    PROGPU_REQUIRE(
+        cached_changed.composite_revision == first.composite_revision);
+
+    const auto cache_generation = state.resource_generation(cache);
+    std::vector<std::byte> malformed_boolean;
+    append_command(
+        malformed_boolean,
+        command::bitmap_cache,
+        cache,
+        1.0,
+        scale_animation,
+        2U,
+        0U);
+    PROGPU_REQUIRE(
+        state.apply(malformed_boolean) == status::malformed_batch);
+    PROGPU_REQUIRE(state.resource_generation(cache) == cache_generation);
+
+    std::vector<std::byte> scaled;
+    append_command(
+        scaled, command::double_resource, scale_animation, 0.5);
+    PROGPU_REQUIRE(state.apply(scaled) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9015U, 5U, stream, &metrics) ==
+        status::unsupported_command);
+    std::vector<std::byte> unit_scale;
+    append_command(
+        unit_scale, command::double_resource, scale_animation, 1.0);
+    PROGPU_REQUIRE(state.apply(unit_scale) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9015U, 6U, stream, &metrics) ==
+        status::success);
+    progpu_native_scene_layer animated{};
+    PROGPU_REQUIRE(try_get_cached_layer(stream, animated));
+    PROGPU_REQUIRE(
+        animated.content_revision != cached_changed.content_revision);
+    PROGPU_REQUIRE(
+        animated.composite_revision == first.composite_revision);
+
+    std::vector<std::byte> delete_animation;
+    append_command(
+        delete_animation,
+        command::channel_delete_resource,
+        scale_animation,
+        49U);
+    PROGPU_REQUIRE(state.apply(delete_animation) == status::invalid_graph);
+    std::vector<std::byte> delete_cache;
+    append_command(
+        delete_cache,
+        command::channel_delete_resource,
+        cache,
+        94U);
+    PROGPU_REQUIRE(state.apply(delete_cache) == status::invalid_graph);
+    std::vector<std::byte> clear_cache;
+    append_command(
+        clear_cache,
+        command::visual_set_cache_mode,
+        cached_visual,
+        0U);
+    PROGPU_REQUIRE(state.apply(clear_cache) == status::success);
+    PROGPU_REQUIRE(state.apply(delete_cache) == status::success);
+    PROGPU_REQUIRE(state.apply(delete_animation) == status::success);
+
+    std::vector<std::byte> wrong_type;
+    append_command(
+        wrong_type,
+        command::visual_set_cache_mode,
+        cached_visual,
+        brush);
+    PROGPU_REQUIRE(state.apply(wrong_type) == status::invalid_handle);
     return true;
 }
 
@@ -7679,6 +7930,7 @@ int main() {
     PROGPU_REQUIRE(visual_clips_compile_to_exact_semantic_state());
     PROGPU_REQUIRE(visual_solid_opacity_mask_composes_and_updates());
     PROGPU_REQUIRE(visual_gaussian_effects_compile_to_isolated_layers());
+    PROGPU_REQUIRE(visual_bitmap_cache_uses_canonical_typed_retention());
     PROGPU_REQUIRE(visual_static_guidelines_reset_at_child_boundaries());
     PROGPU_REQUIRE(matrix_transform_scopes_compile_to_semantic_state());
     PROGPU_REQUIRE(

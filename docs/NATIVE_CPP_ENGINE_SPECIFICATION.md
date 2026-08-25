@@ -2206,6 +2206,26 @@ the persistent lifetime primitive for, not yet a parity claim for, WPF
 `BitmapCache` local bounds, RenderAtScale, ClearType, pixel snapping, or outer
 transform composition.
 
+The canonical MIL channel now consumes WPF's packed cache protocol on top of
+that primitive: `VisualSetCacheMode` is an exact 12-byte command payload,
+`BitmapCache` is an exact 28-byte resource update for type 94, and the optional
+RenderAtScale animation must be a live type-49 DoubleResource. Both Visual-to-
+cache and cache-to-animation edges participate in transactional deletion
+protection. The initial executable subset resolves scale at compile time,
+suppresses an exact non-positive result, and emits a persistent cached layer
+only for scale one with pixel snapping and ClearType disabled. Other values
+fail closed until the semantic cache record carries WPF local bounds, raster
+scale, and composite placement.
+
+MIL cache content identity is independent of scene generation and unrelated
+sibling updates. It hashes the typed cached Visual/resource dependency graph,
+including nested render-data references and their brush, pen, transform,
+geometry, drawing, image, glyph, effect, guideline, cache, and animation
+generations. The temporary target-coordinate implementation includes the cache
+root's outer state in that pixel hash to prevent stale placement; the planned
+local-space representation will split those fields into composite identity so
+outer-only changes avoid rerasterization exactly as WPF does.
+
 The command vocabulary is deliberately semantic:
 
 - save/restore transform and rectangular/rounded/vector clip state;

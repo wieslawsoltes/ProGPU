@@ -1668,6 +1668,30 @@ the explicit local-space descriptor, outer transform, RenderAtScale,
 SnapsToDevicePixels, and ClearType policy remain required before MIL
 `BitmapCache` parity can be claimed.
 
+The canonical MIL checkpoint is now executable on that foundation. The C++
+channel decodes the exact 12-byte `MILCMD_VISUAL_SETCACHEMODE` command and the
+exact 28-byte `MILCMD_BITMAPCACHE` resource update for canonical resource type
+94. A Visual retains its typed cache handle, a BitmapCache retains its optional
+type-49 DoubleResource animation, and deletion of either live dependency fails
+transactionally. Packet booleans must be canonical zero or one, non-finite
+scale values fail closed, and animated scale is resolved from the live resource
+on every scene compilation.
+
+For the currently executable unit-scale subset, the MIL compiler emits one
+owner-keyed cached semantic layer around the Visual subtree. The stable owner
+identity is derived from scene identity plus Visual handle; the pixel revision
+walks the typed Visual, render-data, brush, pen, transform, geometry, drawing,
+image, glyph, effect, guideline, nested-cache, and animation dependency graph.
+Consequently an unrelated sibling update preserves the cache version, while a
+brush/resource update inside the cached subtree changes it without managed
+invalidation assistance. Exact resolved scale zero suppresses the cached
+subtree. Until local cache bounds and composite placement land, non-unit scale,
+SnapsToDevicePixels, and EnableClearType return `unsupported_command` instead
+of rendering approximate pixels. Root outer state is also included in the
+pixel revision in this target-coordinate checkpoint so an offset/transform/
+opacity change redraws correctly; WPF's cheaper composite-only update becomes
+available with the local-space descriptor.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
@@ -1675,7 +1699,8 @@ The implementation sequence is intentionally architectural:
 2. Prove cache hits survive unrelated sibling/composite changes, while content,
    scale, size, text mode, and device generation changes invalidate the page.
 3. Decode canonical BitmapCache/Visual packets into that descriptor and retain
-   dependency lifetime transactionally.
+   dependency lifetime transactionally. (Implemented for the explicit
+   unit-scale target-coordinate subset.)
 4. Publish neutral typed cache state from source-built WPF and emit it from
    LibreWPF without reflection.
 5. Qualify scale, zero-scale suppression, pixel snapping, ClearType policy,
