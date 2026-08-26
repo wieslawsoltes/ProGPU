@@ -34,6 +34,17 @@ if (Array.Exists(
     return;
 }
 
+if (Array.Exists(
+        args,
+        static value => string.Equals(
+            value,
+            "--semantic-local-cache-brush-mask",
+            StringComparison.OrdinalIgnoreCase)))
+{
+    RetainedCacheMaskQualification.Run();
+    return;
+}
+
 const uint width = 960;
 const uint height = 540;
 int rectangleCount = ReadPositiveArgument("--rectangles", 384);
