@@ -3,16 +3,26 @@
   "wireContract": {
     "byteOrder": "little-endian",
     "commandWidth": 4,
-    "managedLayoutPack": 1
+    "managedLayoutPack": 1,
+    "nativeLayoutPack": 1
   },
   "source": {
     "commandTypes": {
       "path": "src/Microsoft.DotNet.Wpf/src/WpfGfx/include/Generated/wgx_command_types.h",
       "sha256": "294039586fc93247c2c7bffcf757fe9871d16b841aa2d6fd7078b541928f7fb1"
     },
-    "commandLayouts": {
+    "managedLayouts": {
       "path": "src/Microsoft.DotNet.Wpf/src/WpfGfx/include/Generated/wgx_commands.cs",
-      "sha256": "277571b16b49a5bc7b366e6dd63f426fec7f3f7aa036b3c6a34c868f74345080"
+      "sha256": "277571b16b49a5bc7b366e6dd63f426fec7f3f7aa036b3c6a34c868f74345080",
+      "overlapCount": 108
+    },
+    "nativeLayouts": {
+      "path": "src/Microsoft.DotNet.Wpf/src/WpfGfx/include/Generated/wgx_commands.h",
+      "sha256": "6aba85e9296b2ac66d1c963269ef4b7337d6a453456735fb93732c29517a9f2b"
+    },
+    "renderDataLayouts": {
+      "path": "src/Microsoft.DotNet.Wpf/src/WpfGfx/include/Generated/wgx_renderdata_commands.h",
+      "sha256": "f80794cae775710097159bd9b313bd5604c7bf5093975082d6aa084cccf94bb5"
     }
   },
   "commands": [
@@ -24,12 +34,14 @@
     {
       "name": "transport_sync_flush",
       "wpfName": "MilCmdTransportSyncFlush",
-      "value": 1
+      "value": 1,
+      "layout": "MILCMD_TRANSPORT_SYNCFLUSH"
     },
     {
       "name": "transport_destroy_resources_on_channel",
       "wpfName": "MilCmdTransportDestroyResourcesOnChannel",
-      "value": 2
+      "value": 2,
+      "layout": "MILCMD_TRANSPORT_DESTROYRESOURCESONCHANNEL"
     },
     {
       "name": "partition_register_for_notifications",
@@ -58,17 +70,20 @@
     {
       "name": "channel_create_resource",
       "wpfName": "MilCmdChannelCreateResource",
-      "value": 7
+      "value": 7,
+      "layout": "MILCMD_CHANNEL_CREATERESOURCE"
     },
     {
       "name": "channel_delete_resource",
       "wpfName": "MilCmdChannelDeleteResource",
-      "value": 8
+      "value": 8,
+      "layout": "MILCMD_CHANNEL_DELETERESOURCE"
     },
     {
       "name": "channel_duplicate_handle",
       "wpfName": "MilCmdChannelDuplicateHandle",
-      "value": 9
+      "value": 9,
+      "layout": "MILCMD_CHANNEL_DUPLICATEHANDLE"
     },
     {
       "name": "d3d_image",
@@ -85,7 +100,8 @@
     {
       "name": "bitmap_source",
       "wpfName": "MilCmdBitmapSource",
-      "value": 12
+      "value": 12,
+      "layout": "MILCMD_BITMAP_SOURCE"
     },
     {
       "name": "bitmap_invalidate",
@@ -150,7 +166,8 @@
     {
       "name": "media_player",
       "wpfName": "MilCmdMediaPlayer",
-      "value": 23
+      "value": 23,
+      "layout": "MILCMD_MEDIAPLAYER"
     },
     {
       "name": "render_data",
@@ -167,7 +184,8 @@
     {
       "name": "visual_create",
       "wpfName": "MilCmdVisualCreate",
-      "value": 26
+      "value": 26,
+      "layout": "MILCMD_VISUAL_CREATE"
     },
     {
       "name": "visual_set_offset",
@@ -382,127 +400,152 @@
     {
       "name": "draw_line",
       "wpfName": "MilDrawLine",
-      "value": 62
+      "value": 62,
+      "layout": "MILCMD_DRAW_LINE"
     },
     {
       "name": "draw_line_animate",
       "wpfName": "MilDrawLineAnimate",
-      "value": 63
+      "value": 63,
+      "layout": "MILCMD_DRAW_LINE_ANIMATE"
     },
     {
       "name": "draw_rectangle",
       "wpfName": "MilDrawRectangle",
-      "value": 64
+      "value": 64,
+      "layout": "MILCMD_DRAW_RECTANGLE"
     },
     {
       "name": "draw_rectangle_animate",
       "wpfName": "MilDrawRectangleAnimate",
-      "value": 65
+      "value": 65,
+      "layout": "MILCMD_DRAW_RECTANGLE_ANIMATE"
     },
     {
       "name": "draw_rounded_rectangle",
       "wpfName": "MilDrawRoundedRectangle",
-      "value": 66
+      "value": 66,
+      "layout": "MILCMD_DRAW_ROUNDED_RECTANGLE"
     },
     {
       "name": "draw_rounded_rectangle_animate",
       "wpfName": "MilDrawRoundedRectangleAnimate",
-      "value": 67
+      "value": 67,
+      "layout": "MILCMD_DRAW_ROUNDED_RECTANGLE_ANIMATE"
     },
     {
       "name": "draw_ellipse",
       "wpfName": "MilDrawEllipse",
-      "value": 68
+      "value": 68,
+      "layout": "MILCMD_DRAW_ELLIPSE"
     },
     {
       "name": "draw_ellipse_animate",
       "wpfName": "MilDrawEllipseAnimate",
-      "value": 69
+      "value": 69,
+      "layout": "MILCMD_DRAW_ELLIPSE_ANIMATE"
     },
     {
       "name": "draw_geometry",
       "wpfName": "MilDrawGeometry",
-      "value": 70
+      "value": 70,
+      "layout": "MILCMD_DRAW_GEOMETRY"
     },
     {
       "name": "draw_image",
       "wpfName": "MilDrawImage",
-      "value": 71
+      "value": 71,
+      "layout": "MILCMD_DRAW_IMAGE"
     },
     {
       "name": "draw_image_animate",
       "wpfName": "MilDrawImageAnimate",
-      "value": 72
+      "value": 72,
+      "layout": "MILCMD_DRAW_IMAGE_ANIMATE"
     },
     {
       "name": "draw_glyph_run",
       "wpfName": "MilDrawGlyphRun",
-      "value": 73
+      "value": 73,
+      "layout": "MILCMD_DRAW_GLYPH_RUN"
     },
     {
       "name": "draw_drawing",
       "wpfName": "MilDrawDrawing",
-      "value": 74
+      "value": 74,
+      "layout": "MILCMD_DRAW_DRAWING"
     },
     {
       "name": "draw_video",
       "wpfName": "MilDrawVideo",
-      "value": 75
+      "value": 75,
+      "layout": "MILCMD_DRAW_VIDEO"
     },
     {
       "name": "draw_video_animate",
       "wpfName": "MilDrawVideoAnimate",
-      "value": 76
+      "value": 76,
+      "layout": "MILCMD_DRAW_VIDEO_ANIMATE"
     },
     {
       "name": "push_clip",
       "wpfName": "MilPushClip",
-      "value": 77
+      "value": 77,
+      "layout": "MILCMD_PUSH_CLIP"
     },
     {
       "name": "push_opacity_mask",
       "wpfName": "MilPushOpacityMask",
-      "value": 78
+      "value": 78,
+      "layout": "MILCMD_PUSH_OPACITY_MASK"
     },
     {
       "name": "push_opacity",
       "wpfName": "MilPushOpacity",
-      "value": 79
+      "value": 79,
+      "layout": "MILCMD_PUSH_OPACITY"
     },
     {
       "name": "push_opacity_animate",
       "wpfName": "MilPushOpacityAnimate",
-      "value": 80
+      "value": 80,
+      "layout": "MILCMD_PUSH_OPACITY_ANIMATE"
     },
     {
       "name": "push_transform",
       "wpfName": "MilPushTransform",
-      "value": 81
+      "value": 81,
+      "layout": "MILCMD_PUSH_TRANSFORM"
     },
     {
       "name": "push_guideline_set",
       "wpfName": "MilPushGuidelineSet",
-      "value": 82
+      "value": 82,
+      "layout": "MILCMD_PUSH_GUIDELINE_SET"
     },
     {
       "name": "push_guideline_y1",
       "wpfName": "MilPushGuidelineY1",
-      "value": 83
+      "value": 83,
+      "layout": "MILCMD_PUSH_GUIDELINE_Y1"
     },
     {
       "name": "push_guideline_y2",
       "wpfName": "MilPushGuidelineY2",
-      "value": 84
+      "value": 84,
+      "layout": "MILCMD_PUSH_GUIDELINE_Y2"
     },
     {
       "name": "push_effect",
       "wpfName": "MilPushEffect",
-      "value": 85
+      "value": 85,
+      "layout": "MILCMD_PUSH_EFFECT"
     },
     {
       "name": "pop",
       "wpfName": "MilPop",
-      "value": 86
+      "value": 86,
+      "layout": "MILCMD_POP"
     },
     {
       "name": "axis_angle_rotation3d",
@@ -842,8 +885,41 @@
   ],
   "layouts": [
     {
+      "name": "MILCMD_TRANSPORT_SYNCFLUSH",
+      "fixedSize": 4,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_TRANSPORT_DESTROYRESOURCESONCHANNEL",
+      "fixedSize": 8,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hChannel",
+          "type": "HMIL_CHANNEL",
+          "offset": 4,
+          "size": 4
+        }
+      ]
+    },
+    {
       "name": "MILCMD_PARTITION_REGISTERFORNOTIFICATIONS",
       "fixedSize": 8,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -862,6 +938,7 @@
     {
       "name": "MILCMD_CHANNEL_REQUESTTIER",
       "fixedSize": 8,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -880,6 +957,7 @@
     {
       "name": "MILCMD_PARTITION_SETVBLANKSYNCMODE",
       "fixedSize": 8,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -898,6 +976,7 @@
     {
       "name": "MILCMD_PARTITION_NOTIFYPRESENT",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -907,15 +986,16 @@
         },
         {
           "name": "FrameTime",
-          "type": "UInt64",
+          "type": "UINT64",
           "offset": 4,
           "size": 8
         }
       ]
     },
     {
-      "name": "MILCMD_D3DIMAGE",
-      "fixedSize": 24,
+      "name": "MILCMD_CHANNEL_CREATERESOURCE",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -925,19 +1005,100 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "resType",
+          "type": "MIL_RESOURCE_TYPE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_CHANNEL_DELETERESOURCE",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "resType",
+          "type": "MIL_RESOURCE_TYPE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_CHANNEL_DUPLICATEHANDLE",
+      "fixedSize": 16,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Original",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "TargetChannel",
+          "type": "HMIL_CHANNEL",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "Duplicate",
+          "type": "HMIL_RESOURCE",
+          "offset": 12,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_D3DIMAGE",
+      "fixedSize": 24,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "pInteropDeviceBitmap",
-          "type": "UInt64",
+          "type": "UINT64",
           "offset": 8,
           "size": 8
         },
         {
           "name": "pSoftwareBitmap",
-          "type": "UInt64",
+          "type": "UINT64",
           "offset": 16,
           "size": 8
         }
@@ -946,6 +1107,7 @@
     {
       "name": "MILCMD_D3DIMAGE_PRESENT",
       "fixedSize": 16,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -955,13 +1117,38 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hEvent",
-          "type": "UInt64",
+          "type": "UINT64",
+          "offset": 8,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_BITMAP_SOURCE",
+      "fixedSize": 16,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "pIBitmap",
+          "type": "IWICBitmapSource*",
           "offset": 8,
           "size": 8
         }
@@ -970,6 +1157,7 @@
     {
       "name": "MILCMD_BITMAP_INVALIDATE",
       "fixedSize": 28,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -979,7 +1167,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -991,7 +1179,7 @@
         },
         {
           "name": "DirtyRect",
-          "type": "MS.Win32.NativeMethods.RECT",
+          "type": "RECT",
           "offset": 12,
           "size": 16
         }
@@ -1000,6 +1188,7 @@
     {
       "name": "MILCMD_DOUBLERESOURCE",
       "fixedSize": 16,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1009,13 +1198,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Value",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         }
@@ -1024,6 +1213,7 @@
     {
       "name": "MILCMD_COLORRESOURCE",
       "fixedSize": 24,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1033,7 +1223,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -1048,6 +1238,7 @@
     {
       "name": "MILCMD_POINTRESOURCE",
       "fixedSize": 24,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1057,13 +1248,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Value",
-          "type": "Point",
+          "type": "MilPoint2D",
           "offset": 8,
           "size": 16
         }
@@ -1072,6 +1263,7 @@
     {
       "name": "MILCMD_RECTRESOURCE",
       "fixedSize": 40,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1081,13 +1273,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Value",
-          "type": "Rect",
+          "type": "MilPointAndSizeD",
           "offset": 8,
           "size": 32
         }
@@ -1096,6 +1288,7 @@
     {
       "name": "MILCMD_SIZERESOURCE",
       "fixedSize": 24,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1105,13 +1298,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Value",
-          "type": "Size",
+          "type": "MilSizeD",
           "offset": 8,
           "size": 16
         }
@@ -1120,6 +1313,7 @@
     {
       "name": "MILCMD_MATRIXRESOURCE",
       "fixedSize": 56,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1129,7 +1323,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -1144,6 +1338,7 @@
     {
       "name": "MILCMD_POINT3DRESOURCE",
       "fixedSize": 20,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1153,7 +1348,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -1168,6 +1363,7 @@
     {
       "name": "MILCMD_VECTOR3DRESOURCE",
       "fixedSize": 20,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1177,7 +1373,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -1192,6 +1388,7 @@
     {
       "name": "MILCMD_QUATERNIONRESOURCE",
       "fixedSize": 24,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1201,7 +1398,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -1214,8 +1411,9 @@
       ]
     },
     {
-      "name": "MILCMD_RENDERDATA",
-      "fixedSize": 12,
+      "name": "MILCMD_MEDIAPLAYER",
+      "fixedSize": 20,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1225,13 +1423,44 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "pMedia",
+          "type": "UINT64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "notifyUceDirect",
+          "type": "BOOL",
+          "offset": 16,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_RENDERDATA",
+      "fixedSize": 12,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "cbData",
-          "type": "UInt32",
+          "type": "UINT",
           "offset": 8,
           "size": 4
         }
@@ -1240,6 +1469,7 @@
     {
       "name": "MILCMD_ETWEVENTRESOURCE",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1249,14 +1479,33 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "id",
-          "type": "UInt32",
+          "type": "UINT",
           "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_VISUAL_CREATE",
+      "fixedSize": 8,
+      "sourceKind": "native-command",
+      "fields": [
+        {
+          "name": "Type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "Handle",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
           "size": 4
         }
       ]
@@ -1264,6 +1513,7 @@
     {
       "name": "MILCMD_VISUAL_SETOFFSET",
       "fixedSize": 24,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1273,19 +1523,19 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "offsetX",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "offsetY",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 16,
           "size": 8
         }
@@ -1294,6 +1544,7 @@
     {
       "name": "MILCMD_VISUAL_SETTRANSFORM",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1303,13 +1554,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         }
@@ -1318,6 +1569,7 @@
     {
       "name": "MILCMD_VISUAL_SETEFFECT",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1327,13 +1579,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hEffect",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         }
@@ -1342,6 +1594,7 @@
     {
       "name": "MILCMD_VISUAL_SETCACHEMODE",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1351,13 +1604,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hCacheMode",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         }
@@ -1366,6 +1619,7 @@
     {
       "name": "MILCMD_VISUAL_SETCLIP",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1375,13 +1629,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hClip",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         }
@@ -1390,6 +1644,7 @@
     {
       "name": "MILCMD_VISUAL_SETALPHA",
       "fixedSize": 16,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1399,13 +1654,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "alpha",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         }
@@ -1414,6 +1669,7 @@
     {
       "name": "MILCMD_VISUAL_SETRENDEROPTIONS",
       "fixedSize": 36,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1423,7 +1679,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -1438,6 +1694,7 @@
     {
       "name": "MILCMD_VISUAL_SETCONTENT",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1447,13 +1704,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hContent",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         }
@@ -1462,6 +1719,7 @@
     {
       "name": "MILCMD_VISUAL_SETALPHAMASK",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1471,13 +1729,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hAlphaMask",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         }
@@ -1486,6 +1744,7 @@
     {
       "name": "MILCMD_VISUAL_REMOVEALLCHILDREN",
       "fixedSize": 8,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1495,7 +1754,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         }
@@ -1504,6 +1763,7 @@
     {
       "name": "MILCMD_VISUAL_REMOVECHILD",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1513,13 +1773,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hChild",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         }
@@ -1528,6 +1788,7 @@
     {
       "name": "MILCMD_VISUAL_INSERTCHILDAT",
       "fixedSize": 16,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1537,19 +1798,19 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hChild",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         },
         {
           "name": "index",
-          "type": "UInt32",
+          "type": "UINT",
           "offset": 12,
           "size": 4
         }
@@ -1558,6 +1819,7 @@
     {
       "name": "MILCMD_VISUAL_SETGUIDELINECOLLECTION",
       "fixedSize": 16,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1567,33 +1829,40 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "countX",
-          "type": "UInt16",
+          "type": "WORD",
           "offset": 8,
           "size": 2
         },
         {
+          "name": "UINT16Padding0",
+          "type": "UINT16",
+          "offset": 10,
+          "size": 2
+        },
+        {
           "name": "countY",
-          "type": "UInt16",
+          "type": "WORD",
           "offset": 12,
           "size": 2
         },
         {
-          "name": "BYTEPacking0",
-          "type": "byte",
-          "offset": 15,
-          "size": 1
+          "name": "UINT16Padding1",
+          "type": "UINT16",
+          "offset": 14,
+          "size": 2
         }
       ]
     },
     {
       "name": "MILCMD_VISUAL_SETSCROLLABLEAREACLIP",
       "fixedSize": 44,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1603,13 +1872,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Clip",
-          "type": "Rect",
+          "type": "MilPointAndSizeD",
           "offset": 8,
           "size": 32
         },
@@ -1624,6 +1893,7 @@
     {
       "name": "MILCMD_VIEWPORT3DVISUAL_SETCAMERA",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1633,13 +1903,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hCamera",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         }
@@ -1648,6 +1918,7 @@
     {
       "name": "MILCMD_VIEWPORT3DVISUAL_SETVIEWPORT",
       "fixedSize": 40,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1657,13 +1928,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Viewport",
-          "type": "Rect",
+          "type": "MilPointAndSizeD",
           "offset": 8,
           "size": 32
         }
@@ -1672,6 +1943,7 @@
     {
       "name": "MILCMD_VIEWPORT3DVISUAL_SET3DCHILD",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1681,13 +1953,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hChild",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         }
@@ -1696,6 +1968,7 @@
     {
       "name": "MILCMD_VISUAL3D_SETCONTENT",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1705,13 +1978,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hContent",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         }
@@ -1720,6 +1993,7 @@
     {
       "name": "MILCMD_VISUAL3D_SETTRANSFORM",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1729,13 +2003,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         }
@@ -1744,6 +2018,7 @@
     {
       "name": "MILCMD_VISUAL3D_REMOVEALLCHILDREN",
       "fixedSize": 8,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1753,7 +2028,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         }
@@ -1762,6 +2037,7 @@
     {
       "name": "MILCMD_VISUAL3D_REMOVECHILD",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1771,13 +2047,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hChild",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         }
@@ -1786,6 +2062,7 @@
     {
       "name": "MILCMD_VISUAL3D_INSERTCHILDAT",
       "fixedSize": 16,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1795,19 +2072,19 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hChild",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         },
         {
           "name": "index",
-          "type": "UInt32",
+          "type": "UINT",
           "offset": 12,
           "size": 4
         }
@@ -1816,6 +2093,7 @@
     {
       "name": "MILCMD_HWNDTARGET_CREATE",
       "fixedSize": 92,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1825,37 +2103,37 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hwnd",
-          "type": "UInt64",
+          "type": "UINT64",
           "offset": 8,
           "size": 8
         },
         {
           "name": "hSection",
-          "type": "UInt64",
+          "type": "UINT64",
           "offset": 16,
           "size": 8
         },
         {
           "name": "masterDevice",
-          "type": "UInt64",
+          "type": "UINT64",
           "offset": 24,
           "size": 8
         },
         {
           "name": "width",
-          "type": "UInt32",
+          "type": "UINT",
           "offset": 32,
           "size": 4
         },
         {
           "name": "height",
-          "type": "UInt32",
+          "type": "UINT",
           "offset": 36,
           "size": 4
         },
@@ -1867,43 +2145,43 @@
         },
         {
           "name": "flags",
-          "type": "UInt32",
+          "type": "UINT",
           "offset": 56,
           "size": 4
         },
         {
           "name": "hBitmap",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 60,
           "size": 4
         },
         {
           "name": "stride",
-          "type": "UInt32",
+          "type": "UINT",
           "offset": 64,
           "size": 4
         },
         {
           "name": "ePixelFormat",
-          "type": "UInt32",
+          "type": "MilPixelFormat::Enum",
           "offset": 68,
           "size": 4
         },
         {
           "name": "DpiAwarenessContext",
-          "type": "int",
+          "type": "INT",
           "offset": 72,
           "size": 4
         },
         {
           "name": "DpiX",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 76,
           "size": 8
         },
         {
           "name": "DpiY",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 84,
           "size": 8
         }
@@ -1912,6 +2190,7 @@
     {
       "name": "MILCMD_HWNDTARGET_SUPPRESSLAYERED",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1921,7 +2200,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -1936,6 +2215,7 @@
     {
       "name": "MILCMD_TARGET_UPDATEWINDOWSETTINGS",
       "fixedSize": 72,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -1945,31 +2225,31 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "windowRect",
-          "type": "MS.Win32.NativeMethods.RECT",
+          "type": "RECT",
           "offset": 8,
           "size": 16
         },
         {
           "name": "windowLayerType",
-          "type": "MILWindowLayerType",
+          "type": "MilWindowLayerType::Enum",
           "offset": 24,
           "size": 4
         },
         {
           "name": "transparencyMode",
-          "type": "MILTransparencyFlags",
+          "type": "MilTransparency::Flags",
           "offset": 28,
           "size": 4
         },
         {
           "name": "constantAlpha",
-          "type": "float",
+          "type": "FLOAT",
           "offset": 32,
           "size": 4
         },
@@ -1999,7 +2279,7 @@
         },
         {
           "name": "disableCookie",
-          "type": "UInt32",
+          "type": "UINT",
           "offset": 64,
           "size": 4
         },
@@ -2014,6 +2294,7 @@
     {
       "name": "MILCMD_GENERICTARGET_CREATE",
       "fixedSize": 36,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2023,37 +2304,37 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hwnd",
-          "type": "UInt64",
+          "type": "UINT64",
           "offset": 8,
           "size": 8
         },
         {
           "name": "pRenderTarget",
-          "type": "UInt64",
+          "type": "UINT64",
           "offset": 16,
           "size": 8
         },
         {
           "name": "width",
-          "type": "UInt32",
+          "type": "UINT",
           "offset": 24,
           "size": 4
         },
         {
           "name": "height",
-          "type": "UInt32",
+          "type": "UINT",
           "offset": 28,
           "size": 4
         },
         {
           "name": "dummy",
-          "type": "UInt32",
+          "type": "UINT",
           "offset": 32,
           "size": 4
         }
@@ -2062,6 +2343,7 @@
     {
       "name": "MILCMD_TARGET_SETROOT",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2071,13 +2353,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hRoot",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         }
@@ -2086,6 +2368,7 @@
     {
       "name": "MILCMD_TARGET_SETCLEARCOLOR",
       "fixedSize": 24,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2095,7 +2378,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -2110,6 +2393,7 @@
     {
       "name": "MILCMD_TARGET_INVALIDATE",
       "fixedSize": 24,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2119,13 +2403,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "rc",
-          "type": "MS.Win32.NativeMethods.RECT",
+          "type": "RECT",
           "offset": 8,
           "size": 16
         }
@@ -2134,6 +2418,7 @@
     {
       "name": "MILCMD_TARGET_SETFLAGS",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2143,13 +2428,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "flags",
-          "type": "UInt32",
+          "type": "UINT",
           "offset": 8,
           "size": 4
         }
@@ -2158,6 +2443,7 @@
     {
       "name": "MILCMD_HWNDTARGET_DPICHANGED",
       "fixedSize": 28,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2167,19 +2453,19 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "DpiX",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "DpiY",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 16,
           "size": 8
         },
@@ -2194,6 +2480,7 @@
     {
       "name": "MILCMD_GLYPHRUN_CREATE",
       "fixedSize": 76,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2203,20 +2490,26 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "pIDWriteFont",
-          "type": "UInt64",
+          "type": "UINT64",
           "offset": 8,
           "size": 8
         },
         {
           "name": "GlyphRunFlags",
-          "type": "UInt16",
+          "type": "WORD",
           "offset": 16,
+          "size": 2
+        },
+        {
+          "name": "UINT16Padding0",
+          "type": "UINT16",
+          "offset": 18,
           "size": 2
         },
         {
@@ -2227,45 +2520,58 @@
         },
         {
           "name": "MuSize",
-          "type": "float",
+          "type": "FLOAT",
           "offset": 28,
           "size": 4
         },
         {
           "name": "ManagedBounds",
-          "type": "Rect",
+          "type": "MilPointAndSizeD",
           "offset": 32,
           "size": 32
         },
         {
           "name": "GlyphCount",
-          "type": "UInt16",
+          "type": "WORD",
           "offset": 64,
           "size": 2
         },
         {
+          "name": "UINT16Padding1",
+          "type": "UINT16",
+          "offset": 66,
+          "size": 2
+        },
+        {
           "name": "BidiLevel",
-          "type": "UInt16",
+          "type": "WORD",
           "offset": 68,
           "size": 2
         },
         {
+          "name": "UINT16Padding2",
+          "type": "UINT16",
+          "offset": 70,
+          "size": 2
+        },
+        {
           "name": "DWriteTextMeasuringMethod",
-          "type": "UInt16",
+          "type": "WORD",
           "offset": 72,
           "size": 2
         },
         {
-          "name": "BYTEPacking0",
-          "type": "byte",
-          "offset": 75,
-          "size": 1
+          "name": "UINT16Padding3",
+          "type": "UINT16",
+          "offset": 74,
+          "size": 2
         }
       ]
     },
     {
       "name": "MILCMD_DOUBLEBUFFEREDBITMAP",
       "fixedSize": 20,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2275,13 +2581,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "SwDoubleBufferedBitmap",
-          "type": "UInt64",
+          "type": "UINT64",
           "offset": 8,
           "size": 8
         },
@@ -2296,6 +2602,7 @@
     {
       "name": "MILCMD_DOUBLEBUFFEREDBITMAP_COPYFORWARD",
       "fixedSize": 16,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2305,13 +2612,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "CopyCompletedEvent",
-          "type": "UInt64",
+          "type": "UINT64",
           "offset": 8,
           "size": 8
         }
@@ -2320,6 +2627,7 @@
     {
       "name": "MILCMD_PARTITION_NOTIFYPOLICYCHANGEFORNONINTERACTIVEMODE",
       "fixedSize": 8,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2338,6 +2646,7 @@
     {
       "name": "MILCMD_AXISANGLEROTATION3D",
       "fixedSize": 36,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2347,13 +2656,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "angle",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
@@ -2365,13 +2674,13 @@
         },
         {
           "name": "hAxisAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 28,
           "size": 4
         },
         {
           "name": "hAngleAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 32,
           "size": 4
         }
@@ -2380,6 +2689,7 @@
     {
       "name": "MILCMD_QUATERNIONROTATION3D",
       "fixedSize": 28,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2389,7 +2699,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -2401,7 +2711,7 @@
         },
         {
           "name": "hQuaternionAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 24,
           "size": 4
         }
@@ -2410,6 +2720,7 @@
     {
       "name": "MILCMD_PERSPECTIVECAMERA",
       "fixedSize": 96,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2419,25 +2730,25 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "nearPlaneDistance",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "farPlaneDistance",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 16,
           "size": 8
         },
         {
           "name": "fieldOfView",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 24,
           "size": 8
         },
@@ -2449,7 +2760,7 @@
         },
         {
           "name": "htransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 44,
           "size": 4
         },
@@ -2461,7 +2772,7 @@
         },
         {
           "name": "hNearPlaneDistanceAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 60,
           "size": 4
         },
@@ -2473,31 +2784,31 @@
         },
         {
           "name": "hFarPlaneDistanceAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 76,
           "size": 4
         },
         {
           "name": "hPositionAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 80,
           "size": 4
         },
         {
           "name": "hLookDirectionAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 84,
           "size": 4
         },
         {
           "name": "hUpDirectionAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 88,
           "size": 4
         },
         {
           "name": "hFieldOfViewAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 92,
           "size": 4
         }
@@ -2506,6 +2817,7 @@
     {
       "name": "MILCMD_ORTHOGRAPHICCAMERA",
       "fixedSize": 96,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2515,25 +2827,25 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "nearPlaneDistance",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "farPlaneDistance",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 16,
           "size": 8
         },
         {
           "name": "width",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 24,
           "size": 8
         },
@@ -2545,7 +2857,7 @@
         },
         {
           "name": "htransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 44,
           "size": 4
         },
@@ -2557,7 +2869,7 @@
         },
         {
           "name": "hNearPlaneDistanceAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 60,
           "size": 4
         },
@@ -2569,31 +2881,31 @@
         },
         {
           "name": "hFarPlaneDistanceAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 76,
           "size": 4
         },
         {
           "name": "hPositionAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 80,
           "size": 4
         },
         {
           "name": "hLookDirectionAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 84,
           "size": 4
         },
         {
           "name": "hUpDirectionAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 88,
           "size": 4
         },
         {
           "name": "hWidthAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 92,
           "size": 4
         }
@@ -2602,6 +2914,7 @@
     {
       "name": "MILCMD_MATRIXCAMERA",
       "fixedSize": 140,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2611,7 +2924,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -2629,7 +2942,7 @@
         },
         {
           "name": "htransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 136,
           "size": 4
         }
@@ -2638,6 +2951,7 @@
     {
       "name": "MILCMD_MODEL3DGROUP",
       "fixedSize": 16,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2647,19 +2961,19 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "htransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         },
         {
           "name": "ChildrenSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 12,
           "size": 4
         }
@@ -2668,6 +2982,7 @@
     {
       "name": "MILCMD_AMBIENTLIGHT",
       "fixedSize": 32,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2677,7 +2992,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -2689,13 +3004,13 @@
         },
         {
           "name": "htransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 24,
           "size": 4
         },
         {
           "name": "hColorAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 28,
           "size": 4
         }
@@ -2704,6 +3019,7 @@
     {
       "name": "MILCMD_DIRECTIONALLIGHT",
       "fixedSize": 48,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2713,7 +3029,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -2731,19 +3047,19 @@
         },
         {
           "name": "htransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 36,
           "size": 4
         },
         {
           "name": "hColorAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 40,
           "size": 4
         },
         {
           "name": "hDirectionAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 44,
           "size": 4
         }
@@ -2752,6 +3068,7 @@
     {
       "name": "MILCMD_POINTLIGHT",
       "fixedSize": 96,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2761,7 +3078,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -2773,25 +3090,25 @@
         },
         {
           "name": "range",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 24,
           "size": 8
         },
         {
           "name": "constantAttenuation",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 32,
           "size": 8
         },
         {
           "name": "linearAttenuation",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 40,
           "size": 8
         },
         {
           "name": "quadraticAttenuation",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 48,
           "size": 8
         },
@@ -2803,43 +3120,43 @@
         },
         {
           "name": "htransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 68,
           "size": 4
         },
         {
           "name": "hColorAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 72,
           "size": 4
         },
         {
           "name": "hPositionAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 76,
           "size": 4
         },
         {
           "name": "hRangeAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 80,
           "size": 4
         },
         {
           "name": "hConstantAttenuationAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 84,
           "size": 4
         },
         {
           "name": "hLinearAttenuationAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 88,
           "size": 4
         },
         {
           "name": "hQuadraticAttenuationAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 92,
           "size": 4
         }
@@ -2848,6 +3165,7 @@
     {
       "name": "MILCMD_SPOTLIGHT",
       "fixedSize": 136,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2857,7 +3175,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -2869,37 +3187,37 @@
         },
         {
           "name": "range",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 24,
           "size": 8
         },
         {
           "name": "constantAttenuation",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 32,
           "size": 8
         },
         {
           "name": "linearAttenuation",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 40,
           "size": 8
         },
         {
           "name": "quadraticAttenuation",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 48,
           "size": 8
         },
         {
           "name": "outerConeAngle",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 56,
           "size": 8
         },
         {
           "name": "innerConeAngle",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 64,
           "size": 8
         },
@@ -2911,7 +3229,7 @@
         },
         {
           "name": "htransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 84,
           "size": 4
         },
@@ -2923,55 +3241,55 @@
         },
         {
           "name": "hColorAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 100,
           "size": 4
         },
         {
           "name": "hPositionAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 104,
           "size": 4
         },
         {
           "name": "hRangeAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 108,
           "size": 4
         },
         {
           "name": "hConstantAttenuationAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 112,
           "size": 4
         },
         {
           "name": "hLinearAttenuationAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 116,
           "size": 4
         },
         {
           "name": "hQuadraticAttenuationAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 120,
           "size": 4
         },
         {
           "name": "hDirectionAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 124,
           "size": 4
         },
         {
           "name": "hOuterConeAngleAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 128,
           "size": 4
         },
         {
           "name": "hInnerConeAngleAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 132,
           "size": 4
         }
@@ -2980,6 +3298,7 @@
     {
       "name": "MILCMD_GEOMETRYMODEL3D",
       "fixedSize": 24,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -2989,31 +3308,31 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "htransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         },
         {
           "name": "hgeometry",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 12,
           "size": 4
         },
         {
           "name": "hmaterial",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 16,
           "size": 4
         },
         {
           "name": "hbackMaterial",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 20,
           "size": 4
         }
@@ -3022,6 +3341,7 @@
     {
       "name": "MILCMD_MESHGEOMETRY3D",
       "fixedSize": 24,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3031,31 +3351,31 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "PositionsSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 8,
           "size": 4
         },
         {
           "name": "NormalsSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 12,
           "size": 4
         },
         {
           "name": "TextureCoordinatesSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 16,
           "size": 4
         },
         {
           "name": "TriangleIndicesSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 20,
           "size": 4
         }
@@ -3064,6 +3384,7 @@
     {
       "name": "MILCMD_MATERIALGROUP",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3073,13 +3394,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "ChildrenSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 8,
           "size": 4
         }
@@ -3088,6 +3409,7 @@
     {
       "name": "MILCMD_DIFFUSEMATERIAL",
       "fixedSize": 44,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3097,7 +3419,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -3115,7 +3437,7 @@
         },
         {
           "name": "hbrush",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 40,
           "size": 4
         }
@@ -3124,6 +3446,7 @@
     {
       "name": "MILCMD_SPECULARMATERIAL",
       "fixedSize": 36,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3133,7 +3456,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -3145,13 +3468,13 @@
         },
         {
           "name": "specularPower",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 24,
           "size": 8
         },
         {
           "name": "hbrush",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 32,
           "size": 4
         }
@@ -3160,6 +3483,7 @@
     {
       "name": "MILCMD_EMISSIVEMATERIAL",
       "fixedSize": 28,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3169,7 +3493,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -3181,7 +3505,7 @@
         },
         {
           "name": "hbrush",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 24,
           "size": 4
         }
@@ -3190,6 +3514,7 @@
     {
       "name": "MILCMD_TRANSFORM3DGROUP",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3199,13 +3524,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "ChildrenSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 8,
           "size": 4
         }
@@ -3214,6 +3539,7 @@
     {
       "name": "MILCMD_TRANSLATETRANSFORM3D",
       "fixedSize": 44,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3223,43 +3549,43 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "offsetX",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "offsetY",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 16,
           "size": 8
         },
         {
           "name": "offsetZ",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 24,
           "size": 8
         },
         {
           "name": "hOffsetXAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 32,
           "size": 4
         },
         {
           "name": "hOffsetYAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 36,
           "size": 4
         },
         {
           "name": "hOffsetZAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 40,
           "size": 4
         }
@@ -3268,6 +3594,7 @@
     {
       "name": "MILCMD_SCALETRANSFORM3D",
       "fixedSize": 80,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3277,79 +3604,79 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "scaleX",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "scaleY",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 16,
           "size": 8
         },
         {
           "name": "scaleZ",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 24,
           "size": 8
         },
         {
           "name": "centerX",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 32,
           "size": 8
         },
         {
           "name": "centerY",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 40,
           "size": 8
         },
         {
           "name": "centerZ",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 48,
           "size": 8
         },
         {
           "name": "hScaleXAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 56,
           "size": 4
         },
         {
           "name": "hScaleYAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 60,
           "size": 4
         },
         {
           "name": "hScaleZAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 64,
           "size": 4
         },
         {
           "name": "hCenterXAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 68,
           "size": 4
         },
         {
           "name": "hCenterYAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 72,
           "size": 4
         },
         {
           "name": "hCenterZAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 76,
           "size": 4
         }
@@ -3358,6 +3685,7 @@
     {
       "name": "MILCMD_ROTATETRANSFORM3D",
       "fixedSize": 48,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3367,49 +3695,49 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "centerX",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "centerY",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 16,
           "size": 8
         },
         {
           "name": "centerZ",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 24,
           "size": 8
         },
         {
           "name": "hCenterXAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 32,
           "size": 4
         },
         {
           "name": "hCenterYAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 36,
           "size": 4
         },
         {
           "name": "hCenterZAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 40,
           "size": 4
         },
         {
           "name": "hrotation",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 44,
           "size": 4
         }
@@ -3418,6 +3746,7 @@
     {
       "name": "MILCMD_MATRIXTRANSFORM3D",
       "fixedSize": 72,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3427,7 +3756,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -3442,6 +3771,7 @@
     {
       "name": "MILCMD_PIXELSHADER",
       "fixedSize": 20,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3451,19 +3781,19 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "ShaderRenderMode",
-          "type": "ShaderRenderMode",
+          "type": "ShaderEffectShaderRenderMode::Enum",
           "offset": 8,
           "size": 4
         },
         {
           "name": "PixelShaderBytecodeSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 12,
           "size": 4
         },
@@ -3478,6 +3808,7 @@
     {
       "name": "MILCMD_IMPLICITINPUTBRUSH",
       "fixedSize": 28,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3487,31 +3818,31 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Opacity",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "hOpacityAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 16,
           "size": 4
         },
         {
           "name": "hTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 20,
           "size": 4
         },
         {
           "name": "hRelativeTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 24,
           "size": 4
         }
@@ -3520,6 +3851,7 @@
     {
       "name": "MILCMD_BLUREFFECT",
       "fixedSize": 28,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3529,31 +3861,31 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Radius",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "hRadiusAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 16,
           "size": 4
         },
         {
           "name": "KernelType",
-          "type": "KernelType",
+          "type": "MilKernelType::Enum",
           "offset": 20,
           "size": 4
         },
         {
           "name": "RenderingBias",
-          "type": "RenderingBias",
+          "type": "MilEffectRenderingBias::Enum",
           "offset": 24,
           "size": 4
         }
@@ -3562,6 +3894,7 @@
     {
       "name": "MILCMD_DROPSHADOWEFFECT",
       "fixedSize": 80,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3571,13 +3904,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "ShadowDepth",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
@@ -3589,55 +3922,55 @@
         },
         {
           "name": "Direction",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 32,
           "size": 8
         },
         {
           "name": "Opacity",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 40,
           "size": 8
         },
         {
           "name": "BlurRadius",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 48,
           "size": 8
         },
         {
           "name": "hShadowDepthAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 56,
           "size": 4
         },
         {
           "name": "hColorAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 60,
           "size": 4
         },
         {
           "name": "hDirectionAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 64,
           "size": 4
         },
         {
           "name": "hOpacityAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 68,
           "size": 4
         },
         {
           "name": "hBlurRadiusAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 72,
           "size": 4
         },
         {
           "name": "RenderingBias",
-          "type": "RenderingBias",
+          "type": "MilEffectRenderingBias::Enum",
           "offset": 76,
           "size": 4
         }
@@ -3646,6 +3979,7 @@
     {
       "name": "MILCMD_SHADEREFFECT",
       "fixedSize": 80,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3655,91 +3989,91 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "TopPadding",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "BottomPadding",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 16,
           "size": 8
         },
         {
           "name": "LeftPadding",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 24,
           "size": 8
         },
         {
           "name": "RightPadding",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 32,
           "size": 8
         },
         {
           "name": "hPixelShader",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 40,
           "size": 4
         },
         {
           "name": "DdxUvDdyUvRegisterIndex",
-          "type": "int",
+          "type": "INT",
           "offset": 44,
           "size": 4
         },
         {
           "name": "ShaderConstantFloatRegistersSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 48,
           "size": 4
         },
         {
           "name": "DependencyPropertyFloatValuesSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 52,
           "size": 4
         },
         {
           "name": "ShaderConstantIntRegistersSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 56,
           "size": 4
         },
         {
           "name": "DependencyPropertyIntValuesSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 60,
           "size": 4
         },
         {
           "name": "ShaderConstantBoolRegistersSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 64,
           "size": 4
         },
         {
           "name": "DependencyPropertyBoolValuesSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 68,
           "size": 4
         },
         {
           "name": "ShaderSamplerRegistrationInfoSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 72,
           "size": 4
         },
         {
           "name": "DependencyPropertySamplerValuesSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 76,
           "size": 4
         }
@@ -3748,6 +4082,7 @@
     {
       "name": "MILCMD_DRAWINGIMAGE",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3757,13 +4092,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hDrawing",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         }
@@ -3772,6 +4107,7 @@
     {
       "name": "MILCMD_TRANSFORMGROUP",
       "fixedSize": 12,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3781,13 +4117,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "ChildrenSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 8,
           "size": 4
         }
@@ -3796,6 +4132,7 @@
     {
       "name": "MILCMD_TRANSLATETRANSFORM",
       "fixedSize": 32,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3805,31 +4142,31 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "X",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "Y",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 16,
           "size": 8
         },
         {
           "name": "hXAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 24,
           "size": 4
         },
         {
           "name": "hYAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 28,
           "size": 4
         }
@@ -3838,6 +4175,7 @@
     {
       "name": "MILCMD_SCALETRANSFORM",
       "fixedSize": 56,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3847,55 +4185,55 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "ScaleX",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "ScaleY",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 16,
           "size": 8
         },
         {
           "name": "CenterX",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 24,
           "size": 8
         },
         {
           "name": "CenterY",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 32,
           "size": 8
         },
         {
           "name": "hScaleXAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 40,
           "size": 4
         },
         {
           "name": "hScaleYAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 44,
           "size": 4
         },
         {
           "name": "hCenterXAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 48,
           "size": 4
         },
         {
           "name": "hCenterYAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 52,
           "size": 4
         }
@@ -3904,6 +4242,7 @@
     {
       "name": "MILCMD_SKEWTRANSFORM",
       "fixedSize": 56,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3913,55 +4252,55 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "AngleX",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "AngleY",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 16,
           "size": 8
         },
         {
           "name": "CenterX",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 24,
           "size": 8
         },
         {
           "name": "CenterY",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 32,
           "size": 8
         },
         {
           "name": "hAngleXAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 40,
           "size": 4
         },
         {
           "name": "hAngleYAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 44,
           "size": 4
         },
         {
           "name": "hCenterXAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 48,
           "size": 4
         },
         {
           "name": "hCenterYAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 52,
           "size": 4
         }
@@ -3970,6 +4309,7 @@
     {
       "name": "MILCMD_ROTATETRANSFORM",
       "fixedSize": 44,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -3979,43 +4319,43 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Angle",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "CenterX",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 16,
           "size": 8
         },
         {
           "name": "CenterY",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 24,
           "size": 8
         },
         {
           "name": "hAngleAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 32,
           "size": 4
         },
         {
           "name": "hCenterXAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 36,
           "size": 4
         },
         {
           "name": "hCenterYAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 40,
           "size": 4
         }
@@ -4024,6 +4364,7 @@
     {
       "name": "MILCMD_MATRIXTRANSFORM",
       "fixedSize": 60,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -4033,7 +4374,7 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
@@ -4045,7 +4386,7 @@
         },
         {
           "name": "hMatrixAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 56,
           "size": 4
         }
@@ -4054,6 +4395,7 @@
     {
       "name": "MILCMD_LINEGEOMETRY",
       "fixedSize": 52,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -4063,37 +4405,37 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "StartPoint",
-          "type": "Point",
+          "type": "MilPoint2D",
           "offset": 8,
           "size": 16
         },
         {
           "name": "EndPoint",
-          "type": "Point",
+          "type": "MilPoint2D",
           "offset": 24,
           "size": 16
         },
         {
           "name": "hTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 40,
           "size": 4
         },
         {
           "name": "hStartPointAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 44,
           "size": 4
         },
         {
           "name": "hEndPointAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 48,
           "size": 4
         }
@@ -4102,6 +4444,7 @@
     {
       "name": "MILCMD_RECTANGLEGEOMETRY",
       "fixedSize": 72,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -4111,49 +4454,49 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "RadiusX",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "RadiusY",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 16,
           "size": 8
         },
         {
           "name": "Rect",
-          "type": "Rect",
+          "type": "MilPointAndSizeD",
           "offset": 24,
           "size": 32
         },
         {
           "name": "hTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 56,
           "size": 4
         },
         {
           "name": "hRadiusXAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 60,
           "size": 4
         },
         {
           "name": "hRadiusYAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 64,
           "size": 4
         },
         {
           "name": "hRectAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 68,
           "size": 4
         }
@@ -4162,6 +4505,7 @@
     {
       "name": "MILCMD_ELLIPSEGEOMETRY",
       "fixedSize": 56,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -4171,49 +4515,49 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "RadiusX",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "RadiusY",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 16,
           "size": 8
         },
         {
           "name": "Center",
-          "type": "Point",
+          "type": "MilPoint2D",
           "offset": 24,
           "size": 16
         },
         {
           "name": "hTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 40,
           "size": 4
         },
         {
           "name": "hRadiusXAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 44,
           "size": 4
         },
         {
           "name": "hRadiusYAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 48,
           "size": 4
         },
         {
           "name": "hCenterAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 52,
           "size": 4
         }
@@ -4222,6 +4566,7 @@
     {
       "name": "MILCMD_GEOMETRYGROUP",
       "fixedSize": 20,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -4231,25 +4576,25 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         },
         {
           "name": "FillRule",
-          "type": "FillRule",
+          "type": "MilFillMode::Enum",
           "offset": 12,
           "size": 4
         },
         {
           "name": "ChildrenSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 16,
           "size": 4
         }
@@ -4258,6 +4603,7 @@
     {
       "name": "MILCMD_COMBINEDGEOMETRY",
       "fixedSize": 24,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -4267,31 +4613,31 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         },
         {
           "name": "GeometryCombineMode",
-          "type": "GeometryCombineMode",
+          "type": "MilCombineMode::Enum",
           "offset": 12,
           "size": 4
         },
         {
           "name": "hGeometry1",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 16,
           "size": 4
         },
         {
           "name": "hGeometry2",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 20,
           "size": 4
         }
@@ -4300,6 +4646,7 @@
     {
       "name": "MILCMD_PATHGEOMETRY",
       "fixedSize": 20,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -4309,25 +4656,25 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         },
         {
           "name": "FillRule",
-          "type": "FillRule",
+          "type": "MilFillMode::Enum",
           "offset": 12,
           "size": 4
         },
         {
           "name": "FiguresSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 16,
           "size": 4
         }
@@ -4336,6 +4683,7 @@
     {
       "name": "MILCMD_SOLIDCOLORBRUSH",
       "fixedSize": 48,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -4345,13 +4693,13 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Opacity",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
@@ -4363,25 +4711,25 @@
         },
         {
           "name": "hOpacityAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 32,
           "size": 4
         },
         {
           "name": "hTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 36,
           "size": 4
         },
         {
           "name": "hRelativeTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 40,
           "size": 4
         },
         {
           "name": "hColorAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 44,
           "size": 4
         }
@@ -4390,6 +4738,7 @@
     {
       "name": "MILCMD_LINEARGRADIENTBRUSH",
       "fixedSize": 84,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -4399,79 +4748,79 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Opacity",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "StartPoint",
-          "type": "Point",
+          "type": "MilPoint2D",
           "offset": 16,
           "size": 16
         },
         {
           "name": "EndPoint",
-          "type": "Point",
+          "type": "MilPoint2D",
           "offset": 32,
           "size": 16
         },
         {
           "name": "hOpacityAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 48,
           "size": 4
         },
         {
           "name": "hTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 52,
           "size": 4
         },
         {
           "name": "hRelativeTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 56,
           "size": 4
         },
         {
           "name": "ColorInterpolationMode",
-          "type": "ColorInterpolationMode",
+          "type": "MilColorInterpolationMode::Enum",
           "offset": 60,
           "size": 4
         },
         {
           "name": "MappingMode",
-          "type": "BrushMappingMode",
+          "type": "MilBrushMappingMode::Enum",
           "offset": 64,
           "size": 4
         },
         {
           "name": "SpreadMethod",
-          "type": "GradientSpreadMethod",
+          "type": "MilGradientSpreadMethod::Enum",
           "offset": 68,
           "size": 4
         },
         {
           "name": "GradientStopsSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 72,
           "size": 4
         },
         {
           "name": "hStartPointAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 76,
           "size": 4
         },
         {
           "name": "hEndPointAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 80,
           "size": 4
         }
@@ -4480,6 +4829,7 @@
     {
       "name": "MILCMD_RADIALGRADIENTBRUSH",
       "fixedSize": 108,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -4489,103 +4839,103 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Opacity",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "Center",
-          "type": "Point",
+          "type": "MilPoint2D",
           "offset": 16,
           "size": 16
         },
         {
           "name": "RadiusX",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 32,
           "size": 8
         },
         {
           "name": "RadiusY",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 40,
           "size": 8
         },
         {
           "name": "GradientOrigin",
-          "type": "Point",
+          "type": "MilPoint2D",
           "offset": 48,
           "size": 16
         },
         {
           "name": "hOpacityAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 64,
           "size": 4
         },
         {
           "name": "hTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 68,
           "size": 4
         },
         {
           "name": "hRelativeTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 72,
           "size": 4
         },
         {
           "name": "ColorInterpolationMode",
-          "type": "ColorInterpolationMode",
+          "type": "MilColorInterpolationMode::Enum",
           "offset": 76,
           "size": 4
         },
         {
           "name": "MappingMode",
-          "type": "BrushMappingMode",
+          "type": "MilBrushMappingMode::Enum",
           "offset": 80,
           "size": 4
         },
         {
           "name": "SpreadMethod",
-          "type": "GradientSpreadMethod",
+          "type": "MilGradientSpreadMethod::Enum",
           "offset": 84,
           "size": 4
         },
         {
           "name": "GradientStopsSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 88,
           "size": 4
         },
         {
           "name": "hCenterAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 92,
           "size": 4
         },
         {
           "name": "hRadiusXAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 96,
           "size": 4
         },
         {
           "name": "hRadiusYAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 100,
           "size": 4
         },
         {
           "name": "hGradientOriginAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 104,
           "size": 4
         }
@@ -4594,6 +4944,7 @@
     {
       "name": "MILCMD_IMAGEBRUSH",
       "fixedSize": 148,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -4603,115 +4954,115 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Opacity",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "Viewport",
-          "type": "Rect",
+          "type": "MilPointAndSizeD",
           "offset": 16,
           "size": 32
         },
         {
           "name": "Viewbox",
-          "type": "Rect",
+          "type": "MilPointAndSizeD",
           "offset": 48,
           "size": 32
         },
         {
           "name": "CacheInvalidationThresholdMinimum",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 80,
           "size": 8
         },
         {
           "name": "CacheInvalidationThresholdMaximum",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 88,
           "size": 8
         },
         {
           "name": "hOpacityAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 96,
           "size": 4
         },
         {
           "name": "hTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 100,
           "size": 4
         },
         {
           "name": "hRelativeTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 104,
           "size": 4
         },
         {
           "name": "ViewportUnits",
-          "type": "BrushMappingMode",
+          "type": "MilBrushMappingMode::Enum",
           "offset": 108,
           "size": 4
         },
         {
           "name": "ViewboxUnits",
-          "type": "BrushMappingMode",
+          "type": "MilBrushMappingMode::Enum",
           "offset": 112,
           "size": 4
         },
         {
           "name": "hViewportAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 116,
           "size": 4
         },
         {
           "name": "hViewboxAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 120,
           "size": 4
         },
         {
           "name": "Stretch",
-          "type": "Stretch",
+          "type": "MilStretch::Enum",
           "offset": 124,
           "size": 4
         },
         {
           "name": "TileMode",
-          "type": "TileMode",
+          "type": "MilTileMode::Enum",
           "offset": 128,
           "size": 4
         },
         {
           "name": "AlignmentX",
-          "type": "AlignmentX",
+          "type": "MilHorizontalAlignment::Enum",
           "offset": 132,
           "size": 4
         },
         {
           "name": "AlignmentY",
-          "type": "AlignmentY",
+          "type": "MilVerticalAlignment::Enum",
           "offset": 136,
           "size": 4
         },
         {
           "name": "CachingHint",
-          "type": "CachingHint",
+          "type": "MilCachingHint::Enum",
           "offset": 140,
           "size": 4
         },
         {
           "name": "hImageSource",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 144,
           "size": 4
         }
@@ -4720,6 +5071,7 @@
     {
       "name": "MILCMD_DRAWINGBRUSH",
       "fixedSize": 148,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -4729,115 +5081,115 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Opacity",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "Viewport",
-          "type": "Rect",
+          "type": "MilPointAndSizeD",
           "offset": 16,
           "size": 32
         },
         {
           "name": "Viewbox",
-          "type": "Rect",
+          "type": "MilPointAndSizeD",
           "offset": 48,
           "size": 32
         },
         {
           "name": "CacheInvalidationThresholdMinimum",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 80,
           "size": 8
         },
         {
           "name": "CacheInvalidationThresholdMaximum",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 88,
           "size": 8
         },
         {
           "name": "hOpacityAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 96,
           "size": 4
         },
         {
           "name": "hTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 100,
           "size": 4
         },
         {
           "name": "hRelativeTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 104,
           "size": 4
         },
         {
           "name": "ViewportUnits",
-          "type": "BrushMappingMode",
+          "type": "MilBrushMappingMode::Enum",
           "offset": 108,
           "size": 4
         },
         {
           "name": "ViewboxUnits",
-          "type": "BrushMappingMode",
+          "type": "MilBrushMappingMode::Enum",
           "offset": 112,
           "size": 4
         },
         {
           "name": "hViewportAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 116,
           "size": 4
         },
         {
           "name": "hViewboxAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 120,
           "size": 4
         },
         {
           "name": "Stretch",
-          "type": "Stretch",
+          "type": "MilStretch::Enum",
           "offset": 124,
           "size": 4
         },
         {
           "name": "TileMode",
-          "type": "TileMode",
+          "type": "MilTileMode::Enum",
           "offset": 128,
           "size": 4
         },
         {
           "name": "AlignmentX",
-          "type": "AlignmentX",
+          "type": "MilHorizontalAlignment::Enum",
           "offset": 132,
           "size": 4
         },
         {
           "name": "AlignmentY",
-          "type": "AlignmentY",
+          "type": "MilVerticalAlignment::Enum",
           "offset": 136,
           "size": 4
         },
         {
           "name": "CachingHint",
-          "type": "CachingHint",
+          "type": "MilCachingHint::Enum",
           "offset": 140,
           "size": 4
         },
         {
           "name": "hDrawing",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 144,
           "size": 4
         }
@@ -4846,6 +5198,7 @@
     {
       "name": "MILCMD_VISUALBRUSH",
       "fixedSize": 148,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -4855,115 +5208,115 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Opacity",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "Viewport",
-          "type": "Rect",
+          "type": "MilPointAndSizeD",
           "offset": 16,
           "size": 32
         },
         {
           "name": "Viewbox",
-          "type": "Rect",
+          "type": "MilPointAndSizeD",
           "offset": 48,
           "size": 32
         },
         {
           "name": "CacheInvalidationThresholdMinimum",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 80,
           "size": 8
         },
         {
           "name": "CacheInvalidationThresholdMaximum",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 88,
           "size": 8
         },
         {
           "name": "hOpacityAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 96,
           "size": 4
         },
         {
           "name": "hTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 100,
           "size": 4
         },
         {
           "name": "hRelativeTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 104,
           "size": 4
         },
         {
           "name": "ViewportUnits",
-          "type": "BrushMappingMode",
+          "type": "MilBrushMappingMode::Enum",
           "offset": 108,
           "size": 4
         },
         {
           "name": "ViewboxUnits",
-          "type": "BrushMappingMode",
+          "type": "MilBrushMappingMode::Enum",
           "offset": 112,
           "size": 4
         },
         {
           "name": "hViewportAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 116,
           "size": 4
         },
         {
           "name": "hViewboxAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 120,
           "size": 4
         },
         {
           "name": "Stretch",
-          "type": "Stretch",
+          "type": "MilStretch::Enum",
           "offset": 124,
           "size": 4
         },
         {
           "name": "TileMode",
-          "type": "TileMode",
+          "type": "MilTileMode::Enum",
           "offset": 128,
           "size": 4
         },
         {
           "name": "AlignmentX",
-          "type": "AlignmentX",
+          "type": "MilHorizontalAlignment::Enum",
           "offset": 132,
           "size": 4
         },
         {
           "name": "AlignmentY",
-          "type": "AlignmentY",
+          "type": "MilVerticalAlignment::Enum",
           "offset": 136,
           "size": 4
         },
         {
           "name": "CachingHint",
-          "type": "CachingHint",
+          "type": "MilCachingHint::Enum",
           "offset": 140,
           "size": 4
         },
         {
           "name": "hVisual",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 144,
           "size": 4
         }
@@ -4972,6 +5325,7 @@
     {
       "name": "MILCMD_BITMAPCACHEBRUSH",
       "fixedSize": 36,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -4981,43 +5335,43 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Opacity",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "hOpacityAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 16,
           "size": 4
         },
         {
           "name": "hTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 20,
           "size": 4
         },
         {
           "name": "hRelativeTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 24,
           "size": 4
         },
         {
           "name": "hBitmapCache",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 28,
           "size": 4
         },
         {
           "name": "hInternalTarget",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 32,
           "size": 4
         }
@@ -5026,6 +5380,7 @@
     {
       "name": "MILCMD_DASHSTYLE",
       "fixedSize": 24,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -5035,25 +5390,25 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Offset",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "hOffsetAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 16,
           "size": 4
         },
         {
           "name": "DashesSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 20,
           "size": 4
         }
@@ -5062,6 +5417,7 @@
     {
       "name": "MILCMD_PEN",
       "fixedSize": 52,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -5071,61 +5427,61 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Thickness",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "MiterLimit",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 16,
           "size": 8
         },
         {
           "name": "hBrush",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 24,
           "size": 4
         },
         {
           "name": "hThicknessAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 28,
           "size": 4
         },
         {
           "name": "StartLineCap",
-          "type": "PenLineCap",
+          "type": "MilPenCap::Enum",
           "offset": 32,
           "size": 4
         },
         {
           "name": "EndLineCap",
-          "type": "PenLineCap",
+          "type": "MilPenCap::Enum",
           "offset": 36,
           "size": 4
         },
         {
           "name": "DashCap",
-          "type": "PenLineCap",
+          "type": "MilPenCap::Enum",
           "offset": 40,
           "size": 4
         },
         {
           "name": "LineJoin",
-          "type": "PenLineJoin",
+          "type": "MilPenJoin::Enum",
           "offset": 44,
           "size": 4
         },
         {
           "name": "hDashStyle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 48,
           "size": 4
         }
@@ -5134,6 +5490,7 @@
     {
       "name": "MILCMD_GEOMETRYDRAWING",
       "fixedSize": 20,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -5143,25 +5500,25 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hBrush",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         },
         {
           "name": "hPen",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 12,
           "size": 4
         },
         {
           "name": "hGeometry",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 16,
           "size": 4
         }
@@ -5170,6 +5527,7 @@
     {
       "name": "MILCMD_GLYPHRUNDRAWING",
       "fixedSize": 16,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -5179,19 +5537,19 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "hGlyphRun",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 8,
           "size": 4
         },
         {
           "name": "hForegroundBrush",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 12,
           "size": 4
         }
@@ -5200,6 +5558,7 @@
     {
       "name": "MILCMD_IMAGEDRAWING",
       "fixedSize": 48,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -5209,25 +5568,25 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Rect",
-          "type": "Rect",
+          "type": "MilPointAndSizeD",
           "offset": 8,
           "size": 32
         },
         {
           "name": "hImageSource",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 40,
           "size": 4
         },
         {
           "name": "hRectAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 44,
           "size": 4
         }
@@ -5236,6 +5595,7 @@
     {
       "name": "MILCMD_VIDEODRAWING",
       "fixedSize": 48,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -5245,25 +5605,25 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Rect",
-          "type": "Rect",
+          "type": "MilPointAndSizeD",
           "offset": 8,
           "size": 32
         },
         {
           "name": "hPlayer",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 40,
           "size": 4
         },
         {
           "name": "hRectAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 44,
           "size": 4
         }
@@ -5272,6 +5632,7 @@
     {
       "name": "MILCMD_DRAWINGGROUP",
       "fixedSize": 52,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -5281,67 +5642,67 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "Opacity",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "ChildrenSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 16,
           "size": 4
         },
         {
           "name": "hClipGeometry",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 20,
           "size": 4
         },
         {
           "name": "hOpacityAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 24,
           "size": 4
         },
         {
           "name": "hOpacityMask",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 28,
           "size": 4
         },
         {
           "name": "hTransform",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 32,
           "size": 4
         },
         {
           "name": "hGuidelineSet",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 36,
           "size": 4
         },
         {
           "name": "EdgeMode",
-          "type": "EdgeMode",
+          "type": "MilEdgeMode::Enum",
           "offset": 40,
           "size": 4
         },
         {
           "name": "bitmapScalingMode",
-          "type": "BitmapScalingMode",
+          "type": "MilBitmapScalingMode::Enum",
           "offset": 44,
           "size": 4
         },
         {
           "name": "ClearTypeHint",
-          "type": "ClearTypeHint",
+          "type": "MilClearTypeHint::Enum",
           "offset": 48,
           "size": 4
         }
@@ -5350,6 +5711,7 @@
     {
       "name": "MILCMD_GUIDELINESET",
       "fixedSize": 20,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -5359,19 +5721,19 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "GuidelinesXSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 8,
           "size": 4
         },
         {
           "name": "GuidelinesYSize",
-          "type": "UInt32",
+          "type": "UINT32",
           "offset": 12,
           "size": 4
         },
@@ -5386,6 +5748,7 @@
     {
       "name": "MILCMD_BITMAPCACHE",
       "fixedSize": 28,
+      "sourceKind": "native-command",
       "fields": [
         {
           "name": "Type",
@@ -5395,19 +5758,19 @@
         },
         {
           "name": "Handle",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 4,
           "size": 4
         },
         {
           "name": "RenderAtScale",
-          "type": "double",
+          "type": "DOUBLE",
           "offset": 8,
           "size": 8
         },
         {
           "name": "hRenderAtScaleAnimations",
-          "type": "DUCE.ResourceHandle",
+          "type": "HMIL_RESOURCE",
           "offset": 16,
           "size": 4
         },
@@ -5421,6 +5784,823 @@
           "name": "EnableClearType",
           "type": "BOOL",
           "offset": 24,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_LINE",
+      "fixedSize": 44,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "point0",
+          "type": "MilPoint2D",
+          "offset": 4,
+          "size": 16
+        },
+        {
+          "name": "point1",
+          "type": "MilPoint2D",
+          "offset": 20,
+          "size": 16
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 40,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_LINE_ANIMATE",
+      "fixedSize": 52,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "point0",
+          "type": "MilPoint2D",
+          "offset": 4,
+          "size": 16
+        },
+        {
+          "name": "point1",
+          "type": "MilPoint2D",
+          "offset": 20,
+          "size": 16
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hPoint0Animations",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "hPoint1Animations",
+          "type": "HMIL_RESOURCE",
+          "offset": 44,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 48,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_RECTANGLE",
+      "fixedSize": 44,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "rectangle",
+          "type": "MilPointAndSizeD",
+          "offset": 4,
+          "size": 32
+        },
+        {
+          "name": "hBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_RECTANGLE_ANIMATE",
+      "fixedSize": 52,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "rectangle",
+          "type": "MilPointAndSizeD",
+          "offset": 4,
+          "size": 32
+        },
+        {
+          "name": "hBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "hRectangleAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 44,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 48,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_ROUNDED_RECTANGLE",
+      "fixedSize": 60,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "rectangle",
+          "type": "MilPointAndSizeD",
+          "offset": 4,
+          "size": 32
+        },
+        {
+          "name": "radiusX",
+          "type": "DOUBLE",
+          "offset": 36,
+          "size": 8
+        },
+        {
+          "name": "radiusY",
+          "type": "DOUBLE",
+          "offset": 44,
+          "size": 8
+        },
+        {
+          "name": "hBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 52,
+          "size": 4
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 56,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_ROUNDED_RECTANGLE_ANIMATE",
+      "fixedSize": 76,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "rectangle",
+          "type": "MilPointAndSizeD",
+          "offset": 4,
+          "size": 32
+        },
+        {
+          "name": "radiusX",
+          "type": "DOUBLE",
+          "offset": 36,
+          "size": 8
+        },
+        {
+          "name": "radiusY",
+          "type": "DOUBLE",
+          "offset": 44,
+          "size": 8
+        },
+        {
+          "name": "hBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 52,
+          "size": 4
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 56,
+          "size": 4
+        },
+        {
+          "name": "hRectangleAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 60,
+          "size": 4
+        },
+        {
+          "name": "hRadiusXAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 64,
+          "size": 4
+        },
+        {
+          "name": "hRadiusYAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 68,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 72,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_ELLIPSE",
+      "fixedSize": 44,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "center",
+          "type": "MilPoint2D",
+          "offset": 4,
+          "size": 16
+        },
+        {
+          "name": "radiusX",
+          "type": "DOUBLE",
+          "offset": 20,
+          "size": 8
+        },
+        {
+          "name": "radiusY",
+          "type": "DOUBLE",
+          "offset": 28,
+          "size": 8
+        },
+        {
+          "name": "hBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_ELLIPSE_ANIMATE",
+      "fixedSize": 60,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "center",
+          "type": "MilPoint2D",
+          "offset": 4,
+          "size": 16
+        },
+        {
+          "name": "radiusX",
+          "type": "DOUBLE",
+          "offset": 20,
+          "size": 8
+        },
+        {
+          "name": "radiusY",
+          "type": "DOUBLE",
+          "offset": 28,
+          "size": 8
+        },
+        {
+          "name": "hBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "hCenterAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 44,
+          "size": 4
+        },
+        {
+          "name": "hRadiusXAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 48,
+          "size": 4
+        },
+        {
+          "name": "hRadiusYAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 52,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 56,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_GEOMETRY",
+      "fixedSize": 20,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hPen",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "hGeometry",
+          "type": "HMIL_RESOURCE",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 16,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_IMAGE",
+      "fixedSize": 44,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "rectangle",
+          "type": "MilPointAndSizeD",
+          "offset": 4,
+          "size": 32
+        },
+        {
+          "name": "hImageSource",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 40,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_IMAGE_ANIMATE",
+      "fixedSize": 44,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "rectangle",
+          "type": "MilPointAndSizeD",
+          "offset": 4,
+          "size": 32
+        },
+        {
+          "name": "hImageSource",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hRectangleAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_GLYPH_RUN",
+      "fixedSize": 12,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hForegroundBrush",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hGlyphRun",
+          "type": "HMIL_RESOURCE",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_DRAWING",
+      "fixedSize": 12,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hDrawing",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_VIDEO",
+      "fixedSize": 44,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "rectangle",
+          "type": "MilPointAndSizeD",
+          "offset": 4,
+          "size": 32
+        },
+        {
+          "name": "hPlayer",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 40,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_DRAW_VIDEO_ANIMATE",
+      "fixedSize": 44,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "rectangle",
+          "type": "MilPointAndSizeD",
+          "offset": 4,
+          "size": 32
+        },
+        {
+          "name": "hPlayer",
+          "type": "HMIL_RESOURCE",
+          "offset": 36,
+          "size": 4
+        },
+        {
+          "name": "hRectangleAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 40,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PUSH_CLIP",
+      "fixedSize": 12,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hClipGeometry",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PUSH_OPACITY_MASK",
+      "fixedSize": 28,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "boundingBoxCacheLocalSpace",
+          "type": "MilRectF",
+          "offset": 4,
+          "size": 16
+        },
+        {
+          "name": "hOpacityMask",
+          "type": "HMIL_RESOURCE",
+          "offset": 20,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 24,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PUSH_OPACITY",
+      "fixedSize": 12,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "opacity",
+          "type": "DOUBLE",
+          "offset": 4,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PUSH_OPACITY_ANIMATE",
+      "fixedSize": 20,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "opacity",
+          "type": "DOUBLE",
+          "offset": 4,
+          "size": 8
+        },
+        {
+          "name": "hOpacityAnimations",
+          "type": "HMIL_RESOURCE",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 16,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PUSH_TRANSFORM",
+      "fixedSize": 12,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hTransform",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PUSH_GUIDELINE_SET",
+      "fixedSize": 12,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hGuidelines",
+          "type": "HMIL_RESOURCE",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "QuadWordPad0",
+          "type": "UINT32",
+          "offset": 8,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PUSH_GUIDELINE_Y1",
+      "fixedSize": 12,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "coordinate",
+          "type": "DOUBLE",
+          "offset": 4,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PUSH_GUIDELINE_Y2",
+      "fixedSize": 20,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "leadingCoordinate",
+          "type": "DOUBLE",
+          "offset": 4,
+          "size": 8
+        },
+        {
+          "name": "offsetToDrivenCoordinate",
+          "type": "DOUBLE",
+          "offset": 12,
+          "size": 8
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_PUSH_EFFECT",
+      "fixedSize": 4,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
+          "size": 4
+        }
+      ]
+    },
+    {
+      "name": "MILCMD_POP",
+      "fixedSize": 4,
+      "sourceKind": "render-data",
+      "fields": [
+        {
+          "name": "type",
+          "type": "MILCMD",
+          "offset": 0,
           "size": 4
         }
       ]

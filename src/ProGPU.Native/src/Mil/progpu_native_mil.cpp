@@ -1265,14 +1265,18 @@ struct channel::implementation {
         std::uint32_t handle = 0U;
         switch (view.kind) {
         case command::transport_sync_flush:
-            return has_exact_size(view, 4U)
+            return has_exact_size(
+                view,
+                command_layouts::transport_sync_flush::fixed_size)
                 ? status::success
                 : status::malformed_batch;
         case command::channel_create_resource: {
+            using layout = command_layouts::channel_create_resource;
             std::uint32_t type = 0U;
-            if (!has_exact_size(view, 12U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, type) || handle == 0U) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::res_type_offset, type) ||
+                handle == 0U) {
                 return status::malformed_batch;
             }
             if (type == 0U || type >= type_last) {
@@ -1288,10 +1292,11 @@ struct channel::implementation {
             return status::success;
         }
         case command::channel_delete_resource: {
+            using layout = command_layouts::channel_delete_resource;
             std::uint32_t type = 0U;
-            if (!has_exact_size(view, 12U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, type)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::res_type_offset, type)) {
                 return status::malformed_batch;
             }
             const auto found = resources.find(handle);
@@ -1459,8 +1464,9 @@ struct channel::implementation {
             return status::success;
         }
         case command::visual_create: {
-            if (!has_exact_size(view, 8U) ||
-                !read_at(view.packet, 4U, handle)) {
+            using layout = command_layouts::visual_create;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle)) {
                 return status::malformed_batch;
             }
             const auto found = resources.find(handle);
@@ -3406,24 +3412,51 @@ struct channel::implementation {
             return status::success;
         }
         case command::glyph_run_create: {
-            constexpr std::size_t fixed_size = 76U;
+            using layout = command_layouts::glyph_run_create;
             std::uint64_t ignored_dwrite_font = 0U;
             glyph_run_state glyph_run{};
             std::uint16_t glyph_count = 0U;
-            if (view.packet.size() < fixed_size ||
-                !read_at(view.packet, 4U, handle) || handle == 0U ||
-                !read_at(view.packet, 8U, ignored_dwrite_font) ||
-                !read_at(view.packet, 16U, glyph_run.flags) ||
-                !read_at(view.packet, 20U, glyph_run.origin_x) ||
-                !read_at(view.packet, 24U, glyph_run.origin_y) ||
-                !read_at(view.packet, 28U, glyph_run.em_size) ||
-                !read_at(view.packet, 32U, glyph_run.bounds_x) ||
-                !read_at(view.packet, 40U, glyph_run.bounds_y) ||
-                !read_at(view.packet, 48U, glyph_run.bounds_width) ||
-                !read_at(view.packet, 56U, glyph_run.bounds_height) ||
-                !read_at(view.packet, 64U, glyph_count) ||
-                !read_at(view.packet, 68U, glyph_run.bidi_level) ||
-                !read_at(view.packet, 72U, glyph_run.measuring_method)) {
+            const std::size_t origin = layout::origin_offset;
+            const std::size_t bounds = layout::managed_bounds_offset;
+            if (view.packet.size() < layout::fixed_size ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                handle == 0U ||
+                !read_at(
+                    view.packet,
+                    layout::p_id_write_font_offset,
+                    ignored_dwrite_font) ||
+                !read_at(
+                    view.packet,
+                    layout::glyph_run_flags_offset,
+                    glyph_run.flags) ||
+                !read_at(view.packet, origin, glyph_run.origin_x) ||
+                !read_at(view.packet, origin + 4U, glyph_run.origin_y) ||
+                !read_at(
+                    view.packet,
+                    layout::mu_size_offset,
+                    glyph_run.em_size) ||
+                !read_at(view.packet, bounds, glyph_run.bounds_x) ||
+                !read_at(view.packet, bounds + 8U, glyph_run.bounds_y) ||
+                !read_at(
+                    view.packet,
+                    bounds + 16U,
+                    glyph_run.bounds_width) ||
+                !read_at(
+                    view.packet,
+                    bounds + 24U,
+                    glyph_run.bounds_height) ||
+                !read_at(
+                    view.packet,
+                    layout::glyph_count_offset,
+                    glyph_count) ||
+                !read_at(
+                    view.packet,
+                    layout::bidi_level_offset,
+                    glyph_run.bidi_level) ||
+                !read_at(
+                    view.packet,
+                    layout::d_write_text_measuring_method_offset,
+                    glyph_run.measuring_method)) {
                 return status::malformed_batch;
             }
             (void)ignored_dwrite_font;
@@ -3453,8 +3486,8 @@ struct channel::implementation {
                     ? static_cast<std::size_t>(glyph_count) *
                         sizeof(progpu_native_point)
                     : 0U;
-            const std::size_t required_size = fixed_size + index_bytes +
-                advance_bytes + offset_bytes;
+            const std::size_t required_size = layout::fixed_size +
+                index_bytes + advance_bytes + offset_bytes;
             const std::size_t padded_size = (required_size + 3U) & ~3U;
             if (view.packet.size() != padded_size) {
                 return status::malformed_batch;
@@ -3485,16 +3518,16 @@ struct channel::implementation {
             }
             std::memcpy(
                 glyph_run.glyph_indices.data(),
-                view.packet.data() + fixed_size,
+                view.packet.data() + layout::fixed_size,
                 index_bytes);
             std::memcpy(
                 glyph_run.advances.data(),
-                view.packet.data() + fixed_size + index_bytes,
+                view.packet.data() + layout::fixed_size + index_bytes,
                 advance_bytes);
             if (offset_bytes != 0U) {
                 std::memcpy(
                     glyph_run.offsets.data(),
-                    view.packet.data() + fixed_size + index_bytes +
+                    view.packet.data() + layout::fixed_size + index_bytes +
                         advance_bytes,
                     offset_bytes);
             }
