@@ -2442,6 +2442,15 @@ mask/effect order changes 666 pixels and yields `[10,10]-[41,25]`, red sum
 56,038, proving that the mask is sampled before blur rather than applied to the
 finished effect output.
 
+Clean detached `3c22b004` produces identical evidence on the Parallels Display
+Adapter D3D12 backend. The strict Windows ARM64 MSVC `/W4 /WX` lane passes all
+11 native/Dawn CTests, both export allowlists, two zero-warning managed Release
+builds, independent C++ and managed D3D12 allocation/readback, the complete
+bounded differential smoke matrix, and nine-file package staging. Qualified
+base/Dawn SHA-256 values are
+`F7B72CAF58C8B4675A3B26FBBC4B62D314F26737CFFC9DC625F1E2BF640A681C` and
+`6921A4037372B7A327370DA2035750FD48E791164BD2B5E0407E05F3A01C4A14`.
+
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then
 12x9 page extents. Package-mode managed Dawn rendering/readback and forced

@@ -2233,6 +2233,20 @@ produces extent `[7,5]-[47,30]`, red sum 65,264. A deliberately reversed
 post-effect mask changes 666 pixels and produces `[10,10]-[41,25]`, red sum
 56,038.
 
+The same ownership proof is byte-for-byte stable on the Parallels Display
+Adapter D3D12 backend from clean detached implementation commit `3c22b004`:
+`2/2/2` passes, samples `36/217`, 666 pixels changed by the deliberately wrong
+post-effect mask, masked extent `[7,5]-[47,30]` with red sum 65,264, and wrong-
+order extent `[10,10]-[41,25]` with red sum 56,038. The complete Windows ARM64
+MSVC `/W4 /WX` lane passes all 11 native/Dawn CTests, both export allowlists,
+two zero-warning managed Release builds, independent C++ and managed D3D12
+allocation/readback, the full bounded differential smoke matrix, and nine-file
+package staging. Qualified win-arm64 SHA-256 values are
+`F7B72CAF58C8B4675A3B26FBBC4B62D314F26737CFFC9DC625F1E2BF640A681C`
+for `progpu_native.dll` and
+`6921A4037372B7A327370DA2035750FD48E791164BD2B5E0407E05F3A01C4A14`
+for `progpu_native_dawn.dll`.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
