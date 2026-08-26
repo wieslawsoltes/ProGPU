@@ -773,6 +773,34 @@ bounded differential profiles, and package staging passed on
 `552E8CC9441B9A33E89B346758113B52DC13F7A3B1D11F80BF86A3AE90039637` for
 `progpu_native_dawn.dll`.
 
+Intrinsic checkpoint `bf20bd66` then changes the raster-row traversal without
+changing coverage semantics. It records the eight Y-subscanline crossing spans
+in one retained arena, visits X afterward, builds the four NEON/SSE2 sample
+vectors once per pixel pair rather than eight times, resets only winding
+accumulators between spans, and writes the completed 64-sample coverage pair
+directly. Original crossing order, strict sample comparison, floating-point X
+expressions, integer quantization, and the independent scalar oracle remain
+unchanged.
+
+Four alternating Apple M3 Pro Release A/B runs per variant, each with three
+warmups and 30 rerasterized frames, reduced median-of-run submission/frame p50
+from 1.0469/2.6249 ms to 1.0199/2.5889 ms at 1x DPI (-2.6%/-1.4%). At 2x DPI,
+submission/frame p50 fell from 1.9498/3.5588 ms to 1.7884/3.3814 ms
+(-8.3%/-5.0%). All 480 measured baseline/candidate frames retained exact
+managed parity at `5B6EF4F70536C862` (1x) and `706B261418EC5C3B` (2x).
+The native/Dawn suite passes 11/11, all five forced/default execution routes
+are exact, and strict x86_64 SSE2 syntax compilation passes.
+
+The same exact commit rebuilt both ARM64 libraries with MSVC `/W4 /WX` and
+passed all 11 CTests in the Windows Parallels VM. The full 42-glyph forced-NEON
+D3D12 oracle remained byte-exact at `5B6EF4F70536C862` with 247,808 coverage
+bytes. Qualified DLL SHA-256 values are
+`EE150A6E7EACF4B7E789C8EE9B0A0A91778D121AE107FCF7700BEC4C7FD588C5` for
+`progpu_native.dll` and
+`3FF479B331F6548938115C272FE53B03F4AC89872B565941AA0DD34DF75A9B35` for
+`progpu_native_dawn.dll`. The Windows result is correctness evidence; process
+startup dominates and is not used as a performance comparison.
+
 The corresponding Linux ARM64 checkout at exact commit `28447de4` passed a
 strict GCC 13.3 build of the complete 260-object graph, all 10 wgpu-native CTest
 contracts, the export allowlist, and live Vulkan allocation/render/readback on

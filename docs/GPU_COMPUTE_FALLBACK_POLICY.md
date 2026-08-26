@@ -190,6 +190,28 @@ SIMD, and scalar qualification routes remained byte-exact at
 `5B6EF4F70536C862`; the 11-test native/Dawn suite and strict x86_64 SSE2 syntax
 compile also pass.
 
+Intrinsic implementation `bf20bd66` collects the eight Y-subscanline crossing
+spans for one raster row before visiting X. Each pixel pair therefore builds
+its four NEON/SSE2 sample-position vectors once, resets only the integer
+winding accumulators between subscanlines, accumulates all 64 coverage samples,
+and writes quantized output directly. Crossing order, strict comparisons,
+floating-point sample expressions, and the scalar oracle are unchanged. The
+single retained crossing arena reserves the conservative eight-scanline,
+three-roots-per-segment bound once per frame; the former temporary covered-row
+buffer and final output pass are removed.
+
+Four alternating 30-frame Apple M3 Pro A/B runs per variant at 1x DPI reduced
+the median-of-run native-submission p50 from 1.0469 ms to 1.0199 ms (-2.6%)
+and synchronized-frame p50 from 2.6249 ms to 2.5889 ms (-1.4%). At 2x DPI,
+where coverage work is larger, submission p50 fell from 1.9498 ms to 1.7884 ms
+(-8.3%) and frame p50 from 3.5588 ms to 3.3814 ms (-5.0%). All 480 measured
+baseline/candidate frames were exact at `5B6EF4F70536C862` (1x) or
+`706B261418EC5C3B` (2x). The full native/Dawn suite passes 11/11, all five
+execution-policy routes remain exact, and strict x86_64 SSE2 syntax compilation
+passes. Windows ARM64 MSVC rebuilt both libraries under `/W4 /WX`, passed all
+11 tests, and reproduced the full forced-NEON D3D12 hash
+`5B6EF4F70536C862`; this cold VM run is correctness, not timing, evidence.
+
 Exact pushed head `644a8d89` also rebuilt both native libraries with ARM64
 MSVC and passed all 11 native/Dawn CTests in the Windows Parallels VM. The
 zero-warning benchmark build ran the full 42-glyph forced-NEON D3D12 gate with
