@@ -2324,6 +2324,26 @@ for `progpu_native.dll` and
 `743FE185F4D4C900CA1B7F5B18AD85BEAAD47CEA592315AF22D81E625DF0393D`
 for `progpu_native_dawn.dll`.
 
+The nested-mask ownership checkpoint proves that this boundary composes rather
+than replacing descendant masks. A parent horizontal opacity mask remains the
+outer subtree group; inside it, the child Visual emits its Gaussian effect and
+then its own vertical opacity mask/local-opacity isolation. Both masks retain
+independent Visual-local bounds, transforms, gradient stops, and semantic
+resource indices. The generalized per-Visual planner already emits this
+parent mask -> child effect -> child mask order, so no additional ABI or
+backend-specific path is required.
+
+Native regressions assert both mask resources, their distinct 48x30 and 32x24
+bounds/mappings, the three-layer order, child-local alpha, and unit descendant
+States. LibreWPF publishes bounds and two canonical mask packets through its
+existing typed contracts. The Apple M3 Pro Metal differential compares the
+correct common-parent/nested-child stack with a deliberately flattened parent
+mask. Correct output executes `3/3/2` content/composite/effect passes, samples
+red `28/200`, and produces `[7,4]-[41,29]`, red sum 59,308. The flattened
+variant executes `4/4/2`, changes 348 pixels, samples `29/200`, and produces
+`[6,5]-[41,28]`, red sum 63,032. DirectX qualification is pending for exact
+test/qualification commit `66592f2c`.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
