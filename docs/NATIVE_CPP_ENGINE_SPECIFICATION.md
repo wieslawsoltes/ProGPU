@@ -2275,6 +2275,19 @@ preserves descendant inherited/explicit text rendering mode without forcing
 unrequested ClearType. A cache-root text mode does not leak into the retained
 page because WPF applies that root state to the bitmap composite.
 
+Nested local caches retain one owner-keyed slot per Visual. WPF cache updates
+skip only the cache root's own state; descendant Visuals still execute their
+normal cache and effect scopes. The canonical nesting is therefore parent
+local-cache layer, descendant effect layer, descendant local-cache layer. A
+uniform descendant opacity is legal with this shape because it is applied once
+on the isolated descendant cache composite before the effect. The parent
+content identity includes the descendant placement/effect generation, while
+the descendant page content identity excludes its own cache-root outer state.
+This permits a parent miss plus child hit after a child move or effect update.
+Uncached opacity/effect, spatial-mask/effect, and clip/effect combinations
+remain fail closed until their distinct isolation and inflated output regions
+are represented explicitly.
+
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then
 12x9 page extents. Package-mode managed Dawn rendering/readback and forced

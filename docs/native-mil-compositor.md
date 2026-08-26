@@ -1596,13 +1596,16 @@ DirectX therefore consume the same retained scene and effect descriptors.
 This checkpoint is intentionally narrower than general WPF Effect parity.
 Only Gaussian BlurEffect and DropShadowEffect with static values and an
 orthogonal effective transform are accepted. Box blur, animated effect fields,
-shear, and composition with an active Visual clip, opacity mask, or non-unit
-opacity return `unsupported_command`. WPF applies Visual effect before opacity
-mask/opacity and after clip; the current semantic layer does not yet represent
-separate inflated-source and final-composite clip regions, so accepting those
-combinations would silently change ordering. The native effect currently uses
-a conservative full-target isolated layer; retained dirty-region tightening is
-follow-up performance work.
+shear, and composition with an active Visual clip or spatial opacity mask
+return `unsupported_command`. Non-unit opacity also remains unsupported for
+uncached Visuals. A cached Visual is the bounded exception: its retained page
+is already an isolated input, so uniform opacity can be applied while drawing
+that page into the outer effect layer. WPF applies Visual effect after
+opacity-mask/opacity and before the final clip; the current semantic layer does
+not yet represent separate inflated-source and final-composite clip regions,
+so accepting the remaining combinations would silently change ordering. The
+native effect currently uses a conservative full-target isolated layer;
+retained dirty-region tightening is follow-up performance work.
 
 Native regressions cover blur sigma, drop-shadow direction/color/opacity,
 dependency lifetime, Box rejection, and modifier-combination rejection. All
@@ -1968,6 +1971,37 @@ nine-file package was staged. The win-arm64 DLL SHA-256 values are
 `progpu_native_dawn.dll`. This qualifies the same reusable composite executor
 on Metal/WebGPU and DirectX/D3D12.
 
+The nested-cache/effect ordering checkpoint follows the render walk rather
+than treating a cache as a flat scene optimization. WPF's
+`DrawCacheVisualTree` invokes the cache root's content directly and walks each
+child normally. Consequently, a child cache is an independent retained page,
+and that child's own opacity/mask/effect executes while producing the parent
+cache's pixels. The cache root's own modifiers stay outside its page. WPF's
+`PreSubgraph` orders an image-effect visual as clip, outer effect layer, then
+inner opacity-mask/opacity isolation; `CanUseCacheAsEffectInput` removes the
+inner copy only when opacity is one, no mask exists, and the effect does not
+inflate bounds.
+
+The native compiler now emits the exact bounded subset as parent cache, child
+effect layer, child local cache. Uniform child opacity is stored on the child
+cache composite and therefore executes once on the isolated page before the
+outer effect. It is not lowered to per-primitive opacity. The parent's content
+revision includes the child's composite state and effect generation; the
+child page's content revision excludes those cache-root modifiers. A child
+move or effect change therefore rerasterizes the parent while reusing the
+child page, while moving the parent cache root keeps both pages. Active clips,
+spatial masks, and inflated-bound tightening remain fail closed or
+conservative as documented above.
+
+Native MIL regressions assert layer nesting and revision separation across
+child movement, parent movement, and effect mutation. The live
+`--semantic-nested-cache-effect` gate renders two owner-keyed pages around a
+Gaussian effect. On Apple M3 Pro Metal, first/stable/child-moved frames execute
+`3 -> 0 -> 2` content/effect-input passes and `2 -> 0 -> 2` effect passes; the
+stable output is byte-identical, while moving the child changes 572 pixels,
+moves the nonzero extent from `[3,3]-[28,24]` to `[8,3]-[33,24]`, and preserves
+the red sum at 24,576.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
@@ -1986,7 +2020,9 @@ The implementation sequence is intentionally architectural:
    opacity masks, NearestNeighbor sampling, and the combined
    snapping/ClearType checkpoint are implemented and qualified on live Metal
    and D3D12. Fant/HighQuality sampling is implemented as a bounded shared
-   shader prefilter and qualified on both adapters.)
+   shader prefilter and qualified on both adapters. Nested child cache plus
+   uniform-opacity-before-effect ordering is implemented and qualified on
+   Metal; its DirectX gate is pending.)
 
 The persistent page and composite-transform path are executable, but full cache
 parity is not claimed until the remaining post-raster state and ordering
