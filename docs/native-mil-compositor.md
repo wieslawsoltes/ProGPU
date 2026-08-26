@@ -414,6 +414,14 @@ animation, non-snappable notification, and render-rescheduling state. Those
 forms must not be approximated as static coordinates; the native target
 scheduling ABI will carry the required clock/state in Stage 2.
 
+Nested `MILCMD_PUSH_OPACITY_ANIMATE` is also decoded as a typed scope. Its base
+opacity and optional `MILCMD_DOUBLERESOURCE` handle resolve on every scene
+compilation, compose with the current Visual/drawing opacity, and participate
+in retained cache dependency hashing. Updating only the double resource changes
+the next semantic state without retransmitting render data. Null animation
+handles preserve the packet's base value; wrong-type/missing handles, nonzero
+padding, non-finite values, or values outside `[0,1]` fail closed.
+
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds, curve dashes,
