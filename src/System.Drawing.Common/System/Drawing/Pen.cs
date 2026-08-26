@@ -22,6 +22,13 @@ public class Pen : IDisposable, ICloneable
     public System.Drawing.Drawing2D.DashStyle DashStyle { get; set; }
     public float DashOffset { get; set; }
     public PenAlignment Alignment { get; set; }
+    public PenType PenType => Brush switch
+    {
+        HatchBrush => PenType.HatchFill,
+        TextureBrush => PenType.TextureFill,
+        LinearGradientBrush => PenType.LinearGradient,
+        _ => PenType.SolidColor,
+    };
 
     public float[] DashPattern
     {

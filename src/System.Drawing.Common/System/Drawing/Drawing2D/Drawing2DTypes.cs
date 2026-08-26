@@ -23,6 +23,14 @@ public enum CoordinateSpace
     Device = 2,
 }
 
+public enum QualityMode
+{
+    Invalid = -1,
+    Default = 0,
+    Low = 1,
+    High = 2,
+}
+
 public enum SmoothingMode
 {
     Invalid = -1,
@@ -113,6 +121,15 @@ public enum PenAlignment
     Outset = 2,
     Left = 3,
     Right = 4
+}
+
+public enum PenType
+{
+    SolidColor = 0,
+    HatchFill = 1,
+    TextureFill = 2,
+    PathGradient = 3,
+    LinearGradient = 4,
 }
 
 public enum WrapMode
