@@ -214,7 +214,9 @@ and explicit `Pack=1` managed packet layouts, records their SHA-256 provenance
 in `eng/mil/wpf-mil-protocol.json`, and emits the public C++ command/layout
 header. The manifest currently covers 141 retail commands, the invalid/debug
 sentinels, and 108 packet structures with every top-level field offset and
-width. Standalone builds reject a stale header; the LibreWPF package gate also
+width, including private MCG packing bytes. Every fixed header is checked for
+DWORD framing and every managed layout must map to exactly one command.
+Standalone builds reject a stale header; the LibreWPF package gate also
 checks the manifest against the live WPF sources. Decoder migration to those
 generated constants is incremental and must not change bounded-copy parsing or
 transactional rejection behavior.
