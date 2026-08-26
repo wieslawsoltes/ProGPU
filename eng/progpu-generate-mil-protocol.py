@@ -25,6 +25,10 @@ RENDER_DATA_LAYOUTS_RELATIVE = Path(
     "src/Microsoft.DotNet.Wpf/src/WpfGfx/include/Generated/"
     "wgx_renderdata_commands.h"
 )
+MANAGED_RENDER_DATA_LAYOUTS_RELATIVE = Path(
+    "src/Microsoft.DotNet.Wpf/src/PresentationCore/System/Windows/Media/"
+    "Generated/RenderData.cs"
+)
 PROGPU_ROOT = Path(__file__).resolve().parent.parent
 
 FIELD_SIZES = {
@@ -52,6 +56,7 @@ FIELD_SIZES = {
     "MilPoint2F": 8,
     "MilPoint3F": 12,
     "MilQuaternionF": 16,
+    "MilRectF": 16,
     "MilRenderOptions": 28,
     "PenLineCap": 4,
     "PenLineJoin": 4,
@@ -134,6 +139,17 @@ STRUCT_PATTERN = re.compile(
 )
 FIELD_PATTERN = re.compile(
     r"\[FieldOffset\((?P<offset>\d+)\)\]\s*(?:internal|private)\s+"
+    r"(?P<type>[^;]+?)\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*;"
+)
+MANAGED_RENDER_DATA_STRUCT_PATTERN = re.compile(
+    r"\[StructLayout\(LayoutKind\.Explicit\)\]\s*"
+    r"internal\s+struct\s+(?P<name>MILCMD_[A-Z0-9_]+)\s*"
+    r"\{(?P<body>.*?)(?=\n\s*\[StructLayout\(LayoutKind\.Explicit\)|\Z)",
+    re.DOTALL,
+)
+MANAGED_RENDER_DATA_FIELD_PATTERN = re.compile(
+    r"\[FieldOffset\((?P<offset>\d+)\)\]\s*"
+    r"(?:public|internal|private)\s+"
     r"(?P<type>[^;]+?)\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*;"
 )
 C_TYPEDEF_STRUCT_PATTERN = re.compile(
@@ -242,6 +258,67 @@ def parse_managed_layouts(
     return layouts, keys
 
 
+def parse_managed_render_data_layouts(
+    source: str,
+) -> tuple[list[dict[str, object]], dict[str, str]]:
+    layouts: list[dict[str, object]] = []
+    keys: dict[str, str] = {}
+    for match in MANAGED_RENDER_DATA_STRUCT_PATTERN.finditer(source):
+        name = match.group("name")
+        fields: list[dict[str, object]] = [
+            {
+                "name": "type",
+                "type": "MILCMD",
+                "offset": 0,
+                "size": 4,
+            }
+        ]
+        fixed_size = 4
+        for field_match in MANAGED_RENDER_DATA_FIELD_PATTERN.finditer(
+            match.group("body")
+        ):
+            field_type = field_match.group("type").strip()
+            if field_type not in FIELD_SIZES:
+                raise ValueError(
+                    f"No managed render-data wire layout for {field_type!r} "
+                    f"in {name}."
+                )
+            # RenderData.WriteDataRecord writes the MILCMD discriminator before
+            # the Explicit-layout managed payload. The native command view
+            # therefore shifts every managed FieldOffset by four bytes.
+            offset = 4 + int(field_match.group("offset"))
+            size = FIELD_SIZES[field_type]
+            fixed_size = max(fixed_size, offset + size)
+            fields.append(
+                {
+                    "name": field_match.group("name"),
+                    "type": field_type,
+                    "offset": offset,
+                    "size": size,
+                }
+            )
+        if fixed_size % 4 != 0:
+            raise ValueError(
+                f"Unexpected managed render-data framing for {name}."
+            )
+        layout = {
+            "name": name,
+            "fixedSize": fixed_size,
+            "sourceKind": "managed-render-data",
+            "fields": fields,
+        }
+        layouts.append(layout)
+        key = layout_key_from_struct(name)
+        if key in keys:
+            raise ValueError(
+                f"Duplicate managed render-data layout key {key}."
+            )
+        keys[key] = name
+    if not layouts:
+        raise ValueError("No managed WPF render-data layouts were parsed.")
+    return layouts, keys
+
+
 def parse_native_layouts(
     source: str,
     pattern: re.Pattern[str],
@@ -345,16 +422,87 @@ def validate_managed_overlap(
                 )
 
 
+def validate_render_data_overlap(
+    managed_layouts: list[dict[str, object]],
+    native_layouts: list[dict[str, object]],
+) -> None:
+    managed_by_key = {
+        layout_key_from_struct(str(layout["name"])): layout
+        for layout in managed_layouts
+    }
+    native_by_key = {
+        layout_key_from_struct(str(layout["name"])): layout
+        for layout in native_layouts
+    }
+    if managed_by_key.keys() != native_by_key.keys():
+        raise ValueError(
+            "Managed/native render-data command sets differ: "
+            f"managed-only={sorted(managed_by_key.keys() - native_by_key.keys())}, "
+            f"native-only={sorted(native_by_key.keys() - managed_by_key.keys())}."
+        )
+    for key, managed in managed_by_key.items():
+        native = native_by_key[key]
+        if key == "PUSHEFFECT":
+            native_fields = native["fields"]
+            managed_fields = managed["fields"]
+            if (
+                native["fixedSize"] != 4
+                or len(native_fields) != 1
+                or managed["fixedSize"] != 12
+                or [field["name"] for field in managed_fields]
+                != ["type", "hEffect", "hEffectInput"]
+            ):
+                raise ValueError(
+                    "The documented PushEffect producer/consumer layout "
+                    "disagreement changed."
+                )
+            # PresentationCore's producer still writes the two obsolete
+            # BitmapEffect handles even though the native generated consumer
+            # declaration retains only the opcode. The producer is the wire
+            # authority for bounded packet framing.
+            continue
+        if managed["fixedSize"] != native["fixedSize"]:
+            raise ValueError(
+                f"Managed/native render-data size mismatch for "
+                f"{managed['name']}: {managed['fixedSize']} != "
+                f"{native['fixedSize']}."
+            )
+        native_fields = {
+            cpp_identifier(str(field["name"])): field
+            for field in native["fields"]
+        }
+        for managed_field in managed["fields"]:
+            field_name = str(managed_field["name"])
+            native_field = native_fields.get(cpp_identifier(field_name))
+            if native_field is None:
+                raise ValueError(
+                    f"Managed render-data field {managed['name']}."
+                    f"{field_name} has no native peer."
+                )
+            if (
+                managed_field["offset"] != native_field["offset"]
+                or managed_field["size"] != native_field["size"]
+            ):
+                raise ValueError(
+                    f"Managed/native render-data field mismatch for "
+                    f"{managed['name']}.{field_name}."
+                )
+
+
 def build_manifest(wpf_root: Path) -> dict[str, object]:
     command_types_path = wpf_root / COMMAND_TYPES_RELATIVE
     managed_layouts_path = wpf_root / MANAGED_LAYOUTS_RELATIVE
     native_layouts_path = wpf_root / NATIVE_LAYOUTS_RELATIVE
     render_data_layouts_path = wpf_root / RENDER_DATA_LAYOUTS_RELATIVE
+    managed_render_data_layouts_path = (
+        wpf_root / MANAGED_RENDER_DATA_LAYOUTS_RELATIVE
+    )
     source_paths = (
         command_types_path,
         managed_layouts_path,
         native_layouts_path,
         render_data_layouts_path,
+        managed_render_data_layouts_path,
     )
     if not all(path.is_file() for path in source_paths):
         raise FileNotFoundError(
@@ -364,7 +512,13 @@ def build_manifest(wpf_root: Path) -> dict[str, object]:
     managed_source = managed_layouts_path.read_text(encoding="utf-8-sig")
     native_source = native_layouts_path.read_text(encoding="utf-8-sig")
     render_data_source = render_data_layouts_path.read_text(encoding="utf-8-sig")
+    managed_render_data_source = managed_render_data_layouts_path.read_text(
+        encoding="utf-8-sig"
+    )
     managed_layouts, _ = parse_managed_layouts(managed_source)
+    managed_render_data_layouts, _ = (
+        parse_managed_render_data_layouts(managed_render_data_source)
+    )
     native_layouts, native_keys = parse_native_layouts(
         native_source,
         C_TYPEDEF_STRUCT_PATTERN,
@@ -375,12 +529,26 @@ def build_manifest(wpf_root: Path) -> dict[str, object]:
         C_NAMED_STRUCT_PATTERN,
         "render-data",
     )
+    validate_render_data_overlap(
+        managed_render_data_layouts,
+        render_data_layouts,
+    )
+    managed_render_data_by_key = {
+        layout_key_from_struct(str(layout["name"])): layout
+        for layout in managed_render_data_layouts
+    }
+    authoritative_render_data_layouts = [
+        managed_render_data_by_key["PUSHEFFECT"]
+        if layout_key_from_struct(str(layout["name"])) == "PUSHEFFECT"
+        else layout
+        for layout in render_data_layouts
+    ]
     duplicate_keys = set(native_keys) & set(render_data_keys)
     if duplicate_keys:
         raise ValueError(
             f"Duplicate native/render-data layout keys: {sorted(duplicate_keys)}"
         )
-    layouts = native_layouts + render_data_layouts
+    layouts = native_layouts + authoritative_render_data_layouts
     layout_keys = native_keys | render_data_keys
     validate_managed_overlap(managed_layouts, layouts)
     commands: list[dict[str, object]] = []
@@ -427,7 +595,7 @@ def build_manifest(wpf_root: Path) -> dict[str, object]:
     if linked_commands != retail_commands:
         raise ValueError("Not every retail MIL command has a packet layout.")
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "wireContract": {
             "byteOrder": "little-endian",
             "commandWidth": 4,
@@ -451,6 +619,12 @@ def build_manifest(wpf_root: Path) -> dict[str, object]:
             "renderDataLayouts": {
                 "path": RENDER_DATA_LAYOUTS_RELATIVE.as_posix(),
                 "sha256": sha256(render_data_layouts_path),
+                "overlapCount": len(render_data_layouts),
+            },
+            "managedRenderDataLayouts": {
+                "path": MANAGED_RENDER_DATA_LAYOUTS_RELATIVE.as_posix(),
+                "sha256": sha256(managed_render_data_layouts_path),
+                "authoritativeCount": len(managed_render_data_layouts),
             },
         },
         "commands": commands,

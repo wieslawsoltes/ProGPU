@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "wireContract": {
     "byteOrder": "little-endian",
     "commandWidth": 4,
@@ -22,7 +22,13 @@
     },
     "renderDataLayouts": {
       "path": "src/Microsoft.DotNet.Wpf/src/WpfGfx/include/Generated/wgx_renderdata_commands.h",
-      "sha256": "f80794cae775710097159bd9b313bd5604c7bf5093975082d6aa084cccf94bb5"
+      "sha256": "f80794cae775710097159bd9b313bd5604c7bf5093975082d6aa084cccf94bb5",
+      "overlapCount": 25
+    },
+    "managedRenderDataLayouts": {
+      "path": "src/Microsoft.DotNet.Wpf/src/PresentationCore/System/Windows/Media/Generated/RenderData.cs",
+      "sha256": "2bba656900fb11217564c8d8c1dba63da2732f28b3805c327b2067d7cf1e5adf",
+      "authoritativeCount": 25
     }
   },
   "commands": [
@@ -6581,13 +6587,25 @@
     },
     {
       "name": "MILCMD_PUSH_EFFECT",
-      "fixedSize": 4,
-      "sourceKind": "render-data",
+      "fixedSize": 12,
+      "sourceKind": "managed-render-data",
       "fields": [
         {
           "name": "type",
           "type": "MILCMD",
           "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hEffect",
+          "type": "UInt32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hEffectInput",
+          "type": "UInt32",
+          "offset": 8,
           "size": 4
         }
       ]
