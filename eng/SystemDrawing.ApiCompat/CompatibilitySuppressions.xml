@@ -539,18 +539,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Brush.Clone</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Brush.Dispose(System.Boolean)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Brush.SetNativeBrush(System.IntPtr)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Font.FromHdc(System.IntPtr)</Target>
   </Suppression>
   <Suppression>
@@ -1298,14 +1286,6 @@
     <Target>System.Drawing.Common, Version=10.0.0.0, Culture=neutral, PublicKeyToken=c29c9752855ee183</Target>
   </Suppression>
   <Suppression>
-    <DiagnosticId>CP0005</DiagnosticId>
-    <Target>M:System.Drawing.Brush.ToProGpuBrush</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0007</DiagnosticId>
-    <Target>T:System.Drawing.Brush</Target>
-  </Suppression>
-  <Suppression>
     <DiagnosticId>CP0007</DiagnosticId>
     <Target>T:System.Drawing.Graphics</Target>
   </Suppression>
@@ -1344,10 +1324,6 @@
   <Suppression>
     <DiagnosticId>CP0008</DiagnosticId>
     <Target>T:System.Drawing.Bitmap</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0008</DiagnosticId>
-    <Target>T:System.Drawing.Brush</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0008</DiagnosticId>

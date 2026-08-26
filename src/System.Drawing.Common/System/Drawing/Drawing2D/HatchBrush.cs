@@ -113,13 +113,13 @@ public sealed class HatchBrush : Brush, ICloneable
         }
     }
 
-    public object Clone()
+    public override object Clone()
     {
         ThrowIfDisposed();
         return new HatchBrush(_hatchStyle, _foregroundColor, _backgroundColor);
     }
 
-    public override ProGPU.Vector.Brush ToProGpuBrush()
+    internal override ProGPU.Vector.Brush ToProGpuBrush()
         => ToProGpuBrush(Point.Empty);
 
     internal ProGPU.Vector.Brush ToProGpuBrush(Point renderingOrigin)
@@ -132,7 +132,7 @@ public sealed class HatchBrush : Brush, ICloneable
             new Vector2(renderingOrigin.X, renderingOrigin.Y));
     }
 
-    public override void Dispose() => _disposed = true;
+    protected override void Dispose(bool disposing) => _disposed = true;
 
     private static Vector4 ToVector(Color color) =>
         new(color.R / 255f, color.G / 255f, color.B / 255f, color.A / 255f);

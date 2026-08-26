@@ -28,5 +28,6 @@
   <ItemGroup>
     <InternalsVisibleTo Include="System.Drawing.Common.Tests, PublicKey=$(ProGPUPublicKey)" />
     <InternalsVisibleTo Include="System.Drawing.Common.Benchmarks, PublicKey=$(ProGPUPublicKey)" />
+    <InternalsVisibleTo Include="ProGPU.Tests.Headless, PublicKey=$(ProGPUPublicKey)" />
   </ItemGroup>
 </Project>

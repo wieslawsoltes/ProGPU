@@ -135,7 +135,7 @@ public sealed class TextureBrush : Brush, ICloneable
         }
     }
 
-    public object Clone()
+    public override object Clone()
     {
         ThrowIfDisposed();
         return new TextureBrush(new Bitmap(_image), _transform.Clone(), _wrapMode);
@@ -204,14 +204,14 @@ public sealed class TextureBrush : Brush, ICloneable
         _transform.Rotate(angle, order);
     }
 
-    public override ProGPU.Vector.Brush ToProGpuBrush()
+    internal override ProGPU.Vector.Brush ToProGpuBrush()
     {
         ThrowIfDisposed();
         throw new NotSupportedException(
             "TextureBrush is lowered through the typed texture-aware Graphics fill path.");
     }
 
-    public override void Dispose()
+    protected override void Dispose(bool disposing)
     {
         if (_disposed)
         {
@@ -221,7 +221,6 @@ public sealed class TextureBrush : Brush, ICloneable
         _disposed = true;
         _transform.Dispose();
         _image.Dispose();
-        GC.SuppressFinalize(this);
     }
 
     private static Bitmap SnapshotImage(Image image)

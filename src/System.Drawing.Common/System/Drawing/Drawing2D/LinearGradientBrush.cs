@@ -414,7 +414,7 @@ public sealed class LinearGradientBrush : Brush, ICloneable
         };
     }
 
-    public object Clone()
+    public override object Clone()
     {
         ThrowIfDisposed();
         var clone = new LinearGradientBrush(
@@ -434,7 +434,7 @@ public sealed class LinearGradientBrush : Brush, ICloneable
         return clone;
     }
 
-    public override ProGPU.Vector.Brush ToProGpuBrush()
+    internal override ProGPU.Vector.Brush ToProGpuBrush()
     {
         ThrowIfDisposed();
         ProGPU.Vector.GradientStop[] stops = CreateNativeStops();
@@ -460,13 +460,13 @@ public sealed class LinearGradientBrush : Brush, ICloneable
         return nativeBrush;
     }
 
-    public override void Dispose()
+    protected override void Dispose(bool disposing)
     {
         _disposed = true;
         _transform = default;
         _blend = null;
         _interpolationColors = null;
-        base.Dispose();
+        base.Dispose(disposing);
     }
 
     private ProGPU.Vector.GradientStop[] CreateNativeStops()

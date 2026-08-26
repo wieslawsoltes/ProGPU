@@ -4,15 +4,41 @@ namespace System.Drawing;
 
 public class SolidBrush : Brush
 {
-    public Color Color { get; set; }
+    private Color _color;
+    private bool _disposed;
+
+    public Color Color
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _color;
+        }
+        set
+        {
+            ThrowIfDisposed();
+            _color = value;
+        }
+    }
 
     public SolidBrush(Color color)
     {
-        Color = color;
+        _color = color;
     }
 
-    public override ProGPU.Vector.Brush ToProGpuBrush()
+    public override object Clone()
     {
-        return new ProGPU.Vector.SolidColorBrush(new Vector4(Color.R / 255f, Color.G / 255f, Color.B / 255f, Color.A / 255f));
+        ThrowIfDisposed();
+        return new SolidBrush(_color);
     }
+
+    internal override ProGPU.Vector.Brush ToProGpuBrush()
+    {
+        ThrowIfDisposed();
+        return new ProGPU.Vector.SolidColorBrush(new Vector4(_color.R / 255f, _color.G / 255f, _color.B / 255f, _color.A / 255f));
+    }
+
+    protected override void Dispose(bool disposing) => _disposed = true;
+
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 }
