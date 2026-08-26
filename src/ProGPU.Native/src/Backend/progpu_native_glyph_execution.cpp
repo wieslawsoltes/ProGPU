@@ -155,6 +155,13 @@ void visit_glyph_crossings_cpu(
 
         const auto& c = segment.p2;
         if (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC) {
+            const float minimum_y = std::min(
+                a.y, std::min(b.y, c.y));
+            const float maximum_y = std::max(
+                a.y, std::max(b.y, c.y));
+            if (sample_y < minimum_y || sample_y > maximum_y) {
+                continue;
+            }
             const float qa = a.y - 2.0F * b.y + c.y;
             const float qb = 2.0F * (b.y - a.y);
             const float qc = a.y - sample_y;
@@ -193,6 +200,13 @@ void visit_glyph_crossings_cpu(
         }
 
         const auto& d = segment.p3;
+        const float minimum_y = std::min(
+            std::min(a.y, b.y), std::min(c.y, d.y));
+        const float maximum_y = std::max(
+            std::max(a.y, b.y), std::max(c.y, d.y));
+        if (sample_y < minimum_y || sample_y > maximum_y) {
+            continue;
+        }
         const float ca = -a.y + 3.0F * b.y - 3.0F * c.y + d.y;
         const float cb = 3.0F * a.y - 6.0F * b.y + 3.0F * c.y;
         const float cc = -3.0F * a.y + 3.0F * b.y;

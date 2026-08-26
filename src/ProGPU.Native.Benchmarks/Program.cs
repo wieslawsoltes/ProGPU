@@ -230,6 +230,17 @@ bool useGlyphScene = Array.Exists(
         value,
         "--glyphs",
         StringComparison.OrdinalIgnoreCase));
+bool rerasterizeGlyphs = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--rerasterize-glyphs",
+        StringComparison.OrdinalIgnoreCase));
+if (rerasterizeGlyphs && !useGlyphScene)
+{
+    throw new ArgumentException(
+        "--rerasterize-glyphs requires --glyphs.");
+}
 bool useImageScene = Array.Exists(
     args,
     static value => string.Equals(
@@ -546,6 +557,7 @@ uint nativeAtlasWidth = 0;
 uint nativeAtlasGeneration = 0;
 uint nativeAtlasGrowthCount = 0;
 NativeGlyphFrameMetrics lastNativeGlyphMetrics = default;
+uint nativeGlyphContentRevision = 1U;
 NativePathFrameMetrics lastNativePathMetrics = default;
 NativeGeometryFrameMetrics lastNativeGeometryMetrics = default;
 NativeImageFrameMetrics lastNativeImageMetrics = default;
@@ -1870,6 +1882,7 @@ var report = new BenchmarkReport(
             ? "IndexedGeometryCurves"
             : "IndexedGeometry"
         : useAnalyticScene ? "IndexedAnalytic" : "SolidRectangles",
+    RerasterizeGlyphs: rerasterizeGlyphs,
     DifferentialContract: useSemanticLayerEffects
         ? "Matched retained mixed semantic scene through blur/drop-shadow GPU chain and post-effect rounded mask; bounded independent coverage and RGBA8 intermediate edge ownership"
         : useSemanticScene
@@ -2127,7 +2140,9 @@ ulong RenderNative(bool capturePayloadHash = false)
             nativeGlyphs,
             clearColor,
             capturePayloadHash,
-            contentRevision: 1U,
+            contentRevision: rerasterizeGlyphs
+                ? nativeGlyphContentRevision++
+                : 1U,
             drawState: nativeDrawState);
         lastNativeGlyphMetrics = metrics;
         nativeRasterizedGlyphCount = Math.Max(
@@ -4336,6 +4351,7 @@ internal sealed record BenchmarkReport(
     string Adapter,
     string Backend,
     string Scene,
+    bool RerasterizeGlyphs,
     string DifferentialContract,
     int RectangleCount,
     float DpiScale,
