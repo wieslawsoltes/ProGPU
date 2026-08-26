@@ -2466,6 +2466,15 @@ exclusive/overlap samples at `128/128`, extent `[4,4]-[41,31]`, red sum 67,186.
 The deliberately flattened comparison reaches `128/189`, changes 392 pixels,
 and produces `[5,5]-[41,30]`, red sum 74,382.
 
+Clean detached `a3affb9d` produces the same evidence on the Parallels Display
+Adapter D3D12 backend. Strict Windows ARM64 MSVC `/W4 /WX` passes all 11
+native/Dawn CTests, both export allowlists, two zero-warning managed Release
+builds, independent C++ and managed allocation/readback samples, the complete
+bounded differential smoke matrix, and nine-file staging. Qualified base/Dawn
+SHA-256 values are
+`32B4876D3930276798732AF91C5D0C866A4A189FED22BEAF7C93016E6006B8C1` and
+`636748FE9C8E29EA5687625E5EF0B77E77017F62FFD463139B36E75162A13DC6`.
+
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then
 12x9 page extents. Package-mode managed Dawn rendering/readback and forced
