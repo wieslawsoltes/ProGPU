@@ -2312,7 +2312,17 @@ ancestor mask with a deliberately flattened child/sibling mask. Correct output
 executes `2/2/2` content/composite/effect passes, samples red `60/200`, and
 produces `[6,4]-[41,31]`, red sum 66,698. The flattened variant executes
 `3/3/2`, changes 420 pixels, and produces `[6,5]-[41,30]`, red sum 74,122.
-DirectX qualification is pending for implementation commit `9fb7c4aa`.
+
+Clean detached implementation commit `9fb7c4aa` produces identical evidence
+on the Parallels Display Adapter D3D12 backend. The strict Windows ARM64 MSVC
+`/W4 /WX` lane passes all 11 native/Dawn CTests, both export allowlists, two
+zero-warning managed Release builds, independent C++ and managed D3D12
+allocation/readback samples, the complete bounded differential smoke matrix,
+and nine-file runtime/SDK staging. Qualified win-arm64 SHA-256 values are
+`A4A917F47FBA3BA246BCE9D61C1160384C660F8D07D0BA06A02292BDFDAC0018`
+for `progpu_native.dll` and
+`743FE185F4D4C900CA1B7F5B18AD85BEAAD47CEA592315AF22D81E625DF0393D`
+for `progpu_native_dawn.dll`.
 
 The implementation sequence is intentionally architectural:
 
