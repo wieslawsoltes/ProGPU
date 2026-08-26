@@ -542,8 +542,8 @@ PROGPU_PACKAGE_SMOKE_FRAMES=60 \
 Override package versions when validating another preview:
 
 ```bash
-PROGPU_RUNTIME_PACKAGE_VERSION=0.1.0-preview.60 \
-PROGPU_INTEGRATION_PACKAGE_VERSION=12.1.1-preview.60 \
+PROGPU_RUNTIME_PACKAGE_VERSION=0.1.0-preview.61 \
+PROGPU_INTEGRATION_PACKAGE_VERSION=12.1.1-preview.61 \
 ./integration/ProGpuAvaloniaPackageSmoke/run.sh local
 ```
 
