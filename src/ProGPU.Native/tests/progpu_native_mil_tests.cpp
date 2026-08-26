@@ -2488,17 +2488,39 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     PROGPU_REQUIRE(bounded_layers[0].bounds.width == 56.0F);
     PROGPU_REQUIRE(bounded_layers[0].bounds.height == 48.0F);
 
-    std::vector<std::byte> unsupported_box;
+    std::vector<std::byte> box_blur;
     append_command(
-        unsupported_box,
+        box_blur,
         command::blur_effect,
         blur,
         9.0,
         0U,
         1U,
         0U);
+    PROGPU_REQUIRE(state.apply(box_blur) == status::success);
     PROGPU_REQUIRE(
-        state.apply(unsupported_box) == status::unsupported_command);
+        state.build_scene(target, 9014U, 4U, stream, &metrics) ==
+        status::success);
+    effect = read_effect();
+    PROGPU_REQUIRE(effect.kind == PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR);
+    PROGPU_REQUIRE(effect.sigma_x == 9.0F && effect.sigma_y == 9.0F);
+    bounded_layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(bounded_layers[0].bounds.x == -1.0F);
+    PROGPU_REQUIRE(bounded_layers[0].bounds.y == 1.0F);
+    PROGPU_REQUIRE(bounded_layers[0].bounds.width == 50.0F);
+    PROGPU_REQUIRE(bounded_layers[0].bounds.height == 42.0F);
+
+    std::vector<std::byte> unsupported_kernel;
+    append_command(
+        unsupported_kernel,
+        command::blur_effect,
+        blur,
+        9.0,
+        0U,
+        2U,
+        0U);
+    PROGPU_REQUIRE(
+        state.apply(unsupported_kernel) == status::unsupported_command);
 
     std::vector<std::byte> wrong_blur_animation_type;
     append_command(

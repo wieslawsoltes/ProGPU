@@ -2071,6 +2071,7 @@ public sealed unsafe class NativeCompositor : IDisposable
     {
         const float MaximumSigma = 128f / 3f;
         bool isGaussian = effect.Kind == NativeGroupEffectKind.GaussianBlur;
+        bool isBox = effect.Kind == NativeGroupEffectKind.BoxBlur;
         bool isDropShadow = effect.Kind == NativeGroupEffectKind.DropShadow;
         bool invalidColor = !float.IsFinite(effect.Color.X) ||
             !float.IsFinite(effect.Color.Y) ||
@@ -2080,20 +2081,22 @@ public sealed unsafe class NativeCompositor : IDisposable
             effect.Color.Y < 0f || effect.Color.Y > 1f ||
             effect.Color.Z < 0f || effect.Color.Z > 1f ||
             effect.Color.W < 0f || effect.Color.W > 1f;
-        if ((!isGaussian && !isDropShadow) ||
+        float maximumExtent = isBox ? 128f : MaximumSigma;
+        bool requiresPositiveExtent = isGaussian || isBox;
+        if ((!isGaussian && !isBox && !isDropShadow) ||
             !float.IsFinite(effect.SigmaX) ||
             !float.IsFinite(effect.SigmaY) ||
-            effect.SigmaX < (isGaussian ? 0.01f : 0f) ||
-            effect.SigmaX > MaximumSigma ||
-            effect.SigmaY < (isGaussian ? 0.01f : 0f) ||
-            effect.SigmaY > MaximumSigma ||
+            effect.SigmaX < (requiresPositiveExtent ? 0.01f : 0f) ||
+            effect.SigmaX > maximumExtent ||
+            effect.SigmaY < (requiresPositiveExtent ? 0.01f : 0f) ||
+            effect.SigmaY > maximumExtent ||
             (isDropShadow &&
              (!float.IsFinite(effect.Offset.X) ||
               !float.IsFinite(effect.Offset.Y) || invalidColor)) ||
             effect.Revision == 0U)
         {
             throw new ArgumentException(
-                "A native group effect requires valid finite parameters, bounded sigma, normalized drop-shadow color, and a nonzero revision.",
+                "A native group effect requires valid finite parameters, bounded blur extent, normalized drop-shadow color, and a nonzero revision.",
                 nameof(effect));
         }
 

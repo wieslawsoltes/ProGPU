@@ -255,10 +255,13 @@ public sealed class NativeMilBatchBuilder
         uint handle,
         double radius,
         NativeMilEffectRenderingBias renderingBias =
-            NativeMilEffectRenderingBias.Performance)
+            NativeMilEffectRenderingBias.Performance,
+        NativeMilBlurKernelType kernelType =
+            NativeMilBlurKernelType.Gaussian)
     {
         ValidateHandle(handle);
         if (!double.IsFinite(radius) ||
+            kernelType > NativeMilBlurKernelType.Box ||
             renderingBias > NativeMilEffectRenderingBias.Quality)
         {
             throw new ArgumentOutOfRangeException(nameof(radius));
@@ -268,7 +271,7 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 4, handle);
         WriteDouble(packet, 8, radius);
         WriteUInt32(packet, 16, 0);
-        WriteUInt32(packet, 20, 0); // KernelType.Gaussian
+        WriteUInt32(packet, 20, (uint)kernelType);
         WriteUInt32(packet, 24, (uint)renderingBias);
     }
 

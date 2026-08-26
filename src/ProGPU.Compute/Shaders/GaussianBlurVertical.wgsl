@@ -5,7 +5,7 @@
 struct Params {
     sigma: f32,
     radius: u32,
-    padding0: u32,
+    kernelType: u32,
     padding1: u32,
 };
 
@@ -30,7 +30,25 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         return;
     }
 
-    if (blurParams.sigma <= 0.0001 || blurParams.radius == 0u) {
+    if (blurParams.radius == 0u) {
+        textureStore(outputTex, vec2<i32>(x, y), textureLoad(inputTex, vec2<i32>(x, y), 0));
+        return;
+    }
+
+    let radius = i32(min(blurParams.radius, 128u));
+    if (blurParams.kernelType == 1u) {
+        var boxColor = sample_input(x, y, size);
+        for (var offset = 1; offset <= radius; offset = offset + 1) {
+            boxColor = boxColor +
+                sample_input(x, y - offset, size) +
+                sample_input(x, y + offset, size);
+        }
+        let sampleCount = f32(radius * 2 + 1);
+        textureStore(outputTex, vec2<i32>(x, y), boxColor / sampleCount);
+        return;
+    }
+
+    if (blurParams.sigma <= 0.0001) {
         textureStore(outputTex, vec2<i32>(x, y), textureLoad(inputTex, vec2<i32>(x, y), 0));
         return;
     }
@@ -44,7 +62,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     var weight = exp(-inverseVariance);
     let ratioStep = exp(-2.0 * inverseVariance);
     var weightRatio = weight * ratioStep;
-    let radius = i32(min(blurParams.radius, 128u));
     for (var offset = 1; offset <= radius; offset = offset + 1) {
         color = color +
             (sample_input(x, y - offset, size) + sample_input(x, y + offset, size)) * weight;

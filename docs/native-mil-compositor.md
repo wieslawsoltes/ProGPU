@@ -3145,6 +3145,30 @@ worsened. Both variants retained zero pixel difference at
 reduction remains in source; the ignored A/B reports preserve the negative
 evidence locally.
 
+The WPF Box blur checkpoint closes the second canonical `KernelType` without a
+managed or CPU rendering fallback. Native MIL accepts kernel 1, retains live
+animated radius dependencies, and emits a typed reusable Box group effect;
+unknown kernel values still fail closed. The backend selects uniform weights
+inside the existing horizontal/vertical WebGPU compute passes, preserves the
+Gaussian default, and publishes `PROGPU_NATIVE_CAPABILITY_GROUP_BOX_BLUR` plus
+typed C/C# factories. The `--group-box-blur` integration gate uses an
+independent two-pass RGBA8 CPU oracle only after GPU readback for validation;
+it is not a product fallback. Apple M3 Pro Metal is exact at radius 2/1x with
+hash `22A8BEC63E7C7494`; at 2x its maximum difference is 1/255, no pixel exceeds
+tolerance, and mean absolute error is 0.000455 byte/channel.
+
+Exact pre-Box Windows checkpoint `edd98b71` completed the full Parallels D3D12
+Smoke/package lane after the PowerShell 5 expected-failure harness was made
+host-independent. ARM64 MSVC `/W4 /WX` rebuilt both providers, all 11 CTests
+passed, forced raster/SIMD/scalar glyph routes remained exact, forced compute
+failed at the typed pre-resource boundary without WebGPU errors, Microsoft
+D3D12 triangle/texture oracles passed, and the complete cache/effect/text/blend
+matrix staged nine files. SHA-256 is
+`0E13CD164AB5449DA7FEFB44F7FE26DE76E2200B16EAC047BFBAA1589C5A3C07`
+for `progpu_native.dll` and
+`F58F610CF3513C275C59254510D646C3B7F2BA175B3927F6679ABC36067A8721`
+for `progpu_native_dawn.dll`.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool

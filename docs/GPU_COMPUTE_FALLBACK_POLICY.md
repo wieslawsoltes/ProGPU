@@ -307,6 +307,25 @@ qualification, not physical-GPU performance evidence. It also found and fixed
 an old/new WebGPU-header portability defect by normalizing glyph-atlas texture
 usage through the typed `texture_usage_flags` compatibility alias.
 
+WPF `BlurEffect.KernelType.Box` now remains GPU-resident instead of falling
+through to CPU rendering or being approximated by Gaussian weights. The typed
+MIL decoder accepts canonical kernel values 0/1, publishes Box as
+`PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR`, and rejects unknown values. The public
+C/C# group-effect surfaces and capability bit expose the same reusable effect
+for WPF, WinUI, and Avalonia hosts. Gaussian remains the WPF/default and fastest
+path; Box is selected explicitly by the MIL packet or `NativeGroupEffect.BoxBlur`.
+
+Both kernels share the existing bounded two-pass WebGPU compute resources.
+Gaussian uses its normalized exponential recurrence; Box uses exactly
+`2R + 1` equal samples in each direction, transparent out-of-bounds reads, and
+an RGBA8 intermediate. There is no CPU readback or product CPU fallback. The
+`--group-box-blur` gate compares the final GPU output against an independent
+two-pass integer RGBA8 oracle: Apple M3 Pro Metal is byte-exact at radius 2 and
+1x (`22A8BEC63E7C7494`), while 2x is bounded to 1/255 with zero pixels beyond
+tolerance and mean absolute error 0.000455 byte/channel. The native 10-test
+suite, 84 focused managed interop tests, zero-warning managed builds, and MIL
+generator oracle (143 commands/141 complete layouts) pass.
+
 ## Extending the policy
 
 Each additional compute-heavy workload must declare the semantics that make a
