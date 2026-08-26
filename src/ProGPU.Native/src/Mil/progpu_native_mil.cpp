@@ -879,6 +879,7 @@ struct channel::implementation {
         double radius_x{};
         double radius_y{};
         std::uint32_t transform_handle{};
+        std::array<std::uint32_t, 3U> animations{};
     };
 
     struct path_stroke_contour_state {
@@ -1181,6 +1182,102 @@ struct channel::implementation {
         value.radius = std::max(0.0, value.radius);
         value.shadow_depth = std::max(0.0, value.shadow_depth);
         value.opacity = std::clamp(value.opacity, 0.0, 1.0);
+        return status::success;
+    }
+
+    status resolve_fixed_geometry(
+        std::uint32_t handle,
+        fixed_geometry_state& value) const noexcept {
+        const auto geometry = fixed_geometries.find(handle);
+        if (geometry == fixed_geometries.end()) {
+            return status::invalid_handle;
+        }
+        value = geometry->second;
+        if (value.kind == fixed_geometry_kind::line) {
+            const status start_status = resolve_animated_point(
+                value.first,
+                value.second,
+                value.animations[0],
+                value.first,
+                value.second);
+            if (start_status != status::success) {
+                return start_status;
+            }
+            const status end_status = resolve_animated_point(
+                value.third,
+                value.fourth,
+                value.animations[1],
+                value.third,
+                value.fourth);
+            if (end_status != status::success) {
+                return end_status;
+            }
+        } else if (value.kind == fixed_geometry_kind::rectangle) {
+            const status radius_x_status = resolve_animated_double(
+                value.radius_x,
+                value.animations[0],
+                value.radius_x);
+            if (radius_x_status != status::success) {
+                return radius_x_status;
+            }
+            const status radius_y_status = resolve_animated_double(
+                value.radius_y,
+                value.animations[1],
+                value.radius_y);
+            if (radius_y_status != status::success) {
+                return radius_y_status;
+            }
+            const status rect_status = resolve_animated_rect(
+                value.first,
+                value.second,
+                value.third,
+                value.fourth,
+                value.animations[2],
+                value.first,
+                value.second,
+                value.third,
+                value.fourth);
+            if (rect_status != status::success) {
+                return rect_status;
+            }
+        } else {
+            const status radius_x_status = resolve_animated_double(
+                value.third,
+                value.animations[0],
+                value.third);
+            if (radius_x_status != status::success) {
+                return radius_x_status;
+            }
+            const status radius_y_status = resolve_animated_double(
+                value.fourth,
+                value.animations[1],
+                value.fourth);
+            if (radius_y_status != status::success) {
+                return radius_y_status;
+            }
+            const status center_status = resolve_animated_point(
+                value.first,
+                value.second,
+                value.animations[2],
+                value.first,
+                value.second);
+            if (center_status != status::success) {
+                return center_status;
+            }
+        }
+        if (!finite_double_as_float(value.first) ||
+            !finite_double_as_float(value.second) ||
+            !finite_double_as_float(value.third) ||
+            !finite_double_as_float(value.fourth) ||
+            !finite_double_as_float(value.radius_x) ||
+            !finite_double_as_float(value.radius_y) ||
+            ((value.kind == fixed_geometry_kind::rectangle ||
+              value.kind == fixed_geometry_kind::ellipse) &&
+             (value.third < 0.0 || value.fourth < 0.0)) ||
+            (value.kind == fixed_geometry_kind::rectangle &&
+             (value.radius_x < 0.0 || value.radius_y < 0.0))) {
+            return status::invalid_graph;
+        }
         return status::success;
     }
 
@@ -1598,7 +1695,9 @@ struct channel::implementation {
             }
             for (const auto& [geometry_handle, geometry] : fixed_geometries) {
                 if (geometry_handle != handle &&
-                    geometry.transform_handle == handle) {
+                    (geometry.transform_handle == handle ||
+                     std::ranges::find(geometry.animations, handle) !=
+                         geometry.animations.end())) {
                     return status::invalid_graph;
                 }
             }
@@ -2682,8 +2781,11 @@ struct channel::implementation {
                  !require_transform(geometry.transform_handle))) {
                 return status::invalid_handle;
             }
-            if (start_animations != 0U || end_animations != 0U) {
-                return status::unsupported_command;
+            if ((start_animations != 0U &&
+                 !require_resource(start_animations, type_point_resource)) ||
+                (end_animations != 0U &&
+                 !require_resource(end_animations, type_point_resource))) {
+                return status::invalid_handle;
             }
             if (!finite_double_as_float(geometry.first) ||
                 !finite_double_as_float(geometry.second) ||
@@ -2691,6 +2793,8 @@ struct channel::implementation {
                 !finite_double_as_float(geometry.fourth)) {
                 return status::malformed_batch;
             }
+            geometry.animations[0] = start_animations;
+            geometry.animations[1] = end_animations;
             fixed_geometries.insert_or_assign(handle, geometry);
             increment_generation(handle);
             ++metrics.updated_resource_count;
@@ -2741,9 +2845,15 @@ struct channel::implementation {
                  !require_transform(geometry.transform_handle))) {
                 return status::invalid_handle;
             }
-            if (radius_x_animations != 0U || radius_y_animations != 0U ||
-                rect_animations != 0U) {
-                return status::unsupported_command;
+            if ((radius_x_animations != 0U &&
+                 !require_resource(
+                     radius_x_animations, type_double_resource)) ||
+                (radius_y_animations != 0U &&
+                 !require_resource(
+                     radius_y_animations, type_double_resource)) ||
+                (rect_animations != 0U &&
+                 !require_resource(rect_animations, type_rect_resource))) {
+                return status::invalid_handle;
             }
             if (!finite_double_as_float(geometry.radius_x) ||
                 !finite_double_as_float(geometry.radius_y) ||
@@ -2755,6 +2865,10 @@ struct channel::implementation {
                 geometry.third < 0.0 || geometry.fourth < 0.0) {
                 return status::malformed_batch;
             }
+            geometry.animations = {
+                radius_x_animations,
+                radius_y_animations,
+                rect_animations};
             fixed_geometries.insert_or_assign(handle, geometry);
             increment_generation(handle);
             ++metrics.updated_resource_count;
@@ -2808,9 +2922,15 @@ struct channel::implementation {
                  !require_transform(geometry.transform_handle))) {
                 return status::invalid_handle;
             }
-            if (radius_x_animations != 0U || radius_y_animations != 0U ||
-                center_animations != 0U) {
-                return status::unsupported_command;
+            if ((radius_x_animations != 0U &&
+                 !require_resource(
+                     radius_x_animations, type_double_resource)) ||
+                (radius_y_animations != 0U &&
+                 !require_resource(
+                     radius_y_animations, type_double_resource)) ||
+                (center_animations != 0U &&
+                 !require_resource(center_animations, type_point_resource))) {
+                return status::invalid_handle;
             }
             if (!finite_double_as_float(geometry.first) ||
                 !finite_double_as_float(geometry.second) ||
@@ -2819,6 +2939,10 @@ struct channel::implementation {
                 geometry.third < 0.0 || geometry.fourth < 0.0) {
                 return status::malformed_batch;
             }
+            geometry.animations = {
+                radius_x_animations,
+                radius_y_animations,
+                center_animations};
             fixed_geometries.insert_or_assign(handle, geometry);
             increment_generation(handle);
             ++metrics.updated_resource_count;
@@ -5273,14 +5397,20 @@ struct channel::implementation {
         if (fixed == fixed_geometries.end()) {
             return status::unsupported_command;
         }
-        if (fixed->second.kind == fixed_geometry_kind::line) {
+        fixed_geometry_state resolved_fixed{};
+        const status resolved_fixed_status = resolve_fixed_geometry(
+            geometry_handle, resolved_fixed);
+        if (resolved_fixed_status != status::success) {
+            return resolved_fixed_status;
+        }
+        if (resolved_fixed.kind == fixed_geometry_kind::line) {
             return status::success;
         }
         affine_2d_double transform = parent_transform;
-        if (fixed->second.transform_handle != 0U) {
+        if (resolved_fixed.transform_handle != 0U) {
             affine_2d_double local_transform{};
             const status transform_status = resolve_transform(
-                fixed->second.transform_handle,
+                resolved_fixed.transform_handle,
                 local_transform);
             if (transform_status != status::success) {
                 return transform_status;
@@ -5380,11 +5510,11 @@ struct channel::implementation {
             return true;
         };
         bool appended = false;
-        if (fixed->second.kind == fixed_geometry_kind::ellipse) {
-            const double center_x = fixed->second.first;
-            const double center_y = fixed->second.second;
-            const double radius_x = fixed->second.third;
-            const double radius_y = fixed->second.fourth;
+        if (resolved_fixed.kind == fixed_geometry_kind::ellipse) {
+            const double center_x = resolved_fixed.first;
+            const double center_y = resolved_fixed.second;
+            const double radius_x = resolved_fixed.third;
+            const double radius_y = resolved_fixed.fourth;
             if (radius_x == 0.0 || radius_y == 0.0) {
                 return status::success;
             }
@@ -5435,16 +5565,16 @@ struct channel::implementation {
                     std::numbers::pi_v<float> + half_pi,
                     half_pi);
         } else {
-            const double left = fixed->second.first;
-            const double top = fixed->second.second;
-            const double right = left + fixed->second.third;
-            const double bottom = top + fixed->second.fourth;
+            const double left = resolved_fixed.first;
+            const double top = resolved_fixed.second;
+            const double right = left + resolved_fixed.third;
+            const double bottom = top + resolved_fixed.fourth;
             const double radius_x = std::min(
-                fixed->second.radius_x,
-                fixed->second.third * 0.5);
+                resolved_fixed.radius_x,
+                resolved_fixed.third * 0.5);
             const double radius_y = std::min(
-                fixed->second.radius_y,
-                fixed->second.fourth * 0.5);
+                resolved_fixed.radius_y,
+                resolved_fixed.fourth * 0.5);
             if (radius_x == 0.0 || radius_y == 0.0) {
                 appended = append_line(left, top, right, top) &&
                     append_line(right, top, right, bottom) &&
@@ -5526,22 +5656,22 @@ struct channel::implementation {
             return status::invalid_graph;
         }
         progpu_native_image_rect transformed_bounds{};
-        const double bounds_x = fixed->second.kind ==
+        const double bounds_x = resolved_fixed.kind ==
                 fixed_geometry_kind::ellipse
-            ? fixed->second.first - fixed->second.third
-            : fixed->second.first;
-        const double bounds_y = fixed->second.kind ==
+            ? resolved_fixed.first - resolved_fixed.third
+            : resolved_fixed.first;
+        const double bounds_y = resolved_fixed.kind ==
                 fixed_geometry_kind::ellipse
-            ? fixed->second.second - fixed->second.fourth
-            : fixed->second.second;
-        const double bounds_width = fixed->second.kind ==
+            ? resolved_fixed.second - resolved_fixed.fourth
+            : resolved_fixed.second;
+        const double bounds_width = resolved_fixed.kind ==
                 fixed_geometry_kind::ellipse
-            ? fixed->second.third * 2.0
-            : fixed->second.third;
-        const double bounds_height = fixed->second.kind ==
+            ? resolved_fixed.third * 2.0
+            : resolved_fixed.third;
+        const double bounds_height = resolved_fixed.kind ==
                 fixed_geometry_kind::ellipse
-            ? fixed->second.fourth * 2.0
-            : fixed->second.fourth;
+            ? resolved_fixed.fourth * 2.0
+            : resolved_fixed.fourth;
         if (!try_transform_bounds(
                 bounds_x,
                 bounds_y,
@@ -6032,14 +6162,22 @@ struct channel::implementation {
             render_scope_state& destination) {
             const auto geometry = fixed_geometries.find(geometry_handle);
             bool lowered_rectangle = false;
+            fixed_geometry_state resolved_geometry{};
+            if (geometry != fixed_geometries.end()) {
+                const status geometry_status = resolve_fixed_geometry(
+                    geometry_handle, resolved_geometry);
+                if (geometry_status != status::success) {
+                    return geometry_status;
+                }
+            }
             if (geometry != fixed_geometries.end() &&
-                geometry->second.kind == fixed_geometry_kind::rectangle &&
-                (geometry->second.radius_x == 0.0 ||
-                 geometry->second.radius_y == 0.0)) {
+                resolved_geometry.kind == fixed_geometry_kind::rectangle &&
+                (resolved_geometry.radius_x == 0.0 ||
+                 resolved_geometry.radius_y == 0.0)) {
                 affine_2d_double local_transform{};
-                if (geometry->second.transform_handle != 0U) {
+                if (resolved_geometry.transform_handle != 0U) {
                     const status transform_status = resolve_transform(
-                        geometry->second.transform_handle,
+                        resolved_geometry.transform_handle,
                         local_transform);
                     if (transform_status != status::success) {
                         return transform_status;
@@ -6056,10 +6194,10 @@ struct channel::implementation {
                 if (preserves_axis_alignment) {
                     progpu_native_image_rect clip_rect{};
                     if (!try_transform_bounds(
-                            geometry->second.first,
-                            geometry->second.second,
-                            geometry->second.third,
-                            geometry->second.fourth,
+                            resolved_geometry.first,
+                            resolved_geometry.second,
+                            resolved_geometry.third,
+                            resolved_geometry.fourth,
                             effective_transform,
                             clip_rect)) {
                         return status::invalid_graph;
@@ -8558,9 +8696,17 @@ struct channel::implementation {
                     path_geometry == path_geometries.end()) {
                     return status::invalid_handle;
                 }
+                fixed_geometry_state resolved_geometry{};
+                if (geometry != fixed_geometries.end()) {
+                    const status geometry_status = resolve_fixed_geometry(
+                        geometry_handle, resolved_geometry);
+                    if (geometry_status != status::success) {
+                        return geometry_status;
+                    }
+                }
                 const std::uint32_t geometry_transform_handle =
                     geometry != fixed_geometries.end()
-                        ? geometry->second.transform_handle
+                        ? resolved_geometry.transform_handle
                         : geometry_group != geometry_groups.end()
                             ? geometry_group->second.transform_handle
                             : combined_geometry != combined_geometries.end()
@@ -8989,12 +9135,12 @@ struct channel::implementation {
                     }
                     continue;
                 }
-                if (geometry->second.kind == fixed_geometry_kind::line) {
+                if (resolved_geometry.kind == fixed_geometry_kind::line) {
                     const status line_status = append_line_stroke(
-                        geometry->second.first,
-                        geometry->second.second,
-                        geometry->second.third,
-                        geometry->second.fourth,
+                        resolved_geometry.first,
+                        resolved_geometry.second,
+                        resolved_geometry.third,
+                        resolved_geometry.fourth,
                         pen_handle,
                         local_transform,
                         effective_transform);
@@ -9004,14 +9150,14 @@ struct channel::implementation {
                     continue;
                 }
                 is_geometry_shape = true;
-                first = geometry->second.first;
-                second = geometry->second.second;
-                third = geometry->second.third;
-                fourth = geometry->second.fourth;
-                radius_x = geometry->second.radius_x;
-                radius_y = geometry->second.radius_y;
+                first = resolved_geometry.first;
+                second = resolved_geometry.second;
+                third = resolved_geometry.third;
+                fourth = resolved_geometry.fourth;
+                radius_x = resolved_geometry.radius_x;
+                radius_y = resolved_geometry.radius_y;
                 is_ellipse =
-                    geometry->second.kind == fixed_geometry_kind::ellipse;
+                    resolved_geometry.kind == fixed_geometry_kind::ellipse;
                 is_rounded = !is_ellipse &&
                     (radius_x != 0.0 || radius_y != 0.0);
             }
@@ -9945,18 +10091,26 @@ struct channel::implementation {
         std::uint32_t geometry_handle,
         render_scope_state& state) const {
         const auto geometry = fixed_geometries.find(geometry_handle);
-        if (geometry == fixed_geometries.end() ||
-            geometry->second.kind != fixed_geometry_kind::rectangle ||
-            (geometry->second.radius_x != 0.0 ||
-             geometry->second.radius_y != 0.0)) {
+        if (geometry == fixed_geometries.end()) {
             return require_geometry(geometry_handle)
                 ? status::unsupported_command
                 : status::invalid_handle;
         }
+        fixed_geometry_state resolved_geometry{};
+        const status geometry_status = resolve_fixed_geometry(
+            geometry_handle, resolved_geometry);
+        if (geometry_status != status::success) {
+            return geometry_status;
+        }
+        if (resolved_geometry.kind != fixed_geometry_kind::rectangle ||
+            resolved_geometry.radius_x != 0.0 ||
+            resolved_geometry.radius_y != 0.0) {
+            return status::unsupported_command;
+        }
         affine_2d_double local_transform{};
-        if (geometry->second.transform_handle != 0U) {
+        if (resolved_geometry.transform_handle != 0U) {
             const status transform_status = resolve_transform(
-                geometry->second.transform_handle,
+                resolved_geometry.transform_handle,
                 local_transform);
             if (transform_status != status::success) {
                 return transform_status;
@@ -9969,10 +10123,10 @@ struct channel::implementation {
         }
         progpu_native_image_rect clip{};
         if (!try_transform_bounds(
-                geometry->second.first,
-                geometry->second.second,
-                geometry->second.third,
-                geometry->second.fourth,
+                resolved_geometry.first,
+                resolved_geometry.second,
+                resolved_geometry.third,
+                resolved_geometry.fourth,
                 effective_transform,
                 clip)) {
             return status::invalid_graph;
@@ -10378,6 +10532,10 @@ struct channel::implementation {
                 result = status::invalid_handle;
             } else {
                 append_if_success(geometry->second.transform_handle);
+                for (const std::uint32_t animation :
+                     geometry->second.animations) {
+                    append_if_success(animation);
+                }
             }
         } else if (resource->second.type == type_path_geometry) {
             const auto geometry = path_geometries.find(handle);

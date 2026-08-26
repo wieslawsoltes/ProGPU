@@ -1580,6 +1580,247 @@ bool animated_value_resources_drive_render_data_primitives() {
     return true;
 }
 
+bool animated_fixed_geometry_resources_drive_retained_geometry() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t pen = 5U;
+    constexpr std::uint32_t cache = 6U;
+    constexpr std::uint32_t line = 7U;
+    constexpr std::uint32_t rectangle = 8U;
+    constexpr std::uint32_t ellipse = 9U;
+    constexpr std::uint32_t start = 10U;
+    constexpr std::uint32_t end = 11U;
+    constexpr std::uint32_t rect = 12U;
+    constexpr std::uint32_t center = 13U;
+    constexpr std::uint32_t radius_x = 14U;
+    constexpr std::uint32_t radius_y = 15U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, pen, 85U);
+    append_create(batch, cache, 94U);
+    append_create(batch, line, 68U);
+    append_create(batch, rectangle, 69U);
+    append_create(batch, ellipse, 70U);
+    append_create(batch, start, 51U);
+    append_create(batch, end, 51U);
+    append_create(batch, rect, 52U);
+    append_create(batch, center, 51U);
+    append_create(batch, radius_x, 49U);
+    append_create(batch, radius_y, 49U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.2F, 0.6F, 0.9F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::pen,
+        pen,
+        2.0,
+        10.0,
+        brush,
+        0U,
+        0U,
+        0U,
+        1U,
+        0U,
+        0U);
+    append_command(batch, command::point_resource, start, 2.0, 3.0);
+    append_command(batch, command::point_resource, end, 8.0, 9.0);
+    append_command(
+        batch, command::rect_resource, rect, 10.0, 20.0, 30.0, 40.0);
+    append_command(batch, command::point_resource, center, 50.0, 60.0);
+    append_command(batch, command::double_resource, radius_x, 4.0);
+    append_command(batch, command::double_resource, radius_y, 4.0);
+    append_command(
+        batch,
+        command::line_geometry,
+        line,
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        0U,
+        start,
+        end);
+    append_command(
+        batch,
+        command::rectangle_geometry,
+        rectangle,
+        1.0,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        0U,
+        radius_x,
+        radius_y,
+        rect);
+    append_command(
+        batch,
+        command::ellipse_geometry,
+        ellipse,
+        1.0,
+        1.0,
+        0.0,
+        0.0,
+        0U,
+        radius_x,
+        radius_y,
+        center);
+    std::vector<std::byte> nested;
+    append_command(nested, command::draw_geometry, 0U, pen, line, 0U);
+    append_command(
+        nested, command::draw_geometry, brush, pen, rectangle, 0U);
+    append_command(
+        nested, command::draw_geometry, brush, pen, ellipse, 0U);
+    append_render_data(batch, content, nested);
+    append_command(batch, command::bitmap_cache, cache, 1.0, 0U, 0U, 0U);
+    append_command(batch, command::visual_set_cache_mode, visual, cache);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        128U,
+        128U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    PROGPU_REQUIRE(
+        state.set_visual_cache_bounds(
+            visual, 0.0, 0.0, 100.0, 100.0) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9051U, 1U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.line_count == 1U);
+    PROGPU_REQUIRE(metrics.rounded_rectangle_count == 1U);
+    PROGPU_REQUIRE(metrics.ellipse_count == 1U);
+    progpu_native_scene_layer initial_cache{};
+    PROGPU_REQUIRE(try_get_cached_layer(stream, initial_cache));
+
+    bool found_line = false;
+    bool found_rectangle = false;
+    bool found_ellipse = false;
+    const auto verify_scene = [&](bool updated) {
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+            const auto resource = read_value<progpu_native_scene_resource>(
+                stream,
+                header.resource_offset +
+                    index * sizeof(progpu_native_scene_resource));
+            if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+                const std::size_t count = resource.payload_size /
+                    sizeof(progpu_native_geometry_primitive);
+                for (std::size_t primitive_index = 0U;
+                     primitive_index < count;
+                     ++primitive_index) {
+                    const auto primitive =
+                        read_value<progpu_native_geometry_primitive>(
+                            stream,
+                            resource.payload_offset + primitive_index *
+                                sizeof(progpu_native_geometry_primitive));
+                    if (primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE &&
+                        primitive.p0.x == (updated ? 4.0F : 2.0F) &&
+                        primitive.p0.y == (updated ? 5.0F : 3.0F) &&
+                        primitive.p1.x == (updated ? 12.0F : 8.0F) &&
+                        primitive.p1.y == (updated ? 13.0F : 9.0F)) {
+                        found_line = true;
+                    }
+                }
+            } else if (
+                resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH) {
+                const std::size_t count = resource.payload_size /
+                    sizeof(progpu_native_analytic_primitive);
+                for (std::size_t primitive_index = 0U;
+                     primitive_index < count;
+                     ++primitive_index) {
+                    const auto primitive =
+                        read_value<progpu_native_analytic_primitive>(
+                            stream,
+                            resource.payload_offset + primitive_index *
+                                sizeof(progpu_native_analytic_primitive));
+                    if (primitive.kind ==
+                            PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE &&
+                        primitive.x == (updated ? 20.0F : 10.0F) &&
+                        primitive.y == (updated ? 30.0F : 20.0F) &&
+                        primitive.width == (updated ? 40.0F : 30.0F) &&
+                        primitive.height == (updated ? 50.0F : 40.0F) &&
+                        primitive.corner_radius == (updated ? 6.0F : 4.0F)) {
+                        found_rectangle = true;
+                    } else if (
+                        primitive.kind == PROGPU_NATIVE_PRIMITIVE_ELLIPSE &&
+                        primitive.x == (updated ? 64.0F : 46.0F) &&
+                        primitive.y == (updated ? 64.0F : 56.0F) &&
+                        primitive.width == (updated ? 12.0F : 8.0F) &&
+                        primitive.height == (updated ? 12.0F : 8.0F)) {
+                        found_ellipse = true;
+                    }
+                }
+            }
+        }
+        return found_line && found_rectangle && found_ellipse;
+    };
+    PROGPU_REQUIRE(verify_scene(false));
+
+    std::vector<std::byte> update;
+    append_command(update, command::point_resource, start, 4.0, 5.0);
+    append_command(update, command::point_resource, end, 12.0, 13.0);
+    append_command(
+        update, command::rect_resource, rect, 20.0, 30.0, 40.0, 50.0);
+    append_command(update, command::point_resource, center, 70.0, 70.0);
+    append_command(update, command::double_resource, radius_x, 6.0);
+    append_command(update, command::double_resource, radius_y, 6.0);
+    PROGPU_REQUIRE(state.apply(update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9051U, 2U, stream, &metrics) ==
+        status::success);
+    progpu_native_scene_layer updated_cache{};
+    PROGPU_REQUIRE(try_get_cached_layer(stream, updated_cache));
+    PROGPU_REQUIRE(
+        updated_cache.content_revision != initial_cache.content_revision);
+    found_line = false;
+    found_rectangle = false;
+    found_ellipse = false;
+    PROGPU_REQUIRE(verify_scene(true));
+
+    std::vector<std::byte> delete_animation;
+    append_command(
+        delete_animation,
+        command::channel_delete_resource,
+        center,
+        51U);
+    PROGPU_REQUIRE(state.apply(delete_animation) == status::invalid_graph);
+
+    std::vector<std::byte> invalid_radius;
+    append_command(
+        invalid_radius, command::double_resource, radius_x, -1.0);
+    PROGPU_REQUIRE(state.apply(invalid_radius) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9051U, 3U, stream, &metrics) ==
+        status::invalid_graph);
+    return true;
+}
+
 bool visual_clips_compile_to_exact_semantic_state() {
     constexpr std::uint32_t root = 1U;
     constexpr std::uint32_t child = 2U;
@@ -5772,7 +6013,7 @@ bool solid_pen_line_compiles_to_geometry_scene() {
         1U,
         0U);
     PROGPU_REQUIRE(
-        state.apply(animated_geometry) == status::unsupported_command);
+        state.apply(animated_geometry) == status::invalid_handle);
     PROGPU_REQUIRE(
         state.resource_generation(line_geometry) == geometry_generation);
 
@@ -6160,7 +6401,7 @@ bool solid_pen_line_compiles_to_geometry_scene() {
         0U);
     PROGPU_REQUIRE(
         state.apply(animated_rectangle_geometry) ==
-        status::unsupported_command);
+        status::invalid_handle);
     PROGPU_REQUIRE(
         state.resource_generation(rectangle_geometry) ==
         rectangle_generation);
@@ -10989,6 +11230,8 @@ int main() {
     PROGPU_REQUIRE(invalid_visual_graphs_fail_closed());
     PROGPU_REQUIRE(solid_rectangle_compiles_to_semantic_scene());
     PROGPU_REQUIRE(animated_value_resources_drive_render_data_primitives());
+    PROGPU_REQUIRE(
+        animated_fixed_geometry_resources_drive_retained_geometry());
     PROGPU_REQUIRE(visual_clips_compile_to_exact_semantic_state());
     PROGPU_REQUIRE(visual_solid_opacity_mask_composes_and_updates());
     PROGPU_REQUIRE(visual_gaussian_effects_compile_to_isolated_layers());

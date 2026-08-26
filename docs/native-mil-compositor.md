@@ -1599,6 +1599,20 @@ all six live values and verifies sigma, offset, color/alpha, inflated bounds,
 revision changes, and referenced-resource deletion rejection. Box blur remains
 an explicit unsupported kernel; no shader or CPU approximation is substituted.
 
+LineGeometry, RectangleGeometry, and EllipseGeometry now resolve all canonical
+animation handles through the same typed retained-value graph. Line endpoints
+and ellipse centers consume PointResource values; rectangle bounds consume a
+RectResource; rectangle and ellipse radii consume DoubleResource values. The
+resolved geometry is shared by direct DrawGeometry, retained GeometryDrawing,
+recursive drawing/group traversal, shallow fill collection, and retained clip
+lowering, so value-only updates cannot leave a stale geometry in a secondary
+consumer. Cache content revisions include every animation edge, referenced
+value resources are deletion-protected, and non-finite or negative live
+dimensions/radii fail closed during scene compilation. Native coverage mutates
+all point, rectangle, and radius resources without retransmitting any geometry
+or render data, then verifies the second frame's exact line, rounded rectangle,
+ellipse, and cache revision.
+
 Nested PushEffect now matches the current WPF milcore behavior rather than the
 obsolete public API's historical intent. The managed producer emits the exact
 12-byte record view (four-byte command header plus two managed dependent-
