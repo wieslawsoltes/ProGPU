@@ -2475,6 +2475,29 @@ SHA-256 values are
 `32B4876D3930276798732AF91C5D0C866A4A189FED22BEAF7C93016E6006B8C1` and
 `636748FE9C8E29EA5687625E5EF0B77E77017F62FFD463139B36E75162A13DC6`.
 
+The next ownership slice applies the same Visual boundary to a typed
+linear/radial opacity mask. An uncached non-effect Visual with exact descendant
+bounds emits one bounded outer `FORCE_ISOLATION` layer containing both its
+local uniform alpha and brush-mask resource. Content and child State alpha are
+reset past that boundary; descendant effects and child-local opacity/masks are
+therefore nested inside the ancestor mask, matching WPF's per-node
+`PreSubgraph`/`PostSubgraph` stack. The compiler never distributes the mask
+across descendant effect inputs or sibling draws.
+
+This uses the existing Visual bounds sideband and semantic brush-mask resource;
+there is no ABI or backend fork. A spatial mask without exact bounds fails
+closed. Cache roots and effect-owning Visuals retain their specialized paths,
+and a solid mask still lowers to uniform alpha. Native regressions assert
+parent mask -> child effect -> child-local opacity layer order, exact bounds,
+gradient payload, and unit descendant States.
+
+On Apple M3 Pro Metal, the correct common ancestor mask executes `2/2/2`
+content/composite/effect passes, samples red `60/200`, and yields extent
+`[6,4]-[41,31]`, red sum 66,698. A deliberately flattened per-child version
+executes `3/3/2`, changes 420 pixels, and yields `[6,5]-[41,30]`, red sum
+74,122. DirectX qualification is pending for implementation commit
+`9fb7c4aa`.
+
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then
 12x9 page extents. Package-mode managed Dawn rendering/readback and forced

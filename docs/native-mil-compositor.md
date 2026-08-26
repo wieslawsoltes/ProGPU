@@ -2287,6 +2287,33 @@ for `progpu_native.dll` and
 `636748FE9C8E29EA5687625E5EF0B77E77017F62FFD463139B36E75162A13DC6`
 for `progpu_native_dawn.dll`.
 
+The inherited-opacity-mask ownership checkpoint extends the same per-Visual
+boundary to typed linear/radial masks. An ordinary uncached Visual with exact
+typed descendant bounds now emits one bounded outer `FORCE_ISOLATION` layer
+carrying its local opacity and optional semantic brush-mask resource. Native
+MIL resets the isolated local alpha before compiling content and children, so
+a descendant effect and its child-local opacity/mask remain inside the
+ancestor mask. This is the WPF `PreSubgraph`/`PostSubgraph` ownership model;
+the mask is not redistributed into effect inputs or sibling primitives.
+
+LibreWPF may consequently publish the existing bounds sideband for every
+typed Visual opacity mask rather than requiring a cache/effect on that same
+Visual. A spatial mask without exact bounds returns `unsupported_command` in
+the native compiler, while the reflection-free producer fails earlier. Solid
+masks continue to collapse to uniform alpha but use the same bounded Visual
+group when the producer supplies bounds. Cached and effect-owning Visuals keep
+their previously qualified specialized mask paths. No ABI, callback, managed
+fallback, or backend-specific execution branch is added.
+
+Portable native regressions assert parent mask -> child effect -> child local
+opacity ordering, exact group/mask bounds, gradient stops, and unit descendant
+State alpha. The Apple M3 Pro Metal differential compares the correct common
+ancestor mask with a deliberately flattened child/sibling mask. Correct output
+executes `2/2/2` content/composite/effect passes, samples red `60/200`, and
+produces `[6,4]-[41,31]`, red sum 66,698. The flattened variant executes
+`3/3/2`, changes 420 pixels, and produces `[6,5]-[41,30]`, red sum 74,122.
+DirectX qualification is pending for implementation commit `9fb7c4aa`.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
