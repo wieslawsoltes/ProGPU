@@ -2100,6 +2100,21 @@ before `CSnappingTask` traverses the core shape, so exact arc parity requires a
 separate WPF-compatible lowering checkpoint rather than snapping analytic arc
 metadata as if it were an ordinary point tuple.
 
+Clean detached implementation/package commit `885fa670` passed the complete
+Windows 11 ARM64 qualification on 2026-08-26. MSVC rebuilt both native modules
+under `/W4 /WX`; all 11 native/Dawn CTests, both export allowlists, two
+zero-warning managed Release builds, independent native and managed D3D12
+allocation/readback samples, the complete bounded differential smoke profile,
+and package staging passed. The Parallels Display Adapter D3D12 differential
+reproduced Metal exactly: baseline `[10,8]-[35,25]`, red 37,536, green 11,542;
+guided/reference `[10,8]-[35,26]`, red 40,800, green 13,045; `changed=76` and
+`referenceChanged=0`. The guest remained clean at the exact commit. Qualified
+win-arm64 SHA-256 values are
+`73D76B0211CDDDB46383359B4F9833DF551BC2E4123C9E09CFA646CD0AD63F1C`
+for `progpu_native.dll` and
+`450EBC621B482275377C15EB26FFD0CBF90679D8BE4B87152C3F23A055A326B9`
+for `progpu_native_dawn.dll`.
+
 ### Microsoft D3D12 sample oracle
 
 ProGPU commit `0624a2e3` adds a source-pinned cross-platform graphics oracle
@@ -2151,6 +2166,13 @@ maximum channel difference 0, mean absolute channel difference 0, zero
 channels and pixels over tolerance, and four zero-difference probes. The
 published `progpu-directx-sample-differential` artifact contains all four PPM
 files, their manifests, and the aggregate JSON report.
+
+Hosted build run `32959809523` repeated that exact four-frame result at commit
+`885fa670` and completed all 27 jobs successfully. This run also proves the
+corrected 26-command DrawingGroup package fixture through the
+source-independent native package job and every runnable JIT/NativeAOT desktop
+package consumer; no package failure is hidden behind the image-only
+aggregate.
 
 The Ubuntu 24.04 ARM64 Parallels guest also rendered the ProGPU candidate
 through Vulkan llvmpipe and produced that exact PPM SHA-256. Its native RGBA
