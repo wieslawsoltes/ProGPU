@@ -760,6 +760,19 @@ from 2.7528 ms to 2.5981 ms (-5.6%). Submission/frame p95 medians improved
 execution-policy checks, the full 11-test native/Dawn suite, and strict
 x86_64 SSE2 syntax compilation retained exact `5B6EF4F70536C862` output.
 
+Exact implementation head `405d139b` then passed the complete unmodified
+Windows ARM64 MSVC/D3D12 smoke gate in the Parallels VM. Both native libraries
+rebuilt; all 11 native/Dawn CTests, native and managed renderer samples,
+Microsoft D3D12HelloTriangle oracle, forced raster/NEON/scalar exact-pixel
+routes, typed pre-resource rejection of incompatible forced compute, MIL
+guideline/arc deformation, retained mask/effect/blend families, text parity,
+bounded differential profiles, and package staging passed on
+`Parallels Display Adapter (WDDM)`. SHA-256 is
+`C690AED72C3C895778197808C8347656433D6A97DD178F5249A8B4D0C1B56756` for
+`progpu_native.dll` and
+`552E8CC9441B9A33E89B346758113B52DC13F7A3B1D11F80BF86A3AE90039637` for
+`progpu_native_dawn.dll`.
+
 The corresponding Linux ARM64 checkout at exact commit `28447de4` passed a
 strict GCC 13.3 build of the complete 260-object graph, all 10 wgpu-native CTest
 contracts, the export allowlist, and live Vulkan allocation/render/readback on
