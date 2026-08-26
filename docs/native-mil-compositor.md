@@ -1938,9 +1938,19 @@ multi-guide resource as composite-only, validates that it is
 referenced exclusively by a local-cache composite State, and snaps those four
 absolute target-space coordinates before parent-target localization. It must
 not make multi-guide resources legal for ordinary semantic draw states, where
-WPF requires point-by-point path deformation. Spatial-mask plus guideline
-ordering remains fail closed until the deformed quad and mask coordinate frame
-are represented together.
+WPF requires point-by-point path deformation.
+
+ProGPU commit `9eb46b92` also closes the cache-root spatial-mask/guideline
+ordering gap without changing the public ABI. When a local retained layer owns
+a typed brush mask and its composite State owns static guidelines, the shared
+C++ executor sends both through the same `semantic_state_cursor`. The cached
+quad retains its existing per-corner snapping. The exact Visual mask rectangle
+uses those same snapped corners to derive a separable axis-aligned affine
+coverage frame before the gradient is rasterized. WPF disables this guideline
+frame under rotation/shear, so the four bounds corners are sufficient for this
+bounded cache-root case. Brush coordinates deliberately remain in their
+original target-space frame while the mask geometry deforms, matching WPF's
+shape-snapping boundary. Per-draw masks and general path geometry are unchanged.
 
 The first implementation is now executable in both the native C++ and managed
 pointer-free builders. Counts are bounded to the canonical UInt16 packet range,
@@ -1955,11 +1965,15 @@ save so the deformed frame cannot leak into retained-page rasterization.
 Native, managed, and MIL regressions cover flag/count mismatch, unsorted input,
 ordinary-State rejection, cache-composite acceptance, exact midpoint selection
 of the lower guide, mapped/negative-scale payload coordinates, and
-content-revision stability across a guideline-only update. The live Apple M3
-Pro Metal and Parallels Display Adapter D3D12 gates both keep the retained page
-(`passes=1/1 -> 0/1`) while two X and two Y guides deform its red extent from
-`[10,8]-[25,15]` to `[11,9]-[25,15]`, change red sum from `32640` to `26775`,
-and alter 23 pixels.
+content-revision stability across a guideline-only update. The updated Apple
+M3 Pro Metal gate additionally carries a horizontal gradient mask and compares
+the guideline-driven output with an independently constructed affine reference.
+It keeps the retained page across baseline/guided/reference frames
+(`1/1 -> 0/1 -> 0/1` content/composite passes), changes 40 pixels, moves the
+masked extent from `[21,8]-[25,15]`/red 1,881 to
+`[21,9]-[25,15]`/red 1,617, and matches the reference byte for byte
+(`referenceChanged=0`). DirectX qualification is pending for exact code commit
+`9eb46b92`.
 
 The exact Windows qualification completed from clean detached latest-main-
 integrated commit `d99acbc8`. ARM64 MSVC rebuilt both modules under `/W4 /WX`,
@@ -1992,10 +2006,9 @@ outer effect. It is not lowered to per-primitive opacity. The parent's content
 revision includes the child's composite state and effect generation; the
 child page's content revision excludes those cache-root modifiers. A child
 move or effect change therefore rerasterizes the parent while reusing the
-child page, while moving the parent cache root keeps both pages. Active clips,
-inherited/combined masks, spatial-mask plus guideline ordering, and
-inflated-bound tightening remain fail closed or conservative as documented
-above.
+child page, while moving the parent cache root keeps both pages. Arbitrary
+geometry clips and inflated-bound tightening remain fail closed or conservative
+as documented above.
 
 Native MIL regressions assert layer nesting and revision separation across
 child movement, parent movement, and effect mutation. The live

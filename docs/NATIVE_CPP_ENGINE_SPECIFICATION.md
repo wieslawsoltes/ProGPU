@@ -2271,9 +2271,10 @@ opacity mask now resolves against the exact Visual-local bounds and reuses the
 typed GPU brush-mask resource at composite time. Its outer transform and
 SnapsToDevicePixels correction match the retained quad; mask-only updates keep
 the content revision and skip the content pass. Solid masks remain uniform
-opacity. Inherited masks, mask/effect ordering, gradient-mask plus guideline
-composition remain fail-closed. Cache-root linear, nearest, and Fant selection
-is composite-only and does not invalidate the retained page.
+opacity. Cache-root gradient-mask plus static-guideline composition is handled
+by the shared post-cache coordinate frame described below. Arbitrary inherited
+semantic masks remain fail-closed. Cache-root linear, nearest, and Fant
+selection is composite-only and does not invalidate the retained page.
 BitmapCache EnableClearType is a raster-scope policy: false
 converts requested descendant subpixel glyph styles to grayscale; true
 preserves descendant inherited/explicit text rendering mode without forcing
@@ -2290,10 +2291,11 @@ content identity includes the descendant placement/effect generation, while
 the descendant page content identity excludes its own cache-root outer state.
 This permits a parent miss plus child hit after a child move or effect update.
 One cache-root linear/radial spatial mask may also remain on the inner local
-cache composite before the descendant effect. Uncached opacity/effect,
-inherited or combined spatial-mask/effect, spatial-mask/guideline, and
-non-rectangle clip/effect combinations remain fail closed until their distinct
-isolation and inflated output regions are represented explicitly.
+cache composite before the descendant effect. Per-Visual uncached and nested
+opacity/mask ownership is represented by bounded semantic isolation layers.
+Arbitrary semantic inherited masks and non-rectangle clip/effect combinations
+remain fail closed until their distinct isolation and inflated output regions
+are represented explicitly.
 
 `PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE` is the append-only final-output
 clip contract. It reuses `reserved0` without changing the 64-byte layer ABI and
@@ -2611,9 +2613,17 @@ then localize it to the parent target. Validation must reject that multi-guide
 resource from normal SAVE/draw states and accept it only through the
 `CACHE_LOCAL_SPACE` layer's composite State. Zero/one-guide resources keep the
 existing general uniform-offset contract. General multi-guide path and
-primitive replay remains a separate point-deformation capability, and
-multi-guide plus spatial-mask composition stays fail closed until both share
-one explicit deformed coordinate frame.
+primitive replay remains a separate point-deformation capability.
+
+Commit `9eb46b92` gives a cache-root brush mask that explicit shared frame.
+The renderer passes the local-cache composite State and the same semantic state
+cursor into brush-mask preparation. The cached quad continues to snap each
+absolute corner independently. The exact mask-bounds rectangle snaps the same
+corners and derives the separable affine coverage transform before rasterizing
+the brush mask. Rotation/shear already disables WPF's guideline frame, so this
+is exact for the supported cache-root rectangle. The brush material keeps its
+original target-space coordinate mapping while coverage deforms; no ABI,
+shader contract, managed fallback, or backend-specific path is added.
 
 The C++ and managed pointer-free scene builders enforce the same flag/count,
 UInt16 count bound, finite-coordinate, and per-axis sorted-order rules. The
@@ -2622,8 +2632,13 @@ executor performs a bounded binary search per composite vertex and axis, with
 strict comparison preserving WPF's lower-guide midpoint tie. MIL cache-root
 compilation maps through scale/translate with float arithmetic, reverses input
 under negative scale, and keeps the composite-only State out of ordinary
-SAVE/draw state. Native, managed, and MIL regressions plus the live Metal gate
-prove cache reuse (`1/1 -> 0/1`) and non-uniform page deformation.
+SAVE/draw state. Native, managed, and MIL regressions plus the updated live
+Metal gate prove cache reuse and shared mask deformation: baseline, guided, and
+independent affine-reference frames execute `1/1 -> 0/1 -> 0/1`
+content/composite passes; the mask changes 40 pixels, moves from
+`[21,8]-[25,15]`/red 1,881 to `[21,9]-[25,15]`/red 1,617, and the guided output
+is byte-identical to the reference. DirectX qualification is pending for exact
+code commit `9eb46b92`.
 
 The exact latest-main-integrated commit `d99acbc8` then passed strict Windows
 11 ARM64 MSVC and live Parallels D3D12 qualification. All 11 native/Dawn CTests,
