@@ -176,6 +176,20 @@ retained zero pixel difference and hash `5B6EF4F70536C862`. These figures
 qualify the CPU fallback on this machine; they do not change the GPU-first
 automatic policy.
 
+Exact pushed head `644a8d89` also rebuilt both native libraries with ARM64
+MSVC and passed all 11 native/Dawn CTests in the Windows Parallels VM. The
+zero-warning benchmark build ran the full 42-glyph forced-NEON D3D12 gate with
+247,808 coverage-staging bytes, zero pixel difference, and managed/native hash
+`5B6EF4F70536C862`. A separately isolated one-glyph rerasterization A/B also
+remained exact at `6C59592F05595EFE` with 5,888 staging bytes. Its process
+startup varied from 51 to 133 seconds while measured submissions remained
+sub-millisecond, so that VM sample is correctness evidence and is explicitly
+not used as a Windows performance claim. Qualified SHA-256 values are
+`A9BB8F281F27B332AAACAA0EC35B9E3B26E73D21E839470654D95CB89DDA6A39`
+for `progpu_native.dll` and
+`97CDBDD4F02442F2D9ACF966C1FF1660C64D7014E9A98FC767B3D9819CB561BF`
+for `progpu_native_dawn.dll`.
+
 The Linux ARM64 qualification at exact commit `28447de4` rebuilt the 260-object
 C++ graph with GCC 13.3 strict warnings, passed all 10 native CTests available
 in the wgpu-native lane, verified the export allowlist, and executed the live
