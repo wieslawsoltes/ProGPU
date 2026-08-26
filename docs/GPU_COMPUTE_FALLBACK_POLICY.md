@@ -1,8 +1,9 @@
 # GPU-first compute fallback policy
 
-Status: glyph coverage implemented and exact on the macOS Metal and Windows
-D3D12/Parallels qualification lanes. Linux Vulkan qualification remains
-required before the policy is used as a release gate for that adapter family.
+Status: glyph coverage implemented and exact on the macOS Metal, Windows
+D3D12/Parallels, and Linux Vulkan/llvmpipe qualification lanes. A physical
+Linux Vulkan adapter remains required before making a hardware-wide Vulkan
+performance claim.
 
 ## Decision
 
@@ -95,7 +96,7 @@ and C++ implementations. Run the retained positioned glyph-atlas gate with:
 dotnet build src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj \
   -c Release --no-restore -m:1 -nr:false
 
-for mode in fastest raster simd scalar; do
+for mode in fastest compute raster simd scalar; do
   PROGPU_COMPUTE_EXECUTION="$mode" \
   PROGPU_BACKEND_DIAGNOSTICS=1 \
   dotnet run \
@@ -104,6 +105,14 @@ for mode in fastest raster simd scalar; do
     --glyphs --warmup 0 --iterations 1 --sync
 done
 ```
+
+The extended macOS/Linux native build runs this matrix automatically. The
+Windows lane runs the same forced routes, bounds the deliberately slow scalar
+oracle to one glyph in the VM, and requires the known Parallels native-compute
+incompatibility to fail with its typed pre-resource exception and no WebGPU
+device error. The benchmark project binds its copied native library to
+`PROGPU_NATIVE_BUILD_DIR`, so a clean custom compiler build cannot silently be
+tested against a stale default artifact.
 
 The gate requires:
 
@@ -138,6 +147,17 @@ same Windows SIMD end-to-end cold qualification from approximately 123 seconds
 to 67 seconds (about 45%) while preserving exact pixels. Forced native compute
 then failed closed with the typed incompatibility exception and emitted no
 WebGPU validation or device errors.
+
+The Linux ARM64 qualification at exact commit `28447de4` rebuilt the 260-object
+C++ graph with GCC 13.3 strict warnings, passed all 10 native CTests available
+in the wgpu-native lane, verified the export allowlist, and executed the live
+Vulkan sample on llvmpipe LLVM 20.1.2. Forced native-compute, raster, SIMD, and
+scalar glyph runs all produced exact managed/native pixels with hash
+`1F9AE0BB0AC59113`; raster again reported zero coverage staging while both CPU
+routes uploaded 247,808 coverage bytes. This is deterministic software-Vulkan
+qualification, not physical-GPU performance evidence. It also found and fixed
+an old/new WebGPU-header portability defect by normalizing glyph-atlas texture
+usage through the typed `texture_usage_flags` compatibility alias.
 
 ## Extending the policy
 
