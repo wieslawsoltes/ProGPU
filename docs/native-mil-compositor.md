@@ -1596,11 +1596,12 @@ DirectX therefore consume the same retained scene and effect descriptors.
 This checkpoint is intentionally narrower than general WPF Effect parity.
 Only Gaussian BlurEffect and DropShadowEffect with static values and an
 orthogonal effective transform are accepted. Box blur, animated effect fields,
-shear, and composition with an active Visual clip or spatial opacity mask
-return `unsupported_command`. Non-unit opacity also remains unsupported for
-uncached Visuals. A cached Visual is the bounded exception: its retained page
-is already an isolated input, so uniform opacity can be applied while drawing
-that page into the outer effect layer. WPF applies Visual effect after
+shear, and composition with an active Visual clip or an uncached spatial
+opacity mask return `unsupported_command`. Non-unit opacity also remains
+unsupported for uncached Visuals. A cached Visual is the bounded exception:
+its retained page is already an isolated input, so uniform opacity and one
+typed linear/radial spatial mask can be applied while drawing that page into
+the outer effect layer. WPF applies Visual effect after
 opacity-mask/opacity and before the final clip; the current semantic layer does
 not yet represent separate inflated-source and final-composite clip regions,
 so accepting the remaining combinations would silently change ordering. The
@@ -1990,8 +1991,9 @@ revision includes the child's composite state and effect generation; the
 child page's content revision excludes those cache-root modifiers. A child
 move or effect change therefore rerasterizes the parent while reusing the
 child page, while moving the parent cache root keeps both pages. Active clips,
-spatial masks, and inflated-bound tightening remain fail closed or
-conservative as documented above.
+inherited/combined masks, spatial-mask plus guideline ordering, and
+inflated-bound tightening remain fail closed or conservative as documented
+above.
 
 Native MIL regressions assert layer nesting and revision separation across
 child movement, parent movement, and effect mutation. The live
@@ -2014,6 +2016,28 @@ win-arm64 package contains SHA-256
 for `progpu_native.dll` and
 `A4BB52C578C71DCDBE3297F9CC7D1DEC4BD13D4046F600D1C6966AA60EC0FD2A`
 for `progpu_native_dawn.dll`.
+
+The cached spatial-mask-before-effect checkpoint composes the existing typed
+brush-mask and effect primitives in WPF order. The compiler pushes the effect
+layer first, then the local cache layer carrying uniform opacity and its
+linear/radial brush mask. Popping the cache applies mask and opacity once to
+the isolated retained bitmap; popping the outer layer then executes Gaussian
+blur or drop shadow. The mask/effect state remains excluded from the cache
+root's pixel revision, so changing either retains the source page while its
+parent cache, when present, still observes the changed descendant output.
+
+MIL regression coverage clears the earlier spatial-mask/effect rejection,
+asserts outer-effect/inner-cache command order, verifies both mask and uniform
+opacity remain on the cache composite, and proves the retained content
+revision is unchanged. The live `--semantic-cache-mask-effect` Metal gate
+renders a half-opacity cached page through a linear opacity mask and Gaussian
+blur. First/stable/mask-changed content pass counts are `2 -> 1 -> 1`: the
+source page is reused while WPF's post-cache mask/effect composition still
+executes. Effect passes remain `2 -> 2 -> 2`; the stable output is
+byte-identical, and halving only mask opacity changes 164 pixels, narrows the
+red extent from `[21,7]-[31,24]` to `[22,7]-[30,24]`, and reduces red sum from
+756 to 372. Inherited mask composition and spatial mask plus guideline
+ordering remain fail closed.
 
 The implementation sequence is intentionally architectural:
 

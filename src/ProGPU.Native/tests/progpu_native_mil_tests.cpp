@@ -2421,6 +2421,7 @@ bool visual_bitmap_cache_applies_gradient_mask_at_composite() {
     constexpr std::uint32_t cache = 5U;
     constexpr std::uint32_t mask_brush = 6U;
     constexpr std::uint32_t radial_mask_brush = 7U;
+    constexpr std::uint32_t blur = 8U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -2596,6 +2597,46 @@ bool visual_bitmap_cache_applies_gradient_mask_at_composite() {
     PROGPU_REQUIRE(
         state.build_scene(target, 9018U, 3U, stream, &metrics) ==
         status::unsupported_command);
+
+    std::vector<std::byte> masked_effect;
+    append_create(masked_effect, blur, 36U);
+    append_command(
+        masked_effect,
+        command::visual_set_guideline_collection,
+        visual,
+        std::uint16_t{0U},
+        std::uint16_t{0U},
+        std::uint16_t{0U},
+        std::uint16_t{0U});
+    append_command(
+        masked_effect,
+        command::blur_effect,
+        blur,
+        6.0,
+        0U,
+        0U,
+        1U);
+    append_command(masked_effect, command::visual_set_effect, visual, blur);
+    append_command(masked_effect, command::visual_set_alpha, visual, 0.5);
+    PROGPU_REQUIRE(state.apply(masked_effect) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9018U, 4U, stream, &metrics) ==
+        status::success);
+    const auto layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(layers.size() == 2U);
+    PROGPU_REQUIRE(
+        layers[0].effect_resource_index !=
+            PROGPU_NATIVE_SCENE_NO_INDEX);
+    PROGPU_REQUIRE(
+        (layers[0].flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) == 0U);
+    PROGPU_REQUIRE(
+        (layers[1].flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U);
+    PROGPU_REQUIRE(
+        layers[1].mask_resource_index !=
+            PROGPU_NATIVE_SCENE_NO_INDEX);
+    PROGPU_REQUIRE(layers[1].opacity == 0.5F);
+    PROGPU_REQUIRE(
+        layers[1].content_revision == changed.content_revision);
     return true;
 }
 

@@ -8811,13 +8811,15 @@ struct channel::implementation {
         // Local cached pixels are independent of the cache-root Visual's
         // properties. WPF applies those properties while drawing the retained
         // bitmap. A single typed linear/radial opacity brush can use the
-        // reusable GPU brush-mask resource at composite time. Inherited mask
-        // composition and mask/effect ordering remain explicit fail-closed
-        // gaps. Fant/HighQuality sampling is retained as composite-only state.
+        // reusable GPU brush-mask resource at composite time. When an effect
+        // is present this cache layer is nested inside the effect layer, so
+        // the spatial mask is applied to the isolated retained page before
+        // effect execution, matching WPF. Inherited mask composition remains
+        // an explicit fail-closed gap. Fant/HighQuality sampling is retained
+        // as composite-only state.
         if (state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
             (has_spatial_opacity_mask &&
-                (cache_visual.effect_handle != 0U ||
-                    state.guideline_resource_index !=
+                (state.guideline_resource_index !=
                         PROGPU_NATIVE_SCENE_NO_INDEX)) ||
             (state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR &&
                 state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST &&

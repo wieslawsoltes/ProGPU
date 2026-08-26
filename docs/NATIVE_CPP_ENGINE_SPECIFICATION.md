@@ -2284,9 +2284,11 @@ on the isolated descendant cache composite before the effect. The parent
 content identity includes the descendant placement/effect generation, while
 the descendant page content identity excludes its own cache-root outer state.
 This permits a parent miss plus child hit after a child move or effect update.
-Uncached opacity/effect, spatial-mask/effect, and clip/effect combinations
-remain fail closed until their distinct isolation and inflated output regions
-are represented explicitly.
+One cache-root linear/radial spatial mask may also remain on the inner local
+cache composite before the descendant effect. Uncached opacity/effect,
+inherited or combined spatial-mask/effect, spatial-mask/guideline, and
+clip/effect combinations remain fail closed until their distinct isolation
+and inflated output regions are represented explicitly.
 
 The matched Metal and D3D12 nested-cache qualification renders a parent cache,
 Gaussian layer, and half-opacity child cache over three frames. Initial,

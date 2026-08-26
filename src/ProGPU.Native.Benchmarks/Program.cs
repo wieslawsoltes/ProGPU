@@ -60,6 +60,17 @@ if (Array.Exists(
         args,
         static value => string.Equals(
             value,
+            "--semantic-cache-mask-effect",
+            StringComparison.OrdinalIgnoreCase)))
+{
+    RetainedCacheMaskEffectQualification.Run();
+    return;
+}
+
+if (Array.Exists(
+        args,
+        static value => string.Equals(
+            value,
             "--managed-picture",
             StringComparison.OrdinalIgnoreCase)))
 {
