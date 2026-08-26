@@ -268,6 +268,18 @@ both p95 metrics worsened. At 2x, submission/frame p50 regressed from
 retains the lower-latency pairwise reduction on Apple M3 Pro; architecture
 intrinsics are performance candidates, not assumptions.
 
+The accepted odd-width tail checkpoint stops evaluating a discarded second
+pixel at the end of an odd glyph row. Full pairs continue through the
+qualified 16-sample NEON/SSE2 kernel; the final pixel uses a dedicated
+8-sample intrinsic kernel with identical sample positions, winding tests, and
+integer quantization. Four alternating 120-frame runs per variant remained
+byte-exact at `5B6EF4F70536C862` (1x) and `706B261418EC5C3B` (2x). Median
+submission/frame p50 improved from 1.7587/5.3875 ms to 1.6904/5.0735 ms at 1x
+(-3.9%/-5.8%) and from 2.1352/6.1027 ms to 2.0084/5.9048 ms at 2x
+(-5.9%/-3.2%). Median p95 also improved in all four comparisons. The complete
+native suite passes 10/10, and strict x86_64 compilation covers the paired
+SSE2 tail implementation.
+
 Exact pushed head `644a8d89` also rebuilt both native libraries with ARM64
 MSVC and passed all 11 native/Dawn CTests in the Windows Parallels VM. The
 zero-warning benchmark build ran the full 42-glyph forced-NEON D3D12 gate with

@@ -3145,6 +3145,17 @@ worsened. Both variants retained zero pixel difference at
 reduction remains in source; the ignored A/B reports preserve the negative
 evidence locally.
 
+The next accepted SIMD checkpoint removes wasted odd-row tail work without
+changing the qualified two-pixel loop. A dedicated 8-sample NEON/SSE2 winding
+kernel handles the final pixel of an odd-width glyph raster, instead of
+running four sample vectors and two coverage reductions then discarding the
+second result. Four alternating 120-frame A/B runs per variant remained exact
+at `5B6EF4F70536C862` (1x) and `706B261418EC5C3B` (2x). Median
+submission/frame p50 improved 1.7587/5.3875 -> 1.6904/5.0735 ms at 1x and
+2.1352/6.1027 -> 2.0084/5.9048 ms at 2x; p95 improved in every comparison.
+The local native suite passes 10/10 and the SSE2 source passes strict x86_64
+Clang warnings-as-errors compilation.
+
 The WPF Box blur checkpoint closes the second canonical `KernelType` without a
 managed or CPU rendering fallback. Native MIL accepts kernel 1, retains live
 animated radius dependencies, and emits a typed reusable Box group effect;
