@@ -2310,6 +2310,27 @@ kept the page (`passes=1/1 -> 0/1`) and changed stripe red min/mean/max from
 `progpu_native_dawn.dll`. This qualifies the same bounded shader algorithm and
 cache-reuse invariant through wgpu-native/Dawn on Metal and D3D12.
 
+Static multi-guideline execution must preserve the WPF snapping algorithm, not
+approximate it with one averaged translation. `CSnappingFrame` maps sorted
+coordinates through scale/translate using floats and reverses the source order
+for a negative scale. Each mapped coordinate owns its own round-to-pixel
+offset. For more than one coordinate per axis, `SnapCoordinate` uses a binary
+search for the nearest guide and chooses the lower guide at an exact midpoint;
+`CShapeClipperForFEB` applies that selection independently to every figure
+start, line endpoint, and cubic control/endpoint after transforming it to
+device space. Rotation or shear disables the frame.
+
+The first additive native capability is intentionally local-cache-composite
+only. A retained page has exactly four composite vertices, so the executor can
+apply the WPF nearest-guide function to each absolute target-space vertex and
+then localize it to the parent target. Validation must reject that multi-guide
+resource from normal SAVE/draw states and accept it only through the
+`CACHE_LOCAL_SPACE` layer's composite State. Zero/one-guide resources keep the
+existing general uniform-offset contract. General multi-guide path and
+primitive replay remains a separate point-deformation capability, and
+multi-guide plus spatial-mask composition stays fail closed until both share
+one explicit deformed coordinate frame.
+
 The exact-bounds implementation at `dd3857a4` is qualified on Windows 11 ARM64
 under Parallels. Both wgpu-native and provider-resolved Dawn modules rebuilt
 with strict MSVC warnings-as-errors, all 11 native/Dawn CTests and both export
