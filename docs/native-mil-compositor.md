@@ -2139,6 +2139,19 @@ channel difference 0, mean absolute channel difference 0, zero changed
 channels/pixels, and zero difference at all four probes. Linux/Vulkan is part
 of the hosted aggregate gate and remains separately identified evidence.
 
+Hosted GitHub Actions run `32957387184` then completed the aggregate
+`DirectX sample oracle (D3D12/Metal/Vulkan)` gate successfully. The ProGPU
+candidates ran on Microsoft Basic Render Driver/D3D12, Apple Paravirtual
+device/Metal, and llvmpipe LLVM 20.1.2/Vulkan. All three candidate PPM files
+and the native Windows/WARP PPM have the same
+`1269AE803032CC2BF6AD717E8491CC19BAF7F9FD5C6B233F8C0012D2DFA53933`
+SHA-256. Each candidate reports RGBA SHA-256
+`AE1BC0A9B0623BACAB15BE1706FFA3E7FC15E33676A66F05C969C1B86A66FEA3`,
+maximum channel difference 0, mean absolute channel difference 0, zero
+channels and pixels over tolerance, and four zero-difference probes. The
+published `progpu-directx-sample-differential` artifact contains all four PPM
+files, their manifests, and the aggregate JSON report.
+
 The Ubuntu 24.04 ARM64 Parallels guest also rendered the ProGPU candidate
 through Vulkan llvmpipe and produced that exact PPM SHA-256. Its native RGBA
 readback SHA-256 was
