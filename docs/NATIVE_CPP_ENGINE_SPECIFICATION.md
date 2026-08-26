@@ -2660,8 +2660,22 @@ reference. Apple M3 Pro Metal executes `2/2/2 -> 1/2/2 -> 1/2/2`
 content/composite/effect passes, changes 69 pixels, moves from
 `[19,6]-[27,17]`/red 1,876 to `[19,7]-[27,17]`/red 1,617, and matches the
 reference byte for byte (`referenceChanged=0`). No ABI, shader, or
-backend-specific execution path is involved. DirectX qualification is pending
-for exact gate commit `7889fa17`.
+backend-specific execution path is involved. Exact DirectX qualification
+completed on 2026-08-26 from clean detached commit `7889fa17`. ARM64 MSVC
+rebuilt both base and Dawn modules under `/W4 /WX`; all 11 native/Dawn CTest
+cases, both export allowlists, two zero-warning managed builds, independent
+native and managed D3D12 allocation/readback samples, and nine-file staging
+passed. D3D12 reproduced Metal exactly: `2/2/2 -> 1/2/2 -> 1/2/2`, baseline
+`[19,6]-[27,17]`/red 1,876, guided and affine reference
+`[19,7]-[27,17]`/red 1,617, `changed=69`, and `referenceChanged=0`. A transient
+Parallels Tools command-channel disconnect occurred later in the smoke tail;
+the remaining semantic-layer-effect, text-shaping, vector-clip, image-effect,
+Overlay, and ColorDodge commands were rerun individually with the script's
+unchanged arguments against the same binaries and all passed. The guest ended
+clean at the exact commit. The staged base DLL was 2,001,920 bytes with SHA-256
+`AD812584A2F7E549755320A44CA76ED5C20DB5DAD1BD66006EB2D0C7B98F0C2D`;
+the Dawn DLL was 2,039,808 bytes with SHA-256
+`1B181A7CF2692164C809D8799539A1FDB8839688C6C01B66AF11F326E39908D1`.
 
 The exact latest-main-integrated commit `d99acbc8` then passed strict Windows
 11 ARM64 MSVC and live Parallels D3D12 qualification. All 11 native/Dawn CTests,
