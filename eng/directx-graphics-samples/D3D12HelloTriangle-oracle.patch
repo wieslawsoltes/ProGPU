@@ -170,6 +170,29 @@ index 4090a40..0485aeb 100644
 +    void WriteCapture();
      void WaitForPreviousFrame();
  };
+diff --git a/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Win32Application.cpp b/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Win32Application.cpp
+index c766a39..c693a23 100644
+--- a/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Win32Application.cpp
++++ b/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Win32Application.cpp
+@@ -50,10 +50,18 @@ int Win32Application::Run(DXSample* pSample, HINSTANCE hInstance, int nCmdShow)
+         pSample);
+ 
+     // Initialize the sample. OnInit is defined in each child-implementation of DXSample.
+     pSample->OnInit();
+ 
+     ShowWindow(m_hwnd, nCmdShow);
+ 
++    // A service-hosted CI process may not receive WM_PAINT. The capture-only
++    // path renders exactly one ordinary sample frame deterministically.
++    if (GetEnvironmentVariableW(L"PROGPU_DIRECTX_ORACLE_OUTPUT", nullptr, 0) > 1)
++    {
++        pSample->OnUpdate();
++        pSample->OnRender();
++    }
++
+     // Main sample loop.
+     MSG msg = {};
+     while (msg.message != WM_QUIT)
 diff --git a/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Main.cpp b/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Main.cpp
 index 59f1f6a..614cceb 100644
 --- a/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Main.cpp
