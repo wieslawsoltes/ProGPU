@@ -2213,6 +2213,26 @@ for `progpu_native.dll` and
 `616B0650CF74D5D84FB45D908DB6285A82760B59E6A8D56313D827B6885038C7`
 for `progpu_native_dawn.dll`.
 
+The uncached spatial-mask-before-effect checkpoint generalizes the bounded
+source isolation layer. A typed linear/radial Visual opacity mask is resolved
+to the existing semantic brush-mask resource and attached to the same inner
+`FORCE_ISOLATION` layer as uniform opacity; that completed source is then
+sampled by the outer Gaussian/drop-shadow layer. Cached Visuals retain the
+already-qualified local-page mask path, and static solid masks continue to
+collapse to uniform alpha. No ABI or backend-specific execution branch is
+added.
+
+Only a mask owned by the effect Visual is moved into this scope. An inherited
+mask or inherited non-unit opacity remains fail closed because moving an
+ancestor's group boundary across a descendant effect changes WPF composition.
+MIL tests cover uncached gradient mask plus opacity, bounded layer order, and
+the absence of cache flags. The expanded
+`--semantic-uncached-opacity-effect` Metal gate executes `2/2/2`
+content/composite/effect passes, samples red `36/217` across the gradient, and
+produces extent `[7,5]-[47,30]`, red sum 65,264. A deliberately reversed
+post-effect mask changes 666 pixels and produces `[10,10]-[41,25]`, red sum
+56,038.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool

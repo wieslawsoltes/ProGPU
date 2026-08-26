@@ -10,6 +10,8 @@ internal static class RetainedOpacityEffectQualification
     private const ulong GroupSceneId = 0x4F50414345464631UL;
     private const ulong ReferenceSceneId = 0x4F50414345464632UL;
     private const ulong PrimitiveSceneId = 0x4F50414345464633UL;
+    private const ulong MaskedSceneId = 0x4F50414345464634UL;
+    private const ulong PostEffectMaskSceneId = 0x4F50414345464635UL;
     private static readonly NativeImageRect EffectBounds =
         new(4f, 4f, 44f, 28f);
     private static readonly NativeImageRect SourceBounds =
@@ -80,6 +82,8 @@ internal static class RetainedOpacityEffectQualification
             $"{primitiveExclusive}/{primitiveOverlap}, " +
             $"referenceChanged={referenceChanges}, " +
             $"primitiveChanged={primitiveChanges}, extent={groupedExtent}.");
+
+        RunSpatialMaskOrdering(context);
     }
 
     private static FrameResult Render(
@@ -199,6 +203,146 @@ internal static class RetainedOpacityEffectQualification
                 commandId: kind == SceneKind.GroupOpacity ? 5U : 3U) &&
             builder.TryBuild(out stream);
         Require(success, "failed to build the opacity/effect scene");
+        return stream.ToArray();
+    }
+
+    private static void RunSpatialMaskOrdering(WgpuContext context)
+    {
+        FrameResult masked = Render(
+            context,
+            MaskedSceneId,
+            BuildMaskScene(MaskedSceneId, maskBeforeEffect: true));
+        FrameResult postEffect = Render(
+            context,
+            PostEffectMaskSceneId,
+            BuildMaskScene(PostEffectMaskSceneId, maskBeforeEffect: false));
+        int changed = CountChangedPixels(masked.Pixels, postEffect.Pixels);
+        int maskedLeft = Red(masked.Pixels, 14, 18);
+        int maskedRight = Red(masked.Pixels, 38, 18);
+        PixelExtent maskedExtent = Measure(masked.Pixels);
+        PixelExtent postEffectExtent = Measure(postEffect.Pixels);
+
+        Require(
+            masked.Update.ValidationError == NativeSceneValidationError.None &&
+            postEffect.Update.ValidationError ==
+                NativeSceneValidationError.None &&
+            masked.Frame.SubmissionCount > 0U &&
+            postEffect.Frame.SubmissionCount > 0U &&
+            masked.Layer.ContentPassCount == 2U &&
+            masked.Layer.CompositePassCount == 2U &&
+            masked.Layer.EffectPassCount == 2U,
+            "uncached mask/effect layer metrics are invalid: " +
+            $"masked={masked.Layer}; postEffect={postEffect.Layer}");
+        Require(
+            changed > 32 && maskedRight >= maskedLeft + 80 &&
+            maskedExtent.IsVisible && postEffectExtent.IsVisible,
+            "the spatial mask was not isolated before effect sampling: " +
+            $"changed={changed}, samples={maskedLeft}/{maskedRight}, " +
+            $"masked={maskedExtent}, postEffect={postEffectExtent}");
+
+        Console.WriteLine(
+            "Qualified live uncached spatial-mask-before-effect isolation " +
+            $"on adapter '{context.AdapterName}', " +
+            $"backend={context.AdapterBackendType}; passes=" +
+            $"{masked.Layer.ContentPassCount}/" +
+            $"{masked.Layer.CompositePassCount}/" +
+            $"{masked.Layer.EffectPassCount}, samples=" +
+            $"{maskedLeft}/{maskedRight}, postEffectChanged={changed}, " +
+            $"masked={maskedExtent}, postEffect={postEffectExtent}.");
+    }
+
+    private static byte[] BuildMaskScene(
+        ulong sceneId,
+        bool maskBeforeEffect)
+    {
+        NativeSceneGradientStop[] stops =
+        [
+            new NativeSceneGradientStop(
+                new Vector4(1f, 1f, 1f, 0f), 0f),
+            new NativeSceneGradientStop(
+                new Vector4(1f, 1f, 1f, 1f), 1f)
+        ];
+        NativeSceneBrush maskBrush = NativeSceneBrush.LinearGradient(
+            new Vector2(10f, 0f),
+            new Vector2(42f, 0f),
+            stopOffset: 0U,
+            stops,
+            coordinateTransform: Matrix3x2.Identity);
+        var mask = new NativeSceneLayerBrushMask(
+            SourceBounds,
+            Matrix3x2.Identity,
+            in maskBrush,
+            gradientStopCount: (uint)stops.Length);
+        Span<NativeSceneEffect> effects = stackalloc NativeSceneEffect[1];
+        effects[0] = NativeSceneEffect.GaussianBlur(
+            sigmaX: 2f,
+            sigmaY: 2f,
+            revision: 1U);
+        Span<NativeAnalyticPrimitive> rectangle =
+            stackalloc NativeAnalyticPrimitive[1];
+        rectangle[0] = new NativeAnalyticPrimitive(
+            NativeAnalyticPrimitiveKind.Rectangle,
+            SourceBounds.X,
+            SourceBounds.Y,
+            SourceBounds.Width,
+            SourceBounds.Height,
+            new Vector4(1f, 0f, 0f, 1f),
+            Matrix3x2.Identity);
+        int size = NativeSceneStreamBuilder.GetRequiredBufferSize(
+            commandCapacity: 5,
+            resourceCapacity: 3,
+            arenaCapacity: 2048);
+        byte[] destination = GC.AllocateUninitializedArray<byte>(size);
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId,
+            generation: 1U,
+            commandCapacity: 5,
+            resourceCapacity: 3);
+        ReadOnlySpan<byte> stream = default;
+        uint maskIndex = 0U;
+        uint effectIndex = 0U;
+        uint analyticIndex = 0U;
+        bool success = builder.TryAddLayerBrushMaskResource(
+                resourceId: 1U,
+                generation: 1U,
+                in mask,
+                stops,
+                out maskIndex) &&
+            builder.TryAddEffectChainResource(
+                resourceId: 2U,
+                generation: 1U,
+                effects,
+                revision: 1U,
+                out effectIndex) &&
+            builder.TryAddAnalyticResource(
+                resourceId: 3U,
+                generation: 1U,
+                rectangle,
+                out analyticIndex);
+        NativeSceneLayer effectLayer = new(
+            flags: NativeSceneLayerFlags.Bounds,
+            bounds: EffectBounds,
+            effectResourceIndex: effectIndex);
+        NativeSceneLayer maskLayer = new(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.ForceIsolation,
+            bounds: maskBeforeEffect ? SourceBounds : EffectBounds,
+            maskResourceIndex: maskIndex);
+        success = success && builder.TryPushLayer(
+            commandId: 1U,
+            maskBeforeEffect ? effectLayer : maskLayer);
+        success = success && builder.TryPushLayer(
+            commandId: 2U,
+            maskBeforeEffect ? maskLayer : effectLayer);
+        success = success && builder.TryDrawAnalytic(
+                commandId: 3U,
+                analyticIndex,
+                SourceBounds) &&
+            builder.TryPopLayer(commandId: 4U) &&
+            builder.TryPopLayer(commandId: 5U) &&
+            builder.TryBuild(out stream);
+        Require(success, "failed to build the uncached mask/effect scene");
         return stream.ToArray();
     }
 

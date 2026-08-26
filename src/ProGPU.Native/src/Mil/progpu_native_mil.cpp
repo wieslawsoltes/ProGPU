@@ -8334,13 +8334,20 @@ struct channel::implementation {
         // stay on the inner cache layer and execute before this outer effect.
         // The clip is attached to the effect's final composite instead of its
         // source state so blur and shadow kernels can sample the untruncated
-        // visual. An uncached uniform opacity is represented by a bounded
-        // inner isolation layer so it executes once before the outer effect.
+        // visual. Uncached uniform opacity and a typed spatial mask are
+        // represented by one bounded inner isolation layer so they execute
+        // once before the outer effect.
         if (state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
             return status::unsupported_command;
         }
-        const bool isolate_source_opacity =
-            !has_local_cache_input && state.opacity != 1.0;
+        const bool has_spatial_opacity_mask =
+            !has_local_cache_input &&
+            visual->second.alpha_mask_handle != 0U &&
+            gradient_brushes.contains(
+                visual->second.alpha_mask_handle);
+        const bool isolate_source_composite =
+            !has_local_cache_input &&
+            (state.opacity != 1.0 || has_spatial_opacity_mask);
         const auto attach_final_clip = [&](
                 progpu_native_scene_layer& layer) -> status {
             if (!state.has_clip) {
@@ -8360,9 +8367,22 @@ struct channel::implementation {
             layer.reserved0 = composite_state_index;
             return status::success;
         };
-        const auto push_source_opacity_layer = [&]() -> status {
-            if (!isolate_source_opacity) {
+        const auto push_source_composite_layer = [&]() -> status {
+            if (!isolate_source_composite) {
                 return status::success;
+            }
+            std::uint32_t opacity_mask_resource_index =
+                PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (has_spatial_opacity_mask) {
+                const status opacity_mask_status = add_visual_opacity_mask(
+                    visual->second.alpha_mask_handle,
+                    visual->second,
+                    state.transform,
+                    builder,
+                    opacity_mask_resource_index);
+                if (opacity_mask_status != status::success) {
+                    return opacity_mask_status;
+                }
             }
             progpu_native_scene_layer opacity_layer{};
             opacity_layer.struct_size = sizeof(opacity_layer);
@@ -8371,7 +8391,7 @@ struct channel::implementation {
             opacity_layer.opacity = static_cast<float>(state.opacity);
             opacity_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
             opacity_layer.mask_resource_index =
-                PROGPU_NATIVE_SCENE_NO_INDEX;
+                opacity_mask_resource_index;
             opacity_layer.effect_resource_index =
                 PROGPU_NATIVE_SCENE_NO_INDEX;
             if (visual->second.has_cache_bounds) {
@@ -8441,7 +8461,7 @@ struct channel::implementation {
         descriptor.sigma_y = descriptor.sigma_x;
         if (effect->second.type == effect_state::kind::blur) {
             if (descriptor.sigma_x <= 0.01F) {
-                if (!state.has_clip && !isolate_source_opacity) {
+                if (!state.has_clip && !isolate_source_composite) {
                     return status::success;
                 }
                 if (state.has_clip) {
@@ -8477,7 +8497,7 @@ struct channel::implementation {
                     }
                     ++pushed_count;
                 }
-                return push_source_opacity_layer();
+                return push_source_composite_layer();
             }
             descriptor.kind = PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR;
         } else {
@@ -8583,7 +8603,7 @@ struct channel::implementation {
             return status::invalid_graph;
         }
         ++pushed_count;
-        return push_source_opacity_layer();
+        return push_source_composite_layer();
     }
 
     status append_cache_resource_revision(
@@ -8869,7 +8889,7 @@ struct channel::implementation {
         return status::success;
     }
 
-    status add_cache_opacity_mask(
+    status add_visual_opacity_mask(
         std::uint32_t brush_handle,
         const visual_state& visual,
         const affine_2d_double& mask_transform,
@@ -9076,7 +9096,7 @@ struct channel::implementation {
         std::uint32_t opacity_mask_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX;
         if (has_spatial_opacity_mask) {
-            const status opacity_mask_status = add_cache_opacity_mask(
+            const status opacity_mask_status = add_visual_opacity_mask(
                 cache_visual.alpha_mask_handle,
                 cache_visual,
                 mask_transform,
@@ -9260,12 +9280,13 @@ struct channel::implementation {
             return guideline_status;
         }
         double opacity_mask_alpha = 1.0;
-        const bool deferred_cache_opacity_mask =
-            visual->second.cache_mode_handle != 0U &&
+        const bool deferred_visual_opacity_mask =
+            (visual->second.cache_mode_handle != 0U ||
+             visual->second.effect_handle != 0U) &&
             visual->second.alpha_mask_handle != 0U &&
             gradient_brushes.contains(
                 visual->second.alpha_mask_handle);
-        const status opacity_mask_status = deferred_cache_opacity_mask
+        const status opacity_mask_status = deferred_visual_opacity_mask
             ? status::success
             : resolve_uniform_opacity_mask_alpha(
                 visual->second.alpha_mask_handle,
@@ -9280,11 +9301,11 @@ struct channel::implementation {
             active_visuals.erase(handle);
             return status::invalid_graph;
         }
-        const bool isolate_uncached_effect_opacity =
+        const bool isolate_uncached_effect_composite =
             visual->second.effect_handle != 0U &&
             visual->second.cache_mode_handle == 0U &&
-            current.opacity != 1.0;
-        if (isolate_uncached_effect_opacity &&
+            (current.opacity != 1.0 || deferred_visual_opacity_mask);
+        if (isolate_uncached_effect_composite &&
             parent_state.opacity != 1.0) {
             active_visuals.erase(handle);
             return status::unsupported_command;
@@ -9331,7 +9352,7 @@ struct channel::implementation {
             active_visuals.erase(handle);
             return status::invalid_graph;
         }
-        state.opacity = isolate_uncached_effect_opacity
+        state.opacity = isolate_uncached_effect_composite
             ? 1.0F
             : static_cast<float>(current.opacity);
         if (current.has_clip && visual->second.effect_handle == 0U) {
@@ -9383,7 +9404,7 @@ struct channel::implementation {
         bool skip_cached_content = false;
         bool cache_content_state_pushed = false;
         render_scope_state content_scope = current;
-        if (isolate_uncached_effect_opacity) {
+        if (isolate_uncached_effect_composite) {
             content_scope.opacity = 1.0;
         }
         const status cache_status = add_visual_cache_layer(
