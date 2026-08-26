@@ -10351,6 +10351,27 @@ bool render_data_scope_errors_fail_closed() {
     PROGPU_REQUIRE(
         state.build_scene(target, 1U, 6U, stream) ==
         status::malformed_batch);
+
+    std::vector<std::byte> effect_batch;
+    std::vector<std::byte> effect;
+    append_command(effect, command::push_effect, 0U, 0U);
+    append_render_data(effect_batch, content, effect);
+    PROGPU_REQUIRE(state.apply(effect_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 1U, 7U, stream) ==
+        status::unsupported_command);
+
+    std::vector<std::byte> obsolete_effect_batch;
+    std::vector<std::byte> obsolete_effect;
+    append_command(obsolete_effect, command::push_effect);
+    append_render_data(
+        obsolete_effect_batch,
+        content,
+        obsolete_effect);
+    PROGPU_REQUIRE(state.apply(obsolete_effect_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 1U, 8U, stream) ==
+        status::malformed_batch);
     return true;
 }
 

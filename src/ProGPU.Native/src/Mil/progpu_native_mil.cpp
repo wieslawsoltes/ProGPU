@@ -7722,6 +7722,25 @@ struct channel::implementation {
                 current = next;
                 continue;
             }
+            if (view.kind == command::push_effect) {
+                using layout = command_layouts::push_effect;
+                std::uint32_t effect_handle = 0U;
+                std::uint32_t effect_input_handle = 0U;
+                if (!has_exact_size(view, layout::fixed_size) ||
+                    !read_at(
+                        view.packet,
+                        layout::h_effect_offset,
+                        effect_handle) ||
+                    !read_at(
+                        view.packet,
+                        layout::h_effect_input_offset,
+                        effect_input_handle)) {
+                    return status::malformed_batch;
+                }
+                (void)effect_handle;
+                (void)effect_input_handle;
+                return status::unsupported_command;
+            }
             if (view.kind == command::pop) {
                 if (!has_exact_size(
                         view,
@@ -10242,6 +10261,25 @@ struct channel::implementation {
                     append_packet_handle(
                         command_layouts::push_guideline_set::
                             h_guidelines_offset);
+                } else if (view.kind == command::push_effect) {
+                    using layout = command_layouts::push_effect;
+                    std::uint32_t effect_handle = 0U;
+                    std::uint32_t effect_input_handle = 0U;
+                    if (!has_exact_size(view, layout::fixed_size) ||
+                        !read_at(
+                            view.packet,
+                            layout::h_effect_offset,
+                            effect_handle) ||
+                        !read_at(
+                            view.packet,
+                            layout::h_effect_input_offset,
+                            effect_input_handle)) {
+                        result = status::malformed_batch;
+                    } else {
+                        (void)effect_handle;
+                        (void)effect_input_handle;
+                        result = status::unsupported_command;
+                    }
                 } else if (view.kind == command::draw_drawing) {
                     append_packet_handle(
                         command_layouts::draw_drawing::h_drawing_offset);
