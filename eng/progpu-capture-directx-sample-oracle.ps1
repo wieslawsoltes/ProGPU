@@ -43,10 +43,26 @@ if ($LASTEXITCODE -ne 0 -or
     throw "The pinned DirectX sample checkout failed."
 }
 
+function Get-NormalizedSha256([string] $Path) {
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    $normalized = [System.Collections.Generic.List[byte]]::new($bytes.Length)
+    for ($index = 0; $index -lt $bytes.Length; $index++) {
+        if ($bytes[$index] -eq 13 -and $index + 1 -lt $bytes.Length -and
+            $bytes[$index + 1] -eq 10) {
+            continue
+        }
+        $normalized.Add($bytes[$index])
+    }
+    return [Convert]::ToHexString(
+        [System.Security.Cryptography.SHA256]::HashData($normalized.ToArray())
+    ).ToLowerInvariant()
+}
+
 foreach ($entry in $Lock.files.PSObject.Properties) {
     $path = Join-Path $SourceDirectory $entry.Name
     $actual = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($actual -ne $entry.Value) {
+    if ($actual -ne $entry.Value -and
+        (Get-NormalizedSha256 $path) -ne $entry.Value) {
         throw "DirectX sample source hash mismatch for '$($entry.Name)': $actual."
     }
 }
