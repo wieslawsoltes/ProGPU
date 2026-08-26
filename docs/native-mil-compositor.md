@@ -2176,6 +2176,26 @@ for `progpu_native.dll` and
 `35744D6CAF0F8C7789D7DE0E7EFA0985529A27217C7F65613BD0889487D879B2`
 for `progpu_native_dawn.dll`.
 
+The typed effect-clip producer checkpoint closes the source-built WPF gap for
+the exact rectangle subset already represented by the native effect composite.
+WPF's `ScrollableAreaClip` contract describes a simple rectangle clipped in
+world space for pixel alignment and explicitly disables accelerated scrolling
+when a rotation exists above the Visual. ProGPU therefore accepts a Visual
+geometry clip only when it is a sharp `RectangleGeometry` whose effective
+matrix preserves axes, and accepts the typed scroll rectangle only when its
+parent matrix preserves axes. Their intersection remains the final composite
+clip outside the effect input.
+
+Rounded rectangles, ellipse/path clips, and rotation/shear remain fail closed;
+the compiler never substitutes their transformed bounding box. LibreWPF
+performs the same first-line check through
+`IPortablePrimitiveGeometrySource` before emitting MIL, while ProGPU repeats
+the effective-transform check at scene compilation where the complete ancestor
+state is known. Native tests cover one-axis rounding, transformed scroll clips,
+and combined geometry/scroll clipping on an effect; focused LibreWPF compiler
+tests cover typed acceptance and rejection without reflection or a managed
+rendering fallback.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool

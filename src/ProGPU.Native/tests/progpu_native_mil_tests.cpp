@@ -1296,6 +1296,46 @@ bool visual_clips_compile_to_exact_semantic_state() {
         state.build_scene(target, 9010U, 2U, stream, &metrics) ==
         status::unsupported_command);
 
+    std::vector<std::byte> rounded_clip;
+    append_command(
+        rounded_clip,
+        command::rectangle_geometry,
+        clip,
+        3.0,
+        0.0,
+        0.0,
+        0.0,
+        40.0,
+        40.0,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(rounded_clip, command::visual_set_clip, child, clip);
+    PROGPU_REQUIRE(state.apply(rounded_clip) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9010U, 3U, stream, &metrics) ==
+        status::unsupported_command);
+
+    std::vector<std::byte> transformed_scroll_clip;
+    append_command(
+        transformed_scroll_clip, command::visual_set_clip, child, 0U);
+    append_command(
+        transformed_scroll_clip,
+        command::matrix_transform,
+        transform,
+        1.0,
+        0.5,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0U);
+    PROGPU_REQUIRE(state.apply(transformed_scroll_clip) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9010U, 4U, stream, &metrics) ==
+        status::unsupported_command);
+
     std::vector<std::byte> clear_clip;
     append_command(clear_clip, command::visual_set_clip, child, 0U);
     append_command(
@@ -1668,9 +1708,42 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     PROGPU_REQUIRE(final_clip.clip_rect.width == 20.0F);
     PROGPU_REQUIRE(final_clip.clip_rect.height == 14.0F);
 
+    std::vector<std::byte> scrolled_effect;
+    append_command(
+        scrolled_effect,
+        command::visual_set_scrollable_area_clip,
+        visual,
+        14.0,
+        13.0,
+        8.0,
+        6.0,
+        1U);
+    PROGPU_REQUIRE(state.apply(scrolled_effect) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9014U, 41U, stream, &metrics) ==
+        status::success);
+    const auto scrolled_layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(scrolled_layers.size() == 1U);
+    progpu_native_scene_state scrolled_final_clip{};
+    PROGPU_REQUIRE(try_get_state_resource(
+        stream, scrolled_layers[0].reserved0, scrolled_final_clip));
+    PROGPU_REQUIRE(scrolled_final_clip.clip_rect.x == 14.0F);
+    PROGPU_REQUIRE(scrolled_final_clip.clip_rect.y == 13.0F);
+    PROGPU_REQUIRE(scrolled_final_clip.clip_rect.width == 8.0F);
+    PROGPU_REQUIRE(scrolled_final_clip.clip_rect.height == 6.0F);
+
     std::vector<std::byte> zero_blur;
     append_command(
         zero_blur, command::blur_effect, blur, 0.0, 0U, 0U, 1U);
+    append_command(
+        zero_blur,
+        command::visual_set_scrollable_area_clip,
+        visual,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0U);
     PROGPU_REQUIRE(state.apply(zero_blur) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 9014U, 5U, stream, &metrics) ==

@@ -154,6 +154,12 @@ affine_2d_double compose_affine(
         first.m31 * second.m12 + first.m32 * second.m22 + second.m32};
 }
 
+bool affine_preserves_axis_alignment(
+    const affine_2d_double& transform) noexcept {
+    return (transform.m12 == 0.0 && transform.m21 == 0.0) ||
+        (transform.m11 == 0.0 && transform.m22 == 0.0);
+}
+
 bool affine_has_zero_area(const affine_2d_double& transform) noexcept {
     const double determinant =
         transform.m11 * transform.m22 - transform.m12 * transform.m21;
@@ -8271,7 +8277,7 @@ struct channel::implementation {
         const auto geometry = fixed_geometries.find(geometry_handle);
         if (geometry == fixed_geometries.end() ||
             geometry->second.kind != fixed_geometry_kind::rectangle ||
-            (geometry->second.radius_x != 0.0 &&
+            (geometry->second.radius_x != 0.0 ||
              geometry->second.radius_y != 0.0)) {
             return require_geometry(geometry_handle)
                 ? status::unsupported_command
@@ -8288,12 +8294,7 @@ struct channel::implementation {
         }
         const affine_2d_double effective_transform = compose_affine(
             local_transform, state.transform);
-        const bool preserves_axis_alignment =
-            (effective_transform.m12 == 0.0 &&
-             effective_transform.m21 == 0.0) ||
-            (effective_transform.m11 == 0.0 &&
-             effective_transform.m22 == 0.0);
-        if (!preserves_axis_alignment) {
+        if (!affine_preserves_axis_alignment(effective_transform)) {
             return status::unsupported_command;
         }
         progpu_native_image_rect clip{};
@@ -9183,6 +9184,15 @@ struct channel::implementation {
         double offset_y = visual->second.offset_y;
         render_scope_state current = parent_state;
         if (visual->second.has_scroll_clip) {
+            // WPF defines ScrollableAreaClip as a world-space pixel-aligned
+            // rectangle and disables the accelerated path under rotation.
+            // A transformed AABB would broaden that clip, so retain only the
+            // exact axis-preserving subset until native geometry clipping is
+            // available here.
+            if (!affine_preserves_axis_alignment(parent_state.transform)) {
+                active_visuals.erase(handle);
+                return status::unsupported_command;
+            }
             progpu_native_image_rect scroll_clip{};
             if (!try_transform_bounds(
                     visual->second.scroll_clip_x,
