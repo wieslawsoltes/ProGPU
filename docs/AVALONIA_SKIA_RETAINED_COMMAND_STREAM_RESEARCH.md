@@ -111,8 +111,102 @@ records and exact 16-byte retained-visual references. Its type-first classifier
 avoids rescanning those common wide commands. The three-process layer workload
 improves from 3,412.750 to 3,367.188 ns/op (-1.3%) and from 9,311 to 8,180 B/op
 (-12.1%, or -21.4% from Preview.46's 10,411 B/op). A canvas-local layer-context
-pool was measured and rejected: it increased allocation by 20 B/op and slowed
-the median, so no pooling code remains.
+stack was measured and rejected: it increased allocation by 20 B/op and slowed
+the median, so that multi-entry pooling code did not remain.
+
+## 2026-08-26 typed retained-layer checkpoint
+
+This round rechecked the current primary contracts before changing storage.
+Skia still defines `saveLayer` as saved matrix/clip state plus restore-time
+alpha, filters, and blend, while [`SkPicture`](https://api.skia.org/classSkPicture.html)
+remains immutable recorded replay. Direct2D requires a populated command list
+to be closed before it becomes an effect input or draw image, and Win2D exposes
+the same model as a device-owned image:
+[`ID2D1CommandList::Close`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/nf-d2d1_1-id2d1commandlist-close),
+[`CanvasCommandList`](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasCommandList.htm),
+and the [Win2D effects quickstart](https://microsoft.github.io/Win2D/WinUI3/html/QuickStart.htm).
+WebRender continues to transform a retained display list into picture, spatial,
+and clip trees before render-task expansion, while Vello keeps scene encoding
+separate from later `wgpu` rendering:
+[Firefox rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html)
+and the [Vello repository](https://github.com/linebender/vello).
+
+The adopted clean-room design recognizes the exact command shape produced by
+ProGPU's own `SKCanvas` analytic rounded-rectangle recorder. A bounded,
+single-draw save layer with no inherited clip and no retained side resource now
+owns two typed records and their transforms directly in its retained visual;
+the third command, `PopClip`, is implicit. `IOwnedRenderCommandCache` expands
+the exact `PushClip`, `DrawRoundedRect`, `PopClip` sequence on demand without a
+general command collection, transform hash table, or per-layer typed arrays.
+The temporary one-command `DrawingContext` is cleared before a single
+canvas-local reuse slot can retain it. A nested layer cannot borrow an active
+context, and a second returned nested context is released rather than growing
+an unbounded pool. Every other command shape uses the existing exact compact
+picture path.
+
+Construction and retained storage remain `O(1)` for this three-command shape;
+replay is three allocation-free `O(1)` indexed expansions. General layers
+remain `O(C + R)` for `C` commands and `R` resources. The canvas retains at most
+one cleared transient layer context, independent of the number of sequential
+layers. No GPU resource, device, surface, or submission is created while a
+picture is recorded.
+
+Rejected measured candidates are preserved as evidence rather than shipped:
+
+- a four-entry context stack reduced the 16-layer allocation from 8,189 to
+  6,431 B/op but changed the combined three-process median from 3,847.625 to
+  4,208.313 ns/op;
+- inserting clip wrappers through canvas-local wide-command scratch reduced
+  allocation to 7,147 B/op but did not improve the combined median;
+- storing `LayerFrame` as a large value type reduced only 120 B/op and slowed
+  the three fresh processes;
+- reusing a mutable `LayerFrame` reduced the sustained allocation by another
+  152 B/op but changed its median from 7,230.038 to 9,030.557 ns/op, so object
+  reuse was removed.
+
+The final Release matrix alternated three official SkiaSharp 4.151.0 processes
+with three ProGPU processes, using 32 warmup passes and 24 samples in each
+process. All 62 semantic checksums matched. For `avalonia-layer-recording`, the
+combined ProGPU median changed from 3,847.625 to 2,673.188 ns/op (-30.5%), p95
+from 14,958.313 to 4,333.313 ns/op (-71.0%), and managed allocation from 8,189
+to 6,131 B/op (-25.1%). The official-SkiaSharp ratio consequently changed from
+6.808 to 4.512. Official allocation counters still exclude native Skia command
+storage, so this is not presented as equal cross-engine allocation accounting.
+
+The matched 50,000-operation Xcode Instruments captures all exited zero and
+produced the same checksum `17305763102166149771`. Allocation-instrumented
+median changed from 13,533.860 to 7,737.439 ns/op, Time Profiler from
+10,548.747 to 9,310.386 ns/op, and Metal System Trace from 10,363.022 to
+10,073.158 ns/op. Managed allocation in every capture changed from 3,309 to
+1,205 B/op (-63.6%). Allocations/VM Tracker reported 113,604,752 versus
+113,786,720 persistent heap-plus-anonymous-VM bytes (+0.16%); the difference
+includes three additional 64 KiB JIT arena pages and does not support a native
+footprint claim. Both Metal captures reported zero resources, submissions,
+drawable waits, compiler spills, potential hangs, hang risks, and command
+buffer errors, as expected for CPU-only picture recording. Raw traces and
+exports were deleted only after their compact summaries and target logs were
+retained under `artifacts/performance/skiasharp-round2`.
+
+The managed/native rendering parity audit found no renderer-side delta. This
+change is confined to the SkiaSharp compatibility front end; both the managed
+and native ProGPU scene compilers receive the same expanded command types,
+geometry, transforms, effects, clip order, and resource ownership. Text was
+also audited and is deliberately unchanged: current
+[HarfBuzz shaping](https://harfbuzz.github.io/harfbuzz-hb-shape.html),
+[DirectWrite glyph runs](https://learn.microsoft.com/en-us/windows/win32/directwrite/glyphs-and-glyph-runs),
+[SkParagraph's bounded cache](https://skia.googlesource.com/skia/+/main/modules/skparagraph/include/ParagraphCache.h),
+and [Parley reusable layout context](https://docs.rs/parley/latest/parley/)
+continue to support retaining shaped glyph IDs and positions rather than
+reshaping during layer replay.
+
+Release validation passed 110 `SkCanvasStateTests`, 3,809 core tests, 240
+headless tests, 104 Avalonia contract tests, 129 current and 104 Avalonia 11
+Silk.NET contract tests, the headless-pixel and binary-compatibility tests, and
+all 307 XAML tests. The two process-owning XAML watch tests were run in their
+own non-competing lane after the other 305 XAML tests because their intentional
+one-minute child-process budget becomes timing-sensitive under assembly-wide
+parallel load. The official API gate reports `reference=4222`,
+`matching=4222`, `missing=0`, and `extra=997` ProGPU extensions.
 
 The positioned-text checkpoint keeps the common one-run builder state in one
 typed field instead of adding and clearing a `List<T>` reference slot for every

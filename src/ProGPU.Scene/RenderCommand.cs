@@ -1674,11 +1674,14 @@ internal readonly struct RetainedRectangleClipCommand
     }
 
     public RenderCommand Expand(Matrix4x4[] transforms) =>
+        Expand(in transforms[_transformIndex]);
+
+    public RenderCommand Expand(in Matrix4x4 transform) =>
         new()
         {
             Type = RenderCommandType.PushClip,
             Rect = _rectangle,
-            Transform = transforms[_transformIndex]
+            Transform = transform
         };
 }
 
@@ -1850,6 +1853,9 @@ internal readonly struct RetainedSimpleRoundedRectangleCommand
     }
 
     public RenderCommand Expand(Matrix4x4[] transforms) =>
+        Expand(in transforms[_transformIndex]);
+
+    public RenderCommand Expand(in Matrix4x4 transform) =>
         new()
         {
             Type = RenderCommandType.DrawRoundedRect,
@@ -1859,7 +1865,7 @@ internal readonly struct RetainedSimpleRoundedRectangleCommand
             Pen = _pen,
             RadiusX = _radiusX,
             RadiusY = _radiusY,
-            Transform = transforms[_transformIndex],
+            Transform = transform,
             PresentationDependencies = _presentationDependencies,
             IsEdgeAliased = _isEdgeAliased,
             IsPenThicknessLocal = _isPenThicknessLocal,
