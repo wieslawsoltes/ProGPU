@@ -225,6 +225,7 @@ using image_copy_texture = WGPUTexelCopyTextureInfo;
 using texture_data_layout = WGPUTexelCopyBufferLayout;
 using image_copy_buffer = WGPUTexelCopyBufferInfo;
 using buffer_usage_flags = WGPUBufferUsage;
+using texture_usage_flags = WGPUTextureUsage;
 
 inline void instance_add_ref(WGPUInstance instance) noexcept {
     active_dispatch().wgpuInstanceAddRef(instance);
@@ -397,6 +398,7 @@ using image_copy_texture = WGPUImageCopyTexture;
 using texture_data_layout = WGPUTextureDataLayout;
 using image_copy_buffer = WGPUImageCopyBuffer;
 using buffer_usage_flags = WGPUBufferUsageFlags;
+using texture_usage_flags = WGPUTextureUsageFlags;
 
 inline void instance_add_ref(WGPUInstance instance) noexcept {
     wgpuInstanceReference(instance);

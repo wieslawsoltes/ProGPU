@@ -31,6 +31,19 @@ using progpu::native::native_initial_atlas_size;
 
 namespace {
 
+progpu::native::webgpu::texture_usage_flags glyph_atlas_usage(
+    bool raster_shader_fallback) noexcept {
+    using usage_flags = progpu::native::webgpu::texture_usage_flags;
+    usage_flags usage =
+        static_cast<usage_flags>(WGPUTextureUsage_TextureBinding) |
+        static_cast<usage_flags>(WGPUTextureUsage_CopyDst);
+    if (raster_shader_fallback) {
+        usage |= static_cast<usage_flags>(
+            WGPUTextureUsage_RenderAttachment);
+    }
+    return usage;
+}
+
 WGPUBindGroup create_text_uniform_bind_group(
     progpu_native_engine& engine,
     WGPUBuffer style_buffer,
@@ -461,9 +474,7 @@ bool create_glyph_resources(progpu_native_engine& engine) {
 
     WGPUTextureDescriptor atlas_descriptor{};
     atlas_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained glyph atlas");
-    atlas_descriptor.usage = WGPUTextureUsage_TextureBinding |
-        WGPUTextureUsage_CopyDst |
-        (raster_shader_fallback ? WGPUTextureUsage_RenderAttachment : 0U);
+    atlas_descriptor.usage = glyph_atlas_usage(raster_shader_fallback);
     atlas_descriptor.dimension = WGPUTextureDimension_2D;
     atlas_descriptor.size = {
         engine.glyph_atlas_size,
@@ -631,12 +642,9 @@ bool resize_glyph_atlas(
     }
     WGPUTextureDescriptor descriptor{};
     descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained glyph atlas");
-    descriptor.usage = WGPUTextureUsage_TextureBinding |
-        WGPUTextureUsage_CopyDst |
-        (((engine.engine_flags &
-            PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK) != 0U)
-            ? WGPUTextureUsage_RenderAttachment
-            : 0U);
+    descriptor.usage = glyph_atlas_usage(
+        (engine.engine_flags &
+            PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK) != 0U);
     descriptor.dimension = WGPUTextureDimension_2D;
     descriptor.size = {requested_size, requested_size, 1U};
     descriptor.format = WGPUTextureFormat_R8Unorm;
