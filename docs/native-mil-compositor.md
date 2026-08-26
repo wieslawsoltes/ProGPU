@@ -2039,6 +2039,18 @@ red extent from `[21,7]-[31,24]` to `[22,7]-[30,24]`, and reduces red sum from
 756 to 372. Inherited mask composition and spatial mask plus guideline
 ordering remain fail closed.
 
+The same gate passed with identical metrics and pixels on the Parallels
+Display Adapter D3D12 backend from clean detached ProGPU commit `bb550c79`.
+The strict Windows ARM64 MSVC `/W4 /WX` lane passed all 11 native/Dawn CTests,
+both export allowlists, two zero-warning managed Release builds, independent
+C++ and managed D3D12 allocation/readback, the complete bounded
+semantic/image/mask/effect/vector/text/blend smoke matrix, and nine-file
+package staging. Qualified win-arm64 SHA-256 values are
+`FFA0223D369BF89F48E4A9A271318BE7B057022899A3D8B8AA2532BDA44F3C30`
+for `progpu_native.dll` and
+`7A98FA8A4A69E11886ED6879D430295BAD370F88D463B4E638847D1F8CBE6836`
+for `progpu_native_dawn.dll`.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool

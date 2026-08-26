@@ -2298,6 +2298,12 @@ the child shifts the nonzero extent five pixels, changes 572 pixels, and keeps
 the red sum fixed, proving page reuse, ordering, and parent invalidation on the
 shared backend-neutral executor.
 
+The matched cached spatial-mask/effect gate likewise produces identical Metal
+and D3D12 evidence. A stable or mask-only frame reuses the retained source page
+but deliberately reruns mask composition and both Gaussian passes. Halving
+only mask opacity changes 164 pixels and red sum `756 -> 372`; it does not
+change the cached content identity.
+
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then
 12x9 page extents. Package-mode managed Dawn rendering/readback and forced
