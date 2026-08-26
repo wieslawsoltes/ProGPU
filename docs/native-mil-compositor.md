@@ -2002,6 +2002,19 @@ stable output is byte-identical, while moving the child changes 572 pixels,
 moves the nonzero extent from `[3,3]-[28,24]` to `[8,3]-[33,24]`, and preserves
 the red sum at 24,576.
 
+The identical gate passed on the Parallels Display Adapter D3D12 backend from
+clean detached ProGPU commit `b3b4f784` with the same pass counts, extents,
+changed-pixel count, and red sum. The strict Windows ARM64 MSVC `/W4 /WX`
+qualification passed all 11 native/Dawn CTests and both export allowlists, two
+zero-warning managed Release builds, the independent C++ and managed D3D12
+allocation/readback samples, and the complete bounded
+semantic/image/mask/effect/vector/text/blend smoke matrix. The nine-file staged
+win-arm64 package contains SHA-256
+`424D1A11F6D398D1AC1F206B2686345882143DEBE7D3140037FBBD0D7EF09EBA`
+for `progpu_native.dll` and
+`A4BB52C578C71DCDBE3297F9CC7D1DEC4BD13D4046F600D1C6966AA60EC0FD2A`
+for `progpu_native_dawn.dll`.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
@@ -2021,8 +2034,8 @@ The implementation sequence is intentionally architectural:
    snapping/ClearType checkpoint are implemented and qualified on live Metal
    and D3D12. Fant/HighQuality sampling is implemented as a bounded shared
    shader prefilter and qualified on both adapters. Nested child cache plus
-   uniform-opacity-before-effect ordering is implemented and qualified on
-   Metal; its DirectX gate is pending.)
+   uniform-opacity-before-effect ordering is also implemented and qualified
+   on Metal and D3D12.)
 
 The persistent page and composite-transform path are executable, but full cache
 parity is not claimed until the remaining post-raster state and ordering

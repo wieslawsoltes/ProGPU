@@ -2288,6 +2288,14 @@ Uncached opacity/effect, spatial-mask/effect, and clip/effect combinations
 remain fail closed until their distinct isolation and inflated output regions
 are represented explicitly.
 
+The matched Metal and D3D12 nested-cache qualification renders a parent cache,
+Gaussian layer, and half-opacity child cache over three frames. Initial,
+stable, and child-moved content/effect-input pass counts are `3 -> 0 -> 2`;
+effect passes are `2 -> 0 -> 2`. Stable pixels are byte-identical. Moving only
+the child shifts the nonzero extent five pixels, changes 572 pixels, and keeps
+the red sum fixed, proving page reuse, ordering, and parent invalidation on the
+shared backend-neutral executor.
+
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then
 12x9 page extents. Package-mode managed Dawn rendering/readback and forced
