@@ -3236,20 +3236,30 @@ struct channel::implementation {
             return status::success;
         }
         case command::solid_color_brush: {
+            using layout = command_layouts::solid_color_brush;
             double opacity = 0.0;
             progpu_native_color color{};
             std::uint32_t opacity_animations = 0U;
             std::uint32_t transform = 0U;
             std::uint32_t relative_transform = 0U;
             std::uint32_t color_animations = 0U;
-            if (!has_exact_size(view, 48U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, opacity) ||
-                !read_at(view.packet, 16U, color) ||
-                !read_at(view.packet, 32U, opacity_animations) ||
-                !read_at(view.packet, 36U, transform) ||
-                !read_at(view.packet, 40U, relative_transform) ||
-                !read_at(view.packet, 44U, color_animations)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::opacity_offset, opacity) ||
+                !read_at(view.packet, layout::color_offset, color) ||
+                !read_at(
+                    view.packet,
+                    layout::h_opacity_animations_offset,
+                    opacity_animations) ||
+                !read_at(view.packet, layout::h_transform_offset, transform) ||
+                !read_at(
+                    view.packet,
+                    layout::h_relative_transform_offset,
+                    relative_transform) ||
+                !read_at(
+                    view.packet,
+                    layout::h_color_animations_offset,
+                    color_animations)) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_solid_color_brush)) {
@@ -3461,56 +3471,155 @@ struct channel::implementation {
         }
         case command::linear_gradient_brush:
         case command::radial_gradient_brush: {
+            using linear_layout = command_layouts::linear_gradient_brush;
+            using radial_layout = command_layouts::radial_gradient_brush;
             const bool radial = view.kind == command::radial_gradient_brush;
-            const std::size_t fixed_size = radial ? 108U : 84U;
+            const std::size_t fixed_size = radial
+                ? radial_layout::fixed_size
+                : linear_layout::fixed_size;
             gradient_brush_state brush{};
             brush.type = radial
                 ? gradient_brush_state::kind::radial
                 : gradient_brush_state::kind::linear;
             std::uint32_t stops_size = 0U;
             if (view.packet.size() < fixed_size ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, brush.opacity)) {
+                !read_at(
+                    view.packet,
+                    radial
+                        ? radial_layout::handle_offset
+                        : linear_layout::handle_offset,
+                    handle) ||
+                !read_at(
+                    view.packet,
+                    radial
+                        ? radial_layout::opacity_offset
+                        : linear_layout::opacity_offset,
+                    brush.opacity)) {
                 return status::malformed_batch;
             }
             if (radial) {
-                if (!read_at(view.packet, 16U, brush.first_x) ||
-                    !read_at(view.packet, 24U, brush.first_y) ||
-                    !read_at(view.packet, 32U, brush.radius_x) ||
-                    !read_at(view.packet, 40U, brush.radius_y) ||
-                    !read_at(view.packet, 48U, brush.second_x) ||
-                    !read_at(view.packet, 56U, brush.second_y) ||
-                    !read_at(view.packet, 64U, brush.opacity_animation) ||
-                    !read_at(view.packet, 68U, brush.transform_handle) ||
+                if (!read_at(
+                        view.packet,
+                        radial_layout::center_offset,
+                        brush.first_x) ||
                     !read_at(
-                        view.packet, 72U, brush.relative_transform_handle) ||
+                        view.packet,
+                        radial_layout::center_offset + 8U,
+                        brush.first_y) ||
                     !read_at(
-                        view.packet, 76U, brush.color_interpolation_mode) ||
-                    !read_at(view.packet, 80U, brush.mapping_mode) ||
-                    !read_at(view.packet, 84U, brush.spread_method) ||
-                    !read_at(view.packet, 88U, stops_size) ||
-                    !read_at(view.packet, 92U, brush.first_point_animation) ||
-                    !read_at(view.packet, 96U, brush.radius_x_animation) ||
-                    !read_at(view.packet, 100U, brush.radius_y_animation) ||
+                        view.packet,
+                        radial_layout::radius_x_offset,
+                        brush.radius_x) ||
                     !read_at(
-                        view.packet, 104U, brush.second_point_animation)) {
+                        view.packet,
+                        radial_layout::radius_y_offset,
+                        brush.radius_y) ||
+                    !read_at(
+                        view.packet,
+                        radial_layout::gradient_origin_offset,
+                        brush.second_x) ||
+                    !read_at(
+                        view.packet,
+                        radial_layout::gradient_origin_offset + 8U,
+                        brush.second_y) ||
+                    !read_at(
+                        view.packet,
+                        radial_layout::h_opacity_animations_offset,
+                        brush.opacity_animation) ||
+                    !read_at(
+                        view.packet,
+                        radial_layout::h_transform_offset,
+                        brush.transform_handle) ||
+                    !read_at(
+                        view.packet,
+                        radial_layout::h_relative_transform_offset,
+                        brush.relative_transform_handle) ||
+                    !read_at(
+                        view.packet,
+                        radial_layout::color_interpolation_mode_offset,
+                        brush.color_interpolation_mode) ||
+                    !read_at(
+                        view.packet,
+                        radial_layout::mapping_mode_offset,
+                        brush.mapping_mode) ||
+                    !read_at(
+                        view.packet,
+                        radial_layout::spread_method_offset,
+                        brush.spread_method) ||
+                    !read_at(
+                        view.packet,
+                        radial_layout::gradient_stops_size_offset,
+                        stops_size) ||
+                    !read_at(
+                        view.packet,
+                        radial_layout::h_center_animations_offset,
+                        brush.first_point_animation) ||
+                    !read_at(
+                        view.packet,
+                        radial_layout::h_radius_x_animations_offset,
+                        brush.radius_x_animation) ||
+                    !read_at(
+                        view.packet,
+                        radial_layout::h_radius_y_animations_offset,
+                        brush.radius_y_animation) ||
+                    !read_at(
+                        view.packet,
+                        radial_layout::h_gradient_origin_animations_offset,
+                        brush.second_point_animation)) {
                     return status::malformed_batch;
                 }
-            } else if (!read_at(view.packet, 16U, brush.first_x) ||
-                !read_at(view.packet, 24U, brush.first_y) ||
-                !read_at(view.packet, 32U, brush.second_x) ||
-                !read_at(view.packet, 40U, brush.second_y) ||
-                !read_at(view.packet, 48U, brush.opacity_animation) ||
-                !read_at(view.packet, 52U, brush.transform_handle) ||
+            } else if (!read_at(
+                    view.packet,
+                    linear_layout::start_point_offset,
+                    brush.first_x) ||
                 !read_at(
-                    view.packet, 56U, brush.relative_transform_handle) ||
+                    view.packet,
+                    linear_layout::start_point_offset + 8U,
+                    brush.first_y) ||
                 !read_at(
-                    view.packet, 60U, brush.color_interpolation_mode) ||
-                !read_at(view.packet, 64U, brush.mapping_mode) ||
-                !read_at(view.packet, 68U, brush.spread_method) ||
-                !read_at(view.packet, 72U, stops_size) ||
-                !read_at(view.packet, 76U, brush.first_point_animation) ||
-                !read_at(view.packet, 80U, brush.second_point_animation)) {
+                    view.packet,
+                    linear_layout::end_point_offset,
+                    brush.second_x) ||
+                !read_at(
+                    view.packet,
+                    linear_layout::end_point_offset + 8U,
+                    brush.second_y) ||
+                !read_at(
+                    view.packet,
+                    linear_layout::h_opacity_animations_offset,
+                    brush.opacity_animation) ||
+                !read_at(
+                    view.packet,
+                    linear_layout::h_transform_offset,
+                    brush.transform_handle) ||
+                !read_at(
+                    view.packet,
+                    linear_layout::h_relative_transform_offset,
+                    brush.relative_transform_handle) ||
+                !read_at(
+                    view.packet,
+                    linear_layout::color_interpolation_mode_offset,
+                    brush.color_interpolation_mode) ||
+                !read_at(
+                    view.packet,
+                    linear_layout::mapping_mode_offset,
+                    brush.mapping_mode) ||
+                !read_at(
+                    view.packet,
+                    linear_layout::spread_method_offset,
+                    brush.spread_method) ||
+                !read_at(
+                    view.packet,
+                    linear_layout::gradient_stops_size_offset,
+                    stops_size) ||
+                !read_at(
+                    view.packet,
+                    linear_layout::h_start_point_animations_offset,
+                    brush.first_point_animation) ||
+                !read_at(
+                    view.packet,
+                    linear_layout::h_end_point_animations_offset,
+                    brush.second_point_animation)) {
                 return status::malformed_batch;
             }
             const std::uint32_t expected_type = radial
@@ -3579,16 +3688,23 @@ struct channel::implementation {
             return status::success;
         }
         case command::dash_style: {
+            using layout = command_layouts::dash_style;
             dash_style_state dash{};
             std::uint32_t offset_animations = 0U;
             std::uint32_t dashes_size = 0U;
-            if (view.packet.size() < 24U ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, dash.offset) ||
-                !read_at(view.packet, 16U, offset_animations) ||
-                !read_at(view.packet, 20U, dashes_size) ||
+            if (view.packet.size() < layout::fixed_size ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::offset_offset, dash.offset) ||
+                !read_at(
+                    view.packet,
+                    layout::h_offset_animations_offset,
+                    offset_animations) ||
+                !read_at(
+                    view.packet,
+                    layout::dashes_size_offset,
+                    dashes_size) ||
                 dashes_size % sizeof(double) != 0U ||
-                view.packet.size() != 24U + dashes_size) {
+                view.packet.size() != layout::fixed_size + dashes_size) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_dash_style)) {
@@ -3610,7 +3726,7 @@ struct channel::implementation {
             for (std::size_t index = 0U; index < dash_count; ++index) {
                 if (!read_at(
                         view.packet,
-                        24U + index * sizeof(double),
+                        layout::fixed_size + index * sizeof(double),
                         dash.intervals[index]) ||
                     !finite_double_as_float(dash.intervals[index]) ||
                     dash.intervals[index] < 0.0) {
@@ -3623,20 +3739,42 @@ struct channel::implementation {
             return status::success;
         }
         case command::pen: {
+            using layout = command_layouts::pen;
             pen_state pen{};
             std::uint32_t thickness_animations = 0U;
             std::uint32_t dash_style = 0U;
-            if (!has_exact_size(view, 52U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, pen.thickness) ||
-                !read_at(view.packet, 16U, pen.miter_limit) ||
-                !read_at(view.packet, 24U, pen.brush_handle) ||
-                !read_at(view.packet, 28U, thickness_animations) ||
-                !read_at(view.packet, 32U, pen.start_line_cap) ||
-                !read_at(view.packet, 36U, pen.end_line_cap) ||
-                !read_at(view.packet, 40U, pen.dash_cap) ||
-                !read_at(view.packet, 44U, pen.line_join) ||
-                !read_at(view.packet, 48U, dash_style)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::thickness_offset,
+                    pen.thickness) ||
+                !read_at(
+                    view.packet,
+                    layout::miter_limit_offset,
+                    pen.miter_limit) ||
+                !read_at(
+                    view.packet,
+                    layout::h_brush_offset,
+                    pen.brush_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_thickness_animations_offset,
+                    thickness_animations) ||
+                !read_at(
+                    view.packet,
+                    layout::start_line_cap_offset,
+                    pen.start_line_cap) ||
+                !read_at(
+                    view.packet,
+                    layout::end_line_cap_offset,
+                    pen.end_line_cap) ||
+                !read_at(view.packet, layout::dash_cap_offset, pen.dash_cap) ||
+                !read_at(view.packet, layout::line_join_offset, pen.line_join) ||
+                !read_at(
+                    view.packet,
+                    layout::h_dash_style_offset,
+                    dash_style)) {
                 return status::malformed_batch;
             }
             pen.dash_style_handle = dash_style;

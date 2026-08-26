@@ -66,6 +66,18 @@ static_assert(command_layouts::combined_geometry::fixed_size == 24U);
 static_assert(command_layouts::combined_geometry::h_geometry2_offset == 20U);
 static_assert(command_layouts::path_geometry::fixed_size == 20U);
 static_assert(command_layouts::path_geometry::figures_size_offset == 16U);
+static_assert(command_layouts::solid_color_brush::fixed_size == 48U);
+static_assert(command_layouts::solid_color_brush::color_offset == 16U);
+static_assert(command_layouts::linear_gradient_brush::fixed_size == 84U);
+static_assert(
+    command_layouts::linear_gradient_brush::gradient_stops_size_offset == 72U);
+static_assert(command_layouts::radial_gradient_brush::fixed_size == 108U);
+static_assert(
+    command_layouts::radial_gradient_brush::gradient_stops_size_offset == 88U);
+static_assert(command_layouts::dash_style::fixed_size == 24U);
+static_assert(command_layouts::dash_style::dashes_size_offset == 20U);
+static_assert(command_layouts::pen::fixed_size == 52U);
+static_assert(command_layouts::pen::h_dash_style_offset == 48U);
 static_assert(
     command_layouts::fixed_header_size(command::visual_set_offset) == 24U);
 static_assert(
