@@ -1302,6 +1302,7 @@ bool animated_value_resources_drive_render_data_primitives() {
     constexpr std::uint32_t point3d_animation = 112U;
     constexpr std::uint32_t vector3d_animation = 113U;
     constexpr std::uint32_t quaternion_animation = 114U;
+    constexpr std::uint32_t brush_opacity_animation = 115U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -1318,6 +1319,7 @@ bool animated_value_resources_drive_render_data_primitives() {
     append_create(batch, point3d_animation, 55U);
     append_create(batch, vector3d_animation, 56U);
     append_create(batch, quaternion_animation, 57U);
+    append_create(batch, brush_opacity_animation, 49U);
     append_command(batch, command::visual_create, visual);
     const progpu_native_color color{0.2F, 0.4F, 0.6F, 1.0F};
     append_command(
@@ -1326,10 +1328,10 @@ bool animated_value_resources_drive_render_data_primitives() {
         brush,
         1.0,
         color,
+        brush_opacity_animation,
         0U,
         0U,
-        0U,
-        0U);
+        color_animation);
     append_command(
         batch,
         command::rect_resource,
@@ -1344,6 +1346,11 @@ bool animated_value_resources_drive_render_data_primitives() {
     append_command(
         batch, command::point_resource, second_point_animation, 13.0, 14.0);
     append_command(batch, command::double_resource, radius_animation, 6.0);
+    append_command(
+        batch,
+        command::double_resource,
+        brush_opacity_animation,
+        0.5);
     append_command(
         batch,
         command::color_resource,
@@ -1448,12 +1455,26 @@ bool animated_value_resources_drive_render_data_primitives() {
     bool found_rectangle = false;
     bool found_rounded = false;
     bool found_ellipse = false;
+    bool found_animated_brush = false;
     const auto header = read_value<progpu_native_scene_header>(stream, 0U);
     for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
         const auto resource = read_value<progpu_native_scene_resource>(
             stream,
             header.resource_offset +
                 index * sizeof(progpu_native_scene_resource));
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE) {
+            const auto scene_brush = read_value<progpu_native_scene_brush>(
+                stream,
+                resource.payload_offset);
+            if (scene_brush.opacity == 0.5F &&
+                scene_brush.colors[0].r == 0.1F &&
+                scene_brush.colors[0].g == 0.2F &&
+                scene_brush.colors[0].b == 0.3F &&
+                scene_brush.colors[0].a == 0.4F) {
+                found_animated_brush = true;
+            }
+            continue;
+        }
         if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH) {
             continue;
         }
@@ -1490,6 +1511,58 @@ bool animated_value_resources_drive_render_data_primitives() {
     PROGPU_REQUIRE(found_rectangle);
     PROGPU_REQUIRE(found_rounded);
     PROGPU_REQUIRE(found_ellipse);
+    PROGPU_REQUIRE(found_animated_brush);
+
+    std::vector<std::byte> brush_animation_update;
+    append_command(
+        brush_animation_update,
+        command::double_resource,
+        brush_opacity_animation,
+        0.75);
+    append_command(
+        brush_animation_update,
+        command::color_resource,
+        color_animation,
+        std::array<float, 4U>{0.8F, 0.6F, 0.4F, 0.2F});
+    PROGPU_REQUIRE(
+        state.apply(brush_animation_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9050U, 2U, stream, &metrics) ==
+        status::success);
+    bool found_updated_brush = false;
+    const auto updated_header = read_value<progpu_native_scene_header>(
+        stream,
+        0U);
+    for (std::uint32_t index = 0U;
+         index < updated_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            updated_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE) {
+            continue;
+        }
+        const auto scene_brush = read_value<progpu_native_scene_brush>(
+            stream,
+            resource.payload_offset);
+        found_updated_brush = scene_brush.opacity == 0.75F &&
+            scene_brush.colors[0].r == 0.8F &&
+            scene_brush.colors[0].g == 0.6F &&
+            scene_brush.colors[0].b == 0.4F &&
+            scene_brush.colors[0].a == 0.2F;
+        break;
+    }
+    PROGPU_REQUIRE(found_updated_brush);
+
+    std::vector<std::byte> delete_animation;
+    append_command(
+        delete_animation,
+        command::channel_delete_resource,
+        color_animation,
+        50U);
+    PROGPU_REQUIRE(
+        state.apply(delete_animation) == status::invalid_graph);
 
     const auto generation = state.resource_generation(rectangle_animation);
     std::vector<std::byte> invalid;
