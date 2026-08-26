@@ -111,6 +111,20 @@ $Packages = Join-Path (
 msbuild.exe $Project /m:1 /t:Restore /p:RestorePackagesConfig=true `
     "/p:RestorePackagesPath=$Packages" /verbosity:minimal
 if ($LASTEXITCODE -ne 0) { throw "DirectX sample package restore failed." }
+$ExpectedAgilityProps = Join-Path $Packages (
+    "$($Lock.agilityPackage).$($Lock.agilityVersion)/build/native/" +
+    "Microsoft.Direct3D.D3D12.props")
+if (-not (Test-Path $ExpectedAgilityProps)) {
+    # Project-only packages.config restore uses the project directory as its
+    # synthetic solution root. The upstream vcxproj intentionally imports from
+    # ../packages, so mirror the restored packages into that expected root.
+    $ProjectPackages = Join-Path (Split-Path -Parent $Project) "packages"
+    if (-not (Test-Path $ProjectPackages)) {
+        throw "The DirectX sample restore did not publish its package folder."
+    }
+    New-Item -ItemType Directory -Force -Path $Packages | Out-Null
+    Copy-Item (Join-Path $ProjectPackages "*") $Packages -Recurse -Force
+}
 msbuild.exe $Project /m:1 /t:Build /p:Configuration=Release `
     "/p:Platform=$Platform" /verbosity:minimal
 if ($LASTEXITCODE -ne 0) { throw "DirectX sample build failed." }
