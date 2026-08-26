@@ -2451,6 +2451,21 @@ base/Dawn SHA-256 values are
 `F7B72CAF58C8B4675A3B26FBBC4B62D314F26737CFFC9DC625F1E2BF640A681C` and
 `6921A4037372B7A327370DA2035750FD48E791164BD2B5E0407E05F3A01C4A14`.
 
+Non-unit opacity is owned by its Visual. WPF pushes that node's group boundary
+before visiting children, so it is outside any descendant effect; an effect-
+owning node separately orders its own stack as clip, effect, opacity mask, and
+opacity. Native MIL preserves that distinction for uncached Visuals with exact
+typed descendant bounds by emitting a bounded opacity-only `FORCE_ISOLATION`
+layer and resetting the isolated local alpha before compiling descendants.
+Cache roots and Visuals that own effects continue to use their cache-composite
+and inner source-isolation paths. Missing bounds plus a descendant effect fail
+closed rather than distributing ancestor alpha across descendant primitives.
+
+The Metal ownership gate executes `2/2/2` passes and keeps correct
+exclusive/overlap samples at `128/128`, extent `[4,4]-[41,31]`, red sum 67,186.
+The deliberately flattened comparison reaches `128/189`, changes 392 pixels,
+and produces `[5,5]-[41,30]`, red sum 74,382.
+
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then
 12x9 page extents. Package-mode managed Dawn rendering/readback and forced

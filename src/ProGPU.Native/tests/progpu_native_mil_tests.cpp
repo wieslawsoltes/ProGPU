@@ -1817,6 +1817,8 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     PROGPU_REQUIRE(zero_opacity_layers[0].bounds.height == 24.0F);
 
     std::vector<std::byte> inherited_opacity;
+    append_command(
+        inherited_opacity, command::blur_effect, blur, 9.0, 0U, 0U, 1U);
     append_create(inherited_opacity, parent, 39U);
     append_command(inherited_opacity, command::visual_create, parent);
     append_command(
@@ -1833,6 +1835,51 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     PROGPU_REQUIRE(
         state.build_scene(target, 9014U, 8U, stream, &metrics) ==
         status::unsupported_command);
+    PROGPU_REQUIRE(
+        state.set_visual_cache_bounds(
+            parent, 4.0, 5.0, 48.0, 30.0) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9014U, 9U, stream, &metrics) ==
+        status::success);
+    const auto inherited_opacity_layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(inherited_opacity_layers.size() == 3U);
+    PROGPU_REQUIRE(
+        (inherited_opacity_layers[0].flags &
+            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION) != 0U);
+    PROGPU_REQUIRE(
+        (inherited_opacity_layers[0].flags &
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) == 0U);
+    PROGPU_REQUIRE(inherited_opacity_layers[0].opacity == 0.5F);
+    PROGPU_REQUIRE(
+        inherited_opacity_layers[0].effect_resource_index ==
+            PROGPU_NATIVE_SCENE_NO_INDEX);
+    PROGPU_REQUIRE(inherited_opacity_layers[0].bounds.x == 4.0F);
+    PROGPU_REQUIRE(inherited_opacity_layers[0].bounds.y == 5.0F);
+    PROGPU_REQUIRE(inherited_opacity_layers[0].bounds.width == 48.0F);
+    PROGPU_REQUIRE(inherited_opacity_layers[0].bounds.height == 30.0F);
+    PROGPU_REQUIRE(
+        inherited_opacity_layers[1].effect_resource_index !=
+            PROGPU_NATIVE_SCENE_NO_INDEX);
+    PROGPU_REQUIRE(inherited_opacity_layers[1].opacity == 1.0F);
+    PROGPU_REQUIRE(
+        (inherited_opacity_layers[2].flags &
+            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION) != 0U);
+    PROGPU_REQUIRE(inherited_opacity_layers[2].opacity == 0.5F);
+    const auto inherited_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    for (std::uint32_t index = 0U;
+         index < inherited_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            inherited_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            PROGPU_REQUIRE(
+                read_value<progpu_native_scene_state>(
+                    stream, resource.payload_offset).opacity == 1.0F);
+        }
+    }
     return true;
 }
 

@@ -12,6 +12,8 @@ internal static class RetainedOpacityEffectQualification
     private const ulong PrimitiveSceneId = 0x4F50414345464633UL;
     private const ulong MaskedSceneId = 0x4F50414345464634UL;
     private const ulong PostEffectMaskSceneId = 0x4F50414345464635UL;
+    private const ulong InheritedOpacitySceneId = 0x4F50414345464636UL;
+    private const ulong FlattenedOpacitySceneId = 0x4F50414345464637UL;
     private static readonly NativeImageRect EffectBounds =
         new(4f, 4f, 44f, 28f);
     private static readonly NativeImageRect SourceBounds =
@@ -84,6 +86,7 @@ internal static class RetainedOpacityEffectQualification
             $"primitiveChanged={primitiveChanges}, extent={groupedExtent}.");
 
         RunSpatialMaskOrdering(context);
+        RunInheritedOpacityOwnership(context);
     }
 
     private static FrameResult Render(
@@ -343,6 +346,166 @@ internal static class RetainedOpacityEffectQualification
             builder.TryPopLayer(commandId: 5U) &&
             builder.TryBuild(out stream);
         Require(success, "failed to build the uncached mask/effect scene");
+        return stream.ToArray();
+    }
+
+    private static void RunInheritedOpacityOwnership(WgpuContext context)
+    {
+        FrameResult inherited = Render(
+            context,
+            InheritedOpacitySceneId,
+            BuildInheritedOpacityScene(
+                InheritedOpacitySceneId,
+                preserveParentBoundary: true));
+        FrameResult flattened = Render(
+            context,
+            FlattenedOpacitySceneId,
+            BuildInheritedOpacityScene(
+                FlattenedOpacitySceneId,
+                preserveParentBoundary: false));
+        int changed = CountChangedPixels(inherited.Pixels, flattened.Pixels);
+        int inheritedExclusive = Red(inherited.Pixels, 34, 18);
+        int inheritedOverlap = Red(inherited.Pixels, 26, 18);
+        int flattenedExclusive = Red(flattened.Pixels, 34, 18);
+        int flattenedOverlap = Red(flattened.Pixels, 26, 18);
+        PixelExtent inheritedExtent = Measure(inherited.Pixels);
+        PixelExtent flattenedExtent = Measure(flattened.Pixels);
+
+        Require(
+            inherited.Update.ValidationError ==
+                NativeSceneValidationError.None &&
+            flattened.Update.ValidationError ==
+                NativeSceneValidationError.None &&
+            inherited.Frame.SubmissionCount > 0U &&
+            flattened.Frame.SubmissionCount > 0U &&
+            inherited.Layer.ContentPassCount == 2U &&
+            inherited.Layer.CompositePassCount == 2U &&
+            inherited.Layer.EffectPassCount == 2U &&
+            flattened.Layer.ContentPassCount == 2U &&
+            flattened.Layer.CompositePassCount == 2U &&
+            flattened.Layer.EffectPassCount == 2U,
+            "inherited opacity/effect layer metrics are invalid: " +
+            $"inherited={inherited.Layer}; flattened={flattened.Layer}");
+        Require(
+            changed > 32 &&
+            Math.Abs(inheritedExclusive - inheritedOverlap) <= 2 &&
+            Math.Abs(inheritedExclusive - flattenedExclusive) <= 2 &&
+            flattenedOverlap >= inheritedOverlap + 40 &&
+            inheritedExtent.IsVisible && flattenedExtent.IsVisible,
+            "ancestor opacity was flattened across a descendant effect: " +
+            $"changed={changed}, inherited=" +
+            $"{inheritedExclusive}/{inheritedOverlap}, flattened=" +
+            $"{flattenedExclusive}/{flattenedOverlap}, " +
+            $"inheritedExtent={inheritedExtent}, " +
+            $"flattenedExtent={flattenedExtent}");
+
+        Console.WriteLine(
+            "Qualified live inherited opacity outside descendant effect " +
+            $"on adapter '{context.AdapterName}', " +
+            $"backend={context.AdapterBackendType}; passes=" +
+            $"{inherited.Layer.ContentPassCount}/" +
+            $"{inherited.Layer.CompositePassCount}/" +
+            $"{inherited.Layer.EffectPassCount}, inherited=" +
+            $"{inheritedExclusive}/{inheritedOverlap}, flattened=" +
+            $"{flattenedExclusive}/{flattenedOverlap}, " +
+            $"flattenedChanged={changed}, inherited={inheritedExtent}, " +
+            $"flattened={flattenedExtent}.");
+    }
+
+    private static byte[] BuildInheritedOpacityScene(
+        ulong sceneId,
+        bool preserveParentBoundary)
+    {
+        Span<NativeSceneEffect> effects = stackalloc NativeSceneEffect[1];
+        effects[0] = NativeSceneEffect.GaussianBlur(
+            sigmaX: 2f,
+            sigmaY: 2f,
+            revision: 1U);
+        Span<NativeAnalyticPrimitive> child =
+            stackalloc NativeAnalyticPrimitive[1];
+        child[0] = new NativeAnalyticPrimitive(
+            NativeAnalyticPrimitiveKind.Rectangle,
+            10f,
+            10f,
+            20f,
+            16f,
+            new Vector4(1f, 0f, 0f, 1f),
+            Matrix3x2.Identity);
+        Span<NativeAnalyticPrimitive> sibling =
+            stackalloc NativeAnalyticPrimitive[1];
+        sibling[0] = new NativeAnalyticPrimitive(
+            NativeAnalyticPrimitiveKind.Rectangle,
+            22f,
+            10f,
+            20f,
+            16f,
+            preserveParentBoundary
+                ? new Vector4(1f, 0f, 0f, 1f)
+                : new Vector4(1f, 0f, 0f, 0.5f),
+            Matrix3x2.Identity);
+        int size = NativeSceneStreamBuilder.GetRequiredBufferSize(
+            commandCapacity: 6,
+            resourceCapacity: 3,
+            arenaCapacity: 1536);
+        byte[] destination = GC.AllocateUninitializedArray<byte>(size);
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId,
+            generation: 1U,
+            commandCapacity: 6,
+            resourceCapacity: 3);
+        uint effectIndex = 0U;
+        uint childIndex = 0U;
+        uint siblingIndex = 0U;
+        ReadOnlySpan<byte> stream = default;
+        bool success = builder.TryAddEffectChainResource(
+                resourceId: 1U,
+                generation: 1U,
+                effects,
+                revision: 1U,
+                out effectIndex) &&
+            builder.TryAddAnalyticResource(
+                resourceId: 2U,
+                generation: 1U,
+                child,
+                out childIndex) &&
+            builder.TryAddAnalyticResource(
+                resourceId: 3U,
+                generation: 1U,
+                sibling,
+                out siblingIndex);
+        NativeSceneLayer effectLayer = new(
+            flags: NativeSceneLayerFlags.Bounds,
+            bounds: EffectBounds,
+            effectResourceIndex: effectIndex);
+        NativeSceneLayer opacityLayer = new(
+            opacity: 0.5f,
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.ForceIsolation,
+            bounds: preserveParentBoundary
+                ? EffectBounds
+                : new NativeImageRect(10f, 10f, 20f, 16f));
+        success = success && builder.TryPushLayer(
+            commandId: 1U,
+            preserveParentBoundary ? opacityLayer : effectLayer);
+        success = success && builder.TryPushLayer(
+            commandId: 2U,
+            preserveParentBoundary ? effectLayer : opacityLayer);
+        success = success && builder.TryDrawAnalytic(
+                commandId: 3U,
+                childIndex,
+                new NativeImageRect(10f, 10f, 20f, 16f)) &&
+            builder.TryPopLayer(commandId: 4U);
+        if (!preserveParentBoundary)
+            success = success && builder.TryPopLayer(commandId: 5U);
+        success = success && builder.TryDrawAnalytic(
+            commandId: preserveParentBoundary ? 5U : 6U,
+            siblingIndex,
+            new NativeImageRect(22f, 10f, 20f, 16f));
+        if (preserveParentBoundary)
+            success = success && builder.TryPopLayer(commandId: 6U);
+        success = success && builder.TryBuild(out stream);
+        Require(success, "failed to build inherited opacity/effect scene");
         return stream.ToArray();
     }
 
