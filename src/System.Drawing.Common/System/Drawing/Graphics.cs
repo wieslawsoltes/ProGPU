@@ -3040,8 +3040,11 @@ public class Graphics :
     }
 
     public void DrawImage(Image image, PointF point) => DrawImage(image, point.X, point.Y);
+    public void DrawImage(Image image, Point point) => DrawImage(image, point.X, point.Y);
+    public void DrawImage(Image image, int x, int y) => DrawImage(image, (float)x, y);
     public void DrawImage(Image image, float x, float y)
     {
+        ArgumentNullException.ThrowIfNull(image);
         if (image is Bitmap bmp)
         {
             DrawBitmap(bmp, new RectangleF(x, y, bmp.Width, bmp.Height));
@@ -3060,6 +3063,7 @@ public class Graphics :
 
     public void DrawImage(Image image, RectangleF rect)
     {
+        ArgumentNullException.ThrowIfNull(image);
         if (image is Bitmap bmp)
         {
             DrawBitmap(bmp, rect, default, null);
@@ -3075,6 +3079,7 @@ public class Graphics :
 
     public void DrawImage(Image image, RectangleF destRect, RectangleF srcRect, GraphicsUnit srcUnit)
     {
+        ArgumentNullException.ThrowIfNull(image);
         if (image is Bitmap bmp)
         {
             DrawBitmap(bmp, destRect, ConvertSourceRect(srcRect, srcUnit), null);
@@ -3107,6 +3112,123 @@ public class Graphics :
 
     public void DrawImageUnscaled(Image image, Rectangle rect) => DrawImageUnscaled(image, rect.X, rect.Y);
 
+    public void DrawImageUnscaled(Image image, int x, int y, int width, int height) =>
+        DrawImageUnscaled(image, x, y);
+
+    public void DrawImageUnscaledAndClipped(Image image, Rectangle rect)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        int width = Math.Min(rect.Width, image.Width);
+        int height = Math.Min(rect.Height, image.Height);
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        DrawImage(
+            image,
+            new Rectangle(rect.X, rect.Y, width, height),
+            0,
+            0,
+            width,
+            height,
+            GraphicsUnit.Pixel);
+    }
+
+    public void DrawImage(
+        Image image,
+        float x,
+        float y,
+        RectangleF srcRect,
+        GraphicsUnit srcUnit)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        RectangleF sourcePixels = ConvertSourceRect(srcRect, srcUnit);
+        DrawImage(
+            image,
+            new RectangleF(x, y, sourcePixels.Width, sourcePixels.Height),
+            srcRect,
+            srcUnit);
+    }
+
+    public void DrawImage(
+        Image image,
+        int x,
+        int y,
+        Rectangle srcRect,
+        GraphicsUnit srcUnit) =>
+        DrawImage(image, x, y, (RectangleF)srcRect, srcUnit);
+
+    public void DrawImage(
+        Image image,
+        Rectangle destRect,
+        float srcX,
+        float srcY,
+        float srcWidth,
+        float srcHeight,
+        GraphicsUnit srcUnit) =>
+        DrawImage(image, destRect, srcX, srcY, srcWidth, srcHeight, srcUnit, null);
+
+    public void DrawImage(
+        Image image,
+        Rectangle destRect,
+        float srcX,
+        float srcY,
+        float srcWidth,
+        float srcHeight,
+        GraphicsUnit srcUnit,
+        ImageAttributes? imageAttr) =>
+        DrawImage(image, destRect, srcX, srcY, srcWidth, srcHeight, srcUnit, imageAttr, null);
+
+    public void DrawImage(
+        Image image,
+        Rectangle destRect,
+        float srcX,
+        float srcY,
+        float srcWidth,
+        float srcHeight,
+        GraphicsUnit srcUnit,
+        ImageAttributes? imageAttr,
+        DrawImageAbort? callback) =>
+        DrawImage(
+            image,
+            destRect,
+            srcX,
+            srcY,
+            srcWidth,
+            srcHeight,
+            srcUnit,
+            imageAttr,
+            callback,
+            IntPtr.Zero);
+
+    public void DrawImage(
+        Image image,
+        Rectangle destRect,
+        float srcX,
+        float srcY,
+        float srcWidth,
+        float srcHeight,
+        GraphicsUnit srcUnit,
+        ImageAttributes? imageAttr,
+        DrawImageAbort? callback,
+        IntPtr callbackData)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        if (callback?.Invoke(callbackData) == true)
+        {
+            return;
+        }
+
+        if (image is Bitmap bitmap)
+        {
+            RectangleF source = ConvertSourceRect(
+                new RectangleF(srcX, srcY, srcWidth, srcHeight),
+                srcUnit);
+            DrawBitmap(bitmap, destRect, source, imageAttr);
+        }
+    }
+
     public void DrawImage(
         Image image,
         Rectangle destRect,
@@ -3126,15 +3248,15 @@ public class Graphics :
         int srcHeight,
         GraphicsUnit srcUnit,
         ImageAttributes? imageAttr)
-    {
-        if (image is Bitmap bmp)
-        {
-            var srcRect = ConvertSourceRect(
-                new RectangleF(srcX, srcY, srcWidth, srcHeight),
-                srcUnit);
-            DrawBitmap(bmp, destRect, srcRect, imageAttr);
-        }
-    }
+        => DrawImage(
+            image,
+            destRect,
+            (float)srcX,
+            srcY,
+            srcWidth,
+            srcHeight,
+            srcUnit,
+            imageAttr);
 
     public delegate bool DrawImageAbort(IntPtr callbackdata);
 
@@ -3147,16 +3269,41 @@ public class Graphics :
         int srcHeight,
         GraphicsUnit srcUnit,
         ImageAttributes? imageAttr,
+        DrawImageAbort? callback) =>
+        DrawImage(
+            image,
+            destRect,
+            srcX,
+            srcY,
+            srcWidth,
+            srcHeight,
+            srcUnit,
+            imageAttr,
+            callback,
+            IntPtr.Zero);
+
+    public void DrawImage(
+        Image image,
+        Rectangle destRect,
+        int srcX,
+        int srcY,
+        int srcWidth,
+        int srcHeight,
+        GraphicsUnit srcUnit,
+        ImageAttributes? imageAttr,
         DrawImageAbort? callback,
         IntPtr callbackData)
-    {
-        if (callback?.Invoke(callbackData) == true)
-        {
-            return;
-        }
-
-        DrawImage(image, destRect, srcX, srcY, srcWidth, srcHeight, srcUnit, imageAttr);
-    }
+        => DrawImage(
+            image,
+            destRect,
+            (float)srcX,
+            srcY,
+            srcWidth,
+            srcHeight,
+            srcUnit,
+            imageAttr,
+            callback,
+            callbackData);
 
     private void DrawBitmap(Bitmap bitmap, RectangleF rect)
     {
