@@ -1979,15 +1979,17 @@ struct channel::implementation {
             return status::success;
         }
         case command::matrix_resource: {
+            using layout = command_layouts::matrix_resource;
             affine_2d_double matrix{};
-            if (!has_exact_size(view, 56U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, matrix.m11) ||
-                !read_at(view.packet, 16U, matrix.m12) ||
-                !read_at(view.packet, 24U, matrix.m21) ||
-                !read_at(view.packet, 32U, matrix.m22) ||
-                !read_at(view.packet, 40U, matrix.m31) ||
-                !read_at(view.packet, 48U, matrix.m32)) {
+            const std::size_t value = layout::value_offset;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, value, matrix.m11) ||
+                !read_at(view.packet, value + 8U, matrix.m12) ||
+                !read_at(view.packet, value + 16U, matrix.m21) ||
+                !read_at(view.packet, value + 24U, matrix.m22) ||
+                !read_at(view.packet, value + 32U, matrix.m31) ||
+                !read_at(view.packet, value + 40U, matrix.m32)) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_matrix_resource)) {
@@ -2022,12 +2024,16 @@ struct channel::implementation {
             return status::success;
         }
         case command::transform_group: {
+            using layout = command_layouts::transform_group;
             std::uint32_t children_size = 0U;
-            if (view.packet.size() < 12U ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, children_size) ||
+            if (view.packet.size() < layout::fixed_size ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::children_size_offset,
+                    children_size) ||
                 children_size % sizeof(std::uint32_t) != 0U ||
-                view.packet.size() != 12U + children_size ||
+                view.packet.size() != layout::fixed_size + children_size ||
                 children_size / sizeof(std::uint32_t) >
                     maximum_path_record_count) {
                 return status::malformed_batch;
@@ -2045,7 +2051,8 @@ struct channel::implementation {
                 std::uint32_t child = 0U;
                 if (!read_at(
                         view.packet,
-                        12U + index * sizeof(std::uint32_t),
+                        layout::fixed_size +
+                            index * sizeof(std::uint32_t),
                         child)) {
                     return status::malformed_batch;
                 }
@@ -2063,16 +2070,23 @@ struct channel::implementation {
             return status::success;
         }
         case command::translate_transform: {
+            using layout = command_layouts::translate_transform;
             double x = 0.0;
             double y = 0.0;
             std::uint32_t x_animations = 0U;
             std::uint32_t y_animations = 0U;
-            if (!has_exact_size(view, 32U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, x) ||
-                !read_at(view.packet, 16U, y) ||
-                !read_at(view.packet, 24U, x_animations) ||
-                !read_at(view.packet, 28U, y_animations)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::x_offset, x) ||
+                !read_at(view.packet, layout::y_offset, y) ||
+                !read_at(
+                    view.packet,
+                    layout::h_x_animations_offset,
+                    x_animations) ||
+                !read_at(
+                    view.packet,
+                    layout::h_y_animations_offset,
+                    y_animations)) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_translate_transform)) {
@@ -2100,25 +2114,70 @@ struct channel::implementation {
         }
         case command::scale_transform:
         case command::skew_transform: {
+            using scale_layout = command_layouts::scale_transform;
+            using skew_layout = command_layouts::skew_transform;
+            const bool is_scale = view.kind == command::scale_transform;
+            const std::size_t fixed_size = is_scale
+                ? scale_layout::fixed_size
+                : skew_layout::fixed_size;
+            const std::size_t handle_offset = is_scale
+                ? scale_layout::handle_offset
+                : skew_layout::handle_offset;
+            const std::size_t first_offset = is_scale
+                ? scale_layout::scale_x_offset
+                : skew_layout::angle_x_offset;
+            const std::size_t second_offset = is_scale
+                ? scale_layout::scale_y_offset
+                : skew_layout::angle_y_offset;
+            const std::size_t center_x_offset = is_scale
+                ? scale_layout::center_x_offset
+                : skew_layout::center_x_offset;
+            const std::size_t center_y_offset = is_scale
+                ? scale_layout::center_y_offset
+                : skew_layout::center_y_offset;
+            const std::size_t first_animation_offset = is_scale
+                ? scale_layout::h_scale_x_animations_offset
+                : skew_layout::h_angle_x_animations_offset;
+            const std::size_t second_animation_offset = is_scale
+                ? scale_layout::h_scale_y_animations_offset
+                : skew_layout::h_angle_y_animations_offset;
+            const std::size_t center_x_animation_offset = is_scale
+                ? scale_layout::h_center_x_animations_offset
+                : skew_layout::h_center_x_animations_offset;
+            const std::size_t center_y_animation_offset = is_scale
+                ? scale_layout::h_center_y_animations_offset
+                : skew_layout::h_center_y_animations_offset;
             double first = 0.0;
             double second = 0.0;
             double center_x = 0.0;
             double center_y = 0.0;
             std::array<std::uint32_t, 4U> animations{};
-            if (!has_exact_size(view, 56U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, first) ||
-                !read_at(view.packet, 16U, second) ||
-                !read_at(view.packet, 24U, center_x) ||
-                !read_at(view.packet, 32U, center_y) ||
-                !read_at(view.packet, 40U, animations[0]) ||
-                !read_at(view.packet, 44U, animations[1]) ||
-                !read_at(view.packet, 48U, animations[2]) ||
-                !read_at(view.packet, 52U, animations[3])) {
+            if (!has_exact_size(view, fixed_size) ||
+                !read_at(view.packet, handle_offset, handle) ||
+                !read_at(view.packet, first_offset, first) ||
+                !read_at(view.packet, second_offset, second) ||
+                !read_at(view.packet, center_x_offset, center_x) ||
+                !read_at(view.packet, center_y_offset, center_y) ||
+                !read_at(
+                    view.packet,
+                    first_animation_offset,
+                    animations[0]) ||
+                !read_at(
+                    view.packet,
+                    second_animation_offset,
+                    animations[1]) ||
+                !read_at(
+                    view.packet,
+                    center_x_animation_offset,
+                    animations[2]) ||
+                !read_at(
+                    view.packet,
+                    center_y_animation_offset,
+                    animations[3])) {
                 return status::malformed_batch;
             }
             const std::uint32_t expected_type =
-                view.kind == command::scale_transform
+                is_scale
                 ? type_scale_transform
                 : type_skew_transform;
             if (!require_resource(handle, expected_type)) {
@@ -2131,7 +2190,7 @@ struct channel::implementation {
                 }
             }
             transform_state transform{};
-            transform.type = view.kind == command::scale_transform
+            transform.type = is_scale
                 ? transform_state::kind::scale
                 : transform_state::kind::skew;
             transform.values = {first, second, center_x, center_y};
@@ -2148,18 +2207,28 @@ struct channel::implementation {
             return status::success;
         }
         case command::rotate_transform: {
+            using layout = command_layouts::rotate_transform;
             double angle = 0.0;
             double center_x = 0.0;
             double center_y = 0.0;
             std::array<std::uint32_t, 3U> animations{};
-            if (!has_exact_size(view, 44U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, angle) ||
-                !read_at(view.packet, 16U, center_x) ||
-                !read_at(view.packet, 24U, center_y) ||
-                !read_at(view.packet, 32U, animations[0]) ||
-                !read_at(view.packet, 36U, animations[1]) ||
-                !read_at(view.packet, 40U, animations[2])) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::angle_offset, angle) ||
+                !read_at(view.packet, layout::center_x_offset, center_x) ||
+                !read_at(view.packet, layout::center_y_offset, center_y) ||
+                !read_at(
+                    view.packet,
+                    layout::h_angle_animations_offset,
+                    animations[0]) ||
+                !read_at(
+                    view.packet,
+                    layout::h_center_x_animations_offset,
+                    animations[1]) ||
+                !read_at(
+                    view.packet,
+                    layout::h_center_y_animations_offset,
+                    animations[2])) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_rotate_transform)) {
@@ -2188,17 +2257,22 @@ struct channel::implementation {
             return status::success;
         }
         case command::matrix_transform: {
+            using layout = command_layouts::matrix_transform;
             affine_2d_double matrix{};
             std::uint32_t animations = 0U;
-            if (!has_exact_size(view, 60U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, matrix.m11) ||
-                !read_at(view.packet, 16U, matrix.m12) ||
-                !read_at(view.packet, 24U, matrix.m21) ||
-                !read_at(view.packet, 32U, matrix.m22) ||
-                !read_at(view.packet, 40U, matrix.m31) ||
-                !read_at(view.packet, 48U, matrix.m32) ||
-                !read_at(view.packet, 56U, animations)) {
+            const std::size_t matrix_offset = layout::matrix_offset;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, matrix_offset, matrix.m11) ||
+                !read_at(view.packet, matrix_offset + 8U, matrix.m12) ||
+                !read_at(view.packet, matrix_offset + 16U, matrix.m21) ||
+                !read_at(view.packet, matrix_offset + 24U, matrix.m22) ||
+                !read_at(view.packet, matrix_offset + 32U, matrix.m31) ||
+                !read_at(view.packet, matrix_offset + 40U, matrix.m32) ||
+                !read_at(
+                    view.packet,
+                    layout::h_matrix_animations_offset,
+                    animations)) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_matrix_transform)) {

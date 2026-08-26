@@ -34,6 +34,26 @@ static_assert(command_layouts::visual_set_offset::offset_x_offset == 8U);
 static_assert(command_layouts::visual_set_offset::offset_y_offset == 16U);
 static_assert(
     command_layouts::visual_set_guideline_collection::fixed_size == 16U);
+static_assert(command_layouts::matrix_resource::fixed_size == 56U);
+static_assert(command_layouts::matrix_resource::value_offset == 8U);
+static_assert(command_layouts::transform_group::fixed_size == 12U);
+static_assert(command_layouts::transform_group::children_size_offset == 8U);
+static_assert(command_layouts::translate_transform::fixed_size == 32U);
+static_assert(command_layouts::translate_transform::x_offset == 8U);
+static_assert(
+    command_layouts::translate_transform::h_y_animations_offset == 28U);
+static_assert(command_layouts::scale_transform::fixed_size == 56U);
+static_assert(command_layouts::scale_transform::center_x_offset == 24U);
+static_assert(command_layouts::skew_transform::fixed_size == 56U);
+static_assert(
+    command_layouts::skew_transform::h_angle_x_animations_offset == 40U);
+static_assert(command_layouts::rotate_transform::fixed_size == 44U);
+static_assert(
+    command_layouts::rotate_transform::h_angle_animations_offset == 32U);
+static_assert(command_layouts::matrix_transform::fixed_size == 60U);
+static_assert(command_layouts::matrix_transform::matrix_offset == 8U);
+static_assert(
+    command_layouts::matrix_transform::h_matrix_animations_offset == 56U);
 static_assert(
     command_layouts::fixed_header_size(command::visual_set_offset) == 24U);
 static_assert(
