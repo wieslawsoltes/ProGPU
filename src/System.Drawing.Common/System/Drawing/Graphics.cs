@@ -3357,6 +3357,13 @@ public class Graphics :
         DrawImage(bitmap, targetRect);
     }
 
+    public void DrawIcon(Icon icon, int x, int y)
+    {
+        ArgumentNullException.ThrowIfNull(icon);
+        using Bitmap bitmap = icon.ToBitmap();
+        DrawImageUnscaled(bitmap, x, y);
+    }
+
     public void DrawIconUnstretched(Icon icon, Rectangle targetRect)
     {
         ArgumentNullException.ThrowIfNull(icon);

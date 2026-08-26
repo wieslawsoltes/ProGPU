@@ -39,10 +39,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Image.GetThumbnailImageAbort</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
     <Target>T:System.Drawing.Imaging.CachedBitmap</Target>
   </Suppression>
   <Suppression>
@@ -627,10 +623,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.DrawIcon(System.Drawing.Icon,System.Int32,System.Int32)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Graphics.DrawImage(System.Drawing.Image,System.Drawing.Imaging.Effects.Effect,System.Drawing.RectangleF,System.Drawing.Drawing2D.Matrix,System.Drawing.GraphicsUnit,System.Drawing.Imaging.ImageAttributes)</Target>
   </Suppression>
   <Suppression>
@@ -856,10 +848,6 @@
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Icon.ExtractIcon(System.String,System.Int32,System.Int32)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Image.GetThumbnailImage(System.Int32,System.Int32,System.Drawing.Image.GetThumbnailImageAbort,System.IntPtr)</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>

@@ -25,6 +25,8 @@ public enum RotateFlipType
 [System.ComponentModel.TypeConverter(typeof(ImageConverter))]
 public abstract class Image : MarshalByRefObject, IDisposable, ICloneable
 {
+    public delegate bool GetThumbnailImageAbort();
+
     private readonly object _metadataLock = new();
     private float _horizontalResolution = 96f;
     private float _verticalResolution = 96f;
@@ -149,6 +151,27 @@ public abstract class Image : MarshalByRefObject, IDisposable, ICloneable
 
     public virtual object Clone() =>
         throw new NotSupportedException($"Cloning is not implemented for {GetType().FullName}.");
+
+    public Image GetThumbnailImage(
+        int thumbWidth,
+        int thumbHeight,
+        GetThumbnailImageAbort? callback,
+        IntPtr callbackData)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(thumbWidth);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(thumbHeight);
+
+        if (this is not Bitmap)
+        {
+            throw new NotSupportedException(
+                "Thumbnail generation currently requires a bitmap-backed image.");
+        }
+
+        // The callback is retained only for compatibility. The corresponding
+        // GDI+ callback was removed and the official managed implementation
+        // does not invoke it.
+        return new Bitmap(this, thumbWidth, thumbHeight);
+    }
 
     public RectangleF GetBounds(ref GraphicsUnit pageUnit)
     {
