@@ -22,7 +22,7 @@ if [[ ! -f "$source_file" || ! -d "$project" ]]; then
   echo "The exact Avalonia source tree is missing. Run tools/prepare-avalonia-12.1.1-source.sh first." >&2
   exit 3
 fi
-if ! rg -q '_layer\.framebufferOnly[[:space:]]*=[[:space:]]*false;' "$source_file"; then
+if ! grep -Eq '_layer\.framebufferOnly[[:space:]]*=[[:space:]]*false;' "$source_file"; then
   echo "The Avalonia CAMetalLayer is not configured for Dawn-importable IOSurfaces." >&2
   exit 4
 fi
