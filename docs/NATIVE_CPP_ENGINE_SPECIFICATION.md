@@ -3443,6 +3443,13 @@ candidates identify Microsoft Basic Render Driver, Apple Paravirtual device,
 and llvmpipe LLVM 20.1.2 respectively, so this result remains software/virtual
 adapter evidence rather than physical-GPU qualification.
 
+GitHub Actions run `32959809523` repeated that byte-exact aggregate at
+implementation/package commit `885fa670` and completed all 27 jobs. In
+particular, the native NuGet package and every runnable desktop JIT/NativeAOT
+consumer passed after the focused DrawingGroup fixture was corrected from 25
+to its actual 26 commands. Oracle success therefore remains coupled to the
+shipping package graph rather than replacing package qualification.
+
 ## 13. Packaging and security
 
 Native binaries ship in separate RID runtime packages so managed-only consumers
