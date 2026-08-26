@@ -284,6 +284,10 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
                 throw "The native differential benchmark failed: $args"
             }
         }
+        $DirectXOracleDirectory = Join-Path $RepoRoot "artifacts/progpu-native/directx-oracle"
+        Invoke-NativeBenchmark `
+            --directx-hello-triangle-oracle `
+            --directx-oracle-output $DirectXOracleDirectory
         if ($IsParallelsDisplayAdapter) {
             # The Parallels D3D12 driver removes the device in the legacy managed
             # renderer's dense mixed-picture path. Keep the full 384-command

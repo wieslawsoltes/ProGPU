@@ -525,6 +525,14 @@ for blend_mode in ColorDodge Saturation; do
     --group-blend-mode "${blend_mode}" --rectangles 96 --warmup 2 --iterations 4
 done
 
+# Reproduce the pinned Microsoft D3D12HelloTriangle draw contract through the
+# shared renderer. CI compares the resulting Metal and Vulkan/WebGPU frames
+# with the independently captured native Windows/D3D12 oracle.
+directx_oracle_dir="${repo_root}/artifacts/progpu-native/directx-oracle"
+run_common_mask_benchmark \
+  --directx-hello-triangle-oracle \
+  --directx-oracle-output "${directx_oracle_dir}"
+
 echo "ProGPU native renderer built from ${actual_commit}."
 echo "Sample: ${sample_dir}/progpu-native-sample.ppm"
 echo "Managed sample: ${sample_dir}/progpu-native-managed-sample.ppm"
