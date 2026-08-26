@@ -115,6 +115,11 @@ static_assert(command_layouts::channel_create_resource::fixed_size == 12U);
 static_assert(command_layouts::visual_create::fixed_size == 8U);
 static_assert(command_layouts::glyph_run_create::fixed_size == 76U);
 static_assert(command_layouts::draw_rectangle::fixed_size == 44U);
+static_assert(command_layouts::draw_line_animate::fixed_size == 52U);
+static_assert(command_layouts::draw_rectangle_animate::fixed_size == 52U);
+static_assert(
+    command_layouts::draw_rounded_rectangle_animate::fixed_size == 76U);
+static_assert(command_layouts::draw_ellipse_animate::fixed_size == 60U);
 static_assert(command_layouts::draw_rounded_rectangle::fixed_size == 60U);
 static_assert(command_layouts::push_effect::fixed_size == 4U);
 static_assert(command_layouts::pop::fixed_size == 4U);
@@ -1277,6 +1282,226 @@ bool solid_rectangle_compiles_to_semantic_scene() {
         0U);
     PROGPU_REQUIRE(
         state.apply(malformed_options) == status::malformed_batch);
+    return true;
+}
+
+bool animated_value_resources_drive_render_data_primitives() {
+    constexpr std::uint32_t visual = 101U;
+    constexpr std::uint32_t content = 102U;
+    constexpr std::uint32_t target = 103U;
+    constexpr std::uint32_t brush = 104U;
+    constexpr std::uint32_t rectangle_animation = 105U;
+    constexpr std::uint32_t center_animation = 106U;
+    constexpr std::uint32_t first_point_animation = 107U;
+    constexpr std::uint32_t second_point_animation = 108U;
+    constexpr std::uint32_t radius_animation = 109U;
+    constexpr std::uint32_t color_animation = 110U;
+    constexpr std::uint32_t size_animation = 111U;
+    constexpr std::uint32_t point3d_animation = 112U;
+    constexpr std::uint32_t vector3d_animation = 113U;
+    constexpr std::uint32_t quaternion_animation = 114U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, rectangle_animation, 52U);
+    append_create(batch, center_animation, 51U);
+    append_create(batch, first_point_animation, 51U);
+    append_create(batch, second_point_animation, 51U);
+    append_create(batch, radius_animation, 49U);
+    append_create(batch, color_animation, 50U);
+    append_create(batch, size_animation, 53U);
+    append_create(batch, point3d_animation, 55U);
+    append_create(batch, vector3d_animation, 56U);
+    append_create(batch, quaternion_animation, 57U);
+    append_command(batch, command::visual_create, visual);
+    const progpu_native_color color{0.2F, 0.4F, 0.6F, 1.0F};
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        color,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::rect_resource,
+        rectangle_animation,
+        10.0,
+        20.0,
+        30.0,
+        40.0);
+    append_command(batch, command::point_resource, center_animation, 50.0, 60.0);
+    append_command(
+        batch, command::point_resource, first_point_animation, 3.0, 4.0);
+    append_command(
+        batch, command::point_resource, second_point_animation, 13.0, 14.0);
+    append_command(batch, command::double_resource, radius_animation, 6.0);
+    append_command(
+        batch,
+        command::color_resource,
+        color_animation,
+        std::array<float, 4U>{0.1F, 0.2F, 0.3F, 0.4F});
+    append_command(
+        batch,
+        command::size_resource,
+        size_animation,
+        std::array<double, 2U>{7.0, 8.0});
+    append_command(
+        batch,
+        command::point3d_resource,
+        point3d_animation,
+        std::array<float, 3U>{1.0F, 2.0F, 3.0F});
+    append_command(
+        batch,
+        command::vector3d_resource,
+        vector3d_animation,
+        std::array<float, 3U>{4.0F, 5.0F, 6.0F});
+    append_command(
+        batch,
+        command::quaternion_resource,
+        quaternion_animation,
+        std::array<float, 4U>{0.0F, 0.0F, 0.0F, 1.0F});
+
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_line_animate,
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        0U,
+        first_point_animation,
+        second_point_animation,
+        0U);
+    append_command(
+        nested,
+        command::draw_rectangle_animate,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        brush,
+        0U,
+        rectangle_animation,
+        0U);
+    append_command(
+        nested,
+        command::draw_rounded_rectangle_animate,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        1.0,
+        1.0,
+        brush,
+        0U,
+        rectangle_animation,
+        radius_animation,
+        radius_animation,
+        0U);
+    append_command(
+        nested,
+        command::draw_ellipse_animate,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        brush,
+        0U,
+        center_animation,
+        radius_animation,
+        radius_animation,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        640U,
+        480U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9050U, 1U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rectangle_count == 1U);
+    PROGPU_REQUIRE(metrics.rounded_rectangle_count == 1U);
+    PROGPU_REQUIRE(metrics.ellipse_count == 1U);
+
+    bool found_rectangle = false;
+    bool found_rounded = false;
+    bool found_ellipse = false;
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH) {
+            continue;
+        }
+        PROGPU_REQUIRE(
+            resource.payload_size % sizeof(progpu_native_analytic_primitive) ==
+            0U);
+        const std::uint32_t primitive_count = resource.payload_size /
+            sizeof(progpu_native_analytic_primitive);
+        for (std::uint32_t primitive_index = 0U;
+             primitive_index < primitive_count;
+             ++primitive_index) {
+            const auto primitive = read_value<progpu_native_analytic_primitive>(
+                stream,
+                resource.payload_offset +
+                    primitive_index *
+                        sizeof(progpu_native_analytic_primitive));
+            if (primitive.kind == PROGPU_NATIVE_PRIMITIVE_RECTANGLE &&
+                primitive.x == 10.0F && primitive.y == 20.0F &&
+                primitive.width == 30.0F && primitive.height == 40.0F) {
+                found_rectangle = true;
+            } else if (
+                primitive.kind == PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE &&
+                primitive.x == 10.0F && primitive.y == 20.0F &&
+                primitive.width == 30.0F && primitive.height == 40.0F &&
+                primitive.corner_radius == 6.0F) {
+                found_rounded = true;
+            } else if (primitive.kind == PROGPU_NATIVE_PRIMITIVE_ELLIPSE &&
+                primitive.x == 44.0F && primitive.y == 54.0F &&
+                primitive.width == 12.0F && primitive.height == 12.0F) {
+                found_ellipse = true;
+            }
+        }
+    }
+    PROGPU_REQUIRE(found_rectangle);
+    PROGPU_REQUIRE(found_rounded);
+    PROGPU_REQUIRE(found_ellipse);
+
+    const auto generation = state.resource_generation(rectangle_animation);
+    std::vector<std::byte> invalid;
+    append_command(
+        invalid,
+        command::rect_resource,
+        rectangle_animation,
+        0.0,
+        0.0,
+        std::numeric_limits<double>::quiet_NaN(),
+        1.0);
+    PROGPU_REQUIRE(state.apply(invalid) == status::malformed_batch);
+    PROGPU_REQUIRE(
+        state.resource_generation(rectangle_animation) == generation);
     return true;
 }
 
@@ -7974,6 +8199,7 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
     constexpr std::uint32_t bitmap = 4U;
     constexpr std::uint32_t drawing = 5U;
     constexpr std::uint32_t group = 6U;
+    constexpr std::uint32_t rectangle_animation = 7U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -7982,6 +8208,7 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
     append_create(batch, bitmap, 95U);
     append_create(batch, drawing, 89U);
     append_create(batch, group, 91U);
+    append_create(batch, rectangle_animation, 52U);
     append_command(batch, command::visual_create, visual);
     append_command(
         batch,
@@ -7995,6 +8222,14 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
         0U,
         0U);
     append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::rect_resource,
+        rectangle_animation,
+        3.0,
+        5.0,
+        20.0,
+        10.0);
     append_command(
         batch,
         command::image_drawing,
@@ -8022,6 +8257,24 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
         drawing);
     std::vector<std::byte> nested;
     append_command(nested, command::draw_drawing, group, 0U);
+    append_command(
+        nested,
+        command::draw_image,
+        3.0,
+        5.0,
+        20.0,
+        10.0,
+        bitmap,
+        0U);
+    append_command(
+        nested,
+        command::draw_image_animate,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        bitmap,
+        rectangle_animation);
     append_render_data(batch, content, nested);
     append_command(
         batch,
@@ -8091,6 +8344,52 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
     }
     PROGPU_REQUIRE(found_image);
 
+    std::vector<std::byte> animated_destination;
+    append_command(
+        animated_destination,
+        command::rect_resource,
+        rectangle_animation,
+        7.0,
+        9.0,
+        12.0,
+        14.0);
+    append_command(
+        animated_destination,
+        command::image_drawing,
+        drawing,
+        3.0,
+        5.0,
+        20.0,
+        10.0,
+        bitmap,
+        rectangle_animation);
+    PROGPU_REQUIRE(state.apply(animated_destination) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7005U, 21U, stream, &metrics) ==
+        status::success);
+    const auto animated_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    bool found_animated_destination = false;
+    for (std::uint32_t index = 0U;
+         index < animated_header.command_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            animated_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+            const auto image = read_value<progpu_native_scene_image_draw>(
+                stream, record.payload_offset);
+            if (image.destination_rect.x == 7.0F &&
+                image.destination_rect.y == 9.0F &&
+                image.destination_rect.width == 12.0F &&
+                image.destination_rect.height == 14.0F) {
+                found_animated_destination = true;
+            }
+        }
+    }
+    PROGPU_REQUIRE(found_animated_destination);
+
     std::vector<std::byte> high_quality_update;
     append_command(
         high_quality_update,
@@ -8124,7 +8423,7 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
         if (record.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
             const auto image = read_value<progpu_native_scene_image_draw>(
                 stream, record.payload_offset);
-            found_fant = image.sampling ==
+            found_fant |= image.sampling ==
                 PROGPU_NATIVE_IMAGE_SAMPLING_FANT;
         }
     }
@@ -10327,6 +10626,7 @@ int main() {
     PROGPU_REQUIRE(failed_batches_roll_back());
     PROGPU_REQUIRE(invalid_visual_graphs_fail_closed());
     PROGPU_REQUIRE(solid_rectangle_compiles_to_semantic_scene());
+    PROGPU_REQUIRE(animated_value_resources_drive_render_data_primitives());
     PROGPU_REQUIRE(visual_clips_compile_to_exact_semantic_state());
     PROGPU_REQUIRE(visual_solid_opacity_mask_composes_and_updates());
     PROGPU_REQUIRE(visual_gaussian_effects_compile_to_isolated_layers());
