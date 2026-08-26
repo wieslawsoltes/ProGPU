@@ -4,14 +4,23 @@ param(
     [string] $Platform = $(if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "ARM64" } else { "x64" }),
     [string] $OutputDirectory,
     [string] $GitPath,
+    [ValidateSet("HelloTriangle", "HelloTexture")]
+    [string] $Sample = "HelloTriangle",
     [switch] $UseWarp
 )
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $LockPath = Join-Path $PSScriptRoot "directx-graphics-samples.lock.json"
-$PatchPath = Join-Path $PSScriptRoot "directx-graphics-samples/D3D12HelloTriangle-oracle.patch"
 $Lock = Get-Content $LockPath -Raw | ConvertFrom-Json
+$SampleConfig = if ($Sample -eq "HelloTriangle") { $Lock } else { $Lock.helloTexture }
+$SampleClass = "D3D12$Sample"
+$PatchPath = Join-Path $PSScriptRoot "directx-graphics-samples/$SampleClass-oracle.patch"
+$OracleStem = if ($Sample -eq "HelloTriangle") {
+    "microsoft-d3d12-hello-triangle"
+} else {
+    "microsoft-d3d12-hello-texture"
+}
 $CacheRoot = Join-Path $RepoRoot "artifacts/directx-graphics-samples"
 $SourceDirectory = Join-Path $CacheRoot "source"
 $InstrumentedDirectory = Join-Path $CacheRoot "instrumented"
@@ -19,7 +28,7 @@ if (-not $OutputDirectory) {
     $OutputDirectory = Join-Path $RepoRoot "artifacts/progpu-native/directx-oracle/windows-native"
 }
 $OutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
-$OraclePath = Join-Path $OutputDirectory "microsoft-d3d12-hello-triangle.ppm"
+$OraclePath = Join-Path $OutputDirectory "$OracleStem.ppm"
 
 $RunningOnWindows = if (Get-Variable IsWindows -ErrorAction SilentlyContinue) {
     $IsWindows
@@ -79,7 +88,7 @@ function Get-NormalizedSha256([string] $Path) {
     }
 }
 
-foreach ($entry in $Lock.files.PSObject.Properties) {
+foreach ($entry in $SampleConfig.files.PSObject.Properties) {
     $path = Join-Path $SourceDirectory $entry.Name
     $actual = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($actual -ne $entry.Value -and
@@ -87,7 +96,7 @@ foreach ($entry in $Lock.files.PSObject.Properties) {
         throw "DirectX sample source hash mismatch for '$($entry.Name)': $actual."
     }
 }
-$PackagePath = Join-Path $SourceDirectory "$($Lock.sample)/packages.config"
+$PackagePath = Join-Path $SourceDirectory "$($SampleConfig.sample)/packages.config"
 $PackageContract = "id=`"$($Lock.agilityPackage)`" version=`"$($Lock.agilityVersion)`""
 if (-not ((Get-Content $PackagePath -Raw).Contains($PackageContract))) {
     throw "The pinned DirectX sample does not use $PackageContract."
@@ -126,7 +135,7 @@ $Architecture = if ($Platform -eq "ARM64") { "arm64" } else { "x64" }
 Enter-VsDevShell -VsInstallPath $VsInstall -SkipAutomaticLocation `
     -DevCmdArguments "-arch=$Architecture -host_arch=$Architecture" | Out-Null
 
-$Project = Join-Path $InstrumentedDirectory "$($Lock.sample)/D3D12HelloTriangle.vcxproj"
+$Project = Join-Path $InstrumentedDirectory "$($SampleConfig.sample)/$SampleClass.vcxproj"
 $Packages = Join-Path (
     Split-Path -Parent (Split-Path -Parent $Project)) "packages"
 msbuild.exe $Project /m:1 /t:Restore /p:RestorePackagesConfig=true `
@@ -150,7 +159,7 @@ msbuild.exe $Project /m:1 /t:Build /p:Configuration=Release `
     "/p:Platform=$Platform" /verbosity:minimal
 if ($LASTEXITCODE -ne 0) { throw "DirectX sample build failed." }
 
-$Executable = Join-Path (Split-Path -Parent $Project) "bin/$Platform/Release/D3D12HelloTriangle.exe"
+$Executable = Join-Path (Split-Path -Parent $Project) "bin/$Platform/Release/$SampleClass.exe"
 if (-not (Test-Path $Executable)) {
     throw "The DirectX sample executable was not produced: $Executable"
 }
@@ -185,10 +194,10 @@ if ((Get-Item $OraclePath).Length -ne $ExpectedLength) {
 }
 $ImageHash = (Get-FileHash $OraclePath -Algorithm SHA256).Hash
 $Contract = [ordered]@{
-    Contract = "Microsoft.DirectX-Graphics-Samples/D3D12HelloTriangle"
+    Contract = "Microsoft.DirectX-Graphics-Samples/$SampleClass"
     Repository = $Lock.repository
     Commit = $Lock.commit
-    Sample = $Lock.sample
+    Sample = $SampleConfig.sample
     AgilityPackage = $Lock.agilityPackage
     AgilityVersion = $Lock.agilityVersion
     Platform = $Platform
@@ -196,7 +205,7 @@ $Contract = [ordered]@{
     Image = $OraclePath
     ImageSha256 = $ImageHash
 }
-$ContractPath = Join-Path $OutputDirectory "microsoft-d3d12-hello-triangle.json"
+$ContractPath = Join-Path $OutputDirectory "$OracleStem.json"
 $Contract | ConvertTo-Json -Depth 4 | Set-Content $ContractPath -Encoding utf8
-Write-Output "Captured pinned Microsoft D3D12HelloTriangle oracle: $OraclePath"
+Write-Output "Captured pinned Microsoft $SampleClass oracle: $OraclePath"
 Write-Output "Agility SDK: $($Lock.agilityVersion); SHA-256: $ImageHash"

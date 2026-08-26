@@ -551,6 +551,9 @@ directx_oracle_dir="${repo_root}/artifacts/progpu-native/directx-oracle"
 run_common_mask_benchmark \
   --directx-hello-triangle-oracle \
   --directx-oracle-output "${directx_oracle_dir}"
+run_common_mask_benchmark \
+  --directx-hello-texture-oracle \
+  --directx-oracle-output "${directx_oracle_dir}"
 
 echo "ProGPU native renderer built from ${actual_commit}."
 echo "Sample: ${sample_dir}/progpu-native-sample.ppm"

@@ -141,13 +141,12 @@ jobs:
           -Rid "${{ matrix.rid }}"
           -BenchmarkProfile Smoke
 
-      - name: Capture pinned Microsoft D3D12HelloTriangle oracle
+      - name: Capture pinned Microsoft DirectX sample oracles
         if: matrix.rid == 'win-x64'
         shell: pwsh
-        run: >-
-          ./eng/progpu-capture-directx-sample-oracle.ps1
-          -Platform x64
-          -UseWarp
+        run: |
+          ./eng/progpu-capture-directx-sample-oracle.ps1 -Platform x64 -Sample HelloTriangle -UseWarp
+          ./eng/progpu-capture-directx-sample-oracle.ps1 -Platform x64 -Sample HelloTexture -UseWarp
 
       - name: Upload DirectX sample differential evidence
         if: matrix.rid == 'linux-x64' || matrix.rid == 'osx-arm64' || matrix.rid == 'win-x64'
@@ -226,6 +225,13 @@ jobs:
             --candidate artifacts/progpu-native/directx-oracle/progpu-metal.ppm \
             --candidate artifacts/progpu-native/directx-oracle/progpu-vulkan.ppm \
             --output artifacts/progpu-native/directx-oracle/directx-sample-differential.json
+          python3 eng/progpu-compare-directx-sample-oracle.py \
+            --contract "Microsoft D3D12HelloTexture native-to-ProGPU differential" \
+            --reference artifacts/progpu-native/directx-oracle/windows-native/microsoft-d3d12-hello-texture.ppm \
+            --candidate artifacts/progpu-native/directx-oracle/progpu-hello-texture-d3d12.ppm \
+            --candidate artifacts/progpu-native/directx-oracle/progpu-hello-texture-metal.ppm \
+            --candidate artifacts/progpu-native/directx-oracle/progpu-hello-texture-vulkan.ppm \
+            --output artifacts/progpu-native/directx-oracle/directx-hello-texture-differential.json
 
       - name: Upload DirectX cross-platform differential
         uses: actions/upload-artifact@v7
