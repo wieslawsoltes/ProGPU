@@ -28,8 +28,14 @@ constexpr std::uint32_t type_render_target = 45U;
 constexpr std::uint32_t type_hwnd_render_target = 46U;
 constexpr std::uint32_t type_generic_render_target = 47U;
 constexpr std::uint32_t type_double_resource = 49U;
+constexpr std::uint32_t type_color_resource = 50U;
 constexpr std::uint32_t type_point_resource = 51U;
+constexpr std::uint32_t type_rect_resource = 52U;
+constexpr std::uint32_t type_size_resource = 53U;
 constexpr std::uint32_t type_matrix_resource = 54U;
+constexpr std::uint32_t type_point3d_resource = 55U;
+constexpr std::uint32_t type_vector3d_resource = 56U;
+constexpr std::uint32_t type_quaternion_resource = 57U;
 constexpr std::uint32_t type_blur_effect = 36U;
 constexpr std::uint32_t type_drop_shadow_effect = 37U;
 constexpr std::uint32_t type_drawing_image = 59U;
@@ -655,6 +661,13 @@ struct channel::implementation {
         double y{};
     };
 
+    struct rect_resource_state {
+        double x{};
+        double y{};
+        double width{};
+        double height{};
+    };
+
     struct gradient_stop_state {
         double position{};
         progpu_native_color color{};
@@ -894,8 +907,15 @@ struct channel::implementation {
 
     std::unordered_map<std::uint32_t, resource_state> resources;
     std::unordered_map<std::uint32_t, double> double_resources;
+    std::unordered_map<std::uint32_t, std::array<float, 4U>> color_resources;
     std::unordered_map<std::uint32_t, point_resource_state> point_resources;
+    std::unordered_map<std::uint32_t, rect_resource_state> rect_resources;
+    std::unordered_map<std::uint32_t, std::array<double, 2U>> size_resources;
     std::unordered_map<std::uint32_t, affine_2d_double> matrix_resources;
+    std::unordered_map<std::uint32_t, std::array<float, 3U>> point3d_resources;
+    std::unordered_map<std::uint32_t, std::array<float, 3U>> vector3d_resources;
+    std::unordered_map<std::uint32_t, std::array<float, 4U>>
+        quaternion_resources;
     std::unordered_map<std::uint32_t, visual_state> visuals;
     std::unordered_map<std::uint32_t, target_state> targets;
     std::unordered_map<std::uint32_t, transform_state> transforms;
@@ -1052,6 +1072,34 @@ struct channel::implementation {
         }
         x = animation->second.x;
         y = animation->second.y;
+        return status::success;
+    }
+
+    status resolve_animated_rect(
+        double base_x,
+        double base_y,
+        double base_width,
+        double base_height,
+        std::uint32_t animation_handle,
+        double& x,
+        double& y,
+        double& width,
+        double& height) const noexcept {
+        if (animation_handle == 0U) {
+            x = base_x;
+            y = base_y;
+            width = base_width;
+            height = base_height;
+            return status::success;
+        }
+        const auto animation = rect_resources.find(animation_handle);
+        if (animation == rect_resources.end()) {
+            return status::invalid_handle;
+        }
+        x = animation->second.x;
+        y = animation->second.y;
+        width = animation->second.width;
+        height = animation->second.height;
         return status::success;
     }
 
@@ -1438,8 +1486,14 @@ struct channel::implementation {
             visuals.erase(handle);
             targets.erase(handle);
             double_resources.erase(handle);
+            color_resources.erase(handle);
             point_resources.erase(handle);
+            rect_resources.erase(handle);
+            size_resources.erase(handle);
             matrix_resources.erase(handle);
+            point3d_resources.erase(handle);
+            vector3d_resources.erase(handle);
+            quaternion_resources.erase(handle);
             transforms.erase(handle);
             fixed_geometries.erase(handle);
             geometry_groups.erase(handle);
@@ -1965,6 +2019,27 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         }
+        case command::color_resource: {
+            using layout = command_layouts::color_resource;
+            std::array<float, 4U> value{};
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::value_offset, value)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_color_resource)) {
+                return status::invalid_handle;
+            }
+            if (!std::ranges::all_of(value, [](float component) noexcept {
+                    return std::isfinite(component);
+                })) {
+                return status::malformed_batch;
+            }
+            color_resources.insert_or_assign(handle, value);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
         case command::point_resource: {
             using layout = command_layouts::point_resource;
             point_resource_state point{};
@@ -1991,6 +2066,54 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         }
+        case command::rect_resource: {
+            using layout = command_layouts::rect_resource;
+            rect_resource_state value{};
+            const std::size_t offset = layout::value_offset;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, offset, value.x) ||
+                !read_at(view.packet, offset + 8U, value.y) ||
+                !read_at(view.packet, offset + 16U, value.width) ||
+                !read_at(view.packet, offset + 24U, value.height)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_rect_resource)) {
+                return status::invalid_handle;
+            }
+            if (!finite_double_as_float(value.x) ||
+                !finite_double_as_float(value.y) ||
+                !finite_double_as_float(value.width) ||
+                !finite_double_as_float(value.height) ||
+                value.width < 0.0 || value.height < 0.0) {
+                return status::malformed_batch;
+            }
+            rect_resources.insert_or_assign(handle, value);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::size_resource: {
+            using layout = command_layouts::size_resource;
+            std::array<double, 2U> value{};
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::value_offset, value)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_size_resource)) {
+                return status::invalid_handle;
+            }
+            if (!finite_double_as_float(value[0]) ||
+                !finite_double_as_float(value[1]) ||
+                value[0] < 0.0 || value[1] < 0.0) {
+                return status::malformed_batch;
+            }
+            size_resources.insert_or_assign(handle, value);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
         case command::matrix_resource: {
             using layout = command_layouts::matrix_resource;
             affine_2d_double matrix{};
@@ -2012,6 +2135,63 @@ struct channel::implementation {
                 return status::malformed_batch;
             }
             matrix_resources.insert_or_assign(handle, matrix);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::point3d_resource:
+        case command::vector3d_resource: {
+            const bool is_point = view.kind == command::point3d_resource;
+            const std::size_t fixed_size = is_point
+                ? command_layouts::point3d_resource::fixed_size
+                : command_layouts::vector3d_resource::fixed_size;
+            const std::size_t handle_offset = is_point
+                ? command_layouts::point3d_resource::handle_offset
+                : command_layouts::vector3d_resource::handle_offset;
+            const std::size_t value_offset = is_point
+                ? command_layouts::point3d_resource::value_offset
+                : command_layouts::vector3d_resource::value_offset;
+            std::array<float, 3U> value{};
+            if (!has_exact_size(view, fixed_size) ||
+                !read_at(view.packet, handle_offset, handle) ||
+                !read_at(view.packet, value_offset, value)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(
+                    handle,
+                    is_point
+                        ? type_point3d_resource
+                        : type_vector3d_resource)) {
+                return status::invalid_handle;
+            }
+            if (!std::ranges::all_of(value, [](float component) noexcept {
+                    return std::isfinite(component);
+                })) {
+                return status::malformed_batch;
+            }
+            (is_point ? point3d_resources : vector3d_resources)
+                .insert_or_assign(handle, value);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::quaternion_resource: {
+            using layout = command_layouts::quaternion_resource;
+            std::array<float, 4U> value{};
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::value_offset, value)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_quaternion_resource)) {
+                return status::invalid_handle;
+            }
+            if (!std::ranges::all_of(value, [](float component) noexcept {
+                    return std::isfinite(component);
+                })) {
+                return status::malformed_batch;
+            }
+            quaternion_resources.insert_or_assign(handle, value);
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -3970,11 +4150,12 @@ struct channel::implementation {
                 (drawing.image_source_handle != 0U &&
                  (image_source == resources.end() ||
                   (image_source->second.type != type_bitmap_source &&
-                   image_source->second.type != type_drawing_image)))) {
+                   image_source->second.type != type_drawing_image))) ||
+                (drawing.rect_animation_handle != 0U &&
+                 !require_resource(
+                     drawing.rect_animation_handle,
+                     type_rect_resource))) {
                 return status::invalid_handle;
-            }
-            if (drawing.rect_animation_handle != 0U) {
-                return status::unsupported_command;
             }
             if (!finite_double_as_float(drawing.x) ||
                 !finite_double_as_float(drawing.y) ||
@@ -7157,6 +7338,90 @@ struct channel::implementation {
                 ? status::success
                 : status::invalid_graph;
         };
+        const auto append_bitmap_source = [
+            this,
+            &builder,
+            &image_indices](
+            std::uint32_t image_source_handle,
+            double x,
+            double y,
+            double width,
+            double height,
+            const render_scope_state& state) {
+            if (image_source_handle == 0U || width == 0.0 || height == 0.0) {
+                return status::success;
+            }
+            const auto bitmap = bitmap_sources.find(image_source_handle);
+            if (bitmap == bitmap_sources.end()) {
+                const auto source = resources.find(image_source_handle);
+                return source != resources.end() &&
+                    source->second.type == type_drawing_image
+                    ? status::unsupported_command
+                    : status::invalid_handle;
+            }
+            std::uint32_t image_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            const auto existing = image_indices.find(image_source_handle);
+            if (existing != image_indices.end()) {
+                image_index = existing->second;
+            } else {
+                if (!builder.add_rgba8_image(
+                        bitmap->second.width,
+                        bitmap->second.height,
+                        bitmap->second.row_bytes,
+                        bitmap->second.pixels,
+                        image_index)) {
+                    return status::invalid_graph;
+                }
+                image_indices.emplace(image_source_handle, image_index);
+            }
+            progpu_native_affine_2d native_transform{};
+            progpu_native_image_rect bounds{};
+            if (!try_to_native_affine(state.transform, native_transform) ||
+                !try_transform_bounds(
+                    x,
+                    y,
+                    width,
+                    height,
+                    state.transform,
+                    bounds)) {
+                return status::invalid_graph;
+            }
+            const progpu_native_scene_image_draw image_draw{
+                sizeof(progpu_native_scene_image_draw),
+                0U,
+                bitmap->second.width,
+                bitmap->second.height,
+                bitmap->second.row_bytes,
+                state.image_sampling,
+                {0.0F,
+                 0.0F,
+                 static_cast<float>(bitmap->second.width),
+                 static_cast<float>(bitmap->second.height)},
+                {static_cast<float>(x),
+                 static_cast<float>(y),
+                 static_cast<float>(width),
+                 static_cast<float>(height)},
+                native_transform,
+                1.0F,
+                1U};
+            const progpu_native_scene_image_sampling_options cubic_options{
+                sizeof(progpu_native_scene_image_sampling_options),
+                0U,
+                1.0F / 3.0F,
+                1.0F / 3.0F};
+            const auto* sampling_options = state.image_sampling ==
+                PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
+                ? &cubic_options
+                : nullptr;
+            return builder.draw_image(
+                    image_index,
+                    image_draw,
+                    bounds,
+                    PROGPU_NATIVE_SCENE_NO_INDEX,
+                    sampling_options)
+                ? status::success
+                : status::invalid_graph;
+        };
         for (;;) {
             const status read_status = reader.next(view);
             if (read_status == status::end_of_batch) {
@@ -7477,6 +7742,80 @@ struct channel::implementation {
                 scope_layers.pop_back();
                 continue;
             }
+            if (view.kind == command::draw_image ||
+                view.kind == command::draw_image_animate) {
+                const bool animated =
+                    view.kind == command::draw_image_animate;
+                using layout = command_layouts::draw_image;
+                double x = 0.0;
+                double y = 0.0;
+                double width = 0.0;
+                double height = 0.0;
+                std::uint32_t image_source_handle = 0U;
+                std::uint32_t trailing_value = 0U;
+                if (!has_exact_size(
+                        view,
+                        animated
+                            ? command_layouts::draw_image_animate::fixed_size
+                            : layout::fixed_size) ||
+                    !read_at(view.packet, layout::rectangle_offset, x) ||
+                    !read_at(view.packet, layout::rectangle_offset + 8U, y) ||
+                    !read_at(
+                        view.packet,
+                        layout::rectangle_offset + 16U,
+                        width) ||
+                    !read_at(
+                        view.packet,
+                        layout::rectangle_offset + 24U,
+                        height) ||
+                    !read_at(
+                        view.packet,
+                        layout::h_image_source_offset,
+                        image_source_handle) ||
+                    !read_at(
+                        view.packet,
+                        animated
+                            ? command_layouts::draw_image_animate::
+                                h_rectangle_animations_offset
+                            : layout::quad_word_pad0_offset,
+                        trailing_value)) {
+                    return status::malformed_batch;
+                }
+                if (!animated && trailing_value != 0U) {
+                    return status::malformed_batch;
+                }
+                if (!finite_double_as_float(x) ||
+                    !finite_double_as_float(y) ||
+                    !finite_double_as_float(width) ||
+                    !finite_double_as_float(height) ||
+                    width < 0.0 || height < 0.0) {
+                    return status::malformed_batch;
+                }
+                const status rectangle_status = resolve_animated_rect(
+                    x,
+                    y,
+                    width,
+                    height,
+                    animated ? trailing_value : 0U,
+                    x,
+                    y,
+                    width,
+                    height);
+                if (rectangle_status != status::success) {
+                    return rectangle_status;
+                }
+                const status image_status = append_bitmap_source(
+                    image_source_handle,
+                    x,
+                    y,
+                    width,
+                    height,
+                    current);
+                if (image_status != status::success) {
+                    return image_status;
+                }
+                continue;
+            }
             if (view.kind == command::draw_glyph_run) {
                 using layout = command_layouts::draw_glyph_run;
                 std::uint32_t foreground_brush_handle = 0U;
@@ -7503,24 +7842,62 @@ struct channel::implementation {
                 }
                 continue;
             }
-            if (view.kind == command::draw_line) {
-                using layout = command_layouts::draw_line;
+            if (view.kind == command::draw_line ||
+                view.kind == command::draw_line_animate) {
+                const bool animated =
+                    view.kind == command::draw_line_animate;
+                const std::size_t fixed_size = animated
+                    ? command_layouts::draw_line_animate::fixed_size
+                    : command_layouts::draw_line::fixed_size;
+                const std::size_t padding_offset = animated
+                    ? command_layouts::draw_line_animate::quad_word_pad0_offset
+                    : command_layouts::draw_line::quad_word_pad0_offset;
                 double x0 = 0.0;
                 double y0 = 0.0;
                 double x1 = 0.0;
                 double y1 = 0.0;
                 std::uint32_t pen_handle = 0U;
+                std::uint32_t point0_animation = 0U;
+                std::uint32_t point1_animation = 0U;
                 std::uint32_t padding = 0U;
-                if (!has_exact_size(view, layout::fixed_size) ||
-                    !read_at(view.packet, layout::point0_offset, x0) ||
-                    !read_at(view.packet, layout::point0_offset + 8U, y0) ||
-                    !read_at(view.packet, layout::point1_offset, x1) ||
-                    !read_at(view.packet, layout::point1_offset + 8U, y1) ||
-                    !read_at(view.packet, layout::h_pen_offset, pen_handle) ||
+                if (!has_exact_size(view, fixed_size) ||
                     !read_at(
                         view.packet,
-                        layout::quad_word_pad0_offset,
+                        command_layouts::draw_line::point0_offset,
+                        x0) ||
+                    !read_at(
+                        view.packet,
+                        command_layouts::draw_line::point0_offset + 8U,
+                        y0) ||
+                    !read_at(
+                        view.packet,
+                        command_layouts::draw_line::point1_offset,
+                        x1) ||
+                    !read_at(
+                        view.packet,
+                        command_layouts::draw_line::point1_offset + 8U,
+                        y1) ||
+                    !read_at(
+                        view.packet,
+                        command_layouts::draw_line::h_pen_offset,
+                        pen_handle) ||
+                    !read_at(
+                        view.packet,
+                        padding_offset,
                         padding)) {
+                    return status::malformed_batch;
+                }
+                if (animated &&
+                    (!read_at(
+                        view.packet,
+                        command_layouts::draw_line_animate::
+                            h_point0_animations_offset,
+                        point0_animation) ||
+                     !read_at(
+                         view.packet,
+                         command_layouts::draw_line_animate::
+                             h_point1_animations_offset,
+                         point1_animation))) {
                     return status::malformed_batch;
                 }
                 if (padding != 0U || !finite_double_as_float(x0) ||
@@ -7528,6 +7905,16 @@ struct channel::implementation {
                     !finite_double_as_float(x1) ||
                     !finite_double_as_float(y1)) {
                     return status::malformed_batch;
+                }
+                const status point0_status = resolve_animated_point(
+                    x0, y0, point0_animation, x0, y0);
+                if (point0_status != status::success) {
+                    return point0_status;
+                }
+                const status point1_status = resolve_animated_point(
+                    x1, y1, point1_animation, x1, y1);
+                if (point1_status != status::success) {
+                    return point1_status;
                 }
                 const affine_2d_double identity{};
                 const status line_status = append_line_stroke(
@@ -7587,87 +7974,37 @@ struct channel::implementation {
                 } else {
                     const auto image = image_drawings.find(drawing_handle);
                     if (image != image_drawings.end()) {
-                        const auto& image_state = image->second;
-                        if (image_state.rect_animation_handle != 0U) {
-                            return status::unsupported_command;
+                        auto image_state = image->second;
+                        const status rectangle_status =
+                            resolve_animated_rect(
+                                image_state.x,
+                                image_state.y,
+                                image_state.width,
+                                image_state.height,
+                                image_state.rect_animation_handle,
+                                image_state.x,
+                                image_state.y,
+                                image_state.width,
+                                image_state.height);
+                        if (rectangle_status != status::success) {
+                            return rectangle_status;
                         }
                         if (image_state.image_source_handle == 0U ||
                             image_state.width == 0.0 ||
                             image_state.height == 0.0) {
                             continue;
                         }
-                        const auto bitmap = bitmap_sources.find(
-                            image_state.image_source_handle);
-                        if (bitmap != bitmap_sources.end()) {
-                            std::uint32_t image_index =
-                                PROGPU_NATIVE_SCENE_NO_INDEX;
-                            const auto existing = image_indices.find(
-                                image_state.image_source_handle);
-                            if (existing != image_indices.end()) {
-                                image_index = existing->second;
-                            } else {
-                                if (!builder.add_rgba8_image(
-                                        bitmap->second.width,
-                                        bitmap->second.height,
-                                        bitmap->second.row_bytes,
-                                        bitmap->second.pixels,
-                                        image_index)) {
-                                    return status::invalid_graph;
-                                }
-                                image_indices.emplace(
-                                    image_state.image_source_handle,
-                                    image_index);
-                            }
-                            progpu_native_affine_2d native_transform{};
-                            progpu_native_image_rect bounds{};
-                            if (!try_to_native_affine(
-                                    current.transform, native_transform) ||
-                                !try_transform_bounds(
-                                    image_state.x,
-                                    image_state.y,
-                                    image_state.width,
-                                    image_state.height,
-                                    current.transform,
-                                    bounds)) {
-                                return status::invalid_graph;
-                            }
-                            const progpu_native_scene_image_draw image_draw{
-                                sizeof(progpu_native_scene_image_draw),
-                                0U,
-                                bitmap->second.width,
-                                bitmap->second.height,
-                                bitmap->second.row_bytes,
-                                current.image_sampling,
-                                {0.0F,
-                                 0.0F,
-                                 static_cast<float>(bitmap->second.width),
-                                 static_cast<float>(bitmap->second.height)},
-                                {static_cast<float>(image_state.x),
-                                 static_cast<float>(image_state.y),
-                                 static_cast<float>(image_state.width),
-                                 static_cast<float>(image_state.height)},
-                                native_transform,
-                                1.0F,
-                                1U};
-                            const progpu_native_scene_image_sampling_options
-                                cubic_options{
-                                    sizeof(
-                                        progpu_native_scene_image_sampling_options),
-                                    0U,
-                                    1.0F / 3.0F,
-                                    1.0F / 3.0F};
-                            const auto* sampling_options =
-                                current.image_sampling ==
-                                    PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
-                                ? &cubic_options
-                                : nullptr;
-                            if (!builder.draw_image(
-                                    image_index,
-                                    image_draw,
-                                    bounds,
-                                    PROGPU_NATIVE_SCENE_NO_INDEX,
-                                    sampling_options)) {
-                                return status::invalid_graph;
+                        if (bitmap_sources.contains(
+                                image_state.image_source_handle)) {
+                            const status image_status = append_bitmap_source(
+                                image_state.image_source_handle,
+                                image_state.x,
+                                image_state.y,
+                                image_state.width,
+                                image_state.height,
+                                current);
+                            if (image_status != status::success) {
+                                return image_status;
                             }
                             continue;
                         }
@@ -8453,19 +8790,40 @@ struct channel::implementation {
                     (radius_x != 0.0 || radius_y != 0.0);
             }
             if (!is_geometry_shape) {
+                const bool animated_rectangle =
+                    view.kind == command::draw_rectangle_animate;
+                const bool animated_rounded =
+                    view.kind == command::draw_rounded_rectangle_animate;
+                const bool animated_ellipse =
+                    view.kind == command::draw_ellipse_animate;
+                const bool animated = animated_rectangle ||
+                    animated_rounded || animated_ellipse;
                 if (view.kind != command::draw_rectangle &&
+                    !animated_rectangle &&
                     view.kind != command::draw_rounded_rectangle &&
-                    view.kind != command::draw_ellipse) {
+                    !animated_rounded &&
+                    view.kind != command::draw_ellipse &&
+                    !animated_ellipse) {
                     return status::unsupported_command;
                 }
                 is_rounded =
-                    view.kind == command::draw_rounded_rectangle;
-                is_ellipse = view.kind == command::draw_ellipse;
+                    view.kind == command::draw_rounded_rectangle ||
+                    animated_rounded;
+                is_ellipse = view.kind == command::draw_ellipse ||
+                    animated_ellipse;
                 const std::size_t fixed_size = is_rounded
-                    ? command_layouts::draw_rounded_rectangle::fixed_size
+                    ? animated
+                        ? command_layouts::draw_rounded_rectangle_animate::
+                            fixed_size
+                        : command_layouts::draw_rounded_rectangle::fixed_size
                     : is_ellipse
-                        ? command_layouts::draw_ellipse::fixed_size
-                        : command_layouts::draw_rectangle::fixed_size;
+                        ? animated
+                            ? command_layouts::draw_ellipse_animate::fixed_size
+                            : command_layouts::draw_ellipse::fixed_size
+                        : animated
+                            ? command_layouts::draw_rectangle_animate::
+                                fixed_size
+                            : command_layouts::draw_rectangle::fixed_size;
                 const std::size_t geometry_offset = is_rounded
                     ? command_layouts::draw_rounded_rectangle::rectangle_offset
                     : is_ellipse
@@ -8494,9 +8852,9 @@ struct channel::implementation {
                             layout::h_brush_offset,
                             brush_handle) ||
                         !read_at(
-                            view.packet,
-                            layout::h_pen_offset,
-                            pen_handle)) {
+                        view.packet,
+                        layout::h_pen_offset,
+                        pen_handle)) {
                         return status::malformed_batch;
                     }
                 } else if (is_ellipse) {
@@ -8522,6 +8880,114 @@ struct channel::implementation {
                             layout::h_pen_offset,
                             pen_handle)) {
                         return status::malformed_batch;
+                    }
+                }
+                if (!finite_double_as_float(first) ||
+                    !finite_double_as_float(second) ||
+                    !finite_double_as_float(third) ||
+                    !finite_double_as_float(fourth) ||
+                    (is_rounded &&
+                     (!finite_double_as_float(radius_x) ||
+                      !finite_double_as_float(radius_y)))) {
+                    return status::malformed_batch;
+                }
+                if (animated) {
+                    std::uint32_t primary_animation = 0U;
+                    std::uint32_t radius_x_animation = 0U;
+                    std::uint32_t radius_y_animation = 0U;
+                    std::uint32_t padding = 0U;
+                    const std::size_t primary_offset = is_rounded
+                        ? command_layouts::draw_rounded_rectangle_animate::
+                            h_rectangle_animations_offset
+                        : is_ellipse
+                            ? command_layouts::draw_ellipse_animate::
+                                h_center_animations_offset
+                            : command_layouts::draw_rectangle_animate::
+                                h_rectangle_animations_offset;
+                    const std::size_t padding_offset = is_rounded
+                        ? command_layouts::draw_rounded_rectangle_animate::
+                            quad_word_pad0_offset
+                        : is_ellipse
+                            ? command_layouts::draw_ellipse_animate::
+                                quad_word_pad0_offset
+                            : command_layouts::draw_rectangle_animate::
+                                quad_word_pad0_offset;
+                    if (!read_at(
+                            view.packet,
+                            primary_offset,
+                            primary_animation) ||
+                        !read_at(view.packet, padding_offset, padding) ||
+                        padding != 0U) {
+                        return status::malformed_batch;
+                    }
+                    if (is_ellipse) {
+                        const status center_status = resolve_animated_point(
+                            first,
+                            second,
+                            primary_animation,
+                            first,
+                            second);
+                        if (center_status != status::success) {
+                            return center_status;
+                        }
+                    } else {
+                        const status rectangle_status = resolve_animated_rect(
+                            first,
+                            second,
+                            third,
+                            fourth,
+                            primary_animation,
+                            first,
+                            second,
+                            third,
+                            fourth);
+                        if (rectangle_status != status::success) {
+                            return rectangle_status;
+                        }
+                    }
+                    if (is_rounded || is_ellipse) {
+                        const std::size_t radius_x_offset = is_rounded
+                            ? command_layouts::
+                                draw_rounded_rectangle_animate::
+                                    h_radius_x_animations_offset
+                            : command_layouts::draw_ellipse_animate::
+                                h_radius_x_animations_offset;
+                        const std::size_t radius_y_offset = is_rounded
+                            ? command_layouts::
+                                draw_rounded_rectangle_animate::
+                                    h_radius_y_animations_offset
+                            : command_layouts::draw_ellipse_animate::
+                                h_radius_y_animations_offset;
+                        if (!read_at(
+                                view.packet,
+                                radius_x_offset,
+                                radius_x_animation) ||
+                            !read_at(
+                                view.packet,
+                                radius_y_offset,
+                                radius_y_animation)) {
+                            return status::malformed_batch;
+                        }
+                        double& resolved_radius_x =
+                            is_ellipse ? third : radius_x;
+                        double& resolved_radius_y =
+                            is_ellipse ? fourth : radius_y;
+                        const status radius_x_status =
+                            resolve_animated_double(
+                                resolved_radius_x,
+                                radius_x_animation,
+                                resolved_radius_x);
+                        if (radius_x_status != status::success) {
+                            return radius_x_status;
+                        }
+                        const status radius_y_status =
+                            resolve_animated_double(
+                                resolved_radius_y,
+                                radius_y_animation,
+                                resolved_radius_y);
+                        if (radius_y_status != status::success) {
+                            return radius_y_status;
+                        }
                     }
                 }
             }
@@ -9785,9 +10251,28 @@ struct channel::implementation {
                             h_foreground_brush_offset);
                     append_packet_handle(
                         command_layouts::draw_glyph_run::h_glyph_run_offset);
+                } else if (view.kind == command::draw_image) {
+                    append_packet_handle(
+                        command_layouts::draw_image::h_image_source_offset);
+                } else if (view.kind == command::draw_image_animate) {
+                    append_packet_handle(
+                        command_layouts::draw_image_animate::
+                            h_image_source_offset);
+                    append_packet_handle(
+                        command_layouts::draw_image_animate::
+                            h_rectangle_animations_offset);
                 } else if (view.kind == command::draw_line) {
                     append_packet_handle(
                         command_layouts::draw_line::h_pen_offset);
+                } else if (view.kind == command::draw_line_animate) {
+                    append_packet_handle(
+                        command_layouts::draw_line_animate::h_pen_offset);
+                    append_packet_handle(
+                        command_layouts::draw_line_animate::
+                            h_point0_animations_offset);
+                    append_packet_handle(
+                        command_layouts::draw_line_animate::
+                            h_point1_animations_offset);
                 } else if (view.kind == command::draw_geometry) {
                     append_packet_handle(
                         command_layouts::draw_geometry::h_brush_offset);
@@ -9800,17 +10285,58 @@ struct channel::implementation {
                         command_layouts::draw_rectangle::h_brush_offset);
                     append_packet_handle(
                         command_layouts::draw_rectangle::h_pen_offset);
+                } else if (
+                    view.kind == command::draw_rectangle_animate) {
+                    append_packet_handle(
+                        command_layouts::draw_rectangle_animate::
+                            h_brush_offset);
+                    append_packet_handle(
+                        command_layouts::draw_rectangle_animate::h_pen_offset);
+                    append_packet_handle(
+                        command_layouts::draw_rectangle_animate::
+                            h_rectangle_animations_offset);
                 } else if (view.kind == command::draw_ellipse) {
                     append_packet_handle(
                         command_layouts::draw_ellipse::h_brush_offset);
                     append_packet_handle(
                         command_layouts::draw_ellipse::h_pen_offset);
+                } else if (view.kind == command::draw_ellipse_animate) {
+                    append_packet_handle(
+                        command_layouts::draw_ellipse_animate::h_brush_offset);
+                    append_packet_handle(
+                        command_layouts::draw_ellipse_animate::h_pen_offset);
+                    append_packet_handle(
+                        command_layouts::draw_ellipse_animate::
+                            h_center_animations_offset);
+                    append_packet_handle(
+                        command_layouts::draw_ellipse_animate::
+                            h_radius_x_animations_offset);
+                    append_packet_handle(
+                        command_layouts::draw_ellipse_animate::
+                            h_radius_y_animations_offset);
                 } else if (view.kind == command::draw_rounded_rectangle) {
                     append_packet_handle(
                         command_layouts::draw_rounded_rectangle::
                             h_brush_offset);
                     append_packet_handle(
                         command_layouts::draw_rounded_rectangle::h_pen_offset);
+                } else if (
+                    view.kind == command::draw_rounded_rectangle_animate) {
+                    append_packet_handle(
+                        command_layouts::draw_rounded_rectangle_animate::
+                            h_brush_offset);
+                    append_packet_handle(
+                        command_layouts::draw_rounded_rectangle_animate::
+                            h_pen_offset);
+                    append_packet_handle(
+                        command_layouts::draw_rounded_rectangle_animate::
+                            h_rectangle_animations_offset);
+                    append_packet_handle(
+                        command_layouts::draw_rounded_rectangle_animate::
+                            h_radius_x_animations_offset);
+                    append_packet_handle(
+                        command_layouts::draw_rounded_rectangle_animate::
+                            h_radius_y_animations_offset);
                 } else {
                     result = status::unsupported_command;
                 }
