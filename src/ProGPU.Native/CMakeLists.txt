@@ -849,6 +849,7 @@ progpu_native_enable_warnings(progpu_native_scene_builder)
 progpu_native_enable_sanitizers(progpu_native_scene_builder)
 
 add_library(progpu_native_mil STATIC
+    include/progpu_native_mil_commands.generated.hpp
     include/progpu_native_mil.hpp
     src/Mil/progpu_native_mil.cpp)
 target_compile_features(progpu_native_mil PUBLIC cxx_std_20)
@@ -1530,6 +1531,7 @@ if(NOT EMSCRIPTEN)
         include/progpu_native_hit_testing.hpp
         include/progpu_native_image.hpp
         include/progpu_native_mil.h
+        include/progpu_native_mil_commands.generated.hpp
         include/progpu_native_mil.hpp
         include/progpu_native_scene_builder.hpp
         include/progpu_native_text.hpp

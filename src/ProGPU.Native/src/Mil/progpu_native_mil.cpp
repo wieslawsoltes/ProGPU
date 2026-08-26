@@ -1476,12 +1476,13 @@ struct channel::implementation {
             return status::success;
         }
         case command::visual_set_offset: {
+            using layout = command_layouts::visual_set_offset;
             double x = 0.0;
             double y = 0.0;
-            if (!has_exact_size(view, 24U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, x) ||
-                !read_at(view.packet, 16U, y)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::offset_x_offset, x) ||
+                !read_at(view.packet, layout::offset_y_offset, y)) {
                 return status::malformed_batch;
             }
             if (!require_visual(handle)) {
@@ -1906,10 +1907,11 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         case command::double_resource: {
+            using layout = command_layouts::double_resource;
             double value = 0.0;
-            if (!has_exact_size(view, 16U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, value)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::value_offset, value)) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_double_resource)) {
@@ -1924,11 +1926,15 @@ struct channel::implementation {
             return status::success;
         }
         case command::point_resource: {
+            using layout = command_layouts::point_resource;
             point_resource_state point{};
-            if (!has_exact_size(view, 24U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, point.x) ||
-                !read_at(view.packet, 16U, point.y)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::value_offset, point.x) ||
+                !read_at(
+                    view.packet,
+                    layout::value_offset + sizeof(double),
+                    point.y)) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_point_resource)) {
