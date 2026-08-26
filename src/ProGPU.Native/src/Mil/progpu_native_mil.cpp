@@ -9295,7 +9295,9 @@ struct channel::implementation {
             active_visuals.erase(handle);
             return opacity_mask_status;
         }
-        current.opacity *= visual->second.opacity * opacity_mask_alpha;
+        const double local_visual_opacity =
+            visual->second.opacity * opacity_mask_alpha;
+        current.opacity *= local_visual_opacity;
         if (!std::isfinite(current.opacity) ||
             current.opacity < 0.0 || current.opacity > 1.0) {
             active_visuals.erase(handle);
@@ -9310,6 +9312,17 @@ struct channel::implementation {
             active_visuals.erase(handle);
             return status::unsupported_command;
         }
+        // WPF owns opacity at each Visual boundary. For an uncached Visual
+        // without its own effect, retain that boundary as an outer group so a
+        // descendant effect is completed before the ancestor alpha is
+        // applied. Exact typed descendant bounds keep the intermediate
+        // bounded; callers without them retain the compatibility path, whose
+        // descendant-effect guard above still fails closed.
+        const bool isolate_uncached_visual_opacity =
+            visual->second.effect_handle == 0U &&
+            visual->second.cache_mode_handle == 0U &&
+            local_visual_opacity != 1.0 &&
+            visual->second.has_cache_bounds;
         if ((visual->second.render_options_flags &
                 render_option_bitmap_scaling) != 0U) {
             current.image_sampling =
@@ -9354,6 +9367,8 @@ struct channel::implementation {
         }
         state.opacity = isolate_uncached_effect_composite
             ? 1.0F
+            : isolate_uncached_visual_opacity
+            ? static_cast<float>(parent_state.opacity)
             : static_cast<float>(current.opacity);
         if (current.has_clip && visual->second.effect_handle == 0U) {
             state.flags |= PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
@@ -9382,6 +9397,35 @@ struct channel::implementation {
             return status::invalid_graph;
         }
 
+        bool visual_opacity_layer_pushed = false;
+        if (isolate_uncached_visual_opacity) {
+            progpu_native_scene_layer opacity_layer{};
+            opacity_layer.struct_size = sizeof(opacity_layer);
+            opacity_layer.flags =
+                PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
+                PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+            opacity_layer.opacity =
+                static_cast<float>(local_visual_opacity);
+            opacity_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+            opacity_layer.mask_resource_index =
+                PROGPU_NATIVE_SCENE_NO_INDEX;
+            opacity_layer.effect_resource_index =
+                PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!try_transform_bounds(
+                    visual->second.cache_bounds_x,
+                    visual->second.cache_bounds_y,
+                    visual->second.cache_bounds_width,
+                    visual->second.cache_bounds_height,
+                    current.transform,
+                    opacity_layer.bounds) ||
+                !builder.push_layer(opacity_layer)) {
+                builder.restore();
+                active_visuals.erase(handle);
+                return status::invalid_graph;
+            }
+            visual_opacity_layer_pushed = true;
+        }
+
         std::uint32_t effect_layer_count = 0U;
         const status effect_status = add_visual_effect_layer(
             handle,
@@ -9395,6 +9439,9 @@ struct channel::implementation {
                 builder.pop_layer();
                 --effect_layer_count;
             }
+            if (visual_opacity_layer_pushed) {
+                builder.pop_layer();
+            }
             builder.restore();
             active_visuals.erase(handle);
             return effect_status;
@@ -9404,9 +9451,6 @@ struct channel::implementation {
         bool skip_cached_content = false;
         bool cache_content_state_pushed = false;
         render_scope_state content_scope = current;
-        if (isolate_uncached_effect_composite) {
-            content_scope.opacity = 1.0;
-        }
         const status cache_status = add_visual_cache_layer(
             visual->second.cache_mode_handle,
             handle,
@@ -9428,9 +9472,19 @@ struct channel::implementation {
                 builder.pop_layer();
                 --effect_layer_count;
             }
+            if (visual_opacity_layer_pushed) {
+                builder.pop_layer();
+            }
             builder.restore();
             active_visuals.erase(handle);
             return cache_status;
+        }
+        if (!cache_layer_pushed) {
+            if (isolate_uncached_effect_composite) {
+                content_scope.opacity = 1.0;
+            } else if (isolate_uncached_visual_opacity) {
+                content_scope.opacity = parent_state.opacity;
+            }
         }
 
         ++metrics.visual_count;
@@ -9478,6 +9532,10 @@ struct channel::implementation {
                 result = status::invalid_graph;
             }
             --effect_layer_count;
+        }
+        if (visual_opacity_layer_pushed && !builder.pop_layer() &&
+            result == status::success) {
+            result = status::invalid_graph;
         }
         if (!builder.restore() && result == status::success) {
             result = status::invalid_graph;

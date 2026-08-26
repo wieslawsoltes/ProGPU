@@ -2247,6 +2247,35 @@ for `progpu_native.dll` and
 `6921A4037372B7A327370DA2035750FD48E791164BD2B5E0407E05F3A01C4A14`
 for `progpu_native_dawn.dll`.
 
+The inherited-opacity ownership checkpoint follows WPF's per-Visual effect
+stack rather than multiplying ancestor alpha into descendant draw state.
+`CMilVisual::HasEffects` treats non-unit opacity as a Visual effect;
+`CDrawingContext::PreSubgraph` pushes that node's opacity boundary before
+walking children, while an effect-owning child pushes its image effect outside
+its own opacity/mask layer. The corresponding `PostSubgraph` pops those layers
+per node. An ancestor opacity layer must therefore remain outside a descendant
+effect.
+
+For an uncached Visual without its own effect, native MIL now uses exact typed
+descendant bounds to emit a bounded `FORCE_ISOLATION` layer carrying that
+Visual's local opacity. Descendant state receives only the still-unisolated
+ancestor remainder; a child effect consequently emits its own outer effect and
+inner local opacity/mask layers inside the ancestor group. Cache roots and
+effect-owning Visuals keep their previously-qualified specialized paths.
+Callers without exact bounds retain compatibility for simple flattened draws,
+but an unresolved inherited-opacity/effect boundary continues to fail closed.
+No ABI, reflection, managed rendering fallback, or backend-specific branch is
+added.
+
+Native MIL regressions first prove the missing-bound rejection, then bind the
+typed parent extent and assert parent opacity -> child effect -> child local
+opacity layer order, bounded dimensions, absence of cache flags, and unit
+opacity on all descendant scene States. The Apple M3 Pro Metal gate reports
+`2/2/2` content/composite/effect passes. The correct ancestor group keeps
+exclusive/overlap red samples at `128/128`, extent `[4,4]-[41,31]`, and red sum
+67,186. Deliberately flattening the alpha into the child and sibling reaches
+`128/189`, changes 392 pixels, and yields `[5,5]-[41,30]`, red sum 74,382.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
