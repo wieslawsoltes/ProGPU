@@ -104,6 +104,24 @@ bool try_get_cached_layer(
     return false;
 }
 
+std::vector<progpu_native_scene_layer> get_scene_layers(
+    const std::vector<std::byte>& stream) {
+    std::vector<progpu_native_scene_layer> layers;
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+        const auto command_record = read_value<progpu_native_scene_command>(
+            stream,
+            header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (command_record.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER &&
+            command_record.payload_size == sizeof(progpu_native_scene_layer)) {
+            layers.push_back(read_value<progpu_native_scene_layer>(
+                stream, command_record.payload_offset));
+        }
+    }
+    return layers;
+}
+
 bool try_get_state_resource(
     const std::vector<std::byte>& stream,
     std::uint32_t resource_index,
@@ -2578,6 +2596,164 @@ bool visual_bitmap_cache_applies_gradient_mask_at_composite() {
     PROGPU_REQUIRE(
         state.build_scene(target, 9018U, 3U, stream, &metrics) ==
         status::unsupported_command);
+    return true;
+}
+
+bool visual_bitmap_cache_preserves_nested_effect_ordering() {
+    constexpr std::uint32_t root = 1U;
+    constexpr std::uint32_t child = 2U;
+    constexpr std::uint32_t child_content = 3U;
+    constexpr std::uint32_t target = 4U;
+    constexpr std::uint32_t brush = 5U;
+    constexpr std::uint32_t root_cache = 6U;
+    constexpr std::uint32_t child_cache = 7U;
+    constexpr std::uint32_t blur = 8U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, root, 39U);
+    append_create(batch, child, 39U);
+    append_create(batch, child_content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, root_cache, 94U);
+    append_create(batch, child_cache, 94U);
+    append_create(batch, blur, 36U);
+    append_command(batch, command::visual_create, root);
+    append_command(batch, command::visual_create, child);
+    append_command(batch, command::visual_set_content, child, child_content);
+    append_command(batch, command::visual_set_offset, child, 5.0, 6.0);
+    append_command(batch, command::visual_set_alpha, child, 0.5);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.2F, 0.7F, 1.0F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_rectangle,
+        0.0,
+        0.0,
+        16.0,
+        12.0,
+        brush,
+        0U);
+    append_render_data(batch, child_content, nested);
+    append_command(
+        batch, command::blur_effect, blur, 6.0, 0U, 0U, 1U);
+    append_command(batch, command::visual_set_effect, child, blur);
+    append_command(
+        batch, command::bitmap_cache, root_cache, 1.0, 0U, 0U, 0U);
+    append_command(
+        batch, command::bitmap_cache, child_cache, 1.0, 0U, 0U, 0U);
+    append_command(batch, command::visual_set_cache_mode, root, root_cache);
+    append_command(
+        batch, command::visual_set_cache_mode, child, child_cache);
+    append_command(
+        batch, command::visual_insert_child_at, root, child, 0U);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, root);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    PROGPU_REQUIRE(
+        state.set_visual_cache_bounds(
+            root, 0.0, 0.0, 48.0, 40.0) == status::success);
+    PROGPU_REQUIRE(
+        state.set_visual_cache_bounds(
+            child, 0.0, 0.0, 16.0, 12.0) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9023U, 1U, stream, &metrics) ==
+        status::success);
+    auto layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(layers.size() == 3U);
+    PROGPU_REQUIRE(
+        (layers[0].flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U);
+    PROGPU_REQUIRE(
+        layers[1].effect_resource_index !=
+            PROGPU_NATIVE_SCENE_NO_INDEX);
+    PROGPU_REQUIRE(
+        (layers[1].flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) == 0U);
+    PROGPU_REQUIRE(
+        (layers[2].flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U);
+    PROGPU_REQUIRE(layers[1].opacity == 1.0F);
+    PROGPU_REQUIRE(layers[2].opacity == 0.5F);
+    const auto first_root = layers[0];
+    const auto first_child = layers[2];
+
+    std::vector<std::byte> child_composite_update;
+    append_command(
+        child_composite_update,
+        command::visual_set_offset,
+        child,
+        7.0,
+        6.0);
+    PROGPU_REQUIRE(
+        state.apply(child_composite_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9023U, 2U, stream, &metrics) ==
+        status::success);
+    layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(layers.size() == 3U);
+    PROGPU_REQUIRE(
+        layers[0].content_revision != first_root.content_revision);
+    PROGPU_REQUIRE(
+        layers[0].composite_revision == first_root.composite_revision);
+    PROGPU_REQUIRE(
+        layers[2].content_revision == first_child.content_revision);
+    PROGPU_REQUIRE(
+        layers[2].composite_revision == first_child.composite_revision);
+    const auto moved_root = layers[0];
+    const auto moved_child = layers[2];
+
+    std::vector<std::byte> root_composite_update;
+    append_command(
+        root_composite_update,
+        command::visual_set_offset,
+        root,
+        3.0,
+        4.0);
+    PROGPU_REQUIRE(state.apply(root_composite_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9023U, 3U, stream, &metrics) ==
+        status::success);
+    layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(layers.size() == 3U);
+    PROGPU_REQUIRE(
+        layers[0].content_revision == moved_root.content_revision);
+    PROGPU_REQUIRE(
+        layers[2].content_revision == moved_child.content_revision);
+
+    std::vector<std::byte> effect_update;
+    append_command(
+        effect_update, command::blur_effect, blur, 9.0, 0U, 0U, 1U);
+    PROGPU_REQUIRE(state.apply(effect_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9023U, 4U, stream, &metrics) ==
+        status::success);
+    layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(layers.size() == 3U);
+    PROGPU_REQUIRE(
+        layers[0].content_revision != moved_root.content_revision);
+    PROGPU_REQUIRE(
+        layers[2].content_revision == moved_child.content_revision);
+    PROGPU_REQUIRE(
+        layers[2].composite_revision == moved_child.composite_revision);
     return true;
 }
 
@@ -8786,6 +8962,8 @@ int main() {
     PROGPU_REQUIRE(visual_bitmap_cache_applies_root_state_at_composite());
     PROGPU_REQUIRE(
         visual_bitmap_cache_applies_gradient_mask_at_composite());
+    PROGPU_REQUIRE(
+        visual_bitmap_cache_preserves_nested_effect_ordering());
     PROGPU_REQUIRE(visual_static_guidelines_reset_at_child_boundaries());
     PROGPU_REQUIRE(matrix_transform_scopes_compile_to_semantic_state());
     PROGPU_REQUIRE(

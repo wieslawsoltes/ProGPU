@@ -8313,6 +8313,7 @@ struct channel::implementation {
     status add_visual_effect_layer(
         std::uint32_t effect_handle,
         const render_scope_state& state,
+        bool has_local_cache_input,
         native::semantic_scene_builder& builder,
         bool& pushed) const {
         pushed = false;
@@ -8324,12 +8325,15 @@ struct channel::implementation {
         if (effect == effects.end() || resource == resources.end()) {
             return status::invalid_handle;
         }
-        // WPF composes Clip > Effect > OpacityMask/Opacity. Until the
-        // semantic layer carries separate source and composite clips, do not
-        // move any of those modifiers below the effect.
+        // WPF composes Clip > Effect > OpacityMask/Opacity. A local cache is
+        // already the required isolated input, so its composite opacity can
+        // stay on the inner cache layer and execute before this outer effect.
+        // Uncached opacity would attenuate individual primitives instead of
+        // the isolated visual, and clips still need separate source/output
+        // semantics, so those combinations remain fail closed.
         if (state.has_clip ||
             state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
-            state.opacity != 1.0) {
+            (state.opacity != 1.0 && !has_local_cache_input)) {
             return status::unsupported_command;
         }
         const double scale_x = std::hypot(
@@ -9189,6 +9193,7 @@ struct channel::implementation {
         const status effect_status = add_visual_effect_layer(
             visual->second.effect_handle,
             current,
+            visual->second.cache_mode_handle != 0U,
             builder,
             effect_layer_pushed);
         if (effect_status != status::success) {
