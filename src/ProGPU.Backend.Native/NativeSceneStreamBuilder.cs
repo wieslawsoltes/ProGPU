@@ -2855,7 +2855,8 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneLayerFlags.ForceIsolation |
             NativeSceneLayerFlags.CacheContent |
             NativeSceneLayerFlags.CacheLocalSpace |
-            NativeSceneLayerFlags.CacheNearest;
+            NativeSceneLayerFlags.CacheNearest |
+            NativeSceneLayerFlags.CacheFant;
         bool localCache =
             (layer.Flags & NativeSceneLayerFlags.CacheLocalSpace) != 0;
         bool hasBounds =
@@ -2882,8 +2883,12 @@ public ref struct NativeSceneStreamBuilder
                     layer.Bounds.Width > 0f && layer.Bounds.Height > 0f &&
                     layer.BlendMode == GpuBlendMode.SrcOver &&
                     layer.EffectResourceIndex == NativeMethods.SceneNoIndex)) &&
-            ((layer.Flags & NativeSceneLayerFlags.CacheNearest) == 0 ||
-                localCache) &&
+            ((layer.Flags & (NativeSceneLayerFlags.CacheNearest |
+                    NativeSceneLayerFlags.CacheFant)) == 0 || localCache) &&
+            (layer.Flags & (NativeSceneLayerFlags.CacheNearest |
+                    NativeSceneLayerFlags.CacheFant)) !=
+                (NativeSceneLayerFlags.CacheNearest |
+                    NativeSceneLayerFlags.CacheFant) &&
             layer.HasCanonicalReservedFields;
     }
 

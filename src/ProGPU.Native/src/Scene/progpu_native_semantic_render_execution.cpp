@@ -2671,10 +2671,12 @@ progpu_native_status render_scene(
                 }
                 const bool cubic_sampling =
                     image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC;
+                const bool fant_sampling =
+                    image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_FANT;
                 const std::uint32_t first_vertex =
                     static_cast<std::uint32_t>(vertices.size());
                 const auto append_quad = [&image, &image_options, &vertices,
-                    frame, cubic_sampling](
+                    frame, cubic_sampling, fant_sampling](
                     const progpu_native_scene_image_patch* patch) {
                     const auto& source = patch == nullptr
                         ? image.source_rect
@@ -2768,7 +2770,7 @@ progpu_native_status render_scene(
                         vertex.brush_index = patch_kind;
                         vertex.shape_size[0] = cubic_sampling
                             ? image_options.cubic_b
-                            : 0.0F;
+                            : fant_sampling ? -32.0F : 0.0F;
                         vertex.shape_size[1] = cubic_sampling
                             ? image_options.cubic_c
                             : 0.5F;
@@ -4068,6 +4070,15 @@ progpu_native_status render_scene(
                             engine->semantic_layer_slots[source_layer].height,
                             frame->dpi_scale,
                             layer.opacity);
+                    }
+                    if ((layer.flags &
+                            PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT) != 0U) {
+                        for (std::size_t vertex_index = first_vertex;
+                             vertex_index < semantic_layer_vertices.size();
+                             ++vertex_index) {
+                            semantic_layer_vertices[vertex_index].brush_index =
+                                -1.0F;
+                        }
                     }
                     semantic_render_bundle_span operation{};
                     operation.kind = semantic_replay_kind::pop_layer;

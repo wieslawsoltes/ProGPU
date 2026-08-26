@@ -267,7 +267,9 @@ enum {
     */
     PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE = 1U << 4U,
     /* Selects nearest-neighbor sampling for a CACHE_LOCAL_SPACE composite. */
-    PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST = 1U << 5U
+    PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST = 1U << 5U,
+    /* Selects bounded Fant-style minification for a local cache composite. */
+    PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT = 1U << 6U
 };
 
 typedef enum progpu_native_image_sampling {
@@ -280,7 +282,9 @@ typedef enum progpu_native_image_sampling {
     PROGPU_NATIVE_IMAGE_SAMPLING_MAG_LINEAR_MIN_NEAREST_MIP_NEAREST = 6,
     PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_LINEAR_MIP_LINEAR = 7,
     PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_LINEAR_MIP_NEAREST = 8,
-    PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_NEAREST_MIP_LINEAR = 9
+    PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_NEAREST_MIP_LINEAR = 9,
+    /* WPF Fant/HighQuality bounded area-prefilter minification. */
+    PROGPU_NATIVE_IMAGE_SAMPLING_FANT = 10
 } progpu_native_image_sampling;
 
 typedef enum progpu_native_scene_image_patch_kind {
@@ -1040,8 +1044,10 @@ typedef struct progpu_native_scene_guideline_set {
  * parent target. Its optional mask_resource_index is applied to the cached
  * quad during that composite and does not participate in retained content
  * reuse; effects remain unsupported on local cached layers. LAYER_CACHE_NEAREST
- * selects nearest-neighbor sampling for that local cached quad and is invalid
- * without LAYER_CACHE_LOCAL_SPACE.
+ * selects nearest-neighbor sampling for that local cached quad. LAYER_CACHE_FANT
+ * selects a bounded area-prefilter reconstruction for WPF Fant/HighQuality
+ * minification and normal linear reconstruction otherwise. Both sampling flags
+ * are invalid without LAYER_CACHE_LOCAL_SPACE and are mutually exclusive.
  * The 64-byte version-one record remains unchanged.
  */
 typedef struct progpu_native_scene_layer {

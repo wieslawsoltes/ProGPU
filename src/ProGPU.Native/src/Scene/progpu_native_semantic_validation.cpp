@@ -30,6 +30,7 @@ bool resolve_semantic_image_sampler_options(
             return true;
         case PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR:
         case PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC:
+        case PROGPU_NATIVE_IMAGE_SAMPLING_FANT:
             options.mag_linear = true;
             options.min_linear = true;
             return true;
@@ -385,7 +386,8 @@ bool is_valid_semantic_layer(
         PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
         PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
         PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
-        PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST;
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT;
     const bool local_cache =
         (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
     const bool bounds_are_canonical =
@@ -416,8 +418,13 @@ bool is_valid_semantic_layer(
                 layer.blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER &&
                 layer.effect_resource_index ==
                     PROGPU_NATIVE_SCENE_NO_INDEX)) &&
-        (((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST) == 0U) ||
+        (((layer.flags & (PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST |
+                PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT)) == 0U) ||
             local_cache) &&
+        ((layer.flags & (PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST |
+                PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT)) !=
+            (PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST |
+                PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT)) &&
         (local_cache || layer.reserved0 == 0U) && layer.reserved1 == 0U;
 }
 

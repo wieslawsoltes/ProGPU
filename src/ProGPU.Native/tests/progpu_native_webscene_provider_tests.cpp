@@ -531,7 +531,7 @@ void verify_direct_image_sampler_contract(
         "non-finite direct image cubic coefficients did not fail closed");
 
     frame.cubic_b = 0.0F;
-    frame.sampling = 10U;
+    frame.sampling = 11U;
     require(progpu_native_engine_render_image(engine, &frame, &metrics) ==
             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
         "unknown direct image sampling did not fail closed");
@@ -1304,7 +1304,8 @@ std::vector<std::byte> create_semantic_local_retained_cache_scene_stream(
     float outer_offset_x,
     float raster_scale,
     bool composite_clip = false,
-    bool nearest_sampling = false) {
+    bool nearest_sampling = false,
+    bool fant_sampling = false) {
     constexpr std::uint64_t scene_id = 1094U;
     constexpr std::uint64_t cache_identity = 7002U;
     constexpr std::uint32_t command_count = 5U;
@@ -1372,6 +1373,10 @@ std::vector<std::byte> create_semantic_local_retained_cache_scene_stream(
             (nearest_sampling
                 ? static_cast<std::uint32_t>(
                     PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST)
+                : 0U) |
+            (fant_sampling
+                ? static_cast<std::uint32_t>(
+                    PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT)
                 : 0U),
         {0.0F, 0.0F, 24.0F * raster_scale, 18.0F * raster_scale},
         1.0F,
@@ -5525,6 +5530,34 @@ int main(int argc, char** argv) {
         semantic_layer_metrics.content_pass_count == 0U &&
         semantic_layer_metrics.composite_pass_count == 1U,
         "semantic local retained cache nearest sampling redrew content");
+
+    local_cache_scene = create_semantic_local_retained_cache_scene_stream(
+        6U, 2U, 32.0F, 0.5F, true, false, true);
+    scene_metrics = {};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    require(progpu_native_engine_update_scene(
+        engine,
+        local_cache_scene.data(),
+        local_cache_scene.size(),
+        &scene_metrics) == PROGPU_NATIVE_STATUS_SUCCESS,
+        "semantic local retained cache Fant update failed");
+    local_cache_frame.generation = 6U;
+    semantic_metrics = {};
+    semantic_metrics.struct_size = sizeof(semantic_metrics);
+    require(progpu_native_engine_render_scene(
+        engine,
+        &local_cache_frame,
+        &semantic_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_metrics.draw_call_count == 1U,
+        "semantic local retained cache Fant replay failed");
+    semantic_layer_metrics = {};
+    semantic_layer_metrics.struct_size = sizeof(semantic_layer_metrics);
+    require(progpu_native_engine_get_layer_metrics(
+        engine,
+        &semantic_layer_metrics) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic_layer_metrics.content_pass_count == 0U &&
+        semantic_layer_metrics.composite_pass_count == 1U,
+        "semantic local retained cache Fant sampling redrew content");
 
     auto local_cache_mask_scene =
         create_semantic_local_retained_cache_brush_mask_scene_stream(

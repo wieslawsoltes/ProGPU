@@ -232,7 +232,11 @@ progpu_native_status render_image(
             vertex.texture_coordinate[1] = corners[index][1] == 0U ? v0 : v1;
             vertex.brush_index = 0.0F;
             vertex.shape_size[0] = frame->sampling ==
-                PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC ? cubic_b : 0.0F;
+                PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
+                ? cubic_b
+                : frame->sampling == PROGPU_NATIVE_IMAGE_SAMPLING_FANT
+                    ? -32.0F
+                    : 0.0F;
             vertex.shape_size[1] = frame->sampling ==
                 PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC ? cubic_c : 0.5F;
             vertex.corner_radius = 0.0F;

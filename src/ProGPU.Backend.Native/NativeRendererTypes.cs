@@ -239,7 +239,11 @@ public enum NativeImageSampling : uint
     MagLinearMinNearestMipNearest = 6,
     MagNearestMinLinearMipLinear = 7,
     MagNearestMinLinearMipNearest = 8,
-    MagNearestMinNearestMipLinear = 9
+    MagNearestMinNearestMipLinear = 9,
+    /// <summary>
+    /// WPF Fant/HighQuality bounded area-prefilter minification.
+    /// </summary>
+    Fant = 10
 }
 
 public enum NativeSceneImagePatchKind : uint
@@ -724,7 +728,15 @@ public enum NativeSceneLayerFlags : uint
     /// Samples a local cached layer with exact nearest-neighbor filtering.
     /// This flag is invalid without <see cref="CacheLocalSpace"/>.
     /// </summary>
-    CacheNearest = 1U << 5
+    CacheNearest = 1U << 5,
+
+    /// <summary>
+    /// Uses bounded area-prefilter reconstruction for WPF Fant/HighQuality
+    /// minification and linear reconstruction when no prefilter is required.
+    /// This flag is invalid without <see cref="CacheLocalSpace"/> and is
+    /// mutually exclusive with <see cref="CacheNearest"/>.
+    /// </summary>
+    CacheFant = 1U << 6
 }
 
 public enum NativeSceneValidationError : uint
@@ -1228,7 +1240,7 @@ public readonly struct NativeSceneImageDraw
     public readonly uint MaxAnisotropy;
 
     internal bool HasCanonicalSampling =>
-        Sampling <= NativeImageSampling.MagNearestMinNearestMipLinear &&
+        Sampling <= NativeImageSampling.Fant &&
         MaxAnisotropy <= 16U &&
         (Sampling == NativeImageSampling.LinearMipmap ||
             MaxAnisotropy is 0U or 1U);
@@ -1570,7 +1582,9 @@ internal readonly struct NativeSceneGuidelineSetHeader
 /// applied while compositing the retained page and does not invalidate cached
 /// content; effects remain unsupported on local cached layers.
 /// <see cref="NativeSceneLayerFlags.CacheNearest"/> selects nearest-neighbor
-/// filtering for that cached-page composite.
+/// filtering, while <see cref="NativeSceneLayerFlags.CacheFant"/> selects
+/// bounded WPF-compatible high-quality minification for that cached-page
+/// composite.
 /// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct NativeSceneLayer

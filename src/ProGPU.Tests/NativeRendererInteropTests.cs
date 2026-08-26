@@ -3391,6 +3391,45 @@ public class NativeRendererInteropTests
         Assert.False(BuildLayer(
             destination, in invalidNearestCachedLayer, out _));
 
+        var fantLocalCachedLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent |
+                NativeSceneLayerFlags.CacheLocalSpace |
+                NativeSceneLayerFlags.CacheFant,
+            bounds: new NativeImageRect(0f, 0f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 9U,
+            compositeStateResourceIndex: 0U);
+        var fantBuilder = new NativeSceneStreamBuilder(
+            destination,
+            13U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+        Assert.True(fantBuilder.TryAddStateResource(
+            1U, 1U, in compositeState, out uint fantCompositeStateIndex));
+        fantLocalCachedLayer = new NativeSceneLayer(
+            flags: fantLocalCachedLayer.Flags,
+            bounds: fantLocalCachedLayer.Bounds,
+            contentRevision: fantLocalCachedLayer.ContentRevision,
+            compositeRevision: fantLocalCachedLayer.CompositeRevision,
+            compositeStateResourceIndex: fantCompositeStateIndex);
+        Assert.True(fantBuilder.TryPushLayer(
+            1U, in fantLocalCachedLayer));
+
+        var conflictingSamplingLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent |
+                NativeSceneLayerFlags.CacheLocalSpace |
+                NativeSceneLayerFlags.CacheNearest |
+                NativeSceneLayerFlags.CacheFant,
+            bounds: new NativeImageRect(0f, 0f, 40f, 50f),
+            contentRevision: 7U,
+            compositeRevision: 9U,
+            compositeStateResourceIndex: compositeStateIndex);
+        Assert.False(BuildLayer(
+            destination, in conflictingSamplingLayer, out _));
+
         var missingCompositeState = new NativeSceneLayer(
             flags: NativeSceneLayerFlags.Bounds |
                 NativeSceneLayerFlags.CacheContent |
@@ -4162,9 +4201,10 @@ public class NativeRendererInteropTests
         Assert.True(TryRecord(
             NativeImageSampling.MagNearestMinNearestMipLinear,
             1));
+        Assert.True(TryRecord(NativeImageSampling.Fant, 1));
         Assert.False(TryRecord(NativeImageSampling.LinearMipmap, 17));
         Assert.False(TryRecord(NativeImageSampling.Linear, 2));
-        Assert.False(TryRecord((NativeImageSampling)10U, 1));
+        Assert.False(TryRecord((NativeImageSampling)11U, 1));
     }
 
     [Fact]
