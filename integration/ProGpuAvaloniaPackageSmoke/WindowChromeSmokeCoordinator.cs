@@ -22,6 +22,7 @@ internal sealed class WindowChromeSmokeCoordinator
     private readonly string? _outputPath;
     private readonly int _targetFrames;
     private readonly bool _requireRetainedCompositor;
+    private readonly bool _manualInteraction;
     private readonly SmokeWindow _owner;
     private SmokeWindow? _owned;
     private int _frameCount;
@@ -40,6 +41,8 @@ internal sealed class WindowChromeSmokeCoordinator
             "PROGPU_PACKAGE_SMOKE_FRAMES");
         _requireRetainedCompositor = ReadBoolean(
             "PROGPU_PACKAGE_SMOKE_REQUIRE_RETAINED");
+        _manualInteraction = ReadBoolean(
+            "PROGPU_PACKAGE_SMOKE_MANUAL");
         _owner = new SmokeWindow(standalone: false)
         {
             Title =
@@ -82,6 +85,9 @@ internal sealed class WindowChromeSmokeCoordinator
     {
         _ = sender;
         _ = e;
+        if (_manualInteraction)
+            return;
+
         Dispatcher.UIThread.Post(
             ValidateOwnerAndOpenChild,
             DispatcherPriority.Background);
@@ -337,6 +343,24 @@ internal sealed class WindowChromeSmokeCoordinator
         writer.WriteNumber(
             "ExtendedTopMargin",
             owner?.ExtendedMargins.Top ?? 0);
+        writer.WriteNumber(
+            "DesktopScaling",
+            owner?.DesktopScaling ?? 0);
+        writer.WriteNumber(
+            "RenderScaling",
+            owner?.RenderScaling ?? 0);
+        writer.WriteNumber(
+            "LogicalClientWidth",
+            owner?.ClientSize.Width ?? 0);
+        writer.WriteNumber(
+            "LogicalClientHeight",
+            owner?.ClientSize.Height ?? 0);
+        writer.WriteNumber(
+            "FramebufferWidth",
+            owner?.FramebufferPixelSize.Width ?? 0);
+        writer.WriteNumber(
+            "FramebufferHeight",
+            owner?.FramebufferPixelSize.Height ?? 0);
         writer.WriteString(
             "TransparencyLevel",
             owner?.TransparencyLevel.ToString() ??

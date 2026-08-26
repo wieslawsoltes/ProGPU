@@ -100,6 +100,24 @@ public readonly record struct NativeWindowHandle(
 
 public readonly record struct NativeWindowPoint(int X, int Y);
 
+public enum NativeTouchPhase
+{
+    Begin,
+    Update,
+    End,
+    Cancel
+}
+
+public readonly record struct NativeTouchEvent(
+    uint Id,
+    NativeTouchPhase Phase,
+    double X,
+    double Y,
+    double ContactWidth,
+    double ContactHeight,
+    uint Timestamp,
+    bool IsPointerEmulation = false);
+
 public readonly record struct NativeWindowSize(int Width, int Height)
 {
     public static NativeWindowSize Unbounded => new(int.MaxValue, int.MaxValue);

@@ -8,7 +8,7 @@ backend.
 Run all commands from the repository root:
 
 ```bash
-cd /Users/wieslawsoltes/GitHub/ProGPU-clean-preview27
+cd /path/to/ProGPU
 ```
 
 The source-host scripts prepare the pinned Avalonia 12.1.1 checkout
@@ -282,6 +282,57 @@ initialization failures.
 | `--native-windowing` | off | Use Avalonia Native, Win32, or X11 instead of Silk.NET/GLFW |
 | `--allow-composition-fallback` | off | Permit flattened rendering when retained composition is unavailable |
 | `--allow-dawn-presentation-fallback` | off | Permit non-Dawn presentation if strict native Dawn startup fails |
+
+## Silk.NET windowing and input harness
+
+`AvaloniaSilkNetInputHarness` uses the production Silk.NET/GLFW windowing
+backend with Avalonia's Skia renderer. Keeping rendering independent makes
+native window, DPI, resize, custom-titlebar, and routed-input validation useful
+even on a VM whose WebGPU driver cannot run the larger ControlCatalog workload.
+The harness exits with code 0 as soon as every expected category is observed,
+or code 12 on timeout:
+
+```bash
+PROGPU_AVALONIA_INPUT_OUTPUT=/tmp/progpu-input.json \
+PROGPU_AVALONIA_INPUT_EXPECT='keyboard,text,pointer,wheel,shortcut,mouse-left,mouse-right,mouse-middle,mouse-x1,mouse-x2' \
+PROGPU_AVALONIA_INPUT_TIMEOUT_SECONDS=120 \
+dotnet run \
+  --project integration/AvaloniaSilkNetInputHarness/AvaloniaSilkNetInputHarness.csproj \
+  --configuration Release
+```
+
+Supported expected categories are `keyboard`, `text`, `pointer`, `wheel`,
+`shortcut`, `mouse-left`, `mouse-right`, `mouse-middle`, `mouse-x1`,
+`mouse-x2`, `touch`, `magnify`, `rotate`, `swipe`, `move`, and `resize`.
+`resize` requires at least three native client-size notifications and three
+matching Avalonia layout-size changes, so a final-only resize callback cannot
+pass. `move` requires a 100-pixel native position delta from the initial
+placement. The JSON also records the final logical client, native position,
+and Avalonia render scaling.
+
+For an interactive Windows VM, publish for its RID and run the process in the
+logged-in desktop session. The companion injector drives X1/X2 buttons, the
+custom title bar, and a gradual resize using the target's per-monitor-v2
+physical coordinate space:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File integration\AvaloniaSilkNetInputHarness\windows-inject-input.ps1 `
+  -Action XButtons
+
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File integration\AvaloniaSilkNetInputHarness\windows-inject-input.ps1 `
+  -Action TitleBarDrag
+
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File integration\AvaloniaSilkNetInputHarness\windows-inject-input.ps1 `
+  -Action Resize
+```
+
+Physical touch and trackpad gestures must be supplied by capable hardware (or
+a platform-specific trusted device injector). Focused contracts cover Win32
+`WM_TOUCH`, XI2.2 layouts/phases, promoted-mouse suppression, and AppKit
+gesture mapping when such hardware is unavailable in CI.
 
 ## Original Skia ControlCatalog
 

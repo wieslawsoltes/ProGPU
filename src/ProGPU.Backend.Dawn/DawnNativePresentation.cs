@@ -462,7 +462,8 @@ public sealed unsafe partial class DawnGpuContext
                 return W.CompositeAlphaMode.Opaque;
             }
             throw new NotSupportedException(
-                "The Dawn Vulkan surface does not expose the required opaque alpha mode.");
+                "The Dawn Vulkan surface does not expose the required opaque " +
+                $"alpha mode. Advertised modes: {string.Join(", ", modes)}.");
         }
         if (modes.Contains(W.CompositeAlphaMode.Premultiplied))
         {
