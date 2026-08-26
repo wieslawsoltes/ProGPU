@@ -257,6 +257,17 @@ from 1.6761 to 1.7931 ms (+7.0%) and frame p50 from 5.3414 to 5.3760 ms
 no-regression rule, and the source retains unconditional per-scanline vector
 reset/reduction.
 
+An ARM64 horizontal-reduction experiment was also exact but rejected. It
+replaced the qualified pairwise NEON lane reduction with two `vaddvq_u32`
+horizontal additions. Four alternating 120-frame runs per variant retained
+zero pixel difference and hashes `5B6EF4F70536C862` at 1x and
+`706B261418EC5C3B` at 2x. At 1x, submission p50 improved only from 1.1301 to
+1.1172 ms while synchronized-frame p50 regressed from 4.5174 to 4.6368 ms and
+both p95 metrics worsened. At 2x, submission/frame p50 regressed from
+2.1180/5.9028 ms to 2.4746/6.2609 ms (+16.8%/+6.1%). The source therefore
+retains the lower-latency pairwise reduction on Apple M3 Pro; architecture
+intrinsics are performance candidates, not assumptions.
+
 Exact pushed head `644a8d89` also rebuilt both native libraries with ARM64
 MSVC and passed all 11 native/Dawn CTests in the Windows Parallels VM. The
 zero-warning benchmark build ran the full 42-glyph forced-NEON D3D12 gate with
