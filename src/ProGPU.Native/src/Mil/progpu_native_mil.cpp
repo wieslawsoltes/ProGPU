@@ -798,6 +798,7 @@ struct channel::implementation {
             PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR};
         std::uint32_t guideline_resource_index{
             PROGPU_NATIVE_SCENE_NO_INDEX};
+        bool per_point_guidelines{};
         bool edge_aliased{};
         bool clear_type_enabled{};
         bool subpixel_text_disabled{};
@@ -856,7 +857,9 @@ struct channel::implementation {
 
     struct path_geometry_state {
         std::vector<progpu_native_path_segment> segments;
+        std::vector<progpu_native_path_segment> per_point_segments;
         std::vector<path_stroke_contour_state> stroke_contours;
+        bool per_point_segments_supported{true};
         double left{};
         double top{};
         double right{};
@@ -2481,6 +2484,7 @@ struct channel::implementation {
                 bool stroked{};
                 bool smooth_join{};
             };
+            bool has_per_point_arc = false;
             std::size_t offset = 48U;
             std::uint32_t previous_figure_size = 0U;
             for (std::uint32_t figure_index = 0U;
@@ -2515,6 +2519,10 @@ struct channel::implementation {
                 std::uint32_t actual_last_segment_offset = 0U;
                 progpu_native_point current = start;
                 std::vector<progpu_native_path_segment> figure_segments;
+                std::vector<progpu_native_path_segment>
+                    figure_per_point_segments;
+                bool figure_has_per_point_arc = false;
+                bool figure_per_point_supported = true;
                 std::vector<parsed_stroke_edge> stroke_edges;
                 for (std::uint32_t segment_index = 0U;
                     segment_index < segment_count;
@@ -2651,6 +2659,51 @@ struct channel::implementation {
                                 std::numbers::pi_v<float> / 180.0F);
                             stroke_segment = segment;
                             figure_segments.push_back(segment);
+                            std::array<
+                                progpu::native::geometry::wpf_cubic_arc_piece,
+                                4U> cubic_pieces{};
+                            int cubic_piece_count = -1;
+                            if (progpu::native::geometry::
+                                    lower_wpf_arc_to_cubics(
+                                        arc_start,
+                                        arc_end,
+                                        {static_cast<float>(radius_x),
+                                         static_cast<float>(radius_y)},
+                                        static_cast<float>(rotation),
+                                        large_arc != 0U,
+                                        sweep != 0U,
+                                        cubic_pieces,
+                                        cubic_piece_count) &&
+                                cubic_piece_count > 0) {
+                                progpu_native_point cubic_start = current;
+                                for (int piece_index = 0;
+                                     piece_index < cubic_piece_count;
+                                     ++piece_index) {
+                                    const auto& piece = cubic_pieces[
+                                        static_cast<std::size_t>(
+                                            piece_index)];
+                                    progpu_native_path_segment cubic{};
+                                    cubic.p0 = cubic_start;
+                                    cubic.p1 = {
+                                        piece.control1.x,
+                                        piece.control1.y};
+                                    cubic.p2 = {
+                                        piece.control2.x,
+                                        piece.control2.y};
+                                    cubic.p3 = {
+                                        piece.end.x,
+                                        piece.end.y};
+                                    cubic.kind =
+                                        PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
+                                    figure_per_point_segments.push_back(
+                                        cubic);
+                                    cubic_start = cubic.p3;
+                                }
+                                figure_has_per_point_arc = true;
+                            } else {
+                                figure_per_point_supported = false;
+                                figure_per_point_segments.push_back(segment);
+                            }
                             include_bounds_point(segment.p0);
                             include_bounds_point(segment.p1);
                             const float rotation_degrees =
@@ -2698,6 +2751,7 @@ struct channel::implementation {
                             segment.p1 = end;
                             segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
                             figure_segments.push_back(segment);
+                            figure_per_point_segments.push_back(segment);
                             include_bounds_point(segment.p0);
                             include_bounds_point(segment.p1);
                         }
@@ -2780,6 +2834,7 @@ struct channel::implementation {
                             segment_is_stroked,
                             segment_is_smooth_join});
                         figure_segments.push_back(segment);
+                        figure_per_point_segments.push_back(segment);
                     }
                     offset += segment_size;
                     previous_segment_size = static_cast<std::uint32_t>(
@@ -2796,12 +2851,22 @@ struct channel::implementation {
                         geometry.segments.end(),
                         figure_segments.begin(),
                         figure_segments.end());
+                    geometry.per_point_segments.insert(
+                        geometry.per_point_segments.end(),
+                        figure_per_point_segments.begin(),
+                        figure_per_point_segments.end());
+                    has_per_point_arc = has_per_point_arc ||
+                        figure_has_per_point_arc;
+                    geometry.per_point_segments_supported =
+                        geometry.per_point_segments_supported &&
+                        figure_per_point_supported;
                     if (current.x != start.x || current.y != start.y) {
                         progpu_native_path_segment closing{};
                         closing.p0 = current;
                         closing.p1 = start;
                         closing.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
                         geometry.segments.push_back(closing);
+                        geometry.per_point_segments.push_back(closing);
                     }
                 }
                 const bool figure_is_closed = (figure_flags & 0x04U) != 0U;
@@ -2939,6 +3004,10 @@ struct channel::implementation {
             }
             if (offset != figures.size()) {
                 return status::malformed_batch;
+            }
+            if (!has_per_point_arc ||
+                !geometry.per_point_segments_supported) {
+                geometry.per_point_segments.clear();
             }
             if (!packet_bounds_valid) {
                 geometry.left = has_computed_bounds ? computed_left : 0.0;
@@ -4210,7 +4279,8 @@ struct channel::implementation {
         std::uint32_t geometry_handle,
         std::vector<progpu_native_path_segment>& segments,
         shallow_fill_leaf& leaf,
-        affine_2d_double parent_transform = {}) const {
+        affine_2d_double parent_transform = {},
+        bool per_point_guidelines = false) const {
         leaf = {};
         leaf.segment_offset = segments.size();
         const auto path = path_geometries.find(geometry_handle);
@@ -4218,6 +4288,14 @@ struct channel::implementation {
             if (path->second.segments.empty()) {
                 return status::success;
             }
+            if (per_point_guidelines &&
+                !path->second.per_point_segments_supported) {
+                return status::unsupported_command;
+            }
+            const auto& source_segments = per_point_guidelines &&
+                    !path->second.per_point_segments.empty()
+                ? path->second.per_point_segments
+                : path->second.segments;
             affine_2d_double transform = parent_transform;
             if (path->second.transform_handle != 0U) {
                 affine_2d_double local_transform{};
@@ -4241,8 +4319,8 @@ struct channel::implementation {
             if (transform_is_identity) {
                 segments.insert(
                     segments.end(),
-                    path->second.segments.begin(),
-                    path->second.segments.end());
+                    source_segments.begin(),
+                    source_segments.end());
                 leaf.left = path->second.left;
                 leaf.top = path->second.top;
                 leaf.right = path->second.right;
@@ -4268,7 +4346,7 @@ struct channel::implementation {
                         static_cast<float>(mapped_y)};
                     return true;
                 };
-                for (const auto& source : path->second.segments) {
+                for (const auto& source : source_segments) {
                     if (source.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC) {
                         progpu_native_path_segment transformed_arc{};
                         if (!try_transform_arc_segment(
@@ -4622,14 +4700,16 @@ struct channel::implementation {
         std::vector<progpu_native_path_segment>& segments,
         shallow_fill_leaf& leaf,
         affine_2d_double parent_transform = {},
-        std::uint32_t depth = 1U) const {
+        std::uint32_t depth = 1U,
+        bool per_point_guidelines = false) const {
         const auto group = geometry_groups.find(geometry_handle);
         if (group == geometry_groups.end()) {
             return append_shallow_fill_leaf(
                 geometry_handle,
                 segments,
                 leaf,
-                parent_transform);
+                parent_transform,
+                per_point_guidelines);
         }
         if (depth == 0U || depth > maximum_visual_depth) {
             return status::invalid_graph;
@@ -4661,7 +4741,8 @@ struct channel::implementation {
                 segments,
                 child,
                 transform,
-                depth + 1U);
+                depth + 1U,
+                per_point_guidelines);
             if (child_status != status::success) {
                 segments.resize(original_size);
                 leaf = {};
@@ -7159,7 +7240,10 @@ struct channel::implementation {
                         const status child_status = append_group_fill_leaf(
                             child_handle,
                             group_segments,
-                            child);
+                            child,
+                            {},
+                            1U,
+                            current.per_point_guidelines);
                         if (child_status != status::success) {
                             return child_status;
                         }
@@ -7423,8 +7507,19 @@ struct channel::implementation {
                         }
                         continue;
                     }
+                    if (current.per_point_guidelines &&
+                        !path_geometry->second
+                            .per_point_segments_supported) {
+                        return status::unsupported_command;
+                    }
+                    const auto& fill_segments =
+                        current.per_point_guidelines &&
+                            !path_geometry->second
+                                .per_point_segments.empty()
+                        ? path_geometry->second.per_point_segments
+                        : path_geometry->second.segments;
                     if (brush_handle != 0U &&
-                        !path_geometry->second.segments.empty()) {
+                        !fill_segments.empty()) {
                         std::uint32_t brush_index =
                             PROGPU_NATIVE_SCENE_NO_INDEX;
                         const brush_use_state brush_use{
@@ -7463,7 +7558,7 @@ struct channel::implementation {
                         const std::array paths{
                             progpu_native_scene_path_fill{
                                 0U,
-                                path_geometry->second.segments.size(),
+                                fill_segments.size(),
                                 0U,
                                 0U,
                                 static_cast<float>(path_geometry->second.left),
@@ -7480,7 +7575,7 @@ struct channel::implementation {
                         const std::array brushes{brush_index};
                         if (!builder.draw_paths(
                                 paths,
-                                path_geometry->second.segments,
+                                fill_segments,
                                 brushes,
                                 path_bounds)) {
                             return status::invalid_graph;
@@ -8215,6 +8310,7 @@ struct channel::implementation {
             (guidelines_x.empty() && guidelines_y.empty())) {
             state.guideline_resource_index =
                 PROGPU_NATIVE_SCENE_NO_INDEX;
+            state.per_point_guidelines = false;
             return status::success;
         }
         std::vector<double> mapped_x;
@@ -8273,6 +8369,7 @@ struct channel::implementation {
             return status::invalid_graph;
         }
         state.guideline_resource_index = guideline_resource_index;
+        state.per_point_guidelines = multiple && !composite_only;
         return status::success;
     }
 
@@ -9122,6 +9219,7 @@ struct channel::implementation {
         content_state.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         content_state.guideline_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX;
+        content_state.per_point_guidelines = false;
         content_state.image_sampling =
             PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
         content_state.edge_aliased = false;
@@ -9273,6 +9371,7 @@ struct channel::implementation {
         current.transform = transform;
         // WPF Visual content never inherits the parent's guideline frame.
         current.guideline_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        current.per_point_guidelines = false;
         const status guideline_status = apply_static_guidelines(
             visual->second.guidelines_x,
             visual->second.guidelines_y,
