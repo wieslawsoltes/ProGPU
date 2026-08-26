@@ -747,6 +747,19 @@ for `progpu_native.dll` and
 `97CDBDD4F02442F2D9ACF966C1FF1660C64D7014E9A98FC767B3D9819CB561BF`
 for `progpu_native_dawn.dll`.
 
+Intrinsic follow-up `e6ab073e` precompiles the quadratic/cubic control-point
+Y hull and Y-polynomial coefficients once per CPU-rerasterized frame. The
+subpixel scanline loop keeps the original conservative hull check, root math,
+crossing order, winding decisions, and independent scalar oracle, but no
+longer rebuilds invariant curve data eight times per pixel row. Four
+alternating pre-change/candidate Apple M3 Pro Release runs, each with three
+warmups and 30 forced-SIMD rerasterized frames, reduced median per-run
+submission p50 from 1.1648 ms to 1.0533 ms (-9.6%) and synchronized-frame p50
+from 2.7528 ms to 2.5981 ms (-5.6%). Submission/frame p95 medians improved
+2.0873/4.3461 ms to 1.4839/4.0934 ms. All 240 measured frames, all five forced
+execution-policy checks, the full 11-test native/Dawn suite, and strict
+x86_64 SSE2 syntax compilation retained exact `5B6EF4F70536C862` output.
+
 The corresponding Linux ARM64 checkout at exact commit `28447de4` passed a
 strict GCC 13.3 build of the complete 260-object graph, all 10 wgpu-native CTest
 contracts, the export allowlist, and live Vulkan allocation/render/readback on
