@@ -21,7 +21,18 @@ public unsafe class HeadlessWindow : IDisposable
     private static readonly TimeSpan ReadbackAbortTimeout = TimeSpan.FromSeconds(5);
 
     private static HeadlessWindow? _shared;
-    public static HeadlessWindow Shared => _shared ??= new HeadlessWindow(1280, 800);
+    public static HeadlessWindow Shared
+    {
+        get
+        {
+            if (_shared?.Context.IsDeviceLost == true)
+            {
+                _shared.Dispose();
+                _shared = null;
+            }
+            return _shared ??= new HeadlessWindow(1280, 800);
+        }
+    }
 
     public static void ClearSharedContent()
     {

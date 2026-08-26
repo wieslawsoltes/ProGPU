@@ -1,5 +1,19 @@
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+extern alias AvaloniaSkiaContract;
+#endif
+
 using System;
 using System.Numerics;
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+using SkiaApiLease =
+    AvaloniaSkiaContract::Avalonia.Skia.ISkiaSharpApiLease;
+using SkiaPlatformGraphicsApiLease =
+    AvaloniaSkiaContract::Avalonia.Skia.ISkiaSharpPlatformGraphicsApiLease;
+#else
+using SkiaApiLease = Avalonia.Skia.ISkiaSharpApiLease;
+using SkiaPlatformGraphicsApiLease =
+    Avalonia.Skia.ISkiaSharpPlatformGraphicsApiLease;
+#endif
 
 namespace Avalonia.ProGpu;
 
@@ -8,7 +22,7 @@ namespace Avalonia.ProGpu;
 /// SkiaSharp-compatible lease contract.
 /// </summary>
 internal sealed class ProGpuSkiaSharpApiLease :
-    Avalonia.Skia.ISkiaSharpApiLease
+    SkiaApiLease
 {
     private readonly int _threadId;
     private readonly int _canvasRestoreCount;
@@ -63,7 +77,7 @@ internal sealed class ProGpuSkiaSharpApiLease :
     public SkiaSharp.SKCanvas SkCanvas =>
         _canvas ??
         throw new ObjectDisposedException(
-            nameof(Avalonia.Skia.ISkiaSharpApiLease));
+            nameof(SkiaApiLease));
 
     public SkiaSharp.GRContext? GrContext
     {
@@ -86,10 +100,10 @@ internal sealed class ProGpuSkiaSharpApiLease :
     public double CurrentOpacity =>
         (_lease ??
          throw new ObjectDisposedException(
-             nameof(Avalonia.Skia.ISkiaSharpApiLease)))
+             nameof(SkiaApiLease)))
         .CurrentOpacity;
 
-    public Avalonia.Skia.ISkiaSharpPlatformGraphicsApiLease?
+    public SkiaPlatformGraphicsApiLease?
         TryLeasePlatformGraphicsApi()
     {
         _ = SkCanvas;

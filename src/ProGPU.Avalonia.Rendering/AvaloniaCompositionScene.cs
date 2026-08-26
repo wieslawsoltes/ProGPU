@@ -1134,18 +1134,6 @@ internal sealed class AvaloniaCompositionScene : IDisposable
             return contentChanged;
         }
 
-        if (source is ServerCompositionCustomVisual)
-        {
-            renderer.RecordRetainedCompositionVisual(
-                source,
-                clip,
-                renderOptions,
-                textOptions,
-                target.BeginCommandRecording());
-            CustomVisualCompilationCount++;
-            return true;
-        }
-
         _ordinaryRecordingContext.Clear();
         try
         {
@@ -1155,10 +1143,18 @@ internal sealed class AvaloniaCompositionScene : IDisposable
                 renderOptions,
                 textOptions,
                 _ordinaryRecordingContext);
+            // A custom visual can record hundreds of wide RenderCommand
+            // values. Convert organically-grown pooled scratch storage into
+            // one retained scene-level buffer after the first recording so a
+            // stable animation does not rent and return that array per frame.
+            _ordinaryRecordingContext.EnsureCommandCapacity(
+                _ordinaryRecordingContext.Commands.Count);
             if (target.TryCompleteCompactRecording(
                     _ordinaryRecordingContext,
                     out bool contentChanged))
             {
+                if (source is ServerCompositionCustomVisual)
+                    CustomVisualCompilationCount++;
                 return contentChanged;
             }
 
@@ -1168,6 +1164,8 @@ internal sealed class AvaloniaCompositionScene : IDisposable
                 renderOptions,
                 textOptions,
                 target.BeginCommandRecording());
+            if (source is ServerCompositionCustomVisual)
+                CustomVisualCompilationCount++;
             return true;
         }
         finally
@@ -2304,6 +2302,13 @@ internal sealed class AvaloniaCompositionVisual : ContainerVisual,
 /// </summary>
 internal sealed class AvaloniaRetainedCommandCache
 {
+    private static readonly bool s_traceCompactFallbacks =
+        string.Equals(
+            Environment.GetEnvironmentVariable(
+                "PROGPU_AVALONIA_TRACE_COMPACT_FALLBACKS"),
+            "1",
+            StringComparison.Ordinal);
+    private static int s_tracedCompactFallbacks;
     private CompactAvaloniaCommand? _singleCommand;
     private CompactAvaloniaCommand[]? _multipleCommands;
     private int _compactCommandCount;
@@ -2328,12 +2333,14 @@ internal sealed class AvaloniaRetainedCommandCache
 
     internal DrawingContext BeginRecording()
     {
+        int previousCount = Count;
         _singleCommand = null;
         _multipleCommands = null;
         _compactCommandCount = 0;
         _presentationDependencies =
             RenderCommandPresentationDependencies.None;
         DrawingContext context = GetOrCreateContext();
+        context.EnsureCommandCapacity(previousCount);
         context.Clear();
         return context;
     }
@@ -2352,7 +2359,14 @@ internal sealed class AvaloniaRetainedCommandCache
         _presentationDependencies =
             GetPresentationDependencies(source);
         if (context.RetainedResourceCount != 0)
+        {
+            TraceCompactFallback(
+                "retained resources",
+                count,
+                -1,
+                default);
             return false;
+        }
         if (count == 0)
         {
             contentChanged = previousCount != 0;
@@ -2416,6 +2430,11 @@ internal sealed class AvaloniaRetainedCommandCache
                     source[0],
                     out CompactAvaloniaCommand? command))
             {
+                TraceCompactFallback(
+                    "unsupported command",
+                    count,
+                    0,
+                    source[0]);
                 return false;
             }
 
@@ -2431,6 +2450,11 @@ internal sealed class AvaloniaRetainedCommandCache
                         source[index],
                         out CompactAvaloniaCommand? command))
                 {
+                    TraceCompactFallback(
+                        "unsupported command",
+                        count,
+                        index,
+                        source[index]);
                     return false;
                 }
 
@@ -2450,6 +2474,25 @@ internal sealed class AvaloniaRetainedCommandCache
         }
 
         return true;
+    }
+
+    private static void TraceCompactFallback(
+        string reason,
+        int count,
+        int index,
+        in RenderCommand command)
+    {
+        if (!s_traceCompactFallbacks ||
+            count < 100 ||
+            Interlocked.Increment(ref s_tracedCompactFallbacks) > 16)
+        {
+            return;
+        }
+
+        Console.Error.WriteLine(
+            $"[Avalonia.ProGpu] compact recording fallback: {reason}; " +
+            $"count={count}; index={index}; type={command.Type}; " +
+            $"gpuTransforms={command.UseGpuTransforms}");
     }
 
     internal RenderCommand GetCommand(int index)
@@ -2513,17 +2556,94 @@ internal abstract class CompactAvaloniaCommand
             case RenderCommandType.DrawRect:
             case RenderCommandType.DrawPath:
             case RenderCommandType.DrawEllipse:
+            case RenderCommandType.DrawCircle:
             case RenderCommandType.DrawRoundedRect:
                 compact = new CompactAvaloniaVectorCommand(command);
                 return true;
             case RenderCommandType.DrawGlyphRun:
                 compact = new CompactAvaloniaGlyphRunCommand(command);
                 return true;
+            case RenderCommandType.PushClip:
+            case RenderCommandType.PopClip:
+            case RenderCommandType.PushGeometryClip:
+            case RenderCommandType.PopGeometryClip:
+            case RenderCommandType.PushOpacity:
+            case RenderCommandType.PopOpacity:
+            case RenderCommandType.PushBlendMode:
+            case RenderCommandType.PopBlendMode:
+                compact = new CompactAvaloniaStateCommand(command);
+                return true;
             default:
                 compact = null;
                 return false;
         }
     }
+}
+
+internal sealed class CompactAvaloniaStateCommand : CompactAvaloniaCommand
+{
+    private RenderCommandType _type;
+    private ProGpuRect _rect;
+    private ProGPU.Vector.PathGeometry? _path;
+    private Matrix4x4 _transform;
+    private float _scalar;
+    private int _integer;
+
+    internal CompactAvaloniaStateCommand(in RenderCommand command)
+    {
+        if (!TryUpdate(command, out _))
+        {
+            throw new ArgumentException(
+                "The command is not a compact Avalonia state command.",
+                nameof(command));
+        }
+    }
+
+    internal override bool TryUpdate(
+        in RenderCommand command,
+        out bool changed)
+    {
+        if (command.UseGpuTransforms ||
+            command.Type is not (
+                RenderCommandType.PushClip or
+                RenderCommandType.PopClip or
+                RenderCommandType.PushGeometryClip or
+                RenderCommandType.PopGeometryClip or
+                RenderCommandType.PushOpacity or
+                RenderCommandType.PopOpacity or
+                RenderCommandType.PushBlendMode or
+                RenderCommandType.PopBlendMode))
+        {
+            changed = false;
+            return false;
+        }
+
+        changed =
+            _type != command.Type ||
+            _rect != command.Rect ||
+            !ReferenceEquals(_path, command.Path) ||
+            _transform != command.Transform ||
+            _scalar != command.FontSize ||
+            _integer != command.IntParam;
+        _type = command.Type;
+        _rect = command.Rect;
+        _path = command.Path;
+        _transform = command.Transform;
+        _scalar = command.FontSize;
+        _integer = command.IntParam;
+        return true;
+    }
+
+    internal override RenderCommand Expand() =>
+        new()
+        {
+            Type = _type,
+            Rect = _rect,
+            Path = _path,
+            Transform = _transform,
+            FontSize = _scalar,
+            IntParam = _integer
+        };
 }
 
 internal sealed class CompactAvaloniaVectorCommand :
@@ -2570,6 +2690,7 @@ internal sealed class CompactAvaloniaVectorCommand :
                 RenderCommandType.DrawRect or
                 RenderCommandType.DrawPath or
                 RenderCommandType.DrawEllipse or
+                RenderCommandType.DrawCircle or
                 RenderCommandType.DrawRoundedRect))
         {
             changed = false;

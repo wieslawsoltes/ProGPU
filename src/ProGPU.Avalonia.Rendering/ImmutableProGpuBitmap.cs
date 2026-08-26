@@ -14,8 +14,8 @@ namespace Avalonia.ProGpu;
 
 /// <summary>
 /// Immutable Avalonia bitmap backed by one lazily created ProGPU texture.
-/// Encoded and decoded CPU representations are released after an ordinary
-/// upload; portable snapshots retain exactly one decoded representation.
+/// Encoded inputs retain their compressed payload and generated inputs retain
+/// one decoded snapshot so the bitmap can migrate to a replacement device.
 /// </summary>
 internal sealed class ImmutableBitmap :
     IProGpuBitmapSource,
@@ -62,6 +62,7 @@ internal sealed class ImmutableBitmap :
         PixelSize = destinationSize;
         Dpi = source.Dpi;
         _alphaMode = source._alphaMode;
+        _retainPortablePixels = true;
         EnsureGpuTexture();
     }
 
@@ -112,6 +113,7 @@ internal sealed class ImmutableBitmap :
         PixelSize = new PixelSize(width, height);
         Dpi = new Vector(96, 96);
         _alphaMode = GpuTextureAlphaMode.Straight;
+        _retainPortablePixels = true;
         EnsureGpuTexture();
     }
 
@@ -129,6 +131,7 @@ internal sealed class ImmutableBitmap :
         _alphaMode = ToTextureAlphaMode(alphaFormat);
         _pendingPixels =
             AvaloniaPixelTransfer.CopyToRgba(size, stride, format, data);
+        _retainPortablePixels = true;
         EnsureGpuTexture();
     }
 
@@ -152,7 +155,9 @@ internal sealed class ImmutableBitmap :
         Dpi = dpi;
         _alphaMode = ToTextureAlphaMode(alphaFormat);
         _pendingPixels = pixels;
-        _retainPortablePixels = retainPixelsForContextMigration;
+        // A bitmap without an encoded payload needs this bounded CPU snapshot
+        // to recreate its device-owned texture after device loss.
+        _retainPortablePixels = true;
         if (!retainPixelsForContextMigration)
             EnsureGpuTexture();
     }
@@ -183,9 +188,17 @@ internal sealed class ImmutableBitmap :
             }
 
             Rgba32[] pixels = _pendingPixels ??
-                (Texture is { IsDisposed: false } previous
-                    ? ReadTexture(previous)
-                    : Decode(_encoded));
+                (_encoded is not null
+                    ? Decode(_encoded)
+                    : Texture is
+                        {
+                            IsDisposed: false,
+                            Context.IsDisposed: false,
+                            Context.IsDeviceLost: false
+                        } previous
+                        ? ReadTexture(previous)
+                        : throw new InvalidOperationException(
+                            "The immutable bitmap has no device-independent recovery representation."));
             Texture?.Dispose();
             Texture = new GpuTexture(
                 requiredContext,
@@ -199,7 +212,6 @@ internal sealed class ImmutableBitmap :
                 alphaMode: _alphaMode);
             Texture.WritePixels(pixels);
 
-            _encoded = null;
             if (_retainPortablePixels)
                 _pendingPixels = pixels;
             else

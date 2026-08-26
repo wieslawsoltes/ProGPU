@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 using ProGPU.Backend;
 using Silk.NET.Windowing;
@@ -7,8 +8,8 @@ using Silk.NET.Windowing;
 namespace Avalonia.SilkNet;
 
 /// <summary>
-/// Selects XI2 touch events on GLFW's X11 connection and removes only those
-/// events before GLFW drains the shared Xlib queue.
+/// Selects XI2 touch events on a dedicated X11 connection so GLFW's earlier
+/// per-client XI2 negotiation cannot constrain touch support to version 2.0.
 /// </summary>
 internal sealed unsafe class X11TouchInputSource : IDisposable
 {
@@ -21,6 +22,14 @@ internal sealed unsafe class X11TouchInputSource : IDisposable
     private const int XiTouchEnd = 20;
     private const int XiTouchEmulatingPointer = 1 << 17;
     private static readonly object Gate = new();
+    private static readonly bool TraceEnabled = string.Equals(
+        Environment.GetEnvironmentVariable(
+            "PROGPU_AVALONIA_TRACE_TOUCH"),
+        "1",
+        StringComparison.Ordinal);
+    private static readonly string? TracePath =
+        Environment.GetEnvironmentVariable(
+            "PROGPU_AVALONIA_TRACE_WINDOW_EVENTS_PATH");
     private static readonly Dictionary<nint, Pump> Pumps = [];
     private static readonly XEventPredicate TouchPredicate = IsTouchEvent;
 
@@ -45,6 +54,9 @@ internal sealed unsafe class X11TouchInputSource : IDisposable
             x11.Display == 0 ||
             x11.Window == 0)
         {
+            Trace(
+                $"unavailable native={window.Native is not null} " +
+                $"x11={window.Native?.X11 is not null}");
             return null;
         }
 
@@ -56,16 +68,24 @@ internal sealed unsafe class X11TouchInputSource : IDisposable
                 {
                     pump = Pump.TryCreate(x11.Display);
                     if (pump is null)
+                    {
+                        Trace($"pump unavailable display={x11.Display}");
                         return null;
+                    }
                     Pumps.Add(x11.Display, pump);
                 }
 
                 if (!pump.Register(x11.Window, handler))
                 {
                     if (pump.Count == 0)
+                    {
                         Pumps.Remove(x11.Display);
+                        pump.Dispose();
+                    }
                     return null;
                 }
+
+                Trace($"registered display={x11.Display} window={x11.Window}");
 
                 return new X11TouchInputSource(pump, x11.Window);
             }
@@ -97,7 +117,10 @@ internal sealed unsafe class X11TouchInputSource : IDisposable
         {
             _pump.Unregister(_window);
             if (_pump.Count == 0)
-                Pumps.Remove(_pump.Display);
+            {
+                Pumps.Remove(_pump.SharedDisplay);
+                _pump.Dispose();
+            }
         }
     }
 
@@ -121,17 +144,33 @@ internal sealed unsafe class X11TouchInputSource : IDisposable
         private readonly Dictionary<nuint, Action<NativeTouchEvent>>
             _handlers = [];
 
-        private Pump(nint display, int extension)
+        private Pump(
+            nint sharedDisplay,
+            nint display,
+            int extension)
         {
+            SharedDisplay = sharedDisplay;
             Display = display;
             _extension = extension;
         }
 
+        internal nint SharedDisplay { get; }
         internal nint Display { get; }
         internal int Count => _handlers.Count;
 
-        internal static Pump? TryCreate(nint display)
+        internal static Pump? TryCreate(nint sharedDisplay)
         {
+            nint displayNamePointer = XDisplayString(sharedDisplay);
+            string? displayName = displayNamePointer == 0
+                ? null
+                : Marshal.PtrToStringAnsi(displayNamePointer);
+            nint display = XOpenDisplay(displayName);
+            if (display == 0)
+            {
+                Trace($"XOpenDisplay failed name={displayName}");
+                return null;
+            }
+
             if (XQueryExtension(
                     display,
                     "XInputExtension",
@@ -139,16 +178,32 @@ internal sealed unsafe class X11TouchInputSource : IDisposable
                     out _,
                     out _) == 0)
             {
+                Trace("XInputExtension unavailable");
+                _ = XCloseDisplay(display);
                 return null;
             }
 
             int major = 2;
             int minor = 2;
-            return XIQueryVersion(display, ref major, ref minor) == 0 &&
-                (major > 2 || major == 2 && minor >= 2)
-                    ? new Pump(display, extension)
-                    : null;
+            int status = XIQueryVersion(
+                display,
+                ref major,
+                ref minor);
+            Trace($"XIQueryVersion status={status} version={major}.{minor}");
+            if (status == 0 &&
+                (major > 2 || major == 2 && minor >= 2))
+            {
+                return new Pump(
+                    sharedDisplay,
+                    display,
+                    extension);
+            }
+
+            _ = XCloseDisplay(display);
+            return null;
         }
+
+        internal void Dispose() => _ = XCloseDisplay(Display);
 
         internal bool Register(
             nuint window,
@@ -167,7 +222,9 @@ internal sealed unsafe class X11TouchInputSource : IDisposable
                 MaskLength = 3,
                 Mask = eventMask
             };
-            if (XISelectEvents(Display, window, &mask, 1) != 0)
+            int status = XISelectEvents(Display, window, &mask, 1);
+            Trace($"XISelectEvents status={status} window={window}");
+            if (status != 0)
                 return false;
             _ = XFlush(Display);
             _handlers[window] = handler;
@@ -201,6 +258,10 @@ internal sealed unsafe class X11TouchInputSource : IDisposable
                     return;
                 }
 
+                Trace(
+                    $"event cookie type={xevent.Cookie.EventType} " +
+                    $"extension={xevent.Cookie.Extension}");
+
                 XGenericEventCookie* cookie = &xevent.Cookie;
                 if (XGetEventData(Display, cookie) == 0)
                     continue;
@@ -218,11 +279,18 @@ internal sealed unsafe class X11TouchInputSource : IDisposable
         private void Dispatch(in XiDeviceEvent touch)
         {
             if (!_handlers.TryGetValue(
-                    touch.Event,
-                    out Action<NativeTouchEvent>? handler))
+                touch.Event,
+                out Action<NativeTouchEvent>? handler))
             {
+                Trace(
+                    $"unhandled event window={touch.Event} " +
+                    $"root={touch.Root}");
                 return;
             }
+
+            Trace(
+                $"dispatch type={touch.EventType} id={touch.Detail} " +
+                $"window={touch.Event} position={touch.EventX},{touch.EventY}");
 
             NativeTouchPhase phase = touch.EventType switch
             {
@@ -244,6 +312,31 @@ internal sealed unsafe class X11TouchInputSource : IDisposable
         private static void SetMask(byte* mask, int eventType) =>
             mask[eventType >> 3] |=
                 (byte)(1 << (eventType & 7));
+    }
+
+    private static void Trace(string message)
+    {
+        if (!TraceEnabled)
+            return;
+        string line = "[Avalonia.SilkNet] X11 touch: " + message;
+        if (string.IsNullOrWhiteSpace(TracePath))
+        {
+            Console.Error.WriteLine(line);
+            return;
+        }
+
+        try
+        {
+            File.AppendAllText(TracePath, line + Environment.NewLine);
+        }
+        catch (IOException)
+        {
+            Console.Error.WriteLine(line);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            Console.Error.WriteLine(line);
+        }
     }
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -330,6 +423,15 @@ internal sealed unsafe class X11TouchInputSource : IDisposable
         [FieldOffset(0)]
         public XGenericEventCookie Cookie;
     }
+
+    [DllImport(X11Library)]
+    private static extern nint XDisplayString(nint display);
+
+    [DllImport(X11Library)]
+    private static extern nint XOpenDisplay(string? displayName);
+
+    [DllImport(X11Library)]
+    private static extern int XCloseDisplay(nint display);
 
     [DllImport(X11Library)]
     private static extern int XQueryExtension(

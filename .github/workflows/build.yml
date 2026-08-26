@@ -710,6 +710,27 @@ jobs:
             ./tools/profile-avalonia-controlcatalog.sh \
             artifacts/avalonia-native-dawn-windows-adorner
 
+      - name: Run WebGPU device-loss recovery ControlCatalog smoke
+        shell: bash
+        env:
+          PROGPU_AVALONIA_SKIP_BUILD: 1
+          PROGPU_AVALONIA_BACKENDS: source-progpu,source-progpu-native
+          PROGPU_AVALONIA_PAGE_FILTER: ^Border$
+          PROGPU_AVALONIA_WARMUP_FRAMES: 5
+          PROGPU_AVALONIA_MEASURE_FRAMES: 10
+          PROGPU_AVALONIA_SCREENSHOTS: 0
+          PROGPU_AVALONIA_FORCE_DEVICE_LOSS: 1
+          LIBGL_ALWAYS_SOFTWARE: 1
+        run: |
+          if [[ "${RUNNER_OS}" == "Linux" ]]; then
+            xvfb-run -a \
+              ./tools/profile-avalonia-controlcatalog.sh \
+              artifacts/avalonia-device-loss-recovery
+          else
+            ./tools/profile-avalonia-controlcatalog.sh \
+              artifacts/avalonia-device-loss-recovery
+          fi
+
       - name: Upload Linux native Dawn telemetry
         if: runner.os == 'Linux' && always()
         uses: actions/upload-artifact@v7
