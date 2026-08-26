@@ -294,7 +294,10 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
             # stress on the C++ renderer, then require a bounded live pixel
             # differential without executing that unsafe managed workload.
             Invoke-NativeBenchmark --managed-picture --profile-native-only --rectangles 384 --warmup 4 --iterations 8
-            Invoke-NativeBenchmark --managed-picture --rectangles 1 --warmup 0 --iterations 1
+            # GPU glyph stages advance the atlas generation on their first render. One
+            # additional warm frame establishes the compiled-scene cache generation so
+            # this bounded differential measures allocation-free stable replay.
+            Invoke-NativeBenchmark --managed-picture --rectangles 1 --warmup 1 --iterations 1
             Write-Host "Qualified the Parallels mixed-picture profile with native stress plus bounded differential parity."
         } else {
             Invoke-NativeBenchmark --managed-picture --rectangles 384 --warmup 4 --iterations 8
