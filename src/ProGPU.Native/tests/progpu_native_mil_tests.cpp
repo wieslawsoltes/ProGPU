@@ -1505,6 +1505,7 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     constexpr std::uint32_t shadow = 6U;
     constexpr std::uint32_t clip = 7U;
     constexpr std::uint32_t parent = 8U;
+    constexpr std::uint32_t parent_mask = 9U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -1880,6 +1881,81 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
                     stream, resource.payload_offset).opacity == 1.0F);
         }
     }
+
+    const std::array parent_mask_stops{
+        mil_gradient_stop{0.0, {1.0F, 1.0F, 1.0F, 0.0F}},
+        mil_gradient_stop{1.0, {1.0F, 1.0F, 1.0F, 1.0F}}};
+    std::vector<std::byte> inherited_mask;
+    append_create(inherited_mask, parent_mask, 77U);
+    append_linear_gradient_brush(
+        inherited_mask,
+        parent_mask,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0U,
+        0U,
+        0U,
+        1U,
+        1U,
+        0U,
+        0U,
+        0U,
+        parent_mask_stops);
+    append_command(
+        inherited_mask, command::visual_set_alpha, parent, 1.0);
+    append_command(
+        inherited_mask,
+        command::visual_set_alpha_mask,
+        parent,
+        parent_mask);
+    PROGPU_REQUIRE(state.apply(inherited_mask) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9014U, 10U, stream, &metrics) ==
+        status::success);
+    const auto inherited_mask_layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(inherited_mask_layers.size() == 3U);
+    PROGPU_REQUIRE(
+        (inherited_mask_layers[0].flags &
+            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION) != 0U);
+    PROGPU_REQUIRE(inherited_mask_layers[0].opacity == 1.0F);
+    PROGPU_REQUIRE(
+        inherited_mask_layers[0].mask_resource_index !=
+            PROGPU_NATIVE_SCENE_NO_INDEX);
+    PROGPU_REQUIRE(
+        inherited_mask_layers[0].effect_resource_index ==
+            PROGPU_NATIVE_SCENE_NO_INDEX);
+    PROGPU_REQUIRE(inherited_mask_layers[0].bounds.x == 4.0F);
+    PROGPU_REQUIRE(inherited_mask_layers[0].bounds.y == 5.0F);
+    PROGPU_REQUIRE(inherited_mask_layers[0].bounds.width == 48.0F);
+    PROGPU_REQUIRE(inherited_mask_layers[0].bounds.height == 30.0F);
+    PROGPU_REQUIRE(
+        inherited_mask_layers[1].effect_resource_index !=
+            PROGPU_NATIVE_SCENE_NO_INDEX);
+    PROGPU_REQUIRE(inherited_mask_layers[1].opacity == 1.0F);
+    PROGPU_REQUIRE(
+        (inherited_mask_layers[2].flags &
+            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION) != 0U);
+    PROGPU_REQUIRE(inherited_mask_layers[2].opacity == 0.5F);
+    progpu_native_scene_layer_brush_mask inherited_mask_resource{};
+    std::vector<progpu_native_scene_gradient_stop> inherited_mask_stops;
+    PROGPU_REQUIRE(try_get_brush_mask_resource(
+        stream,
+        inherited_mask_layers[0].mask_resource_index,
+        inherited_mask_resource,
+        inherited_mask_stops));
+    PROGPU_REQUIRE(
+        inherited_mask_resource.brush.type ==
+            PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT);
+    PROGPU_REQUIRE(inherited_mask_resource.bounds.x == 4.0F);
+    PROGPU_REQUIRE(inherited_mask_resource.bounds.y == 5.0F);
+    PROGPU_REQUIRE(inherited_mask_resource.bounds.width == 48.0F);
+    PROGPU_REQUIRE(inherited_mask_resource.bounds.height == 30.0F);
+    PROGPU_REQUIRE(inherited_mask_stops.size() == 2U);
+    PROGPU_REQUIRE(inherited_mask_stops.front().color.a == 0.0F);
+    PROGPU_REQUIRE(inherited_mask_stops.back().color.a == 1.0F);
     return true;
 }
 

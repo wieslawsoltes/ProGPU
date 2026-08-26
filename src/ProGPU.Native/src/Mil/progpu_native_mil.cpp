@@ -9280,13 +9280,11 @@ struct channel::implementation {
             return guideline_status;
         }
         double opacity_mask_alpha = 1.0;
-        const bool deferred_visual_opacity_mask =
-            (visual->second.cache_mode_handle != 0U ||
-             visual->second.effect_handle != 0U) &&
+        const bool has_spatial_visual_opacity_mask =
             visual->second.alpha_mask_handle != 0U &&
             gradient_brushes.contains(
                 visual->second.alpha_mask_handle);
-        const status opacity_mask_status = deferred_visual_opacity_mask
+        const status opacity_mask_status = has_spatial_visual_opacity_mask
             ? status::success
             : resolve_uniform_opacity_mask_alpha(
                 visual->second.alpha_mask_handle,
@@ -9306,22 +9304,32 @@ struct channel::implementation {
         const bool isolate_uncached_effect_composite =
             visual->second.effect_handle != 0U &&
             visual->second.cache_mode_handle == 0U &&
-            (current.opacity != 1.0 || deferred_visual_opacity_mask);
+            (current.opacity != 1.0 ||
+                has_spatial_visual_opacity_mask);
         if (isolate_uncached_effect_composite &&
             parent_state.opacity != 1.0) {
             active_visuals.erase(handle);
             return status::unsupported_command;
         }
-        // WPF owns opacity at each Visual boundary. For an uncached Visual
-        // without its own effect, retain that boundary as an outer group so a
-        // descendant effect is completed before the ancestor alpha is
-        // applied. Exact typed descendant bounds keep the intermediate
-        // bounded; callers without them retain the compatibility path, whose
-        // descendant-effect guard above still fails closed.
-        const bool isolate_uncached_visual_opacity =
+        // WPF owns opacity and its opacity mask at each Visual boundary. For
+        // an uncached Visual without its own effect, retain that boundary as
+        // one outer group so descendant effects are completed before the
+        // ancestor alpha/mask is applied. Exact typed descendant bounds keep
+        // the intermediate bounded. A spatial mask cannot use the legacy
+        // ungrouped compatibility path, so missing bounds fail closed.
+        const bool needs_uncached_visual_composite =
             visual->second.effect_handle == 0U &&
             visual->second.cache_mode_handle == 0U &&
-            local_visual_opacity != 1.0 &&
+            (local_visual_opacity != 1.0 ||
+                has_spatial_visual_opacity_mask);
+        if (needs_uncached_visual_composite &&
+            !visual->second.has_cache_bounds &&
+            has_spatial_visual_opacity_mask) {
+            active_visuals.erase(handle);
+            return status::unsupported_command;
+        }
+        const bool isolate_uncached_visual_composite =
+            needs_uncached_visual_composite &&
             visual->second.has_cache_bounds;
         if ((visual->second.render_options_flags &
                 render_option_bitmap_scaling) != 0U) {
@@ -9367,7 +9375,7 @@ struct channel::implementation {
         }
         state.opacity = isolate_uncached_effect_composite
             ? 1.0F
-            : isolate_uncached_visual_opacity
+            : isolate_uncached_visual_composite
             ? static_cast<float>(parent_state.opacity)
             : static_cast<float>(current.opacity);
         if (current.has_clip && visual->second.effect_handle == 0U) {
@@ -9397,19 +9405,34 @@ struct channel::implementation {
             return status::invalid_graph;
         }
 
-        bool visual_opacity_layer_pushed = false;
-        if (isolate_uncached_visual_opacity) {
-            progpu_native_scene_layer opacity_layer{};
-            opacity_layer.struct_size = sizeof(opacity_layer);
-            opacity_layer.flags =
+        bool visual_composite_layer_pushed = false;
+        if (isolate_uncached_visual_composite) {
+            std::uint32_t opacity_mask_resource_index =
+                PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (has_spatial_visual_opacity_mask) {
+                const status mask_status = add_visual_opacity_mask(
+                    visual->second.alpha_mask_handle,
+                    visual->second,
+                    current.transform,
+                    builder,
+                    opacity_mask_resource_index);
+                if (mask_status != status::success) {
+                    builder.restore();
+                    active_visuals.erase(handle);
+                    return mask_status;
+                }
+            }
+            progpu_native_scene_layer composite_layer{};
+            composite_layer.struct_size = sizeof(composite_layer);
+            composite_layer.flags =
                 PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
                 PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
-            opacity_layer.opacity =
+            composite_layer.opacity =
                 static_cast<float>(local_visual_opacity);
-            opacity_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
-            opacity_layer.mask_resource_index =
-                PROGPU_NATIVE_SCENE_NO_INDEX;
-            opacity_layer.effect_resource_index =
+            composite_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+            composite_layer.mask_resource_index =
+                opacity_mask_resource_index;
+            composite_layer.effect_resource_index =
                 PROGPU_NATIVE_SCENE_NO_INDEX;
             if (!try_transform_bounds(
                     visual->second.cache_bounds_x,
@@ -9417,13 +9440,13 @@ struct channel::implementation {
                     visual->second.cache_bounds_width,
                     visual->second.cache_bounds_height,
                     current.transform,
-                    opacity_layer.bounds) ||
-                !builder.push_layer(opacity_layer)) {
+                    composite_layer.bounds) ||
+                !builder.push_layer(composite_layer)) {
                 builder.restore();
                 active_visuals.erase(handle);
                 return status::invalid_graph;
             }
-            visual_opacity_layer_pushed = true;
+            visual_composite_layer_pushed = true;
         }
 
         std::uint32_t effect_layer_count = 0U;
@@ -9439,7 +9462,7 @@ struct channel::implementation {
                 builder.pop_layer();
                 --effect_layer_count;
             }
-            if (visual_opacity_layer_pushed) {
+            if (visual_composite_layer_pushed) {
                 builder.pop_layer();
             }
             builder.restore();
@@ -9472,7 +9495,7 @@ struct channel::implementation {
                 builder.pop_layer();
                 --effect_layer_count;
             }
-            if (visual_opacity_layer_pushed) {
+            if (visual_composite_layer_pushed) {
                 builder.pop_layer();
             }
             builder.restore();
@@ -9482,7 +9505,7 @@ struct channel::implementation {
         if (!cache_layer_pushed) {
             if (isolate_uncached_effect_composite) {
                 content_scope.opacity = 1.0;
-            } else if (isolate_uncached_visual_opacity) {
+            } else if (isolate_uncached_visual_composite) {
                 content_scope.opacity = parent_state.opacity;
             }
         }
@@ -9533,7 +9556,7 @@ struct channel::implementation {
             }
             --effect_layer_count;
         }
-        if (visual_opacity_layer_pushed && !builder.pop_layer() &&
+        if (visual_composite_layer_pushed && !builder.pop_layer() &&
             result == status::success) {
             result = status::invalid_graph;
         }
