@@ -3,6 +3,7 @@ param(
     [ValidateSet("x64", "ARM64")]
     [string] $Platform = $(if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "ARM64" } else { "x64" }),
     [string] $OutputDirectory,
+    [string] $GitPath,
     [switch] $UseWarp
 )
 
@@ -28,23 +29,34 @@ $RunningOnWindows = if (Get-Variable IsWindows -ErrorAction SilentlyContinue) {
 if (-not $RunningOnWindows) {
     throw "The Microsoft DirectX sample oracle can only run on Windows."
 }
+if (-not $GitPath) {
+    $GitCommand = Get-Command git -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $GitCommand) {
+        throw "Git was not found. Add it to PATH or pass -GitPath."
+    }
+    $GitPath = $GitCommand.Source
+}
+if (-not (Test-Path $GitPath)) {
+    throw "The configured Git executable does not exist: $GitPath"
+}
 $CreatedSourceCache = $false
 if (-not (Test-Path (Join-Path $SourceDirectory ".git"))) {
     New-Item -ItemType Directory -Force -Path $CacheRoot | Out-Null
-    git clone --filter=blob:none --no-checkout $Lock.repository $SourceDirectory
+    & $GitPath clone --filter=blob:none --no-checkout $Lock.repository $SourceDirectory
     if ($LASTEXITCODE -ne 0) { throw "DirectX sample clone failed." }
-    git -C $SourceDirectory sparse-checkout init --cone
-    git -C $SourceDirectory sparse-checkout set "Samples/Desktop/D3D12HelloWorld"
+    & $GitPath -C $SourceDirectory sparse-checkout init --cone
+    & $GitPath -C $SourceDirectory sparse-checkout set "Samples/Desktop/D3D12HelloWorld"
     $CreatedSourceCache = $true
 }
 if (-not $CreatedSourceCache -and
-    (git -C $SourceDirectory status --porcelain --untracked-files=no)) {
+    (& $GitPath -C $SourceDirectory status --porcelain --untracked-files=no)) {
     throw "Refusing to change the modified DirectX sample source cache."
 }
-git -C $SourceDirectory fetch --depth 1 origin $Lock.commit
-git -C $SourceDirectory checkout --detach $Lock.commit
+& $GitPath -C $SourceDirectory fetch --depth 1 origin $Lock.commit
+& $GitPath -C $SourceDirectory checkout --detach $Lock.commit
 if ($LASTEXITCODE -ne 0 -or
-    (git -C $SourceDirectory rev-parse HEAD).Trim() -ne $Lock.commit) {
+    (& $GitPath -C $SourceDirectory rev-parse HEAD).Trim() -ne $Lock.commit) {
     throw "The pinned DirectX sample checkout failed."
 }
 
@@ -87,17 +99,17 @@ if (Test-Path $InstrumentedDirectory) {
     if (-not $resolvedInstrumented.StartsWith($resolvedCache, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "Refusing to remove an instrumented checkout outside the oracle cache."
     }
-    git -C $SourceDirectory worktree remove --force $InstrumentedDirectory 2>$null
+    & $GitPath -C $SourceDirectory worktree remove --force $InstrumentedDirectory 2>$null
     if (Test-Path $InstrumentedDirectory) {
         Remove-Item -LiteralPath $InstrumentedDirectory -Recurse -Force
     }
 }
-git -C $SourceDirectory worktree prune
-git -C $SourceDirectory worktree add --detach $InstrumentedDirectory $Lock.commit
+& $GitPath -C $SourceDirectory worktree prune
+& $GitPath -C $SourceDirectory worktree add --detach $InstrumentedDirectory $Lock.commit
 if ($LASTEXITCODE -ne 0) { throw "Could not create the oracle worktree." }
-git -C $InstrumentedDirectory apply --check $PatchPath
+& $GitPath -C $InstrumentedDirectory apply --check $PatchPath
 if ($LASTEXITCODE -ne 0) { throw "The oracle patch no longer applies." }
-git -C $InstrumentedDirectory apply $PatchPath
+& $GitPath -C $InstrumentedDirectory apply $PatchPath
 if ($LASTEXITCODE -ne 0) { throw "The oracle patch failed." }
 
 $ToolComponent = if ($Platform -eq "ARM64") {
