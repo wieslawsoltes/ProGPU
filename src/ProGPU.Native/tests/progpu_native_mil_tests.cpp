@@ -7176,7 +7176,7 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
         command::drawing_group,
         group,
         1.0,
-        4U,
+        8U,
         clip,
         opacity,
         opacity_mask,
@@ -7185,6 +7185,7 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
         1U,
         0U,
         1U,
+        drawing,
         drawing);
     std::vector<std::byte> nested;
     append_command(nested, command::draw_drawing, group, 0U);
@@ -7207,7 +7208,7 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
     PROGPU_REQUIRE(
         state.build_scene(target, 7004U, 1U, stream, &metrics) ==
         status::success);
-    PROGPU_REQUIRE(metrics.rectangle_count == 1U);
+    PROGPU_REQUIRE(metrics.rectangle_count == 2U);
     PROGPU_REQUIRE(metrics.brush_count == 1U);
     const auto header = read_value<progpu_native_scene_header>(stream, 0U);
     bool found_group_state = false;
@@ -7222,7 +7223,7 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
             const auto scene_state = read_value<progpu_native_scene_state>(
                 stream,
                 resource.payload_offset);
-            if (scene_state.opacity == 0.125F &&
+            if (scene_state.opacity == 1.0F &&
                 scene_state.transform.m31 == 10.0F &&
                 scene_state.transform.m32 == 20.0F &&
                 (scene_state.flags &
@@ -7259,6 +7260,12 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
     PROGPU_REQUIRE(found_group_state);
     PROGPU_REQUIRE(found_bounds);
     PROGPU_REQUIRE(found_aliased_edge);
+    const auto group_layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(group_layers.size() == 1U);
+    PROGPU_REQUIRE(
+        (group_layers[0].flags &
+            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION) != 0U);
+    PROGPU_REQUIRE(group_layers[0].opacity == 0.125F);
 
     std::vector<std::byte> opacity_update;
     append_command(opacity_update, command::double_resource, opacity, 0.25);
@@ -7266,26 +7273,9 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
     PROGPU_REQUIRE(
         state.build_scene(target, 7004U, 2U, stream, &metrics) ==
         status::success);
-    const auto updated_header =
-        read_value<progpu_native_scene_header>(stream, 0U);
-    bool found_updated_opacity = false;
-    for (std::uint32_t index = 0U;
-         index < updated_header.resource_count;
-         ++index) {
-        const auto resource = read_value<progpu_native_scene_resource>(
-            stream,
-            updated_header.resource_offset +
-                index * sizeof(progpu_native_scene_resource));
-        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
-            const auto scene_state = read_value<progpu_native_scene_state>(
-                stream,
-                resource.payload_offset);
-            found_updated_opacity |= scene_state.opacity == 0.0625F &&
-                scene_state.transform.m31 == 10.0F &&
-                scene_state.transform.m32 == 20.0F;
-        }
-    }
-    PROGPU_REQUIRE(found_updated_opacity);
+    const auto updated_layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(updated_layers.size() == 1U);
+    PROGPU_REQUIRE(updated_layers[0].opacity == 0.0625F);
 
     std::vector<std::byte> delete_child;
     append_command(
@@ -7315,7 +7305,7 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
     PROGPU_REQUIRE(
         state.build_scene(target, 7004U, 3U, stream, &metrics) ==
         status::success);
-    PROGPU_REQUIRE(metrics.rectangle_count == 1U);
+    PROGPU_REQUIRE(metrics.rectangle_count == 2U);
     return true;
 }
 

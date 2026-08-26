@@ -438,6 +438,16 @@ regenerates the mask on the next scene compile while the render-data stream
 stays unchanged. Missing/wrong-type resources, malformed LTRB bounds, and
 unsupported brush families fail closed.
 
+Retained `MILCMD_DRAWINGGROUP` uniform opacity no longer multiplies alpha into
+each child state. The group now emits one isolated semantic layer around its
+typed transform/clip/guideline child stream, and combines animated group
+opacity with a static solid opacity-mask alpha only at the completed group
+composite. Overlapping children therefore retain their internal source-over
+coverage before group alpha is applied. Resource-only DoubleResource updates
+change the next layer descriptor without rebuilding the drawing-group stream;
+spatial group masks remain fail closed until exact group content bounds are
+available for brush mapping.
+
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds, curve dashes,
