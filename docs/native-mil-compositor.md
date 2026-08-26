@@ -947,6 +947,19 @@ gate at both 1x and 2x DPI, so they were rejected. The full measurements and
 rationale are recorded in `GPU_COMPUTE_FALLBACK_POLICY.md`; the qualified
 two-pixel SIMD implementation remains authoritative.
 
+The subsequent signed-mask optimization preserves that two-pixel structure.
+NEON/SSE2 comparison results are already all-one integer lanes, so a `+1`
+crossing subtracts the mask and a `-1` crossing adds it. This removes one
+direction broadcast and four bitwise masks per crossing while retaining the
+exact sample expressions, crossing order, 32-bit winding state, reductions,
+and scalar oracle. Four alternating 120-frame Apple M3 Pro runs improved the
+median-of-run native-submission p50 by 19.4% at 1x and 10.9% at 2x; synchronized
+frame p50 improved 18.2% and 3.2%, respectively. All 960 measured frames kept
+the qualified hashes `5B6EF4F70536C862` and `706B261418EC5C3B`, the complete
+local native suite passed, and the paired SSE2 branch passed strict x86_64
+Clang compilation. The default remains GPU-first; this only improves the typed
+intrinsic fallback selected by policy or configuration.
+
 The corresponding Linux ARM64 checkout at exact commit `28447de4` passed a
 strict GCC 13.3 build of the complete 260-object graph, all 10 wgpu-native CTest
 contracts, the export allowlist, and live Vulkan allocation/render/readback on
