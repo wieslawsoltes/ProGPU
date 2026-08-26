@@ -266,8 +266,8 @@ public:
 
     // Binds source-built WPF Visual descendant bounds used to size an exact
     // target-space BitmapCache page, bounded effect isolation, or bounded
-    // Visual opacity group. Canonical MIL does not serialize this compositor-
-    // owned derived metadata.
+    // Visual opacity/opacity-mask group. Canonical MIL does not serialize
+    // this compositor-owned derived metadata.
     status set_visual_cache_bounds(
         std::uint32_t handle,
         double x,

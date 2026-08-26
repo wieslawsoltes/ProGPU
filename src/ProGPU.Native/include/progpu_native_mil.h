@@ -110,8 +110,8 @@ progpu_native_mil_channel_set_drawing_image_bounds(
 /*
  * Binds exact source-built Visual descendant bounds for target-space
  * BitmapCache page sizing, bounded effect isolation, and bounded Visual
- * opacity groups. The canonical Visual, cache, and effect packets do not carry
- * this compositor-derived metadata.
+ * opacity/opacity-mask groups. The canonical Visual, cache, and effect packets
+ * do not carry this compositor-derived metadata.
  */
 PROGPU_NATIVE_API progpu_native_mil_status
 progpu_native_mil_channel_set_visual_cache_bounds(
