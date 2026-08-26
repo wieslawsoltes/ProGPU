@@ -2417,6 +2417,17 @@ Ellipse/path clips, either nonzero rectangle radius, rotation, and shear return
 LibreWPF producer preflights the local typed primitive shape, while this native
 check remains authoritative for complete ancestor transforms.
 
+Exact implementation commit `3403e841` passes all 10 local native tests and
+the Apple M3 Pro Metal gate. A clean detached Windows qualification passes
+strict ARM64 MSVC `/W4 /WX`, all 11 native/Dawn CTests, both exports, two
+zero-warning managed builds, independent D3D12 samples, the full bounded smoke
+matrix, and package staging. Metal and D3D12 produce identical final-clip
+evidence: content passes `2 -> 1 -> 1`, effect passes `2 -> 2 -> 2`, 428 changed
+pixels, extent `[6,4]-[33,27] -> [14,8]-[25,21]`, and red sum
+`48,960 -> 32,960`. Qualified base/Dawn SHA-256 values are
+`991F9301B71660FEF89DDA9A4D1E6400D01C92EFAD10B521D3C58BB12482D0F9` and
+`616B0650CF74D5D84FB45D908DB6285A82760B59E6A8D56313D827B6885038C7`.
+
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then
 12x9 page extents. Package-mode managed Dawn rendering/readback and forced

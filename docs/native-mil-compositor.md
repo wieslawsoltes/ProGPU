@@ -2196,6 +2196,23 @@ and combined geometry/scroll clipping on an effect; focused LibreWPF compiler
 tests cover typed acceptance and rejection without reflection or a managed
 rendering fallback.
 
+At implementation commit `3403e841`, all 10 local native CTests, the base
+export allowlist, the Apple M3 Pro Metal sample, and the live retained-cache
+effect final-output clip gate pass. The Metal gate retains the established
+`2 -> 1 -> 1` content and `2 -> 2 -> 2` effect pass sequence, changes 428
+pixels from wide `[6,4]-[33,27]` to clipped `[14,8]-[25,21]`, and reduces the
+red sum from 48,960 to 32,960.
+
+The same metrics and pixels pass on the Parallels Display Adapter D3D12 backend
+from a clean detached `3403e841`. The complete Windows ARM64 MSVC `/W4 /WX`
+lane passes all 11 native/Dawn CTests, both exports, two zero-warning managed
+Release builds, independent C++ and managed D3D12 readback, the full bounded
+smoke matrix, and nine-file staging. Qualified win-arm64 SHA-256 values are
+`991F9301B71660FEF89DDA9A4D1E6400D01C92EFAD10B521D3C58BB12482D0F9`
+for `progpu_native.dll` and
+`616B0650CF74D5D84FB45D908DB6285A82760B59E6A8D56313D827B6885038C7`
+for `progpu_native_dawn.dll`.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
