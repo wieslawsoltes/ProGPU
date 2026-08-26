@@ -2297,6 +2297,19 @@ minification of alternating one-pixel stripes, the interior red min/mean/max
 changes from `43/117/213` to `106/130/149`. These bounds qualify deterministic
 alias suppression and cache reuse, not byte-exact WIC color output.
 
+The exact DirectX qualification completed on 2026-08-26 from clean detached
+commit `ac38938b`. ARM64 MSVC passed all 11 native/Dawn CTests and both export
+allowlists, two zero-warning managed builds, independent C++ and managed D3D12
+allocation/readback samples, and the complete bounded differential smoke
+matrix. On the Parallels Display Adapter (WDDM), changing only linear to Fant
+kept the page (`passes=1/1 -> 0/1`) and changed stripe red min/mean/max from
+`0/63/255` to `64/135/191`. The staged DLL SHA-256 values are
+`FACAE389AC4EC1A818004D3C881B301342BC22C1C3E3E145B5660E03715FFF65` for
+`progpu_native.dll` and
+`A39DCD04927D02D7EDFB08E747AB08C7CF8FAEE620A45B52162CC1C58169C0FA` for
+`progpu_native_dawn.dll`. This qualifies the same bounded shader algorithm and
+cache-reuse invariant through wgpu-native/Dawn on Metal and D3D12.
+
 The exact-bounds implementation at `dd3857a4` is qualified on Windows 11 ARM64
 under Parallels. Both wgpu-native and provider-resolved Dawn modules rebuilt
 with strict MSVC warnings-as-errors, all 11 native/Dawn CTests and both export

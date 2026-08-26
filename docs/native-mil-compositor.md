@@ -1900,6 +1900,22 @@ for `progpu_native_dawn.dll`. This qualifies composite-only linear gradient
 mask changes and retained-page reuse on DirectX as well as Metal; radial
 resource normalization remains covered by the MIL compiler regression.
 
+The native Fant checkpoint was qualified on 2026-08-26 from clean detached
+ProGPU commit `ac38938b`. The strict Windows ARM64 MSVC lane passed all 11
+native/Dawn CTests and both export contracts, both zero-warning managed builds,
+the independent C++ and managed renderer allocation/readback samples, and the
+complete bounded D3D12 image/mask/effect/vector/text/blend matrix. The dedicated
+Parallels Display Adapter (WDDM) Fant gate changed only the composite sampling
+policy, retained the page (`passes=1/1 -> 0/1`), and narrowed the alternating
+one-pixel-stripe red range from `0/63/255` to `64/135/191` (min/mean/max). The
+staged win-arm64 DLL SHA-256 values are
+`FACAE389AC4EC1A818004D3C881B301342BC22C1C3E3E145B5660E03715FFF65` for
+`progpu_native.dll` and
+`A39DCD04927D02D7EDFB08E747AB08C7CF8FAEE620A45B52162CC1C58169C0FA` for
+`progpu_native_dawn.dll`. Together with the Apple M3 Pro Metal gate, this
+qualifies the shared bounded Fant path and composite-only cache reuse on both
+native WebGPU implementations and DirectX.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
@@ -1916,7 +1932,8 @@ The implementation sequence is intentionally architectural:
    composite clips, one static guideline per axis, linear/radial cache-root
    opacity masks, NearestNeighbor sampling, and the combined
    snapping/ClearType checkpoint are implemented and qualified on live Metal
-   and D3D12.)
+   and D3D12. Fant/HighQuality sampling is implemented as a bounded shared
+   shader prefilter and qualified on both adapters.)
 
 The persistent page and composite-transform path are executable, but full cache
 parity is not claimed until the remaining post-raster state and ordering
