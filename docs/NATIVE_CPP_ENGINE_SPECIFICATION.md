@@ -2682,7 +2682,21 @@ reference are byte-identical: red sums `40,800/40,800` and
 `referenceChanged=0`; baseline red sum is 37,536 and 48 pixels change. All ten
 native CTests, 80 managed native-interop tests after warmup, the zero-warning
 benchmark build, and 72/72 LibreWPF MIL compiler tests pass. The Windows smoke
-profile includes the same live gate; DirectX evidence is pending.
+profile includes the same live gate. Exact DirectX qualification completed on
+2026-08-26 from clean detached implementation commit
+`80560d340d6d12eb5e4f846cbcac61a53a482b24`. ARM64 MSVC rebuilt the base and
+Dawn modules under `/W4 /WX`; all 11 native/Dawn CTests, both export allowlists,
+two zero-warning managed Release builds, independent native and managed D3D12
+allocation/readback samples, managed/C++ text-shaping parity, the complete
+bounded differential smoke profile, and runtime staging passed. The Parallels
+Display Adapter D3D12 gate reproduced Metal exactly: baseline
+`[10,8]-[25,17]`/red 37,536, guided and independently deformed reference
+`[10,8]-[25,17]`/red 40,800, `changed=48`, and `referenceChanged=0`. The guest
+remained clean and the full script exited normally. The staged base DLL was
+2,004,480 bytes with SHA-256
+`D1F0CF2A09D021523B3F42D43C7E1549CB5FD1DF5FCACEB0FBA3A07CF12FC34D`;
+the Dawn DLL was 2,042,368 bytes with SHA-256
+`DB359E0C6155530B87DFC7183E4BE071455964F84B9A3D1ED9DAE20A2AB7148F`.
 
 Exact gate commit `7889fa17` then proves that the same composite remains inside
 an outer effect without losing the guideline frame. The MIL regression retains
