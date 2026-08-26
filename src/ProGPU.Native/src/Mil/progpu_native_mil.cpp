@@ -98,6 +98,20 @@ bool has_exact_size(
     return view.packet.size() == expected;
 }
 
+status validate_render_data_command_framing(
+    const command_view& view) noexcept {
+    const auto raw = static_cast<std::uint32_t>(view.kind);
+    if (raw < static_cast<std::uint32_t>(command::draw_line) ||
+        raw > static_cast<std::uint32_t>(command::pop)) {
+        return status::unsupported_command;
+    }
+    return has_exact_size(
+        view,
+        command_layouts::fixed_header_size(view.kind))
+        ? status::success
+        : status::malformed_batch;
+}
+
 bool is_visual_type(std::uint32_t type) noexcept {
     return type == type_visual || type == type_viewport3d_visual;
 }
@@ -7432,6 +7446,11 @@ struct channel::implementation {
             if (read_status != status::success) {
                 return read_status;
             }
+            const status framing_status =
+                validate_render_data_command_framing(view);
+            if (framing_status != status::success) {
+                return framing_status;
+            }
 
             if (view.kind == command::push_opacity) {
                 using layout = command_layouts::push_opacity;
@@ -10229,6 +10248,12 @@ struct channel::implementation {
                 }
                 if (read_status != status::success) {
                     result = read_status;
+                    break;
+                }
+                const status framing_status =
+                    validate_render_data_command_framing(view);
+                if (framing_status != status::success) {
+                    result = framing_status;
                     break;
                 }
                 const auto append_packet_handle = [&](std::size_t offset) {
