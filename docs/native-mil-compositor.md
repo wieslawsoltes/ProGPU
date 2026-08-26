@@ -1564,13 +1564,22 @@ Native fixtures exercise all six newly decoded value-resource families, every
 new animated primitive, static and animated image draws, retained animated
 ImageDrawing, exact semantic coordinates, and malformed-update rollback.
 
+Direct DrawingImage replay now uses the same typed retained vector path as an
+ImageDrawing that references a DrawingImage. Static and animated DrawImage
+resolve the source's canonical Drawing handle, require the existing exact
+drawing-content-bounds sideband, clip to the destination rectangle, and compose
+the source-to-destination affine mapping before recursively compiling the
+Drawing. No bitmap intermediate, pointer transport, reflection, or host raster
+fallback is introduced. Missing bounds remain `unsupported_command`, recursive
+image/drawing ownership is rejected as `invalid_graph`, and an empty
+DrawingImage remains a no-op. Native coverage locks down distinct retained,
+direct-static, and direct-animated destination mappings in one scene.
+
 The canonical BitmapSource command still contains a process-local
 `IWICBitmapSource*`, so the portable decoder deliberately does not accept that
-packet or BitmapInvalidate as proof of portable pixels. Likewise, direct
-DrawImage of a DrawingImage remains fail closed until a typed drawing-source
-ownership contract exists. D3DImage/video and same-device external texture
-bindings remain separate typed interop work; none are approximated by pointer
-scraping or stale copied bytes.
+packet or BitmapInvalidate as proof of portable pixels. D3DImage/video and
+same-device external texture bindings remain separate typed interop work; none
+are approximated by pointer scraping or stale copied bytes.
 
 The exact clean `a7dcd8de` checkpoint passed the complete Apple Silicon native
 gate, including generated-protocol drift, all local CTests and export checks,
