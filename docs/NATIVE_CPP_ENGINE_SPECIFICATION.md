@@ -2680,15 +2680,19 @@ state; preflight inspects the resolved State on every descendant command and
 returns `UNSUPPORTED` before rendering an unimplemented family. Dynamic
 leading/driven pairs remain outside this static resource mode.
 
-The current Metal qualification uses four X and four Y guides over two
-fractional four-line figures stored in one resource. Guided execution and a
-separate already-deformed reference are byte-identical: red/green sums are
-`40,800/10,710` for both and `referenceChanged=0`; baseline red/green sums are
-`37,536/9,110` and 70 pixels change. It additionally proves that a shared
-segment range fails with `UNSUPPORTED`. All ten native CTests, 80 managed
-native-interop tests after warmup, and the zero-warning benchmark build pass.
-The common macOS/Linux build and Windows smoke profiles include the same live
-gate. Exact DirectX qualification for the original one-path checkpoint
+Commit `dab5db6f` makes the current Metal qualification use four X and four Y
+guides over a line-only rectangle plus a quadratic/line/cubic/line figure
+stored in one
+resource. Guided execution and a separate already-deformed reference are
+byte-identical: red/green sums are `40,800/13,045` for both and
+`referenceChanged=0`; baseline red/green sums are `37,536/11,542` and 76
+pixels change. It additionally proves that a shared segment range fails with
+`UNSUPPORTED`. All ten native CTests, 80 managed native-interop tests after
+warmup, and the zero-warning benchmark build pass. The common macOS/Linux
+build and Windows smoke profiles include the same live gate. WPF lowers an
+`ArcSegment` to one through four cubic Beziers before its snapping task walks
+the shape, so analytic arcs remain unsupported until that exact lowering is
+implemented. Exact DirectX qualification for the original one-path checkpoint
 completed on 2026-08-26 from clean detached implementation commit
 `80560d340d6d12eb5e4f846cbcac61a53a482b24`. ARM64 MSVC rebuilt the base and
 Dawn modules under `/W4 /WX`; all 11 native/Dawn CTests, both export allowlists,
