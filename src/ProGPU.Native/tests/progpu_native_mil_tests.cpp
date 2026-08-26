@@ -7089,6 +7089,7 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
     constexpr std::uint32_t opacity = 9U;
     constexpr std::uint32_t clip = 10U;
     constexpr std::uint32_t opacity_mask = 11U;
+    constexpr std::uint32_t gradient_mask = 12U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -7102,6 +7103,7 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
     append_create(batch, opacity, 49U);
     append_create(batch, clip, 69U);
     append_create(batch, opacity_mask, 75U);
+    append_create(batch, gradient_mask, 77U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -7128,6 +7130,26 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
         0U,
         0U,
         0U);
+    const std::array gradient_mask_stops{
+        mil_gradient_stop{0.0, {1.0F, 1.0F, 1.0F, 0.0F}},
+        mil_gradient_stop{1.0, {1.0F, 1.0F, 1.0F, 1.0F}}};
+    append_linear_gradient_brush(
+        batch,
+        gradient_mask,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0U,
+        0U,
+        0U,
+        1U,
+        1U,
+        0U,
+        0U,
+        0U,
+        gradient_mask_stops);
     append_command(
         batch,
         command::geometry_drawing,
@@ -7277,6 +7299,59 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
     PROGPU_REQUIRE(updated_layers.size() == 1U);
     PROGPU_REQUIRE(updated_layers[0].opacity == 0.0625F);
 
+    std::vector<std::byte> spatial_mask_update;
+    append_command(
+        spatial_mask_update,
+        command::drawing_group,
+        group,
+        1.0,
+        8U,
+        clip,
+        opacity,
+        gradient_mask,
+        transform,
+        0U,
+        1U,
+        0U,
+        1U,
+        drawing,
+        drawing);
+    PROGPU_REQUIRE(state.apply(spatial_mask_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7004U, 3U, stream, &metrics) ==
+        status::unsupported_command);
+    PROGPU_REQUIRE(
+        state.set_drawing_group_bounds(group, 2.0, 3.0, 20.0, 10.0) ==
+        status::success);
+    PROGPU_REQUIRE(
+        state.set_drawing_group_bounds(target, 2.0, 3.0, 20.0, 10.0) ==
+        status::invalid_handle);
+    PROGPU_REQUIRE(state.apply(spatial_mask_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7004U, 4U, stream, &metrics) ==
+        status::success);
+    const auto spatial_layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(spatial_layers.size() == 1U);
+    PROGPU_REQUIRE(spatial_layers[0].opacity == 0.25F);
+    PROGPU_REQUIRE(spatial_layers[0].bounds.x == 12.0F);
+    PROGPU_REQUIRE(spatial_layers[0].bounds.y == 23.0F);
+    PROGPU_REQUIRE(spatial_layers[0].bounds.width == 20.0F);
+    PROGPU_REQUIRE(spatial_layers[0].bounds.height == 10.0F);
+    progpu_native_scene_layer_brush_mask spatial_mask{};
+    std::vector<progpu_native_scene_gradient_stop> spatial_stops;
+    PROGPU_REQUIRE(try_get_brush_mask_resource(
+        stream,
+        spatial_layers[0].mask_resource_index,
+        spatial_mask,
+        spatial_stops));
+    PROGPU_REQUIRE(spatial_mask.bounds.x == 2.0F);
+    PROGPU_REQUIRE(spatial_mask.bounds.y == 3.0F);
+    PROGPU_REQUIRE(spatial_mask.bounds.width == 20.0F);
+    PROGPU_REQUIRE(spatial_mask.bounds.height == 10.0F);
+    PROGPU_REQUIRE(spatial_mask.transform.m31 == 10.0F);
+    PROGPU_REQUIRE(spatial_mask.transform.m32 == 20.0F);
+    PROGPU_REQUIRE(spatial_stops.size() == 2U);
+
     std::vector<std::byte> delete_child;
     append_command(
         delete_child,
@@ -7303,7 +7378,7 @@ bool retained_drawing_group_composes_children_transform_and_opacity() {
         target);
     PROGPU_REQUIRE(state.apply(invalid_child) == status::invalid_handle);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7004U, 3U, stream, &metrics) ==
+        state.build_scene(target, 7004U, 5U, stream, &metrics) ==
         status::success);
     PROGPU_REQUIRE(metrics.rectangle_count == 2U);
     return true;

@@ -169,6 +169,10 @@ if (!renderOnly)
         {
             BindFocusedDrawingImageBounds(mil);
         }
+        if (drawingGroupOnly)
+        {
+            BindFocusedDrawingGroupBounds(mil);
+        }
         NativeMilCompiledScene scene = mil.CompileScene(targetHandle, 701, 1);
         if (milMetrics.CommandCount != expectedCommandCount ||
             mil.ResourceCount != expectedResourceCount ||
@@ -213,6 +217,10 @@ if (!renderOnly)
         if (drawingImageOnly)
         {
             BindFocusedDrawingImageBounds(dawnMil);
+        }
+        if (drawingGroupOnly)
+        {
+            BindFocusedDrawingGroupBounds(dawnMil);
         }
         NativeMilCompiledScene scene = dawnMil.CompileScene(
             targetHandle, 702, 1);
@@ -426,7 +434,7 @@ static byte[] CreateMilDrawingGroupBatch()
     batch.CreateResource(8, NativeMilResourceType.RectangleGeometry);
     batch.CreateResource(9, NativeMilResourceType.DoubleResource);
     batch.CreateResource(10, NativeMilResourceType.DrawingGroup);
-    batch.CreateResource(11, NativeMilResourceType.SolidColorBrush);
+    batch.CreateResource(11, NativeMilResourceType.LinearGradientBrush);
     batch.CreateVisual(1);
     batch.SetVisualRenderOptions(
         1,
@@ -442,10 +450,17 @@ static byte[] CreateMilDrawingGroupBatch()
     batch.SetMatrixTransform(7, new NativeMilMatrix3x2(1, 0, 0, 1, 2, 4));
     batch.SetRectangleGeometry(8, 16, 16, 32, 32);
     batch.SetDoubleResource(9, 0.75);
-    batch.SetSolidColorBrush(
+    ReadOnlySpan<NativeMilGradientStop> maskStops =
+    [
+        new(0, new NativeMilColor(1, 1, 1, 0)),
+        new(1, new NativeMilColor(1, 1, 1, 1))
+    ];
+    batch.SetLinearGradientBrush(
         11,
-        new NativeMilColor(1, 1, 1, 0.5f),
-        opacity: 0.5);
+        new NativeMilLinearGradientBrush(
+            new NativeMilPoint(0, 0),
+            new NativeMilPoint(1, 0)),
+        maskStops);
     batch.SetDrawingGroup(
         10,
         new NativeMilDrawingGroup(
@@ -685,6 +700,11 @@ static byte[] CreateMilDrawingImageBatch()
 static void BindFocusedDrawingImageBounds(NativeMilChannel channel)
 {
     channel.SetDrawingImageBounds(7, new NativeMilRect(10, 20, 20, 10));
+}
+
+static void BindFocusedDrawingGroupBounds(NativeMilChannel channel)
+{
+    channel.SetDrawingGroupBounds(10, new NativeMilRect(8, 12, 48, 40));
 }
 
 static void BindFocusedBitmapSource(NativeMilChannel channel)

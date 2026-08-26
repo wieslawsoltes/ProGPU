@@ -780,6 +780,11 @@ struct channel::implementation {
         std::uint32_t edge_mode{};
         std::uint32_t bitmap_scaling_mode{};
         std::uint32_t clear_type_hint{};
+        double bounds_x{};
+        double bounds_y{};
+        double bounds_width{};
+        double bounds_height{};
+        bool has_bounds{};
         std::vector<std::uint32_t> children;
         std::vector<std::byte> child_render_data;
     };
@@ -3665,6 +3670,15 @@ struct channel::implementation {
                 static_cast<std::size_t>(children_size) !=
                     view.packet.size() - 52U) {
                 return status::malformed_batch;
+            }
+            const auto previous = drawing_groups.find(handle);
+            if (previous != drawing_groups.end() &&
+                previous->second.has_bounds) {
+                group.bounds_x = previous->second.bounds_x;
+                group.bounds_y = previous->second.bounds_y;
+                group.bounds_width = previous->second.bounds_width;
+                group.bounds_height = previous->second.bounds_height;
+                group.has_bounds = true;
             }
             if (!require_resource(handle, type_drawing_group) ||
                 (group.clip_geometry_handle != 0U &&
@@ -7218,13 +7232,24 @@ struct channel::implementation {
                         next.clear_type_enabled = true;
                     }
                     double opacity_mask_alpha = 1.0;
+                    const bool has_spatial_opacity_mask =
+                        group->second.opacity_mask_handle != 0U &&
+                        gradient_brushes.contains(
+                            group->second.opacity_mask_handle);
                     const status opacity_mask_status =
-                        resolve_uniform_opacity_mask_alpha(
+                        has_spatial_opacity_mask
+                        ? status::success
+                        : resolve_uniform_opacity_mask_alpha(
                             group->second.opacity_mask_handle,
                             opacity_mask_alpha);
                     if (opacity_mask_status != status::success) {
                         active_drawings.erase(drawing_handle);
                         return opacity_mask_status;
+                    }
+                    if (has_spatial_opacity_mask &&
+                        !group->second.has_bounds) {
+                        active_drawings.erase(drawing_handle);
+                        return status::unsupported_command;
                     }
                     const double group_composite_opacity =
                         group_opacity * opacity_mask_alpha;
@@ -7282,20 +7307,52 @@ struct channel::implementation {
                         }
                         next = clipped;
                     }
-                    const bool isolate_group = group_composite_opacity != 1.0;
+                    std::uint32_t opacity_mask_resource_index =
+                        PROGPU_NATIVE_SCENE_NO_INDEX;
+                    if (has_spatial_opacity_mask) {
+                        const status spatial_mask_status =
+                            add_gradient_opacity_mask(
+                                group->second.opacity_mask_handle,
+                                group->second.bounds_x,
+                                group->second.bounds_y,
+                                group->second.bounds_width,
+                                group->second.bounds_height,
+                                next.transform,
+                                builder,
+                                opacity_mask_resource_index);
+                        if (spatial_mask_status != status::success) {
+                            active_drawings.erase(drawing_handle);
+                            return spatial_mask_status;
+                        }
+                    }
+                    const bool isolate_group =
+                        group_composite_opacity != 1.0 ||
+                        has_spatial_opacity_mask;
                     if (isolate_group) {
-                        const progpu_native_scene_layer layer{
-                            sizeof(progpu_native_scene_layer),
-                            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION,
-                            {},
-                            static_cast<float>(group_composite_opacity),
-                            PROGPU_NATIVE_BLEND_SRC_OVER,
-                            PROGPU_NATIVE_SCENE_NO_INDEX,
-                            PROGPU_NATIVE_SCENE_NO_INDEX,
-                            0U,
-                            0U,
-                            0U,
-                            0U};
+                        progpu_native_scene_layer layer{};
+                        layer.struct_size = sizeof(layer);
+                        layer.flags =
+                            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+                        layer.opacity = static_cast<float>(
+                            group_composite_opacity);
+                        layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+                        layer.mask_resource_index =
+                            opacity_mask_resource_index;
+                        layer.effect_resource_index =
+                            PROGPU_NATIVE_SCENE_NO_INDEX;
+                        if (group->second.has_bounds) {
+                            if (!try_transform_bounds(
+                                    group->second.bounds_x,
+                                    group->second.bounds_y,
+                                    group->second.bounds_width,
+                                    group->second.bounds_height,
+                                    next.transform,
+                                    layer.bounds)) {
+                                active_drawings.erase(drawing_handle);
+                                return status::invalid_graph;
+                            }
+                            layer.flags |= PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+                        }
                         if (!builder.push_layer(layer)) {
                             active_drawings.erase(drawing_handle);
                             return status::invalid_graph;
@@ -10006,6 +10063,31 @@ status channel::set_drawing_image_bounds(
     image.bounds_width = width;
     image.bounds_height = height;
     image.has_bounds = true;
+    implementation_->increment_generation(handle);
+    return status::success;
+}
+
+status channel::set_drawing_group_bounds(
+    std::uint32_t handle,
+    double x,
+    double y,
+    double width,
+    double height) noexcept {
+    if (!implementation_->require_resource(handle, type_drawing_group) ||
+        !implementation_->drawing_groups.contains(handle)) {
+        return status::invalid_handle;
+    }
+    if (!finite_double_as_float(x) || !finite_double_as_float(y) ||
+        !finite_double_as_float(width) || !finite_double_as_float(height) ||
+        width <= 0.0 || height <= 0.0) {
+        return status::invalid_argument;
+    }
+    auto& group = implementation_->drawing_groups.at(handle);
+    group.bounds_x = x;
+    group.bounds_y = y;
+    group.bounds_width = width;
+    group.bounds_height = height;
+    group.has_bounds = true;
     implementation_->increment_generation(handle);
     return status::success;
 }
