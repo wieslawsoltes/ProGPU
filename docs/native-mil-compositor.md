@@ -453,6 +453,14 @@ the bound metadata, and a resource-only gradient or DoubleResource update
 changes the next scene without rebuilding the child stream. A spatial mask
 without exact bounds, or an unsupported brush family, fails closed.
 
+The portable producer contract distinguishes these pre-transform bounds from
+the public post-transform drawing bounds through
+`PortableDrawingGroupState.HasLocalBounds` / `LocalBounds`. Producers must not
+bind `PortableDrawingGroupState.Bounds` to the native sideband: doing so would
+apply the DrawingGroup transform twice. Source-integrated WPF implementations
+should calculate local bounds with their native drawing-bounds walker so clips,
+child transforms, strokes, and nested groups retain WPF bounds semantics.
+
 Exact Windows qualification at implementation commit `b36b241b` rebuilt both
 native exports with ARM64 MSVC and passed all 11 native/Dawn CTests. Both
 checked-in export allowlists matched, and the project-reference package
