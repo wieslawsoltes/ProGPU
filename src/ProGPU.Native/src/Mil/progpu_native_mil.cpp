@@ -7169,9 +7169,10 @@ struct channel::implementation {
             }
 
             if (view.kind == command::push_opacity) {
+                using layout = command_layouts::push_opacity;
                 double opacity = 0.0;
-                if (!has_exact_size(view, 12U) ||
-                    !read_at(view.packet, 4U, opacity)) {
+                if (!has_exact_size(view, layout::fixed_size) ||
+                    !read_at(view.packet, layout::opacity_offset, opacity)) {
                     return status::malformed_batch;
                 }
                 if (!std::isfinite(opacity) || opacity < 0.0 ||
@@ -7200,14 +7201,21 @@ struct channel::implementation {
                 continue;
             }
             if (view.kind == command::push_opacity_animate) {
+                using layout = command_layouts::push_opacity_animate;
                 double opacity = 0.0;
                 std::uint32_t opacity_animation_handle = 0U;
                 std::uint32_t padding = 0U;
-                if (!has_exact_size(view, 20U) ||
-                    !read_at(view.packet, 4U, opacity) ||
+                if (!has_exact_size(view, layout::fixed_size) ||
+                    !read_at(view.packet, layout::opacity_offset, opacity) ||
                     !read_at(
-                        view.packet, 12U, opacity_animation_handle) ||
-                    !read_at(view.packet, 16U, padding) || padding != 0U ||
+                        view.packet,
+                        layout::h_opacity_animations_offset,
+                        opacity_animation_handle) ||
+                    !read_at(
+                        view.packet,
+                        layout::quad_word_pad0_offset,
+                        padding) ||
+                    padding != 0U ||
                     !std::isfinite(opacity) || opacity < 0.0 ||
                     opacity > 1.0) {
                     return status::malformed_batch;
@@ -7248,19 +7256,29 @@ struct channel::implementation {
                 continue;
             }
             if (view.kind == command::push_opacity_mask) {
+                using layout = command_layouts::push_opacity_mask;
                 float left = 0.0F;
                 float top = 0.0F;
                 float right = 0.0F;
                 float bottom = 0.0F;
                 std::uint32_t opacity_mask_handle = 0U;
                 std::uint32_t padding = 0U;
-                if (!has_exact_size(view, 28U) ||
-                    !read_at(view.packet, 4U, left) ||
-                    !read_at(view.packet, 8U, top) ||
-                    !read_at(view.packet, 12U, right) ||
-                    !read_at(view.packet, 16U, bottom) ||
-                    !read_at(view.packet, 20U, opacity_mask_handle) ||
-                    !read_at(view.packet, 24U, padding) || padding != 0U ||
+                const std::size_t bounds =
+                    layout::bounding_box_cache_local_space_offset;
+                if (!has_exact_size(view, layout::fixed_size) ||
+                    !read_at(view.packet, bounds, left) ||
+                    !read_at(view.packet, bounds + 4U, top) ||
+                    !read_at(view.packet, bounds + 8U, right) ||
+                    !read_at(view.packet, bounds + 12U, bottom) ||
+                    !read_at(
+                        view.packet,
+                        layout::h_opacity_mask_offset,
+                        opacity_mask_handle) ||
+                    !read_at(
+                        view.packet,
+                        layout::quad_word_pad0_offset,
+                        padding) ||
+                    padding != 0U ||
                     !std::isfinite(left) || !std::isfinite(top) ||
                     !std::isfinite(right) || !std::isfinite(bottom) ||
                     right < left || bottom < top ||
@@ -7318,11 +7336,18 @@ struct channel::implementation {
                 continue;
             }
             if (view.kind == command::push_clip) {
+                using layout = command_layouts::push_clip;
                 std::uint32_t geometry_handle = 0U;
                 std::uint32_t padding = 0U;
-                if (!has_exact_size(view, 12U) ||
-                    !read_at(view.packet, 4U, geometry_handle) ||
-                    !read_at(view.packet, 8U, padding)) {
+                if (!has_exact_size(view, layout::fixed_size) ||
+                    !read_at(
+                        view.packet,
+                        layout::h_clip_geometry_offset,
+                        geometry_handle) ||
+                    !read_at(
+                        view.packet,
+                        layout::quad_word_pad0_offset,
+                        padding)) {
                     return status::malformed_batch;
                 }
                 if (geometry_handle == 0U || padding != 0U) {
@@ -7345,11 +7370,18 @@ struct channel::implementation {
                 continue;
             }
             if (view.kind == command::push_transform) {
+                using layout = command_layouts::push_transform;
                 std::uint32_t transform_handle = 0U;
                 std::uint32_t padding = 0U;
-                if (!has_exact_size(view, 12U) ||
-                    !read_at(view.packet, 4U, transform_handle) ||
-                    !read_at(view.packet, 8U, padding)) {
+                if (!has_exact_size(view, layout::fixed_size) ||
+                    !read_at(
+                        view.packet,
+                        layout::h_transform_offset,
+                        transform_handle) ||
+                    !read_at(
+                        view.packet,
+                        layout::quad_word_pad0_offset,
+                        padding)) {
                     return status::malformed_batch;
                 }
                 if (padding != 0U) {
@@ -7377,11 +7409,19 @@ struct channel::implementation {
                 continue;
             }
             if (view.kind == command::push_guideline_set) {
+                using layout = command_layouts::push_guideline_set;
                 std::uint32_t guideline_set_handle = 0U;
                 std::uint32_t padding = 0U;
-                if (!has_exact_size(view, 12U) ||
-                    !read_at(view.packet, 4U, guideline_set_handle) ||
-                    !read_at(view.packet, 8U, padding) || padding != 0U) {
+                if (!has_exact_size(view, layout::fixed_size) ||
+                    !read_at(
+                        view.packet,
+                        layout::h_guidelines_offset,
+                        guideline_set_handle) ||
+                    !read_at(
+                        view.packet,
+                        layout::quad_word_pad0_offset,
+                        padding) ||
+                    padding != 0U) {
                     return status::malformed_batch;
                 }
                 render_scope_state next = current;
@@ -7418,7 +7458,9 @@ struct channel::implementation {
                 continue;
             }
             if (view.kind == command::pop) {
-                if (!has_exact_size(view, 4U)) {
+                if (!has_exact_size(
+                        view,
+                        command_layouts::pop::fixed_size)) {
                     return status::malformed_batch;
                 }
                 if (scope_states.empty() || scope_layers.empty()) {
@@ -7436,12 +7478,18 @@ struct channel::implementation {
                 continue;
             }
             if (view.kind == command::draw_glyph_run) {
+                using layout = command_layouts::draw_glyph_run;
                 std::uint32_t foreground_brush_handle = 0U;
                 std::uint32_t glyph_run_handle = 0U;
-                if (!has_exact_size(view, 12U) ||
+                if (!has_exact_size(view, layout::fixed_size) ||
                     !read_at(
-                        view.packet, 4U, foreground_brush_handle) ||
-                    !read_at(view.packet, 8U, glyph_run_handle)) {
+                        view.packet,
+                        layout::h_foreground_brush_offset,
+                        foreground_brush_handle) ||
+                    !read_at(
+                        view.packet,
+                        layout::h_glyph_run_offset,
+                        glyph_run_handle)) {
                     return status::malformed_batch;
                 }
                 const status glyph_status = append_glyph_run(
@@ -7456,19 +7504,23 @@ struct channel::implementation {
                 continue;
             }
             if (view.kind == command::draw_line) {
+                using layout = command_layouts::draw_line;
                 double x0 = 0.0;
                 double y0 = 0.0;
                 double x1 = 0.0;
                 double y1 = 0.0;
                 std::uint32_t pen_handle = 0U;
                 std::uint32_t padding = 0U;
-                if (!has_exact_size(view, 44U) ||
-                    !read_at(view.packet, 4U, x0) ||
-                    !read_at(view.packet, 12U, y0) ||
-                    !read_at(view.packet, 20U, x1) ||
-                    !read_at(view.packet, 28U, y1) ||
-                    !read_at(view.packet, 36U, pen_handle) ||
-                    !read_at(view.packet, 40U, padding)) {
+                if (!has_exact_size(view, layout::fixed_size) ||
+                    !read_at(view.packet, layout::point0_offset, x0) ||
+                    !read_at(view.packet, layout::point0_offset + 8U, y0) ||
+                    !read_at(view.packet, layout::point1_offset, x1) ||
+                    !read_at(view.packet, layout::point1_offset + 8U, y1) ||
+                    !read_at(view.packet, layout::h_pen_offset, pen_handle) ||
+                    !read_at(
+                        view.packet,
+                        layout::quad_word_pad0_offset,
+                        padding)) {
                     return status::malformed_batch;
                 }
                 if (padding != 0U || !finite_double_as_float(x0) ||
@@ -7508,11 +7560,19 @@ struct channel::implementation {
             const bool is_drawing_resource =
                 view.kind == command::draw_drawing;
             if (is_drawing_resource) {
+                using layout = command_layouts::draw_drawing;
                 std::uint32_t drawing_handle = 0U;
                 std::uint32_t padding = 0U;
-                if (!has_exact_size(view, 12U) ||
-                    !read_at(view.packet, 4U, drawing_handle) ||
-                    !read_at(view.packet, 8U, padding) || padding != 0U ||
+                if (!has_exact_size(view, layout::fixed_size) ||
+                    !read_at(
+                        view.packet,
+                        layout::h_drawing_offset,
+                        drawing_handle) ||
+                    !read_at(
+                        view.packet,
+                        layout::quad_word_pad0_offset,
+                        padding) ||
+                    padding != 0U ||
                     drawing_handle == 0U) {
                     return status::malformed_batch;
                 }
@@ -7894,11 +7954,24 @@ struct channel::implementation {
             if (view.kind == command::draw_geometry || is_drawing_resource) {
                 std::uint32_t padding = 0U;
                 if (!is_drawing_resource) {
-                    if (!has_exact_size(view, 20U) ||
-                        !read_at(view.packet, 4U, brush_handle) ||
-                        !read_at(view.packet, 8U, pen_handle) ||
-                        !read_at(view.packet, 12U, geometry_handle) ||
-                        !read_at(view.packet, 16U, padding)) {
+                    using layout = command_layouts::draw_geometry;
+                    if (!has_exact_size(view, layout::fixed_size) ||
+                        !read_at(
+                            view.packet,
+                            layout::h_brush_offset,
+                            brush_handle) ||
+                        !read_at(
+                            view.packet,
+                            layout::h_pen_offset,
+                            pen_handle) ||
+                        !read_at(
+                            view.packet,
+                            layout::h_geometry_offset,
+                            geometry_handle) ||
+                        !read_at(
+                            view.packet,
+                            layout::quad_word_pad0_offset,
+                            padding)) {
                         return status::malformed_batch;
                     }
                     if (padding != 0U || geometry_handle == 0U) {
@@ -8388,23 +8461,68 @@ struct channel::implementation {
                 is_rounded =
                     view.kind == command::draw_rounded_rectangle;
                 is_ellipse = view.kind == command::draw_ellipse;
-                if (!has_exact_size(view, is_rounded ? 60U : 44U) ||
-                    !read_at(view.packet, 4U, first) ||
-                    !read_at(view.packet, 12U, second) ||
-                    !read_at(view.packet, 20U, third) ||
-                    !read_at(view.packet, 28U, fourth)) {
+                const std::size_t fixed_size = is_rounded
+                    ? command_layouts::draw_rounded_rectangle::fixed_size
+                    : is_ellipse
+                        ? command_layouts::draw_ellipse::fixed_size
+                        : command_layouts::draw_rectangle::fixed_size;
+                const std::size_t geometry_offset = is_rounded
+                    ? command_layouts::draw_rounded_rectangle::rectangle_offset
+                    : is_ellipse
+                        ? command_layouts::draw_ellipse::center_offset
+                        : command_layouts::draw_rectangle::rectangle_offset;
+                if (!has_exact_size(view, fixed_size) ||
+                    !read_at(view.packet, geometry_offset, first) ||
+                    !read_at(view.packet, geometry_offset + 8U, second) ||
+                    !read_at(view.packet, geometry_offset + 16U, third) ||
+                    !read_at(view.packet, geometry_offset + 24U, fourth)) {
                     return status::malformed_batch;
                 }
                 if (is_rounded) {
-                    if (!read_at(view.packet, 36U, radius_x) ||
-                        !read_at(view.packet, 44U, radius_y) ||
-                        !read_at(view.packet, 52U, brush_handle) ||
-                        !read_at(view.packet, 56U, pen_handle)) {
+                    using layout =
+                        command_layouts::draw_rounded_rectangle;
+                    if (!read_at(
+                            view.packet,
+                            layout::radius_x_offset,
+                            radius_x) ||
+                        !read_at(
+                            view.packet,
+                            layout::radius_y_offset,
+                            radius_y) ||
+                        !read_at(
+                            view.packet,
+                            layout::h_brush_offset,
+                            brush_handle) ||
+                        !read_at(
+                            view.packet,
+                            layout::h_pen_offset,
+                            pen_handle)) {
                         return status::malformed_batch;
                     }
-                } else if (!read_at(view.packet, 36U, brush_handle) ||
-                    !read_at(view.packet, 40U, pen_handle)) {
-                    return status::malformed_batch;
+                } else if (is_ellipse) {
+                    using layout = command_layouts::draw_ellipse;
+                    if (!read_at(
+                            view.packet,
+                            layout::h_brush_offset,
+                            brush_handle) ||
+                        !read_at(
+                            view.packet,
+                            layout::h_pen_offset,
+                            pen_handle)) {
+                        return status::malformed_batch;
+                    }
+                } else {
+                    using layout = command_layouts::draw_rectangle;
+                    if (!read_at(
+                            view.packet,
+                            layout::h_brush_offset,
+                            brush_handle) ||
+                        !read_at(
+                            view.packet,
+                            layout::h_pen_offset,
+                            pen_handle)) {
+                        return status::malformed_batch;
+                    }
                 }
             }
             if (!finite_double_as_float(first) ||
@@ -9641,30 +9759,58 @@ struct channel::implementation {
                     view.kind == command::pop) {
                     continue;
                 } else if (view.kind == command::push_opacity_animate) {
-                    append_packet_handle(12U);
+                    append_packet_handle(
+                        command_layouts::push_opacity_animate::
+                            h_opacity_animations_offset);
                 } else if (view.kind == command::push_opacity_mask) {
-                    append_packet_handle(20U);
-                } else if (view.kind == command::push_clip ||
-                    view.kind == command::push_transform ||
-                    view.kind == command::push_guideline_set ||
-                    view.kind == command::draw_drawing) {
-                    append_packet_handle(4U);
+                    append_packet_handle(
+                        command_layouts::push_opacity_mask::
+                            h_opacity_mask_offset);
+                } else if (view.kind == command::push_clip) {
+                    append_packet_handle(
+                        command_layouts::push_clip::h_clip_geometry_offset);
+                } else if (view.kind == command::push_transform) {
+                    append_packet_handle(
+                        command_layouts::push_transform::h_transform_offset);
+                } else if (view.kind == command::push_guideline_set) {
+                    append_packet_handle(
+                        command_layouts::push_guideline_set::
+                            h_guidelines_offset);
+                } else if (view.kind == command::draw_drawing) {
+                    append_packet_handle(
+                        command_layouts::draw_drawing::h_drawing_offset);
                 } else if (view.kind == command::draw_glyph_run) {
-                    append_packet_handle(4U);
-                    append_packet_handle(8U);
+                    append_packet_handle(
+                        command_layouts::draw_glyph_run::
+                            h_foreground_brush_offset);
+                    append_packet_handle(
+                        command_layouts::draw_glyph_run::h_glyph_run_offset);
                 } else if (view.kind == command::draw_line) {
-                    append_packet_handle(36U);
+                    append_packet_handle(
+                        command_layouts::draw_line::h_pen_offset);
                 } else if (view.kind == command::draw_geometry) {
-                    append_packet_handle(4U);
-                    append_packet_handle(8U);
-                    append_packet_handle(12U);
-                } else if (view.kind == command::draw_rectangle ||
-                    view.kind == command::draw_ellipse) {
-                    append_packet_handle(36U);
-                    append_packet_handle(40U);
+                    append_packet_handle(
+                        command_layouts::draw_geometry::h_brush_offset);
+                    append_packet_handle(
+                        command_layouts::draw_geometry::h_pen_offset);
+                    append_packet_handle(
+                        command_layouts::draw_geometry::h_geometry_offset);
+                } else if (view.kind == command::draw_rectangle) {
+                    append_packet_handle(
+                        command_layouts::draw_rectangle::h_brush_offset);
+                    append_packet_handle(
+                        command_layouts::draw_rectangle::h_pen_offset);
+                } else if (view.kind == command::draw_ellipse) {
+                    append_packet_handle(
+                        command_layouts::draw_ellipse::h_brush_offset);
+                    append_packet_handle(
+                        command_layouts::draw_ellipse::h_pen_offset);
                 } else if (view.kind == command::draw_rounded_rectangle) {
-                    append_packet_handle(52U);
-                    append_packet_handle(56U);
+                    append_packet_handle(
+                        command_layouts::draw_rounded_rectangle::
+                            h_brush_offset);
+                    append_packet_handle(
+                        command_layouts::draw_rounded_rectangle::h_pen_offset);
                 } else {
                     result = status::unsupported_command;
                 }
