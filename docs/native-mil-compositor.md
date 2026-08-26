@@ -2162,7 +2162,19 @@ half-opacity union reference and a deliberately incorrect per-primitive-alpha
 variant. Group/reference output is byte-identical; the incorrect variant
 changes 420 pixels and raises the overlap sample from 128 to 188. The qualified
 stack executes `2/2/2` content/composite/effect passes and produces extent
-`[5,5]-[46,30]`, red sum 65,536. The Windows lane runs the same gate on D3D12.
+`[5,5]-[46,30]`, red sum 65,536.
+
+The same gate passed with identical metrics and pixels on the Parallels Display
+Adapter D3D12 backend from clean detached commit `a47d80b5`. The complete
+Windows ARM64 MSVC `/W4 /WX` lane passed all 11 native/Dawn CTests, both export
+allowlists, two zero-warning managed Release builds, independent C++ and
+managed D3D12 allocation/readback, the bounded
+semantic/image/mask/effect/vector/text/blend smoke matrix, and nine-file package
+staging. Qualified win-arm64 SHA-256 values are
+`07E97B185A066124719A2593CBE2AD7762B9FF00FEB406255B428FC7CF2BA85D`
+for `progpu_native.dll` and
+`35744D6CAF0F8C7789D7DE0E7EFA0985529A27217C7F65613BD0889487D879B2`
+for `progpu_native_dawn.dll`.
 
 The implementation sequence is intentionally architectural:
 
