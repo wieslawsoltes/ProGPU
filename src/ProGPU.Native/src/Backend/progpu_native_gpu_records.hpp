@@ -75,7 +75,7 @@ static_assert(sizeof(gpu_advanced_blend_sampling_uniforms) == 32U);
 struct gpu_gaussian_blur_params {
     float sigma;
     std::uint32_t radius;
-    std::uint32_t padding0;
+    std::uint32_t kernel_type;
     std::uint32_t padding1;
 };
 

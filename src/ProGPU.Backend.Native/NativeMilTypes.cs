@@ -53,6 +53,12 @@ public enum NativeMilEffectRenderingBias : uint
     Quality
 }
 
+public enum NativeMilBlurKernelType : uint
+{
+    Gaussian,
+    Box
+}
+
 [Flags]
 public enum NativeMilGlyphStyleSimulations : uint
 {

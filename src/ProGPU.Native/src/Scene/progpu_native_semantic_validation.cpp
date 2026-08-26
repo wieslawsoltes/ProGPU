@@ -446,7 +446,8 @@ bool is_valid_semantic_effect(
     const progpu_native_group_effect& effect) noexcept {
     if (effect.struct_size != sizeof(effect) ||
         (effect.kind != PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR &&
-            effect.kind != PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW) ||
+            effect.kind != PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW &&
+            effect.kind != PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR) ||
         effect.flags != 0U || effect.revision == 0U ||
         effect.reserved != 0U || effect.reserved2 != 0U ||
         !std::isfinite(effect.sigma_x) ||
@@ -459,7 +460,8 @@ bool is_valid_semantic_effect(
         !std::isfinite(effect.color_a)) {
         return false;
     }
-    if (effect.kind == PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR) {
+    if (effect.kind == PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR ||
+        effect.kind == PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR) {
         return effect.sigma_x > 0.01F && effect.sigma_y > 0.01F &&
             effect.offset_x == 0.0F && effect.offset_y == 0.0F &&
             effect.color_r == 0.0F && effect.color_g == 0.0F &&

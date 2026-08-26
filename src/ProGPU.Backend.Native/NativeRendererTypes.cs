@@ -333,7 +333,8 @@ public enum NativeGroupEffectKind : uint
 {
     None = 0,
     GaussianBlur = 1,
-    DropShadow = 2
+    DropShadow = 2,
+    BoxBlur = 3
 }
 
 internal enum NativeMaskTextureFormat : uint
@@ -430,7 +431,8 @@ public enum NativeRendererCapabilities : ulong
     ImageFrameMipmapSampling = 1UL << 49,
     SemanticVectorClipMask = 1UL << 50,
     RetainedGpuHitTesting = 1UL << 51,
-    WpfMilChannel = 1UL << 52
+    WpfMilChannel = 1UL << 52,
+    GroupBoxBlur = 1UL << 53
 }
 
 public enum NativeSceneResourceKind : uint
@@ -2097,6 +2099,21 @@ public readonly struct NativeSceneEffect
             default,
             revision);
 
+    public static NativeSceneEffect BoxBlur(
+        float radius,
+        uint revision) => BoxBlur(radius, radius, revision);
+
+    public static NativeSceneEffect BoxBlur(
+        float radiusX,
+        float radiusY,
+        uint revision) => new(
+            NativeGroupEffectKind.BoxBlur,
+            radiusX,
+            radiusY,
+            default,
+            default,
+            revision);
+
     public static NativeSceneEffect DropShadow(
         float sigma,
         Vector2 offset,
@@ -2383,6 +2400,21 @@ public readonly struct NativeGroupEffect
             NativeGroupEffectKind.GaussianBlur,
             sigmaX,
             sigmaY,
+            default,
+            default,
+            revision);
+
+    public static NativeGroupEffect BoxBlur(
+        float radius,
+        uint revision) => BoxBlur(radius, radius, revision);
+
+    public static NativeGroupEffect BoxBlur(
+        float radiusX,
+        float radiusY,
+        uint revision) => new(
+            NativeGroupEffectKind.BoxBlur,
+            radiusX,
+            radiusY,
             default,
             default,
             revision);

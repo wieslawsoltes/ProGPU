@@ -389,6 +389,7 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
             # member of every retained resource/effect family. The exhaustive
             # scene cross-product remains on the Linux/macOS integration lanes.
             Invoke-NativeBenchmark --paths --group-vector-clip-chain --rectangles 96 --warmup 2 --iterations 4
+            Invoke-NativeBenchmark --group-box-blur --rectangles 96 --warmup 2 --iterations 4
             Invoke-NativeBenchmark --images --group-effect-chain --rectangles 96 --warmup 2 --iterations 4
             Invoke-NativeBenchmark --images --group-blend-mode Overlay --rectangles 96 --warmup 2 --iterations 4
             Invoke-NativeBenchmark --group-blend-mode ColorDodge --rectangles 96 --warmup 2 --iterations 4
@@ -404,6 +405,7 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
             Invoke-NativeBenchmark @SceneArgs
         }
         $EffectScenes = @("", "--analytic", "--geometry", "--paths", "--glyphs", "--images")
+        Invoke-NativeBenchmark --group-box-blur --rectangles 96 --warmup 2 --iterations 4
         foreach ($Effect in @(
             "--group-gaussian-blur",
             "--group-drop-shadow",

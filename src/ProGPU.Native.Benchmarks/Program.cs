@@ -336,6 +336,12 @@ bool useGaussianGroupEffect = Array.Exists(
         value,
         "--group-gaussian-blur",
         StringComparison.OrdinalIgnoreCase));
+bool useBoxGroupEffect = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--group-box-blur",
+        StringComparison.OrdinalIgnoreCase));
 bool useDropShadowGroupEffect = Array.Exists(
     args,
     static value => string.Equals(
@@ -349,13 +355,14 @@ bool useGroupEffectChain = Array.Exists(
         "--group-effect-chain",
         StringComparison.OrdinalIgnoreCase));
 if ((useGaussianGroupEffect ? 1 : 0) +
+    (useBoxGroupEffect ? 1 : 0) +
     (useDropShadowGroupEffect ? 1 : 0) +
     (useGroupEffectChain ? 1 : 0) > 1)
 {
     throw new ArgumentException("Select only one retained group effect.");
 }
-bool useGroupEffect = useGaussianGroupEffect || useDropShadowGroupEffect ||
-    useGroupEffectChain;
+bool useGroupEffect = useGaussianGroupEffect || useBoxGroupEffect ||
+    useDropShadowGroupEffect || useGroupEffectChain;
 bool recomputeGroupEffect = Array.Exists(
     args,
     static value => string.Equals(
@@ -366,6 +373,11 @@ if (recomputeGroupEffect && !useGroupEffect)
 {
     throw new ArgumentException(
         "--recompute-group-effect requires a retained group effect.");
+}
+if (recomputeGroupEffect && useBoxGroupEffect)
+{
+    throw new ArgumentException(
+        "The independent box-blur CPU oracle is a final-output gate, not a timed managed effect implementation.");
 }
 if (recomputeGroupEffect && useGroupBlend)
 {
@@ -542,7 +554,9 @@ NativeSceneTextStyle[] semanticTextStyles = useSemanticScene
         new Vector4(0.92f, 0.96f, 1f, 1f),
         NativeSceneTextRenderingMode.Grayscale)]
     : [];
-Vector4 clearColor = new(0.015f, 0.02f, 0.035f, 1f);
+Vector4 clearColor = useBoxGroupEffect
+    ? Vector4.Zero
+    : new Vector4(0.015f, 0.02f, 0.035f, 1f);
 NativeImageRect drawClip = new(
     logicalWidth * 0.2f,
     logicalHeight * 0.15f,
@@ -645,6 +659,8 @@ NativeGroupMask nativeGroupMask = useTextureGroupMask
     : default;
 NativeGroupEffect nativeGroupEffect = useGaussianGroupEffect
     ? NativeGroupEffect.GaussianBlur(gaussianSigma, revision: 1U)
+    : useBoxGroupEffect
+    ? NativeGroupEffect.BoxBlur(gaussianSigma, revision: 1U)
     : useDropShadowGroupEffect
     ? NativeGroupEffect.DropShadow(
         gaussianSigma,
@@ -1240,6 +1256,10 @@ if (useGroupEffect)
             dropShadowOffset + new Vector2(1f, 0f),
             dropShadowColor,
             revision: 2U)
+        : useBoxGroupEffect
+        ? NativeGroupEffect.BoxBlur(
+            gaussianSigma + 1f,
+            revision: 2U)
         : NativeGroupEffect.GaussianBlur(
             gaussianSigma + 1f,
             revision: 2U);
@@ -1464,6 +1484,14 @@ context.PollDevice(wait: true);
 
 byte[] nativePixels = nativeTarget.ReadPixels();
 byte[] managedPixels = managedTarget.ReadPixels();
+if (useBoxGroupEffect)
+{
+    managedPixels = ApplySeparableBoxBlur(
+        managedPixels,
+        checked((int)width),
+        checked((int)height),
+        Math.Clamp((int)MathF.Floor(gaussianSigma * dpiScale), 0, 128));
+}
 if (writeImages)
 {
     Directory.CreateDirectory("artifacts/progpu-native/differential");
@@ -1492,6 +1520,8 @@ if (writeImages)
         ? $"group-drop-shadow-{familyStem}"
         : useGaussianGroupEffect
         ? $"group-gaussian-blur-{familyStem}"
+        : useBoxGroupEffect
+        ? $"group-box-blur-{familyStem}"
         : useGroupBlend
         ? $"group-blend-{groupBlendMode.ToString().ToLowerInvariant()}-{familyStem}"
         : useVectorClipChain
@@ -1610,6 +1640,8 @@ int maximumAllowedDifference = usesDrawStateClipImage
     ? usesGeometryDifferential ? 204 : 64
     : useGaussianGroupEffect
     ? 64
+    : useBoxGroupEffect
+    ? 1
     : useGroupBlend
     ? usesGeometryDifferential ? 204 : 64
     : useMaskedImageScene
@@ -1669,6 +1701,8 @@ double maximumAllowedMeanAbsoluteDifference = usesDrawStateClipImage
     ? useAnalyticScene ? 0.125 : 0.1
     : useGaussianGroupEffect
     ? 0.075
+    : useBoxGroupEffect
+    ? 0.01
     : useGroupBlend
     ? 0.125
     : useVectorClipChain
@@ -1906,6 +1940,8 @@ var report = new BenchmarkReport(
         ? "Bounded retained drop-shadow differential: max 64/255 (204/255 on independent geometry edge ties), under 1% pixels beyond 3/255, mean under 0.125/255 for analytic source coverage and 0.1/255 otherwise"
         : useGaussianGroupEffect
         ? "Bounded separable Gaussian-blur differential: max 64/255, under 1% pixels beyond 3/255, mean under 0.075/255 per channel"
+        : useBoxGroupEffect
+        ? "Separable box-blur compute output against an independent two-pass integer RGBA8 oracle; exact at the default 1x radius and bounded to 1/255 at high DPI"
         : useGroupBlend
         ? "Bounded group-blend differential: max 64/255 (204/255 on independent geometry edge ties), under 1% pixels beyond 3/255, mean under 0.125/255 per channel"
         : useVectorClipChain
@@ -1954,7 +1990,9 @@ var report = new BenchmarkReport(
             ? "GaussianBlurThenDropShadow"
             : useDropShadowGroupEffect
             ? "DropShadow"
-            : useGaussianGroupEffect ? "GaussianBlur" : "None",
+            : useGaussianGroupEffect
+            ? "GaussianBlur"
+            : useBoxGroupEffect ? "BoxBlur" : "None",
     GroupBlend: useGroupBlend ? groupBlendMode.ToString() : "SrcOver",
     ManagedCompiledSceneCache: enableManagedCompiledSceneCache,
     MeasurementOrder: groupMeasurements
@@ -2033,6 +2071,10 @@ ulong RenderNative(bool capturePayloadHash = false)
                     gaussianSigma,
                     dropShadowOffset + new Vector2(alternate ? 0.25f : 0f, 0f),
                     dropShadowColor,
+                    nativeEffectTimingRevision++)
+                : useBoxGroupEffect
+                ? NativeGroupEffect.BoxBlur(
+                    gaussianSigma + (alternate ? 0.25f : 0f),
                     nativeEffectTimingRevision++)
                 : NativeGroupEffect.GaussianBlur(
                     gaussianSigma + (alternate ? 0.25f : 0f),
@@ -4248,6 +4290,61 @@ static DrawingVisual CreateManagedGlyphVisual(
         textRenderingMode: TextRenderingMode.Grayscale,
         preferGlyphAtlas: true);
     return visual;
+}
+
+static byte[] ApplySeparableBoxBlur(
+    ReadOnlySpan<byte> source,
+    int width,
+    int height,
+    int radius)
+{
+    if (radius == 0)
+        return source.ToArray();
+    if (source.Length != checked(width * height * 4))
+        throw new ArgumentException("The RGBA8 oracle source has an invalid size.", nameof(source));
+
+    byte[] horizontal = new byte[source.Length];
+    byte[] output = new byte[source.Length];
+    int sampleCount = checked(radius * 2 + 1);
+    for (int y = 0; y < height; ++y)
+    {
+        for (int x = 0; x < width; ++x)
+        {
+            int outputOffset = (y * width + x) * 4;
+            for (int channel = 0; channel < 4; ++channel)
+            {
+                int sum = 0;
+                for (int offset = -radius; offset <= radius; ++offset)
+                {
+                    int sampleX = x + offset;
+                    if ((uint)sampleX < (uint)width)
+                        sum += source[(y * width + sampleX) * 4 + channel];
+                }
+                horizontal[outputOffset + channel] =
+                    (byte)((sum + sampleCount / 2) / sampleCount);
+            }
+        }
+    }
+    for (int y = 0; y < height; ++y)
+    {
+        for (int x = 0; x < width; ++x)
+        {
+            int outputOffset = (y * width + x) * 4;
+            for (int channel = 0; channel < 4; ++channel)
+            {
+                int sum = 0;
+                for (int offset = -radius; offset <= radius; ++offset)
+                {
+                    int sampleY = y + offset;
+                    if ((uint)sampleY < (uint)height)
+                        sum += horizontal[(sampleY * width + x) * 4 + channel];
+                }
+                output[outputOffset + channel] =
+                    (byte)((sum + sampleCount / 2) / sampleCount);
+            }
+        }
+    }
+    return output;
 }
 
 static PixelComparison ComparePixels(

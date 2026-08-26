@@ -135,7 +135,8 @@ bool resolve_group_effect(
         offsetof(progpu_native_group_effect, offset_x);
     if (requested->struct_size < gaussian_prefix_size ||
         (requested->kind != PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR &&
-         requested->kind != PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW) ||
+         requested->kind != PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW &&
+         requested->kind != PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR) ||
         requested->flags != 0U || requested->revision == 0U ||
         requested->reserved != 0U || requested->reserved2 != 0U ||
         !std::isfinite(requested->sigma_x) ||
@@ -143,7 +144,8 @@ bool resolve_group_effect(
         requested->sigma_x < 0.0F || requested->sigma_y < 0.0F) {
         return false;
     }
-    if (requested->kind == PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR &&
+    if ((requested->kind == PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR ||
+         requested->kind == PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR) &&
         (requested->sigma_x <= 0.01F || requested->sigma_y <= 0.01F)) {
         return false;
     }
@@ -162,9 +164,12 @@ bool resolve_group_effect(
             return false;
         }
     }
-    constexpr float maximum_physical_sigma = 128.0F / 3.0F;
-    if (requested->sigma_x * dpi_scale > maximum_physical_sigma ||
-        requested->sigma_y * dpi_scale > maximum_physical_sigma) {
+    const float maximum_physical_extent =
+        requested->kind == PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR
+            ? 128.0F
+            : 128.0F / 3.0F;
+    if (requested->sigma_x * dpi_scale > maximum_physical_extent ||
+        requested->sigma_y * dpi_scale > maximum_physical_extent) {
         return false;
     }
     resolved = {};

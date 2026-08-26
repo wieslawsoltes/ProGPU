@@ -408,16 +408,18 @@ progpu_native_status render_scene(
                     }
                     semantic_effect_pass_count += passes;
                     semantic_has_drop_shadows |= drop_shadow;
-                    constexpr float maximum_physical_sigma =
-                        128.0F / 3.0F;
+                    const float maximum_physical_extent = effect.kind ==
+                            PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR
+                        ? 128.0F
+                        : 128.0F / 3.0F;
                     const float sigma_x = effect.sigma_x * frame->dpi_scale;
                     const float sigma_y = effect.sigma_y * frame->dpi_scale;
                     const float offset_x = effect.offset_x * frame->dpi_scale;
                     const float offset_y = effect.offset_y * frame->dpi_scale;
                     if (!std::isfinite(sigma_x) ||
                         !std::isfinite(sigma_y) ||
-                        sigma_x > maximum_physical_sigma ||
-                        sigma_y > maximum_physical_sigma ||
+                        sigma_x > maximum_physical_extent ||
+                        sigma_y > maximum_physical_extent ||
                         (drop_shadow &&
                             (!std::isfinite(offset_x) ||
                              !std::isfinite(offset_y)))) {
@@ -3932,19 +3934,34 @@ progpu_native_status render_scene(
                     plan[effect_index].horizontal;
                 dispatch.vertical_texture = plan[effect_index].vertical;
                 dispatch.output_texture = plan[effect_index].output;
-                const auto create_blur = [frame](float sigma) {
+                const auto create_blur = [frame](
+                                             const progpu_native_group_effect& node,
+                                             bool horizontal) {
                     gpu_gaussian_blur_params parameters{};
-                    parameters.sigma = sigma * frame->dpi_scale;
-                    parameters.radius =
-                        static_cast<std::uint32_t>(std::clamp(
-                            static_cast<int>(std::ceil(
-                                parameters.sigma * 3.0F)),
-                            0,
-                            128));
+                    const float value = horizontal
+                        ? node.sigma_x
+                        : node.sigma_y;
+                    if (node.kind == PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR) {
+                        parameters.radius =
+                            static_cast<std::uint32_t>(std::clamp(
+                                static_cast<int>(std::floor(
+                                    value * frame->dpi_scale)),
+                                0,
+                                128));
+                        parameters.kernel_type = 1U;
+                    } else {
+                        parameters.sigma = value * frame->dpi_scale;
+                        parameters.radius =
+                            static_cast<std::uint32_t>(std::clamp(
+                                static_cast<int>(std::ceil(
+                                    parameters.sigma * 3.0F)),
+                                0,
+                                128));
+                    }
                     return parameters;
                 };
-                const auto horizontal = create_blur(effect.sigma_x);
-                const auto vertical = create_blur(effect.sigma_y);
+                const auto horizontal = create_blur(effect, true);
+                const auto vertical = create_blur(effect, false);
                 dispatch.horizontal_uniform_offset =
                     append_effect_uniform(horizontal);
                 dispatch.vertical_uniform_offset =

@@ -655,6 +655,7 @@ struct channel::implementation {
         double opacity{1.0};
         progpu_native_color color{};
         std::array<std::uint32_t, 5U> animations{};
+        bool box_blur{};
     };
 
     struct target_state {
@@ -3831,7 +3832,7 @@ struct channel::implementation {
             if (!require_resource(handle, type_blur_effect)) {
                 return status::invalid_handle;
             }
-            if (kernel_type != 0U) {
+            if (kernel_type > 1U) {
                 return status::unsupported_command;
             }
             if (radius_animation != 0U &&
@@ -3845,6 +3846,7 @@ struct channel::implementation {
             effect.type = effect_state::kind::blur;
             effect.radius = std::max(0.0, radius);
             effect.animations[0] = radius_animation;
+            effect.box_blur = kernel_type == 1U;
             effects.insert_or_assign(handle, effect);
             increment_generation(handle);
             ++metrics.updated_resource_count;
@@ -10407,7 +10409,13 @@ struct channel::implementation {
                 }
                 return push_source_composite_layer();
             }
-            descriptor.kind = PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR;
+            if (resolved_effect.box_blur) {
+                descriptor.kind = PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR;
+                descriptor.sigma_x = static_cast<float>(effect_radius);
+                descriptor.sigma_y = descriptor.sigma_x;
+            } else {
+                descriptor.kind = PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR;
+            }
         } else {
             descriptor.kind = PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW;
             const double radians = resolved_effect.direction *

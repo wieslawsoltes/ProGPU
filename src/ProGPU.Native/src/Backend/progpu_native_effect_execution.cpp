@@ -1005,13 +1005,24 @@ bool encode_group_effect(
     }
 
     if (draw_state.effect_count > 1U) {
-        const auto create_parameters = [dpi_scale](float sigma) {
+        const auto create_parameters = [dpi_scale](
+                                           const progpu_native_group_effect& node,
+                                           bool horizontal) {
             gpu_gaussian_blur_params parameters{};
-            parameters.sigma = sigma * dpi_scale;
-            parameters.radius = static_cast<std::uint32_t>(std::clamp(
-                static_cast<int>(std::ceil(parameters.sigma * 3.0F)),
-                0,
-                128));
+            const float value = horizontal ? node.sigma_x : node.sigma_y;
+            if (node.kind == PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR) {
+                parameters.radius = static_cast<std::uint32_t>(std::clamp(
+                    static_cast<int>(std::floor(value * dpi_scale)),
+                    0,
+                    128));
+                parameters.kernel_type = 1U;
+            } else {
+                parameters.sigma = value * dpi_scale;
+                parameters.radius = static_cast<std::uint32_t>(std::clamp(
+                    static_cast<int>(std::ceil(parameters.sigma * 3.0F)),
+                    0,
+                    128));
+            }
             return parameters;
         };
         const auto run_pass = [&](WGPUComputePipeline pipeline,
@@ -1046,8 +1057,8 @@ bool encode_group_effect(
              index < draw_state.effect_count;
              ++index) {
             const auto& node = draw_state.group_effects[index];
-            const auto horizontal = create_parameters(node.sigma_x);
-            const auto vertical = create_parameters(node.sigma_y);
+            const auto horizontal = create_parameters(node, true);
+            const auto vertical = create_parameters(node, false);
             if (!engine.effect_chain_blur_horizontal_uniform_cache_valid[
                     index] ||
                 std::memcmp(
@@ -1132,17 +1143,28 @@ bool encode_group_effect(
         return true;
     }
 
-    const auto create_parameters = [dpi_scale](float sigma) {
+    const auto create_parameters = [dpi_scale](
+                                       const progpu_native_group_effect& node,
+                                       bool horizontal) {
         gpu_gaussian_blur_params parameters{};
-        parameters.sigma = sigma * dpi_scale;
-        parameters.radius = static_cast<std::uint32_t>(std::clamp(
-            static_cast<int>(std::ceil(parameters.sigma * 3.0F)),
-            0,
-            128));
+        const float value = horizontal ? node.sigma_x : node.sigma_y;
+        if (node.kind == PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR) {
+            parameters.radius = static_cast<std::uint32_t>(std::clamp(
+                static_cast<int>(std::floor(value * dpi_scale)),
+                0,
+                128));
+            parameters.kernel_type = 1U;
+        } else {
+            parameters.sigma = value * dpi_scale;
+            parameters.radius = static_cast<std::uint32_t>(std::clamp(
+                static_cast<int>(std::ceil(parameters.sigma * 3.0F)),
+                0,
+                128));
+        }
         return parameters;
     };
-    const auto horizontal = create_parameters(effect.sigma_x);
-    const auto vertical = create_parameters(effect.sigma_y);
+    const auto horizontal = create_parameters(effect, true);
+    const auto vertical = create_parameters(effect, false);
     std::uint64_t uploaded_uniform_bytes = 0U;
     if (!engine.effect_blur_horizontal_uniform_cache_valid ||
         std::memcmp(

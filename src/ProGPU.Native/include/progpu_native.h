@@ -82,6 +82,7 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_SEMANTIC_VECTOR_CLIP_MASK (UINT64_C(1) << 50U)
 #define PROGPU_NATIVE_CAPABILITY_RETAINED_GPU_HIT_TESTING (UINT64_C(1) << 51U)
 #define PROGPU_NATIVE_CAPABILITY_WPF_MIL_CHANNEL (UINT64_C(1) << 52U)
+#define PROGPU_NATIVE_CAPABILITY_GROUP_BOX_BLUR (UINT64_C(1) << 53U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -318,7 +319,8 @@ typedef enum progpu_native_clip_operation {
 typedef enum progpu_native_group_effect_kind {
     PROGPU_NATIVE_GROUP_EFFECT_NONE = 0,
     PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR = 1,
-    PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW = 2
+    PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW = 2,
+    PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR = 3
 } progpu_native_group_effect_kind;
 
 /* Values intentionally match ProGPU.Backend.GpuBlendMode. */
@@ -2186,9 +2188,11 @@ typedef struct progpu_native_group_mask {
 /*
  * One retained effect applied to the pooled frame-family result before its
  * final mask/opacity composite. The revision identifies immutable effect
- * parameters independently from group content. Gaussian sigma and drop-shadow
- * offset are expressed in logical coordinates and converted to physical pixels
- * with frame DPI. Drop-shadow color is straight-alpha linear RGBA.
+ * parameters independently from group content. Gaussian sigma, box radius,
+ * and drop-shadow offset are expressed in logical coordinates and converted
+ * to physical pixels with frame DPI. Drop-shadow color is straight-alpha
+ * linear RGBA. Box blur stores its logical radii in sigma_x/sigma_y to retain
+ * the stable descriptor layout.
  *
  * The original 32-byte Gaussian prefix remains accepted. Drop shadow requires
  * the full descriptor so older callers cannot accidentally select it without

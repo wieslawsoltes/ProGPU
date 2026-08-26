@@ -3411,7 +3411,8 @@ public ref struct NativeSceneStreamBuilder
     {
         if (effect.StructSize != Unsafe.SizeOf<NativeSceneEffect>() ||
             effect.Kind is not (NativeGroupEffectKind.GaussianBlur or
-                NativeGroupEffectKind.DropShadow) ||
+                NativeGroupEffectKind.DropShadow or
+                NativeGroupEffectKind.BoxBlur) ||
             effect.Flags != 0U || effect.Revision == 0U ||
             !effect.HasCanonicalReservedFields ||
             !float.IsFinite(effect.SigmaX) ||
@@ -3425,7 +3426,8 @@ public ref struct NativeSceneStreamBuilder
         {
             return false;
         }
-        if (effect.Kind == NativeGroupEffectKind.GaussianBlur)
+        if (effect.Kind is NativeGroupEffectKind.GaussianBlur or
+            NativeGroupEffectKind.BoxBlur)
         {
             return effect.SigmaX > 0.01f && effect.SigmaY > 0.01f &&
                 effect.OffsetX == 0f && effect.OffsetY == 0f &&

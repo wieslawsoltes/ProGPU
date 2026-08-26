@@ -549,6 +549,20 @@ public class NativeRendererInteropTests
         Assert.Equal(0.4, ReadDouble(encoded, 92));
         Assert.Equal(6.5, ReadDouble(encoded, 100));
         Assert.Equal(0U, ReadUInt32(encoded, 128));
+
+        var boxBatch = new NativeMilBatchBuilder();
+        boxBatch.SetBlurEffect(
+            12,
+            7.0,
+            NativeMilEffectRenderingBias.Performance,
+            NativeMilBlurKernelType.Box);
+        byte[] boxEncoded = boxBatch.ToArray();
+        Assert.Equal(1U, ReadUInt32(boxEncoded, 24));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            boxBatch.SetBlurEffect(
+                12,
+                7.0,
+                kernelType: (NativeMilBlurKernelType)2U));
     }
 
     [Fact]
@@ -914,7 +928,7 @@ public class NativeRendererInteropTests
             nativeGlyphExecution,
             StringComparison.Ordinal);
         Assert.Contains(
-            "intrinsic_winding_8",
+            "intrinsic_winding_16",
             nativeGlyphExecution,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -1596,6 +1610,23 @@ public class NativeRendererInteropTests
         Assert.Equal(4.5f, state.GroupEffect.SigmaY);
         Assert.Equal(23U, state.GroupEffect.Revision);
         Assert.True(state.GroupEffect.IsEnabled);
+    }
+
+    [Fact]
+    public void PublicDrawStateCarriesTypedBoxGroupEffect()
+    {
+        var effect = NativeGroupEffect.BoxBlur(5f, 7f, 24U);
+        var sceneEffect = NativeSceneEffect.BoxBlur(5f, 7f, 25U);
+
+        Assert.Equal(NativeGroupEffectKind.BoxBlur, effect.Kind);
+        Assert.Equal(5f, effect.SigmaX);
+        Assert.Equal(7f, effect.SigmaY);
+        Assert.Equal(24U, effect.Revision);
+        Assert.True(effect.IsEnabled);
+        Assert.Equal(NativeGroupEffectKind.BoxBlur, sceneEffect.Kind);
+        Assert.Equal(5f, sceneEffect.SigmaX);
+        Assert.Equal(7f, sceneEffect.SigmaY);
+        Assert.Equal(25U, sceneEffect.Revision);
     }
 
     [Fact]
@@ -5348,6 +5379,15 @@ public class NativeRendererInteropTests
         Assert.Contains(
             "GroupDropShadowComposeWgsl.generated.hpp",
             effectExecutionSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_GROUP_EFFECT_BOX_BLUR",
+            effectExecutionSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "blurParams.kernelType == 1u",
+            File.ReadAllText(FindRepoFile(
+                "src", "ProGPU.Compute", "Shaders", "GaussianBlurHorizontal.wgsl")),
             StringComparison.Ordinal);
         foreach (string source in new[]
                  {
