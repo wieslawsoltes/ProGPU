@@ -23,6 +23,7 @@ internal static unsafe partial class NativeMethods
     internal const uint SceneMaximumLayerBytes = 256U * 1024U * 1024U;
     internal const uint SceneMaximumBrushes = 1024U * 1024U;
     internal const uint SceneMaximumGradientStops = 64U * 1024U;
+    internal const uint SceneMaximumGuidelinesPerAxis = 65535U;
     internal const uint SceneMaximumDrawBrushIndices = 1024U * 1024U;
     internal const uint SceneMaximumTextStyles = 1024U * 1024U;
     internal const uint SceneNoIndex = uint.MaxValue;

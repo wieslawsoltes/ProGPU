@@ -2908,6 +2908,107 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void SemanticSceneBuilderBoundsCompositeOnlyMultiGuidelines()
+    {
+        Span<byte> destination = stackalloc byte[4096];
+        Span<double> guidelinesX = stackalloc double[2] { 2.25, 18.75 };
+        Span<double> guidelinesY = stackalloc double[1] { 3.5 };
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 85U,
+            generation: 1U,
+            commandCapacity: 2,
+            resourceCapacity: 3);
+        Assert.False(builder.TryAddGuidelineSetResource(
+            1U,
+            1U,
+            guidelinesX,
+            guidelinesY,
+            out _));
+        Assert.True(builder.TryAddCompositeGuidelineSetResource(
+            1U,
+            1U,
+            guidelinesX,
+            guidelinesY,
+            out uint guidelineIndex));
+        var compositeState = new NativeSceneState(
+            Matrix3x2.Identity,
+            flags: NativeSceneStateFlags.GuidelineSet,
+            guidelineResourceIndex: guidelineIndex);
+        Assert.True(builder.TryAddStateResource(
+            2U,
+            1U,
+            in compositeState,
+            out uint stateIndex));
+        Span<NativeAnalyticPrimitive> analytic =
+            stackalloc NativeAnalyticPrimitive[1];
+        analytic[0] = new NativeAnalyticPrimitive(
+            NativeAnalyticPrimitiveKind.Rectangle,
+            0f,
+            0f,
+            24f,
+            18f,
+            Vector4.One,
+            Matrix3x2.Identity);
+        Assert.True(builder.TryAddAnalyticResource(
+            3U,
+            1U,
+            analytic,
+            out uint analyticIndex));
+        Assert.False(builder.TrySave(1U, stateIndex));
+        Assert.False(builder.TryDrawAnalytic(
+            1U,
+            analyticIndex,
+            new NativeImageRect(0f, 0f, 24f, 18f),
+            stateIndex: stateIndex));
+        var layer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.Bounds |
+                NativeSceneLayerFlags.CacheContent |
+                NativeSceneLayerFlags.CacheLocalSpace,
+            bounds: new NativeImageRect(0f, 0f, 24f, 18f),
+            contentRevision: 1U,
+            compositeRevision: 1U,
+            compositeStateResourceIndex: stateIndex);
+        Assert.True(builder.TryPushLayer(1U, in layer));
+        Assert.True(builder.TryPopLayer(2U));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+
+        var sceneHeader = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var guidelineResource =
+            MemoryMarshal.Read<NativeMethods.SceneResource>(
+                stream[(int)sceneHeader.ResourceOffset..]);
+        var guidelineHeader =
+            MemoryMarshal.Read<NativeSceneGuidelineSetHeader>(
+                stream[(int)guidelineResource.PayloadOffset..]);
+        Assert.Equal(
+            NativeSceneGuidelineSetFlags.CompositeOnly,
+            guidelineHeader.Flags);
+        Assert.Equal(2U, guidelineHeader.GuidelineXCount);
+        Assert.Equal(1U, guidelineHeader.GuidelineYCount);
+
+        Span<byte> invalidDestination = stackalloc byte[1024];
+        var invalidBuilder = new NativeSceneStreamBuilder(
+            invalidDestination,
+            sceneId: 86U,
+            generation: 1U,
+            commandCapacity: 0,
+            resourceCapacity: 1);
+        Span<double> unsorted = stackalloc double[2] { 2.0, 1.0 };
+        Assert.False(invalidBuilder.TryAddCompositeGuidelineSetResource(
+            1U,
+            1U,
+            unsorted,
+            [],
+            out _));
+        Assert.False(invalidBuilder.TryAddCompositeGuidelineSetResource(
+            1U,
+            1U,
+            guidelinesY,
+            [],
+            out _));
+    }
+
+    [Fact]
     public void SemanticSceneBuilderWritesBoundedMaskChainWithoutAllocation()
     {
         Span<byte> destination = stackalloc byte[4096];

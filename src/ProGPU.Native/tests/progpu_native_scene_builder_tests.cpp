@@ -262,6 +262,78 @@ bool semantic_scene_builder_is_deterministic_and_valid() {
             sizeof(path_segments) + sizeof(path_boolean_nodes);
 }
 
+bool semantic_scene_builder_bounds_composite_only_guidelines() {
+    semantic_scene_builder builder(702U, 1U);
+    if (!builder.reserve(2U, 2U, 512U)) {
+        return false;
+    }
+    const std::array guidelines_x{2.25, 18.75};
+    const std::array guidelines_y{3.5};
+    std::uint32_t guideline_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (builder.add_guideline_set(
+            guidelines_x,
+            guidelines_y,
+            guideline_index) ||
+        !builder.add_guideline_set(
+            guidelines_x,
+            guidelines_y,
+            guideline_index,
+            true)) {
+        return false;
+    }
+    auto state = semantic_scene_builder::identity_state();
+    state.flags = PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+    state.guideline_resource_index = guideline_index;
+    std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_state(state, state_index) || builder.save(state_index)) {
+        return false;
+    }
+    progpu_native_scene_layer layer{};
+    layer.struct_size = sizeof(layer);
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE;
+    layer.bounds = {0.0F, 0.0F, 24.0F, 18.0F};
+    layer.opacity = 1.0F;
+    layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    layer.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    layer.content_revision = 1U;
+    layer.composite_revision = 1U;
+    layer.reserved0 = state_index;
+    if (!builder.push_layer(layer) || !builder.pop_layer()) {
+        return false;
+    }
+    std::vector<std::byte> stream;
+    if (!builder.build(stream)) {
+        return false;
+    }
+    const auto validated = scene::validate(stream.data(), stream.size());
+    if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return false;
+    }
+    const auto guideline_resource = read<progpu_native_scene_resource>(
+        stream,
+        validated.header.resource_offset + guideline_index *
+            validated.header.resource_stride);
+    const auto header = read<progpu_native_scene_guideline_set>(
+        stream, guideline_resource.payload_offset);
+    if (header.flags != PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY ||
+        header.guideline_x_count != 2U ||
+        header.guideline_y_count != 1U ||
+        read<double>(stream, guideline_resource.payload_offset +
+            sizeof(header)) != 2.25 ||
+        read<double>(stream, guideline_resource.payload_offset +
+            sizeof(header) + sizeof(double)) != 18.75) {
+        return false;
+    }
+
+    semantic_scene_builder invalid(703U, 1U);
+    const std::array unsorted{2.0, 1.0};
+    return !invalid.add_guideline_set(
+        unsorted, std::span<const double>{}, guideline_index, true);
+}
+
 bool semantic_scene_builder_preserves_shared_path_segments() {
     const std::array segments{
         progpu_native_path_segment{

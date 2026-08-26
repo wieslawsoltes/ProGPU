@@ -38,6 +38,17 @@ if (Array.Exists(
         args,
         static value => string.Equals(
             value,
+            "--semantic-local-cache-multi-guideline",
+            StringComparison.OrdinalIgnoreCase)))
+{
+    RetainedCacheMultiGuidelineQualification.Run();
+    return;
+}
+
+if (Array.Exists(
+        args,
+        static value => string.Equals(
+            value,
             "--managed-picture",
             StringComparison.OrdinalIgnoreCase)))
 {

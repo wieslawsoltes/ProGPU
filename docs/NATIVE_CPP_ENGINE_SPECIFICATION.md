@@ -2321,7 +2321,8 @@ start, line endpoint, and cubic control/endpoint after transforming it to
 device space. Rotation or shear disables the frame.
 
 The first additive native capability is intentionally local-cache-composite
-only. A retained page has exactly four composite vertices, so the executor can
+only and is implemented. A retained page has exactly four composite vertices,
+so the executor can
 apply the WPF nearest-guide function to each absolute target-space vertex and
 then localize it to the parent target. Validation must reject that multi-guide
 resource from normal SAVE/draw states and accept it only through the
@@ -2330,6 +2331,17 @@ existing general uniform-offset contract. General multi-guide path and
 primitive replay remains a separate point-deformation capability, and
 multi-guide plus spatial-mask composition stays fail closed until both share
 one explicit deformed coordinate frame.
+
+The C++ and managed pointer-free scene builders enforce the same flag/count,
+UInt16 count bound, finite-coordinate, and per-axis sorted-order rules. The
+managed builder serializes directly into its caller-owned arena. The native
+executor performs a bounded binary search per composite vertex and axis, with
+strict comparison preserving WPF's lower-guide midpoint tie. MIL cache-root
+compilation maps through scale/translate with float arithmetic, reverses input
+under negative scale, and keeps the composite-only State out of ordinary
+SAVE/draw state. Native, managed, and MIL regressions plus the live Metal gate
+prove cache reuse (`1/1 -> 0/1`) and non-uniform page deformation; exact D3D12
+qualification remains pending for this checkpoint.
 
 The exact-bounds implementation at `dd3857a4` is qualified on Windows 11 ARM64
 under Parallels. Both wgpu-native and provider-resolved Dawn modules rebuilt
@@ -2373,8 +2385,8 @@ package contains nine files, with SHA-256
 `FC95E25FF8E5313D6151F199E236D376E28C9FF7243AD0887F8FA360B89AA73E` for
 `progpu_native_dawn.dll`. This qualifies the executable local-space,
 RenderAtScale, pixel-snapping, and ClearType cache subset on DirectX; the
-remaining cache work is inherited/ordered spatial-mask composition,
-multi-guideline, nested-cache/effect ordering, and
+remaining cache work is inherited/ordered spatial-mask composition, general
+multi-guideline geometry deformation, nested-cache/effect ordering, and
 LibreWPF package integration.
 
 The post-raster cache-root State checkpoint passed that strict Windows gate on

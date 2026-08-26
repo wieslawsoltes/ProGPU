@@ -1916,7 +1916,7 @@ staged win-arm64 DLL SHA-256 values are
 qualifies the shared bounded Fant path and composite-only cache reuse on both
 native WebGPU implementations and DirectX.
 
-The next multi-guideline checkpoint follows WPF's `CSnappingFrame` and
+The composite-only multi-guideline checkpoint follows WPF's `CSnappingFrame` and
 `CShapeClipperForFEB` boundary. Static arrays are sorted, transformed to device
 space with WPF float arithmetic, and reversed under a negative axis scale so
 they remain increasing. Zero or one coordinate per axis produces the existing
@@ -1927,14 +1927,33 @@ precomputed round-to-pixel offset; an exact midpoint keeps the lower guide.
 Rotation or shear produces an empty snapping frame.
 
 For a cache-root guideline collection, the affected geometry is only the four
-retained-page composite vertices. The planned append-only semantic capability
-therefore marks a multi-guide resource as composite-only, validates that it is
+retained-page composite vertices. The append-only semantic capability marks a
+multi-guide resource as composite-only, validates that it is
 referenced exclusively by a local-cache composite State, and snaps those four
 absolute target-space coordinates before parent-target localization. It must
 not make multi-guide resources legal for ordinary semantic draw states, where
 WPF requires point-by-point path deformation. Spatial-mask plus guideline
 ordering remains fail closed until the deformed quad and mask coordinate frame
 are represented together.
+
+The first implementation is now executable in both the native C++ and managed
+pointer-free builders. Counts are bounded to the canonical UInt16 packet range,
+coordinates must be finite and independently sorted, negative-scale MIL
+mapping reverses the source traversal, and the managed builder writes directly
+to its caller-owned arena without a large temporary stack allocation. Builder
+and serialized-scene validation reject a composite-only State on SAVE, PUSH,
+or draw commands; only a `CACHE_LOCAL_SPACE` layer's composite State may carry
+it. Cache-root MIL compilation also omits that State from the ordinary outer
+save so the deformed frame cannot leak into retained-page rasterization.
+
+Native, managed, and MIL regressions cover flag/count mismatch, unsorted input,
+ordinary-State rejection, cache-composite acceptance, exact midpoint selection
+of the lower guide, mapped payload coordinates, and content-revision stability
+across a guideline-only update. The live Apple M3 Pro Metal gate keeps the
+retained page (`passes=1/1 -> 0/1`) while two X and two Y guides deform its red
+extent from `[10,8]-[25,15]` to `[11,9]-[25,15]` with 23 changed pixels. This
+qualifies the shared WebGPU executor path on Metal; the exact Windows D3D12
+gate remains required for this checkpoint.
 
 The implementation sequence is intentionally architectural:
 
@@ -1949,7 +1968,8 @@ The implementation sequence is intentionally architectural:
    LibreWPF without reflection.
 5. Qualify composite clip/mask/guideline/sampling ordering, nested cache
    lifetime, effects ordering, and LibreWPF package lanes. (Exact rectangle
-   composite clips, one static guideline per axis, linear/radial cache-root
+   composite clips, static composite guidelines including the bounded
+   multi-guide cache-root subset, linear/radial cache-root
    opacity masks, NearestNeighbor sampling, and the combined
    snapping/ClearType checkpoint are implemented and qualified on live Metal
    and D3D12. Fant/HighQuality sampling is implemented as a bounded shared

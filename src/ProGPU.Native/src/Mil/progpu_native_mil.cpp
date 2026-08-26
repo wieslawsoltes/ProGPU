@@ -6997,7 +6997,8 @@ struct channel::implementation {
                                 guidelines->second.guidelines_x,
                                 guidelines->second.guidelines_y,
                                 next,
-                                builder);
+                                builder,
+                                false);
                         if (guideline_status != status::success) {
                             active_drawings.erase(drawing_handle);
                             return guideline_status;
@@ -8193,8 +8194,11 @@ struct channel::implementation {
         std::span<const double> guidelines_x,
         std::span<const double> guidelines_y,
         render_scope_state& state,
-        native::semantic_scene_builder& builder) {
-        if (guidelines_x.size() > 1U || guidelines_y.size() > 1U) {
+        native::semantic_scene_builder& builder,
+        bool composite_only) {
+        const bool multiple =
+            guidelines_x.size() > 1U || guidelines_y.size() > 1U;
+        if (multiple && !composite_only) {
             return status::unsupported_command;
         }
         if (state.transform.m12 != 0.0 || state.transform.m21 != 0.0 ||
@@ -8203,30 +8207,58 @@ struct channel::implementation {
                 PROGPU_NATIVE_SCENE_NO_INDEX;
             return status::success;
         }
-        std::array<double, 1U> mapped_x{};
-        std::array<double, 1U> mapped_y{};
-        std::span<const double> mapped_x_span;
-        std::span<const double> mapped_y_span;
-        if (!guidelines_x.empty()) {
-            mapped_x[0] = static_cast<float>(
-                static_cast<float>(guidelines_x[0]) *
-                    static_cast<float>(state.transform.m11) +
-                static_cast<float>(state.transform.m31));
-            mapped_x_span = mapped_x;
+        std::vector<double> mapped_x;
+        std::vector<double> mapped_y;
+        try {
+            mapped_x.reserve(guidelines_x.size());
+            mapped_y.reserve(guidelines_y.size());
+        } catch (const std::bad_alloc&) {
+            return status::capacity_exceeded;
         }
-        if (!guidelines_y.empty()) {
-            mapped_y[0] = static_cast<float>(
-                static_cast<float>(guidelines_y[0]) *
-                    static_cast<float>(state.transform.m22) +
-                static_cast<float>(state.transform.m32));
-            mapped_y_span = mapped_y;
+        const auto map_axis = [](
+            std::span<const double> source,
+            double scale,
+            double offset,
+            std::vector<double>& destination) {
+            if (scale < 0.0) {
+                for (auto iterator = source.rbegin();
+                     iterator != source.rend();
+                     ++iterator) {
+                    destination.push_back(static_cast<float>(
+                        static_cast<float>(*iterator) *
+                            static_cast<float>(scale) +
+                        static_cast<float>(offset)));
+                }
+            } else {
+                for (double coordinate : source) {
+                    destination.push_back(static_cast<float>(
+                        static_cast<float>(coordinate) *
+                            static_cast<float>(scale) +
+                        static_cast<float>(offset)));
+                }
+            }
+        };
+        try {
+            map_axis(
+                guidelines_x,
+                state.transform.m11,
+                state.transform.m31,
+                mapped_x);
+            map_axis(
+                guidelines_y,
+                state.transform.m22,
+                state.transform.m32,
+                mapped_y);
+        } catch (const std::bad_alloc&) {
+            return status::capacity_exceeded;
         }
         std::uint32_t guideline_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX;
         if (!builder.add_guideline_set(
-                mapped_x_span,
-                mapped_y_span,
-                guideline_resource_index)) {
+                mapped_x,
+                mapped_y,
+                guideline_resource_index,
+                multiple)) {
             return status::invalid_graph;
         }
         state.guideline_resource_index = guideline_resource_index;
@@ -9056,7 +9088,8 @@ struct channel::implementation {
             visual->second.guidelines_x,
             visual->second.guidelines_y,
             current,
-            builder);
+            builder,
+            visual->second.cache_mode_handle != 0U);
         if (guideline_status != status::success) {
             active_visuals.erase(handle);
             return guideline_status;
@@ -9134,8 +9167,13 @@ struct channel::implementation {
             state.flags |= PROGPU_NATIVE_SCENE_STATE_MASK;
             state.mask_resource_index = current.mask_resource_index;
         }
+        const bool composite_only_guidelines =
+            visual->second.cache_mode_handle != 0U &&
+            (visual->second.guidelines_x.size() > 1U ||
+                visual->second.guidelines_y.size() > 1U);
         if (current.guideline_resource_index !=
-            PROGPU_NATIVE_SCENE_NO_INDEX) {
+                PROGPU_NATIVE_SCENE_NO_INDEX &&
+            !composite_only_guidelines) {
             state.flags |= PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
             state.guideline_resource_index =
                 current.guideline_resource_index;

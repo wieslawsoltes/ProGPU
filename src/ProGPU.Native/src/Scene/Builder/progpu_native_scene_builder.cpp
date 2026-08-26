@@ -169,11 +169,18 @@ bool semantic_scene_builder::add_state(
 bool semantic_scene_builder::add_guideline_set(
     std::span<const double> guidelines_x,
     std::span<const double> guidelines_y,
-    std::uint32_t& resource_index) noexcept {
+    std::uint32_t& resource_index,
+    bool composite_only) noexcept {
     resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-    if (guidelines_x.size() > 1U || guidelines_y.size() > 1U ||
+    const bool multiple =
+        guidelines_x.size() > 1U || guidelines_y.size() > 1U;
+    if (multiple != composite_only ||
+        guidelines_x.size() > PROGPU_NATIVE_SCENE_MAX_GUIDELINES_PER_AXIS ||
+        guidelines_y.size() > PROGPU_NATIVE_SCENE_MAX_GUIDELINES_PER_AXIS ||
         implementation_->resources.size() >=
             PROGPU_NATIVE_SCENE_MAX_RESOURCES ||
+        !std::ranges::is_sorted(guidelines_x) ||
+        !std::ranges::is_sorted(guidelines_y) ||
         std::ranges::any_of(guidelines_x,
             [](double value) { return !std::isfinite(value); }) ||
         std::ranges::any_of(guidelines_y,
@@ -185,6 +192,9 @@ bool semantic_scene_builder::add_guideline_set(
             implementation_->resources.size() + 1U);
         progpu_native_scene_guideline_set header{};
         header.struct_size = sizeof(header);
+        header.flags = composite_only
+            ? PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY
+            : 0U;
         header.guideline_x_count =
             static_cast<std::uint32_t>(guidelines_x.size());
         header.guideline_y_count =
