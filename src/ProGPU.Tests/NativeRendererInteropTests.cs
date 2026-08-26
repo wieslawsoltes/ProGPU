@@ -450,6 +450,27 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWriteCanonicalRenderDataGuidelineScope()
+    {
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.PushGuidelineSet(9);
+        renderData.Pop();
+        byte[] encoded = renderData.WrittenSpan.ToArray();
+
+        Assert.Equal(24, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x52U, ReadUInt32(encoded, 4));
+        Assert.Equal(9U, ReadUInt32(encoded, 8));
+        Assert.Equal(0U, ReadUInt32(encoded, 12));
+        Assert.Equal(8U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x56U, ReadUInt32(encoded, 20));
+
+        renderData.Clear();
+        renderData.PushGuidelineSet(0);
+        Assert.Equal(16, renderData.Length);
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalVisualEffectPackets()
     {
         var batch = new NativeMilBatchBuilder();

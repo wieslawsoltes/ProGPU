@@ -400,6 +400,20 @@ fail closed, and geometry bounds are never substituted for coverage. Fixed
 ellipses and rounded rectangles use analytic quarter arcs rather than cubic
 circle approximations.
 
+Canonical nested `MILCMD_PUSH_GUIDELINE_SET` now resolves a retained static
+`MILCMD_GUIDELINESET` inside the transform active at the push, maps its X/Y
+coordinates with WPF float quantization, and scopes the resulting semantic
+guideline resource through the ordinary save/restore stack. A null handle
+pushes an empty guideline frame, so it temporarily clears an inherited Visual
+or drawing-group guideline without unbalancing the stream. The render-data
+resource dependency hash includes the pushed handle, keeping retained cache
+revisions sensitive to guideline updates. Dynamic guideline resources and the
+specialized `MILCMD_PUSH_GUIDELINE_Y1`/`Y2` forms remain fail closed: they need
+WPF's per-guideline last-offset, phase timestamp, three-phase subpixel
+animation, non-snappable notification, and render-rescheduling state. Those
+forms must not be approximated as static coordinates; the native target
+scheduling ABI will carry the required clock/state in Stage 2.
+
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds, curve dashes,

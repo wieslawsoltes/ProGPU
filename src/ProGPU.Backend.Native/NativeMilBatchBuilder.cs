@@ -1505,6 +1505,13 @@ public sealed class NativeMilRenderDataBuilder
         NativeMilBatchBuilder.WriteUInt32(packet, 4, transformHandle);
     }
 
+    public void PushGuidelineSet(uint guidelineSetHandle)
+    {
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PushGuidelineSet, 12);
+        NativeMilBatchBuilder.WriteUInt32(packet, 4, guidelineSetHandle);
+    }
+
     public void Pop()
     {
         _ = NativeMilBatchEncoding.Allocate(
@@ -1693,6 +1700,7 @@ internal static class NativeMilCommand
     internal const uint PushClip = 0x4d;
     internal const uint PushOpacity = 0x4f;
     internal const uint PushTransform = 0x51;
+    internal const uint PushGuidelineSet = 0x52;
     internal const uint Pop = 0x56;
     internal const uint BlurEffect = 0x6e;
     internal const uint DropShadowEffect = 0x6f;
