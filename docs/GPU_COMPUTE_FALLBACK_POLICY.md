@@ -1,8 +1,8 @@
 # GPU-first compute fallback policy
 
-Status: glyph coverage implemented and exact on the macOS Metal qualification
-lane; Windows D3D12/Parallels and Linux Vulkan qualification remain required
-before the policy is used as a release gate for those adapters.
+Status: glyph coverage implemented and exact on the macOS Metal and Windows
+D3D12/Parallels qualification lanes. Linux Vulkan qualification remains
+required before the policy is used as a release gate for that adapter family.
 
 ## Decision
 
@@ -46,6 +46,12 @@ Process-level integration gates can set `PROGPU_COMPUTE_EXECUTION` to `fastest`,
 the selected path. `PROGPU_BACKEND_DIAGNOSTICS=1` reports the preference,
 resolved path, adapter, and backend.
 
+A forced native-compute request for the known-incompatible Parallels D3D12
+profile throws `NotSupportedException` after adapter selection and before any
+glyph compute pipeline, uniform buffer, coverage buffer, bind group, or command
+encoder is created. A diagnostic override therefore cannot turn a qualified
+fallback into a WebGPU validation-error cascade or device abort.
+
 The C++ engine receives one mutually exclusive typed engine flag for raster,
 intrinsic-SIMD, or scalar fallback. No flag means native compute. Managed and
 native hosts resolve the same `GpuComputeExecutionPath` before creating their
@@ -71,10 +77,14 @@ adapters retain native compute by default.
 
 The CPU fallback uses the same analytic crossing algorithm. Managed code uses
 hardware-backed `System.Numerics.Vector<T>` lanes. Native C++ uses ARM NEON or
-SSE2 lanes. Curve roots and crossing positions are solved once per sample row,
-then all eight independent horizontal samples accumulate winding in vectors.
-The scalar path remains available as the differential oracle and as the
-bounded fallback on architectures without a supported intrinsic target.
+SSE2 lanes. Curve roots and crossing positions are solved once per subpixel
+scanline and reused across the complete glyph row; they are not recomputed for
+every destination pixel. All eight independent horizontal samples then
+accumulate winding in vectors. The native lane count uses NEON/SSE2 masks
+without spilling the winding vectors to temporary arrays, while managed code
+reuses pooled crossing storage and precomputed vector lane indices. The scalar
+path remains available as the deliberately independent differential oracle and
+as the bounded fallback on architectures without a supported intrinsic target.
 
 ## Validation gate
 
@@ -110,6 +120,24 @@ The raster path reported zero coverage staging bytes. Single-iteration timings
 are deliberately not used as performance claims; representative warm/cold
 distributions on each release adapter remain required before changing an
 automatic selection.
+
+The Windows ARM64 qualification at exact ProGPU commit `a1fd8b2b` rebuilt both
+native providers with MSVC strict warnings, passed all 11 CTests, and completed
+the entire D3D12 smoke/profile/package lane on `Parallels Display Adapter
+(WDDM)`. Automatic mode resolved to the raster shader, the stabilized
+managed-picture differential reported zero native and managed allocations and
+zero coverage staging on replay, and the independent glyph oracle retained the
+exact `5B6EF4F70536C862` hash. The direct raster glyph frame measured 0.8156 ms
+native and 0.6884 ms managed with zero coverage staging; the retained SIMD
+frame measured 1.8295 ms native and 5.0372 ms managed and necessarily uploaded
+247,808 cold coverage bytes. These single-frame values qualify path selection,
+not a general performance claim.
+
+Moving curve-root work from every pixel to every subpixel scanline reduced the
+same Windows SIMD end-to-end cold qualification from approximately 123 seconds
+to 67 seconds (about 45%) while preserving exact pixels. Forced native compute
+then failed closed with the typed incompatibility exception and emitted no
+WebGPU validation or device errors.
 
 ## Extending the policy
 

@@ -618,6 +618,21 @@ path-atlas qualification rasterized 49 paths with 4,112 path-upload bytes and
 Overlay and ColorDodge cases, image/mask/effect chains, vector/text contracts,
 and final `win-arm64` package staging also passed.
 
+The per-point MIL endpoint-arc and GPU-first compute-fallback checkpoint at
+exact ProGPU commit `a1fd8b2b` then passed the complete clean Windows ARM64
+MSVC/D3D12 lane. All 11 native contracts, the independent C++ sample, managed
+native sample, Microsoft D3D12HelloTriangle oracle, bounded managed-picture
+differential, semantic resource/effect families, text shaping, and package
+staging completed on `Parallels Display Adapter (WDDM)`. The guided MIL arc
+matched its native reference exactly (`referenceChanged=0`). The automatic
+glyph path selected the exact raster-shader fallback, stable managed-picture
+replay reported zero allocations and zero coverage staging, and an explicitly
+forced incompatible compute path failed before glyph compute resource
+creation. ARM64 NEON and managed `Vector<T>` CPU fallbacks now solve curve
+crossings once per subpixel scanline and reuse them across the full glyph row;
+the direct Windows cold SIMD qualification fell from roughly 123 seconds to 67
+seconds without changing the exact `5B6EF4F70536C862` pixel hash.
+
 Package-consumer commit `a11ad9fd` then exercised that exact staged native
 implementation rather than a source-only fixture. Its app-local SHA-256 hashes
 matched the newly staged `progpu_native.dll` and `progpu_native_dawn.dll`; the
