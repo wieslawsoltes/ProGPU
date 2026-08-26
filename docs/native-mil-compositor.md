@@ -87,6 +87,19 @@ for `progpu_native.dll` and
 `9F73E41536B3BD96A0A44692EA65888C9DE004B19FBF5DE90489768667FBBDDBC`
 for the wgpu-native runtime DLL.
 
+Brush-layout checkpoint `1b4ef706` migrates SolidColorBrush,
+LinearGradientBrush, RadialGradientBrush, DashStyle, and Pen packet readers to
+generated WPF MCG metadata. Generated fixed-header boundaries now own gradient
+stop and dash-array payload starts; all brush transforms, animation handles,
+mapping/spread modes, stop colors, pen caps/joins, resource dependencies, and
+finite-value validation retain their previous semantics. Apple Silicon passed
+the live generator check and all 11 native/Dawn CTests. Clean detached Windows
+ARM64 MSVC `/W4 /WX` rebuilt both modules and passed all 11 tests; SHA-256 is
+`163F49880179F85857ED4FB02C6F1CEB95C46158B407C87934568239C4FE9E5F`
+for `progpu_native.dll` and
+`9F73E41536B3BD96A0A44692EA65888C9DE004B19FBF5DE90489768667FBBDDBC`
+for the wgpu-native runtime DLL.
+
 Geometry-layout checkpoint `f2107a55` migrates LineGeometry,
 RectangleGeometry, EllipseGeometry, GeometryGroup, CombinedGeometry, and
 PathGeometry to generated WPF MCG sizes and field offsets. Variable group-child
