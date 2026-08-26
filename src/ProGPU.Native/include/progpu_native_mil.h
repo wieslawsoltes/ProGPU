@@ -109,8 +109,8 @@ progpu_native_mil_channel_set_drawing_image_bounds(
     double height);
 /*
  * Binds exact source-built Visual descendant bounds for target-space
- * BitmapCache page sizing. The canonical Visual/cache packets do not carry
- * this compositor-derived metadata.
+ * BitmapCache page sizing and bounded effect isolation. The canonical Visual,
+ * cache, and effect packets do not carry this compositor-derived metadata.
  */
 PROGPU_NATIVE_API progpu_native_mil_status
 progpu_native_mil_channel_set_visual_cache_bounds(
