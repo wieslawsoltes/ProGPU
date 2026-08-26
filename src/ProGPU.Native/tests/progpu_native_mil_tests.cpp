@@ -2259,9 +2259,9 @@ bool visual_bitmap_cache_applies_root_state_at_composite() {
         (nearest.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST) != 0U);
     PROGPU_REQUIRE(nearest.content_revision == changed.content_revision);
 
-    std::vector<std::byte> unsupported_cubic;
+    std::vector<std::byte> fant_sampling;
     append_command(
-        unsupported_cubic,
+        fant_sampling,
         command::visual_set_render_options,
         visual,
         0x01U,
@@ -2271,10 +2271,17 @@ bool visual_bitmap_cache_applies_root_state_at_composite() {
         0U,
         0U,
         0U);
-    PROGPU_REQUIRE(state.apply(unsupported_cubic) == status::success);
+    PROGPU_REQUIRE(state.apply(fant_sampling) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 9017U, 4U, stream, &metrics) ==
-        status::unsupported_command);
+        status::success);
+    progpu_native_scene_layer fant{};
+    PROGPU_REQUIRE(try_get_cached_layer(stream, fant));
+    PROGPU_REQUIRE(
+        (fant.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT) != 0U);
+    PROGPU_REQUIRE(
+        (fant.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST) == 0U);
+    PROGPU_REQUIRE(fant.content_revision == changed.content_revision);
     return true;
 }
 
@@ -6445,24 +6452,24 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
     PROGPU_REQUIRE(
         state.build_scene(target, 7005U, 3U, stream, &metrics) ==
         status::success);
-    const auto cubic_header = read_value<progpu_native_scene_header>(
+    const auto fant_header = read_value<progpu_native_scene_header>(
         stream, 0U);
-    bool found_cubic = false;
+    bool found_fant = false;
     for (std::uint32_t index = 0U;
-         index < cubic_header.command_count;
+         index < fant_header.command_count;
          ++index) {
         const auto record = read_value<progpu_native_scene_command>(
             stream,
-            cubic_header.command_offset +
+            fant_header.command_offset +
                 index * sizeof(progpu_native_scene_command));
         if (record.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
             const auto image = read_value<progpu_native_scene_image_draw>(
                 stream, record.payload_offset);
-            found_cubic = image.sampling ==
-                PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC;
+            found_fant = image.sampling ==
+                PROGPU_NATIVE_IMAGE_SAMPLING_FANT;
         }
     }
-    PROGPU_REQUIRE(found_cubic);
+    PROGPU_REQUIRE(found_fant);
 
     std::vector<std::byte> delete_bitmap;
     append_command(

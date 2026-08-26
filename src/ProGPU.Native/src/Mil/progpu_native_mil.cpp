@@ -6942,7 +6942,7 @@ struct channel::implementation {
                             group->second.bitmap_scaling_mode == 3U
                             ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
                             : group->second.bitmap_scaling_mode == 2U
-                            ? PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
+                            ? PROGPU_NATIVE_IMAGE_SAMPLING_FANT
                             : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
                     }
                     if (group->second.edge_mode != 0U) {
@@ -8776,16 +8776,16 @@ struct channel::implementation {
         // properties. WPF applies those properties while drawing the retained
         // bitmap. A single typed linear/radial opacity brush can use the
         // reusable GPU brush-mask resource at composite time. Inherited mask
-        // composition, mask/effect ordering, and cubic/Fant cache sampling
-        // remain explicit fail-closed gaps.
+        // composition and mask/effect ordering remain explicit fail-closed
+        // gaps. Fant/HighQuality sampling is retained as composite-only state.
         if (state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
             (has_spatial_opacity_mask &&
                 (cache_visual.effect_handle != 0U ||
                     state.guideline_resource_index !=
                         PROGPU_NATIVE_SCENE_NO_INDEX)) ||
             (state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR &&
-                state.image_sampling !=
-                    PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST)) {
+                state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST &&
+                state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_FANT)) {
             return status::unsupported_command;
         }
         const double raster_width =
@@ -8935,6 +8935,8 @@ struct channel::implementation {
             PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
         if (state.image_sampling == PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST) {
             layer.flags |= PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST;
+        } else if (state.image_sampling == PROGPU_NATIVE_IMAGE_SAMPLING_FANT) {
+            layer.flags |= PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT;
         }
         layer.opacity = static_cast<float>(state.opacity);
         layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
@@ -9086,7 +9088,7 @@ struct channel::implementation {
                 visual->second.bitmap_scaling_mode == 3U
                 ? PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST
                 : visual->second.bitmap_scaling_mode == 2U
-                ? PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
+                ? PROGPU_NATIVE_IMAGE_SAMPLING_FANT
                 : PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR;
         }
         if ((visual->second.render_options_flags &

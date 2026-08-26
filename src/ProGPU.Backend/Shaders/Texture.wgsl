@@ -1,5 +1,5 @@
-// Algorithm: Transform batched image/lattice/atlas quads, emit fixed-color cells without sampling, or sample nearest, linear, or Mitchell-Netravali cubic kernels; atlas sprites optionally combine sampled source and per-sprite destination colors with a Skia blend mode; semantic color processing optionally applies Skia-compatible post-transform luminance-to-alpha.
-// Time complexity: O(1) per invocation; fixed-color cells perform no image sample, cubic filtering performs a fixed 4x4 sample footprint, optional semantic color processing performs five fixed dot products plus one luminance dot product, atlas color blending uses bounded scalar work, and semantic mask chains evaluate at most four analytic rounded masks.
+// Algorithm: Transform batched image/lattice/atlas quads, emit fixed-color cells without sampling, or sample nearest, linear, Mitchell-Netravali cubic, or a retained-cache Fant-style bounded area footprint; atlas sprites optionally combine sampled source and per-sprite destination colors with a Skia blend mode; semantic color processing optionally applies Skia-compatible post-transform luminance-to-alpha.
+// Time complexity: O(1) per invocation; fixed-color cells perform no image sample, cubic and Fant filtering perform fixed 4x4 sample footprints, optional semantic color processing performs five fixed dot products plus one luminance dot product, atlas color blending uses bounded scalar work, and semantic mask chains evaluate at most four analytic rounded masks.
 // Space complexity: O(1) local storage and bounded texture bandwidth per fragment; texture masks add one sample plus a fixed axis-aligned or affine UV transform, color matrices add one 96-byte uniform record containing 80 bytes of coefficients, and nested analytic masks use one primary 96-byte record plus one fixed 288-byte continuation record without another texture.
 struct VertexInput {
     @location(0) position: vec2<f32>,
@@ -225,6 +225,41 @@ fn sample_bicubic(uv: vec2<f32>, resampler: vec2<f32>) -> vec4<f32> {
     return color / max(total, 0.0001);
 }
 
+// WPF maps BitmapScalingMode.Fant/HighQuality to a prefilter only after either
+// source axis shrinks beyond the sqrt(2) threshold. The native image/cache path
+// keeps the same threshold and integrates one destination-pixel
+// parallelogram with a fixed stratified 4x4 footprint. This is stable under
+// rotation/shear, bounded on every backend, and retains ordinary bilinear
+// reconstruction for magnification and small minification.
+fn sample_fant_prefilter(
+    uv: vec2<f32>,
+    uvDx: vec2<f32>,
+    uvDy: vec2<f32>) -> vec4<f32> {
+    let size = textureDimensions(texTexture);
+    let sizef = vec2<f32>(f32(size.x), f32(size.y));
+    let texelDx = uvDx * sizef;
+    let texelDy = uvDy * sizef;
+    let sourceFootprintX = length(vec2<f32>(texelDx.x, texelDy.x));
+    let sourceFootprintY = length(vec2<f32>(texelDx.y, texelDy.y));
+    if (max(sourceFootprintX, sourceFootprintY) <= 1.41421356237) {
+        return textureSampleGrad(texTexture, texSampler, uv, uvDx, uvDy);
+    }
+
+    var color = vec4<f32>(0.0);
+    for (var y: i32 = 0; y < 4; y = y + 1) {
+        let offsetY = (f32(y) + 0.5) * 0.25 - 0.5;
+        for (var x: i32 = 0; x < 4; x = x + 1) {
+            let offsetX = (f32(x) + 0.5) * 0.25 - 0.5;
+            color = color + textureSampleLevel(
+                texTexture,
+                texSampler,
+                uv + uvDx * offsetX + uvDy * offsetY,
+                0.0);
+        }
+    }
+    return color * 0.0625;
+}
+
 fn atlas_unpremultiply(color: vec4<f32>) -> vec4<f32> {
     if (color.a <= 0.0) {
         return vec4<f32>(0.0);
@@ -420,7 +455,12 @@ fn texture_fs_main_with_mask(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
     }
 
     var texColor = textureSampleGrad(texTexture, texSampler, input.texCoord, textureCoordDx, textureCoordDy);
-    if (input.color.a < 0.0 || (input.patchKind > 2.5 && input.patchOpacity < 0.0)) {
+    if (input.patchKind < -0.5 || input.cubicResampler.x < -16.5) {
+        texColor = sample_fant_prefilter(
+            input.texCoord,
+            textureCoordDx,
+            textureCoordDy);
+    } else if (input.color.a < 0.0 || (input.patchKind > 2.5 && input.patchOpacity < 0.0)) {
         texColor = sample_bicubic(input.texCoord, input.cubicResampler);
     }
 

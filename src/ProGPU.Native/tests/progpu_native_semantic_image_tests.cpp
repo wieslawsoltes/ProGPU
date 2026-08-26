@@ -23,7 +23,7 @@ bool semantic_image_sampling_payload_is_exact_and_bounded() {
         bool min_linear;
         bool mip_linear;
     };
-    constexpr std::array<sampler_case, 10U> sampler_cases{{
+    constexpr std::array<sampler_case, 11U> sampler_cases{{
         {PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST, false, false, false},
         {PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR, true, true, false},
         {PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC, true, true, false},
@@ -39,7 +39,8 @@ bool semantic_image_sampling_payload_is_exact_and_bounded() {
         {PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_LINEAR_MIP_NEAREST,
             false, true, false},
         {PROGPU_NATIVE_IMAGE_SAMPLING_MAG_NEAREST_MIN_NEAREST_MIP_LINEAR,
-            false, false, true}
+            false, false, true},
+        {PROGPU_NATIVE_IMAGE_SAMPLING_FANT, true, true, false}
     }};
     for (const auto& expected : sampler_cases) {
         semantic::semantic_image_sampler_options actual{};
@@ -72,7 +73,7 @@ bool semantic_image_sampling_payload_is_exact_and_bounded() {
             17U,
             anisotropic) ||
         semantic::resolve_semantic_image_sampler_options(
-            10U,
+            11U,
             1U,
             anisotropic)) {
         return false;
