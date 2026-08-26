@@ -1,6 +1,7 @@
-// Algorithm: Convolve each row with a truncated normalized Gaussian kernel.
+// Algorithm: Convolve each row with a normalized Gaussian or uniform Box kernel.
 // Time complexity: O(R) per output texel for blur radius R; Gaussian weights
-// use two transcendental evaluations plus an O(R) multiplicative recurrence.
+// use two transcendental evaluations plus an O(R) multiplicative recurrence,
+// while Box uses one exact 2R+1 uniform sum.
 // Space complexity: O(1) local storage with exactly 2R+1 texture reads.
 struct Params {
     sigma: f32,

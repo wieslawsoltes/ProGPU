@@ -338,6 +338,14 @@ tolerance and mean absolute error 0.000455 byte/channel. The native 10-test
 suite, 84 focused managed interop tests, zero-warning managed builds, and MIL
 generator oracle (143 commands/141 complete layouts) pass.
 
+The portable managed compositor selects the same shader branch through
+`BlurEffect.KernelType` and `ComputeAccelerator.ApplyBoxBlur(...)`. Its default
+remains Gaussian; Box uses a floored physical integer radius bounded to 128,
+reuses the Gaussian pipelines, parameter buffers, bindings, and intermediate
+texture, and performs no CPU readback. The headless WebGPU contract executes
+Gaussian then Box through the same cached two-pipeline family and verifies that
+the Box result is nonempty and distinct at transparent image edges.
+
 ## Extending the policy
 
 Each additional compute-heavy workload must declare the semantics that make a
