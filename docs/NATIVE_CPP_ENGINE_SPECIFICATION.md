@@ -2218,6 +2218,17 @@ backend-neutral and is shared by wgpu-native, provider-resolved Dawn, and
 DirectX. `PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST` is an additive local-cache-
 only sampler selector over the same page view. Each slot owns both linear and
 nearest bind groups; selecting either does not invalidate retained pixels.
+`PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT` is the mutually exclusive high-quality
+selector. It uses the same linear binding but asks the shared texture shader to
+apply a bounded Fant-style area prefilter only when either source-axis
+footprint exceeds sqrt(2). The shader integrates one destination-pixel
+parallelogram with a fixed stratified 4x4 footprint, including rotation and
+shear, then uses linear reconstruction. This matches WPF's Fant activation and
+anti-aliasing semantics with bounded backend work; it is not asserted to be
+byte-identical to WIC's `WICBitmapInterpolationModeFant`. The separate
+`PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC` contract remains Mitchell-Netravali, while
+`PROGPU_NATIVE_IMAGE_SAMPLING_FANT` selects this Fant path for typed immediate
+and retained images.
 
 The canonical MIL channel now consumes WPF's packed cache protocol on top of
 that primitive: `VisualSetCacheMode` is an exact 12-byte command payload,
@@ -2256,7 +2267,8 @@ typed GPU brush-mask resource at composite time. Its outer transform and
 SnapsToDevicePixels correction match the retained quad; mask-only updates keep
 the content revision and skip the content pass. Solid masks remain uniform
 opacity. Inherited masks, mask/effect ordering, gradient-mask plus guideline
-composition, and Cubic/Fant cache-bitmap sampling remain fail-closed.
+composition remain fail-closed. Cache-root linear, nearest, and Fant selection
+is composite-only and does not invalidate the retained page.
 BitmapCache EnableClearType is a raster-scope policy: false
 converts requested descendant subpixel glyph styles to grayscale; true
 preserves descendant inherited/explicit text rendering mode without forcing
@@ -2275,6 +2287,15 @@ NearestNeighbor checkpoint changes only the sampler and again observes zero
 content passes. All 12 provider-configured native CTests, the base export
 allowlist, package-mode managed Dawn readback, and forced device-loss recovery
 pass with unchanged capture hashes.
+
+The Fant sampling checkpoint also passes all 12 local native/provider CTests,
+both native export allowlists, the focused managed scene/image contract tests,
+and a live Apple M3 Pro Metal qualification. The first linear retained render
+uses one content and one composite pass; changing only the sampling selector to
+Fant uses zero content and one composite pass. For phase-misaligned 0.3x
+minification of alternating one-pixel stripes, the interior red min/mean/max
+changes from `43/117/213` to `106/130/149`. These bounds qualify deterministic
+alias suppression and cache reuse, not byte-exact WIC color output.
 
 The exact-bounds implementation at `dd3857a4` is qualified on Windows 11 ARM64
 under Parallels. Both wgpu-native and provider-resolved Dawn modules rebuilt
@@ -2319,7 +2340,7 @@ package contains nine files, with SHA-256
 `progpu_native_dawn.dll`. This qualifies the executable local-space,
 RenderAtScale, pixel-snapping, and ClearType cache subset on DirectX; the
 remaining cache work is inherited/ordered spatial-mask composition,
-cubic/Fant sampling, multi-guideline, nested-cache/effect ordering, and
+multi-guideline, nested-cache/effect ordering, and
 LibreWPF package integration.
 
 The post-raster cache-root State checkpoint passed that strict Windows gate on

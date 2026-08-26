@@ -1281,11 +1281,13 @@ Bitmap-scaling checkpoint `ebe966b6` next made DrawingGroup's canonical
 `bitmapScalingMode` field executable for nested retained images, including
 bitmap-backed ImageDrawing reached through DrawingImage or another group.
 Unspecified inherits the parent scope, LowQuality/Linear selects shared linear
-sampling, HighQuality/Fant selects ProGPU's Mitchell-Netravali cubic sampler,
-and NearestNeighbor selects shared nearest sampling. The state is host-neutral
-and is consumed identically by wgpu-native and Dawn.
+sampling, and NearestNeighbor selects shared nearest sampling. That checkpoint
+initially mapped HighQuality/Fant to ProGPU's Mitchell-Netravali cubic sampler;
+the later Fant checkpoint corrects the mapping because WPF uses Fant as an
+area prefilter rather than a bicubic reconstruction kernel. The state is
+host-neutral and is consumed identically by wgpu-native and Dawn.
 
-The native fixture verifies nearest and cubic payload selection, and all ten
+The native fixture verifies nearest and Fant payload selection, and all ten
 local CTests passed. Strict Windows ARM64 MSVC rebuilt both modules under `/W4
 /WX`; all 11 native/Dawn CTests passed. The existing DrawingImage package
 scene then passed both exports and live D3D12 retained/direct readback. Current
@@ -1734,6 +1736,21 @@ rerasterizing or expanding the 64-byte layer record. The flag is valid only
 with `CACHE_LOCAL_SPACE`; the C++, managed, and serialized-scene validators
 reject every other use.
 
+HighQuality/Fant bitmap scaling now uses the additive
+`PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT` composite flag and the canonical
+`PROGPU_NATIVE_IMAGE_SAMPLING_FANT` value. WPF's native renderer enables a Fant
+prefilter only when either source-axis footprint exceeds sqrt(2), then returns
+to ordinary interpolation for reconstruction. The shared ProGPU shader keeps
+that activation threshold and integrates the destination-pixel parallelogram
+with a fixed stratified 4x4 area footprint; rotation and shear therefore
+participate in the footprint instead of being reduced to one scalar scale. The
+fixed footprint is a deterministic, bounded GPU approximation of WIC Fant
+rather than a claim of byte-for-byte WIC output. ProGPU's explicit `CUBIC`
+sampling value remains the separate Mitchell-Netravali API. The Fant flag is
+local-cache-only and mutually exclusive with nearest; changing only
+linear/nearest/Fant policy preserves the page content revision and skips its
+content pass.
+
 The cache-root spatial opacity-mask checkpoint reuses the existing
 host-neutral `LAYER_MASK_BRUSH` resource and shared WebGPU/DirectX compositor.
 A canonical linear or radial gradient brush is resolved against the exact
@@ -1745,8 +1762,8 @@ content revision and skipping the content pass. A transform-free solid mask
 continues to fold into uniform layer opacity. Local-cache validation now permits
 the optional typed mask reference while effects remain excluded. Inherited
 mask composition, mask/effect ordering, gradient-mask plus guideline
-composition, and Cubic/Fant cache sampling deliberately fail closed until each
-has an explicit ordering representation.
+composition deliberately fail closed until each has an explicit ordering
+representation.
 
 The pinned provider/Dawn Metal hardware gate now exercises the local page
 directly: its first 24x18 render performs one content and one composite pass, a
@@ -1759,6 +1776,10 @@ The post-raster root-state regression additionally changes only the composite
 clip on the retained local page and observes zero content passes on the next
 live Metal frame. The nearest-sampling regression then changes only the
 composite sampler on that same page and again observes zero content passes.
+The dedicated Fant regression downsamples alternating one-pixel stripes with a
+phase-misaligned transform. On Apple M3 Pro Metal it changes the cache policy
+without rerasterization (`passes=1/1->0/1`) and narrows the interior red-channel
+range from `43/117/213` to `106/130/149` (min/mean/max).
 All 12 provider-configured native CTests, the base export allowlist,
 package-mode managed Dawn render/readback, and forced device-loss recovery pass
 with unchanged capture hashes.
