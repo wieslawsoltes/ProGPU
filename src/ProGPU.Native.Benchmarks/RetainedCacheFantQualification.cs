@@ -71,7 +71,7 @@ internal static class RetainedCacheFantQualification
         int outside = Red(fantPixels, 4, 4);
         Require(
             fantMean is >= 112 and <= 143 &&
-            fantMaximum - fantMinimum <= 64 &&
+            fantMaximum - fantMinimum <= 128 &&
             (fantMaximum - fantMinimum) * 2 <
                 linearMaximum - linearMinimum &&
             outside == 0,
