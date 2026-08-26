@@ -98,6 +98,15 @@ static_assert(command_layouts::drop_shadow_effect::fixed_size == 80U);
 static_assert(
     command_layouts::drop_shadow_effect::h_blur_radius_animations_offset ==
     72U);
+static_assert(command_layouts::generic_target_create::fixed_size == 36U);
+static_assert(command_layouts::target_set_root::h_root_offset == 8U);
+static_assert(command_layouts::target_set_clear_color::fixed_size == 24U);
+static_assert(
+    command_layouts::target_set_clear_color::clear_color_offset == 8U);
+static_assert(command_layouts::target_invalidate::fixed_size == 24U);
+static_assert(command_layouts::target_set_flags::flags_offset == 8U);
+static_assert(command_layouts::render_data::fixed_size == 12U);
+static_assert(command_layouts::render_data::cb_data_offset == 8U);
 static_assert(
     command_layouts::fixed_header_size(command::visual_set_offset) == 24U);
 static_assert(

@@ -1847,8 +1847,9 @@ struct channel::implementation {
             return status::success;
         }
         case command::generic_target_create: {
-            if (!has_exact_size(view, 36U) ||
-                !read_at(view.packet, 4U, handle)) {
+            using layout = command_layouts::generic_target_create;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle)) {
                 return status::malformed_batch;
             }
             const auto found = resources.find(handle);
@@ -1864,10 +1865,11 @@ struct channel::implementation {
             return status::success;
         }
         case command::target_set_root: {
+            using layout = command_layouts::target_set_root;
             std::uint32_t root = 0U;
-            if (!has_exact_size(view, 12U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, root)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::h_root_offset, root)) {
                 return status::malformed_batch;
             }
             if (!require_target(handle) ||
@@ -1880,16 +1882,18 @@ struct channel::implementation {
             return status::success;
         }
         case command::target_set_clear_color: {
+            using layout = command_layouts::target_set_clear_color;
             float red = 0.0F;
             float green = 0.0F;
             float blue = 0.0F;
             float alpha = 0.0F;
-            if (!has_exact_size(view, 24U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, red) ||
-                !read_at(view.packet, 12U, green) ||
-                !read_at(view.packet, 16U, blue) ||
-                !read_at(view.packet, 20U, alpha)) {
+            const std::size_t color = layout::clear_color_offset;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, color, red) ||
+                !read_at(view.packet, color + 4U, green) ||
+                !read_at(view.packet, color + 8U, blue) ||
+                !read_at(view.packet, color + 12U, alpha)) {
                 return status::malformed_batch;
             }
             if (!require_target(handle)) {
@@ -1909,10 +1913,11 @@ struct channel::implementation {
             return status::success;
         }
         case command::target_set_flags: {
+            using layout = command_layouts::target_set_flags;
             std::uint32_t flags = 0U;
-            if (!has_exact_size(view, 12U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, flags)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::flags_offset, flags)) {
                 return status::malformed_batch;
             }
             if (!require_target(handle)) {
@@ -1923,9 +1928,10 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         }
-        case command::target_invalidate:
-            if (!has_exact_size(view, 24U) ||
-                !read_at(view.packet, 4U, handle)) {
+        case command::target_invalidate: {
+            using layout = command_layouts::target_invalidate;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle)) {
                 return status::malformed_batch;
             }
             if (!require_target(handle)) {
@@ -1933,6 +1939,7 @@ struct channel::implementation {
             }
             ++metrics.updated_resource_count;
             return status::success;
+        }
         case command::double_resource: {
             using layout = command_layouts::double_resource;
             double value = 0.0;
@@ -2004,12 +2011,13 @@ struct channel::implementation {
             return status::success;
         }
         case command::render_data: {
+            using layout = command_layouts::render_data;
             std::uint32_t data_size = 0U;
-            if (view.packet.size() < 12U ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, data_size) ||
-                data_size > view.packet.size() - 12U ||
-                view.packet.size() - 12U - data_size > 3U) {
+            if (view.packet.size() < layout::fixed_size ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::cb_data_offset, data_size) ||
+                data_size > view.packet.size() - layout::fixed_size ||
+                view.packet.size() - layout::fixed_size - data_size > 3U) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_render_data)) {
@@ -2017,8 +2025,8 @@ struct channel::implementation {
             }
             auto& resource = resources.at(handle);
             resource.render_data.assign(
-                view.packet.begin() + 12,
-                view.packet.begin() + 12 + data_size);
+                view.packet.begin() + layout::fixed_size,
+                view.packet.begin() + layout::fixed_size + data_size);
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
