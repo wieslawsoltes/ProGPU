@@ -2069,6 +2069,57 @@ remained clean and the full script exited normally. The staged base DLL was
 the Dawn DLL was 2,042,368 bytes with SHA-256
 `DB359E0C6155530B87DFC7183E4BE071455964F84B9A3D1ED9DAE20A2AB7148F`.
 
+### Microsoft D3D12 sample oracle
+
+ProGPU commit `0624a2e3` adds a source-pinned cross-platform graphics oracle
+based on Microsoft's `D3D12HelloTriangle`. The gate does not vendor or port the
+Windows sample. It checks out Microsoft DirectX Graphics Samples commit
+`213dd4fd4918ea009dd8f35adee1aff1f2ecaba4` into an ignored worktree, verifies
+the selected upstream files against checked-in SHA-256 values, and applies a
+small reviewable capture patch only to that generated checkout. The upstream
+project remains MIT-licensed and is built as authored with its declared
+`Microsoft.Direct3D.D3D12` 1.618.3 Agility SDK plus DXC package.
+
+The NuGet package is useful here as a native-runtime oracle input: it supplies
+the headers and app-local D3D12 runtime selected by the Microsoft executable.
+It is not a .NET binding and does not by itself provide ProGPU a DirectX
+backend. ProGPU continues to execute the same retained renderer through its
+typed Dawn/wgpu-native provider. Aligning that provider to the sample's
+app-local Agility runtime would additionally require a deliberately qualified
+host-executable export/runtime-selection contract, so the gate records the two
+runtime provenances separately instead of claiming alignment that has not been
+implemented.
+
+Windows captures the native sample through WARP, while ProGPU renders the
+equivalent semantic vertex scene through D3D12. macOS and Linux render that
+same ProGPU scene through Metal and Vulkan; they do not try to run a native
+D3D12 executable. The aggregate CI job validates four interior probes and a
+bounded whole-image differential, then publishes every PPM, JSON manifest, and
+comparison report. The bounded tolerance protects the gate against legitimate
+cross-adapter edge-rasterization variation while still rejecting color,
+interpolation, viewport, orientation, or coverage regressions.
+
+On 2026-08-26, the complete ARM64 Parallels user-session capture succeeded
+with WARP and produced a 1280x720 PPM with SHA-256
+`1269AE803032CC2BF6AD717E8491CC19BAF7F9FD5C6B233F8C0012D2DFA53933`.
+The ProGPU D3D12 frame on the Parallels Display Adapter and the Apple M3 Pro
+Metal frame produced the identical PPM hash. Both differentials report maximum
+channel difference 0, mean absolute channel difference 0, zero changed
+channels/pixels, and zero difference at all four probes. Linux/Vulkan is part
+of the hosted aggregate gate and remains separately identified evidence.
+
+The same WARP program returns `DXGI_ERROR_NOT_CURRENTLY_AVAILABLE`
+(`0x887A0022`) when launched by the Parallels service account because that
+session cannot create the required presentation environment. The prescribed
+Parallels path therefore launches GUI validation with `prlctl exec
+--current-user`; compilation and non-GUI checks may remain service-hosted. The
+native sample's app-local Agility runtime also returns `E_FAIL` on the
+Parallels hardware adapter, while ProGPU's independently selected D3D12 runtime
+passes on that adapter. WARP is consequently the deterministic Microsoft
+semantic oracle; ProGPU's hardware D3D12 lane remains the backend execution
+qualification. Neither result is mislabeled as proof that the two processes
+loaded the same D3D12 runtime.
+
 The exact Windows qualification completed from clean detached latest-main-
 integrated commit `d99acbc8`. ARM64 MSVC rebuilt both modules under `/W4 /WX`,
 all 11 native/Dawn CTests and both export allowlists passed, both managed
