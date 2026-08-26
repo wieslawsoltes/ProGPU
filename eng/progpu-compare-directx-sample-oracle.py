@@ -86,10 +86,13 @@ def main() -> int:
     parser.add_argument("--reference", required=True, type=pathlib.Path)
     parser.add_argument("--candidate", required=True, action="append", type=pathlib.Path)
     parser.add_argument("--output", required=True, type=pathlib.Path)
+    parser.add_argument(
+        "--contract", default="Microsoft D3D12HelloTriangle native-to-ProGPU differential"
+    )
     arguments = parser.parse_args()
     results = [compare(arguments.reference, path) for path in arguments.candidate]
     contract = {
-        "Contract": "Microsoft D3D12HelloTriangle native-to-ProGPU differential",
+        "Contract": arguments.contract,
         "Tolerance": {
             "InteriorProbeMaximum": 3,
             "PixelsOver3MaximumPercent": 1,
