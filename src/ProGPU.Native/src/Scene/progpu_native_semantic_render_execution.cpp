@@ -1046,11 +1046,10 @@ progpu_native_status render_scene(
                     boolean_node_count <= (1U << 22U) &&
                     path_count <=
                         std::numeric_limits<std::uint32_t>::max() / 6U;
-                if (per_point_guidelines &&
-                    (path_count != 1U || boolean_node_count != 0U)) {
+                if (per_point_guidelines && boolean_node_count != 0U) {
                     return engine->fail(
                         PROGPU_NATIVE_STATUS_UNSUPPORTED,
-                        "Static multi-guideline path deformation currently requires one non-boolean path per draw resource.");
+                        "Static multi-guideline path deformation does not yet support boolean path programs.");
                 }
                 const auto* boolean_nodes = reinterpret_cast<const
                     progpu_native_scene_path_boolean_node*>(
@@ -1078,6 +1077,7 @@ progpu_native_status render_scene(
                             "Static multi-guideline deformation of analytic arc segments requires path lowering.");
                     }
                 }
+                std::uint64_t per_point_segment_end = 0U;
                 for (std::uint64_t path_index = 0U;
                      valid && budget_valid && path_index < path_count;
                      ++path_index) {
@@ -1111,6 +1111,18 @@ progpu_native_status render_scene(
                         boolean_nodes,
                         boolean_node_count,
                         &path_coverage_bytes);
+                    if (valid && per_point_guidelines) {
+                        const std::uint64_t path_segment_offset =
+                            path.segment_offset;
+                        const std::uint64_t path_segment_end =
+                            path_segment_offset + path.segment_count;
+                        if (path_segment_offset < per_point_segment_end) {
+                            return engine->fail(
+                                PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                                "Static multi-guideline path deformation requires ordered disjoint segment ranges.");
+                        }
+                        per_point_segment_end = path_segment_end;
+                    }
                     budget_valid = valid &&
                         path_coverage_bytes <=
                             semantic_max_coverage_bytes -
