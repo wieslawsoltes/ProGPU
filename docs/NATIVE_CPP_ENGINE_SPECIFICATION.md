@@ -2367,8 +2367,17 @@ The Metal qualification reduces one Gaussian layer from `96x64` to `28x24`,
 layer bytes `24576 -> 2688`, and effect bytes `73728 -> 8064`, while exact
 readback remains unchanged at extent `[24,14]-[51,37]`, red sum 48,960. Native
 MIL tests separately assert the compatibility unbounded case and exact blur,
-drop-shadow, and zero-radius descriptors. The Windows D3D12 lane executes the
-same `--semantic-bounded-effect` pixel/allocation gate.
+drop-shadow, and zero-radius descriptors.
+
+The same `--semantic-bounded-effect` gate passed with identical metrics and
+pixels on the Parallels Display Adapter D3D12 backend from clean detached
+commit `ef811a7c`. Strict ARM64 MSVC `/W4 /WX` passed all 11 native/Dawn CTests,
+both export allowlists, two zero-warning managed builds, both independent D3D12
+samples, the complete bounded smoke matrix, and package staging. The qualified
+win-arm64 DLL hashes are
+`09B17325EFC71E90131AAA4538F883C4D3C9EAFFA3A54539BCE50E18FB07F47B`
+and `CE4A5E6E81F11DB499E8B160A550A14701F4D050EC80AC484C5CEEA57BA92F0A`
+for the base and Dawn exports respectively.
 
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then
