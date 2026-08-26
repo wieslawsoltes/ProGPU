@@ -14,6 +14,12 @@ public sealed class Icon : IDisposable, ICloneable
         _bitmap = bitmap;
     }
 
+    internal static Icon CreateOwned(Bitmap bitmap)
+    {
+        ArgumentNullException.ThrowIfNull(bitmap);
+        return new Icon(bitmap);
+    }
+
     public Icon(string fileName)
     {
         ArgumentNullException.ThrowIfNull(fileName);
