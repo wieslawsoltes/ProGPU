@@ -58,6 +58,10 @@ internal static class PerPointPathGuidelineQualification
             $"guided={guidedExtent}, reference={referenceExtent}, " +
             $"changed={changed}, referenceChanged={referenceChanged}");
 
+        Require(
+            SharedSegmentPathResourceIsRejected(compositor, target),
+            "per-point deformation must reject shared path segment ranges");
+
         Console.WriteLine(
             "Qualified live per-point static multi-guideline path " +
             $"deformation on adapter '{context.AdapterName}', " +
@@ -96,14 +100,26 @@ internal static class PerPointPathGuidelineQualification
         float top = reference ? 8f : 8.25f;
         float right = reference ? 26f : 25.75f;
         float bottom = reference ? 18f : 17.75f;
-        Span<NativePathSegment> segments = stackalloc NativePathSegment[4]
+        float secondLeft = reference ? 29f : 29.25f;
+        float secondTop = reference ? 19f : 19.25f;
+        float secondRight = reference ? 36f : 35.75f;
+        float secondBottom = reference ? 25f : 24.75f;
+        Span<NativePathSegment> segments = stackalloc NativePathSegment[8]
         {
             new(NativePathSegmentKind.Line, new(left, top), new(right, top)),
             new(NativePathSegmentKind.Line, new(right, top), new(right, bottom)),
             new(NativePathSegmentKind.Line, new(right, bottom), new(left, bottom)),
-            new(NativePathSegmentKind.Line, new(left, bottom), new(left, top))
+            new(NativePathSegmentKind.Line, new(left, bottom), new(left, top)),
+            new(NativePathSegmentKind.Line,
+                new(secondLeft, secondTop), new(secondRight, secondTop)),
+            new(NativePathSegmentKind.Line,
+                new(secondRight, secondTop), new(secondRight, secondBottom)),
+            new(NativePathSegmentKind.Line,
+                new(secondRight, secondBottom), new(secondLeft, secondBottom)),
+            new(NativePathSegmentKind.Line,
+                new(secondLeft, secondBottom), new(secondLeft, secondTop))
         };
-        Span<NativeScenePathFill> paths = stackalloc NativeScenePathFill[1]
+        Span<NativeScenePathFill> paths = stackalloc NativeScenePathFill[2]
         {
             new(
                 0U,
@@ -111,6 +127,15 @@ internal static class PerPointPathGuidelineQualification
                 new Vector2(left, top),
                 new Vector2(right, bottom),
                 new Vector4(1f, 0f, 0f, 1f),
+                Matrix3x2.Identity,
+                NativeFillRule.NonZero,
+                8U),
+            new(
+                4U,
+                4U,
+                new Vector2(secondLeft, secondTop),
+                new Vector2(secondRight, secondBottom),
+                new Vector4(0f, 1f, 0f, 1f),
                 Matrix3x2.Identity,
                 NativeFillRule.NonZero,
                 8U)
@@ -129,8 +154,8 @@ internal static class PerPointPathGuidelineQualification
         bool success = builder.TryAddPerPointGuidelineSetResource(
             1U,
             generation,
-            [10.25, 25.75],
-            [8.25, 17.75],
+            [10.25, 25.75, 29.25, 35.75],
+            [8.25, 17.75, 19.25, 24.75],
             out uint guidelineIndex);
         var state = new NativeSceneState(
             Matrix3x2.Identity,
@@ -153,11 +178,87 @@ internal static class PerPointPathGuidelineQualification
             builder.TryDrawPath(
                 1U,
                 pathIndex,
-                new NativeImageRect(left, top, right - left, bottom - top),
+                new NativeImageRect(
+                    left,
+                    top,
+                    secondRight - left,
+                    secondBottom - top),
                 stateIndex: stateIndex) &&
             builder.TryBuild(out stream);
         Require(success, "failed to build the per-point guideline path scene");
         return stream.ToArray();
+    }
+
+    private static bool SharedSegmentPathResourceIsRejected(
+        NativeCompositor compositor,
+        GpuTexture target)
+    {
+        Span<NativePathSegment> segments = stackalloc NativePathSegment[1]
+        {
+            new(NativePathSegmentKind.Line, new(2f, 2f), new(8f, 8f))
+        };
+        Span<NativeScenePathFill> paths = stackalloc NativeScenePathFill[2]
+        {
+            new(0U, 1U, new(2f, 2f), new(8f, 8f), Vector4.One,
+                Matrix3x2.Identity),
+            new(0U, 1U, new(2f, 2f), new(8f, 8f), Vector4.One,
+                Matrix3x2.Identity)
+        };
+        Span<byte> destination = stackalloc byte[2048];
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            SceneId,
+            generation: 4U,
+            commandCapacity: 1,
+            resourceCapacity: 3);
+        bool success = builder.TryAddPerPointGuidelineSetResource(
+            1U,
+            generation: 4U,
+            [2.25, 7.75],
+            [2.25, 7.75],
+            out uint guidelineIndex);
+        var state = new NativeSceneState(
+            Matrix3x2.Identity,
+            flags: NativeSceneStateFlags.GuidelineSet,
+            guidelineResourceIndex: guidelineIndex);
+        success &= builder.TryAddStateResource(
+                2U,
+                generation: 4U,
+                in state,
+                out uint stateIndex) &&
+            builder.TryAddPathResource(
+                3U,
+                generation: 4U,
+                paths,
+                segments,
+                out uint pathIndex) &&
+            builder.TryDrawPath(
+                1U,
+                pathIndex,
+                new NativeImageRect(2f, 2f, 6f, 6f),
+                stateIndex: stateIndex);
+        if (!success || !builder.TryBuild(out ReadOnlySpan<byte> stream))
+        {
+            return false;
+        }
+        compositor.UpdateScene(stream);
+        try
+        {
+            compositor.RenderScene(
+                target,
+                dpiScale: 1f,
+                SceneId,
+                generation: 4U,
+                clearColor: new Vector4(0f, 0f, 0f, 1f));
+        }
+        catch (NativeRendererException exception)
+        {
+            return exception.Status == NativeRendererStatus.Unsupported &&
+                exception.Message.Contains(
+                    "ordered disjoint segment ranges",
+                    StringComparison.Ordinal);
+        }
+        return false;
     }
 
     private static PixelExtent Measure(byte[] pixels)
@@ -167,13 +268,18 @@ internal static class PerPointPathGuidelineQualification
         int maximumX = -1;
         int maximumY = -1;
         long redSum = 0;
+        long greenSum = 0;
         for (int y = 0; y < Height; ++y)
         {
             for (int x = 0; x < Width; ++x)
             {
-                int red = pixels[(y * checked((int)Width) + x) * 4];
+                int offset = (y * checked((int)Width) + x) * 4;
+                int red = pixels[offset];
+                int green = pixels[offset + 1];
+                int blue = pixels[offset + 2];
                 redSum += red;
-                if (red == 0)
+                greenSum += green;
+                if (red == 0 && green == 0 && blue == 0)
                     continue;
                 minimumX = Math.Min(minimumX, x);
                 minimumY = Math.Min(minimumY, y);
@@ -182,7 +288,7 @@ internal static class PerPointPathGuidelineQualification
             }
         }
         return new PixelExtent(
-            minimumX, minimumY, maximumX, maximumY, redSum);
+            minimumX, minimumY, maximumX, maximumY, redSum, greenSum);
     }
 
     private static int CountChangedPixels(byte[] left, byte[] right)
@@ -190,7 +296,10 @@ internal static class PerPointPathGuidelineQualification
         int changed = 0;
         for (int offset = 0; offset < left.Length; offset += 4)
         {
-            if (left[offset] != right[offset])
+            if (left[offset] != right[offset] ||
+                left[offset + 1] != right[offset + 1] ||
+                left[offset + 2] != right[offset + 2] ||
+                left[offset + 3] != right[offset + 3])
                 ++changed;
         }
         return changed;
@@ -207,12 +316,14 @@ internal static class PerPointPathGuidelineQualification
         int MinimumY,
         int MaximumX,
         int MaximumY,
-        long RedSum)
+        long RedSum,
+        long GreenSum)
     {
         internal bool IsVisible => MaximumX >= MinimumX &&
             MaximumY >= MinimumY;
 
         public override string ToString() =>
-            $"[{MinimumX},{MinimumY}]-[{MaximumX},{MaximumY}], red={RedSum}";
+            $"[{MinimumX},{MinimumY}]-[{MaximumX},{MaximumY}], " +
+            $"red={RedSum}, green={GreenSum}";
     }
 }

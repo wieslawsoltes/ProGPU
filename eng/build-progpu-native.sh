@@ -463,6 +463,12 @@ run_common_mask_benchmark() {
 run_common_mask_benchmark \
   --text-shaping --text-repeats 2 --warmup 8 --iterations 16
 
+# WPF static multi-guidelines deform every eligible path point in absolute
+# target space. Exercise the same two-path differential and fail-closed shared
+# segment contract on both Metal and Vulkan, matching the Windows D3D12 lane.
+run_common_mask_benchmark \
+  --semantic-per-point-path-guideline
+
 for mask_mode in \
   --group-texture-mask \
   --group-rounded-mask \
