@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_dir="${PROGPU_NATIVE_WGPU_SOURCE:-${repo_root}/artifacts/wgpu-native-src}"
 build_dir="${PROGPU_NATIVE_BUILD_DIR:-${repo_root}/artifacts/progpu-native/build}"
+export PROGPU_NATIVE_BUILD_DIR="${build_dir}"
 sample_dir="${PROGPU_NATIVE_SAMPLE_DIR:-${repo_root}/artifacts/progpu-native/sample}"
 include_dir="${PROGPU_NATIVE_INCLUDE_DIR:-${repo_root}/artifacts/progpu-native/include}"
 runtime_dir="${PROGPU_NATIVE_RUNTIME_DIR:-${repo_root}/artifacts/progpu-native/runtime}"
@@ -456,6 +457,18 @@ run_common_mask_benchmark() {
         -c Release -- "$@"
   fi
 }
+
+# Qualify every exact glyph-coverage execution route against the managed
+# renderer. Fastest verifies adapter policy; the forced modes keep native
+# compute, the render-stage substitute, SIMD CPU, and scalar-oracle behavior
+# independently reachable. Raster mode additionally asserts its zero-staging
+# contract inside the benchmark.
+for compute_mode in fastest compute raster simd scalar; do
+  PROGPU_COMPUTE_EXECUTION="${compute_mode}" \
+  PROGPU_BACKEND_DIAGNOSTICS=1 \
+    run_common_mask_benchmark \
+      --glyphs --warmup 0 --iterations 1 --sync
+done
 
 # One batched C ABI call must match the authoritative managed ProGPU shaping
 # result. This also catches stale generated wire layouts and missing packaged
