@@ -844,6 +844,8 @@ bool create_semantic_layer_mask_binding(
     const progpu_native_scene_resource& resource,
     const semantic_scissor& target_extent,
     float dpi_scale,
+    const semantic::semantic_state_cursor* composite_state_cursor,
+    const progpu_native_scene_state* composite_state,
     semantic_render_bundle_span& operation,
     std::uint64_t& texture_upload_bytes) {
     texture_upload_bytes = 0U;
@@ -878,6 +880,8 @@ bool create_semantic_layer_mask_binding(
             parsed,
             target_extent,
             dpi_scale,
+            composite_state_cursor,
+            composite_state,
             operation);
     }
     if (parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY) {

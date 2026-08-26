@@ -3756,6 +3756,8 @@ progpu_native_status render_scene(
                         resource,
                         target_extent,
                         frame->dpi_scale,
+                        nullptr,
+                        nullptr,
                         active_mask,
                         mask_texture_upload_bytes)) {
                     return engine->fail(
@@ -4172,12 +4174,22 @@ progpu_native_status render_scene(
                         const auto resource = read_resource(
                             layer.mask_resource_index);
                         std::uint64_t mask_texture_upload_bytes = 0U;
+                        const bool deform_mask_with_composite_guidelines =
+                            local_cache &&
+                            (composite_state.flags &
+                                PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U;
                         if (!create_semantic_layer_mask_binding(
                                 *engine,
                                 bytes,
                                 resource,
                                 target_extent,
                                 frame->dpi_scale,
+                                deform_mask_with_composite_guidelines
+                                    ? &state_cursor
+                                    : nullptr,
+                                deform_mask_with_composite_guidelines
+                                    ? &composite_state
+                                    : nullptr,
                                 operation,
                                 mask_texture_upload_bytes)) {
                             return fail_bundle(engine->fail(

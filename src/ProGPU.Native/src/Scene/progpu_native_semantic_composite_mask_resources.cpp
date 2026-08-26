@@ -253,6 +253,8 @@ bool create_semantic_composite_mask_binding(
                 child,
                 target_extent,
                 dpi_scale,
+                nullptr,
+                nullptr,
                 child_operation)) {
             cleanup();
             return false;
