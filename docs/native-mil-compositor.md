@@ -1860,6 +1860,25 @@ The staged win-arm64 package DLL SHA-256 values are
 linear/NearestNeighbor retained-page sampling without changing the cache
 content revision.
 
+The cache-root spatial opacity-mask checkpoint was then qualified at exact
+ProGPU commit `7497ff59` (native implementation `a3d6b0fd`). A dedicated
+backend-neutral semantic scene renders one 24x18 owner-keyed local page through
+a linear GPU brush mask, changes only mask opacity from 1.0 to 0.5, and requires
+the second frame to perform zero content passes and one composite pass. It
+passed on both the Apple M3 Pro Metal adapter and the Parallels Display Adapter
+D3D12 backend with identical sampled green-channel evidence `0/112 -> 56`.
+The exact Windows run rebuilt under ARM64 MSVC `/W4 /WX`, passed all 11
+native/Dawn CTests and both export contracts, completed zero-warning managed
+sample/benchmark builds, both independent D3D12 samples, and the complete
+bounded image/mask/effect/vector/text/blend matrix, then staged the package
+from a clean detached checkout. The win-arm64 DLL SHA-256 values are
+`8B1C5FCD58EA5794D14C9F6E75F84B5BDFF890A3B8BAA9054B195D2BC6F63622`
+for `progpu_native.dll` and
+`E6920A87784984ED82F1E172DD441B8909499DCA8CEC149B145C45B811236D89`
+for `progpu_native_dawn.dll`. This qualifies composite-only linear gradient
+mask changes and retained-page reuse on DirectX as well as Metal; radial
+resource normalization remains covered by the MIL compiler regression.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
@@ -1875,9 +1894,8 @@ The implementation sequence is intentionally architectural:
    lifetime, effects ordering, and LibreWPF package lanes. (Exact rectangle
    composite clips, one static guideline per axis, linear/radial cache-root
    opacity masks, NearestNeighbor sampling, and the combined
-   snapping/ClearType checkpoint are implemented; the complete subset through
-   NearestNeighbor is qualified on live D3D12, while the spatial-mask
-   checkpoint awaits its exact Windows qualification.)
+   snapping/ClearType checkpoint are implemented and qualified on live Metal
+   and D3D12.)
 
 The persistent page and composite-transform path are executable, but full cache
 parity is not claimed until the remaining post-raster state and ordering
