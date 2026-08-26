@@ -1279,6 +1279,8 @@ public sealed class WindowImpl :
         Silk.NET.WebGPU.DeviceLostReason reason,
         string message)
     {
+        if (_webGpuContext?.IsDeviceLost != true)
+            return;
         _paintQueued = true;
         _platform.EventLoop.Wake();
     }

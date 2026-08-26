@@ -33,9 +33,12 @@ internal sealed class DawnMetalRenderTarget : IRenderTarget
     private readonly IMetalDevice _metalDevice;
     private readonly IMetalExternalObjectsFeature _externalObjects;
     private readonly DawnGpuContext _dawnContext;
+    private readonly IDisposable _contextLifetime;
     private readonly OffscreenTextureCache _textureCache;
     private readonly Dictionary<nint, DrawableSlot> _slots = new();
     private IMetalPlatformSurfaceRenderTarget? _target;
+    private bool _corrupted;
+    private bool _disposed;
     private long _frameId;
 
     public DawnMetalRenderTarget(
@@ -65,11 +68,22 @@ internal sealed class DawnMetalRenderTarget : IRenderTarget
                 "Avalonia's Metal device does not accept MTLSharedEvent synchronization.");
         }
 
-        _metalDevice = metalDevice;
-        _dawnContext = dawnContext;
-        _textureCache = new OffscreenTextureCache(
-            requireNativeCompositionScene);
-        _target = surface.CreateMetalRenderTarget(metalDevice);
+        IDisposable contextLifetime =
+            dawnContext.AcquireLifetimeLease();
+        try
+        {
+            _metalDevice = metalDevice;
+            _dawnContext = dawnContext;
+            _contextLifetime = contextLifetime;
+            _textureCache = new OffscreenTextureCache(
+                requireNativeCompositionScene);
+            _target = surface.CreateMetalRenderTarget(metalDevice);
+        }
+        catch
+        {
+            contextLifetime.Dispose();
+            throw;
+        }
     }
 
     public RenderTargetProperties Properties => new()
@@ -79,12 +93,19 @@ internal sealed class DawnMetalRenderTarget : IRenderTarget
     };
 
     public PlatformRenderTargetState PlatformRenderTargetState =>
-        _target?.State ?? PlatformRenderTargetState.Disposed;
+        _corrupted || _dawnContext.Context.IsDeviceLost
+            ? PlatformRenderTargetState.Corrupted
+            : _target?.State ?? PlatformRenderTargetState.Disposed;
 
     public IDrawingContextImpl CreateDrawingContext(
         IRenderTarget.RenderTargetSceneInfo sceneInfo,
         out RenderTargetDrawingContextProperties properties)
     {
+        if (_dawnContext.Context.IsDeviceLost)
+        {
+            throw new RenderTargetCorruptedException(
+                "The Dawn Metal presentation device is lost.");
+        }
         IMetalPlatformSurfaceRenderingSession? session = null;
         MetalFrameLease? frameLease = null;
         try
@@ -139,11 +160,18 @@ internal sealed class DawnMetalRenderTarget : IRenderTarget
                 },
                 frameLease);
         }
-        catch
+        catch (RenderTargetNotReadyException)
         {
             frameLease?.Dispose();
             session?.Dispose();
             throw;
+        }
+        catch (Exception exception)
+        {
+            frameLease?.Dispose();
+            session?.Dispose();
+            _corrupted = true;
+            throw new RenderTargetCorruptedException(exception);
         }
     }
 
@@ -207,6 +235,10 @@ internal sealed class DawnMetalRenderTarget : IRenderTarget
 
     public void Dispose()
     {
+        if (_disposed)
+        {
+            return;
+        }
         _target?.Dispose();
         _target = null;
         foreach (DrawableSlot slot in _slots.Values)
@@ -215,6 +247,8 @@ internal sealed class DawnMetalRenderTarget : IRenderTarget
         }
         _slots.Clear();
         _textureCache.Dispose();
+        _contextLifetime.Dispose();
+        _disposed = true;
     }
 
     private sealed unsafe class DrawableSlot : IDisposable

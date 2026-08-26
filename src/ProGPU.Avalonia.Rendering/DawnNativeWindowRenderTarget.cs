@@ -21,6 +21,7 @@ internal sealed class DawnNativeWindowRenderTarget : IRenderTarget
     private readonly DawnNativeWindowSource _windowSource;
     private readonly DawnNativePresentationSurface _presentationSurface;
     private readonly OffscreenTextureCache _textureCache;
+    private bool _corrupted;
     private bool _disposed;
 
     internal DawnNativeWindowRenderTarget(
@@ -58,6 +59,8 @@ internal sealed class DawnNativeWindowRenderTarget : IRenderTarget
     public PlatformRenderTargetState PlatformRenderTargetState =>
         _disposed
             ? PlatformRenderTargetState.Disposed
+            : _corrupted || _presentationSurface.IsDeviceLost
+                ? PlatformRenderTargetState.Corrupted
             : _platformSurface.IsReady
                 ? PlatformRenderTargetState.Ready
                 : PlatformRenderTargetState.NotReadyTryLater;
@@ -67,6 +70,11 @@ internal sealed class DawnNativeWindowRenderTarget : IRenderTarget
         out RenderTargetDrawingContextProperties properties)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_presentationSurface.IsDeviceLost)
+        {
+            throw new RenderTargetCorruptedException(
+                "The Dawn presentation device is lost.");
+        }
         PixelSize size = _platformSurface.Size;
         if (!_platformSurface.IsReady ||
             size.Width <= 0 ||
@@ -104,10 +112,16 @@ internal sealed class DawnNativeWindowRenderTarget : IRenderTarget
                 },
                 frame);
         }
-        catch
+        catch (TimeoutException exception)
         {
             frame?.Dispose();
-            throw;
+            throw new RenderTargetNotReadyException(exception);
+        }
+        catch (Exception exception)
+        {
+            frame?.Dispose();
+            _corrupted = true;
+            throw new RenderTargetCorruptedException(exception);
         }
     }
 

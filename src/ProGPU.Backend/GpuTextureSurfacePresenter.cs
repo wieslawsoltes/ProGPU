@@ -29,7 +29,12 @@ public static unsafe class GpuTextureSurfacePresenter
                 throw new ObjectDisposedException(nameof(WgpuContext));
             }
 
-            context.ReconfigureIfNeeded(source.Width, source.Height);
+            if (!context.TryReconfigureIfNeeded(
+                    source.Width,
+                    source.Height))
+            {
+                return;
+            }
             var surfaceTexture = new SurfaceTexture();
             TextureView* targetView = null;
             context.Wgpu.SurfaceGetCurrentTexture((Surface*)surfaceHandle, &surfaceTexture);
@@ -37,6 +42,25 @@ public static unsafe class GpuTextureSurfacePresenter
             {
                 if (surfaceTexture.Status != SurfaceGetCurrentTextureStatus.Success)
                 {
+                    if (surfaceTexture.Status ==
+                        SurfaceGetCurrentTextureStatus.DeviceLost)
+                    {
+                        context.ReportDeviceLost(
+                            DeviceLostReason.Unknown,
+                            "The presentation surface reported device loss.");
+                    }
+                    else if (surfaceTexture.Status ==
+                        SurfaceGetCurrentTextureStatus.OutOfMemory)
+                    {
+                        throw new OutOfMemoryException(
+                            "The WebGPU presentation surface ran out of memory.");
+                    }
+                    else if (surfaceTexture.Status is
+                        SurfaceGetCurrentTextureStatus.Outdated or
+                        SurfaceGetCurrentTextureStatus.Lost)
+                    {
+                        context.InvalidateSurfaceConfiguration();
+                    }
                     return;
                 }
 

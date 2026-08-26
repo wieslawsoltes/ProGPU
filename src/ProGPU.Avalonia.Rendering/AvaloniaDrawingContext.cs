@@ -760,6 +760,14 @@ internal partial class DrawingContextImpl :
                 submitted = Submit();
             }
         }
+        catch when (GpuContext.IsDeviceLost)
+        {
+            // Device loss can arrive synchronously from a resource write or
+            // queue operation in the middle of this frame. Drop that frame;
+            // the platform context manager observes the terminal state and
+            // supplies a fresh device on the next render pass.
+            submitted = false;
+        }
         finally
         {
             _afterSubmit?.Invoke(submitted);

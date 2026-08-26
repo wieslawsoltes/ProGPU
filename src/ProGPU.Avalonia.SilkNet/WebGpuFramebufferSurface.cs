@@ -132,7 +132,8 @@ internal sealed unsafe class SilkNetFramebufferSurface :
             new ReadOnlySpan<byte>(
                 (void*)address,
                 byteCount));
-        context.ReconfigureIfNeeded(width, height);
+        if (!context.TryReconfigureIfNeeded(width, height))
+            return;
 
         var surfaceTexture = new SurfaceTexture();
         context.Api.SurfaceGetCurrentTexture(
@@ -143,6 +144,25 @@ internal sealed unsafe class SilkNetFramebufferSurface :
         {
             if (surfaceTexture.Texture is not null)
                 context.Api.TextureRelease(surfaceTexture.Texture);
+            if (surfaceTexture.Status ==
+                SurfaceGetCurrentTextureStatus.DeviceLost)
+            {
+                context.ReportDeviceLost(
+                    DeviceLostReason.Unknown,
+                    "The Avalonia Silk.NET presentation surface reported device loss.");
+            }
+            else if (surfaceTexture.Status ==
+                SurfaceGetCurrentTextureStatus.OutOfMemory)
+            {
+                throw new OutOfMemoryException(
+                    "The Avalonia Silk.NET presentation surface ran out of memory.");
+            }
+            else if (surfaceTexture.Status is
+                SurfaceGetCurrentTextureStatus.Outdated or
+                SurfaceGetCurrentTextureStatus.Lost)
+            {
+                context.InvalidateSurfaceConfiguration();
+            }
             return;
         }
 

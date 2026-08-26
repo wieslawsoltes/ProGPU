@@ -49,6 +49,8 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
         "PROGPU_AVALONIA_BENCHMARK_DIAGNOSTIC_HOLD_SECONDS";
     private const string ReadyVariable =
         "PROGPU_AVALONIA_BENCHMARK_DIAGNOSTIC_READY";
+    private const string ForceDeviceLossVariable =
+        "PROGPU_AVALONIA_FORCE_DEVICE_LOSS";
 
     private readonly string _backend;
     private readonly string _page;
@@ -61,6 +63,7 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
     private readonly int _run;
     private readonly int _holdSeconds;
     private readonly bool _useSilkFrameSource;
+    private readonly bool _forceDeviceLoss;
     private readonly double[] _frameTimes;
 #if PROGPU_AVALONIA_BACKEND
     private readonly double[] _compileTimes;
@@ -99,6 +102,10 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
     private int _sceneCacheHits;
     private CompositorMetrics _measurementStartMetrics;
     private CompositorMetrics _lastMetrics;
+    private WgpuContext? _lostContext;
+    private int _deviceLossRecoveryFrames;
+    private bool _waitingForDeviceRecovery;
+    private bool _deviceLossRecovered;
 #endif
 
     private ControlCatalogTelemetrySession(
@@ -125,6 +132,11 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
         _holdSeconds = holdSeconds;
         _useSilkFrameSource = backend.Contains(
             "SilkNet",
+            StringComparison.Ordinal);
+        _forceDeviceLoss = string.Equals(
+            Environment.GetEnvironmentVariable(
+                ForceDeviceLossVariable),
+            "1",
             StringComparison.Ordinal);
         _frameTimes = new double[measureFrames];
 #if PROGPU_AVALONIA_BACKEND
@@ -231,12 +243,48 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
             return;
         }
 
+#if PROGPU_AVALONIA_BACKEND
+        if (_waitingForDeviceRecovery)
+        {
+            _deviceLossRecoveryFrames++;
+            _deviceLossRecovered =
+                WgpuContext.ActiveContexts.Any(
+                    candidate =>
+                        !ReferenceEquals(candidate, _lostContext) &&
+                        candidate.BackendKind ==
+                            _lostContext!.BackendKind &&
+                        candidate.IsInitialized &&
+                        !candidate.IsDeviceLost);
+            if (_deviceLossRecovered)
+            {
+                _waitingForDeviceRecovery = false;
+                _previousAnimationTimestamp = default;
+                PrepareMeasurement();
+            }
+            else if (_deviceLossRecoveryFrames >= 600)
+            {
+                throw new InvalidOperationException(
+                    "ControlCatalog did not recreate a healthy WebGPU context within 600 frames after device loss.");
+            }
+            RequestNextFrame();
+            return;
+        }
+#endif
+
         if (_warmupCompleted < _warmupFrames)
         {
             _warmupCompleted++;
             _previousAnimationTimestamp = timestamp;
             if (_warmupCompleted == _warmupFrames)
             {
+#if PROGPU_AVALONIA_BACKEND
+                if (_forceDeviceLoss)
+                {
+                    InjectDeviceLoss();
+                    RequestNextFrame();
+                    return;
+                }
+#endif
                 PrepareMeasurement();
             }
             RequestNextFrame();
@@ -311,6 +359,27 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
     }
 
 #if PROGPU_AVALONIA_BACKEND
+    private void InjectDeviceLoss()
+    {
+        WgpuBackendKind expectedBackend = _useSilkFrameSource
+            ? WgpuBackendKind.SilkNative
+            : WgpuBackendKind.DawnNative;
+        _lostContext = WgpuContext.ActiveContexts.FirstOrDefault(
+            candidate =>
+                candidate.BackendKind == expectedBackend &&
+                candidate.IsInitialized &&
+                !candidate.IsDeviceLost) ??
+            throw new InvalidOperationException(
+                $"ControlCatalog could not find an active {expectedBackend} context for device-loss injection.");
+        _waitingForDeviceRecovery = true;
+        _deviceLossRecoveryFrames = 0;
+        _lostContext.ReportDeviceLost(
+            Silk.NET.WebGPU.DeviceLostReason.Unknown,
+            "ControlCatalog synthetic device-loss integration gate");
+        Console.Error.WriteLine(
+            $"[ControlCatalog] injected device loss for {expectedBackend}");
+    }
+
     private void OnProGpuFrameRendered(CompositorMetrics metrics)
     {
         _lastMetrics = metrics;
@@ -401,6 +470,17 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
             writer.WriteNumber("Run", _run);
             writer.WriteNumber("WarmupFrames", _warmupFrames);
             writer.WriteNumber("MeasuredFrames", _measuredFrames);
+#if PROGPU_AVALONIA_BACKEND
+            writer.WriteBoolean(
+                "DeviceLossInjected",
+                _lostContext is not null);
+            writer.WriteBoolean(
+                "DeviceLossRecovered",
+                _deviceLossRecovered);
+            writer.WriteNumber(
+                "DeviceLossRecoveryFrames",
+                _deviceLossRecoveryFrames);
+#endif
             writer.WriteNumber("ElapsedSeconds", elapsedSeconds);
             writer.WriteNumber(
                 "FramesPerSecond",
