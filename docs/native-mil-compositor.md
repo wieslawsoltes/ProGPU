@@ -1613,6 +1613,19 @@ all point, rectangle, and radius resources without retransmitting any geometry
 or render data, then verifies the second frame's exact line, rounded rectangle,
 ellipse, and cache revision.
 
+Pen thickness and DashStyle offset animations also resolve from their canonical
+DoubleResource handles without rebuilding the Pen, DashStyle, or render-data
+stream. A single resolved Pen value is passed through immediate and retained
+line, path, rectangle, rounded-rectangle, ellipse, degenerate-cap, group, and
+combined-geometry stroke decisions; dashed polyline and degenerate-dash logic
+read the same live offset. This keeps stroke bounds, brush mapping, analytic and
+vector primitives, dash phase, and unsupported curved-dash decisions on one
+current-value view. Pen and DashStyle cache revisions include their scalar
+animation dependencies, deletion is protected, wrong resource types are
+transactionally rejected, and a negative live thickness fails closed during
+scene compilation. Native coverage updates only thickness and offset and
+verifies the exact second-frame stroke plus cached-layer revision.
+
 Nested PushEffect now matches the current WPF milcore behavior rather than the
 obsolete public API's historical intent. The managed producer emits the exact
 12-byte record view (four-byte command header plus two managed dependent-
