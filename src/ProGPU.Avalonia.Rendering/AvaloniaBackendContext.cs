@@ -240,7 +240,7 @@ internal sealed class ProGpuBackendContext : IPlatformRenderInterfaceContext
 
 #if !AVALONIA11
         composition?.Dispose();
-        dawn?.Context.Dispose();
+        dawn?.Dispose();
 #endif
     }
 
@@ -281,7 +281,12 @@ internal sealed class ProGpuBackendContext : IPlatformRenderInterfaceContext
                 return _dawnContext.Context;
         }
 #endif
-        if (WgpuContext.Current is { IsDisposed: false } current)
+        if (WgpuContext.Current is
+            {
+                IsInitialized: true,
+                IsDisposed: false,
+                IsDeviceLost: false
+            } current)
             return current;
         return WgpuContext.TryGetFirstActiveContext(out WgpuContext? active)
             ? active

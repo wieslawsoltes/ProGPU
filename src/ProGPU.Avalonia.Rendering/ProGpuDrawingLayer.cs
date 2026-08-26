@@ -81,7 +81,11 @@ internal sealed class SurfaceRenderTarget :
     public PixelSize PixelSize { get; }
     public Vector Dpi { get; }
     public int Version { get; private set; } = 1;
-    public bool IsCorrupted => false;
+    public bool IsCorrupted =>
+        Texture is null ||
+        Texture.IsDisposed ||
+        Texture.Context.IsDisposed ||
+        Texture.Context.IsDeviceLost;
     public bool CanBlit => true;
     public bool HasRenderContextAffinity =>
         Texture is { IsDisposed: false };

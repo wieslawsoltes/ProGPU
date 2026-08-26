@@ -8,6 +8,13 @@ using Xunit;
 
 namespace ProGPU.Tests;
 
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class WgpuContextLossCollection
+{
+    public const string Name = nameof(WgpuContextLossCollection);
+}
+
+[Collection(WgpuContextLossCollection.Name)]
 public sealed class WgpuContextTests
 {
     [Fact]
@@ -63,6 +70,63 @@ public sealed class WgpuContextTests
         Assert.True(existing.IsDeviceLost);
         Assert.False(existing.IsInitialized);
         Assert.False(new WgpuContext().IsDeviceLost);
+    }
+
+    [Fact]
+    public unsafe void ExactDeviceLossDoesNotPoisonIndependentContexts()
+    {
+        using var firstApi = new BrowserWebGpuApi();
+        using var secondApi = new BrowserWebGpuApi();
+        using var first = new WgpuContext();
+        using var second = new WgpuContext();
+        first.InitializeExternal(
+            firstApi,
+            BrowserWebGpuApi.DeviceHandle,
+            BrowserWebGpuApi.QueueHandle,
+            BrowserWebGpuApi.SurfaceHandle,
+            TextureFormat.Bgra8Unorm);
+        second.InitializeExternal(
+            secondApi,
+            BrowserWebGpuApi.DeviceHandle,
+            BrowserWebGpuApi.QueueHandle,
+            BrowserWebGpuApi.SurfaceHandle,
+            TextureFormat.Bgra8Unorm);
+
+        first.ReportDeviceLost(
+            DeviceLostReason.Unknown,
+            "synthetic exact-device loss");
+
+        Assert.True(first.IsDeviceLost);
+        Assert.False(first.IsInitialized);
+        Assert.False(second.IsDeviceLost);
+        Assert.True(second.IsInitialized);
+    }
+
+    [Fact]
+    public unsafe void LostDeviceRejectsQueueSubmissionBeforeNativeCall()
+    {
+        var submissions = 0;
+        using var api = new BrowserWebGpuApi(_ => submissions++);
+        var lifetime = new RecordingExternalDeviceLifetime();
+        using var context = new WgpuContext();
+        context.InitializeExternalNativeDevice(
+            api,
+            lifetime,
+            BrowserWebGpuApi.DeviceHandle,
+            BrowserWebGpuApi.QueueHandle,
+            TextureFormat.Bgra8Unorm);
+        context.ReportDeviceLost(
+            DeviceLostReason.Unknown,
+            "synthetic exact-device loss");
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
+            () =>
+            {
+                CommandBuffer* command = (CommandBuffer*)1;
+                context.Submit(1, &command);
+            });
+
+        Assert.Contains("lost WebGPU device", exception.Message);
+        Assert.Equal(0, submissions);
     }
 
     [Fact]

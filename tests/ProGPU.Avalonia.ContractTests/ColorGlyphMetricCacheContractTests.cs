@@ -10,6 +10,15 @@ namespace Avalonia.ProGpu.ContractTests;
 public sealed class ColorGlyphMetricCacheContractTests
 {
     [Fact]
+    public void AvaloniaColorAtlasRetainsLargeBitmapEmojiWorkingSets()
+    {
+        Assert.Equal(64u,
+            AvaloniaGpuDevicePool.Options.InitialColorGlyphAtlasSize);
+        Assert.True(
+            AvaloniaGpuDevicePool.Options.ColorGlyphAtlasSize >= 1024u);
+    }
+
+    [Fact]
     public void SbixCoordinatesArePlacedRelativeToTheBaseline()
     {
         var metrics = new ColorGlyphMetrics(

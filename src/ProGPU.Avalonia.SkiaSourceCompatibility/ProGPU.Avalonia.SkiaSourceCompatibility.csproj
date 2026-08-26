@@ -18,7 +18,7 @@
     <AvaloniaSkiaSourceRoot Condition="'$(ProGpuAvaloniaSourceRoot)' != ''">$(ProGpuAvaloniaSourceRoot)\src\Skia\Avalonia.Skia</AvaloniaSkiaSourceRoot>
   </PropertyGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(AvaloniaSkiaSourceRoot)' != ''">
     <Compile Include="$(AvaloniaSkiaSourceRoot)\**\*.cs"
              Exclude="$(AvaloniaSkiaSourceRoot)\bin\**\*.cs;$(AvaloniaSkiaSourceRoot)\obj\**\*.cs">
       <Link>Upstream\%(RecursiveDir)%(Filename)%(Extension)</Link>
@@ -31,7 +31,7 @@
     <ProjectReference Include="..\SkiaSharp\SkiaSharp.csproj" />
     <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\packages\Avalonia\Avalonia.csproj"
                       Condition="'$(ProGpuAvaloniaSourceRoot)' != ''"
-                      GlobalPropertiesToRemove="AvaloniaAccessUnstablePrivateApis;Avalonia_I_Want_To_Use_Private_Apis_In_Nuget_Package_And_Promise_To_Pin_The_Exact_Avalonia_Version_In_Package_Dependency" />
+                      GlobalPropertiesToRemove="AvaloniaAccessUnstablePrivateApis;Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE;Avalonia_I_Want_To_Use_Private_Apis_In_Nuget_Package_And_Promise_To_Pin_The_Exact_Avalonia_Version_In_Package_Dependency" />
   </ItemGroup>
 
   <Target Name="ValidatePinnedAvaloniaSkiaSources"

@@ -84,6 +84,7 @@ public unsafe class WgpuContext : IDisposable
     private static long s_deviceLossGeneration;
     private readonly long _deviceLossGeneration =
         Volatile.Read(ref s_deviceLossGeneration);
+    private WgpuDeviceLossState _deviceLossState = new();
 
     public static void RaiseWebGpuError(ErrorType type, string message)
     {
@@ -109,13 +110,32 @@ public unsafe class WgpuContext : IDisposable
     }
 
     /// <summary>
+    /// Marks this context's exact WebGPU device domain as terminally lost.
+    /// Every surface context sharing the device observes the same state, while
+    /// independent devices remain usable.
+    /// </summary>
+    public void ReportDeviceLost(
+        DeviceLostReason reason,
+        string message)
+    {
+        if (reason == DeviceLostReason.Destroyed ||
+            !_deviceLossState.TryMarkLost(reason, message))
+        {
+            return;
+        }
+
+        OnWebGpuDeviceLost?.Invoke(reason, message);
+    }
+
+    /// <summary>
     /// Gets whether a device-loss notification occurred after this context
     /// was created. The value is lock-free and safe to query from Avalonia's
     /// UI and render threads.
     /// </summary>
     public bool IsDeviceLost =>
+        _deviceLossState.IsLost ||
         _deviceLossGeneration !=
-        Volatile.Read(ref s_deviceLossGeneration);
+            Volatile.Read(ref s_deviceLossGeneration);
 
     private PfnErrorCallback _errorCallback;
     private nint _devicePollAddress;
@@ -218,6 +238,11 @@ public unsafe class WgpuContext : IDisposable
         lock (RenderLock)
         {
             ObjectDisposedException.ThrowIf(_isDisposed, this);
+            if (IsDeviceLost)
+            {
+                throw new InvalidOperationException(
+                    "Cannot submit commands to a lost WebGPU device.");
+            }
             Api.QueueSubmit(Queue, commandCount, commandBuffers);
             Interlocked.Increment(ref _queueSubmissionCount);
         }
@@ -721,7 +746,7 @@ public unsafe class WgpuContext : IDisposable
                 for (var i = 0; i < _activeContexts.Count; i++)
                 {
                     var active = _activeContexts[i];
-                    if (active.IsInitialized &&
+                    if (!active.IsDisposed &&
                         (IntPtr)active.Surface == surfaceHandle)
                     {
                         context = active;
@@ -990,6 +1015,7 @@ public unsafe class WgpuContext : IDisposable
         using var deviceSignal = new ManualResetEventSlim(false);
         var deviceState = new DeviceRequestState(deviceSignal);
         var deviceStateHandle = GCHandle.Alloc(deviceState);
+        var deviceLossStateHandle = GCHandle.Alloc(_deviceLossState);
 
         var adapterLimits = new SupportedLimits();
         Wgpu.AdapterGetLimits(Adapter, &adapterLimits);
@@ -1007,7 +1033,9 @@ public unsafe class WgpuContext : IDisposable
             RequiredLimits = &requiredLimits,
             RequiredFeatureCount = requiredFeatureCount,
             RequiredFeatures = requiredFeatureCount == 0 ? null : requiredFeatures,
-            DeviceLostCallback = new PfnDeviceLostCallback(&OnDeviceLost)
+            DeviceLostCallback = new PfnDeviceLostCallback(&OnDeviceLost),
+            DeviceLostUserdata =
+                (void*)GCHandle.ToIntPtr(deviceLossStateHandle)
         };
 
         try
@@ -1020,17 +1048,21 @@ public unsafe class WgpuContext : IDisposable
                 (void*)GCHandle.ToIntPtr(deviceStateHandle));
             deviceSignal.Wait();
         }
+        catch
+        {
+            deviceLossStateHandle.Free();
+            throw;
+        }
         finally
         {
             deviceStateHandle.Free();
+            SilkMarshal.Free((nint)deviceDesc.Label);
         }
-
-        // Free labeled string
-        SilkMarshal.Free((nint)deviceDesc.Label);
 
         SafeLog($"[WGPUCONTEXT] RequestDevice finished, device={deviceState.Result:X}\n");
         if (deviceState.Result == 0)
         {
+            deviceLossStateHandle.Free();
             throw new InvalidOperationException($"Failed to obtain WebGPU Device. {deviceState.Error}");
         }
         Device = (Device*)deviceState.Result;
@@ -1056,11 +1088,22 @@ public unsafe class WgpuContext : IDisposable
             Adapter,
             Device,
             Queue,
-            _deviceResourceDomain);
+            _deviceResourceDomain,
+            GCHandle.ToIntPtr(deviceLossStateHandle));
 
         // 6. Hook up validation error callback
         _errorCallback = new PfnErrorCallback(&OnUncapturedError);
-        Wgpu.DeviceSetUncapturedErrorCallback(Device, _errorCallback, null);
+        Wgpu.DeviceSetUncapturedErrorCallback(
+            Device,
+            _errorCallback,
+            (void*)GCHandle.ToIntPtr(deviceLossStateHandle));
+
+        // Qualify the freshly created queue before expensive retained-pipeline
+        // construction. Some Windows virtual/RDP adapters accept device
+        // creation and surface configuration, then report the terminal loss
+        // only on the first resource write. Catching that state here avoids a
+        // minutes-long driver stall followed by a native submit abort.
+        ProbeNativeDevice();
 
         // 7. Configure Surface if window exists
         if (Surface != null)
@@ -1081,6 +1124,40 @@ public unsafe class WgpuContext : IDisposable
         }
 
         Current = this;
+    }
+
+    private void ProbeNativeDevice()
+    {
+        var descriptor = new BufferDescriptor
+        {
+            Size = sizeof(uint),
+            Usage = BufferUsage.CopyDst | BufferUsage.Storage
+        };
+        Silk.NET.WebGPU.Buffer* buffer =
+            Api.DeviceCreateBuffer(Device, &descriptor);
+        if (buffer == null)
+        {
+            ReportDeviceLost(
+                DeviceLostReason.Unknown,
+                "WebGPU could not create the device qualification buffer.");
+            return;
+        }
+
+        try
+        {
+            uint value = 0;
+            Api.QueueWriteBuffer(
+                Queue,
+                buffer,
+                0,
+                &value,
+                sizeof(uint));
+            PollDevice(wait: false);
+        }
+        finally
+        {
+            Api.BufferRelease(buffer);
+        }
     }
 
     /// <summary>
@@ -1165,17 +1242,19 @@ public unsafe class WgpuContext : IDisposable
     private void ReleasePresentationSurfaceCore(bool waitForDevice)
     {
         if (Surface == null) return;
-        if (waitForDevice && Device != null) WaitIdle();
+        if (waitForDevice && Device != null && !IsDeviceLost) WaitIdle();
         // Externally owned browser surfaces are opaque command-stream handles and
         // have no native WebGPU instance to unconfigure. Exact-ABI native backends
         // own their configuration and must tear it down through the same ABI.
         if (Api is IWebGpuExternalSurfaceApi externalSurface &&
-            _isSurfaceConfigured)
+            _isSurfaceConfigured &&
+            !IsDeviceLost)
         {
             externalSurface.UnconfigureExternalSurface(Surface);
         }
         else if (BackendKind == WgpuBackendKind.SilkNative &&
-                 _isSurfaceConfigured)
+                 _isSurfaceConfigured &&
+                 !IsDeviceLost)
         {
             Wgpu.SurfaceUnconfigure(Surface);
         }
@@ -1329,7 +1408,33 @@ public unsafe class WgpuContext : IDisposable
         string errorMessage = ReadNativeMessage(message);
         Console.WriteLine($"[WebGPU Error] Type: {type}, Message: {errorMessage}");
         OnWebGpuError?.Invoke(type, errorMessage);
+        if (_ != null &&
+            IsTerminalDeviceFailure(type, errorMessage) &&
+            GCHandle.FromIntPtr((nint)_).Target is
+                WgpuDeviceLossState lossState &&
+            lossState.TryMarkLost(
+                DeviceLostReason.Unknown,
+                errorMessage))
+        {
+            OnWebGpuDeviceLost?.Invoke(
+                DeviceLostReason.Unknown,
+                errorMessage);
+        }
     }
+
+    private static bool IsTerminalDeviceFailure(
+        ErrorType type,
+        string message) =>
+        type is ErrorType.Internal or ErrorType.Unknown ||
+        message.Contains(
+            "device is lost",
+            StringComparison.OrdinalIgnoreCase) ||
+        message.Contains(
+            "device lost",
+            StringComparison.OrdinalIgnoreCase) ||
+        message.Contains(
+            "Creation of a resource failed for a reason other than running out of memory",
+            StringComparison.OrdinalIgnoreCase);
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static void OnDeviceLost(DeviceLostReason reason, byte* message, void* _)
@@ -1341,7 +1446,13 @@ public unsafe class WgpuContext : IDisposable
 
         string errorMessage = ReadNativeMessage(message);
         Console.Error.WriteLine($"[WebGPU Device Lost] Reason: {reason}, Message: {errorMessage}");
-        RaiseWebGpuDeviceLost(reason, errorMessage);
+        if (_ != null &&
+            GCHandle.FromIntPtr((nint)_).Target is
+                WgpuDeviceLossState lossState &&
+            lossState.TryMarkLost(reason, errorMessage))
+        {
+            OnWebGpuDeviceLost?.Invoke(reason, errorMessage);
+        }
     }
 
     private static string ReadNativeMessage(byte* message) =>
@@ -1589,6 +1700,7 @@ public unsafe class WgpuContext : IDisposable
             deviceOwner.SupportsTextureFormatsTier1;
         SetAdapterSelectionDiagnostics(deviceOwner.AdapterSelectionDiagnostics);
         _deviceResourceDomain = deviceOwner._deviceResourceDomain;
+        _deviceLossState = deviceOwner._deviceLossState;
         _sharedDeviceLifetime = sharedDeviceLifetime;
         RenderLock = deviceOwner.RenderLock;
 
@@ -1677,15 +1789,26 @@ public unsafe class WgpuContext : IDisposable
 
     public bool TryConfigureSwapChain(uint width, uint height, bool refreshCapabilities = false)
     {
+        if (IsDeviceLost)
+        {
+            _isSurfaceConfigured = false;
+            return false;
+        }
+
         if (Surface != null &&
             Api is IWebGpuExternalSurfaceApi externalSurface)
         {
             uint configuredWidth = Math.Max(1u, width);
             uint configuredHeight = Math.Max(1u, height);
+            _isSurfaceConfigured = false;
             externalSurface.ConfigureExternalSurface(
                 Surface,
                 configuredWidth,
                 configuredHeight);
+            if (IsDeviceLost)
+            {
+                return false;
+            }
             _lastWidth = configuredWidth;
             _lastHeight = configuredHeight;
             _isSurfaceConfigured = true;
@@ -1782,7 +1905,12 @@ public unsafe class WgpuContext : IDisposable
             Height = height > 0 ? height : 1
         };
 
+        _isSurfaceConfigured = false;
         Wgpu.SurfaceConfigure(Surface, &config);
+        if (IsDeviceLost)
+        {
+            return false;
+        }
         SwapChainFormat = swapChainFormat;
         _lastWidth = config.Width;
         _lastHeight = config.Height;
@@ -1792,6 +1920,16 @@ public unsafe class WgpuContext : IDisposable
         SurfaceConfigurationTimeMs += elapsedMilliseconds;
         MaximumSurfaceConfigurationTimeMs = Math.Max(MaximumSurfaceConfigurationTimeMs, elapsedMilliseconds);
         return true;
+    }
+
+    /// <summary>
+    /// Invalidates presentation state after a recoverable surface acquisition
+    /// failure so the next attempt refreshes capabilities and configuration.
+    /// </summary>
+    public void InvalidateSurfaceConfiguration()
+    {
+        _isSurfaceConfigured = false;
+        _hasSurfaceConfigurationCapabilities = false;
     }
 
     public static bool CanConfigureSurface(
@@ -1959,7 +2097,9 @@ public unsafe class WgpuContext : IDisposable
 
     public bool TryReconfigureIfNeeded(uint width, uint height)
     {
-        if (width != _lastWidth || height != _lastHeight)
+        if (!_isSurfaceConfigured ||
+            width != _lastWidth ||
+            height != _lastHeight)
         {
             return TryConfigureSwapChain(width, height);
         }
@@ -2199,6 +2339,7 @@ public unsafe class WgpuContext : IDisposable
         private Device* _device;
         private Queue* _queue;
         private WgpuDeviceResourceDomain? _deviceResourceDomain;
+        private nint _deviceLossStateHandle;
         private int _referenceCount = 1;
 
         public SharedDeviceLifetime(
@@ -2207,7 +2348,8 @@ public unsafe class WgpuContext : IDisposable
             WgpuAdapter* adapter,
             Device* device,
             Queue* queue,
-            WgpuDeviceResourceDomain deviceResourceDomain)
+            WgpuDeviceResourceDomain deviceResourceDomain,
+            nint deviceLossStateHandle)
         {
             _wgpu = wgpu;
             _instance = instance;
@@ -2215,6 +2357,7 @@ public unsafe class WgpuContext : IDisposable
             _device = device;
             _queue = queue;
             _deviceResourceDomain = deviceResourceDomain;
+            _deviceLossStateHandle = deviceLossStateHandle;
         }
 
         public SharedDeviceLifetime Acquire()
@@ -2235,6 +2378,7 @@ public unsafe class WgpuContext : IDisposable
             Device* device;
             Queue* queue;
             WgpuDeviceResourceDomain? deviceResourceDomain;
+            nint deviceLossStateHandle;
             lock (_sync)
             {
                 if (_referenceCount == 0 || --_referenceCount != 0)
@@ -2248,12 +2392,14 @@ public unsafe class WgpuContext : IDisposable
                 device = _device;
                 queue = _queue;
                 deviceResourceDomain = _deviceResourceDomain;
+                deviceLossStateHandle = _deviceLossStateHandle;
                 _wgpu = null;
                 _instance = null;
                 _adapter = null;
                 _device = null;
                 _queue = null;
                 _deviceResourceDomain = null;
+                _deviceLossStateHandle = 0;
             }
 
             if (wgpu == null)
@@ -2279,7 +2425,24 @@ public unsafe class WgpuContext : IDisposable
             {
                 wgpu.InstanceRelease(instance);
             }
+            if (deviceLossStateHandle != 0)
+            {
+                GCHandle.FromIntPtr(deviceLossStateHandle).Free();
+            }
         }
+    }
+
+    private sealed class WgpuDeviceLossState
+    {
+        private int _isLost;
+
+        public bool IsLost => Volatile.Read(ref _isLost) != 0;
+
+        public bool TryMarkLost(
+            DeviceLostReason reason,
+            string message) =>
+            reason != DeviceLostReason.Destroyed &&
+            Interlocked.Exchange(ref _isLost, 1) == 0;
     }
 
     ~WgpuContext()

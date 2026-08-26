@@ -47,7 +47,14 @@ internal sealed class RenderTargetBitmapImpl :
         CreateContext(useScaledDrawing: true);
 #endif
 
-    public bool IsCorrupted => false;
+    public bool IsCorrupted =>
+        Texture?.Context is
+        {
+            IsDisposed: true
+        } or
+        {
+            IsDeviceLost: true
+        };
 
     public IFramebufferRenderTarget CreateFramebufferRenderTarget() =>
         new FuncFramebufferRenderTarget(Lock);

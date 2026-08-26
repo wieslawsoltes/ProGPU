@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Numerics;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
@@ -28,6 +29,15 @@ namespace Avalonia.SilkNet;
 /// </remarks>
 internal sealed unsafe class SilkNetInputRouter : IDisposable
 {
+    private static readonly bool s_traceChromeDrag =
+        string.Equals(
+            Environment.GetEnvironmentVariable(
+                "PROGPU_AVALONIA_TRACE_CHROME_DRAG"),
+            "1",
+            StringComparison.Ordinal);
+    private static readonly string? s_chromeDragTracePath =
+        Environment.GetEnvironmentVariable(
+            "PROGPU_AVALONIA_TRACE_WINDOW_EVENTS_PATH");
     private readonly WindowImpl _owner;
     private readonly SilkNetClipboard _clipboard;
     private readonly MouseDevice _mouseDevice = new();
@@ -51,9 +61,11 @@ internal sealed unsafe class SilkNetInputRouter : IDisposable
     private RawInputModifiers _pointerButtons;
     private RawInputModifiers _glfwKeyModifiers;
     private Vector2 _lastPointerPosition;
+    private bool _hasPointerPosition;
     private bool _pointerInside;
     private bool _insideGlfwKeyCallback;
     private bool _suppressPromotedMouseForPoll;
+    private bool _chromeDragActive;
 
     internal SilkNetInputRouter(
         WindowImpl owner,
@@ -494,15 +506,28 @@ internal sealed unsafe class SilkNetInputRouter : IDisposable
     {
         if (ShouldSuppressPromotedMouse())
             return;
+        Vector2 position = ResolvePointerPosition(
+            _hasPointerPosition,
+            _lastPointerPosition,
+            mouse.Position);
         _pointerInside = true;
-        _lastPointerPosition = mouse.Position;
+        _hasPointerPosition = true;
+        _lastPointerPosition = position;
         RawPointerEventType? eventType =
             MapButton(button, pressed: true);
         if (eventType is null)
             return;
+        if (button == SilkMouseButton.Left)
+            _chromeDragActive = false;
+        if (button == SilkMouseButton.Left &&
+            TryBeginChromeDrag(position))
+        {
+            _chromeDragActive = true;
+            return;
+        }
         _pointerButtons |= ButtonModifier(button);
         EmitPointer(
-            mouse.Position,
+            position,
             eventType.Value);
     }
 
@@ -512,8 +537,19 @@ internal sealed unsafe class SilkNetInputRouter : IDisposable
     {
         if (ShouldSuppressPromotedMouse())
             return;
+        Vector2 position = ResolvePointerPosition(
+            _hasPointerPosition,
+            _lastPointerPosition,
+            mouse.Position);
         _pointerInside = true;
-        _lastPointerPosition = mouse.Position;
+        _hasPointerPosition = true;
+        _lastPointerPosition = position;
+        if (button == SilkMouseButton.Left && _chromeDragActive)
+        {
+            _chromeDragActive = false;
+            _owner.EndNativeDrag();
+            return;
+        }
         _owner.UpdateNativeDrag(
             CurrentNativePointer);
         if (button == SilkMouseButton.Left)
@@ -524,8 +560,59 @@ internal sealed unsafe class SilkNetInputRouter : IDisposable
             return;
         _pointerButtons &= ~ButtonModifier(button);
         EmitPointer(
-            mouse.Position,
+            position,
             eventType.Value);
+    }
+
+    private bool TryBeginChromeDrag(Vector2 position)
+    {
+#if AVALONIA11
+        _ = position;
+        return false;
+#else
+        IInputRoot? root = _inputRoot;
+        if (root is null)
+            return false;
+
+        Point logicalPosition = ToPoint(position);
+        WindowDecorationsElementRole? role =
+            SilkNetWindowChrome.ResolveChromeRole(
+                root,
+                logicalPosition);
+        if (role == WindowDecorationsElementRole.TitleBar)
+        {
+            bool started = _owner.BeginNativeMoveDrag();
+            if (s_traceChromeDrag)
+            {
+                TraceChromeDrag(
+                    $"title start={started} position={position}");
+            }
+            return started;
+        }
+
+        if (role is { } resizeRole &&
+            SilkNetWindowChrome.TryMapResizeRole(
+                resizeRole,
+                out NativeResizeEdge edge))
+        {
+            bool started = _owner.BeginNativeResizeDrag(edge);
+            if (s_traceChromeDrag)
+            {
+                TraceChromeDrag(
+                    $"resize edge={edge} start={started} " +
+                    $"position={position}");
+            }
+            return started;
+        }
+
+        if (s_traceChromeDrag)
+        {
+            TraceChromeDrag(
+                $"no role position={position} " +
+                $"logical={logicalPosition}");
+        }
+        return false;
+#endif
     }
 
     private void OnMouseMove(
@@ -535,12 +622,45 @@ internal sealed unsafe class SilkNetInputRouter : IDisposable
         if (ShouldSuppressPromotedMouse())
             return;
         _pointerInside = true;
+        _hasPointerPosition = true;
         _lastPointerPosition = position;
-        _owner.UpdateNativeDrag(
+        if (s_traceChromeDrag)
+        {
+            TraceChromeDrag(
+                $"pointer move position={position} " +
+                $"logical={ToPoint(position)}");
+        }
+        bool dragUpdated = _owner.UpdateNativeDrag(
             CurrentNativePointer);
+        if (dragUpdated && s_traceChromeDrag)
+            TraceChromeDrag($"update position={position}");
         EmitPointer(
             position,
             RawPointerEventType.Move);
+    }
+
+    private static void TraceChromeDrag(string message)
+    {
+        string line = $"[Avalonia.SilkNet] chrome drag: {message}";
+        string? path = s_chromeDragTracePath;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            Console.Error.WriteLine(line);
+            return;
+        }
+
+        try
+        {
+            File.AppendAllText(path, line + Environment.NewLine);
+        }
+        catch (IOException)
+        {
+            Console.Error.WriteLine(line);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            Console.Error.WriteLine(line);
+        }
     }
 
     private void OnMouseScroll(
@@ -549,8 +669,13 @@ internal sealed unsafe class SilkNetInputRouter : IDisposable
     {
         if (ShouldSuppressPromotedMouse())
             return;
+        Vector2 position = ResolvePointerPosition(
+            _hasPointerPosition,
+            _lastPointerPosition,
+            mouse.Position);
         _pointerInside = true;
-        _lastPointerPosition = mouse.Position;
+        _hasPointerPosition = true;
+        _lastPointerPosition = position;
         IInputRoot? root = _inputRoot;
         if (root is null || !_owner.TryAcceptInput())
             return;
@@ -560,10 +685,16 @@ internal sealed unsafe class SilkNetInputRouter : IDisposable
                 _mouseDevice,
                 Timestamp(),
                 root,
-                ToPoint(mouse.Position),
+                ToPoint(position),
                 new Vector(wheel.X, wheel.Y),
                 ReadModifiers() | _pointerButtons));
     }
+
+    internal static Vector2 ResolvePointerPosition(
+        bool hasCallbackPosition,
+        Vector2 callbackPosition,
+        Vector2 reportedPosition) =>
+        hasCallbackPosition ? callbackPosition : reportedPosition;
 
     private void EmitPointer(
         Vector2 position,

@@ -5,6 +5,7 @@ using Avalonia.Media;
 using Avalonia.Media.TextFormatting;
 using Avalonia.Platform;
 using Xunit;
+using TtfFont = ProGPU.Text.TtfFont;
 
 namespace Avalonia.ProGpu.ContractTests;
 
@@ -68,6 +69,57 @@ public sealed class AvaloniaGlyphRunContractTests
                 (float)(run.Bounds.Bottom - run.BaselineOrigin.Y));
             Assert.NotEmpty(intersections);
             Assert.Equal(0, intersections.Count % 2);
+        }
+        finally
+        {
+            glyphTypeface.Dispose();
+        }
+    }
+
+    [Fact]
+    public void BitmapColorGlyphsContributeInkBounds()
+    {
+        string[] candidates =
+        [
+            "/System/Library/Fonts/Apple Color Emoji.ttc",
+            "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"
+        ];
+        string? path = Array.Find(candidates, File.Exists);
+        if (path is null)
+            return;
+
+        var font = new TtfFont(path);
+        ushort glyph = font.GetGlyphIndex(0x1f600);
+        if (glyph == 0 ||
+            !font.TryGetBitmapGlyph(glyph, 20, out _))
+        {
+            return;
+        }
+
+        var platformTypeface = new ProGpuTypeface(
+            font,
+            font.FontData,
+            font.FamilyName,
+            FontWeight.Normal,
+            FontStyle.Normal,
+            FontStretch.Normal);
+        var glyphTypeface = new GlyphTypeface(platformTypeface);
+        try
+        {
+            using var run = new GlyphRunImpl(
+                glyphTypeface,
+                20,
+                [new GlyphInfo(
+                    glyph,
+                    GlyphCluster: 0,
+                    font.GetAdvanceWidth(glyph, 20))],
+                new Point(7, 30));
+
+            Assert.True(run.Bounds.Width > 0);
+            Assert.True(run.Bounds.Height > 0);
+            Assert.NotEmpty(run.GetIntersections(
+                (float)(run.Bounds.Top - run.BaselineOrigin.Y),
+                (float)(run.Bounds.Bottom - run.BaselineOrigin.Y)));
         }
         finally
         {

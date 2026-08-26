@@ -26,6 +26,8 @@ internal sealed class SilkNetInputTelemetrySession : IDisposable
         "PROGPU_AVALONIA_INPUT_EXPECT";
     private const string TimeoutVariable =
         "PROGPU_AVALONIA_INPUT_TIMEOUT_SECONDS";
+    private const string ExpectedPositionVariable =
+        "PROGPU_AVALONIA_WINDOW_EXPECT_POSITION";
 
     private readonly string _outputPath;
     private readonly HashSet<string> _expected;
@@ -34,6 +36,7 @@ internal sealed class SilkNetInputTelemetrySession : IDisposable
     private readonly IDisposable _windowOpenedSubscription;
     private readonly DispatcherTimer _timer;
     private readonly DateTime _deadline;
+    private readonly PixelPoint? _expectedPosition;
     private Window? _window;
     private PixelPoint _initialPosition;
     private Size _lastLayoutSize;
@@ -49,6 +52,7 @@ internal sealed class SilkNetInputTelemetrySession : IDisposable
     {
         _outputPath = outputPath;
         _expected = expected;
+        _expectedPosition = ParseExpectedPosition();
         _deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
         _windowOpenedSubscription =
             Window.WindowOpenedEvent.AddClassHandler<Window>(
@@ -117,8 +121,6 @@ internal sealed class SilkNetInputTelemetrySession : IDisposable
             return;
 
         _window = window;
-        _initialPosition = window.Position;
-        _hasInitialPosition = true;
         window.PositionChanged += OnPositionChanged;
         window.PropertyChanged += OnWindowPropertyChanged;
         window.LayoutUpdated += OnLayoutUpdated;
@@ -186,11 +188,61 @@ internal sealed class SilkNetInputTelemetrySession : IDisposable
                     () => Record("shortcut"))
             });
         Dispatcher.UIThread.Post(
-            () => window.GetVisualDescendants()
-                .OfType<TextBox>()
-                .FirstOrDefault()?
-                .Focus(),
+            () =>
+            {
+                ValidateInitialPosition();
+                _initialPosition = window.Position;
+                _hasInitialPosition = true;
+                window.GetVisualDescendants()
+                    .OfType<TextBox>()
+                    .FirstOrDefault()?
+                    .Focus();
+                File.WriteAllText(
+                    _outputPath + ".ready",
+                    "ready" + Environment.NewLine);
+            },
             DispatcherPriority.Input);
+    }
+
+    private void ValidateInitialPosition()
+    {
+        if (_window is null || _expectedPosition is not { } expected)
+            return;
+
+        PixelPoint actual = _window.Position;
+        const int tolerance = 8;
+        if (Math.Abs(actual.X - expected.X) <= tolerance &&
+            Math.Abs(actual.Y - expected.Y) <= tolerance)
+        {
+            Record("initial-position");
+            return;
+        }
+
+        Complete(
+            passed: false,
+            error:
+                $"Initial position was {actual.X},{actual.Y}; " +
+                $"expected {expected.X},{expected.Y} ±{tolerance} px.");
+    }
+
+    private static PixelPoint? ParseExpectedPosition()
+    {
+        string? text = Environment.GetEnvironmentVariable(
+            ExpectedPositionVariable);
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+        string[] parts = text.Split(
+            ',',
+            StringSplitOptions.TrimEntries);
+        if (parts.Length != 2 ||
+            !int.TryParse(parts[0], out int x) ||
+            !int.TryParse(parts[1], out int y))
+        {
+            throw new InvalidOperationException(
+                $"{ExpectedPositionVariable} must be X,Y.");
+        }
+
+        return new PixelPoint(x, y);
     }
 
     private void OnKeyDown(object? sender, KeyEventArgs args)
@@ -430,6 +482,13 @@ internal sealed class SilkNetInputTelemetrySession : IDisposable
             writer.WriteNumber("ClientWidth", _window.ClientSize.Width);
             writer.WriteNumber("ClientHeight", _window.ClientSize.Height);
             writer.WriteNumber("RenderScaling", _window.RenderScaling);
+            writer.WriteEndObject();
+        }
+        if (_expectedPosition is { } expectedPosition)
+        {
+            writer.WriteStartObject("ExpectedInitialPosition");
+            writer.WriteNumber("X", expectedPosition.X);
+            writer.WriteNumber("Y", expectedPosition.Y);
             writer.WriteEndObject();
         }
         if (error is not null)

@@ -236,16 +236,14 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
 
     public override bool TryBeginMove(NativeWindowPoint pointer)
     {
-        var applicationClass = objc_getClass("NSApplication");
-        var application = SendObject(applicationClass, "sharedApplication");
-        var currentEvent = SendObject(application, "currentEvent");
-        if (currentEvent == 0)
-        {
-            return false;
-        }
-
-        SendVoidObject(_nsWindow, "performWindowDragWithEvent:", currentEvent);
-        return true;
+        _ = pointer;
+        // GLFW dispatch does not preserve the originating NSEvent through its
+        // managed mouse callback. AppKit's performWindowDragWithEvent: has no
+        // success result and can silently ignore NSApplication.currentEvent
+        // after GLFW advances it, which previously suppressed the controller's
+        // reliable pointer-delta fallback. Returning false intentionally arms
+        // that fallback for drawn Avalonia title bars.
+        return false;
     }
 
     public override bool TryBeginResize(NativeResizeEdge edge, NativeWindowPoint pointer) => false;

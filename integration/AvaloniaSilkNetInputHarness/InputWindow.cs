@@ -1,5 +1,8 @@
+using System;
+using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Chrome;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -17,6 +20,7 @@ internal sealed class InputWindow : Window
         MinHeight = 280;
         ExtendClientAreaToDecorationsHint = true;
         ExtendClientAreaTitleBarHeightHint = 44;
+        ApplyWindowPlacement();
 
         var titleBar = new Border
         {
@@ -30,7 +34,22 @@ internal sealed class InputWindow : Window
                 VerticalAlignment = VerticalAlignment.Center
             }
         };
-        titleBar.PointerPressed += OnTitleBarPointerPressed;
+        WindowDecorationProperties.SetElementRole(
+            titleBar,
+            WindowDecorationsElementRole.TitleBar);
+
+        var resizeGrip = new Border
+        {
+            Width = 48,
+            Height = 48,
+            Background = Brushes.Transparent,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            ZIndex = 100
+        };
+        WindowDecorationProperties.SetElementRole(
+            resizeGrip,
+            WindowDecorationsElementRole.ResizeSE);
 
         var editor = new TextBox
         {
@@ -74,18 +93,51 @@ internal sealed class InputWindow : Window
             Children =
             {
                 titleBar,
-                content
+                content,
+                resizeGrip
             }
         };
         Grid.SetRow(content, 1);
+        Grid.SetRowSpan(resizeGrip, 2);
     }
 
-    private void OnTitleBarPointerPressed(
-        object? sender,
-        PointerPressedEventArgs args)
+    private void ApplyWindowPlacement()
     {
-        _ = sender;
-        if (args.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
-            BeginMoveDrag(args);
+        string? position = Environment.GetEnvironmentVariable(
+            "PROGPU_AVALONIA_WINDOW_POSITION");
+        if (!string.IsNullOrWhiteSpace(position))
+        {
+            string[] parts = position.Split(
+                ',',
+                StringSplitOptions.TrimEntries);
+            if (parts.Length != 2 ||
+                !int.TryParse(
+                    parts[0],
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out int x) ||
+                !int.TryParse(
+                    parts[1],
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out int y))
+            {
+                throw new InvalidOperationException(
+                    "PROGPU_AVALONIA_WINDOW_POSITION must be X,Y.");
+            }
+
+            Position = new PixelPoint(x, y);
+        }
+
+        string? startupLocation = Environment.GetEnvironmentVariable(
+            "PROGPU_AVALONIA_WINDOW_STARTUP_LOCATION");
+        if (!string.IsNullOrWhiteSpace(startupLocation) &&
+            Enum.TryParse(
+                startupLocation,
+                ignoreCase: true,
+                out WindowStartupLocation parsed))
+        {
+            WindowStartupLocation = parsed;
+        }
     }
 }
