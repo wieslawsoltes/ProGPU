@@ -45,6 +45,49 @@ contract to adopt:
   converts Unicode buffers to positioned glyphs independently of canvas
   ownership. The existing ProGPU shaping path remains authoritative.
 
+## 2026-08-26 animated custom-draw checkpoint
+
+The ControlCatalog integration gate now overlays 96 clipped SkiaSharp cells on
+the Canvas page. Each cell records rectangle, circle, quadratic/cubic path,
+transform, clip, and save/restore operations, and the fixture invalidates on
+every benchmark pulse. It therefore exercises the public Avalonia lease shape
+with a changing custom visual instead of measuring only construction.
+
+The initial profile found that the wide general `RenderCommand` scratch array
+was repeatedly rented, copied to exact size, and returned while the custom
+visual changed. The clean-room correction keeps one reusable high-water
+recording buffer, compacts analytic circles and ordinary canvas state into
+typed retained commands, and reuses one feature object for the drawing-context
+lifetime. Recording remains `O(C)` for `C` commands; stable storage is bounded
+by the largest observed command count and replay remains `O(C)`. No GPU work,
+shader, text shaping, native ABI, or output-quality contract changed.
+
+Three fresh 60-warmup/300-frame Release processes before the command-storage
+correction allocated 238.09--307.73 KiB/frame. The final exact candidate,
+repeated with 120 warmup and 600 measured frames, allocated 16.02--18.97
+KiB/frame: a 14.9x--16.1x reduction relative to the best/worst paired bounds.
+Both rendered 282 draws per frame through `SilkNetWebGpuSurface`. Frame-time
+distributions were affected by desktop scheduler load, so no throughput
+improvement is claimed.
+
+Matched 12-second final-binary Xcode Allocations/VM Tracker, Time Profiler, and
+Metal System Trace captures were then run against Preview.60 plus only the
+benchmark/type-identity fixture and against the candidate. Persistent native
+heap plus anonymous VM was 204,308,320 versus 206,048,400 bytes (+0.85%, within
+the one-run launch/driver spread). Metal reported 336/360 submissions and
+1,054/1,103 completions, no compiler spills, potential hangs, hang risks, or
+command-buffer errors in either capture. Drawable-wait totals were 74.319 ms
+before and 6.790 ms after, but the single instrumented runs support only the
+absence-of-regression/error gate, not a latency claim. The compact summaries,
+manifests, and target logs were retained; raw traces, exports, and task-owned
+Xcode scratch were deleted after successful summarization.
+
+Managed/native parity is not applicable to this checkpoint. The optimized
+storage is the managed Avalonia retained-recording adapter; both paths still
+consume the same expanded ProGPU commands. The native C++ renderer has no
+Avalonia `ICustomDrawOperation`, SkiaSharp lease, or managed command-array
+ownership, and no corresponding implementation defect was found.
+
 ## Package and type-identity decision
 
 The compatibility contract is implemented in

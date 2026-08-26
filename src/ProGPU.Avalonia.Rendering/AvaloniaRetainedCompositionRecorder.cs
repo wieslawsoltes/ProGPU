@@ -147,7 +147,13 @@ partial class DrawingContextImpl
         try
         {
             record();
-            destination.TrimRetainedCommandCapacity();
+            // Large custom visuals initially grow through pooled scratch
+            // storage. Retain the observed high-water capacity once so a
+            // subsequent Clear does not return the buffer and force another
+            // rent on the next animation frame. Unlike trimming to Count,
+            // this also avoids reallocating when command counts fluctuate.
+            destination.EnsureCommandCapacity(
+                destination.Commands.Count);
         }
         finally
         {

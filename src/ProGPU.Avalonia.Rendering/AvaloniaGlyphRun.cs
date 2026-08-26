@@ -61,19 +61,13 @@ internal sealed class GlyphRunImpl : IGlyphRunImpl
             ProGpuGlyphPositions[index] =
                 new Vector2((float)x, (float)y);
 
-            if (scale > 0 &&
-                Typeface.Font.TryGetGlyphBounds(
+            if (TryGetGlyphInkBounds(
                     info.GlyphIndex,
-                    out short xMin,
-                    out short yMin,
-                    out short xMax,
-                    out short yMax))
+                    x,
+                    y,
+                    scale,
+                    out Rect local))
             {
-                var local = new Rect(
-                    x + xMin * scale,
-                    y - yMax * scale,
-                    Math.Max(0, (xMax - xMin) * scale),
-                    Math.Max(0, (yMax - yMin) * scale));
                 bounds = hasBounds ? bounds.Union(local) : local;
                 hasBounds = true;
             }
@@ -123,25 +117,22 @@ internal sealed class GlyphRunImpl : IGlyphRunImpl
         for (int index = 0; index < GlyphIndices.Length; index++)
         {
             Vector2 position = ProGpuGlyphPositions[index];
-            if (scale <= 0 ||
-                !Typeface.Font.TryGetGlyphBounds(
+            if (!TryGetGlyphInkBounds(
                     GlyphIndices[index],
-                    out short xMin,
-                    out short yMin,
-                    out short xMax,
-                    out short yMax))
+                    position.X,
+                    position.Y,
+                    scale,
+                    out Rect bounds))
             {
                 continue;
             }
 
-            double top = position.Y - yMax * scale;
-            double bottom = position.Y - yMin * scale;
-            if (bottom < lowerLimit || top > upperLimit)
+            if (bounds.Bottom < lowerLimit || bounds.Top > upperLimit)
                 continue;
 
             intervals.Add(new Interval(
-                (float)(position.X + xMin * scale),
-                (float)(position.X + xMax * scale)));
+                (float)bounds.Left,
+                (float)bounds.Right));
         }
 
         if (intervals.Count == 0)
@@ -175,6 +166,45 @@ internal sealed class GlyphRunImpl : IGlyphRunImpl
 
     public void Dispose()
     {
+    }
+
+    private bool TryGetGlyphInkBounds(
+        ushort glyphIndex,
+        double x,
+        double y,
+        double outlineScale,
+        out Rect bounds)
+    {
+        if (outlineScale > 0 &&
+            Typeface.Font.TryGetGlyphBounds(
+                glyphIndex,
+                out short xMin,
+                out short yMin,
+                out short xMax,
+                out short yMax))
+        {
+            bounds = new Rect(
+                x + xMin * outlineScale,
+                y - yMax * outlineScale,
+                Math.Max(0, (xMax - xMin) * outlineScale),
+                Math.Max(0, (yMax - yMin) * outlineScale));
+            return true;
+        }
+
+        if (BoundedColorGlyphMetrics.TryGetMetrics(
+                Typeface.Font,
+                glyphIndex,
+                FontRenderingEmSize,
+                out ColorGlyphMetrics metrics))
+        {
+            bounds = metrics.GetBounds(
+                new Point(x, y),
+                FontRenderingEmSize);
+            return bounds.Width > 0 && bounds.Height > 0;
+        }
+
+        bounds = default;
+        return false;
     }
 
     private readonly record struct Interval(float Start, float End);

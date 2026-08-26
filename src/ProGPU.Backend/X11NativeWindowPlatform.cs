@@ -181,23 +181,20 @@ internal sealed unsafe class X11NativeWindowPlatform : GlfwNativeWindowPlatform
         return backdrop is NativeWindowBackdrop.None or NativeWindowBackdrop.Transparent;
     }
 
-    public override bool TryBeginMove(NativeWindowPoint pointer) => SendMoveResize(pointer, 8);
+    public override bool TryBeginMove(NativeWindowPoint pointer)
+    {
+        _ = pointer;
+        // An accepted _NET_WM_MOVERESIZE client message does not mean the
+        // active X11/XWayland window manager honored it. Use the controller's
+        // deterministic pointer-delta move path instead.
+        return false;
+    }
 
     public override bool TryBeginResize(NativeResizeEdge edge, NativeWindowPoint pointer)
     {
-        var direction = edge switch
-        {
-            NativeResizeEdge.TopLeft => 0,
-            NativeResizeEdge.Top => 1,
-            NativeResizeEdge.TopRight => 2,
-            NativeResizeEdge.Right => 3,
-            NativeResizeEdge.BottomRight => 4,
-            NativeResizeEdge.Bottom => 5,
-            NativeResizeEdge.BottomLeft => 6,
-            NativeResizeEdge.Left => 7,
-            _ => 4
-        };
-        return SendMoveResize(pointer, direction);
+        _ = edge;
+        _ = pointer;
+        return false;
     }
 
     private bool SendWindowState(string stateName, bool enabled)
@@ -211,19 +208,6 @@ internal sealed unsafe class X11NativeWindowPlatform : GlfwNativeWindowPlatform
         data[3] = 1;
         data[4] = 0;
         return SendClientMessage(stateAtom, data);
-    }
-
-    private bool SendMoveResize(NativeWindowPoint pointer, int direction)
-    {
-        XUngrabPointer(_display, 0);
-        var atom = XInternAtom(_display, "_NET_WM_MOVERESIZE", false);
-        var data = stackalloc long[5];
-        data[0] = pointer.X;
-        data[1] = pointer.Y;
-        data[2] = direction;
-        data[3] = 1;
-        data[4] = 1;
-        return SendClientMessage(atom, data);
     }
 
     private bool SendClientMessage(nuint messageType, long* values)
@@ -333,8 +317,6 @@ internal sealed unsafe class X11NativeWindowPlatform : GlfwNativeWindowPlatform
         bool propagate,
         long eventMask,
         ref XEvent sendEvent);
-    [DllImport(X11Library)]
-    private static extern int XUngrabPointer(nint display, nuint time);
     [DllImport(X11Library)]
     private static extern int XFlush(nint display);
 }

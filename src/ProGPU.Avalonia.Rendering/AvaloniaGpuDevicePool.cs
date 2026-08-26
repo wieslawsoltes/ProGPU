@@ -39,6 +39,7 @@ internal static unsafe class AvaloniaGpuDevicePool
             InitialVertexCount = 1024,
             InitialIndexCount = 1536,
             InitialColorGlyphAtlasSize = 64,
+            ColorGlyphAtlasSize = 1024,
             GlyphUniformStagingBytes = 16 * 1024,
             GlyphCoverageStagingBytes =
                 GlyphAtlas.DefaultCoverageRingBufferSize,

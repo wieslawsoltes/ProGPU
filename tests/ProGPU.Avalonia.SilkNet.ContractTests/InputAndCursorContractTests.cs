@@ -157,6 +157,33 @@ public sealed class InputAndCursorContractTests
                 isHovered));
     }
 
+    [Fact]
+    public void MouseButtonsUseLatestCursorCallbackPosition()
+    {
+        var callbackPosition = new Vector2(350, 72);
+        var staleReportedPosition = new Vector2(1008.5f, 578.3f);
+
+        Assert.Equal(
+            callbackPosition,
+            SilkNetInputRouter.ResolvePointerPosition(
+                hasCallbackPosition: true,
+                callbackPosition,
+                staleReportedPosition));
+    }
+
+    [Fact]
+    public void MouseButtonsFallBackToReportedPositionBeforeFirstMove()
+    {
+        var reportedPosition = new Vector2(200, 100);
+
+        Assert.Equal(
+            reportedPosition,
+            SilkNetInputRouter.ResolvePointerPosition(
+                hasCallbackPosition: false,
+                callbackPosition: default,
+                reportedPosition));
+    }
+
     [Theory]
     [InlineData(SilkKey.A, Key.A, PhysicalKey.A)]
     [InlineData(SilkKey.Number7, Key.D7, PhysicalKey.Digit7)]

@@ -8,7 +8,7 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <AssemblyName>Avalonia.ProGpu.UnitTests</AssemblyName>
     <RootNamespace>ProGPU.Avalonia.ContractTests</RootNamespace>
-    <ProGpuAvaloniaSourceRoot Condition="'$(ProGpuAvaloniaSourceRoot)' == ''">$(MSBuildThisFileDirectory)..\..\.worktrees\avalonia-12.1.1</ProGpuAvaloniaSourceRoot>
+    <ProGpuAvaloniaSourceRoot Condition="'$(ProGpuAvaloniaSourceRoot)' == ''">$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)..\..\.worktrees\avalonia-12.1.1'))</ProGpuAvaloniaSourceRoot>
     <AvaloniaAccessUnstablePrivateApis>true</AvaloniaAccessUnstablePrivateApis>
     <Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>true</Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>
   </PropertyGroup>
@@ -60,5 +60,9 @@
     <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\packages\Avalonia\Avalonia.csproj" />
     <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\src\Avalonia.Fonts.Inter\Avalonia.Fonts.Inter.csproj" />
     <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\src\HarfBuzz\Avalonia.HarfBuzz\Avalonia.HarfBuzz.csproj" />
+    <Reference Include="Avalonia.Skia">
+      <HintPath>..\..\src\ProGPU.Avalonia.SkiaSourceCompatibility\bin\$(Configuration)\$(TargetFramework)\Avalonia.Skia.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
   </ItemGroup>
 </Project>

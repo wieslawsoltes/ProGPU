@@ -1,7 +1,14 @@
 using System;
 using System.Collections.Generic;
 using Avalonia.Controls;
+#if !AVALONIA11
+using Avalonia.Controls.Chrome;
+using Avalonia.Input;
+#endif
 using Avalonia.Platform;
+#if !AVALONIA11
+using Avalonia.VisualTree;
+#endif
 #if !AVALONIA11
 using Avalonia.Controls.Platform;
 #endif
@@ -123,6 +130,54 @@ internal static class SilkNetWindowChrome
                 edge,
                 "Unsupported resize edge.")
         };
+
+#if !AVALONIA11
+    internal static bool TryMapResizeRole(
+        WindowDecorationsElementRole role,
+        out NativeResizeEdge edge)
+    {
+        edge = role switch
+        {
+            WindowDecorationsElementRole.ResizeN => NativeResizeEdge.Top,
+            WindowDecorationsElementRole.ResizeS => NativeResizeEdge.Bottom,
+            WindowDecorationsElementRole.ResizeE => NativeResizeEdge.Right,
+            WindowDecorationsElementRole.ResizeW => NativeResizeEdge.Left,
+            WindowDecorationsElementRole.ResizeNE => NativeResizeEdge.TopRight,
+            WindowDecorationsElementRole.ResizeNW => NativeResizeEdge.TopLeft,
+            WindowDecorationsElementRole.ResizeSE => NativeResizeEdge.BottomRight,
+            WindowDecorationsElementRole.ResizeSW => NativeResizeEdge.BottomLeft,
+            _ => default
+        };
+        return role is
+            WindowDecorationsElementRole.ResizeN or
+            WindowDecorationsElementRole.ResizeS or
+            WindowDecorationsElementRole.ResizeE or
+            WindowDecorationsElementRole.ResizeW or
+            WindowDecorationsElementRole.ResizeNE or
+            WindowDecorationsElementRole.ResizeNW or
+            WindowDecorationsElementRole.ResizeSE or
+            WindowDecorationsElementRole.ResizeSW;
+    }
+
+    internal static WindowDecorationsElementRole? ResolveChromeRole(
+        IInputRoot inputRoot,
+        Point point)
+    {
+        ArgumentNullException.ThrowIfNull(inputRoot);
+        Visual? current = inputRoot.FocusRoot.InputHitTest(
+            point,
+            enabledElementsOnly: false) as Visual;
+        for (; current is not null; current = current.GetVisualParent())
+        {
+            WindowDecorationsElementRole role =
+                WindowDecorationProperties.GetElementRole(current);
+            if (role != WindowDecorationsElementRole.None)
+                return role;
+        }
+
+        return null;
+    }
+#endif
 
     internal static NativeWindowSize ToMinimumSize(
         Size size,

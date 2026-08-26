@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -35,6 +36,15 @@ public sealed class WindowImpl :
     IPopupImpl,
     ISilkNetLoopParticipant
 {
+    private static readonly bool s_traceWindowEvents =
+        string.Equals(
+            Environment.GetEnvironmentVariable(
+                "PROGPU_AVALONIA_TRACE_WINDOW_EVENTS"),
+            "1",
+            StringComparison.Ordinal);
+    private static readonly string? s_windowEventTracePath =
+        Environment.GetEnvironmentVariable(
+            "PROGPU_AVALONIA_TRACE_WINDOW_EVENTS_PATH");
     private readonly SilkNetWindowingPlatform _platform;
     private WindowImpl? _parent;
     private readonly bool _isPopup;
@@ -649,11 +659,7 @@ public sealed class WindowImpl :
             return;
 
         e.Pointer.Capture(null);
-        NativeWindowPoint pointer =
-            _input.CurrentNativePointer;
-        Dispatcher.UIThread.Post(
-            () => _windowController?.BeginMove(pointer),
-            DispatcherPriority.Send);
+        _ = BeginNativeMoveDrag();
     }
 
     public void BeginResizeDrag(
@@ -663,9 +669,8 @@ public sealed class WindowImpl :
         ArgumentNullException.ThrowIfNull(e);
         if (_input is not null)
         {
-            _windowController?.BeginResize(
-                SilkNetWindowChrome.MapResizeEdge(edge),
-                _input.CurrentNativePointer);
+            _ = BeginNativeResizeDrag(
+                SilkNetWindowChrome.MapResizeEdge(edge));
         }
     }
 
@@ -919,12 +924,39 @@ public sealed class WindowImpl :
                 (int)MathF.Round(clientY)));
     }
 
-    internal void UpdateNativeDrag(
+    internal bool UpdateNativeDrag(
         NativeWindowPoint pointer) =>
-        _windowController?.UpdateDrag(pointer);
+        _windowController?.UpdateDrag(pointer) == true;
 
     internal void EndNativeDrag() =>
         _windowController?.EndDrag();
+
+    internal bool BeginNativeMoveDrag()
+    {
+        if (_input is null)
+            return false;
+
+        NativeWindowPoint pointer = _input.CurrentNativePointer;
+        return StartMoveResize(
+            () => _windowController?.BeginMove(pointer));
+    }
+
+    internal bool BeginNativeResizeDrag(NativeResizeEdge edge)
+    {
+        if (_input is null)
+            return false;
+
+        NativeWindowPoint pointer = _input.CurrentNativePointer;
+        return StartMoveResize(
+            () => _windowController?.BeginResize(edge, pointer));
+    }
+
+    private bool StartMoveResize(Func<bool?> action)
+    {
+        if (_windowController is null)
+            return false;
+        return action() == true;
+    }
 
     internal void SetNativeTouchHandler(
         Action<NativeTouchEvent>? handler)
@@ -965,6 +997,7 @@ public sealed class WindowImpl :
             return _window;
 
         Size requestedLogicalSize = _desiredSize;
+        PixelPoint? requestedPosition = _desiredPosition;
         Vector2D<int> size = new(
             Math.Max(
                 1,
@@ -985,6 +1018,11 @@ public sealed class WindowImpl :
                 FramesPerSecond = 0,
                 UpdatesPerSecond = 0,
                 Size = size,
+                Position = requestedPosition is { } initialPosition
+                    ? new Vector2D<int>(
+                        initialPosition.X,
+                        initialPosition.Y)
+                    : WindowOptions.Default.Position,
                 Title = _title,
                 WindowState =
                     ToSilkState(_windowState),
@@ -1016,7 +1054,7 @@ public sealed class WindowImpl :
         Resize(
             requestedLogicalSize,
             WindowResizeReason.Layout);
-        if (_desiredPosition is { } desired)
+        if (requestedPosition is { } desired)
             Move(desired);
         _platform.EventLoop.Register(this);
         return window;
@@ -1027,6 +1065,14 @@ public sealed class WindowImpl :
         if (_window is null)
             return;
         _windowController?.Attach();
+        if (s_traceWindowEvents)
+        {
+            TraceWindowEvent(
+                $"[Avalonia.SilkNet] load handle={Handle?.Handle} " +
+                $"window={_window.Size} " +
+                $"framebuffer={_window.FramebufferSize} " +
+                $"scaling={RenderScaling}");
+        }
 #if AVALONIA11
         if (!_isHitTestVisible)
             SetHitTestVisible(false);
@@ -1080,6 +1126,13 @@ public sealed class WindowImpl :
 
     private void OnResize(Vector2D<int> size)
     {
+        if (s_traceWindowEvents)
+        {
+            TraceWindowEvent(
+                $"[Avalonia.SilkNet] resize size={size} " +
+                $"framebuffer={_window?.FramebufferSize} " +
+                $"scaling={RenderScaling}");
+        }
         NotifyScalingChanged();
         _desiredSize =
             SilkNetDisplayMetrics.ResolveLogicalClientSize(
@@ -1096,6 +1149,12 @@ public sealed class WindowImpl :
 
     private void OnFramebufferResize(Vector2D<int> size)
     {
+        if (s_traceWindowEvents)
+        {
+            TraceWindowEvent(
+                $"[Avalonia.SilkNet] framebuffer-resize size={size} " +
+                $"window={_window?.Size} scaling={RenderScaling}");
+        }
         _ = size;
         NotifyScalingChanged();
         QueuePaint();
@@ -1103,9 +1162,40 @@ public sealed class WindowImpl :
 
     private void OnMove(Vector2D<int> position)
     {
-        _ = position;
+        if (s_traceWindowEvents)
+        {
+            TraceWindowEvent(
+                $"[Avalonia.SilkNet] move position={position} " +
+                $"scaling={RenderScaling}");
+        }
+        _desiredPosition = new PixelPoint(
+            position.X,
+            position.Y);
         NotifyScalingChanged();
-        PositionChanged?.Invoke(Position);
+        PositionChanged?.Invoke(_desiredPosition.Value);
+    }
+
+    private static void TraceWindowEvent(string message)
+    {
+        string? path = s_windowEventTracePath;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            Console.Error.WriteLine(message);
+            return;
+        }
+
+        try
+        {
+            File.AppendAllText(path, message + Environment.NewLine);
+        }
+        catch (IOException)
+        {
+            Console.Error.WriteLine(message);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            Console.Error.WriteLine(message);
+        }
     }
 
     private void NotifyScalingChanged()
