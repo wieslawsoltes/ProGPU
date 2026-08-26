@@ -21,6 +21,22 @@ using progpu::native::mil::channel;
 using progpu::native::mil::command;
 using progpu::native::mil::status;
 
+namespace command_layouts = progpu::native::mil::command_layouts;
+
+static_assert(static_cast<std::uint32_t>(command::invalid) == 0x00U);
+static_assert(static_cast<std::uint32_t>(command::bitmap_cache) == 0x8dU);
+static_assert(
+    static_cast<std::uint32_t>(command::validate_structure_order) == 0x8eU);
+static_assert(command_layouts::count == 108U);
+static_assert(command_layouts::visual_set_offset::fixed_size == 24U);
+static_assert(command_layouts::visual_set_offset::handle_offset == 4U);
+static_assert(command_layouts::visual_set_offset::offset_x_offset == 8U);
+static_assert(command_layouts::visual_set_offset::offset_y_offset == 16U);
+static_assert(
+    command_layouts::fixed_header_size(command::visual_set_offset) == 24U);
+static_assert(
+    command_layouts::fixed_header_size(command::transport_sync_flush) == 0U);
+
 void require(bool condition, const char* expression, int line) {
     if (condition) {
         return;

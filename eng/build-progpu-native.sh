@@ -30,6 +30,12 @@ if [[ "${cmake_generator}" == Ninja* ]] &&
   exit 1
 fi
 
+command -v python3 >/dev/null 2>&1 || {
+  echo "python3 is required to verify generated MIL protocol artifacts." >&2
+  exit 1
+}
+python3 "${repo_root}/eng/progpu-generate-mil-protocol.py" --check
+
 dotnet restore \
   "${repo_root}/src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj"
 
