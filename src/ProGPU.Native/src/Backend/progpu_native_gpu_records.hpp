@@ -198,8 +198,8 @@ struct gpu_glyph_uniforms {
     std::uint32_t width;
     std::uint32_t height;
     float subpixel_x;
-    float pad0;
-    float pad1;
+    float atlas_x;
+    float atlas_y;
     float pad2;
 };
 

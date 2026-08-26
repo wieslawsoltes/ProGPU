@@ -56,13 +56,22 @@ public unsafe class WgpuContext : IDisposable
     public BackendType AdapterBackendType { get; private set; } = BackendType.Undefined;
     public string AdapterName { get; private set; } = string.Empty;
     /// <summary>
+    /// Gets or sets the requested compute execution policy. Set this before
+    /// constructing workload-owned GPU resources.
+    /// </summary>
+    public GpuComputeExecutionPreference ComputeExecutionPreference { get; set; } =
+        GpuComputeExecutionPolicy.ReadEnvironmentPreference();
+    /// <summary>Gets the resolved glyph coverage implementation.</summary>
+    public GpuComputeExecutionPath GlyphRasterizationPath =>
+        GpuComputeExecutionPolicy.ResolveGlyphRasterization(
+            ComputeExecutionPreference,
+            AdapterBackendType,
+            AdapterName);
+    /// <summary>
     /// Gets whether glyph coverage must avoid the adapter's compute shader.
     /// </summary>
     public bool RequiresGlyphComputeFallback =>
-        AdapterBackendType == BackendType.D3D12 &&
-        AdapterName.Contains(
-            "Parallels Display Adapter",
-            StringComparison.OrdinalIgnoreCase);
+        GlyphRasterizationPath != GpuComputeExecutionPath.NativeCompute;
     public WgpuAdapterSelectionDiagnostics AdapterSelectionDiagnostics { get; private set; } =
         WgpuAdapterSelectionDiagnostics.Unknown;
     public IProGpuExternalTextureImporter?
@@ -1640,6 +1649,10 @@ public unsafe class WgpuContext : IDisposable
         AdapterSelectionDiagnostics = diagnostics;
         AdapterBackendType = diagnostics.BackendType;
         AdapterName = diagnostics.Name;
+        ProGpuBackendDiagnostics.WriteLine(
+            $"[Compute] Glyph rasterization path={GlyphRasterizationPath}, " +
+            $"preference={ComputeExecutionPreference}, adapter='{AdapterName}', " +
+            $"backend={AdapterBackendType}.");
     }
 
     /// <summary>

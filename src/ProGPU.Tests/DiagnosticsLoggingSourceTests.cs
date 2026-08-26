@@ -389,7 +389,10 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("HasDynamicOffset = true", source, StringComparison.Ordinal);
         Assert.Contains("GetOrCreateRingBindGroup()", source, StringComparison.Ordinal);
         Assert.Contains("GetOrCreateBatchComputePass()", source, StringComparison.Ordinal);
-        Assert.Contains("_batchCoverageCopies.Add(new PendingCoverageCopy(", source, StringComparison.Ordinal);
+        Assert.Contains("_batchCoverageCopies.Add(", source, StringComparison.Ordinal);
+        Assert.Contains("new PendingCoverageCopy(", source, StringComparison.Ordinal);
+        Assert.Contains("GetOrCreateBatchRasterPass()", source, StringComparison.Ordinal);
+        Assert.Contains("GpuComputeExecutionPath.RasterShader", source, StringComparison.Ordinal);
         Assert.DoesNotContain("QueueWriteBuffer(_context.Queue, _uniformRingBuffer.BufferPtr", source, StringComparison.Ordinal);
         Assert.DoesNotContain("ComputePipelineGetBindGroupLayout", source, StringComparison.Ordinal);
         Assert.DoesNotContain("foreach (var buffer in _batchBuffers)", source, StringComparison.Ordinal);

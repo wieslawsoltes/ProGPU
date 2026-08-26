@@ -90,6 +90,9 @@ struct progpu_native_engine {
     WGPUComputePipeline glyph_raster_pipeline = nullptr;
     WGPUBindGroupLayout glyph_raster_layout = nullptr;
     WGPUPipelineLayout glyph_raster_pipeline_layout = nullptr;
+    WGPURenderPipeline glyph_raster_fallback_pipeline = nullptr;
+    WGPUBindGroupLayout glyph_raster_fallback_layout = nullptr;
+    WGPUPipelineLayout glyph_raster_fallback_pipeline_layout = nullptr;
     WGPUShaderModule text_shader = nullptr;
     WGPURenderPipeline text_pipeline = nullptr;
     WGPURenderPipeline text_masked_pipeline = nullptr;
@@ -1644,6 +1647,15 @@ struct progpu_native_engine {
         }
         if (glyph_raster_pipeline != nullptr) {
             wgpuComputePipelineRelease(glyph_raster_pipeline);
+        }
+        if (glyph_raster_fallback_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(glyph_raster_fallback_pipeline);
+        }
+        if (glyph_raster_fallback_pipeline_layout != nullptr) {
+            wgpuPipelineLayoutRelease(glyph_raster_fallback_pipeline_layout);
+        }
+        if (glyph_raster_fallback_layout != nullptr) {
+            wgpuBindGroupLayoutRelease(glyph_raster_fallback_layout);
         }
         if (glyph_raster_pipeline_layout != nullptr) {
             wgpuPipelineLayoutRelease(glyph_raster_pipeline_layout);

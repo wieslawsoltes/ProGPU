@@ -2054,9 +2054,17 @@ public sealed unsafe class NativeCompositor : IDisposable
     }
 
     private static ulong GetEngineFlags(WgpuContext context) =>
-        context.RequiresGlyphComputeFallback
-            ? NativeMethods.EngineGlyphComputeFallback
-            : 0UL;
+        context.GlyphRasterizationPath switch
+        {
+            GpuComputeExecutionPath.NativeCompute => 0UL,
+            GpuComputeExecutionPath.RasterShader =>
+                NativeMethods.EngineGlyphRasterShaderFallback,
+            GpuComputeExecutionPath.IntrinsicSimdCpu =>
+                NativeMethods.EngineGlyphIntrinsicSimdCpuFallback,
+            GpuComputeExecutionPath.ScalarCpu =>
+                NativeMethods.EngineGlyphScalarCpuFallback,
+            _ => throw new ArgumentOutOfRangeException(nameof(context))
+        };
 
     private static NativeMethods.GroupEffect CreateGroupEffect(
         NativeGroupEffect effect)

@@ -28,7 +28,9 @@ internal static unsafe partial class NativeMethods
     internal const uint SceneMaximumTextStyles = 1024U * 1024U;
     internal const uint SceneNoIndex = uint.MaxValue;
     internal const uint SceneMetricsSnapshotReused = 1U;
-    internal const ulong EngineGlyphComputeFallback = 1UL;
+    internal const ulong EngineGlyphIntrinsicSimdCpuFallback = 1UL;
+    internal const ulong EngineGlyphRasterShaderFallback = 1UL << 1;
+    internal const ulong EngineGlyphScalarCpuFallback = 1UL << 2;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct DrawState

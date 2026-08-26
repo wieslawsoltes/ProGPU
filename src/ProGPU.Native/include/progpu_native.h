@@ -854,11 +854,20 @@ typedef struct progpu_native_engine_options {
 
 typedef enum progpu_native_engine_flag {
     /*
-     * Rasterize cold monochrome glyph coverage on the CPU and upload it to the
-     * retained atlas. This is a narrow driver profile for virtual D3D12
-     * adapters that cannot safely execute the shared glyph compute shader.
+     * Rasterize cold monochrome glyph coverage with the intrinsic-SIMD CPU
+     * implementation and upload it to the retained atlas.
      */
-    PROGPU_NATIVE_ENGINE_GLYPH_COMPUTE_FALLBACK = 1ULL << 0U
+    PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK = 1ULL << 0U,
+    /* Source-compatible name retained for clients built against ABI v3. */
+    PROGPU_NATIVE_ENGINE_GLYPH_COMPUTE_FALLBACK =
+        PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK,
+    /*
+     * Run the equivalent fragment shader directly against the retained R8
+     * atlas. This is the automatic Parallels D3D12 fallback and stays on GPU.
+     */
+    PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK = 1ULL << 1U,
+    /* Explicit scalar CPU reference path for diagnostics and parity tests. */
+    PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK = 1ULL << 2U
 } progpu_native_engine_flag;
 
 /*
