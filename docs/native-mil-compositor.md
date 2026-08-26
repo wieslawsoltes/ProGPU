@@ -728,6 +728,17 @@ candidate frame remained byte-exact at `5B6EF4F70536C862`; the full 11-test
 native/Dawn suite, forced scalar oracle, and strict x86_64 SSE2 syntax compile
 also pass.
 
+Exact head `644a8d89` then rebuilt both libraries with ARM64 MSVC and passed
+all 11 Windows native/Dawn tests. The zero-warning benchmark build reproduced
+the complete 42-glyph forced-NEON D3D12 hash `5B6EF4F70536C862` with zero pixel
+difference and 247,808 staging bytes. A bounded rerasterized one-glyph A/B was
+also exact at `6C59592F05595EFE`, but large process-startup variance makes it a
+correctness gate rather than a Windows timing claim. SHA-256 was
+`A9BB8F281F27B332AAACAA0EC35B9E3B26E73D21E839470654D95CB89DDA6A39`
+for `progpu_native.dll` and
+`97CDBDD4F02442F2D9ACF966C1FF1660C64D7014E9A98FC767B3D9819CB561BF`
+for `progpu_native_dawn.dll`.
+
 The corresponding Linux ARM64 checkout at exact commit `28447de4` passed a
 strict GCC 13.3 build of the complete 260-object graph, all 10 wgpu-native CTest
 contracts, the export allowlist, and live Vulkan allocation/render/readback on
