@@ -5,62 +5,58 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 It also builds the separately versioned Avalonia 11 and 12 integration packages
 from `scripts/progpu-package-list.sh`.
 
-Preview.59 advances the successfully published preview.57 boundary with an
-opt-in binary compatibility lane for unchanged modern-.NET consumers. The
-ProGPU SkiaSharp shim can carry the official SkiaSharp identity at the tested
-4.151 ceiling, a minimal Avalonia.Skia facade forwards the three custom-drawing
-lease contracts, and `ProGPU.BinaryCompatibility` selects those assets during
-both build and publish without rewriting consumer assemblies.
+Preview.60 advances the successfully published preview.59 boundary with a
+cross-platform Avalonia integration hardening pass. The Silk.NET windowing host
+now keeps Windows client, pointer, and framebuffer coordinates in the correct
+DPI domains; updates layout and rendering throughout modal resizing; and uses
+native caption dragging for custom title bars. Routed input now covers repeat
+keys, UTF-32 text, symbols and modifiers, pointer leave, five mouse buttons,
+two-axis wheels, Win32 touch, XInput 2.2 touch, and AppKit gestures.
+
+The Avalonia rendering packages also protect retained glyph-atlas entries while
+incremental pages and pictures replay. Native ControlCatalog lanes validate
+Win32/D3D12, Avalonia.Native/Metal, and X11/Vulkan presentation together with
+layout and geometry clips, bitmap caches, effects, opacity masks, inherited
+drawing options, and adorners. The opt-in SkiaSharp 2.x-4.x and Avalonia
+11.x-12.x binary-compatibility boundary from preview.59 remains intact.
+
+## Preview.60 Avalonia integration closure
+
+The windowing and input contracts pass 115 tests against Avalonia 12.1.1 and
+102 against Avalonia 11.3.20. The rendering integration passes 99 focused
+contracts, while 84 retained-rendering regressions cover incremental glyph
+residency, clips, effects, layers, and compiled-scene reuse. The complete local
+managed suites pass 3,806 renderer tests and 240 headless tests.
+
+Interactive validation covers Windows 11 ARM64 at 200% scaling and Ubuntu X11
+at 200% in Parallels, plus the macOS host at Retina scaling. Windows verifies
+physical-coordinate title dragging, gradual edge resizing with matching layout
+observations, keyboard shortcuts and text, pointer and five-button mouse input,
+and a 1024x800 logical / 2048x1600 physical Dawn D3D12 ControlCatalog capture.
+Linux verifies the same live keyboard and pointer surface with XI2 contracts and
+native Dawn/Vulkan catalog rendering. macOS verifies key/text/pointer routing,
+command shortcuts, AppKit gesture contracts, and native Dawn/Metal catalog
+rendering. Physical multitouch and trackpad injection remain hardware
+boundaries; their native ABI, phase, suppression, and mapping paths are covered
+by focused contracts.
+
+All 28 pull-request checks pass, including the managed platform matrix, native
+C++ renderer and compiler matrix, browser WebGPU, image parity, mobile packing,
+portable and native package creation, and six native package consumers. The
+tagged Release workflow repeats repository, native, package-consumer, mobile,
+and Avalonia integration validation before publishing.
+
+## Compatibility and continuation
 
 WinUI remains at 4,952 exact of 16,579 official declarations with 11,627
-remaining, and the XAML compiler remains pre-MVP. These are continuation
-ledgers rather than behavioral-completion claims. Detailed remaining work is
+remaining, and the XAML compiler remains pre-MVP. SkiaSharp's official metadata
+ledger remains closed at 4,222/4,222 with zero missing. The compatibility
+profile continues to accept stable SkiaSharp 2.x through 4.151.1 and
+Avalonia.Skia 11.x through 12.1.1 without rewriting consumer assemblies. Its
+limits and clean-room provenance remain recorded in
+`docs/PROGPU_BINARY_ASSEMBLY_COMPATIBILITY.md`; detailed continuation work is
 pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 `docs/xaml-compiler/ROADMAP.md`.
-
-## Preview.59 closure and continuation
-
-The compatibility profile accepts released stable SkiaSharp 2.x, 3.x, and 4.x
-through 4.151.1 and Avalonia.Skia 11.x and 12.x through 12.1.1 without requiring
-users to select a patch-specific adapter. It is bounded to shared APIs and does
-not promise removed historical APIs, prereleases, future versions above the
-tested ceilings, or .NET Framework compatibility. Unchanged official-package
-consumers and the latest Svg.Skia, Avalonia SVG control, and WebScene packages
-exercise the exact assembly identities in direct, build, and publish outputs.
-
-The next WinUI parity branch starts from the immutable preview.59 tag. It must
-retain the official NuGet metadata comparator and proceed through API-contract
-markers, retained WebGPU Composition families, behavior-complete XAML control
-and property-system clusters, removal of accidental ProGPU-only declarations,
-and matched rendering/performance validation. The exact baseline remains 4,952
-of 16,579 declarations; behavior, accessibility, device-loss, and rendering
-quality remain independently gated.
-
-The XAML compiler remains pre-MVP. Preview.59 retains automatic projection of
-changed stable XAML identities to detached Roslyn metadata diagnostic origins.
-The five remaining product blockers are runtime capability adapters; atomic
-metadata apply, XAML publication, joint commit, and recovery;
-namescope/resource/template fine patching with safe fallback; cross-platform
-stress, performance, visual, accessibility, and collectible-context gates; and
-published-feed host and productization evidence.
-
-SkiaSharp's official metadata ledger remains closed at 4,222/4,222 with zero
-missing. The release preserves the established Svg.Skia image-difference
-inventory and adds package-assembly hash checks proving that Svg.Skia, both
-Avalonia SVG controls, and WebScene execute without modification. Rendering
-algorithms and the native C++ renderer are unchanged.
-
-The preview.59 changes passed 3,803 managed renderer tests, 240 headless tests,
-the focused binary compatibility suite, and 25 unchanged official-package
-consumers spanning every released SkiaSharp and Avalonia.Skia minor band in
-scope. The ecosystem gate also executed Svg.Skia 5.2.2, both Avalonia SVG
-controls 12.0.0.16, and WebScene 1.0.23 from build and publish outputs while
-preserving every external assembly SHA-256. The tagged Release workflow repeats
-repository, native, package-consumer, mobile, and integration validation before
-publishing. Its managed test hosts disable tiered compilation so exact allocation
-contracts measure optimized steady-state loops without crossing a tier threshold
-inside the sample. Clean-room provenance and contract limits are recorded in
-`docs/PROGPU_BINARY_ASSEMBLY_COMPATIBILITY.md`.
 
 ## NuGet Packages
 
@@ -111,19 +107,19 @@ inside the sample. Clean-room provenance and contract limits are recorded in
 
 ## Avalonia Integration Packages
 
-- `ProGPU.Avalonia.Rendering` `12.1.1-preview.59`
-- `ProGPU.Avalonia.SilkNet` `12.1.1-preview.59`
-- `ProGPU.Avalonia.Rendering` `11.3.20-preview.59`
-- `ProGPU.Avalonia.SilkNet` `11.3.20-preview.59`
+- `ProGPU.Avalonia.Rendering` `12.1.1-preview.60`
+- `ProGPU.Avalonia.SilkNet` `12.1.1-preview.60`
+- `ProGPU.Avalonia.Rendering` `11.3.20-preview.60`
+- `ProGPU.Avalonia.SilkNet` `11.3.20-preview.60`
 
 These packages are packed on the portable runner and published after the
-`0.1.0-preview.59` runtime package set so their exact ProGPU dependencies are
+`0.1.0-preview.60` runtime package set so their exact ProGPU dependencies are
 available first.
 
 ## Local Package Build
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.59 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.60 ./eng/progpu-pack.sh
 PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
 ```
 
@@ -141,7 +137,7 @@ release workflow combines and re-verifies both outputs before publishing.
 ```bash
 read -rsp "NuGet API key: " NUGET_API_KEY
 export NUGET_API_KEY
-PROGPU_PACKAGE_VERSION=0.1.0-preview.59 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.60 ./eng/progpu-publish.sh
 ./scripts/progpu-publish.sh
 unset NUGET_API_KEY
 ```
@@ -159,7 +155,7 @@ feed.
 - `Release` validates and packs portable packages and the Avalonia integration lanes on Linux, packs mobile packages on macOS, verifies the combined runtime dependency closure, publishes runtime packages followed by Avalonia packages, and creates a tag-driven GitHub Release.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
-for example `v0.1.0-preview.59`.
+for example `v0.1.0-preview.60`.
 
 ## NuGet Publishing
 
