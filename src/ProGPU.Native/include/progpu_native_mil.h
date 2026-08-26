@@ -108,6 +108,19 @@ progpu_native_mil_channel_set_drawing_image_bounds(
     double width,
     double height);
 /*
+ * Binds exact local DrawingGroup content bounds for spatial opacity-mask
+ * mapping and bounded group composition. Canonical MIL carries child handles
+ * but not this Drawing-derived metadata.
+ */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_drawing_group_bounds(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    double x,
+    double y,
+    double width,
+    double height);
+/*
  * Binds exact source-built Visual descendant bounds for target-space
  * BitmapCache page sizing, bounded effect isolation, and bounded Visual
  * opacity/opacity-mask groups. The canonical Visual, cache, and effect packets

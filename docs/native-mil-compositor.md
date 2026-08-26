@@ -438,15 +438,20 @@ regenerates the mask on the next scene compile while the render-data stream
 stays unchanged. Missing/wrong-type resources, malformed LTRB bounds, and
 unsupported brush families fail closed.
 
-Retained `MILCMD_DRAWINGGROUP` uniform opacity no longer multiplies alpha into
-each child state. The group now emits one isolated semantic layer around its
-typed transform/clip/guideline child stream, and combines animated group
-opacity with a static solid opacity-mask alpha only at the completed group
-composite. Overlapping children therefore retain their internal source-over
-coverage before group alpha is applied. Resource-only DoubleResource updates
-change the next layer descriptor without rebuilding the drawing-group stream;
-spatial group masks remain fail closed until exact group content bounds are
-available for brush mapping.
+Retained `MILCMD_DRAWINGGROUP` opacity no longer multiplies alpha into each
+child state. The group emits one isolated semantic layer around its typed
+transform/clip/guideline child stream, and combines animated group opacity with
+a static solid opacity-mask alpha only at the completed group composite.
+Overlapping children therefore retain their internal source-over coverage
+before group alpha is applied. Source-built WPF supplies exact local content
+bounds through the typed
+`progpu_native_mil_channel_set_drawing_group_bounds` /
+`NativeMilChannel.SetDrawingGroupBounds` sideband. Linear and radial gradient
+opacity masks then reuse the backend-neutral GPU brush-mask resource with those
+local bounds and the group's active transform; a group packet update preserves
+the bound metadata, and a resource-only gradient or DoubleResource update
+changes the next scene without rebuilding the child stream. A spatial mask
+without exact bounds, or an unsupported brush family, fails closed.
 
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
@@ -1438,12 +1443,15 @@ The mask remains a retained canonical brush dependency and updates through
 the normal SolidColorBrush command; no backend-specific mask material or
 semantic ABI expansion is required.
 
-The decoder distinguishes unsupported and invalid input: known linear or
-radial gradient masks fail with `unsupported_command`, while a missing or
-wrongly typed brush handle fails with `invalid_handle`. Tile, animated,
-transformed, gradient, and other spatially varying masks remain fail closed
-until group bounds and reusable mask-render-target/material resources exist.
-Native tests cover the initial alpha product and a retained brush update.
+At this checkpoint the decoder distinguished unsupported and invalid input:
+known linear or radial gradient masks failed with `unsupported_command`, while
+a missing or wrongly typed brush handle failed with `invalid_handle`. The
+later typed DrawingGroup-bounds sideband closes the static linear/radial subset
+by mapping those masks through the reusable semantic GPU brush-mask resource.
+Tile, animated, and other unsupported spatial brush families remain fail
+closed. Native tests cover the initial solid alpha product, retained brush and
+DoubleResource updates, missing-bound rejection, exact transformed layer
+bounds, and gradient mask resource mapping.
 
 The public package consumer added `--mil-drawing-group-only` to the JIT,
 NativeAOT, build, release, and package-verification lanes. All ten local MIL

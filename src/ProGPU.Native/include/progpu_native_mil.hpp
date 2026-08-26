@@ -264,6 +264,15 @@ public:
         double width,
         double height) noexcept;
 
+    // Binds exact source-built DrawingGroup content bounds used for retained
+    // spatial opacity-mask mapping and bounded group composition.
+    status set_drawing_group_bounds(
+        std::uint32_t handle,
+        double x,
+        double y,
+        double width,
+        double height) noexcept;
+
     // Binds source-built WPF Visual descendant bounds used to size an exact
     // target-space BitmapCache page, bounded effect isolation, or bounded
     // Visual opacity/opacity-mask group. Canonical MIL does not serialize
