@@ -2428,6 +2428,20 @@ pixels, extent `[6,4]-[33,27] -> [14,8]-[25,21]`, and red sum
 `991F9301B71660FEF89DDA9A4D1E6400D01C92EFAD10B521D3C58BB12482D0F9` and
 `616B0650CF74D5D84FB45D908DB6285A82760B59E6A8D56313D827B6885038C7`.
 
+An uncached effect Visual may also own one typed linear/radial opacity mask.
+MIL resolves it to the existing semantic brush-mask resource and combines it
+with local uniform opacity on the bounded inner `FORCE_ISOLATION` layer. The
+outer effect therefore samples the already masked source, matching WPF's
+`Clip > Effect > OpacityMask > Opacity` stack. Cached inputs retain their
+local-page mask layer, while solid masks use uniform alpha. Inherited masks and
+inherited non-unit opacity remain unsupported ownership boundaries.
+
+The expanded Metal gate reports `2/2/2` content/composite/effect passes,
+gradient samples `36/217`, extent `[7,5]-[47,30]`, and red sum 65,264. Reversing
+mask/effect order changes 666 pixels and yields `[10,10]-[41,25]`, red sum
+56,038, proving that the mask is sampled before blur rather than applied to the
+finished effect output.
+
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then
 12x9 page extents. Package-mode managed Dawn rendering/readback and forced

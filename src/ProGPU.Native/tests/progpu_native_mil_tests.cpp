@@ -2868,6 +2868,36 @@ bool visual_bitmap_cache_applies_gradient_mask_at_composite() {
     PROGPU_REQUIRE(layers[1].opacity == 0.5F);
     PROGPU_REQUIRE(
         layers[1].content_revision == changed.content_revision);
+
+    std::vector<std::byte> uncached_masked_effect;
+    append_command(
+        uncached_masked_effect,
+        command::visual_set_cache_mode,
+        visual,
+        0U);
+    PROGPU_REQUIRE(state.apply(uncached_masked_effect) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9018U, 5U, stream, &metrics) ==
+        status::success);
+    const auto uncached_layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(uncached_layers.size() == 2U);
+    PROGPU_REQUIRE(
+        uncached_layers[0].effect_resource_index !=
+            PROGPU_NATIVE_SCENE_NO_INDEX);
+    PROGPU_REQUIRE(
+        (uncached_layers[1].flags &
+            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION) != 0U);
+    PROGPU_REQUIRE(
+        (uncached_layers[1].flags &
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) == 0U);
+    PROGPU_REQUIRE(
+        uncached_layers[1].mask_resource_index !=
+            PROGPU_NATIVE_SCENE_NO_INDEX);
+    PROGPU_REQUIRE(uncached_layers[1].opacity == 0.5F);
+    PROGPU_REQUIRE(uncached_layers[1].bounds.x == 3.0F);
+    PROGPU_REQUIRE(uncached_layers[1].bounds.y == 4.0F);
+    PROGPU_REQUIRE(uncached_layers[1].bounds.width == 24.0F);
+    PROGPU_REQUIRE(uncached_layers[1].bounds.height == 18.0F);
     return true;
 }
 
