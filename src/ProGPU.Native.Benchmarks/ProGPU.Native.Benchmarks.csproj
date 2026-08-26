@@ -6,6 +6,9 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
+    <ProGpuNativeBuildDir Condition="'$(ProGpuNativeBuildDir)' == '' and '$(PROGPU_NATIVE_BUILD_DIR)' != ''">$(PROGPU_NATIVE_BUILD_DIR)</ProGpuNativeBuildDir>
+    <ProGpuNativeBuildDir Condition="'$(ProGpuNativeBuildDir)' == ''">$(MSBuildThisFileDirectory)..\..\artifacts\progpu-native\build</ProGpuNativeBuildDir>
+    <ProGpuNativeBinaryDir Condition="'$(ProGpuNativeBinaryDir)' == ''">$(ProGpuNativeBuildDir)</ProGpuNativeBinaryDir>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
@@ -20,17 +23,17 @@
   <!-- Benchmark the exact locally built native renderer instead of a stale
        package artifact left in the output directory by an earlier build. -->
   <ItemGroup>
-    <None Include="..\..\artifacts\progpu-native\build\libprogpu_native.dylib"
+    <None Include="$(ProGpuNativeBinaryDir)\libprogpu_native.dylib"
           Link="libprogpu_native.dylib"
           CopyToOutputDirectory="PreserveNewest"
-          Condition="Exists('..\..\artifacts\progpu-native\build\libprogpu_native.dylib')" />
-    <None Include="..\..\artifacts\progpu-native\build\libprogpu_native.so"
+          Condition="Exists('$(ProGpuNativeBinaryDir)\libprogpu_native.dylib')" />
+    <None Include="$(ProGpuNativeBinaryDir)\libprogpu_native.so"
           Link="libprogpu_native.so"
           CopyToOutputDirectory="PreserveNewest"
-          Condition="Exists('..\..\artifacts\progpu-native\build\libprogpu_native.so')" />
-    <None Include="..\..\artifacts\progpu-native\build\Release\progpu_native.dll"
+          Condition="Exists('$(ProGpuNativeBinaryDir)\libprogpu_native.so')" />
+    <None Include="$(ProGpuNativeBinaryDir)\progpu_native.dll"
           Link="progpu_native.dll"
           CopyToOutputDirectory="PreserveNewest"
-          Condition="Exists('..\..\artifacts\progpu-native\build\Release\progpu_native.dll')" />
+          Condition="Exists('$(ProGpuNativeBinaryDir)\progpu_native.dll')" />
   </ItemGroup>
 </Project>

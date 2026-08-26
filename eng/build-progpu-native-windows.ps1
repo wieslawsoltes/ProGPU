@@ -270,7 +270,9 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path $ManagedSampleDll)) {
             throw "The managed native-renderer sample build failed."
         }
-        dotnet build $BenchmarkProject -c Release --nologo
+        dotnet build $BenchmarkProject -c Release --nologo `
+            -p:ProGpuNativeBuildDir="$BuildDir" `
+            -p:ProGpuNativeBinaryDir="$BinaryDirectory"
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path $BenchmarkDll)) {
             throw "The native differential benchmark build failed."
         }
@@ -283,6 +285,45 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
             if ($LASTEXITCODE -ne 0) {
                 throw "The native differential benchmark failed: $args"
             }
+        }
+        $PreviousComputeExecution = $env:PROGPU_COMPUTE_EXECUTION
+        $PreviousBackendDiagnostics = $env:PROGPU_BACKEND_DIAGNOSTICS
+        try {
+            $env:PROGPU_BACKEND_DIAGNOSTICS = "1"
+            foreach ($ComputeMode in @("fastest", "raster", "simd")) {
+                $env:PROGPU_COMPUTE_EXECUTION = $ComputeMode
+                Invoke-NativeBenchmark --glyphs --warmup 0 --iterations 1 --sync
+            }
+
+            if ($IsParallelsDisplayAdapter) {
+                $env:PROGPU_COMPUTE_EXECUTION = "compute"
+                $ComputeFailureOutput = (& dotnet $BenchmarkDll `
+                    --glyphs --warmup 0 --iterations 1 --sync 2>&1 | Out-String)
+                $ComputeFailureExitCode = $LASTEXITCODE
+                Write-Host $ComputeFailureOutput
+                if ($ComputeFailureExitCode -eq 0) {
+                    throw "Forced native compute unexpectedly succeeded on the unqualified Parallels D3D12 adapter."
+                }
+                if ($ComputeFailureOutput -notmatch "Native glyph compute is not supported") {
+                    throw "Forced native compute did not fail with the typed adapter incompatibility."
+                }
+                if ($ComputeFailureOutput -match "\[WebGPU Error\]|Out of Memory|panic") {
+                    throw "Forced native compute reached an unsafe WebGPU/device failure."
+                }
+                Write-Host "Qualified the typed pre-resource native-compute failure on Parallels D3D12."
+            } else {
+                $env:PROGPU_COMPUTE_EXECUTION = "compute"
+                Invoke-NativeBenchmark --glyphs --warmup 0 --iterations 1 --sync
+            }
+
+            # The scalar implementation is the independent oracle. Keep its
+            # Windows VM integration bounded while curve-family unit tests
+            # exercise complete line/quadratic/cubic coverage.
+            $env:PROGPU_COMPUTE_EXECUTION = "scalar"
+            Invoke-NativeBenchmark --glyphs --rectangles 1 --warmup 0 --iterations 1 --sync
+        } finally {
+            $env:PROGPU_COMPUTE_EXECUTION = $PreviousComputeExecution
+            $env:PROGPU_BACKEND_DIAGNOSTICS = $PreviousBackendDiagnostics
         }
         $DirectXOracleDirectory = Join-Path $RepoRoot "artifacts/progpu-native/directx-oracle"
         Invoke-NativeBenchmark `

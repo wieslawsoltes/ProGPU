@@ -806,6 +806,13 @@ public class NativeRendererInteropTests
         string nativeGlyphExecution = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "src", "Backend",
             "progpu_native_glyph_execution.cpp"));
+        string benchmarkProject = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native.Benchmarks",
+            "ProGPU.Native.Benchmarks.csproj"));
+        string portableBuild = File.ReadAllText(FindRepoFile(
+            "eng", "build-progpu-native.sh"));
+        string windowsBuild = File.ReadAllText(FindRepoFile(
+            "eng", "build-progpu-native-windows.ps1"));
 
         Assert.Contains(
             "GlyphRasterizationPath",
@@ -846,6 +853,22 @@ public class NativeRendererInteropTests
         Assert.Contains(
             "intrinsic_winding_8",
             nativeGlyphExecution,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "$(PROGPU_NATIVE_BUILD_DIR)",
+            benchmarkProject,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "for compute_mode in fastest compute raster simd scalar",
+            portableBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Native glyph compute is not supported",
+            windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--glyphs --rectangles 1 --warmup 0 --iterations 1 --sync",
+            windowsBuild,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "System.Reflection",
