@@ -195,9 +195,11 @@ bool semantic_scene_builder::add_guideline_set(
         progpu_native_scene_guideline_set header{};
         header.struct_size = sizeof(header);
         header.flags = composite_only
-            ? PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY
+            ? static_cast<std::uint32_t>(
+                PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY)
             : per_point
-                ? PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT
+                ? static_cast<std::uint32_t>(
+                    PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT)
                 : 0U;
         header.guideline_x_count =
             static_cast<std::uint32_t>(guidelines_x.size());
