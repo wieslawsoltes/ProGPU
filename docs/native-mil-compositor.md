@@ -2083,6 +2083,18 @@ byte-identical to the previously blurred output and every outside pixel is
 black. That explicitly proves post-effect clipping rather than source
 truncation.
 
+The same gate passed with identical metrics and pixels on the Parallels
+Display Adapter D3D12 backend from clean detached ProGPU commit `234687b7`.
+The strict Windows ARM64 MSVC `/W4 /WX` lane passed all 11 native/Dawn CTests,
+both export allowlists, two zero-warning managed Release builds, independent
+C++ and managed D3D12 allocation/readback, the complete bounded
+semantic/image/mask/effect/vector/text/blend smoke matrix, and nine-file
+package staging. Qualified win-arm64 SHA-256 values are
+`86062D03035829A8E6B7DA8CC52EC63FB9E4F3BEA15A91C4C8530B5AFC89D952`
+for `progpu_native.dll` and
+`CF01D087373FD1580EBE1A5B72BC2314CDCE2AEFA4FE02DBF782C88F3DB11C91`
+for `progpu_native_dawn.dll`.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
