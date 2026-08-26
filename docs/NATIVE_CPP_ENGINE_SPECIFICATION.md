@@ -2358,6 +2358,23 @@ win-arm64 package DLL hashes are
 is therefore qualified on DirectX as well as Metal/Dawn without invalidating
 retained content.
 
+The cache-root spatial opacity-mask implementation at `a3d6b0fd` and dedicated
+live gate at exact commit `7497ff59` then passed on both Metal and D3D12. The
+backend-neutral scene renders one 24x18 owner-keyed local page through a linear
+GPU brush mask, changes only mask opacity from 1.0 to 0.5, and observes one
+content/one composite pass followed by zero content/one composite pass. Both
+adapters produced the same sampled green-channel evidence `0/112 -> 56`.
+The exact clean Windows ARM64 checkout also passed strict MSVC `/W4 /WX`, all
+11 native/Dawn CTests, both export allowlists, zero-warning managed builds,
+independent C++/managed live-D3D12 render/readback, the complete bounded parity
+matrix, and package staging. The staged DLL hashes are
+`8B1C5FCD58EA5794D14C9F6E75F84B5BDFF890A3B8BAA9054B195D2BC6F63622`
+for `progpu_native.dll` and
+`E6920A87784984ED82F1E172DD441B8909499DCA8CEC149B145C45B811236D89`
+for `progpu_native_dawn.dll`. Radial mask normalization is additionally covered
+by the canonical MIL regression; inherited/ordered mask combinations remain
+fail-closed.
+
 The command vocabulary is deliberately semantic:
 
 - save/restore transform and rectangular/rounded/vector clip state;
