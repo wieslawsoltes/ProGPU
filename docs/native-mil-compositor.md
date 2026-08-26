@@ -2354,6 +2354,25 @@ for `progpu_native.dll` and
 `743FE185F4D4C900CA1B7F5B18AD85BEAAD47CEA592315AF22D81E625DF0393D`
 for `progpu_native_dawn.dll`.
 
+The nested cached-mask checkpoint closes the corresponding retained-page
+ownership and invalidation slice. A cache-root horizontal mask remains
+composite-only around a child effect and independently cached child vertical
+mask. Changing only the root mask preserves both root and child content
+revisions. Changing the child mask preserves the child raster revision but
+invalidates the root page, because the child's masked/effected composite is
+part of the root page content. Native tests assert all three layer descriptors,
+both mask payloads, and these revision relationships.
+
+The live Apple M3 Pro Metal sequence renders first/stable/root-mask/child-mask
+frames. Content passes are `3 -> 0 -> 0 -> 2` and effect passes are
+`2 -> 0 -> 0 -> 2`: the root-only mask change is composite-only, while the
+child mask change reuses child pixels and rebuilds only the owning parent/effect
+composition. Pixel changes are `0/379/161`; extents/red sums progress from
+`[12,6]-[33,25]`/23,482 to `[12,6]-[33,25]`/11,772 and
+`[12,6]-[33,24]`/11,266. The existing semantic cache, effect, and brush-mask
+resources require no ABI or backend fork. DirectX qualification is pending for
+exact test/qualification commit `f8bd57b5`.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
