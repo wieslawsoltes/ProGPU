@@ -42,24 +42,30 @@ nested command bytes. Commands and structures are packed, so the decoder uses
 bounded byte copies and never casts an untrusted address to a command struct.
 
 Protocol-authority checkpoint `8839f00d` replaces the hand-maintained C++
-command enum with generated output. `eng/progpu-generate-mil-protocol.py`
-reads WPF's checked-in MCG-generated `wgx_command_types.h` and
-`wgx_commands.cs`, verifies contiguous command values, and writes a neutral
-JSON manifest plus the public C++ header. The manifest records SHA-256 for both
-WPF inputs, all 141 retail commands plus invalid/debug sentinels, and all 108
-managed `Pack=1` packet layouts with field type, offset, width, and fixed header
-size. Standalone ProGPU builds verify header/manifest agreement; LibreWPF's SDK
-gate additionally regenerates from its live WPF source tree and fails on drift.
+command enum with generated output. Complete-layout checkpoint `4408a86c`
+extends `eng/progpu-generate-mil-protocol.py` over WPF's checked-in
+`wgx_commands.h` and `wgx_renderdata_commands.h`: all 116 packed top-level
+packets plus all 25 nested render-data packets, exactly one layout for each of
+the 141 retail commands. The 108 explicit `Pack=1` definitions in
+`wgx_commands.cs` are retained as an independent overlap oracle; every shared
+size and non-padding field offset/width must agree with the native MCG output.
+The neutral manifest records SHA-256 provenance for all four inputs plus the
+invalid/debug command sentinels. Standalone ProGPU builds verify
+header/manifest agreement; LibreWPF's SDK gate regenerates from its live WPF
+source tree and fails on drift.
 Follow-up `d4a1f370` makes the complete retained Visual update family plus
 DoubleResource and PointResource consume generated sizes/offsets. That includes
 transform/effect/cache/clip/alpha/render-option/content/mask state, variable
 guideline collections, scroll clips, and child topology. The generator also
-captures MCG's private `BYTEPacking` fields, requires every managed command
-header to remain DWORD-sized, and proves every parsed layout maps to one command;
+captures MCG's private `BYTEPacking` fields, requires every command header to
+remain DWORD-sized, and proves every parsed layout maps to one command;
 this preserves the guideline packet's 16-byte payload boundary rather than
-misreading its last private packing byte as a 14-byte header. Remaining decoder
-magic offsets are an explicit mechanical migration, not an independent
-protocol authority.
+misreading its last private packing byte as a 14-byte header. Follow-up
+`e93d8919` moves the active top-level and nested render-data readers plus
+dependency discovery onto the complete generated layouts. The decoder now has
+no numeric `has_exact_size(view, ...)` or direct numeric
+`read_at(view.packet, ...)` calls; composite-field component strides and the
+separately bounded path-figure mini-protocol remain intentional.
 
 Clean detached `22bf5bf1` qualified that generated Visual-layout checkpoint on
 Windows ARM64 in the Parallels VM. MSVC rebuilt the generated C++ header and
@@ -86,6 +92,16 @@ Qualified SHA-256 is
 for `progpu_native.dll` and
 `9F73E41536B3BD96A0A44692EA65888C9DE004B19FBF5DE90489768667FBBDDBC`
 for the wgpu-native runtime DLL.
+
+Clean detached `e93d8919` qualified the complete 141-layout authority and
+decoder migration on Windows ARM64. MSVC rebuilt all generated-header
+dependents and both native modules under `/W4 /WX`; all 11 native/Dawn CTests
+passed, including the MIL layout and packet suites. Qualified SHA-256 is
+`7D4D5087CB7D81893CDE231BEDD22983A0C31323AE1EDF5A87FDDC415E758CB5`
+for `progpu_native.dll` and
+`9F73E41536B3BD96A0A44692EA65888C9DE004B19FBF5DE90489768667FBBDDBC`
+for the wgpu-native runtime DLL. The live LibreWPF-to-ProGPU regeneration gate
+reports `143 commands, 141 complete packet layouts`.
 
 Brush-layout checkpoint `1b4ef706` migrates SolidColorBrush,
 LinearGradientBrush, RadialGradientBrush, DashStyle, and Pen packet readers to
