@@ -2344,6 +2344,26 @@ source-independent native package job and every runnable JIT/NativeAOT desktop
 package consumer; no package failure is hidden behind the image-only
 aggregate.
 
+Commit `a4ae5576` extends the same pinned gate to Microsoft's
+`D3D12HelloTexture`. The native WARP oracle keeps the upstream point sampler,
+256x256 eight-by-eight black/white checkerboard, affine UVs, triangular raster
+boundary, clear color, and 1280x720 viewport. ProGPU expresses that semantic
+contract with a typed nearest-sampled image resource plus edge-aliased cover
+triangles, then runs it unchanged through D3D12, Metal, and Vulkan. This
+validates texture upload/layout, point sampling, affine UV placement, clear
+color, orientation, and the triangle boundary; it does not claim that the
+current scene ABI exposes a single arbitrary textured-vertex-mesh command.
+
+The 2026-08-26 Apple M3 Pro Metal capture, Parallels Display Adapter D3D12
+capture, and native Microsoft ARM64/WARP capture are byte-identical. Their
+1280x720 PPM SHA-256 is
+`480B613A9F4FA0E799E46D310E7A3AB9F917B9B60CDA035A2E2718CBF2391397`;
+the ProGPU RGBA readback SHA-256 is
+`591CC311F35E3C2612F529C3D4D7061FC93751A9B8614BF588A73599B0AA2790`.
+Explicit clear, black, and white interior probes also pass. The aggregate CI
+retains bounded edge tolerance for independent adapters even though these
+three qualification captures are exact.
+
 The Ubuntu 24.04 ARM64 Parallels guest also rendered the ProGPU candidate
 through Vulkan llvmpipe and produced that exact PPM SHA-256. Its native RGBA
 readback SHA-256 was
