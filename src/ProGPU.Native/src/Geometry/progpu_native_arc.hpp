@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <numbers>
 
@@ -12,6 +13,12 @@ namespace progpu::native::geometry {
 struct arc_point final {
     float x = 0.0F;
     float y = 0.0F;
+};
+
+struct wpf_cubic_arc_piece final {
+    arc_point control1{};
+    arc_point control2{};
+    arc_point end{};
 };
 
 inline arc_point operator+(arc_point left, arc_point right) noexcept {
@@ -173,6 +180,183 @@ inline bool resolve_arc(
     return finite(center) && std::isfinite(theta1) &&
         std::isfinite(delta_theta) && std::isfinite(radius_x) &&
         std::isfinite(radius_y);
+}
+
+// Reflection-free native port of WPF's ArcToBezier helper. WPF converts each
+// endpoint ArcSegment into one through four equal-angle cubic Beziers before
+// CSnappingTask visits the start, control, and end points. Returning -1 means
+// a coincident endpoint (ignored by CFigureData), 0 means a line, and 1..4 is
+// the number of cubic pieces. Inputs intentionally use the float values read
+// by PathGeometryWrapper so its FUZZ, angle partition, and control-distance
+// decisions remain reproducible.
+inline bool lower_wpf_arc_to_cubics(
+    arc_point start,
+    arc_point end,
+    arc_point radii,
+    float rotation_degrees,
+    bool large_arc,
+    bool sweep_up,
+    std::array<wpf_cubic_arc_piece, 4U>& pieces,
+    int& piece_count) noexcept {
+    constexpr float fuzz = 1.0e-6F;
+    constexpr float fuzz_squared = 1.0e-12F;
+    constexpr float pi_over_180 =
+        static_cast<float>(0.0174532925199432957692);
+    constexpr float two_pi =
+        static_cast<float>(6.2831853071795865);
+    constexpr double four_thirds = 1.33333333333333333;
+    piece_count = -1;
+    pieces = {};
+    if (!finite(start) || !finite(end) || !finite(radii) ||
+        !std::isfinite(rotation_degrees)) {
+        return false;
+    }
+
+    float x = 0.5F * (end.x - start.x);
+    float y = 0.5F * (end.y - start.y);
+    float half_chord_squared = x * x + y * y;
+    if (half_chord_squared < fuzz_squared) {
+        return true;
+    }
+    const auto accept_radius = [half_chord_squared](float& radius) noexcept {
+        const bool accepted = !(radius * radius <=
+            half_chord_squared * fuzz_squared);
+        if (accepted && radius < 0.0F) {
+            radius = -radius;
+        }
+        return accepted;
+    };
+    float radius_x = radii.x;
+    float radius_y = radii.y;
+    if (!accept_radius(radius_x) || !accept_radius(radius_y)) {
+        piece_count = 0;
+        return true;
+    }
+
+    float cosine_rotation = 1.0F;
+    float sine_rotation = 0.0F;
+    if (std::abs(rotation_degrees) >= fuzz) {
+        const float inverse_rotation = -rotation_degrees * pi_over_180;
+        cosine_rotation = std::cos(inverse_rotation);
+        sine_rotation = std::sin(inverse_rotation);
+        const float rotated_x = x * cosine_rotation - y * sine_rotation;
+        y = x * sine_rotation + y * cosine_rotation;
+        x = rotated_x;
+    }
+
+    x /= radius_x;
+    y /= radius_y;
+    half_chord_squared = x * x + y * y;
+    float center_x = 0.0F;
+    float center_y = 0.0F;
+    bool zero_center = false;
+    if (half_chord_squared > 1.0F) {
+        const float scale = std::sqrt(half_chord_squared);
+        radius_x *= scale;
+        radius_y *= scale;
+        zero_center = true;
+        x /= scale;
+        y /= scale;
+    } else {
+        if (!(half_chord_squared > 0.0F)) {
+            return false;
+        }
+        const float scale = std::sqrt(
+            (1.0F - half_chord_squared) / half_chord_squared);
+        if (large_arc != sweep_up) {
+            center_x = -scale * y;
+            center_y = scale * x;
+        } else {
+            center_x = scale * y;
+            center_y = -scale * x;
+        }
+    }
+
+    arc_point unit_start{-x - center_x, -y - center_y};
+    const arc_point unit_end{x - center_x, y - center_y};
+    const float matrix00 = cosine_rotation * radius_x;
+    const float matrix01 = -sine_rotation * radius_x;
+    const float matrix10 = sine_rotation * radius_y;
+    const float matrix11 = cosine_rotation * radius_y;
+    float matrix20 = 0.5F * (end.x + start.x);
+    float matrix21 = 0.5F * (end.y + start.y);
+    if (!zero_center) {
+        matrix20 += matrix00 * center_x + matrix10 * center_y;
+        matrix21 += matrix01 * center_x + matrix11 * center_y;
+    }
+    const auto map_to_ellipse = [=](arc_point point) noexcept {
+        return arc_point{
+            matrix00 * point.x + matrix10 * point.y + matrix20,
+            matrix01 * point.x + matrix11 * point.y + matrix21};
+    };
+
+    float cosine_piece =
+        unit_start.x * unit_end.x + unit_start.y * unit_end.y;
+    float sine_piece =
+        unit_start.x * unit_end.y - unit_start.y * unit_end.x;
+    if (cosine_piece >= 0.0F) {
+        piece_count = large_arc ? 4 : 1;
+    } else {
+        piece_count = large_arc ? 3 : 2;
+    }
+    if (piece_count != 1) {
+        float angle = std::atan2(sine_piece, cosine_piece);
+        if (sweep_up) {
+            if (angle < 0.0F) {
+                angle += two_pi;
+            }
+        } else if (angle > 0.0F) {
+            angle -= two_pi;
+        }
+        angle /= static_cast<float>(piece_count);
+        cosine_piece = std::cos(angle);
+        sine_piece = std::sin(angle);
+    }
+
+    const double a = 0.5 * (1.0 + static_cast<double>(cosine_piece));
+    const double denominator_squared = 1.0 - a;
+    double bezier_distance = 0.0;
+    if (a >= 0.0 && denominator_squared > 0.0) {
+        const double denominator = std::sqrt(denominator_squared);
+        const double numerator = four_thirds * (1.0 - std::sqrt(a));
+        if (numerator > denominator * static_cast<double>(fuzz)) {
+            bezier_distance = numerator / denominator;
+        }
+    }
+    float signed_distance = static_cast<float>(bezier_distance);
+    if (!sweep_up) {
+        signed_distance = -signed_distance;
+    }
+    arc_point first_tangent{
+        -signed_distance * unit_start.y,
+        signed_distance * unit_start.x};
+
+    for (int index = 0; index < piece_count; ++index) {
+        const bool last = index + 1 == piece_count;
+        const arc_point piece_end = last
+            ? unit_end
+            : arc_point{
+                unit_start.x * cosine_piece -
+                    unit_start.y * sine_piece,
+                unit_start.x * sine_piece +
+                    unit_start.y * cosine_piece};
+        const arc_point second_tangent{
+            -signed_distance * piece_end.y,
+            signed_distance * piece_end.x};
+        auto& piece = pieces[static_cast<std::size_t>(index)];
+        piece.control1 = map_to_ellipse(unit_start + first_tangent);
+        piece.control2 = map_to_ellipse(piece_end - second_tangent);
+        piece.end = last ? end : map_to_ellipse(piece_end);
+        if (!finite(piece.control1) || !finite(piece.control2) ||
+            !finite(piece.end)) {
+            piece_count = -1;
+            pieces = {};
+            return false;
+        }
+        unit_start = piece_end;
+        first_tangent = second_tangent;
+    }
+    return true;
 }
 
 } // namespace progpu::native::geometry

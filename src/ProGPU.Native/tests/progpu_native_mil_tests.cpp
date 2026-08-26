@@ -5671,6 +5671,77 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     return true;
 }
 
+bool wpf_arc_lowering_matches_core_piece_policy() {
+    using progpu::native::geometry::lower_wpf_arc_to_cubics;
+    using progpu::native::geometry::wpf_cubic_arc_piece;
+    std::array<wpf_cubic_arc_piece, 4U> pieces{};
+    int piece_count = -1;
+    PROGPU_REQUIRE(lower_wpf_arc_to_cubics(
+        {1.0F, 0.0F},
+        {0.0F, 1.0F},
+        {1.0F, 1.0F},
+        0.0F,
+        false,
+        true,
+        pieces,
+        piece_count));
+    PROGPU_REQUIRE(piece_count == 1);
+    constexpr float quarter_control = 0.55228475F;
+    PROGPU_REQUIRE(
+        std::abs(pieces[0U].control1.x - 1.0F) < 0.000001F);
+    PROGPU_REQUIRE(
+        std::abs(pieces[0U].control1.y - quarter_control) < 0.000001F);
+    PROGPU_REQUIRE(
+        std::abs(pieces[0U].control2.x - quarter_control) < 0.000001F);
+    PROGPU_REQUIRE(
+        std::abs(pieces[0U].control2.y - 1.0F) < 0.000001F);
+    PROGPU_REQUIRE(
+        pieces[0U].end.x == 0.0F && pieces[0U].end.y == 1.0F);
+
+    PROGPU_REQUIRE(lower_wpf_arc_to_cubics(
+        {1.0F, 0.0F},
+        {-1.0F, 0.0F},
+        {1.0F, 1.0F},
+        0.0F,
+        false,
+        true,
+        pieces,
+        piece_count));
+    PROGPU_REQUIRE(piece_count == 2);
+    PROGPU_REQUIRE(lower_wpf_arc_to_cubics(
+        {1.0F, 0.0F},
+        {-1.0F, 0.0F},
+        {1.0F, 1.0F},
+        0.0F,
+        true,
+        true,
+        pieces,
+        piece_count));
+    PROGPU_REQUIRE(piece_count == 3);
+
+    PROGPU_REQUIRE(lower_wpf_arc_to_cubics(
+        {1.0F, 2.0F},
+        {3.0F, 4.0F},
+        {0.0F, 1.0F},
+        0.0F,
+        false,
+        true,
+        pieces,
+        piece_count));
+    PROGPU_REQUIRE(piece_count == 0);
+    PROGPU_REQUIRE(lower_wpf_arc_to_cubics(
+        {1.0F, 2.0F},
+        {1.0F, 2.0F},
+        {1.0F, 1.0F},
+        0.0F,
+        false,
+        true,
+        pieces,
+        piece_count));
+    PROGPU_REQUIRE(piece_count == -1);
+    return true;
+}
+
 bool retained_path_geometry_compiles_to_semantic_scene() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -5844,6 +5915,99 @@ bool retained_path_geometry_compiles_to_semantic_scene() {
         found_path = true;
     }
     PROGPU_REQUIRE(found_path);
+
+    std::vector<std::byte> per_point_guideline_update;
+    append_command(
+        per_point_guideline_update,
+        command::visual_set_guideline_collection,
+        visual,
+        std::uint16_t{2U},
+        std::uint16_t{0U},
+        std::uint16_t{2U},
+        std::uint16_t{0U},
+        2.25F,
+        30.75F,
+        4.25F,
+        24.75F);
+    PROGPU_REQUIRE(
+        state.apply(per_point_guideline_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 2U, stream, &metrics) ==
+        status::success);
+    const auto per_point_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_lowered_arc = false;
+    for (std::uint32_t index = 0U;
+         index < per_point_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            per_point_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            continue;
+        }
+        const auto path = read_value<progpu_native_scene_path_fill>(
+            stream,
+            resource.payload_offset);
+        std::array<
+            progpu::native::geometry::wpf_cubic_arc_piece,
+            4U> expected{};
+        int expected_count = -1;
+        PROGPU_REQUIRE(
+            progpu::native::geometry::lower_wpf_arc_to_cubics(
+                {15.0F, 6.0F},
+                {1.0F, 2.0F},
+                {8.0F, 6.0F},
+                30.0F,
+                false,
+                true,
+                expected,
+                expected_count));
+        PROGPU_REQUIRE(expected_count > 0);
+        PROGPU_REQUIRE(path.segment_count ==
+            3U + static_cast<std::uint32_t>(expected_count));
+        progpu_native_point expected_start{15.0F, 6.0F};
+        for (int piece_index = 0;
+             piece_index < expected_count;
+             ++piece_index) {
+            const auto segment = read_value<progpu_native_path_segment>(
+                stream,
+                resource.auxiliary_offset +
+                    (3U + static_cast<std::size_t>(piece_index)) *
+                        sizeof(progpu_native_path_segment));
+            const auto& piece = expected[
+                static_cast<std::size_t>(piece_index)];
+            PROGPU_REQUIRE(
+                segment.kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC);
+            PROGPU_REQUIRE(
+                segment.p0.x == expected_start.x &&
+                segment.p0.y == expected_start.y);
+            PROGPU_REQUIRE(
+                segment.p1.x == piece.control1.x &&
+                segment.p1.y == piece.control1.y);
+            PROGPU_REQUIRE(
+                segment.p2.x == piece.control2.x &&
+                segment.p2.y == piece.control2.y);
+            PROGPU_REQUIRE(
+                segment.p3.x == piece.end.x &&
+                segment.p3.y == piece.end.y);
+            expected_start = segment.p3;
+        }
+        found_lowered_arc = true;
+    }
+    PROGPU_REQUIRE(found_lowered_arc);
+    std::vector<std::byte> clear_per_point_guidelines;
+    append_command(
+        clear_per_point_guidelines,
+        command::visual_set_guideline_collection,
+        visual,
+        std::uint16_t{0U},
+        std::uint16_t{0U},
+        std::uint16_t{0U},
+        std::uint16_t{0U});
+    PROGPU_REQUIRE(
+        state.apply(clear_per_point_guidelines) == status::success);
 
     auto uncached_bounds_figures = figures;
     const std::uint32_t uncached_path_flags = 0x01U;
@@ -9688,6 +9852,7 @@ int main() {
     PROGPU_REQUIRE(
         static_transform_resources_compose_and_retain_dependencies());
     PROGPU_REQUIRE(solid_pen_line_compiles_to_geometry_scene());
+    PROGPU_REQUIRE(wpf_arc_lowering_matches_core_piece_policy());
     PROGPU_REQUIRE(retained_path_geometry_compiles_to_semantic_scene());
     PROGPU_REQUIRE(
         retained_line_path_stroke_preserves_closure_gaps_and_pen_state());

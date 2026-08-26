@@ -8,6 +8,7 @@ internal static class PerPointPathGuidelineQualification
     private const uint Width = 40U;
     private const uint Height = 28U;
     private const ulong SceneId = 0x504F494E54475549UL;
+    private const ulong MilArcSceneId = 0x4D494C4152434755UL;
 
     public static void Run()
     {
@@ -58,6 +59,10 @@ internal static class PerPointPathGuidelineQualification
             $"guided={guidedExtent}, reference={referenceExtent}, " +
             $"changed={changed}, referenceChanged={referenceChanged}");
 
+        (PixelExtent Baseline, PixelExtent Guided, PixelExtent Reference,
+            int Changed, int ReferenceChanged) milArc =
+            QualifyMilArc(compositor, context, target);
+
         Require(
             SharedSegmentPathResourceIsRejected(compositor, target),
             "per-point deformation must reject shared path segment ranges");
@@ -67,7 +72,162 @@ internal static class PerPointPathGuidelineQualification
             $"deformation on adapter '{context.AdapterName}', " +
             $"backend={context.AdapterBackendType}; baseline={baselineExtent}, " +
             $"guided={guidedExtent}, reference={referenceExtent}, " +
-            $"changed={changed}, referenceChanged={referenceChanged}.");
+            $"changed={changed}, referenceChanged={referenceChanged}; " +
+            $"MIL arc baseline={milArc.Baseline}, " +
+            $"guided={milArc.Guided}, reference={milArc.Reference}, " +
+            $"changed={milArc.Changed}, " +
+            $"referenceChanged={milArc.ReferenceChanged}.");
+    }
+
+    private static (PixelExtent Baseline, PixelExtent Guided,
+        PixelExtent Reference, int Changed, int ReferenceChanged)
+        QualifyMilArc(
+            NativeCompositor compositor,
+            WgpuContext context,
+            GpuTexture target)
+    {
+        (NativeSceneUpdateMetrics Update, NativeSceneFrameMetrics Frame,
+            byte[] Pixels) baseline = RenderMilArc(
+                compositor, context, target, 1U, guided: false,
+                reference: false);
+        (NativeSceneUpdateMetrics Update, NativeSceneFrameMetrics Frame,
+            byte[] Pixels) guided = RenderMilArc(
+                compositor, context, target, 2U, guided: true,
+                reference: false);
+        (NativeSceneUpdateMetrics Update, NativeSceneFrameMetrics Frame,
+            byte[] Pixels) reference = RenderMilArc(
+                compositor, context, target, 3U, guided: false,
+                reference: true);
+
+        PixelExtent baselineExtent = Measure(baseline.Pixels);
+        PixelExtent guidedExtent = Measure(guided.Pixels);
+        PixelExtent referenceExtent = Measure(reference.Pixels);
+        int changed = CountChangedPixels(baseline.Pixels, guided.Pixels);
+        int referenceChanged = CountChangedPixels(
+            guided.Pixels, reference.Pixels);
+        Require(
+            baseline.Update.ValidationError == NativeSceneValidationError.None &&
+            guided.Update.ValidationError == NativeSceneValidationError.None &&
+            reference.Update.ValidationError == NativeSceneValidationError.None &&
+            baseline.Frame.SubmissionCount > 0U &&
+            guided.Frame.SubmissionCount > 0U &&
+            reference.Frame.SubmissionCount > 0U &&
+            baselineExtent.IsVisible && guidedExtent.IsVisible &&
+            referenceExtent.IsVisible && changed > 0 &&
+            referenceChanged == 0,
+            "the live retained WPF MIL arc did not match its independent " +
+            $"pre-deformed cubic reference: baseline={baselineExtent}, " +
+            $"guided={guidedExtent}, reference={referenceExtent}, " +
+            $"changed={changed}, referenceChanged={referenceChanged}");
+        return (baselineExtent, guidedExtent, referenceExtent, changed,
+            referenceChanged);
+    }
+
+    private static (NativeSceneUpdateMetrics Update,
+        NativeSceneFrameMetrics Frame, byte[] Pixels) RenderMilArc(
+        NativeCompositor compositor,
+        WgpuContext context,
+        GpuTexture target,
+        ulong generation,
+        bool guided,
+        bool reference)
+    {
+        byte[] scene = BuildMilArcScene(generation, guided, reference);
+        NativeSceneUpdateMetrics update = compositor.UpdateScene(scene);
+        NativeSceneFrameMetrics frame = compositor.RenderScene(
+            target,
+            dpiScale: 1f,
+            MilArcSceneId,
+            generation,
+            clearColor: new Vector4(0f, 0f, 0f, 1f));
+        context.WaitIdle();
+        return (update, frame, target.ReadPixels());
+    }
+
+    private static byte[] BuildMilArcScene(
+        ulong generation,
+        bool guided,
+        bool reference)
+    {
+        const uint visualHandle = 1U;
+        const uint targetHandle = 2U;
+        const uint contentHandle = 3U;
+        const uint brushHandle = 4U;
+        const uint geometryHandle = 5U;
+        const double startX = 18.25;
+        const double startY = 8.25;
+        const double endX = 26.25;
+        const double endY = 16.25;
+        // WPF's ArcToBezier quarter-circle control distance. These guides are
+        // intentionally independent of the native lowering implementation.
+        const double quarterControl = 0.5522847498307936;
+        double control1X = startX + 8.0 * quarterControl;
+        double control2Y = endY - 8.0 * quarterControl;
+        NativeMilPathFigure figure = reference
+            ? new NativeMilPathFigure(
+                new NativeMilPoint(18.0, 8.0),
+                IsFilled: true,
+                IsClosed: true,
+                [NativeMilPathSegment.CubicBezier(
+                    new NativeMilPoint(23.0, 8.0),
+                    new NativeMilPoint(26.0, 12.0),
+                    new NativeMilPoint(26.0, 16.0))])
+            : new NativeMilPathFigure(
+                new NativeMilPoint(startX, startY),
+                IsFilled: true,
+                IsClosed: true,
+                [NativeMilPathSegment.Arc(
+                    new NativeMilPoint(endX, endY),
+                    radiusX: 8.0,
+                    radiusY: 8.0,
+                    rotationAngle: 0.0,
+                    isLargeArc: false,
+                    isClockwise: true)]);
+        var geometry = new NativeMilPathGeometry(
+            NativeMilPathFillRule.Nonzero,
+            reference ? 18.0 : startX,
+            reference ? 8.0 : startY,
+            8.0,
+            8.0,
+            [figure]);
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.DrawGeometry(brushHandle, 0U, geometryHandle);
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(visualHandle, NativeMilResourceType.Visual);
+        batch.CreateResource(
+            targetHandle, NativeMilResourceType.GenericRenderTarget);
+        batch.CreateResource(contentHandle, NativeMilResourceType.RenderData);
+        batch.CreateResource(
+            brushHandle, NativeMilResourceType.SolidColorBrush);
+        batch.CreateResource(
+            geometryHandle, NativeMilResourceType.PathGeometry);
+        batch.CreateVisual(visualHandle);
+        batch.SetVisualContent(visualHandle, contentHandle);
+        if (guided)
+        {
+            batch.SetVisualGuidelines(
+                visualHandle,
+                [startX, control1X, endX],
+                [startY, control2Y, endY]);
+        }
+        batch.SetSolidColorBrush(
+            brushHandle, new NativeMilColor(1f, 0f, 0f, 1f));
+        batch.SetPathGeometry(geometryHandle, geometry);
+        batch.SetRenderData(contentHandle, renderData);
+        batch.CreateGenericTarget(targetHandle, Width, Height);
+        batch.SetTargetClearColor(
+            targetHandle, new NativeMilColor(0f, 0f, 0f, 1f));
+        batch.SetTargetRoot(targetHandle, visualHandle);
+
+        using var channel = new NativeMilChannel();
+        _ = channel.Apply(batch.WrittenSpan);
+        NativeMilCompiledScene scene = channel.CompileScene(
+            targetHandle, MilArcSceneId, generation);
+        Require(
+            scene.Stream.Length > 0 && scene.Metrics.VisualCount == 1U &&
+            scene.Metrics.BrushCount == 1U,
+            "the retained WPF MIL arc did not compile to a semantic scene");
+        return scene.Stream;
     }
 
     private static (NativeSceneUpdateMetrics Update,
