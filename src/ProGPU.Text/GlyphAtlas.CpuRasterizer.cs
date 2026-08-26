@@ -1,10 +1,16 @@
 using System;
+using System.Buffers;
 using System.Numerics;
 
 namespace ProGPU.Text;
 
 public unsafe partial class GlyphAtlas
 {
+    private readonly record struct CpuCrossing(float X, int Direction);
+
+    private static readonly Vector<float> s_simdLaneIndices =
+        CreateSimdLaneIndices();
+
     internal static byte[] RasterizeGlyphCoverageCpu(
         ReadOnlySpan<GpuSegment> segments,
         GpuGlyphRecord record,
@@ -17,86 +23,99 @@ public unsafe partial class GlyphAtlas
         bool useSimd)
     {
         byte[] coverage = new byte[checked((int)(width * height))];
-        for (uint y = 0; y < height; y++)
+        bool useIntrinsicSimd = useSimd &&
+            System.Numerics.Vector.IsHardwareAccelerated;
+        if (!useIntrinsicSimd)
         {
-            for (uint x = 0; x < width; x++)
+            RasterizeGlyphCoverageScalar(
+                segments,
+                record,
+                xStart,
+                yStart,
+                scale,
+                subpixelX,
+                width,
+                height,
+                coverage);
+            return coverage;
+        }
+
+        int maximumCrossings = checked((int)record.SegmentCount * 3);
+        CpuCrossing[] crossingArray =
+            ArrayPool<CpuCrossing>.Shared.Rent(Math.Max(maximumCrossings, 1));
+        try
+        {
+            float inverseScale = 1f / scale;
+            float glyphSampleStep = 0.125f * inverseScale;
+            for (uint y = 0; y < height; y++)
             {
-                uint coveredSamples = 0;
-                float pixelX = xStart + x;
                 float pixelY = yStart + y;
+                Span<byte> coveredRow = coverage.AsSpan(
+                    checked((int)(y * width)),
+                    checked((int)width));
                 for (uint sampleY = 0; sampleY < 8; sampleY++)
                 {
                     float glyphY = -(
-                        pixelY + 0.0625f + sampleY * 0.125f) / scale;
-                    if (useSimd &&
-                        System.Numerics.Vector.IsHardwareAccelerated)
+                        pixelY + 0.0625f + sampleY * 0.125f) * inverseScale;
+                    int crossingCount = CollectGlyphCrossingsCpu(
+                        glyphY,
+                        record,
+                        segments,
+                        crossingArray);
+                    ReadOnlySpan<CpuCrossing> crossings =
+                        crossingArray.AsSpan(0, crossingCount);
+                    for (uint x = 0; x < width; x++)
                     {
-                        coveredSamples += CountCoveredSamplesSimd(
-                            pixelX,
-                            glyphY,
-                            scale,
-                            subpixelX,
-                            record,
-                            segments);
-                    }
-                    else
-                    {
-                        for (uint sampleX = 0; sampleX < 8; sampleX++)
-                        {
-                            float glyphX = (
-                                pixelX + 0.0625f + sampleX * 0.125f -
-                                subpixelX) / scale;
-                            if (GlyphWindingCpu(
-                                    glyphX,
-                                    glyphY,
-                                    record,
-                                    segments) != 0)
-                            {
-                                coveredSamples++;
-                            }
-                        }
+                        float firstGlyphX = (
+                            xStart + x + 0.0625f - subpixelX) * inverseScale;
+                        coveredRow[checked((int)x)] += (byte)
+                            CountCoveredSamplesSimd(
+                                firstGlyphX,
+                                glyphSampleStep,
+                                crossings);
                     }
                 }
 
-                uint value = (uint)MathF.Round(
-                    coveredSamples * 3.984375f,
-                    MidpointRounding.AwayFromZero);
-                coverage[checked((int)(y * width + x))] =
-                    (byte)Math.Min(value, 255U);
+                for (int x = 0; x < coveredRow.Length; x++)
+                {
+                    uint value = (uint)MathF.Round(
+                        coveredRow[x] * 3.984375f,
+                        MidpointRounding.AwayFromZero);
+                    coveredRow[x] = (byte)Math.Min(value, 255U);
+                }
             }
+        }
+        finally
+        {
+            ArrayPool<CpuCrossing>.Shared.Return(crossingArray);
         }
 
         return coverage;
     }
 
     private static uint CountCoveredSamplesSimd(
-        float pixelX,
-        float sampleY,
-        float scale,
-        float subpixelX,
-        GpuGlyphRecord record,
-        ReadOnlySpan<GpuSegment> segments)
+        float firstSampleX,
+        float sampleStep,
+        ReadOnlySpan<CpuCrossing> crossings)
     {
         int laneCount = Vector<float>.Count;
-        Span<float> sampleScratch = stackalloc float[laneCount];
         uint covered = 0;
         for (int sampleOffset = 0; sampleOffset < 8;
              sampleOffset += laneCount)
         {
             int activeLanes = Math.Min(laneCount, 8 - sampleOffset);
-            sampleScratch.Fill(float.PositiveInfinity);
-            for (int lane = 0; lane < activeLanes; lane++)
+            Vector<float> sampleXs =
+                new Vector<float>(firstSampleX + sampleOffset * sampleStep) +
+                s_simdLaneIndices * new Vector<float>(sampleStep);
+            Vector<int> windings = Vector<int>.Zero;
+            foreach (CpuCrossing crossing in crossings)
             {
-                sampleScratch[lane] = (
-                    pixelX + 0.0625f +
-                    (sampleOffset + lane) * 0.125f - subpixelX) / scale;
+                AccumulateCrossingSimd(
+                    crossing.X,
+                    crossing.Direction,
+                    sampleXs,
+                    ref windings);
             }
-            var sampleXs = new Vector<float>(sampleScratch);
-            Vector<int> windings = GlyphWindingRowSimd(
-                sampleXs,
-                sampleY,
-                record,
-                segments);
             for (int lane = 0; lane < activeLanes; lane++)
             {
                 covered += windings[lane] != 0 ? 1U : 0U;
@@ -105,13 +124,13 @@ public unsafe partial class GlyphAtlas
         return covered;
     }
 
-    private static Vector<int> GlyphWindingRowSimd(
-        Vector<float> sampleXs,
+    private static int CollectGlyphCrossingsCpu(
         float sampleY,
         GpuGlyphRecord record,
-        ReadOnlySpan<GpuSegment> segments)
+        ReadOnlySpan<GpuSegment> segments,
+        Span<CpuCrossing> crossings)
     {
-        Vector<int> windings = Vector<int>.Zero;
+        int crossingCount = 0;
         uint end = checked(record.StartSegment + record.SegmentCount);
         for (uint index = record.StartSegment; index < end; index++)
         {
@@ -123,20 +142,14 @@ public unsafe partial class GlyphAtlas
                 if (a.Y <= sampleY && b.Y > sampleY)
                 {
                     float t = (sampleY - a.Y) / (b.Y - a.Y);
-                    AccumulateCrossingSimd(
-                        a.X + t * (b.X - a.X),
-                        1,
-                        sampleXs,
-                        ref windings);
+                    crossings[crossingCount++] = new(
+                        a.X + t * (b.X - a.X), 1);
                 }
                 else if (a.Y > sampleY && b.Y <= sampleY)
                 {
                     float t = (sampleY - a.Y) / (b.Y - a.Y);
-                    AccumulateCrossingSimd(
-                        a.X + t * (b.X - a.X),
-                        -1,
-                        sampleXs,
-                        ref windings);
+                    crossings[crossingCount++] = new(
+                        a.X + t * (b.X - a.X), -1);
                 }
                 continue;
             }
@@ -175,8 +188,11 @@ public unsafe partial class GlyphAtlas
                     int direction = derivativeY > 0f
                         ? 1
                         : derivativeY < 0f ? -1 : 0;
-                    AccumulateCrossingSimd(
-                        crossingX, direction, sampleXs, ref windings);
+                    if (direction != 0)
+                    {
+                        crossings[crossingCount++] = new(
+                            crossingX, direction);
+                    }
                 }
                 continue;
             }
@@ -223,11 +239,23 @@ public unsafe partial class GlyphAtlas
                 int direction = derivativeY > 0f
                     ? 1
                     : derivativeY < 0f ? -1 : 0;
-                AccumulateCrossingSimd(
-                    crossingX, direction, sampleXs, ref windings);
+                if (direction != 0)
+                {
+                    crossings[crossingCount++] = new(crossingX, direction);
+                }
             }
         }
-        return windings;
+        return crossingCount;
+    }
+
+    private static Vector<float> CreateSimdLaneIndices()
+    {
+        Span<float> lanes = stackalloc float[Vector<float>.Count];
+        for (int index = 0; index < lanes.Length; index++)
+        {
+            lanes[index] = index;
+        }
+        return new Vector<float>(lanes);
     }
 
     private static void AccumulateCrossingSimd(
@@ -246,6 +274,53 @@ public unsafe partial class GlyphAtlas
         windings += System.Numerics.Vector.BitwiseAnd(
             mask,
             new Vector<int>(direction));
+    }
+
+    private static void RasterizeGlyphCoverageScalar(
+        ReadOnlySpan<GpuSegment> segments,
+        GpuGlyphRecord record,
+        int xStart,
+        int yStart,
+        float scale,
+        float subpixelX,
+        uint width,
+        uint height,
+        Span<byte> coverage)
+    {
+        for (uint y = 0; y < height; y++)
+        {
+            for (uint x = 0; x < width; x++)
+            {
+                uint coveredSamples = 0;
+                float pixelX = xStart + x;
+                float pixelY = yStart + y;
+                for (uint sampleY = 0; sampleY < 8; sampleY++)
+                {
+                    float glyphY = -(
+                        pixelY + 0.0625f + sampleY * 0.125f) / scale;
+                    for (uint sampleX = 0; sampleX < 8; sampleX++)
+                    {
+                        float glyphX = (
+                            pixelX + 0.0625f + sampleX * 0.125f -
+                            subpixelX) / scale;
+                        if (GlyphWindingCpu(
+                                glyphX,
+                                glyphY,
+                                record,
+                                segments) != 0)
+                        {
+                            coveredSamples++;
+                        }
+                    }
+                }
+
+                uint value = (uint)MathF.Round(
+                    coveredSamples * 3.984375f,
+                    MidpointRounding.AwayFromZero);
+                coverage[checked((int)(y * width + x))] =
+                    (byte)Math.Min(value, 255U);
+            }
+        }
     }
 
     private static int GlyphWindingCpu(

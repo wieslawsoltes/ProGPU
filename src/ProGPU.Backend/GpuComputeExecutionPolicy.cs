@@ -74,12 +74,20 @@ public static class GpuComputeExecutionPolicy
         BackendType backendType,
         string? adapterName)
     {
+        bool nativeComputeKnownUnsupported =
+            IsNativeComputeKnownUnsupported(backendType, adapterName);
         if (preference != GpuComputeExecutionPreference.Fastest)
         {
             return preference switch
             {
                 GpuComputeExecutionPreference.NativeCompute =>
-                    GpuComputeExecutionPath.NativeCompute,
+                    nativeComputeKnownUnsupported
+                        ? throw new NotSupportedException(
+                            "Native glyph compute is not supported by the " +
+                            $"'{adapterName}' {backendType} adapter. Select " +
+                            "'raster' for the equivalent GPU shader path or " +
+                            "'simd' for the intrinsic CPU fallback.")
+                        : GpuComputeExecutionPath.NativeCompute,
                 GpuComputeExecutionPreference.RasterShader =>
                     GpuComputeExecutionPath.RasterShader,
                 GpuComputeExecutionPreference.IntrinsicSimdCpu =>
@@ -91,13 +99,16 @@ public static class GpuComputeExecutionPolicy
             };
         }
 
-        bool requiresComputeFallback =
-            backendType == BackendType.D3D12 &&
-            adapterName?.Contains(
-                "Parallels Display Adapter",
-                StringComparison.OrdinalIgnoreCase) == true;
-        return requiresComputeFallback
+        return nativeComputeKnownUnsupported
             ? GpuComputeExecutionPath.RasterShader
             : GpuComputeExecutionPath.NativeCompute;
     }
+
+    public static bool IsNativeComputeKnownUnsupported(
+        BackendType backendType,
+        string? adapterName) =>
+        backendType == BackendType.D3D12 &&
+        adapterName?.Contains(
+                "Parallels Display Adapter",
+                StringComparison.OrdinalIgnoreCase) == true;
 }

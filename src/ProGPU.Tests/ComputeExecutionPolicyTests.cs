@@ -50,9 +50,6 @@ public class ComputeExecutionPolicyTests
 
     [Theory]
     [InlineData(
-        GpuComputeExecutionPreference.NativeCompute,
-        GpuComputeExecutionPath.NativeCompute)]
-    [InlineData(
         GpuComputeExecutionPreference.RasterShader,
         GpuComputeExecutionPath.RasterShader)]
     [InlineData(
@@ -71,6 +68,24 @@ public class ComputeExecutionPolicyTests
                 preference,
                 BackendType.D3D12,
                 "Parallels Display Adapter (WDDM)"));
+    }
+
+    [Fact]
+    public void ForcedKnownUnsupportedComputeFailsBeforeResourceCreation()
+    {
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(
+            () => GpuComputeExecutionPolicy.ResolveGlyphRasterization(
+                GpuComputeExecutionPreference.NativeCompute,
+                BackendType.D3D12,
+                "Parallels Display Adapter (WDDM)"));
+
+        Assert.Contains("Select 'raster'", exception.Message);
+        Assert.Equal(
+            GpuComputeExecutionPath.NativeCompute,
+            GpuComputeExecutionPolicy.ResolveGlyphRasterization(
+                GpuComputeExecutionPreference.NativeCompute,
+                BackendType.Metal,
+                "Apple M3 Pro"));
     }
 
     [Fact]

@@ -18,6 +18,11 @@ struct cpu_roots {
     std::uint32_t count = 0U;
 };
 
+struct cpu_crossing {
+    float x = 0.0F;
+    int direction = 0;
+};
+
 cpu_roots solve_quadratic_cpu(float a, float b, float c) noexcept {
     cpu_roots result{};
     if (std::abs(a) < 0.00001F) {
@@ -266,13 +271,14 @@ public:
     }
 
     std::uint32_t covered_count() const noexcept {
-        std::array<std::int32_t, 8U> winding{};
-        vst1q_s32(winding.data(), winding_low_);
-        vst1q_s32(winding.data() + 4U, winding_high_);
-        return static_cast<std::uint32_t>(std::count_if(
-            winding.begin(),
-            winding.end(),
-            [](std::int32_t value) noexcept { return value != 0; }));
+        const uint32x4_t low = vshrq_n_u32(
+            vmvnq_u32(vceqq_s32(winding_low_, vdupq_n_s32(0))), 31);
+        const uint32x4_t high = vshrq_n_u32(
+            vmvnq_u32(vceqq_s32(winding_high_, vdupq_n_s32(0))), 31);
+        const uint32x2_t pair = vadd_u32(
+            vadd_u32(vget_low_u32(low), vget_high_u32(low)),
+            vadd_u32(vget_low_u32(high), vget_high_u32(high)));
+        return vget_lane_u32(vpadd_u32(pair, pair), 0);
     }
 
 private:
@@ -317,17 +323,13 @@ public:
     }
 
     std::uint32_t covered_count() const noexcept {
-        alignas(16) std::array<std::int32_t, 8U> winding{};
-        _mm_store_si128(
-            reinterpret_cast<__m128i*>(winding.data()),
-            winding_low_);
-        _mm_store_si128(
-            reinterpret_cast<__m128i*>(winding.data() + 4U),
-            winding_high_);
-        return static_cast<std::uint32_t>(std::count_if(
-            winding.begin(),
-            winding.end(),
-            [](std::int32_t value) noexcept { return value != 0; }));
+        const __m128i zero = _mm_setzero_si128();
+        const int zero_mask = _mm_movemask_ps(_mm_castsi128_ps(
+            _mm_cmpeq_epi32(winding_low_, zero))) |
+            (_mm_movemask_ps(_mm_castsi128_ps(
+                _mm_cmpeq_epi32(winding_high_, zero))) << 4);
+        return 8U - static_cast<std::uint32_t>(std::popcount(
+            static_cast<unsigned int>(zero_mask)));
     }
 
 private:
@@ -342,30 +344,24 @@ private:
 std::uint32_t glyph_covered_samples_row_intrinsic(
     float first_sample_x,
     float sample_step,
-    float sample_y,
-    const gpu_glyph_record& record,
-    const progpu_native_path_segment* segments) noexcept {
+    std::span<const cpu_crossing> crossings) noexcept {
 #if defined(PROGPU_NATIVE_GLYPH_INTRINSICS_NEON) || \
     defined(PROGPU_NATIVE_GLYPH_INTRINSICS_SSE2)
     intrinsic_winding_8 winding(first_sample_x, sample_step);
-    visit_glyph_crossings_cpu(
-        sample_y,
-        record,
-        segments,
-        [&winding](float crossing_x, int direction) noexcept {
-            winding.add_crossing(crossing_x, direction);
-        });
+    for (const auto& crossing : crossings) {
+        winding.add_crossing(crossing.x, crossing.direction);
+    }
     return winding.covered_count();
 #else
     std::uint32_t covered = 0U;
     for (std::uint32_t sample_x = 0U; sample_x < 8U; ++sample_x) {
-        covered += glyph_winding_cpu(
-            first_sample_x + static_cast<float>(sample_x) * sample_step,
-            sample_y,
-            record,
-            segments) != 0
-            ? 1U
-            : 0U;
+        const float position = first_sample_x +
+            static_cast<float>(sample_x) * sample_step;
+        int winding = 0;
+        for (const auto& crossing : crossings) {
+            winding += position < crossing.x ? crossing.direction : 0;
+        }
+        covered += winding != 0 ? 1U : 0U;
     }
     return covered;
 #endif
@@ -379,8 +375,28 @@ bool rasterize_glyph_coverage_cpu(
     std::uint64_t coverage_size,
     std::vector<std::byte>& coverage,
     bool use_intrinsic_simd) {
+    std::vector<cpu_crossing> crossings;
+    std::vector<std::uint8_t> covered_row;
     try {
         coverage.assign(static_cast<std::size_t>(coverage_size), std::byte{});
+        if (use_intrinsic_simd) {
+            std::uint32_t maximum_segment_count = 0U;
+            std::uint32_t maximum_raster_width = 0U;
+            for (std::size_t glyph_index = 0U;
+                 glyph_index < rasters.size();
+                 ++glyph_index) {
+                const auto& record = records[uniforms[glyph_index].glyph_index];
+                maximum_segment_count = std::max(
+                    maximum_segment_count,
+                    record.segment_count);
+                maximum_raster_width = std::max(
+                    maximum_raster_width,
+                    rasters[glyph_index].width);
+            }
+            crossings.reserve(
+                static_cast<std::size_t>(maximum_segment_count) * 3U);
+            covered_row.resize(maximum_raster_width);
+        }
     } catch (const std::bad_alloc&) {
         return false;
     }
@@ -390,7 +406,58 @@ bool rasterize_glyph_coverage_cpu(
         const auto& uniform = uniforms[glyph_index];
         const auto& raster = rasters[glyph_index];
         const auto& record = records[uniform.glyph_index];
+        const float inverse_scale = 1.0F / uniform.scale;
+        const float glyph_sample_step = 0.125F * inverse_scale;
         for (std::uint32_t y = 0U; y < raster.height; ++y) {
+            if (use_intrinsic_simd) {
+                std::fill_n(covered_row.begin(), raster.width, 0U);
+                const float pixel_y = uniform.y_start +
+                    static_cast<float>(y);
+                for (std::uint32_t sample_y = 0U;
+                     sample_y < 8U;
+                     ++sample_y) {
+                    const float glyph_y = -(
+                        pixel_y + 0.0625F +
+                        static_cast<float>(sample_y) * 0.125F) *
+                        inverse_scale;
+                    crossings.clear();
+                    visit_glyph_crossings_cpu(
+                        glyph_y,
+                        record,
+                        frame.segments,
+                        [&crossings](
+                            float crossing_x,
+                            int direction) noexcept {
+                            crossings.push_back({crossing_x, direction});
+                        });
+                    const std::span<const cpu_crossing> scanline_crossings(
+                        crossings.data(),
+                        crossings.size());
+                    for (std::uint32_t x = 0U;
+                         x < raster.width;
+                         ++x) {
+                        const float first_glyph_x = (
+                            uniform.x_start + static_cast<float>(x) +
+                            0.0625F - uniform.subpixel_x) * inverse_scale;
+                        covered_row[x] = static_cast<std::uint8_t>(
+                            covered_row[x] +
+                            glyph_covered_samples_row_intrinsic(
+                                first_glyph_x,
+                                glyph_sample_step,
+                                scanline_crossings));
+                    }
+                }
+                for (std::uint32_t x = 0U; x < raster.width; ++x) {
+                    const auto value = static_cast<std::uint32_t>(std::round(
+                        static_cast<float>(covered_row[x]) * 3.984375F));
+                    const std::size_t offset = raster.output_offset +
+                        static_cast<std::size_t>(y) *
+                            raster.output_bytes_per_row + x;
+                    coverage[offset] = static_cast<std::byte>(
+                        std::min(value, 255U));
+                }
+                continue;
+            }
             for (std::uint32_t x = 0U; x < raster.width; ++x) {
                 std::uint32_t covered_samples = 0U;
                 const float pixel_x = uniform.x_start +
@@ -400,7 +467,6 @@ bool rasterize_glyph_coverage_cpu(
                 const float first_glyph_x = (
                     pixel_x + 0.0625F - uniform.subpixel_x) /
                     uniform.scale;
-                const float glyph_sample_step = 0.125F / uniform.scale;
                 for (std::uint32_t sample_y = 0U;
                      sample_y < 8U;
                      ++sample_y) {
@@ -408,15 +474,6 @@ bool rasterize_glyph_coverage_cpu(
                         pixel_y + 0.0625F +
                         static_cast<float>(sample_y) * 0.125F) /
                         uniform.scale;
-                    if (use_intrinsic_simd) {
-                        covered_samples += glyph_covered_samples_row_intrinsic(
-                            first_glyph_x,
-                            glyph_sample_step,
-                            glyph_y,
-                            record,
-                            frame.segments);
-                        continue;
-                    }
                     for (std::uint32_t sample_x = 0U;
                          sample_x < 8U;
                          ++sample_x) {
