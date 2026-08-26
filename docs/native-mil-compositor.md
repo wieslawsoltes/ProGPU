@@ -115,6 +115,21 @@ for `progpu_native.dll` and
 `9F73E41536B3BD96A0A44692EA65888C9DE004B19FBF5DE90489768667FBBDDBC`
 for the wgpu-native runtime DLL.
 
+Drawing-layout checkpoint `9d489872` migrates GeometryDrawing,
+GlyphRunDrawing, ImageDrawing, DrawingImage, variable GuidelineSet and
+DrawingGroup payloads, and BitmapCache to generated WPF MCG metadata. The
+generated fixed-header boundary now owns guideline coordinate arrays and
+drawing child-handle arrays. Existing drawing/resource-type dependencies,
+cycle checks, opacity/render-option validation, cached bounds preservation,
+child render-data synthesis, and bitmap-cache policy remain unchanged. Apple
+Silicon passed the generator check and all 11 native/Dawn CTests. Clean
+detached Windows ARM64 MSVC `/W4 /WX` rebuilt both modules and passed all 11
+tests; SHA-256 is
+`096EE139F64DDB2D0FEC503424ECBFED98D97AEDCA29E9C9DD80ACF9FDF8FCE8`
+for `progpu_native.dll` and
+`9F73E41536B3BD96A0A44692EA65888C9DE004B19FBF5DE90489768667FBBDDBC`
+for the wgpu-native runtime DLL.
+
 ## Architecture
 
 ```text
