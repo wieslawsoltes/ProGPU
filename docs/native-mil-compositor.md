@@ -3135,6 +3135,16 @@ for `progpu_native.dll` and
 `743FE185F4D4C900CA1B7F5B18AD85BEAAD47CEA592315AF22D81E625DF0393D`
 for `progpu_native_dawn.dll`.
 
+The intrinsic glyph fallback continues to require measured no-regression on
+both normal and high-DPI workloads. An exact ARM64 experiment replacing its
+pairwise NEON coverage-count reduction with `vaddvq_u32` horizontal adds was
+rejected: four alternating 120-frame runs per variant regressed 2x
+submission/frame p50 by 16.8%/6.1%, while 1x frame and tail latency also
+worsened. Both variants retained zero pixel difference at
+`5B6EF4F70536C862` (1x) and `706B261418EC5C3B` (2x). The qualified pairwise
+reduction remains in source; the ignored A/B reports preserve the negative
+evidence locally.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
