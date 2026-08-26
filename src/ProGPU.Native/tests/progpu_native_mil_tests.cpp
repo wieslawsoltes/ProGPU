@@ -1939,6 +1939,12 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     constexpr std::uint32_t parent = 8U;
     constexpr std::uint32_t parent_mask = 9U;
     constexpr std::uint32_t child_mask = 10U;
+    constexpr std::uint32_t blur_radius_animation = 11U;
+    constexpr std::uint32_t shadow_depth_animation = 12U;
+    constexpr std::uint32_t shadow_color_animation = 13U;
+    constexpr std::uint32_t shadow_direction_animation = 14U;
+    constexpr std::uint32_t shadow_opacity_animation = 15U;
+    constexpr std::uint32_t shadow_radius_animation = 16U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -1946,6 +1952,12 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     append_create(batch, target, 47U);
     append_create(batch, brush, 75U);
     append_create(batch, blur, 36U);
+    append_create(batch, blur_radius_animation, 49U);
+    append_create(batch, shadow_depth_animation, 49U);
+    append_create(batch, shadow_color_animation, 50U);
+    append_create(batch, shadow_direction_animation, 49U);
+    append_create(batch, shadow_opacity_animation, 49U);
+    append_create(batch, shadow_radius_animation, 49U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -1970,11 +1982,26 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
         0U);
     append_render_data(batch, content, nested);
     append_command(
+        batch, command::double_resource, blur_radius_animation, 9.75);
+    append_command(
+        batch, command::double_resource, shadow_depth_animation, 5.0);
+    append_command(
+        batch,
+        command::color_resource,
+        shadow_color_animation,
+        std::array<float, 4U>{0.1F, 0.2F, 0.3F, 0.5F});
+    append_command(
+        batch, command::double_resource, shadow_direction_animation, 315.0);
+    append_command(
+        batch, command::double_resource, shadow_opacity_animation, 0.4);
+    append_command(
+        batch, command::double_resource, shadow_radius_animation, 6.9);
+    append_command(
         batch,
         command::blur_effect,
         blur,
-        9.75,
-        0U,
+        1.0,
+        blur_radius_animation,
         0U,
         1U);
     append_command(batch, command::visual_set_effect, visual, blur);
@@ -2040,6 +2067,26 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     PROGPU_REQUIRE(bounded_layers[0].bounds.width == 50.0F);
     PROGPU_REQUIRE(bounded_layers[0].bounds.height == 42.0F);
 
+    const auto initial_blur_revision = effect.revision;
+    std::vector<std::byte> blur_animation_update;
+    append_command(
+        blur_animation_update,
+        command::double_resource,
+        blur_radius_animation,
+        12.2);
+    PROGPU_REQUIRE(state.apply(blur_animation_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9014U, 3U, stream, &metrics) ==
+        status::success);
+    effect = read_effect();
+    PROGPU_REQUIRE(effect.sigma_x == 4.0F && effect.sigma_y == 4.0F);
+    PROGPU_REQUIRE(effect.revision != initial_blur_revision);
+    bounded_layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(bounded_layers[0].bounds.x == -4.0F);
+    PROGPU_REQUIRE(bounded_layers[0].bounds.y == -2.0F);
+    PROGPU_REQUIRE(bounded_layers[0].bounds.width == 56.0F);
+    PROGPU_REQUIRE(bounded_layers[0].bounds.height == 48.0F);
+
     std::vector<std::byte> unsupported_box;
     append_command(
         unsupported_box,
@@ -2052,27 +2099,39 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     PROGPU_REQUIRE(
         state.apply(unsupported_box) == status::unsupported_command);
 
+    std::vector<std::byte> wrong_blur_animation_type;
+    append_command(
+        wrong_blur_animation_type,
+        command::blur_effect,
+        blur,
+        9.0,
+        shadow_color_animation,
+        0U,
+        0U);
+    PROGPU_REQUIRE(
+        state.apply(wrong_blur_animation_type) == status::invalid_handle);
+
     std::vector<std::byte> replace;
     append_create(replace, shadow, 37U);
     append_command(
         replace,
         command::drop_shadow_effect,
         shadow,
-        5.0,
-        progpu_native_color{0.1F, 0.2F, 0.3F, 0.5F},
-        315.0,
-        0.4,
-        6.9,
-        0U,
-        0U,
-        0U,
-        0U,
-        0U,
+        1.0,
+        progpu_native_color{1.0F, 1.0F, 1.0F, 1.0F},
+        0.0,
+        1.0,
+        1.0,
+        shadow_depth_animation,
+        shadow_color_animation,
+        shadow_direction_animation,
+        shadow_opacity_animation,
+        shadow_radius_animation,
         0U);
     append_command(replace, command::visual_set_effect, visual, shadow);
     PROGPU_REQUIRE(state.apply(replace) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 9014U, 3U, stream, &metrics) ==
+        state.build_scene(target, 9014U, 4U, stream, &metrics) ==
         status::success);
     effect = read_effect();
     PROGPU_REQUIRE(effect.kind == PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW);
@@ -2091,6 +2150,61 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     PROGPU_REQUIRE(bounded_layers[0].bounds.width == 44.0F);
     PROGPU_REQUIRE(bounded_layers[0].bounds.height == 36.0F);
 
+    const auto initial_shadow_revision = effect.revision;
+    std::vector<std::byte> shadow_animation_update;
+    append_command(
+        shadow_animation_update,
+        command::double_resource,
+        shadow_depth_animation,
+        8.0);
+    append_command(
+        shadow_animation_update,
+        command::color_resource,
+        shadow_color_animation,
+        std::array<float, 4U>{0.6F, 0.5F, 0.4F, 0.75F});
+    append_command(
+        shadow_animation_update,
+        command::double_resource,
+        shadow_direction_animation,
+        180.0);
+    append_command(
+        shadow_animation_update,
+        command::double_resource,
+        shadow_opacity_animation,
+        0.5);
+    append_command(
+        shadow_animation_update,
+        command::double_resource,
+        shadow_radius_animation,
+        9.5);
+    PROGPU_REQUIRE(state.apply(shadow_animation_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9014U, 5U, stream, &metrics) ==
+        status::success);
+    effect = read_effect();
+    PROGPU_REQUIRE(effect.kind == PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW);
+    PROGPU_REQUIRE(effect.sigma_x == 3.0F && effect.sigma_y == 3.0F);
+    PROGPU_REQUIRE(std::abs(effect.offset_x + 8.0F) < 0.00001F);
+    PROGPU_REQUIRE(std::abs(effect.offset_y) < 0.00001F);
+    PROGPU_REQUIRE(effect.color_r == 0.6F && effect.color_g == 0.5F &&
+        effect.color_b == 0.4F &&
+        std::abs(effect.color_a - 0.375F) < 0.00001F);
+    PROGPU_REQUIRE(effect.revision != initial_shadow_revision);
+    bounded_layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(std::abs(bounded_layers[0].bounds.x + 9.0F) < 0.00001F);
+    PROGPU_REQUIRE(std::abs(bounded_layers[0].bounds.y - 1.0F) < 0.00001F);
+    PROGPU_REQUIRE(std::abs(bounded_layers[0].bounds.width - 50.0F) < 0.00001F);
+    PROGPU_REQUIRE(std::abs(bounded_layers[0].bounds.height - 42.0F) < 0.00001F);
+
+    std::vector<std::byte> delete_effect_animation;
+    append_command(
+        delete_effect_animation,
+        command::channel_delete_resource,
+        shadow_color_animation,
+        50U);
+    PROGPU_REQUIRE(
+        state.apply(delete_effect_animation) == status::invalid_graph);
+
     std::vector<std::byte> delete_referenced;
     append_command(
         delete_referenced,
@@ -2102,6 +2216,7 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     append_command(clear, command::visual_set_effect, visual, 0U);
     PROGPU_REQUIRE(state.apply(clear) == status::success);
     PROGPU_REQUIRE(state.apply(delete_referenced) == status::success);
+    PROGPU_REQUIRE(state.apply(delete_effect_animation) == status::success);
 
     std::vector<std::byte> clipped_effect;
     append_create(clipped_effect, clip, 69U);

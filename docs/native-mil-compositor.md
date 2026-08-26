@@ -1573,6 +1573,19 @@ animation handles, deletion is dependency-protected, and tests mutate both
 resources without retransmitting the brush or render data and verify the new
 semantic brush payload.
 
+BlurEffect and DropShadowEffect now use the same live retained-resource model.
+Blur radius resolves its type-49 DoubleResource; drop-shadow depth, direction,
+opacity, and blur radius resolve their four DoubleResources, while shadow color
+resolves its type-50 ColorResource. Scene compilation applies WPF's existing
+radius truncation, transform scaling, direction mapping, and alpha composition
+to the resolved values. The effect-chain and layer revisions incorporate the
+entire typed animation dependency graph, so a value-only update invalidates the
+correct cached effect without retransmitting the effect or Visual. Every edge
+is transactionally type-checked and deletion-protected. Native coverage mutates
+all six live values and verifies sigma, offset, color/alpha, inflated bounds,
+revision changes, and referenced-resource deletion rejection. Box blur remains
+an explicit unsupported kernel; no shader or CPU approximation is substituted.
+
 Direct DrawingImage replay now uses the same typed retained vector path as an
 ImageDrawing that references a DrawingImage. Static and animated DrawImage
 resolve the source's canonical Drawing handle, require the existing exact
@@ -2011,8 +2024,9 @@ blur, shadow-composite, and source-composite passes. Both wgpu-native/Dawn and
 DirectX therefore consume the same retained scene and effect descriptors.
 
 This initial checkpoint was intentionally narrower than general WPF Effect parity.
-Only Gaussian BlurEffect and DropShadowEffect with static values and an
-orthogonal effective transform are accepted. Box blur, animated effect fields,
+Gaussian BlurEffect and DropShadowEffect with an orthogonal effective transform
+are accepted; the later animated-value checkpoint also resolves every canonical
+effect animation handle from typed DoubleResource/ColorResource state. Box blur,
 shear, and composition with an active Visual clip or an uncached spatial
 opacity mask return `unsupported_command`. Non-unit opacity also remains
 unsupported for uncached Visuals. A cached Visual is the bounded exception:

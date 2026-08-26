@@ -654,6 +654,7 @@ struct channel::implementation {
         double direction{};
         double opacity{1.0};
         progpu_native_color color{};
+        std::array<std::uint32_t, 5U> animations{};
     };
 
     struct target_state {
@@ -1124,6 +1125,65 @@ struct channel::implementation {
         return status::success;
     }
 
+    status resolve_effect(
+        std::uint32_t handle,
+        effect_state& value) const noexcept {
+        const auto effect = effects.find(handle);
+        if (effect == effects.end()) {
+            return status::invalid_handle;
+        }
+        value = effect->second;
+        if (value.type == effect_state::kind::blur) {
+            const status radius_status = resolve_animated_double(
+                value.radius, value.animations[0], value.radius);
+            if (radius_status != status::success) {
+                return radius_status;
+            }
+        } else {
+            const status depth_status = resolve_animated_double(
+                value.shadow_depth,
+                value.animations[0],
+                value.shadow_depth);
+            if (depth_status != status::success) {
+                return depth_status;
+            }
+            const status color_status = resolve_animated_color(
+                value.color, value.animations[1], value.color);
+            if (color_status != status::success) {
+                return color_status;
+            }
+            const status direction_status = resolve_animated_double(
+                value.direction, value.animations[2], value.direction);
+            if (direction_status != status::success) {
+                return direction_status;
+            }
+            const status opacity_status = resolve_animated_double(
+                value.opacity, value.animations[3], value.opacity);
+            if (opacity_status != status::success) {
+                return opacity_status;
+            }
+            const status radius_status = resolve_animated_double(
+                value.radius, value.animations[4], value.radius);
+            if (radius_status != status::success) {
+                return radius_status;
+            }
+        }
+        if (!finite_double_as_float(value.radius) ||
+            !finite_double_as_float(value.shadow_depth) ||
+            !finite_double_as_float(value.direction) ||
+            !finite_double_as_float(value.opacity) ||
+            !std::isfinite(value.color.r) ||
+            !std::isfinite(value.color.g) ||
+            !std::isfinite(value.color.b) ||
+            !std::isfinite(value.color.a)) {
+            return status::invalid_graph;
+        }
+        value.radius = std::max(0.0, value.radius);
+        value.shadow_depth = std::max(0.0, value.shadow_depth);
+        value.opacity = std::clamp(value.opacity, 0.0, 1.0);
+        return status::success;
+    }
+
     status resolve_animated_point(
         double base_x,
         double base_y,
@@ -1507,6 +1567,13 @@ struct channel::implementation {
                 if (brush_handle != handle &&
                     (brush.opacity_animation_handle == handle ||
                      brush.color_animation_handle == handle)) {
+                    return status::invalid_graph;
+                }
+            }
+            for (const auto& [effect_handle, effect] : effects) {
+                if (effect_handle != handle &&
+                    std::ranges::find(effect.animations, handle) !=
+                        effect.animations.end()) {
                     return status::invalid_graph;
                 }
             }
@@ -3590,8 +3657,12 @@ struct channel::implementation {
             if (!require_resource(handle, type_blur_effect)) {
                 return status::invalid_handle;
             }
-            if (radius_animation != 0U || kernel_type != 0U) {
+            if (kernel_type != 0U) {
                 return status::unsupported_command;
+            }
+            if (radius_animation != 0U &&
+                !require_resource(radius_animation, type_double_resource)) {
+                return status::invalid_handle;
             }
             if (!std::isfinite(radius) || rendering_bias > 1U) {
                 return status::malformed_batch;
@@ -3599,6 +3670,7 @@ struct channel::implementation {
             effect_state effect{};
             effect.type = effect_state::kind::blur;
             effect.radius = std::max(0.0, radius);
+            effect.animations[0] = radius_animation;
             effects.insert_or_assign(handle, effect);
             increment_generation(handle);
             ++metrics.updated_resource_count;
@@ -3658,10 +3730,15 @@ struct channel::implementation {
             if (!require_resource(handle, type_drop_shadow_effect)) {
                 return status::invalid_handle;
             }
-            if (std::ranges::any_of(
-                    animations,
-                    [](std::uint32_t value) { return value != 0U; })) {
-                return status::unsupported_command;
+            for (std::size_t index = 0U; index < animations.size(); ++index) {
+                const std::uint32_t animation = animations[index];
+                const std::uint32_t animation_type = index == 1U
+                    ? type_color_resource
+                    : type_double_resource;
+                if (animation != 0U &&
+                    !require_resource(animation, animation_type)) {
+                    return status::invalid_handle;
+                }
             }
             if (!std::isfinite(effect.shadow_depth) ||
                 !std::isfinite(effect.direction) ||
@@ -3676,6 +3753,7 @@ struct channel::implementation {
             effect.shadow_depth = std::max(0.0, effect.shadow_depth);
             effect.radius = std::max(0.0, effect.radius);
             effect.opacity = std::clamp(effect.opacity, 0.0, 1.0);
+            effect.animations = animations;
             effects.insert_or_assign(handle, effect);
             increment_generation(handle);
             ++metrics.updated_resource_count;
@@ -9912,6 +9990,20 @@ struct channel::implementation {
             visual == visuals.end()) {
             return status::invalid_handle;
         }
+        effect_state resolved_effect{};
+        const status resolved_effect_status = resolve_effect(
+            effect_handle, resolved_effect);
+        if (resolved_effect_status != status::success) {
+            return resolved_effect_status;
+        }
+        std::uint64_t effect_revision = 14695981039346656037ULL;
+        std::unordered_set<std::uint32_t> active_effect_resources;
+        const status effect_revision_status = append_cache_resource_revision(
+            effect_handle, active_effect_resources, effect_revision);
+        if (effect_revision_status != status::success) {
+            return effect_revision_status;
+        }
+        effect_revision = finish_nonzero_hash(effect_revision);
         // WPF composes Clip > Effect > OpacityMask/Opacity. A local cache is
         // already the required isolated input, so its composite opacity can
         // stay on the inner cache layer and execute before this outer effect.
@@ -10029,20 +10121,19 @@ struct channel::implementation {
         progpu_native_group_effect descriptor{};
         descriptor.struct_size = sizeof(descriptor);
         descriptor.revision = static_cast<std::uint32_t>(
-            resource->second.generation ^
-            (resource->second.generation >> 32U));
+            effect_revision ^ (effect_revision >> 32U));
         if (descriptor.revision == 0U) {
             descriptor.revision = 1U;
         }
         double effect_radius = 0.0;
         if (!wpf_scaled_radius(
-                effect->second.radius,
+                resolved_effect.radius,
                 descriptor.sigma_x,
                 effect_radius)) {
             return status::unsupported_command;
         }
         descriptor.sigma_y = descriptor.sigma_x;
-        if (effect->second.type == effect_state::kind::blur) {
+        if (resolved_effect.type == effect_state::kind::blur) {
             if (descriptor.sigma_x <= 0.01F) {
                 if (!state.has_clip && !isolate_source_composite) {
                     return status::success;
@@ -10085,10 +10176,10 @@ struct channel::implementation {
             descriptor.kind = PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR;
         } else {
             descriptor.kind = PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW;
-            const double radians = effect->second.direction *
+            const double radians = resolved_effect.direction *
                 std::numbers::pi_v<double> / 180.0;
             const double distance =
-                effect->second.shadow_depth * minimum_scale;
+                resolved_effect.shadow_depth * minimum_scale;
             const double offset_x = distance * std::cos(radians);
             const double offset_y = -distance * std::sin(radians);
             const double rest_m11 = state.transform.m11 / scale_x;
@@ -10099,11 +10190,11 @@ struct channel::implementation {
                 offset_x * rest_m11 + offset_y * rest_m21);
             descriptor.offset_y = static_cast<float>(
                 offset_x * rest_m12 + offset_y * rest_m22);
-            descriptor.color_r = effect->second.color.r;
-            descriptor.color_g = effect->second.color.g;
-            descriptor.color_b = effect->second.color.b;
-            descriptor.color_a = effect->second.color.a *
-                static_cast<float>(effect->second.opacity);
+            descriptor.color_r = resolved_effect.color.r;
+            descriptor.color_g = resolved_effect.color.g;
+            descriptor.color_b = resolved_effect.color.b;
+            descriptor.color_a = resolved_effect.color.a *
+                static_cast<float>(resolved_effect.opacity);
             if (!std::isfinite(descriptor.offset_x) ||
                 !std::isfinite(descriptor.offset_y) ||
                 descriptor.color_r < 0.0F || descriptor.color_r > 1.0F ||
@@ -10131,8 +10222,8 @@ struct channel::implementation {
         layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
         layer.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         layer.effect_resource_index = effect_index;
-        layer.content_revision = resource->second.generation;
-        layer.composite_revision = resource->second.generation;
+        layer.content_revision = effect_revision;
+        layer.composite_revision = effect_revision;
         if (visual->second.has_cache_bounds) {
             progpu_native_image_rect source_bounds{};
             if (!try_transform_bounds(
@@ -10152,7 +10243,7 @@ struct channel::implementation {
             double effect_top = source_top - effect_radius;
             double effect_right = source_right + effect_radius;
             double effect_bottom = source_bottom + effect_radius;
-            if (effect->second.type == effect_state::kind::drop_shadow) {
+            if (resolved_effect.type == effect_state::kind::drop_shadow) {
                 effect_left = std::min(
                     source_left,
                     source_left + descriptor.offset_x - effect_radius);
@@ -10237,6 +10328,16 @@ struct channel::implementation {
             } else {
                 append_if_success(brush->second.opacity_animation_handle);
                 append_if_success(brush->second.color_animation_handle);
+            }
+        } else if (is_effect_type(resource->second.type)) {
+            const auto effect = effects.find(handle);
+            if (effect == effects.end()) {
+                result = status::invalid_handle;
+            } else {
+                for (const std::uint32_t animation :
+                     effect->second.animations) {
+                    append_if_success(animation);
+                }
             }
         } else if (resource->second.type == type_linear_gradient_brush ||
             resource->second.type == type_radial_gradient_brush) {
