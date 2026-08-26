@@ -118,6 +118,12 @@ PROGPU_PACKAGE_GROUP=portable ./eng/progpu-pack.sh
 See [`docs/progpu-packaging.md`](docs/progpu-packaging.md) for package-only
 consumer validation, version overrides, and publishing.
 
+Compute-heavy workloads follow the typed
+[`GPU-first compute fallback policy`](docs/GPU_COMPUTE_FALLBACK_POLICY.md):
+native compute remains the default where qualified, exact same-device shader
+stages precede CPU fallback, and CPU implementations use intrinsic SIMD with a
+scalar differential oracle.
+
 The mobile packages contain the managed hosts and `buildTransitive` native-link
 contracts. Until native binaries are distributed independently, applications set
 `ProGpuWgpuNativeAndroidRoot` or `ProGpuWgpuNativeXCFramework` to outputs from the
