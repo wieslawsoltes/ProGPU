@@ -719,6 +719,7 @@ struct channel::implementation {
         double thickness{};
         double miter_limit{10.0};
         std::uint32_t brush_handle{};
+        std::uint32_t thickness_animation_handle{};
         std::uint32_t start_line_cap{};
         std::uint32_t end_line_cap{};
         std::uint32_t dash_cap{};
@@ -728,6 +729,7 @@ struct channel::implementation {
 
     struct dash_style_state {
         double offset{};
+        std::uint32_t offset_animation_handle{};
         std::vector<double> intervals;
     };
 
@@ -1124,6 +1126,47 @@ struct channel::implementation {
             return status::invalid_graph;
         }
         return status::success;
+    }
+
+    status resolve_pen(
+        std::uint32_t handle,
+        pen_state& value) const noexcept {
+        const auto pen = pens.find(handle);
+        if (pen == pens.end()) {
+            return status::invalid_handle;
+        }
+        value = pen->second;
+        const status thickness_status = resolve_animated_double(
+            value.thickness,
+            value.thickness_animation_handle,
+            value.thickness);
+        if (thickness_status != status::success) {
+            return thickness_status;
+        }
+        if (!finite_double_as_float(value.thickness) ||
+            value.thickness < 0.0) {
+            return status::invalid_graph;
+        }
+        return status::success;
+    }
+
+    status resolve_dash_offset(
+        std::uint32_t handle,
+        double& value) const noexcept {
+        const auto dash = dash_styles.find(handle);
+        if (dash == dash_styles.end()) {
+            return status::invalid_handle;
+        }
+        const status offset_status = resolve_animated_double(
+            dash->second.offset,
+            dash->second.offset_animation_handle,
+            value);
+        if (offset_status != status::success) {
+            return offset_status;
+        }
+        return finite_double_as_float(value)
+            ? status::success
+            : status::invalid_graph;
     }
 
     status resolve_effect(
@@ -1601,7 +1644,14 @@ struct channel::implementation {
             for (const auto& [pen_handle, pen] : pens) {
                 if (pen_handle != handle &&
                     (pen.brush_handle == handle ||
-                     pen.dash_style_handle == handle)) {
+                     pen.dash_style_handle == handle ||
+                     pen.thickness_animation_handle == handle)) {
+                    return status::invalid_graph;
+                }
+            }
+            for (const auto& [dash_handle, dash] : dash_styles) {
+                if (dash_handle != handle &&
+                    dash.offset_animation_handle == handle) {
                     return status::invalid_graph;
                 }
             }
@@ -4264,14 +4314,16 @@ struct channel::implementation {
             if (!require_resource(handle, type_dash_style)) {
                 return status::invalid_handle;
             }
-            if (offset_animations != 0U) {
-                return status::unsupported_command;
+            if (offset_animations != 0U &&
+                !require_resource(offset_animations, type_double_resource)) {
+                return status::invalid_handle;
             }
             if (!finite_double_as_float(dash.offset)) {
                 return status::malformed_batch;
             }
             const std::size_t dash_count =
                 dashes_size / sizeof(double);
+            dash.offset_animation_handle = offset_animations;
             try {
                 dash.intervals.resize(dash_count);
             } catch (const std::bad_alloc&) {
@@ -4339,8 +4391,10 @@ struct channel::implementation {
                  !require_resource(dash_style, type_dash_style))) {
                 return status::invalid_handle;
             }
-            if (thickness_animations != 0U) {
-                return status::unsupported_command;
+            if (thickness_animations != 0U &&
+                !require_resource(
+                    thickness_animations, type_double_resource)) {
+                return status::invalid_handle;
             }
             if (!finite_double_as_float(pen.thickness) ||
                 pen.thickness < 0.0 ||
@@ -4350,6 +4404,7 @@ struct channel::implementation {
                 pen.line_join > 2U) {
                 return status::malformed_batch;
             }
+            pen.thickness_animation_handle = thickness_animations;
             pens.insert_or_assign(handle, pen);
             increment_generation(handle);
             ++metrics.updated_resource_count;
@@ -6442,7 +6497,12 @@ struct channel::implementation {
                     return status::invalid_handle;
                 }
                 intervals = dash->second.intervals;
-                dash_offset = dash->second.offset;
+                const status dash_status = resolve_dash_offset(
+                    pen.dash_style_handle,
+                    dash_offset);
+                if (dash_status != status::success) {
+                    return dash_status;
+                }
             }
             progpu_native_scene_stroke stroke{};
             stroke.struct_size = sizeof(stroke);
@@ -6525,9 +6585,14 @@ struct channel::implementation {
                         pattern_length <= 0.0) {
                         return status::unsupported_command;
                     }
-                    double offset = std::fmod(
-                        dash->second.offset,
-                        pattern_length);
+                    double dash_offset = 0.0;
+                    const status dash_status = resolve_dash_offset(
+                        pen.dash_style_handle,
+                        dash_offset);
+                    if (dash_status != status::success) {
+                        return dash_status;
+                    }
+                    double offset = std::fmod(dash_offset, pattern_length);
                     if (!std::isfinite(offset)) {
                         return status::unsupported_command;
                     }
@@ -6641,40 +6706,40 @@ struct channel::implementation {
             if (pen_handle == 0U) {
                 return status::success;
             }
-            const auto pen = pens.find(pen_handle);
-            if (pen == pens.end()) {
-                return status::invalid_handle;
+            pen_state pen{};
+            const status pen_status = resolve_pen(pen_handle, pen);
+            if (pen_status != status::success) {
+                return pen_status;
             }
-            if (pen->second.brush_handle == 0U ||
-                pen->second.thickness == 0.0) {
+            if (pen.brush_handle == 0U || pen.thickness == 0.0) {
                 return status::success;
             }
             if (affine_has_zero_area(effective_transform)) {
                 return status::success;
             }
             if (x0 == x1 && y0 == y1) {
-                if (pen->second.start_line_cap ==
+                if (pen.start_line_cap ==
                         PROGPU_NATIVE_STROKE_CAP_FLAT &&
-                    pen->second.end_line_cap ==
+                    pen.end_line_cap ==
                         PROGPU_NATIVE_STROKE_CAP_FLAT) {
                     return status::success;
                 }
                 std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
                 const status brush_status = resolve_brush_index(
-                    pen->second.brush_handle,
+                    pen.brush_handle,
                     brush_index);
                 if (brush_status != status::success) {
                     return brush_status;
                 }
                 bool emitted = false;
                 const status cap_status = append_degenerate_cap_stroke(
-                    pen->second,
+                    pen,
                     {static_cast<float>(x0), static_cast<float>(y0)},
                     brush_index,
                     local_transform,
                     effective_transform,
-                    pen->second.start_line_cap,
-                    pen->second.end_line_cap,
+                    pen.start_line_cap,
+                    pen.end_line_cap,
                     emitted);
                 if (cap_status == status::success && emitted) {
                     ++metrics.line_count;
@@ -6690,9 +6755,9 @@ struct channel::implementation {
                     y0,
                     x1,
                     y1,
-                    pen->second.thickness,
-                    pen->second.start_line_cap,
-                    pen->second.end_line_cap,
+                    pen.thickness,
+                    pen.start_line_cap,
+                    pen.end_line_cap,
                     local_x,
                     local_y,
                     local_width,
@@ -6707,7 +6772,7 @@ struct channel::implementation {
                 local_height,
                 effective_transform};
             const status brush_status = resolve_brush_index(
-                pen->second.brush_handle,
+                pen.brush_handle,
                 brush_index,
                 &brush_use);
             if (brush_status != status::success) {
@@ -6734,11 +6799,11 @@ struct channel::implementation {
                     ? static_cast<std::uint32_t>(
                         PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
                     : 0U) |
-                (pen->second.start_line_cap <<
+                (pen.start_line_cap <<
                     PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT) |
-                (pen->second.end_line_cap <<
+                (pen.end_line_cap <<
                     PROGPU_NATIVE_PRIMITIVE_END_CAP_SHIFT);
-            if (pen->second.dash_style_handle == 0U) {
+            if (pen.dash_style_handle == 0U) {
                 const std::array primitives{
                     progpu_native_geometry_primitive{
                         PROGPU_NATIVE_GEOMETRY_LINE,
@@ -6747,7 +6812,7 @@ struct channel::implementation {
                         {static_cast<float>(x1), static_cast<float>(y1)},
                         {},
                         {},
-                        static_cast<float>(pen->second.thickness),
+                        static_cast<float>(pen.thickness),
                         0.0F,
                         {1.0F, 1.0F, 1.0F, 1.0F},
                         native_local_transform}};
@@ -6767,14 +6832,14 @@ struct channel::implementation {
                         static_cast<float>(x1),
                         static_cast<float>(y1)}};
                 const status stroke_status = append_polyline_stroke(
-                    pen->second,
+                    pen,
                     points,
                     false,
                     brush_index,
                     transformed_bounds,
                     native_local_transform,
-                    pen->second.start_line_cap,
-                    pen->second.end_line_cap);
+                    pen.start_line_cap,
+                    pen.end_line_cap);
                 if (stroke_status != status::success) {
                     return stroke_status;
                 }
@@ -8727,13 +8792,15 @@ struct channel::implementation {
                     const bool has_zero_area =
                         affine_has_zero_area(effective_transform);
                     if (pen_handle != 0U) {
-                        const auto pen = pens.find(pen_handle);
-                        if (pen == pens.end()) {
-                            return status::invalid_handle;
+                        pen_state pen{};
+                        const status pen_status = resolve_pen(
+                            pen_handle, pen);
+                        if (pen_status != status::success) {
+                            return pen_status;
                         }
                         if (!has_zero_area &&
-                            pen->second.brush_handle != 0U &&
-                            pen->second.thickness > 0.0) {
+                            pen.brush_handle != 0U &&
+                            pen.thickness > 0.0) {
                             return status::unsupported_command;
                         }
                     }
@@ -8902,13 +8969,15 @@ struct channel::implementation {
                     const bool has_zero_area =
                         affine_has_zero_area(effective_transform);
                     if (pen_handle != 0U) {
-                        const auto pen = pens.find(pen_handle);
-                        if (pen == pens.end()) {
-                            return status::invalid_handle;
+                        pen_state pen{};
+                        const status pen_status = resolve_pen(
+                            pen_handle, pen);
+                        if (pen_status != status::success) {
+                            return pen_status;
                         }
                         if (!has_zero_area &&
-                            pen->second.brush_handle != 0U &&
-                            pen->second.thickness > 0.0) {
+                            pen.brush_handle != 0U &&
+                            pen.thickness > 0.0) {
                             return status::unsupported_command;
                         }
                     }
@@ -9120,13 +9189,15 @@ struct channel::implementation {
                         }
                     }
                     if (pen_handle != 0U) {
-                        const auto pen = pens.find(pen_handle);
-                        if (pen == pens.end()) {
-                            return status::invalid_handle;
+                        pen_state pen{};
+                        const status pen_status = resolve_pen(
+                            pen_handle, pen);
+                        if (pen_status != status::success) {
+                            return pen_status;
                         }
                         const status stroke_status = append_path_strokes(
                             path_geometry->second,
-                            pen->second,
+                            pen,
                             local_transform,
                             effective_transform);
                         if (stroke_status != status::success) {
@@ -9500,12 +9571,12 @@ struct channel::implementation {
                 }
             }
             if (pen_handle != 0U) {
-                const auto pen = pens.find(pen_handle);
-                if (pen == pens.end()) {
-                    return status::invalid_handle;
+                pen_state pen{};
+                const status pen_status = resolve_pen(pen_handle, pen);
+                if (pen_status != status::success) {
+                    return pen_status;
                 }
-                if (pen->second.brush_handle != 0U &&
-                    pen->second.thickness > 0.0) {
+                if (pen.brush_handle != 0U && pen.thickness > 0.0) {
                     if (width == 0.0 || height == 0.0) {
                         const status stroke_status = is_ellipse
                             ? append_degenerate_ellipse_stroke(
@@ -9513,7 +9584,7 @@ struct channel::implementation {
                                   second,
                                   third,
                                   fourth,
-                                  pen->second,
+                                  pen,
                                   local_transform,
                                   effective_transform)
                             : append_degenerate_rectangle_stroke(
@@ -9522,7 +9593,7 @@ struct channel::implementation {
                                   width,
                                   height,
                                   has_rounded_corners ? radius_x : 0.0,
-                                  pen->second,
+                                  pen,
                                   local_transform,
                                   effective_transform);
                         if (stroke_status != status::success) {
@@ -9530,17 +9601,17 @@ struct channel::implementation {
                         }
                     } else {
                         const double half_thickness =
-                            pen->second.thickness * 0.5;
+                            pen.thickness * 0.5;
                         const brush_use_state brush_use{
                             x - half_thickness,
                             y - half_thickness,
-                            width + pen->second.thickness,
-                            height + pen->second.thickness,
+                            width + pen.thickness,
+                            height + pen.thickness,
                             effective_transform};
                         std::uint32_t pen_brush_index =
                             PROGPU_NATIVE_SCENE_NO_INDEX;
                         const status brush_status = resolve_brush_index(
-                            pen->second.brush_handle,
+                            pen.brush_handle,
                             pen_brush_index,
                             &brush_use);
                         if (brush_status != status::success) {
@@ -9550,16 +9621,16 @@ struct channel::implementation {
                         if (!try_transform_bounds(
                                 x - half_thickness,
                                 y - half_thickness,
-                                width + pen->second.thickness,
-                                height + pen->second.thickness,
+                                width + pen.thickness,
+                                height + pen.thickness,
                                 effective_transform,
                                 stroke_bounds)) {
                             return status::invalid_graph;
                         }
                         if (is_ellipse) {
-                            if (pen->second.dash_style_handle != 0U) {
+                            if (pen.dash_style_handle != 0U) {
                                 const auto dash = dash_styles.find(
-                                    pen->second.dash_style_handle);
+                                    pen.dash_style_handle);
                                 if (dash == dash_styles.end()) {
                                     return status::invalid_handle;
                                 }
@@ -9581,7 +9652,7 @@ struct channel::implementation {
                                     {0.0F,
                                         std::numbers::pi_v<float> * 2.0F},
                                     static_cast<float>(
-                                        pen->second.thickness),
+                                        pen.thickness),
                                     0.0F,
                                     {1.0F, 1.0F, 1.0F, 1.0F},
                                     native_local_transform}};
@@ -9593,9 +9664,9 @@ struct channel::implementation {
                                 return status::invalid_graph;
                             }
                         } else if (has_rounded_corners) {
-                            if (pen->second.dash_style_handle != 0U) {
+                            if (pen.dash_style_handle != 0U) {
                                 const auto dash = dash_styles.find(
-                                    pen->second.dash_style_handle);
+                                    pen.dash_style_handle);
                                 if (dash == dash_styles.end()) {
                                     return status::invalid_handle;
                                 }
@@ -9615,7 +9686,7 @@ struct channel::implementation {
                                 const status stroke_status =
                                     append_path_strokes(
                                         rounded_geometry,
-                                        pen->second,
+                                        pen,
                                         local_transform,
                                         effective_transform);
                                 if (stroke_status != status::success) {
@@ -9635,7 +9706,7 @@ struct channel::implementation {
                                         static_cast<float>(height),
                                         static_cast<float>(radius_x),
                                         static_cast<float>(
-                                            pen->second.thickness),
+                                            pen.thickness),
                                         {1.0F, 1.0F, 1.0F, 1.0F},
                                         native_local_transform}};
                                 const std::array brushes{pen_brush_index};
@@ -9662,14 +9733,14 @@ struct channel::implementation {
                                     static_cast<float>(y + height)}};
                             const status stroke_status =
                                 append_polyline_stroke(
-                                    pen->second,
+                                    pen,
                                     points,
                                     true,
                                     pen_brush_index,
                                     stroke_bounds,
                                     native_local_transform,
-                                    pen->second.start_line_cap,
-                                    pen->second.end_line_cap);
+                                    pen.start_line_cap,
+                                    pen.end_line_cap);
                             if (stroke_status != status::success) {
                                 return stroke_status;
                             }
@@ -10523,6 +10594,14 @@ struct channel::implementation {
             } else {
                 append_if_success(pen->second.brush_handle);
                 append_if_success(pen->second.dash_style_handle);
+                append_if_success(pen->second.thickness_animation_handle);
+            }
+        } else if (resource->second.type == type_dash_style) {
+            const auto dash = dash_styles.find(handle);
+            if (dash == dash_styles.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(dash->second.offset_animation_handle);
             }
         } else if (resource->second.type == type_line_geometry ||
             resource->second.type == type_rectangle_geometry ||
