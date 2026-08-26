@@ -3281,16 +3281,26 @@ struct channel::implementation {
             return status::success;
         }
         case command::blur_effect: {
+            using layout = command_layouts::blur_effect;
             double radius = 0.0;
             std::uint32_t radius_animation = 0U;
             std::uint32_t kernel_type = 0U;
             std::uint32_t rendering_bias = 0U;
-            if (!has_exact_size(view, 28U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, radius) ||
-                !read_at(view.packet, 16U, radius_animation) ||
-                !read_at(view.packet, 20U, kernel_type) ||
-                !read_at(view.packet, 24U, rendering_bias)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::radius_offset, radius) ||
+                !read_at(
+                    view.packet,
+                    layout::h_radius_animations_offset,
+                    radius_animation) ||
+                !read_at(
+                    view.packet,
+                    layout::kernel_type_offset,
+                    kernel_type) ||
+                !read_at(
+                    view.packet,
+                    layout::rendering_bias_offset,
+                    rendering_bias)) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_blur_effect)) {
@@ -3311,23 +3321,54 @@ struct channel::implementation {
             return status::success;
         }
         case command::drop_shadow_effect: {
+            using layout = command_layouts::drop_shadow_effect;
             effect_state effect{};
             effect.type = effect_state::kind::drop_shadow;
             std::array<std::uint32_t, 5U> animations{};
             std::uint32_t rendering_bias = 0U;
-            if (!has_exact_size(view, 80U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, effect.shadow_depth) ||
-                !read_at(view.packet, 16U, effect.color) ||
-                !read_at(view.packet, 32U, effect.direction) ||
-                !read_at(view.packet, 40U, effect.opacity) ||
-                !read_at(view.packet, 48U, effect.radius) ||
-                !read_at(view.packet, 56U, animations[0]) ||
-                !read_at(view.packet, 60U, animations[1]) ||
-                !read_at(view.packet, 64U, animations[2]) ||
-                !read_at(view.packet, 68U, animations[3]) ||
-                !read_at(view.packet, 72U, animations[4]) ||
-                !read_at(view.packet, 76U, rendering_bias)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::shadow_depth_offset,
+                    effect.shadow_depth) ||
+                !read_at(view.packet, layout::color_offset, effect.color) ||
+                !read_at(
+                    view.packet,
+                    layout::direction_offset,
+                    effect.direction) ||
+                !read_at(
+                    view.packet,
+                    layout::opacity_offset,
+                    effect.opacity) ||
+                !read_at(
+                    view.packet,
+                    layout::blur_radius_offset,
+                    effect.radius) ||
+                !read_at(
+                    view.packet,
+                    layout::h_shadow_depth_animations_offset,
+                    animations[0]) ||
+                !read_at(
+                    view.packet,
+                    layout::h_color_animations_offset,
+                    animations[1]) ||
+                !read_at(
+                    view.packet,
+                    layout::h_direction_animations_offset,
+                    animations[2]) ||
+                !read_at(
+                    view.packet,
+                    layout::h_opacity_animations_offset,
+                    animations[3]) ||
+                !read_at(
+                    view.packet,
+                    layout::h_blur_radius_animations_offset,
+                    animations[4]) ||
+                !read_at(
+                    view.packet,
+                    layout::rendering_bias_offset,
+                    rendering_bias)) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_drop_shadow_effect)) {

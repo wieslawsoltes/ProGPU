@@ -92,6 +92,12 @@ static_assert(command_layouts::drawing_group::fixed_size == 52U);
 static_assert(command_layouts::drawing_group::children_size_offset == 16U);
 static_assert(command_layouts::bitmap_cache::fixed_size == 28U);
 static_assert(command_layouts::bitmap_cache::enable_clear_type_offset == 24U);
+static_assert(command_layouts::blur_effect::fixed_size == 28U);
+static_assert(command_layouts::blur_effect::rendering_bias_offset == 24U);
+static_assert(command_layouts::drop_shadow_effect::fixed_size == 80U);
+static_assert(
+    command_layouts::drop_shadow_effect::h_blur_radius_animations_offset ==
+    72U);
 static_assert(
     command_layouts::fixed_header_size(command::visual_set_offset) == 24U);
 static_assert(
