@@ -102,6 +102,54 @@ void semantic_state_cursor::snap_composite_point(
     const progpu_native_scene_state& state,
     float& target_x,
     float& target_y) const noexcept {
+    if ((read_guideline_flags(state) &
+            PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT) != 0U) {
+        return;
+    }
+    snap_point(state, target_x, target_y);
+}
+
+bool semantic_state_cursor::has_per_point_guidelines(
+    const progpu_native_scene_state& state) const noexcept {
+    return (read_guideline_flags(state) &
+        PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT) != 0U;
+}
+
+void semantic_state_cursor::snap_draw_point(
+    const progpu_native_scene_state& state,
+    float& target_x,
+    float& target_y) const noexcept {
+    if (!has_per_point_guidelines(state)) {
+        return;
+    }
+    snap_point(state, target_x, target_y);
+}
+
+std::uint32_t semantic_state_cursor::read_guideline_flags(
+    const progpu_native_scene_state& state) const noexcept {
+    if ((state.flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) == 0U ||
+        state.guideline_resource_index >= header_.resource_count) {
+        return 0U;
+    }
+    progpu_native_scene_resource resource{};
+    std::memcpy(
+        &resource,
+        bytes_ + header_.resource_offset +
+            static_cast<std::size_t>(state.guideline_resource_index) *
+                header_.resource_stride,
+        sizeof(resource));
+    progpu_native_scene_guideline_set guidelines{};
+    std::memcpy(
+        &guidelines,
+        bytes_ + resource.payload_offset,
+        sizeof(guidelines));
+    return guidelines.flags;
+}
+
+void semantic_state_cursor::snap_point(
+    const progpu_native_scene_state& state,
+    float& target_x,
+    float& target_y) const noexcept {
     if ((state.flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) == 0U ||
         !std::isfinite(dpi_scale_) || dpi_scale_ <= 0.0F) {
         return;
@@ -198,6 +246,9 @@ progpu_native_scene_state semantic_state_cursor::resolve_guidelines(
         &guidelines,
         bytes_ + resource.payload_offset,
         sizeof(guidelines));
+    if ((guidelines.flags & PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT) != 0U) {
+        return state;
+    }
     std::size_t offset = resource.payload_offset + sizeof(guidelines);
     if (guidelines.guideline_x_count != 0U) {
         double coordinate = 0.0;

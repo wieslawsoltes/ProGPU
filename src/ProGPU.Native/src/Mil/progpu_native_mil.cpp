@@ -6992,9 +6992,7 @@ struct channel::implementation {
                             active_drawings.erase(drawing_handle);
                             return status::invalid_handle;
                         }
-                        if (guidelines->second.is_dynamic ||
-                            guidelines->second.guidelines_x.size() > 1U ||
-                            guidelines->second.guidelines_y.size() > 1U) {
+                        if (guidelines->second.is_dynamic) {
                             active_drawings.erase(drawing_handle);
                             return status::unsupported_command;
                         }
@@ -8204,9 +8202,6 @@ struct channel::implementation {
         bool composite_only) {
         const bool multiple =
             guidelines_x.size() > 1U || guidelines_y.size() > 1U;
-        if (multiple && !composite_only) {
-            return status::unsupported_command;
-        }
         if (state.transform.m12 != 0.0 || state.transform.m21 != 0.0 ||
             (guidelines_x.empty() && guidelines_y.empty())) {
             state.guideline_resource_index =
@@ -8264,7 +8259,8 @@ struct channel::implementation {
                 mapped_x,
                 mapped_y,
                 guideline_resource_index,
-                multiple)) {
+                multiple && composite_only,
+                multiple && !composite_only)) {
             return status::invalid_graph;
         }
         state.guideline_resource_index = guideline_resource_index;

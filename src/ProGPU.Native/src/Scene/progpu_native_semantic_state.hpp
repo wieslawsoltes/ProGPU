@@ -32,7 +32,21 @@ public:
         float& target_x,
         float& target_y) const noexcept;
 
+    bool has_per_point_guidelines(
+        const progpu_native_scene_state& state) const noexcept;
+
+    void snap_draw_point(
+        const progpu_native_scene_state& state,
+        float& target_x,
+        float& target_y) const noexcept;
+
 private:
+    std::uint32_t read_guideline_flags(
+        const progpu_native_scene_state& state) const noexcept;
+    void snap_point(
+        const progpu_native_scene_state& state,
+        float& target_x,
+        float& target_y) const noexcept;
     progpu_native_scene_state read_state(std::uint32_t index) const noexcept;
     progpu_native_scene_state resolve_guidelines(
         progpu_native_scene_state state) const noexcept;

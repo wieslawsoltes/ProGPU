@@ -20,7 +20,8 @@ bool semantic_scene_builder::draw_paths(
     std::span<const progpu_native_scene_path_boolean_node>
         boolean_nodes) noexcept {
     if (paths.empty() || segments.empty() || !finite_rect(bounds) ||
-        !implementation_->valid_state_index(state_resource_index) ||
+        !implementation_->valid_state_index(
+            state_resource_index, true) ||
         (!brush_indices.empty() && brush_indices.size() != paths.size()) ||
         implementation_->resources.size() >=
             PROGPU_NATIVE_SCENE_MAX_RESOURCES ||

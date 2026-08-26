@@ -328,10 +328,59 @@ bool semantic_scene_builder_bounds_composite_only_guidelines() {
         return false;
     }
 
-    semantic_scene_builder invalid(703U, 1U);
+    semantic_scene_builder per_point(703U, 1U);
+    if (!per_point.reserve(2U, 2U, 512U)) {
+        return false;
+    }
+    std::uint32_t per_point_guideline_index =
+        PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!per_point.add_guideline_set(
+            guidelines_x,
+            guidelines_y,
+            per_point_guideline_index,
+            false,
+            true)) {
+        return false;
+    }
+    auto per_point_state = semantic_scene_builder::identity_state();
+    per_point_state.flags = PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+    per_point_state.guideline_resource_index = per_point_guideline_index;
+    std::uint32_t per_point_state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!per_point.add_state(per_point_state, per_point_state_index) ||
+        !per_point.save(per_point_state_index) || !per_point.restore()) {
+        return false;
+    }
+    std::vector<std::byte> per_point_stream;
+    if (!per_point.build(per_point_stream)) {
+        return false;
+    }
+    const auto per_point_validated = scene::validate(
+        per_point_stream.data(), per_point_stream.size());
+    if (per_point_validated.status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return false;
+    }
+    const auto per_point_resource = read<progpu_native_scene_resource>(
+        per_point_stream,
+        per_point_validated.header.resource_offset +
+            per_point_guideline_index *
+                per_point_validated.header.resource_stride);
+    const auto per_point_header = read<progpu_native_scene_guideline_set>(
+        per_point_stream, per_point_resource.payload_offset);
+    if (per_point_header.flags !=
+        PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT) {
+        return false;
+    }
+
+    semantic_scene_builder invalid(704U, 1U);
     const std::array unsorted{2.0, 1.0};
     return !invalid.add_guideline_set(
-        unsorted, std::span<const double>{}, guideline_index, true);
+            unsorted, std::span<const double>{}, guideline_index, true) &&
+        !invalid.add_guideline_set(
+            guidelines_x,
+            guidelines_y,
+            guideline_index,
+            true,
+            true);
 }
 
 bool semantic_scene_builder_records_final_composite_clip() {

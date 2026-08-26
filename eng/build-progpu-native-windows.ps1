@@ -301,6 +301,7 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
         Invoke-NativeBenchmark --semantic-local-cache-brush-mask
         Invoke-NativeBenchmark --semantic-local-cache-fant
         Invoke-NativeBenchmark --semantic-local-cache-multi-guideline
+        Invoke-NativeBenchmark --semantic-per-point-path-guideline
         Invoke-NativeBenchmark --semantic-nested-cache-effect
         Invoke-NativeBenchmark --semantic-cache-mask-effect
         Invoke-NativeBenchmark --semantic-cache-effect-clip

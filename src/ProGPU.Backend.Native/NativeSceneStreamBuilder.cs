@@ -1023,6 +1023,24 @@ public ref struct NativeSceneStreamBuilder
             flags);
     }
 
+    public bool TryAddPerPointGuidelineSetResource(
+        ulong resourceId,
+        ulong generation,
+        ReadOnlySpan<double> guidelinesX,
+        ReadOnlySpan<double> guidelinesY,
+        out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
+    {
+        return TryAddGuidelineSetResourceCore(
+            resourceId,
+            generation,
+            guidelinesX,
+            guidelinesY,
+            NativeSceneGuidelineSetFlags.PerPoint,
+            out resourceIndex,
+            flags);
+    }
+
     private bool TryAddGuidelineSetResourceCore(
         ulong resourceId,
         ulong generation,
@@ -1034,8 +1052,13 @@ public ref struct NativeSceneStreamBuilder
     {
         resourceIndex = NativeMethods.SceneNoIndex;
         bool multiple = guidelinesX.Length > 1 || guidelinesY.Length > 1;
-        if (multiple !=
-                (guidelineFlags == NativeSceneGuidelineSetFlags.CompositeOnly) ||
+        const NativeSceneGuidelineSetFlags multiFlags =
+            NativeSceneGuidelineSetFlags.CompositeOnly |
+            NativeSceneGuidelineSetFlags.PerPoint;
+        if ((guidelineFlags & ~multiFlags) != 0 ||
+            (guidelineFlags != NativeSceneGuidelineSetFlags.None &&
+                ((uint)guidelineFlags & ((uint)guidelineFlags - 1U)) != 0) ||
+            multiple != (guidelineFlags != NativeSceneGuidelineSetFlags.None) ||
             (uint)guidelinesX.Length >
                 NativeMethods.SceneMaximumGuidelinesPerAxis ||
             (uint)guidelinesY.Length >
@@ -2506,7 +2529,9 @@ public ref struct NativeSceneStreamBuilder
             !ResourceHasKind(
                 resourceIndex,
                 ExpectedResourceKind(kind)) ||
-            !HasUsableCommandState(stateIndex) ||
+            !HasUsableCommandState(
+                stateIndex,
+                allowPerPoint: kind == NativeSceneCommandKind.DrawPath) ||
             !IsFiniteBounds(bounds))
         {
             return false;
@@ -2618,7 +2643,9 @@ public ref struct NativeSceneStreamBuilder
             commandId == 0U || commandId <= _lastCommandId ||
             resourceIndex >= (uint)_resourceCount ||
             !ResourceHasKind(resourceIndex, ExpectedResourceKind(kind)) ||
-            !HasUsableCommandState(stateIndex) ||
+            !HasUsableCommandState(
+                stateIndex,
+                allowPerPoint: kind == NativeSceneCommandKind.DrawPath) ||
             !IsFiniteBounds(bounds))
         {
             return false;
@@ -2653,7 +2680,7 @@ public ref struct NativeSceneStreamBuilder
             (materializedLayer &&
                 (uint)_materializedLayerDepth ==
                     NativeMethods.SceneMaximumMaterializedLayers) ||
-            !HasUsableCommandState(stateIndex))
+            !HasUsableCommandState(stateIndex, allowPerPoint: true))
         {
             return false;
         }
@@ -2780,7 +2807,9 @@ public ref struct NativeSceneStreamBuilder
         return resource.Kind == kind;
     }
 
-    private readonly bool HasUsableCommandState(uint stateIndex)
+    private readonly bool HasUsableCommandState(
+        uint stateIndex,
+        bool allowPerPoint = false)
     {
         if (stateIndex == NativeMethods.SceneNoIndex)
             return true;
@@ -2792,7 +2821,9 @@ public ref struct NativeSceneStreamBuilder
                 state.GuidelineResourceIndex,
                 out NativeSceneGuidelineSetFlags guidelineFlags) &&
             (guidelineFlags &
-                NativeSceneGuidelineSetFlags.CompositeOnly) == 0;
+                NativeSceneGuidelineSetFlags.CompositeOnly) == 0 &&
+            (allowPerPoint || (guidelineFlags &
+                NativeSceneGuidelineSetFlags.PerPoint) == 0);
     }
 
     private readonly bool TryReadState(
@@ -2847,7 +2878,8 @@ public ref struct NativeSceneStreamBuilder
                 checked((int)resource.PayloadOffset),
                 Unsafe.SizeOf<NativeSceneGuidelineSetHeader>()));
         const NativeSceneGuidelineSetFlags knownFlags =
-            NativeSceneGuidelineSetFlags.CompositeOnly;
+            NativeSceneGuidelineSetFlags.CompositeOnly |
+            NativeSceneGuidelineSetFlags.PerPoint;
         bool multiple = header.GuidelineXCount > 1U ||
             header.GuidelineYCount > 1U;
         ulong coordinateCount =
@@ -2858,8 +2890,9 @@ public ref struct NativeSceneStreamBuilder
         if (header.StructSize !=
                 Unsafe.SizeOf<NativeSceneGuidelineSetHeader>() ||
             (header.Flags & ~knownFlags) != 0 ||
-            multiple != ((header.Flags &
-                NativeSceneGuidelineSetFlags.CompositeOnly) != 0) ||
+            multiple != (header.Flags != NativeSceneGuidelineSetFlags.None) ||
+            (header.Flags != NativeSceneGuidelineSetFlags.None &&
+                ((uint)header.Flags & ((uint)header.Flags - 1U)) != 0) ||
             header.GuidelineXCount >
                 NativeMethods.SceneMaximumGuidelinesPerAxis ||
             header.GuidelineYCount >

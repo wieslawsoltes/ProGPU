@@ -3009,6 +3009,87 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void SemanticSceneBuilderScopesPerPointMultiGuidelinesToPaths()
+    {
+        Span<byte> destination = stackalloc byte[4096];
+        Span<double> guidelinesX = stackalloc double[2] { 2.25, 18.75 };
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 87U,
+            generation: 1U,
+            commandCapacity: 3,
+            resourceCapacity: 4);
+        Assert.True(builder.TryAddPerPointGuidelineSetResource(
+            1U,
+            1U,
+            guidelinesX,
+            [],
+            out uint guidelineIndex));
+        var state = new NativeSceneState(
+            Matrix3x2.Identity,
+            flags: NativeSceneStateFlags.GuidelineSet,
+            guidelineResourceIndex: guidelineIndex);
+        Assert.True(builder.TryAddStateResource(
+            2U, 1U, in state, out uint stateIndex));
+
+        Span<NativeAnalyticPrimitive> analytic =
+            stackalloc NativeAnalyticPrimitive[1];
+        analytic[0] = new NativeAnalyticPrimitive(
+            NativeAnalyticPrimitiveKind.Rectangle,
+            0f,
+            0f,
+            20f,
+            10f,
+            Vector4.One,
+            Matrix3x2.Identity);
+        Assert.True(builder.TryAddAnalyticResource(
+            3U, 1U, analytic, out uint analyticIndex));
+        Assert.False(builder.TryDrawAnalytic(
+            1U,
+            analyticIndex,
+            new NativeImageRect(0f, 0f, 20f, 10f),
+            stateIndex: stateIndex));
+
+        Span<NativePathSegment> segments = stackalloc NativePathSegment[3]
+        {
+            new(NativePathSegmentKind.Line, new(0f, 0f), new(20f, 0f)),
+            new(NativePathSegmentKind.Line, new(20f, 0f), new(10f, 10f)),
+            new(NativePathSegmentKind.Line, new(10f, 10f), new(0f, 0f))
+        };
+        Span<NativeScenePathFill> paths = stackalloc NativeScenePathFill[1]
+        {
+            new(
+                0U,
+                3U,
+                Vector2.Zero,
+                new Vector2(20f, 10f),
+                Vector4.One,
+                Matrix3x2.Identity,
+                NativeFillRule.NonZero,
+                4U)
+        };
+        Assert.True(builder.TryAddPathResource(
+            4U, 1U, paths, segments, out uint pathIndex));
+        Assert.True(builder.TrySave(1U, stateIndex));
+        Assert.True(builder.TryRestore(2U));
+        Assert.True(builder.TryDrawPath(
+            3U,
+            pathIndex,
+            new NativeImageRect(0f, 0f, 20f, 10f),
+            stateIndex: stateIndex));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+
+        var sceneHeader = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var guidelineResource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[(int)sceneHeader.ResourceOffset..]);
+        var guidelineHeader = MemoryMarshal.Read<NativeSceneGuidelineSetHeader>(
+            stream[(int)guidelineResource.PayloadOffset..]);
+        Assert.Equal(
+            NativeSceneGuidelineSetFlags.PerPoint,
+            guidelineHeader.Flags);
+    }
+
+    [Fact]
     public void SemanticSceneBuilderWritesBoundedMaskChainWithoutAllocation()
     {
         Span<byte> destination = stackalloc byte[4096];

@@ -586,6 +586,14 @@ progpu_native_status render_scene(
                 PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) {
             continue;
         }
+        const bool per_point_guidelines =
+            preflight_state_cursor.has_per_point_guidelines(state);
+        if (per_point_guidelines &&
+            command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                "Static multi-guideline deformation is not yet supported for this semantic draw family.");
+        }
         if ((state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U) {
             if (command.kind ==
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH ||
@@ -1038,6 +1046,12 @@ progpu_native_status render_scene(
                     boolean_node_count <= (1U << 22U) &&
                     path_count <=
                         std::numeric_limits<std::uint32_t>::max() / 6U;
+                if (per_point_guidelines &&
+                    (path_count != 1U || boolean_node_count != 0U)) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                        "Static multi-guideline path deformation currently requires one non-boolean path per draw resource.");
+                }
                 const auto* boolean_nodes = reinterpret_cast<const
                     progpu_native_scene_path_boolean_node*>(
                         bytes + resource.auxiliary_offset +
@@ -1057,6 +1071,12 @@ progpu_native_status render_scene(
                             segment_index * sizeof(segment),
                         sizeof(segment));
                     valid = is_valid_semantic_segment(segment, true);
+                    if (per_point_guidelines &&
+                        segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC) {
+                        return engine->fail(
+                            PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                            "Static multi-guideline deformation of analytic arc segments requires path lowering.");
+                    }
                 }
                 for (std::uint64_t path_index = 0U;
                      valid && budget_valid && path_index < path_count;
@@ -2132,8 +2152,9 @@ progpu_native_status render_scene(
                  ++index) {
                 const auto command = read_command(index);
                 const auto target_extent = target_cursor.advance(command);
+                const auto target_state = state_cursor.advance(command);
                 const auto state = localize_semantic_state(
-                    state_cursor.advance(command),
+                    target_state,
                     target_extent,
                     frame->dpi_scale);
                 if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
@@ -2205,11 +2226,81 @@ progpu_native_status render_scene(
                             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                             "A validated semantic path brush map could not be resolved.");
                     }
-                    if (brush == nullptr) {
+                    const bool per_point_guidelines =
+                        state_cursor.has_per_point_guidelines(target_state);
+                    if (brush == nullptr && !per_point_guidelines) {
                         apply_semantic_state(path, state);
-                    } else {
+                    } else if (brush == nullptr) {
+                        path.color.a *= state.opacity;
+                    } else if (!per_point_guidelines) {
                         apply_semantic_transform(path, state);
                         apply_path_material(path, *brush);
+                    } else {
+                        apply_path_material(path, *brush);
+                    }
+                    if (per_point_guidelines) {
+                        const auto transform = compose_affine(
+                            path.transform,
+                            target_state.transform);
+                        const float target_offset_x =
+                            static_cast<float>(target_extent.x) /
+                                frame->dpi_scale;
+                        const float target_offset_y =
+                            static_cast<float>(target_extent.y) /
+                                frame->dpi_scale;
+                        float min_x =
+                            std::numeric_limits<float>::infinity();
+                        float min_y =
+                            std::numeric_limits<float>::infinity();
+                        float max_x =
+                            -std::numeric_limits<float>::infinity();
+                        float max_y =
+                            -std::numeric_limits<float>::infinity();
+                        const auto deform_point = [&](progpu_native_point& point) {
+                            transform_point(
+                                transform,
+                                point.x,
+                                point.y,
+                                point.x,
+                                point.y);
+                            state_cursor.snap_draw_point(
+                                target_state,
+                                point.x,
+                                point.y);
+                            point.x -= target_offset_x;
+                            point.y -= target_offset_y;
+                            min_x = std::min(min_x, point.x);
+                            min_y = std::min(min_y, point.y);
+                            max_x = std::max(max_x, point.x);
+                            max_y = std::max(max_y, point.y);
+                        };
+                        const std::size_t first_segment = segment_start +
+                            static_cast<std::size_t>(path.segment_offset);
+                        const std::size_t last_segment = first_segment +
+                            static_cast<std::size_t>(path.segment_count);
+                        for (std::size_t segment_index = first_segment;
+                             segment_index < last_segment;
+                             ++segment_index) {
+                            auto& segment = compiled_segments[segment_index];
+                            deform_point(segment.p0);
+                            deform_point(segment.p1);
+                            if (segment.kind ==
+                                    PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC ||
+                                segment.kind ==
+                                    PROGPU_NATIVE_PATH_SEGMENT_CUBIC) {
+                                deform_point(segment.p2);
+                            }
+                            if (segment.kind ==
+                                PROGPU_NATIVE_PATH_SEGMENT_CUBIC) {
+                                deform_point(segment.p3);
+                            }
+                        }
+                        path.min_x = min_x;
+                        path.min_y = min_y;
+                        path.max_x = max_x;
+                        path.max_y = max_y;
+                        path.transform = {
+                            1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
                     }
                     path.segment_offset += segment_start;
                     if (path.boolean_node_count != 0U) {

@@ -857,6 +857,30 @@ void semantic_static_guidelines_adjust_state_at_target_dpi() {
     composite_cursor.snap_composite_point(
         composite_state, upper_x, midpoint_y);
     require(upper_x == 11.26F);
+
+    guidelines.flags = PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT;
+    std::memcpy(storage.data() + guideline_resource.payload_offset,
+        &guidelines, sizeof(guidelines));
+    constexpr std::array<double, 2U> per_point_guidelines{10.25, 12.75};
+    std::memcpy(
+        storage.data() + guideline_resource.payload_offset +
+            sizeof(guidelines),
+        per_point_guidelines.data(),
+        sizeof(per_point_guidelines));
+    progpu::native::semantic::semantic_state_cursor per_point_cursor(
+        storage.data(), header, 1.0F);
+    const auto per_point_state = per_point_cursor.resolve_state(1U);
+    require(per_point_state.transform.m31 == 10.0F);
+    require(per_point_state.transform.m32 == 20.0F);
+    float lower_tie_x = 11.5F;
+    float per_point_y = 4.0F;
+    per_point_cursor.snap_draw_point(
+        per_point_state, lower_tie_x, per_point_y);
+    require(lower_tie_x == 11.25F);
+    float upper_nearest_x = 11.51F;
+    per_point_cursor.snap_draw_point(
+        per_point_state, upper_nearest_x, per_point_y);
+    require(std::abs(upper_nearest_x - 11.76F) < 0.0001F);
 }
 
 void semantic_payload_validation_is_bounded_and_cpu_only() {
