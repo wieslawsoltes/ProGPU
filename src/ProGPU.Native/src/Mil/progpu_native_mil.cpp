@@ -6731,6 +6731,46 @@ struct channel::implementation {
                 current = next;
                 continue;
             }
+            if (view.kind == command::push_guideline_set) {
+                std::uint32_t guideline_set_handle = 0U;
+                std::uint32_t padding = 0U;
+                if (!has_exact_size(view, 12U) ||
+                    !read_at(view.packet, 4U, guideline_set_handle) ||
+                    !read_at(view.packet, 8U, padding) || padding != 0U) {
+                    return status::malformed_batch;
+                }
+                render_scope_state next = current;
+                if (guideline_set_handle == 0U) {
+                    next.guideline_resource_index =
+                        PROGPU_NATIVE_SCENE_NO_INDEX;
+                    next.per_point_guidelines = false;
+                } else {
+                    const auto guidelines = guideline_sets.find(
+                        guideline_set_handle);
+                    if (guidelines == guideline_sets.end()) {
+                        return status::invalid_handle;
+                    }
+                    if (guidelines->second.is_dynamic) {
+                        return status::unsupported_command;
+                    }
+                    const status guideline_status =
+                        apply_static_guidelines(
+                            guidelines->second.guidelines_x,
+                            guidelines->second.guidelines_y,
+                            next,
+                            builder,
+                            false);
+                    if (guideline_status != status::success) {
+                        return guideline_status;
+                    }
+                }
+                if (!save_state(next)) {
+                    return status::invalid_graph;
+                }
+                scope_states.push_back(current);
+                current = next;
+                continue;
+            }
             if (view.kind == command::pop) {
                 if (!has_exact_size(view, 4U)) {
                     return status::malformed_batch;
@@ -8887,6 +8927,7 @@ struct channel::implementation {
                 }
                 if (view.kind == command::push_clip ||
                     view.kind == command::push_transform ||
+                    view.kind == command::push_guideline_set ||
                     view.kind == command::draw_drawing) {
                     append_packet_handle(4U);
                 } else if (view.kind == command::draw_glyph_run) {
