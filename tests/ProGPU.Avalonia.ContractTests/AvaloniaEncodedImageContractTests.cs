@@ -1,7 +1,9 @@
 using System;
 using System.Buffers.Binary;
 using System.IO;
+using Avalonia.Media.Imaging;
 using Avalonia.ProGpu;
+using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 
@@ -29,6 +31,22 @@ public sealed class AvaloniaEncodedImageContractTests
 
         Assert.Throws<InvalidDataException>(
             () => AvaloniaEncodedImage.Identify(icon));
+    }
+
+    [Fact]
+    public void ImmutableIconBitmapCanBeSavedAsPng()
+    {
+        using var source = new MemoryStream(CreateTwoPixelIcon());
+        using var bitmap = new ImmutableBitmap(source);
+        using var encoded = new MemoryStream();
+
+        bitmap.Save(encoded, PngBitmapEncoderOptions.Default);
+
+        using Image<Rgba32> image = Image.Load<Rgba32>(encoded.ToArray());
+        Assert.Equal(2, image.Width);
+        Assert.Equal(1, image.Height);
+        Assert.Equal(new Rgba32(255, 0, 0, 255), image[0, 0]);
+        Assert.Equal(new Rgba32(0, 255, 0, 0), image[1, 0]);
     }
 
     [Fact]

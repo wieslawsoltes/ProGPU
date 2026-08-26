@@ -4,6 +4,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using ProGPU.Backend;
+using ProGPU.Text;
 using ProGPU.Vector;
 
 namespace ProGPU.Scene;
@@ -33,6 +34,7 @@ public unsafe partial class Compositor
         int VectorIndexStart,
         int TextVertexStart,
         int TextStyleStart,
+        int GlyphResidencyStart,
         int TextureVertexStart,
         int TextureIndexStart,
         int DrawCallStart,
@@ -80,6 +82,7 @@ public unsafe partial class Compositor
         internal required IncrementalScenePageDrawCall[] DrawCalls { get; init; }
         internal required GpuBrush[] Brushes { get; init; }
         internal required GpuTextStyle[] TextStyles { get; init; }
+        internal required GlyphAtlas.ResidencySet GlyphResidency { get; init; }
         internal required int LegacyTextVertexCount { get; init; }
         internal required int SolidRoundedPrimitiveCount { get; init; }
         internal required long ByteSize { get; init; }
@@ -273,6 +276,14 @@ public unsafe partial class Compositor
             return false;
         }
 
+        if (!_atlas.TryMarkRetainedGlyphReplay(page.GlyphResidency))
+        {
+            RemoveIncrementalScenePages(node);
+            _incrementalScenePageMissReason ??= "Glyph atlas residency changed";
+            _incrementalScenePageMisses++;
+            return false;
+        }
+
         CommitPendingDrawCalls();
         AppendIncrementalScenePage(page);
         _pathAtlas.MarkRetainedPathReplay();
@@ -419,6 +430,7 @@ public unsafe partial class Compositor
             _vectorIndicesList.Count,
             _textVerticesList.Count,
             _activeTextStyles.Count,
+            _atlas.BatchUsageCount,
             _textureVerticesList.Count,
             _textureIndicesList.Count,
             _drawCalls.Count,
@@ -700,6 +712,10 @@ public unsafe partial class Compositor
             CollectionsMarshal.AsSpan(_activeTextStyles)
                 .Slice(boundary.TextStyleStart, textStyleCount),
             reusablePage?.TextStyles);
+        GlyphAtlas.ResidencySet glyphResidency =
+            _atlas.CaptureBatchResidency(
+                boundary.GlyphResidencyStart,
+                reusablePage?.GlyphResidency);
 
         for (int index = 0; index < vectorIndices.Length; index++)
         {
@@ -737,7 +753,8 @@ public unsafe partial class Compositor
             (long)drawCalls.Length *
                 Unsafe.SizeOf<IncrementalScenePageDrawCall>() +
             (long)brushes.Length * Marshal.SizeOf<GpuBrush>() +
-            (long)textStyles.Length * Marshal.SizeOf<GpuTextStyle>();
+            (long)textStyles.Length * Marshal.SizeOf<GpuTextStyle>() +
+            glyphResidency.ByteSize;
 
         return new IncrementalScenePage
         {
@@ -749,6 +766,7 @@ public unsafe partial class Compositor
             DrawCalls = drawCalls,
             Brushes = brushes,
             TextStyles = textStyles,
+            GlyphResidency = glyphResidency,
             LegacyTextVertexCount =
                 CountLegacyTextVertices(textVertices),
             SolidRoundedPrimitiveCount =

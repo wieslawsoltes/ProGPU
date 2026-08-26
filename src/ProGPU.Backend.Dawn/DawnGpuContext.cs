@@ -23,11 +23,23 @@ public sealed unsafe partial class DawnGpuContext :
     IProGpuExternalTextureImporter
 {
     private const string NativeLibraryName = "webgpu_dawn";
+    private const string LinuxNativeLibraryName = "webgpu_dawn.so";
     private const string IosFrameworkLibrary =
         "@rpath/webgpu_dawn.framework/webgpu_dawn";
     private static readonly object NativeLibrarySync = new();
     private static nint s_iosNativeLibrary;
     private static bool s_iosResolversInstalled;
+
+    static DawnGpuContext()
+    {
+        if (OperatingSystem.IsLinux())
+        {
+            InstallLinuxNativeLibraryResolver(
+                typeof(WebGPU_FFI).Assembly);
+            InstallLinuxNativeLibraryResolver(
+                typeof(DawnGpuContext).Assembly);
+        }
+    }
 
     /// <summary>
     /// Reports whether the exact WebGPUSharp/Dawn native ABI can be resolved
@@ -40,14 +52,57 @@ public sealed unsafe partial class DawnGpuContext :
             return EnsureIosNativeLibrary();
         }
 
+        string libraryName = OperatingSystem.IsLinux()
+            ? LinuxNativeLibraryName
+            : NativeLibraryName;
         if (!NativeLibrary.TryLoad(
-                NativeLibraryName,
+                libraryName,
+                typeof(DawnGpuContext).Assembly,
+                searchPath: null,
                 out nint library))
         {
             return false;
         }
         NativeLibrary.Free(library);
         return true;
+    }
+
+    private static void InstallLinuxNativeLibraryResolver(
+        System.Reflection.Assembly assembly)
+    {
+        try
+        {
+            NativeLibrary.SetDllImportResolver(
+                assembly,
+                ResolveLinuxDawnImport);
+        }
+        catch (InvalidOperationException)
+        {
+            // The host already owns this assembly's resolver. Its resolver is
+            // given the first opportunity to satisfy the Dawn import.
+        }
+    }
+
+    private static nint ResolveLinuxDawnImport(
+        string libraryName,
+        System.Reflection.Assembly assembly,
+        DllImportSearchPath? searchPath)
+    {
+        if (!string.Equals(
+                libraryName,
+                NativeLibraryName,
+                StringComparison.Ordinal))
+        {
+            return 0;
+        }
+
+        return NativeLibrary.TryLoad(
+                LinuxNativeLibraryName,
+                assembly,
+                searchPath,
+                out nint library)
+            ? library
+            : 0;
     }
 
     private static bool EnsureIosNativeLibrary()

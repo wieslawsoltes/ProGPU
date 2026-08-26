@@ -17,6 +17,8 @@
              Link="ControlCatalogTelemetrySession.cs" />
     <Compile Include="..\AvaloniaControlCatalogHarness\ControlCatalogRuntimeTitle.cs"
              Link="ControlCatalogRuntimeTitle.cs" />
+    <Compile Include="..\AvaloniaControlCatalogHarness\SilkNetInputTelemetrySession.cs"
+             Link="SilkNetInputTelemetrySession.cs" />
     <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\packages\Avalonia\Avalonia.csproj" />
     <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\samples\ControlCatalog\ControlCatalog.csproj"
                       AdditionalProperties="AvaloniaSingleProject=false;UseSkiaSharpShim=true;ProGpuSourceRoot=$(ProGpuSourceRoot);ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />

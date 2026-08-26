@@ -237,7 +237,11 @@ internal sealed class ImmutableBitmap :
                 stream.Write(encoded);
                 return;
 #else
-                using Image<Rgba32> decoded = Image.Load<Rgba32>(encoded);
+                Rgba32[] decodedPixels = AvaloniaEncodedImage.Decode(encoded);
+                using Image<Rgba32> decoded = Image.LoadPixelData(
+                    decodedPixels,
+                    PixelSize.Width,
+                    PixelSize.Height);
                 AvaloniaBitmapEncoding.Save(decoded, stream, options);
                 return;
 #endif

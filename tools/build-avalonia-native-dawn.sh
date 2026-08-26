@@ -8,6 +8,7 @@ project="$avalonia_root/native/Avalonia.Native/src/OSX/Avalonia.Native.OSX.xcode
 generated_header="$avalonia_root/native/Avalonia.Native/inc/avalonia-native.h"
 header_generator="$avalonia_root/native/Avalonia.Native/generate-headers.sh"
 destination="${1:-$repo_root/integration/AvaloniaSourceControlCatalog/bin/Release/net10.0/runtimes/osx/native/libAvaloniaNative.dylib}"
+canonical_product="$avalonia_root/Build/Products/Release/libAvalonia.Native.OSX.dylib"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "The Avalonia Native Dawn presentation lane requires macOS." >&2
@@ -21,7 +22,7 @@ if [[ ! -f "$source_file" || ! -d "$project" ]]; then
   echo "The exact Avalonia source tree is missing. Run tools/prepare-avalonia-12.1.1-source.sh first." >&2
   exit 3
 fi
-if ! rg -q '_layer\.framebufferOnly[[:space:]]*=[[:space:]]*false;' "$source_file"; then
+if ! grep -Eq '_layer\.framebufferOnly[[:space:]]*=[[:space:]]*false;' "$source_file"; then
   echo "The Avalonia CAMetalLayer is not configured for Dawn-importable IOSurfaces." >&2
   exit 4
 fi
@@ -65,6 +66,9 @@ if [[ ! -f "$product" ]]; then
 fi
 
 cp "$product" "$destination"
+mkdir -p "$(dirname "$canonical_product")"
+cp "$product" "$canonical_product"
 codesign --force --sign - "$destination"
+codesign --force --sign - "$canonical_product"
 
 echo "[AvaloniaNativeDawn] installed=$destination architecture=$(uname -m)"

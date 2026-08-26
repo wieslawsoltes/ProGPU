@@ -740,6 +740,86 @@ public sealed class SamplePerformanceRegressionTests
     }
 
     [Fact]
+    public void RetainedGlyphResidencyProtectsReplayedAtlasEntriesFromLruReuse()
+    {
+        var font = LoadTestFont();
+        using var atlas = new GlyphAtlas(
+            HeadlessWindow.Shared.Context,
+            atlasSize: 96);
+        ushort firstGlyph = font.GetGlyphIndex('A');
+        GlyphAtlas.ResidencySet residency;
+        GlyphInfo first;
+        ushort missingGlyph = 0;
+        int residentGlyphs = 0;
+
+        atlas.BeginBatch();
+        try
+        {
+            int residencyStart = atlas.BatchUsageCount;
+            first = atlas.GetOrCreateGlyphByIndex(
+                font,
+                firstGlyph,
+                36f,
+                preferGlyphAtlas: true);
+            residency = atlas.CaptureBatchResidency(residencyStart);
+
+            for (char character = 'B'; character <= '~'; character++)
+            {
+                ushort glyph = font.GetGlyphIndex(character);
+                GlyphInfo info = atlas.GetOrCreateGlyphByIndex(
+                    font,
+                    glyph,
+                    36f,
+                    preferGlyphAtlas: true);
+                if (info.Width == 0)
+                {
+                    missingGlyph = glyph;
+                    break;
+                }
+
+                residentGlyphs++;
+            }
+        }
+        finally
+        {
+            atlas.EndBatch();
+        }
+
+        Assert.True(first.Width > 0);
+        Assert.Equal(1, residency.Count);
+        Assert.True(residentGlyphs > 0);
+        Assert.NotEqual((ushort)0, missingGlyph);
+
+        atlas.BeginBatch();
+        try
+        {
+            Assert.True(atlas.TryMarkRetainedGlyphReplay(residency));
+            GlyphInfo replacement = atlas.GetOrCreateGlyphByIndex(
+                font,
+                missingGlyph,
+                36f,
+                preferGlyphAtlas: true);
+            GlyphInfo replayed = atlas.GetOrCreateGlyphByIndex(
+                font,
+                firstGlyph,
+                36f,
+                preferGlyphAtlas: true);
+
+            Assert.True(replacement.Width > 0);
+            Assert.Equal(first.X, replayed.X);
+            Assert.Equal(first.Y, replayed.Y);
+            Assert.Equal(first.Width, replayed.Width);
+            Assert.Equal(first.Height, replayed.Height);
+        }
+        finally
+        {
+            atlas.EndBatch();
+        }
+
+        Assert.True(atlas.EvictionCount > 0);
+    }
+
+    [Fact]
     public void SampleEffectGpuResourcesAreCreatedOnlyByEffectPages()
     {
         var controller = File.ReadAllText(FindRepoFile(

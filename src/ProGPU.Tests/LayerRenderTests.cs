@@ -4,6 +4,7 @@ using System.Numerics;
 using Microsoft.UI.Xaml;
 using ProGPU.Backend;
 using ProGPU.Backend.Dawn;
+using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
 using ProGPU.Tests.Headless;
 using ProGPU.Vector;
@@ -494,6 +495,71 @@ public sealed class LayerRenderTests
             metrics = window.Compositor.Metrics;
             Assert.Equal(0, metrics.IncrementalSceneUploadBytes);
             Assert.Equal(0, metrics.SceneUploadCopyCount);
+        }
+        finally
+        {
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void IncrementalTextPageReplayRetainsGlyphsDuringLaterAtlasChurn()
+    {
+        var options = CompositorOptions.Default with
+        {
+            EnableCompiledSceneCache = false,
+            EnableGpuHitTesting = false,
+            PrimarySampleCount = 1,
+            GlyphAtlasSize = 96,
+            InitialGlyphAtlasSize = 96
+        };
+        using var window = new HeadlessWindow(512, 256, options);
+        var retainedLabel = new OwnedTextPageVisual(
+            "A",
+            new Vector2(8f, 48f));
+        var atlasChurn = new OwnedTextPageVisual(
+            "BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()",
+            new Vector2(64f, 48f),
+            lineLength: 12);
+        var host = new IncrementalPageHost(retainedLabel, atlasChurn)
+        {
+            Width = 512f,
+            Height = 256f,
+            GeometryClip = PrimitivePathGeometry.CreateRectangle(
+                0f,
+                0f,
+                512f,
+                256f)
+        };
+        window.Content = host;
+
+        try
+        {
+            window.Render();
+            byte[] firstLabel = CopyPixelRegion(
+                window.ReadPixels(),
+                window.Width,
+                x: 0,
+                y: 0,
+                width: 64,
+                height: 64);
+
+            atlasChurn.SetText(
+                "abcdefghijklmnopqrstuvwxyz[]{}<>?/\\|`~:;,_+-=",
+                lineLength: 12);
+            window.Render();
+
+            Assert.Equal(1, window.Compositor.Metrics.IncrementalScenePageHits);
+            Assert.True(window.Compositor.Metrics.GlyphLastBatchNewGlyphCount > 0);
+            Assert.Equal(
+                firstLabel,
+                CopyPixelRegion(
+                    window.ReadPixels(),
+                    window.Width,
+                    x: 0,
+                    y: 0,
+                    width: 64,
+                    height: 64));
         }
         finally
         {
@@ -1069,6 +1135,29 @@ public sealed class LayerRenderTests
             pixels[index + 3]);
     }
 
+    private static byte[] CopyPixelRegion(
+        byte[] pixels,
+        uint sourceWidth,
+        int x,
+        int y,
+        int width,
+        int height)
+    {
+        var result = new byte[checked(width * height * 4)];
+        int sourceStride = checked((int)sourceWidth * 4);
+        int destinationStride = checked(width * 4);
+        for (int row = 0; row < height; row++)
+        {
+            Array.Copy(
+                pixels,
+                checked((y + row) * sourceStride + x * 4),
+                result,
+                row * destinationStride,
+                destinationStride);
+        }
+        return result;
+    }
+
     private static void AssertRed(RgbaPixel pixel)
     {
         Assert.True(pixel.R >= 220, $"Expected cached layer to render red, found {pixel}.");
@@ -1370,6 +1459,56 @@ public sealed class LayerRenderTests
             Height = 16f;
             Transform = Matrix4x4.CreateTranslation(offset.X, offset.Y, 0f);
             _commands.DrawTexture(texture, new Rect(0f, 0f, 16f, 16f));
+        }
+
+        public DrawingContext GetOrUpdateRenderCommandCache() => _commands;
+    }
+
+    private sealed class OwnedTextPageVisual : FrameworkElement,
+        IIncrementalRenderCommandCache
+    {
+        private readonly DrawingContext _commands = new();
+        private readonly float _textY;
+
+        public OwnedTextPageVisual(
+            string text,
+            Vector2 offset,
+            int lineLength = int.MaxValue)
+        {
+            Width = 448f;
+            Height = 256f;
+            _textY = offset.Y;
+            Transform = Matrix4x4.CreateTranslation(
+                offset.X,
+                0f,
+                0f);
+            RecordText(text, lineLength);
+        }
+
+        public void SetText(string text, int lineLength)
+        {
+            _commands.Clear();
+            RecordText(text, lineLength);
+            Invalidate();
+        }
+
+        private void RecordText(string text, int lineLength)
+        {
+            var brush = new SolidColorBrush(Vector4.One);
+            int start = 0;
+            int line = 0;
+            while (start < text.Length)
+            {
+                int count = Math.Min(lineLength, text.Length - start);
+                _commands.DrawText(
+                    text.Substring(start, count),
+                    InterFontFamily.Regular,
+                    36f,
+                    brush,
+                    new Vector2(0f, _textY + line * 40f));
+                start += count;
+                line++;
+            }
         }
 
         public DrawingContext GetOrUpdateRenderCommandCache() => _commands;

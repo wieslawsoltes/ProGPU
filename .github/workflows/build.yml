@@ -488,6 +488,7 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
+          - macos-latest
           - windows-latest
 
     steps:
@@ -510,6 +511,7 @@ jobs:
             libvulkan1 \
             mesa-vulkan-drivers \
             libx11-6 \
+            libxi6 \
             libx11-xcb1 \
             libxcb1 \
             libxcb-randr0 \
@@ -524,6 +526,11 @@ jobs:
       - name: Prepare pinned Avalonia source
         shell: bash
         run: ./tools/prepare-avalonia-12.1.1-source.sh
+
+      - name: Build Dawn-compatible AvaloniaNative
+        if: runner.os == 'macOS'
+        shell: bash
+        run: ./tools/build-avalonia-native-dawn.sh
 
       - name: Build native-window ControlCatalog and contracts
         shell: bash
@@ -549,6 +556,8 @@ jobs:
             --filter "FullyQualifiedName~DawnNativeWindowSourceTests"
           dotnet build tools/ProGPU.SampleMemoryProfiler/ProGPU.SampleMemoryProfiler.csproj \
             --configuration Release
+          dotnet build integration/AvaloniaSilkNetInputHarness/AvaloniaSilkNetInputHarness.csproj \
+            --configuration Release
 
       - name: Run X11 Vulkan ControlCatalog telemetry smoke
         if: runner.os == 'Linux'
@@ -556,21 +565,129 @@ jobs:
         env:
           PROGPU_AVALONIA_SKIP_BUILD: 1
           PROGPU_AVALONIA_BACKENDS: source-progpu-native
-          PROGPU_AVALONIA_PAGE_FILTER: ^Buttons$
-          PROGPU_AVALONIA_WARMUP_FRAMES: 10
-          PROGPU_AVALONIA_MEASURE_FRAMES: 20
+          PROGPU_AVALONIA_PAGE_FILTER: ^(Border|Canvas|ScrollViewer|TextBlock|Viewbox)$
+          PROGPU_AVALONIA_WARMUP_FRAMES: 5
+          PROGPU_AVALONIA_MEASURE_FRAMES: 10
+          PROGPU_AVALONIA_SCREENSHOTS: 1
+          PROGPU_AVALONIA_LAYOUT_CLIP_FIXTURE: 1
+          PROGPU_AVALONIA_GEOMETRY_CLIP_FIXTURE: 1
+          PROGPU_AVALONIA_BITMAP_CACHE_FIXTURE: 1
+          PROGPU_AVALONIA_EFFECT_FIXTURE: 1
+          PROGPU_AVALONIA_OPACITY_MASK_FIXTURE: 1
+          PROGPU_AVALONIA_INHERITED_DRAWING_OPTIONS_FIXTURE: 1
           LIBGL_ALWAYS_SOFTWARE: 1
         run: |
           xvfb-run -a \
             ./tools/profile-avalonia-controlcatalog.sh \
             artifacts/avalonia-native-dawn-linux
+          xvfb-run -a env \
+            PROGPU_AVALONIA_PAGE_FILTER='^AdornerLayer$' \
+            PROGPU_AVALONIA_LAYOUT_CLIP_FIXTURE=0 \
+            PROGPU_AVALONIA_GEOMETRY_CLIP_FIXTURE=0 \
+            PROGPU_AVALONIA_BITMAP_CACHE_FIXTURE=0 \
+            PROGPU_AVALONIA_EFFECT_FIXTURE=0 \
+            PROGPU_AVALONIA_OPACITY_MASK_FIXTURE=0 \
+            PROGPU_AVALONIA_INHERITED_DRAWING_OPTIONS_FIXTURE=0 \
+            PROGPU_AVALONIA_TOPOLOGY_FIXTURE=0 \
+            PROGPU_AVALONIA_ADORNER_FIXTURE=1 \
+            ./tools/profile-avalonia-controlcatalog.sh \
+            artifacts/avalonia-native-dawn-linux-adorner
+
+      - name: Run macOS Metal ControlCatalog telemetry smoke
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          PROGPU_AVALONIA_SKIP_BUILD: 1
+          PROGPU_AVALONIA_BACKENDS: source-progpu-native
+          PROGPU_AVALONIA_PAGE_FILTER: ^(Border|Canvas|ScrollViewer|TextBlock|Viewbox)$
+          PROGPU_AVALONIA_WARMUP_FRAMES: 5
+          PROGPU_AVALONIA_MEASURE_FRAMES: 10
+          PROGPU_AVALONIA_SCREENSHOTS: 1
+          PROGPU_AVALONIA_LAYOUT_CLIP_FIXTURE: 1
+          PROGPU_AVALONIA_GEOMETRY_CLIP_FIXTURE: 1
+          PROGPU_AVALONIA_BITMAP_CACHE_FIXTURE: 1
+          PROGPU_AVALONIA_EFFECT_FIXTURE: 1
+          PROGPU_AVALONIA_OPACITY_MASK_FIXTURE: 1
+          PROGPU_AVALONIA_INHERITED_DRAWING_OPTIONS_FIXTURE: 1
+        run: |
+          ./tools/profile-avalonia-controlcatalog.sh \
+            artifacts/avalonia-native-dawn-macos
+          env \
+            PROGPU_AVALONIA_PAGE_FILTER='^AdornerLayer$' \
+            PROGPU_AVALONIA_LAYOUT_CLIP_FIXTURE=0 \
+            PROGPU_AVALONIA_GEOMETRY_CLIP_FIXTURE=0 \
+            PROGPU_AVALONIA_BITMAP_CACHE_FIXTURE=0 \
+            PROGPU_AVALONIA_EFFECT_FIXTURE=0 \
+            PROGPU_AVALONIA_OPACITY_MASK_FIXTURE=0 \
+            PROGPU_AVALONIA_INHERITED_DRAWING_OPTIONS_FIXTURE=0 \
+            PROGPU_AVALONIA_TOPOLOGY_FIXTURE=0 \
+            PROGPU_AVALONIA_ADORNER_FIXTURE=1 \
+            ./tools/profile-avalonia-controlcatalog.sh \
+            artifacts/avalonia-native-dawn-macos-adorner
+
+      - name: Run Win32 D3D12 ControlCatalog telemetry smoke
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          PROGPU_AVALONIA_SKIP_BUILD: 1
+          PROGPU_AVALONIA_BACKENDS: source-progpu-native
+          PROGPU_AVALONIA_PAGE_FILTER: ^(Border|Canvas|ScrollViewer|TextBlock|Viewbox)$
+          PROGPU_AVALONIA_WARMUP_FRAMES: 5
+          PROGPU_AVALONIA_MEASURE_FRAMES: 10
+          # Windows visual captures run in the interactive Parallels lane. A
+          # service-desktop RenderTargetBitmap readback can block indefinitely
+          # after valid D3D12/HWND telemetry on GitHub-hosted Windows runners.
+          PROGPU_AVALONIA_SCREENSHOTS: 0
+          PROGPU_AVALONIA_LAYOUT_CLIP_FIXTURE: 1
+          PROGPU_AVALONIA_GEOMETRY_CLIP_FIXTURE: 1
+          PROGPU_AVALONIA_BITMAP_CACHE_FIXTURE: 1
+          PROGPU_AVALONIA_EFFECT_FIXTURE: 1
+          PROGPU_AVALONIA_OPACITY_MASK_FIXTURE: 1
+          PROGPU_AVALONIA_INHERITED_DRAWING_OPTIONS_FIXTURE: 1
+        run: |
+          ./tools/profile-avalonia-controlcatalog.sh \
+            artifacts/avalonia-native-dawn-windows
+          env \
+            PROGPU_AVALONIA_PAGE_FILTER='^AdornerLayer$' \
+            PROGPU_AVALONIA_LAYOUT_CLIP_FIXTURE=0 \
+            PROGPU_AVALONIA_GEOMETRY_CLIP_FIXTURE=0 \
+            PROGPU_AVALONIA_BITMAP_CACHE_FIXTURE=0 \
+            PROGPU_AVALONIA_EFFECT_FIXTURE=0 \
+            PROGPU_AVALONIA_OPACITY_MASK_FIXTURE=0 \
+            PROGPU_AVALONIA_INHERITED_DRAWING_OPTIONS_FIXTURE=0 \
+            PROGPU_AVALONIA_TOPOLOGY_FIXTURE=0 \
+            PROGPU_AVALONIA_ADORNER_FIXTURE=1 \
+            ./tools/profile-avalonia-controlcatalog.sh \
+            artifacts/avalonia-native-dawn-windows-adorner
 
       - name: Upload Linux native Dawn telemetry
         if: runner.os == 'Linux' && always()
         uses: actions/upload-artifact@v7
         with:
           name: avalonia-native-dawn-linux
-          path: artifacts/avalonia-native-dawn-linux
+          path: |
+            artifacts/avalonia-native-dawn-linux
+            artifacts/avalonia-native-dawn-linux-adorner
+          if-no-files-found: warn
+
+      - name: Upload macOS native Dawn telemetry
+        if: runner.os == 'macOS' && always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: avalonia-native-dawn-macos
+          path: |
+            artifacts/avalonia-native-dawn-macos
+            artifacts/avalonia-native-dawn-macos-adorner
+          if-no-files-found: warn
+
+      - name: Upload Windows native Dawn telemetry
+        if: runner.os == 'Windows' && always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: avalonia-native-dawn-windows
+          path: |
+            artifacts/avalonia-native-dawn-windows
+            artifacts/avalonia-native-dawn-windows-adorner
           if-no-files-found: warn
 
   build-test:

@@ -1411,20 +1411,33 @@ index 4a49edd..81914bd 100644
      <ProjectReference Include="..\Avalonia.FreeDesktop.AtSpi\Avalonia.FreeDesktop.AtSpi.csproj" />
      <Compile Include="..\Shared\RawEventGrouping.cs" />
 diff --git a/src/Avalonia.X11/X11Window.cs b/src/Avalonia.X11/X11Window.cs
-index 1ed6124..d0660ff 100644
+index 1ed6124..9e5d9e2 100644
 --- a/src/Avalonia.X11/X11Window.cs
 +++ b/src/Avalonia.X11/X11Window.cs
-@@ -141,7 +141,12 @@ public X11Window(AvaloniaX11Platform platform, IWindowImpl? popupParent, bool ov
+@@ -108,7 +108,15 @@ public X11Window(AvaloniaX11Platform platform, IWindowImpl? popupParent, bool ov
+             _touch = new TouchDevice();
+             _keyboard = platform.KeyboardDevice;
+ 
+-            var glfeature = AvaloniaLocator.Current.GetService<IPlatformGraphics>();
++            bool requiresOpaqueSurface =
++                AvaloniaLocator.Current.GetService<IPlatformRenderInterface>()
++                    is IPlatformRenderInterfaceNativeSurfaceFeature
++                    {
++                        RequiresOpaqueSurface: true
++                    };
++            var glfeature = requiresOpaqueSurface
++                ? null
++                : AvaloniaLocator.Current.GetService<IPlatformGraphics>();
+             XSetWindowAttributes attr = new XSetWindowAttributes();
+             var valueMask = default(SetWindowValuemask);
+ 
+@@ -141,7 +149,8 @@ public X11Window(AvaloniaX11Platform platform, IWindowImpl? popupParent, bool ov
              {
                  visualInfo = X11EglHelper.GetVisualInfo(_x11, egl.Display);
              }
 -            else if (glfeature == null)
 +            else if (glfeature == null &&
-+                     AvaloniaLocator.Current.GetService<IPlatformRenderInterface>()
-+                         is not IPlatformRenderInterfaceNativeSurfaceFeature
-+                         {
-+                             RequiresOpaqueSurface: true
-+                         })
++                     !requiresOpaqueSurface)
                  visualInfo = _x11.TransparentVisualInfo;
  
              var visual = IntPtr.Zero;
