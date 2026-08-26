@@ -453,6 +453,18 @@ the bound metadata, and a resource-only gradient or DoubleResource update
 changes the next scene without rebuilding the child stream. A spatial mask
 without exact bounds, or an unsupported brush family, fails closed.
 
+Exact Windows qualification at implementation commit `b36b241b` rebuilt both
+native exports with ARM64 MSVC and passed all 11 native/Dawn CTests. Both
+checked-in export allowlists matched, and the project-reference package
+consumer built with zero warnings before compiling the focused linear-gradient
+DrawingGroup through the wgpu-native and Dawn MIL channels. The live Parallels
+D3D12 render reported five semantic resources, two draws, zero coverage-staging
+bytes, and a valid 16,384-pixel readback. Qualified SHA-256 values are
+`F3FB0D077BE494A6D067C1526C96C56A10A0981E8B9283D8574ABF52FEEBFD85`
+for `progpu_native.dll` and
+`F002C1FB564334FF21E6F1B18E2FADFD067A955103531A7E1E55B4CC361D6DC8`
+for `progpu_native_dawn.dll`.
+
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds, curve dashes,
