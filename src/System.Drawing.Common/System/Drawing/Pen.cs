@@ -117,9 +117,13 @@ public class Pen : IDisposable, ICloneable
     }
 
     internal ProGPU.Vector.Pen ToProGpuPen(float width)
+        => ToProGpuPen(width, Point.Empty);
+
+    internal ProGPU.Vector.Pen ToProGpuPen(float width, Point renderingOrigin)
     {
+        ProGPU.Vector.Brush nativeBrush = Graphics.TransformBrush(Brush, renderingOrigin);
         var nativePen = new ProGPU.Vector.Pen(
-            Brush.ToProGpuBrush(),
+            nativeBrush,
             width,
             lineJoin: ToProGpuLineJoin(_lineJoin),
             miterLimit: float.IsFinite(_miterLimit) ? _miterLimit : 1f,

@@ -120,12 +120,16 @@ public sealed class HatchBrush : Brush, ICloneable
     }
 
     public override ProGPU.Vector.Brush ToProGpuBrush()
+        => ToProGpuBrush(Point.Empty);
+
+    internal ProGPU.Vector.Brush ToProGpuBrush(Point renderingOrigin)
     {
         ThrowIfDisposed();
         return new ProGPU.Vector.TilePatternBrush(
             HatchPatternMasks.Get(_hatchStyle),
             ToVector(_foregroundColor),
-            ToVector(_backgroundColor));
+            ToVector(_backgroundColor),
+            new Vector2(renderingOrigin.X, renderingOrigin.Y));
     }
 
     public override void Dispose() => _disposed = true;

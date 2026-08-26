@@ -12184,6 +12184,9 @@ SceneStateUploadComplete:
             gpuBrush.StopOffset = (uint)(tilePattern.Pattern >> 32);
             gpuBrush.Color0 = tilePattern.ForegroundColor;
             gpuBrush.Color1 = tilePattern.BackgroundColor;
+            SetBrushCoordinateTransform(
+                ref gpuBrush,
+                Matrix4x4.CreateTranslation(-tilePattern.Origin.X, -tilePattern.Origin.Y, 0f));
         }
 
         for (int i = 0; i < _activeBrushes.Count; i++)

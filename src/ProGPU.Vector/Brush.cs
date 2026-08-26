@@ -316,15 +316,26 @@ public sealed class TilePatternBrush : Brush
     public ulong Pattern { get; }
     public Vector4 ForegroundColor { get; }
     public Vector4 BackgroundColor { get; }
+    public Vector2 Origin { get; }
 
     public TilePatternBrush(
         ulong pattern,
         Vector4 foregroundColor,
         Vector4 backgroundColor)
+        : this(pattern, foregroundColor, backgroundColor, Vector2.Zero)
+    {
+    }
+
+    public TilePatternBrush(
+        ulong pattern,
+        Vector4 foregroundColor,
+        Vector4 backgroundColor,
+        Vector2 origin)
     {
         Pattern = pattern;
         ForegroundColor = foregroundColor;
         BackgroundColor = backgroundColor;
+        Origin = origin;
     }
 
     public bool IsForegroundPixel(int x, int y)

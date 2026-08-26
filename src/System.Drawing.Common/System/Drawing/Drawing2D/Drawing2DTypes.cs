@@ -10,6 +10,12 @@ public enum CombineMode
     Complement = 5,
 }
 
+public enum CompositingMode
+{
+    SourceOver = 0,
+    SourceCopy = 1,
+}
+
 public enum SmoothingMode
 {
     Invalid = -1,

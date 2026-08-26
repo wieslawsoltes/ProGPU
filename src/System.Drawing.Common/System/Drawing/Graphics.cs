@@ -31,9 +31,13 @@ public class Graphics :
     private int _nextStateId;
     private float _pageScale = 1f;
     private GraphicsUnit _pageUnit = GraphicsUnit.Display;
+    private CompositingMode _compositingMode = CompositingMode.SourceOver;
     private CompositingQuality _compositingQuality = CompositingQuality.Default;
+    private Point _renderingOrigin;
+    private int _textContrast = 4;
     private Region? _clip;
     private bool _hasPushedClip;
+    private bool _hasPushedCompositingMode;
     private int _disposed;
 
     public DrawingContext DrawingContext => _context;
@@ -64,10 +68,88 @@ public class Graphics :
         }
     }
 
+    public Matrix3x2 TransformElements
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _transform.Value;
+        }
+        set
+        {
+            ThrowIfDisposed();
+            if (!Matrix3x2.Invert(value, out _))
+            {
+                throw new ArgumentException("Parameter is not valid.");
+            }
+
+            _transform.MatrixElements = value;
+        }
+    }
+
     public SmoothingMode SmoothingMode { get; set; } = SmoothingMode.AntiAlias;
     public InterpolationMode InterpolationMode { get; set; } = InterpolationMode.Bilinear;
     public TextRenderingHint TextRenderingHint { get; set; } = TextRenderingHint.ClearTypeGridFit;
     public PixelOffsetMode PixelOffsetMode { get; set; } = PixelOffsetMode.Default;
+
+    public CompositingMode CompositingMode
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _compositingMode;
+        }
+        set
+        {
+            ThrowIfDisposed();
+            if (value is < CompositingMode.SourceOver or > CompositingMode.SourceCopy)
+            {
+                throw new InvalidEnumArgumentException(nameof(value), (int)value, typeof(CompositingMode));
+            }
+
+            if (_compositingMode == value)
+            {
+                return;
+            }
+
+            PopCurrentCompositingMode();
+            _compositingMode = value;
+            PushCurrentCompositingMode();
+        }
+    }
+
+    public Point RenderingOrigin
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _renderingOrigin;
+        }
+        set
+        {
+            ThrowIfDisposed();
+            _renderingOrigin = value;
+        }
+    }
+
+    public int TextContrast
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _textContrast;
+        }
+        set
+        {
+            ThrowIfDisposed();
+            if ((uint)value > 12u)
+            {
+                throw new ArgumentException("Parameter is not valid.");
+            }
+
+            _textContrast = value;
+        }
+    }
 
     public float PageScale
     {
@@ -497,10 +579,11 @@ public class Graphics :
         }
     }
 
-    public void TranslateTransform(float dx, float dy)
-    {
-        _transform.Translate(dx, dy);
-    }
+    public void TranslateTransform(float dx, float dy) =>
+        TranslateTransform(dx, dy, MatrixOrder.Prepend);
+
+    public void TranslateTransform(float dx, float dy, MatrixOrder order) =>
+        _transform.Translate(dx, dy, order);
 
     public void TranslateClip(int dx, int dy) => TranslateClip((float)dx, dy);
 
@@ -516,22 +599,25 @@ public class Graphics :
         ReplaceClip(translated);
     }
 
-    public void ScaleTransform(float sx, float sy)
-    {
-        _transform.Scale(sx, sy);
-    }
+    public void ScaleTransform(float sx, float sy) =>
+        ScaleTransform(sx, sy, MatrixOrder.Prepend);
 
-    public void RotateTransform(float angle)
-    {
-        _transform.Rotate(angle);
-    }
+    public void ScaleTransform(float sx, float sy, MatrixOrder order) =>
+        _transform.Scale(sx, sy, order);
 
-    public void MultiplyTransform(Matrix matrix, MatrixOrder order = MatrixOrder.Prepend)
+    public void RotateTransform(float angle) =>
+        RotateTransform(angle, MatrixOrder.Prepend);
+
+    public void RotateTransform(float angle, MatrixOrder order) =>
+        _transform.Rotate(angle, order);
+
+    public void MultiplyTransform(Matrix matrix) =>
+        MultiplyTransform(matrix, MatrixOrder.Prepend);
+
+    public void MultiplyTransform(Matrix matrix, MatrixOrder order)
     {
-        if (matrix != null)
-        {
-            _transform.Multiply(matrix, order);
-        }
+        ArgumentNullException.ThrowIfNull(matrix);
+        _transform.Multiply(matrix, order);
     }
 
     public void ResetTransform()
@@ -586,7 +672,10 @@ public class Graphics :
             PixelOffsetMode,
             PageScale,
             PageUnit,
+            CompositingMode,
             CompositingQuality,
+            RenderingOrigin,
+            TextContrast,
             _clip?.Clone()));
         return state;
     }
@@ -619,7 +708,10 @@ public class Graphics :
         PixelOffsetMode = saved.PixelOffsetMode;
         _pageScale = saved.PageScale;
         _pageUnit = saved.PageUnit;
+        CompositingMode = saved.CompositingMode;
         _compositingQuality = saved.CompositingQuality;
+        _renderingOrigin = saved.RenderingOrigin;
+        _textContrast = saved.TextContrast;
         ReplaceClip(saved.Clip?.Clone());
 
         _savedStates.RemoveRange(stateIndex, _savedStates.Count - stateIndex);
@@ -634,7 +726,10 @@ public class Graphics :
         PixelOffsetMode PixelOffsetMode,
         float PageScale,
         GraphicsUnit PageUnit,
+        CompositingMode CompositingMode,
         CompositingQuality CompositingQuality,
+        Point RenderingOrigin,
+        int TextContrast,
         Region? Clip);
 
     public void SetClip(Graphics g) => SetClip(g, CombineMode.Replace);
@@ -743,9 +838,37 @@ public class Graphics :
             _context.PopGeometryClip();
             _hasPushedClip = false;
         }
+
+        PopCurrentCompositingMode();
     }
 
-    private void ResumeRecorderState() => PushCurrentClip();
+    private void ResumeRecorderState()
+    {
+        PushCurrentCompositingMode();
+        PushCurrentClip();
+    }
+
+    private void PushCurrentCompositingMode()
+    {
+        if (_compositingMode != CompositingMode.SourceCopy)
+        {
+            return;
+        }
+
+        _context.PushBlendMode(GpuBlendMode.Src);
+        _hasPushedCompositingMode = true;
+    }
+
+    private void PopCurrentCompositingMode()
+    {
+        if (!_hasPushedCompositingMode)
+        {
+            return;
+        }
+
+        _context.PopBlendMode();
+        _hasPushedCompositingMode = false;
+    }
 
     private RectangleF GetFiniteDrawingUniverse()
     {
@@ -833,8 +956,16 @@ public class Graphics :
     private ProGPU.Vector.Pen TransformPen(Pen pen)
     {
         float widthScale = GetFallbackStrokeWidthScale();
-        return pen.ToProGpuPen(pen.Width * widthScale);
+        return pen.ToProGpuPen(pen.Width * widthScale, _renderingOrigin);
     }
+
+    private ProGPU.Vector.Brush TransformBrush(Brush brush)
+        => TransformBrush(brush, _renderingOrigin);
+
+    internal static ProGPU.Vector.Brush TransformBrush(Brush brush, Point renderingOrigin) =>
+        brush is HatchBrush hatchBrush
+            ? hatchBrush.ToProGpuBrush(renderingOrigin)
+            : brush.ToProGpuBrush();
 
     private float GetFallbackStrokeWidthScale()
     {
@@ -852,7 +983,7 @@ public class Graphics :
         float h = _bitmap != null ? _bitmap.Height : 100000f;
         var brush = new SolidBrush(color);
         _context.PushBlendMode(GpuBlendMode.Src);
-        _context.DrawRectangle(brush.ToProGpuBrush(), null, new Rect(0, 0, w, h));
+        _context.DrawRectangle(TransformBrush(brush), null, new Rect(0, 0, w, h));
         _context.PopBlendMode();
     }
 
@@ -868,7 +999,7 @@ public class Graphics :
         var localStart = new Vector2(x1, y1);
         var localEnd = new Vector2(x2, y2);
         _context.DrawLine(
-            pen.ToProGpuPen(pen.Width),
+            pen.ToProGpuPen(pen.Width, _renderingOrigin),
             localStart,
             localEnd,
             CurrentTransform4x4());
@@ -1221,7 +1352,7 @@ public class Graphics :
         else
         {
             var rect = TxRect(new RectangleF(x, y, width, height));
-            _context.DrawRectangle(brush.ToProGpuBrush(), null, rect);
+            _context.DrawRectangle(TransformBrush(brush), null, rect);
         }
     }
 
@@ -1439,7 +1570,7 @@ public class Graphics :
                 Vector2.TransformNormal(Vector2.UnitX, CombinedTransform).Length(),
                 Vector2.TransformNormal(Vector2.UnitY, CombinedTransform).Length()
             );
-            _context.DrawEllipse(brush.ToProGpuBrush(), null, center, rx * scale.X, ry * scale.Y);
+            _context.DrawEllipse(TransformBrush(brush), null, center, rx * scale.X, ry * scale.Y);
         }
     }
 
@@ -1645,7 +1776,7 @@ public class Graphics :
     {
         _context.DrawPath(
             null,
-            pen.ToProGpuPen(pen.Width),
+            pen.ToProGpuPen(pen.Width, _renderingOrigin),
             geometry,
             CurrentTransform4x4());
     }
@@ -1659,7 +1790,7 @@ public class Graphics :
             return;
         }
 
-        _context.DrawPath(brush.ToProGpuBrush(), null, path.Geometry, CurrentTransform4x4());
+        _context.DrawPath(TransformBrush(brush), null, path.Geometry, CurrentTransform4x4());
     }
 
     public void FillRegion(Brush brush, Region region)
@@ -1674,7 +1805,7 @@ public class Graphics :
         }
 
         _context.DrawPath(
-            brush.ToProGpuBrush(),
+            TransformBrush(brush),
             null,
             geometry,
             CurrentTransform4x4());
@@ -1760,6 +1891,10 @@ public class Graphics :
     public bool IsVisible(float x, float y) => _clip?.IsVisible(x, y, this) ?? VisibleClipBounds.Contains(x, y);
     public bool IsVisible(Rectangle rect) => IsVisible((RectangleF)rect);
     public bool IsVisible(RectangleF rect) => _clip?.IsVisible(rect, this) ?? VisibleClipBounds.IntersectsWith(rect);
+    public bool IsVisible(int x, int y, int width, int height) =>
+        IsVisible((float)x, y, width, height);
+    public bool IsVisible(float x, float y, float width, float height) =>
+        IsVisible(new RectangleF(x, y, width, height));
 
     public void DrawString(string? s, Font font, Brush brush, PointF point) => DrawString(s, font, brush, point.X, point.Y);
     public void DrawString(string? s, Font font, Brush brush, PointF point, StringFormat? format) =>
@@ -1784,7 +1919,7 @@ public class Graphics :
             s,
             font.TtfFont,
             GetFontPixelSize(font),
-            brush.ToProGpuBrush(),
+            TransformBrush(brush),
             new Vector2(x, y),
             CurrentTransform4x4(),
             isBold,
@@ -1878,7 +2013,7 @@ public class Graphics :
             s,
             font.TtfFont,
             GetFontPixelSize(font),
-            brush.ToProGpuBrush(),
+            TransformBrush(brush),
             new Vector2(layoutRectangle.X, layoutRectangle.Y),
             transform,
             layoutBounds,
@@ -2210,7 +2345,7 @@ public class Graphics :
         float thickness = MathF.Max(1f, MathF.Abs(mnemonicFont.UnderlineThickness ?? 0) * scale);
         float position = mnemonicFont.UnderlinePosition ?? (short)(-mnemonicFont.UnitsPerEm / 10);
         _context.DrawRectangle(
-            brush.ToProGpuBrush(),
+            TransformBrush(brush),
             null,
             new Rect(
                 origin.X + left,
@@ -2229,7 +2364,7 @@ public class Graphics :
     {
         var isBold = (font.Style & FontStyle.Bold) != 0;
         var isItalic = (font.Style & FontStyle.Italic) != 0;
-        var nativeBrush = brush.ToProGpuBrush();
+        var nativeBrush = TransformBrush(brush);
         GlyphRunBuilder? run = null;
 
         for (int i = 0; i < layout.Glyphs.Count; i++)
@@ -3161,6 +3296,7 @@ public class Graphics :
             _context.PopGeometryClip();
             _hasPushedClip = false;
         }
+        PopCurrentCompositingMode();
         _clip?.Dispose();
         _clip = null;
         foreach (SavedGraphicsState state in _savedStates)
@@ -3174,6 +3310,14 @@ public class Graphics :
         // Disposing Graphics must not submit work through an ambient host
         // context whose render scope may already be ending.
         _completed?.Invoke();
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            throw new ArgumentException("Parameter is not valid.");
+        }
     }
 
     public IntPtr GetHdc() =>
