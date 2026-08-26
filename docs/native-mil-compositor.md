@@ -70,6 +70,12 @@ exact 12-byte producer record, read both handles with bounded copies, and then
 return `unsupported_command`. A header-only 4-byte command view is
 `malformed_batch`. Tests lock down both outcomes so future generator drift
 cannot silently reinterpret the following nested record as effect payload.
+The decoder applies that generated-size check to the complete nested command
+range before semantic dispatch. Correctly framed but unimplemented dynamic
+Y-guideline and video records therefore return `unsupported_command`; short or
+oversized records return `malformed_batch`. This keeps capability status
+separate from wire corruption for all 25 nested commands and prevents an
+unsupported feature from bypassing packet-boundary validation.
 Follow-up `d4a1f370` makes the complete retained Visual update family plus
 DoubleResource and PointResource consume generated sizes/offsets. That includes
 transform/effect/cache/clip/alpha/render-option/content/mask state, variable

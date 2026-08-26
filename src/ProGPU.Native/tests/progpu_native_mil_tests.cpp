@@ -10372,6 +10372,87 @@ bool render_data_scope_errors_fail_closed() {
     PROGPU_REQUIRE(
         state.build_scene(target, 1U, 8U, stream) ==
         status::malformed_batch);
+
+    std::uint64_t frame_id = 9U;
+    const auto expect_nested_status = [&state,
+                                       &stream,
+                                       &frame_id](
+        const std::vector<std::byte>& commands,
+        status expected) {
+        std::vector<std::byte> update;
+        append_render_data(update, content, commands);
+        if (state.apply(update) != status::success) {
+            return false;
+        }
+        return state.build_scene(
+            target,
+            1U,
+            frame_id++,
+            stream) == expected;
+    };
+
+    std::vector<std::byte> guideline_y1;
+    append_command(guideline_y1, command::push_guideline_y1, 1.0);
+    PROGPU_REQUIRE(expect_nested_status(
+        guideline_y1,
+        status::unsupported_command));
+    std::vector<std::byte> short_guideline_y1;
+    append_command(short_guideline_y1, command::push_guideline_y1);
+    PROGPU_REQUIRE(expect_nested_status(
+        short_guideline_y1,
+        status::malformed_batch));
+
+    std::vector<std::byte> guideline_y2;
+    append_command(guideline_y2, command::push_guideline_y2, 1.0, 2.0);
+    PROGPU_REQUIRE(expect_nested_status(
+        guideline_y2,
+        status::unsupported_command));
+    std::vector<std::byte> short_guideline_y2;
+    append_command(short_guideline_y2, command::push_guideline_y2, 1.0);
+    PROGPU_REQUIRE(expect_nested_status(
+        short_guideline_y2,
+        status::malformed_batch));
+
+    std::vector<std::byte> video;
+    append_command(
+        video,
+        command::draw_video,
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        0U,
+        0U);
+    PROGPU_REQUIRE(expect_nested_status(
+        video,
+        status::unsupported_command));
+    std::vector<std::byte> short_video;
+    append_command(short_video, command::draw_video, 0.0);
+    PROGPU_REQUIRE(expect_nested_status(
+        short_video,
+        status::malformed_batch));
+
+    std::vector<std::byte> animated_video;
+    append_command(
+        animated_video,
+        command::draw_video_animate,
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        0U,
+        0U);
+    PROGPU_REQUIRE(expect_nested_status(
+        animated_video,
+        status::unsupported_command));
+    std::vector<std::byte> short_animated_video;
+    append_command(
+        short_animated_video,
+        command::draw_video_animate,
+        0.0);
+    PROGPU_REQUIRE(expect_nested_status(
+        short_animated_video,
+        status::malformed_batch));
     return true;
 }
 
