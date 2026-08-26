@@ -262,6 +262,86 @@ public sealed class SkCanvasStateTests
     }
 
     [Fact]
+    public void RepeatedRoundedSaveLayersRetainIndependentTypedCommandStreams()
+    {
+        using var recorder = new SKPictureRecorder();
+        var canvas = recorder.BeginRecording(new SKRect(0f, 0f, 96f, 96f));
+        using var fill = new SKPaint
+        {
+            Color = SKColors.Red,
+            IsAntialias = true,
+        };
+        var layerBounds = new[]
+        {
+            new SKRect(1f, 2f, 81f, 74f),
+            new SKRect(5f, 7f, 91f, 88f),
+        };
+        var offsets = new[]
+        {
+            new Vector2(1f, 2f),
+            new Vector2(3f, 4f),
+        };
+
+        for (var index = 0; index < layerBounds.Length; index++)
+        {
+            var restoreCount = canvas.SaveLayer(layerBounds[index], null);
+            canvas.Translate(offsets[index].X, offsets[index].Y);
+            canvas.DrawRoundRect(
+                new SKRect(4f, 6f, 52f, 38f),
+                3f,
+                5f,
+                fill);
+            canvas.RestoreToCount(restoreCount);
+        }
+
+        using var picture = recorder.EndRecording();
+        var layerDraws = picture.Picture.Commands
+            .Where(static command =>
+                command.Type == RenderCommandType.DrawVisual)
+            .ToArray();
+        Assert.Equal(2, layerDraws.Length);
+
+        for (var index = 0; index < layerDraws.Length; index++)
+        {
+            var visual = Assert.IsAssignableFrom<Visual>(
+                layerDraws[index].Visual);
+            Assert.Equal(
+                "RetainedClippedRoundedRectangleLayerVisual",
+                visual.GetType().Name);
+            var cache = Assert.IsAssignableFrom<IOwnedRenderCommandCache>(
+                visual);
+            Assert.Equal(3, cache.RenderCommandCount);
+
+            var clip = cache.GetRenderCommand(0);
+            Assert.Equal(RenderCommandType.PushClip, clip.Type);
+            Assert.Equal(
+                new Rect(
+                    layerBounds[index].Left,
+                    layerBounds[index].Top,
+                    layerBounds[index].Width,
+                    layerBounds[index].Height),
+                clip.Rect);
+            AssertMatrixNear(Matrix4x4.Identity, clip.Transform);
+
+            var draw = cache.GetRenderCommand(1);
+            Assert.Equal(RenderCommandType.DrawRoundedRect, draw.Type);
+            Assert.Equal(new Rect(4f, 6f, 48f, 32f), draw.Rect);
+            Assert.Equal(3f, draw.RadiusX);
+            Assert.Equal(5f, draw.RadiusY);
+            AssertMatrixNear(
+                Matrix4x4.CreateTranslation(
+                    offsets[index].X,
+                    offsets[index].Y,
+                    0f),
+                draw.Transform);
+
+            Assert.Equal(
+                RenderCommandType.PopClip,
+                cache.GetRenderCommand(2).Type);
+        }
+    }
+
+    [Fact]
     public void PictureSaveLayerBlurReplaysThroughWebGpuEffect()
     {
         using var recorder = new SKPictureRecorder();
