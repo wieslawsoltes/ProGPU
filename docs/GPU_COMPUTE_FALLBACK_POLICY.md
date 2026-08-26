@@ -148,6 +148,34 @@ to 67 seconds (about 45%) while preserving exact pixels. Forced native compute
 then failed closed with the typed incompatibility exception and emitted no
 WebGPU validation or device errors.
 
+`--rerasterize-glyphs` is the component-performance form of the glyph gate. It
+increments the native content revision for every render so each measured frame
+must rebuild and upload the 247,808-byte coverage batch; without this option,
+the timing interval intentionally measures retained replay after coverage has
+already been generated. A representative command is:
+
+```bash
+PROGPU_COMPUTE_EXECUTION=simd \
+dotnet run \
+  --project src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj \
+  -c Release --no-build -- \
+  --glyphs --rerasterize-glyphs --warmup 3 --iterations 30 --sync
+```
+
+Implementation `516eb3d7` adds an exact conservative Bézier control-hull test
+before quadratic or cubic root solving. A scanline outside the segment's
+control-point Y range cannot intersect the curve, so the SIMD fallback avoids
+unused square-root, power, and trigonometric work while boundary scanlines keep
+the original winding rules. On Apple M3 Pro, macOS 26.6, and .NET 10.0.5, four
+alternating Release runs per variant (30 rerasterized measured frames after
+three warmups) reduced the median of per-run native-submission p50 from
+1.8217 ms to 1.3916 ms (-23.6%) and synchronized-frame p50 from 3.6040 ms to
+3.0045 ms (-16.6%). Submission p95 fell from 2.9429 ms to 2.3009 ms and frame
+p95 from 5.1773 ms to 4.4856 ms. All 240 measured baseline/candidate frames
+retained zero pixel difference and hash `5B6EF4F70536C862`. These figures
+qualify the CPU fallback on this machine; they do not change the GPU-first
+automatic policy.
+
 The Linux ARM64 qualification at exact commit `28447de4` rebuilt the 260-object
 C++ graph with GCC 13.3 strict warnings, passed all 10 native CTests available
 in the wgpu-native lane, verified the export allowlist, and executed the live

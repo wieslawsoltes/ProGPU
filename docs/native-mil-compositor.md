@@ -716,6 +716,18 @@ versus `1.8201 ms` managed in the one-frame qualification sample. A strict
 Clang x86_64 cross-architecture syntax pass covers the paired SSE2 branch on
 the macOS host pending the ordinary x64 CI/runtime lane.
 
+SIMD follow-up `516eb3d7` adds conservative control-point Y-hull rejection
+before quadratic/cubic root solving and adds the explicit
+`--rerasterize-glyphs` benchmark mode so timing cannot accidentally measure a
+retained cache hit. Four alternating Apple M3 Pro Release runs per variant,
+each with three warmups and 30 forced-SIMD rerasterized frames, reduced the
+median of per-run submission p50 from 1.8217 ms to 1.3916 ms (-23.6%) and total
+synchronized-frame p50 from 3.6040 ms to 3.0045 ms (-16.6%). Submission/frame
+p95 improved 2.9429 -> 2.3009 ms and 5.1773 -> 4.4856 ms. Every baseline and
+candidate frame remained byte-exact at `5B6EF4F70536C862`; the full 11-test
+native/Dawn suite, forced scalar oracle, and strict x86_64 SSE2 syntax compile
+also pass.
+
 The corresponding Linux ARM64 checkout at exact commit `28447de4` passed a
 strict GCC 13.3 build of the complete 260-object graph, all 10 wgpu-native CTest
 contracts, the export allowlist, and live Vulkan allocation/render/readback on
