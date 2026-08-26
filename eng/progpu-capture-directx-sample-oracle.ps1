@@ -106,8 +106,8 @@ Enter-VsDevShell -VsInstallPath $VsInstall -SkipAutomaticLocation `
     -DevCmdArguments "-arch=$Architecture -host_arch=$Architecture" | Out-Null
 
 $Project = Join-Path $InstrumentedDirectory "$($Lock.sample)/D3D12HelloTriangle.vcxproj"
-$Packages = [System.IO.Path]::GetFullPath(
-    (Join-Path (Split-Path -Parent $Project) "../packages"))
+$Packages = Join-Path (
+    Split-Path -Parent (Split-Path -Parent $Project)) "packages"
 msbuild.exe $Project /m:1 /t:Restore /p:RestorePackagesConfig=true `
     "/p:RestorePackagesPath=$Packages" /verbosity:minimal
 if ($LASTEXITCODE -ne 0) { throw "DirectX sample package restore failed." }
