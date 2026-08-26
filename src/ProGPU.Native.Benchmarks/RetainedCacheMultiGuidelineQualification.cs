@@ -83,12 +83,15 @@ internal static class RetainedCacheMultiGuidelineQualification
             baselineFrame.SubmissionCount > 0U &&
             guidedFrame.SubmissionCount > 0U &&
             referenceFrame.SubmissionCount > 0U &&
-            baselineLayer.ContentPassCount == 1U &&
-            baselineLayer.CompositePassCount == 1U &&
-            guidedLayer.ContentPassCount == 0U &&
-            guidedLayer.CompositePassCount == 1U &&
-            referenceLayer.ContentPassCount == 0U &&
-            referenceLayer.CompositePassCount == 1U,
+            baselineLayer.ContentPassCount == 2U &&
+            baselineLayer.CompositePassCount == 2U &&
+            baselineLayer.EffectPassCount == 2U &&
+            guidedLayer.ContentPassCount == 1U &&
+            guidedLayer.CompositePassCount == 2U &&
+            guidedLayer.EffectPassCount == 2U &&
+            referenceLayer.ContentPassCount == 1U &&
+            referenceLayer.CompositePassCount == 2U &&
+            referenceLayer.EffectPassCount == 2U,
             "retained cache multi-guideline replay metrics are invalid: " +
             $"baseline update={baselineUpdate}, frame={baselineFrame}, " +
             $"layer={baselineLayer}; guided update={guidedUpdate}, " +
@@ -110,21 +113,24 @@ internal static class RetainedCacheMultiGuidelineQualification
             reference.IsVisible &&
             changedPixels >= 8 && baseline.RedSum != guided.RedSum &&
             referenceChanges == 0 && Red(guidedPixels, 2, 2) == 0,
-            "the live retained cache mask/guideline path did not deform " +
-            $"the composite: baseline={baseline}, guided={guided}, " +
-            $"reference={reference}, changed={changedPixels}, " +
-            $"referenceChanged={referenceChanges}");
+            "the live retained cache mask/guideline/effect path did not " +
+            $"deform the effect input exactly: baseline={baseline}, " +
+            $"guided={guided}, reference={reference}, " +
+            $"changed={changedPixels}, referenceChanged={referenceChanges}");
 
         Console.WriteLine(
-            "Qualified live local retained cache mask/multi-guideline " +
+            "Qualified live local retained cache mask/multi-guideline/effect " +
             $"composition on adapter '{context.AdapterName}', " +
             $"backend={context.AdapterBackendType}; passes=" +
             $"{baselineLayer.ContentPassCount}/" +
-            $"{baselineLayer.CompositePassCount}->" +
+            $"{baselineLayer.CompositePassCount}/" +
+            $"{baselineLayer.EffectPassCount}->" +
             $"{guidedLayer.ContentPassCount}/" +
-            $"{guidedLayer.CompositePassCount}->" +
+            $"{guidedLayer.CompositePassCount}/" +
+            $"{guidedLayer.EffectPassCount}->" +
             $"{referenceLayer.ContentPassCount}/" +
-            $"{referenceLayer.CompositePassCount}, baseline={baseline}, " +
+            $"{referenceLayer.CompositePassCount}/" +
+            $"{referenceLayer.EffectPassCount}, baseline={baseline}, " +
             $"guided={guided}, reference={reference}, " +
             $"changed={changedPixels}, referenceChanged={referenceChanges}.");
     }
@@ -144,9 +150,14 @@ internal static class RetainedCacheMultiGuidelineQualification
             8f,
             new Vector4(1f, 0f, 0f, 1f),
             Matrix3x2.Identity);
-        const int resourceCapacity = 4;
+        Span<NativeSceneEffect> effects = stackalloc NativeSceneEffect[1];
+        effects[0] = NativeSceneEffect.GaussianBlur(
+            sigmaX: 1f,
+            sigmaY: 1f,
+            revision: 1U);
+        const int resourceCapacity = 5;
         int size = NativeSceneStreamBuilder.GetRequiredBufferSize(
-            commandCapacity: 3,
+            commandCapacity: 5,
             resourceCapacity,
             arenaCapacity: 1024);
         byte[] destination = GC.AllocateUninitializedArray<byte>(size);
@@ -154,7 +165,7 @@ internal static class RetainedCacheMultiGuidelineQualification
             destination,
             SceneId,
             generation,
-            commandCapacity: 3,
+            commandCapacity: 5,
             resourceCapacity);
 
         uint nextResourceId = 1U;
@@ -214,6 +225,12 @@ internal static class RetainedCacheMultiGuidelineQualification
                 in mask,
                 stops,
                 out uint maskResourceIndex) &&
+            builder.TryAddEffectChainResource(
+                nextResourceId++,
+                generation: 1U,
+                effects,
+                revision: 1U,
+                out uint effectResourceIndex) &&
             builder.TryAddAnalyticResource(
                 nextResourceId,
                 ContentRevision,
@@ -221,6 +238,14 @@ internal static class RetainedCacheMultiGuidelineQualification
                 out uint analyticResourceIndex) &&
             builder.TryPushLayer(
                 commandId: 1U,
+                new NativeSceneLayer(
+                    flags: NativeSceneLayerFlags.Bounds,
+                    bounds: new NativeImageRect(0f, 0f, Width, Height),
+                    effectResourceIndex: effectResourceIndex,
+                    contentRevision: 1U,
+                    compositeRevision: 1U)) &&
+            builder.TryPushLayer(
+                commandId: 2U,
                 new NativeSceneLayer(
                     flags: NativeSceneLayerFlags.Bounds |
                         NativeSceneLayerFlags.CacheContent |
@@ -231,12 +256,15 @@ internal static class RetainedCacheMultiGuidelineQualification
                     compositeRevision: CompositeRevision,
                     compositeStateResourceIndex: compositeStateIndex)) &&
             builder.TryDrawAnalytic(
-                commandId: 2U,
+                commandId: 3U,
                 analyticResourceIndex,
                 new NativeImageRect(0f, 0f, 16f, 8f)) &&
-            builder.TryPopLayer(commandId: 3U) &&
+            builder.TryPopLayer(commandId: 4U) &&
+            builder.TryPopLayer(commandId: 5U) &&
             builder.TryBuild(out stream);
-        Require(success, "failed to build the retained cache guideline scene");
+        Require(
+            success,
+            "failed to build the retained cache mask/guideline/effect scene");
         return stream.ToArray();
     }
 
