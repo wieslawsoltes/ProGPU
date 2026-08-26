@@ -2519,8 +2519,16 @@ order, child-local alpha, and unit descendant State opacity. On Apple M3 Pro
 Metal the correct nested stack executes `3/3/2` content/composite/effect
 passes, samples red `28/200`, and yields `[7,4]-[41,29]`, red sum 59,308. A
 deliberately flattened parent mask executes `4/4/2`, changes 348 pixels,
-samples `29/200`, and yields `[6,5]-[41,28]`, red sum 63,032. DirectX
-qualification is pending for exact test/qualification commit `66592f2c`.
+samples `29/200`, and yields `[6,5]-[41,28]`, red sum 63,032.
+
+Clean detached `66592f2c` produces identical evidence on the Parallels Display
+Adapter D3D12 backend. Strict Windows ARM64 MSVC `/W4 /WX` passes all 11
+native/Dawn CTests, both export allowlists, two zero-warning managed Release
+builds, independent C++ and managed D3D12 allocation/readback samples, the
+complete bounded differential smoke matrix, and nine-file runtime/SDK staging.
+Qualified base/Dawn win-arm64 SHA-256 values are
+`9BC233F2462CCA5CE5A9BA31A296BEF80E22D6982D5B706F9756D9F62EC6CB97`
+and `743FE185F4D4C900CA1B7F5B18AD85BEAAD47CEA592315AF22D81E625DF0393D`.
 
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then

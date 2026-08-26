@@ -2341,8 +2341,18 @@ correct common-parent/nested-child stack with a deliberately flattened parent
 mask. Correct output executes `3/3/2` content/composite/effect passes, samples
 red `28/200`, and produces `[7,4]-[41,29]`, red sum 59,308. The flattened
 variant executes `4/4/2`, changes 348 pixels, samples `29/200`, and produces
-`[6,5]-[41,28]`, red sum 63,032. DirectX qualification is pending for exact
-test/qualification commit `66592f2c`.
+`[6,5]-[41,28]`, red sum 63,032.
+
+Clean detached `66592f2c` produces identical nested-mask evidence on the
+Parallels Display Adapter D3D12 backend. The strict Windows ARM64 MSVC
+`/W4 /WX` lane passes all 11 native/Dawn CTests, both export allowlists, two
+zero-warning managed Release builds, independent C++ and managed D3D12
+allocation/readback samples, the complete bounded differential smoke matrix,
+and nine-file runtime/SDK staging. Qualified win-arm64 SHA-256 values are
+`9BC233F2462CCA5CE5A9BA31A296BEF80E22D6982D5B706F9756D9F62EC6CB97`
+for `progpu_native.dll` and
+`743FE185F4D4C900CA1B7F5B18AD85BEAAD47CEA592315AF22D81E625DF0393D`
+for `progpu_native_dawn.dll`.
 
 The implementation sequence is intentionally architectural:
 
