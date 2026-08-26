@@ -108,6 +108,7 @@ using proc_resolver = void* (*)(void* context, const char* name);
     X(RenderPassEncoderSetIndexBuffer) \
     X(RenderPassEncoderSetPipeline) \
     X(RenderPassEncoderSetScissorRect) \
+    X(RenderPassEncoderSetViewport) \
     X(RenderPassEncoderSetVertexBuffer) \
     X(RenderBundleEncoderDraw) \
     X(RenderBundleEncoderDrawIndexed) \
@@ -573,6 +574,8 @@ inline WGPUVertexAttribute vertex_attribute(
     (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderSetPipeline)
 #define wgpuRenderPassEncoderSetScissorRect \
     (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderSetScissorRect)
+#define wgpuRenderPassEncoderSetViewport \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderSetViewport)
 #define wgpuRenderPassEncoderSetVertexBuffer \
     (::progpu::native::webgpu::active_dispatch().wgpuRenderPassEncoderSetVertexBuffer)
 #define wgpuRenderBundleEncoderDraw \

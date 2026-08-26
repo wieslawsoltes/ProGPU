@@ -1,5 +1,14 @@
 #include "progpu_native_frame_execution_common.hpp"
 
+#if defined(__ARM_NEON) || defined(__ARM_NEON__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#define PROGPU_NATIVE_GLYPH_INTRINSICS_NEON 1
+#elif defined(__SSE2__) || defined(_M_X64) || \
+    (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#include <emmintrin.h>
+#define PROGPU_NATIVE_GLYPH_INTRINSICS_SSE2 1
+#endif
+
 namespace progpu::native::execution {
 
 namespace {
@@ -99,12 +108,12 @@ bool is_winding_root_valid(
     return true;
 }
 
-int glyph_winding_cpu(
-    float sample_x,
+template<typename TVisitor>
+void visit_glyph_crossings_cpu(
     float sample_y,
     const gpu_glyph_record& record,
-    const progpu_native_path_segment* segments) noexcept {
-    int winding = 0;
+    const progpu_native_path_segment* segments,
+    TVisitor&& visitor) noexcept {
     const std::uint32_t end = record.start_segment + record.segment_count;
     for (std::uint32_t index = record.start_segment;
          index < end;
@@ -119,11 +128,11 @@ int glyph_winding_cpu(
             if (a.y <= sample_y && b.y > sample_y) {
                 const float t = (sample_y - a.y) / (b.y - a.y);
                 const float crossing_x = a.x + t * (b.x - a.x);
-                winding += sample_x < crossing_x ? 1 : 0;
+                visitor(crossing_x, 1);
             } else if (a.y > sample_y && b.y <= sample_y) {
                 const float t = (sample_y - a.y) / (b.y - a.y);
                 const float crossing_x = a.x + t * (b.x - a.x);
-                winding -= sample_x < crossing_x ? 1 : 0;
+                visitor(crossing_x, -1);
             }
             continue;
         }
@@ -157,9 +166,12 @@ int glyph_winding_cpu(
                     one_minus_t * one_minus_t * a.x +
                     2.0F * one_minus_t * clamped_t * b.x +
                     clamped_t * clamped_t * c.x;
-                winding += sample_x < crossing_x
-                    ? derivative_y > 0.0F ? 1 : derivative_y < 0.0F ? -1 : 0
-                    : 0;
+                const int direction = derivative_y > 0.0F
+                    ? 1
+                    : derivative_y < 0.0F ? -1 : 0;
+                if (direction != 0) {
+                    visitor(crossing_x, direction);
+                }
             }
             continue;
         }
@@ -191,12 +203,172 @@ int glyph_winding_cpu(
                 3.0F * one_minus_t * one_minus_t * clamped_t * b.x +
                 3.0F * one_minus_t * clamped_t * clamped_t * c.x +
                 clamped_t * clamped_t * clamped_t * d.x;
-            winding += sample_x < crossing_x
-                ? derivative_y > 0.0F ? 1 : derivative_y < 0.0F ? -1 : 0
-                : 0;
+            const int direction = derivative_y > 0.0F
+                ? 1
+                : derivative_y < 0.0F ? -1 : 0;
+            if (direction != 0) {
+                visitor(crossing_x, direction);
+            }
         }
     }
+}
+
+int glyph_winding_cpu(
+    float sample_x,
+    float sample_y,
+    const gpu_glyph_record& record,
+    const progpu_native_path_segment* segments) noexcept {
+    int winding = 0;
+    visit_glyph_crossings_cpu(
+        sample_y,
+        record,
+        segments,
+        [sample_x, &winding](float crossing_x, int direction) noexcept {
+            winding += sample_x < crossing_x ? direction : 0;
+        });
     return winding;
+}
+
+#if defined(PROGPU_NATIVE_GLYPH_INTRINSICS_NEON)
+
+class intrinsic_winding_8 final {
+public:
+    intrinsic_winding_8(float first_sample_x, float sample_step) noexcept {
+        const std::array<float, 4U> low{
+            first_sample_x,
+            first_sample_x + sample_step,
+            first_sample_x + sample_step * 2.0F,
+            first_sample_x + sample_step * 3.0F};
+        const std::array<float, 4U> high{
+            first_sample_x + sample_step * 4.0F,
+            first_sample_x + sample_step * 5.0F,
+            first_sample_x + sample_step * 6.0F,
+            first_sample_x + sample_step * 7.0F};
+        samples_low_ = vld1q_f32(low.data());
+        samples_high_ = vld1q_f32(high.data());
+        winding_low_ = vdupq_n_s32(0);
+        winding_high_ = vdupq_n_s32(0);
+    }
+
+    void add_crossing(float crossing_x, int direction) noexcept {
+        const float32x4_t crossing = vdupq_n_f32(crossing_x);
+        const int32x4_t directions = vdupq_n_s32(direction);
+        winding_low_ = vaddq_s32(
+            winding_low_,
+            vandq_s32(
+                vreinterpretq_s32_u32(vcltq_f32(samples_low_, crossing)),
+                directions));
+        winding_high_ = vaddq_s32(
+            winding_high_,
+            vandq_s32(
+                vreinterpretq_s32_u32(vcltq_f32(samples_high_, crossing)),
+                directions));
+    }
+
+    std::uint32_t covered_count() const noexcept {
+        std::array<std::int32_t, 8U> winding{};
+        vst1q_s32(winding.data(), winding_low_);
+        vst1q_s32(winding.data() + 4U, winding_high_);
+        return static_cast<std::uint32_t>(std::count_if(
+            winding.begin(),
+            winding.end(),
+            [](std::int32_t value) noexcept { return value != 0; }));
+    }
+
+private:
+    float32x4_t samples_low_{};
+    float32x4_t samples_high_{};
+    int32x4_t winding_low_{};
+    int32x4_t winding_high_{};
+};
+
+#elif defined(PROGPU_NATIVE_GLYPH_INTRINSICS_SSE2)
+
+class intrinsic_winding_8 final {
+public:
+    intrinsic_winding_8(float first_sample_x, float sample_step) noexcept
+        : samples_low_(_mm_setr_ps(
+              first_sample_x,
+              first_sample_x + sample_step,
+              first_sample_x + sample_step * 2.0F,
+              first_sample_x + sample_step * 3.0F)),
+          samples_high_(_mm_setr_ps(
+              first_sample_x + sample_step * 4.0F,
+              first_sample_x + sample_step * 5.0F,
+              first_sample_x + sample_step * 6.0F,
+              first_sample_x + sample_step * 7.0F)),
+          winding_low_(_mm_setzero_si128()),
+          winding_high_(_mm_setzero_si128()) {
+    }
+
+    void add_crossing(float crossing_x, int direction) noexcept {
+        const __m128 crossing = _mm_set1_ps(crossing_x);
+        const __m128i directions = _mm_set1_epi32(direction);
+        winding_low_ = _mm_add_epi32(
+            winding_low_,
+            _mm_and_si128(
+                _mm_castps_si128(_mm_cmplt_ps(samples_low_, crossing)),
+                directions));
+        winding_high_ = _mm_add_epi32(
+            winding_high_,
+            _mm_and_si128(
+                _mm_castps_si128(_mm_cmplt_ps(samples_high_, crossing)),
+                directions));
+    }
+
+    std::uint32_t covered_count() const noexcept {
+        alignas(16) std::array<std::int32_t, 8U> winding{};
+        _mm_store_si128(
+            reinterpret_cast<__m128i*>(winding.data()),
+            winding_low_);
+        _mm_store_si128(
+            reinterpret_cast<__m128i*>(winding.data() + 4U),
+            winding_high_);
+        return static_cast<std::uint32_t>(std::count_if(
+            winding.begin(),
+            winding.end(),
+            [](std::int32_t value) noexcept { return value != 0; }));
+    }
+
+private:
+    __m128 samples_low_{};
+    __m128 samples_high_{};
+    __m128i winding_low_{};
+    __m128i winding_high_{};
+};
+
+#endif
+
+std::uint32_t glyph_covered_samples_row_intrinsic(
+    float first_sample_x,
+    float sample_step,
+    float sample_y,
+    const gpu_glyph_record& record,
+    const progpu_native_path_segment* segments) noexcept {
+#if defined(PROGPU_NATIVE_GLYPH_INTRINSICS_NEON) || \
+    defined(PROGPU_NATIVE_GLYPH_INTRINSICS_SSE2)
+    intrinsic_winding_8 winding(first_sample_x, sample_step);
+    visit_glyph_crossings_cpu(
+        sample_y,
+        record,
+        segments,
+        [&winding](float crossing_x, int direction) noexcept {
+            winding.add_crossing(crossing_x, direction);
+        });
+    return winding.covered_count();
+#else
+    std::uint32_t covered = 0U;
+    for (std::uint32_t sample_x = 0U; sample_x < 8U; ++sample_x) {
+        covered += glyph_winding_cpu(
+            first_sample_x + static_cast<float>(sample_x) * sample_step,
+            sample_y,
+            record,
+            segments) != 0
+            ? 1U
+            : 0U;
+    }
+    return covered;
+#endif
 }
 
 bool rasterize_glyph_coverage_cpu(
@@ -205,7 +377,8 @@ bool rasterize_glyph_coverage_cpu(
     const std::vector<gpu_glyph_uniforms>& uniforms,
     const std::vector<native_glyph_raster>& rasters,
     std::uint64_t coverage_size,
-    std::vector<std::byte>& coverage) {
+    std::vector<std::byte>& coverage,
+    bool use_intrinsic_simd) {
     try {
         coverage.assign(static_cast<std::size_t>(coverage_size), std::byte{});
     } catch (const std::bad_alloc&) {
@@ -224,6 +397,10 @@ bool rasterize_glyph_coverage_cpu(
                     static_cast<float>(x);
                 const float pixel_y = uniform.y_start +
                     static_cast<float>(y);
+                const float first_glyph_x = (
+                    pixel_x + 0.0625F - uniform.subpixel_x) /
+                    uniform.scale;
+                const float glyph_sample_step = 0.125F / uniform.scale;
                 for (std::uint32_t sample_y = 0U;
                      sample_y < 8U;
                      ++sample_y) {
@@ -231,13 +408,20 @@ bool rasterize_glyph_coverage_cpu(
                         pixel_y + 0.0625F +
                         static_cast<float>(sample_y) * 0.125F) /
                         uniform.scale;
+                    if (use_intrinsic_simd) {
+                        covered_samples += glyph_covered_samples_row_intrinsic(
+                            first_glyph_x,
+                            glyph_sample_step,
+                            glyph_y,
+                            record,
+                            frame.segments);
+                        continue;
+                    }
                     for (std::uint32_t sample_x = 0U;
                          sample_x < 8U;
                          ++sample_x) {
-                        const float glyph_x = (
-                            pixel_x + 0.0625F +
-                            static_cast<float>(sample_x) * 0.125F -
-                            uniform.subpixel_x) / uniform.scale;
+                        const float glyph_x = first_glyph_x +
+                            static_cast<float>(sample_x) * glyph_sample_step;
                         covered_samples += glyph_winding_cpu(
                             glyph_x,
                             glyph_y,
@@ -509,8 +693,8 @@ progpu_native_status render_glyphs(
                     width,
                     height,
                     outline.subpixel_x,
-                    0.0F,
-                    0.0F,
+                    static_cast<float>(atlas_x),
+                    static_cast<float>(atlas_y),
                     0.0F
                 });
                 output_offset = static_cast<std::uint32_t>(next_output);
@@ -749,18 +933,26 @@ progpu_native_status render_glyphs(
     path_raster_resources temporary;
     std::vector<std::byte> uniform_bytes;
     std::vector<std::byte> cpu_coverage;
-    const bool glyph_compute_fallback =
+    const bool glyph_raster_shader_fallback =
         (engine->engine_flags &
-            PROGPU_NATIVE_ENGINE_GLYPH_COMPUTE_FALLBACK) != 0U;
+            PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK) != 0U;
+    const bool glyph_cpu_fallback =
+        (engine->engine_flags &
+            (PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK |
+             PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK)) != 0U;
+    const bool glyph_intrinsic_simd_fallback =
+        (engine->engine_flags &
+            PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK) != 0U;
     if (!compiled_payload_hit && frame->outline_count != 0U) {
-        if (glyph_compute_fallback) {
+        if (glyph_cpu_fallback) {
             if (!rasterize_glyph_coverage_cpu(
                     *frame,
                     records,
                     uniforms,
                     engine->glyph_rasters,
                     coverage_staging_bytes,
-                    cpu_coverage)) {
+                    cpu_coverage,
+                    glyph_intrinsic_simd_fallback)) {
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                     "The native CPU glyph coverage arena could not be allocated.");
@@ -828,12 +1020,15 @@ progpu_native_status render_glyphs(
             "ProGPU native glyph segments",
             frame->segment_count * sizeof(progpu_native_path_segment),
             WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
-        temporary.coverage = create_buffer(
-            "ProGPU native glyph coverage staging",
-            coverage_staging_bytes,
-            WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc);
+        if (!glyph_raster_shader_fallback) {
+            temporary.coverage = create_buffer(
+                "ProGPU native glyph coverage staging",
+                coverage_staging_bytes,
+                WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc);
+        }
         if (temporary.uniforms == nullptr || temporary.records == nullptr ||
-            temporary.segments == nullptr || temporary.coverage == nullptr) {
+            temporary.segments == nullptr ||
+            (!glyph_raster_shader_fallback && temporary.coverage == nullptr)) {
             return engine->fail(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                 "The native glyph raster staging buffers could not be allocated.");
@@ -873,9 +1068,16 @@ progpu_native_status render_glyphs(
                 coverage_staging_bytes, nullptr, nullptr}
         }};
         WGPUBindGroupDescriptor bind_group_descriptor{};
-        bind_group_descriptor.label = progpu::native::webgpu::string_view("ProGPU native glyph raster bind group");
-        bind_group_descriptor.layout = engine->glyph_raster_layout;
-        bind_group_descriptor.entryCount = entries.size();
+        bind_group_descriptor.label = progpu::native::webgpu::string_view(
+            glyph_raster_shader_fallback
+                ? "ProGPU native glyph raster shader bind group"
+                : "ProGPU native glyph raster bind group");
+        bind_group_descriptor.layout = glyph_raster_shader_fallback
+            ? engine->glyph_raster_fallback_layout
+            : engine->glyph_raster_layout;
+        bind_group_descriptor.entryCount = glyph_raster_shader_fallback
+            ? 3U
+            : entries.size();
         bind_group_descriptor.entries = entries.data();
         temporary.bind_group = wgpuDeviceCreateBindGroup(
             engine->device,
@@ -903,6 +1105,69 @@ progpu_native_status render_glyphs(
             "The native positioned glyph command encoder could not be created.");
     }
     if (temporary.bind_group != nullptr) {
+        if (glyph_raster_shader_fallback) {
+            WGPURenderPassColorAttachment color_attachment{};
+            progpu::native::webgpu::initialize_color_attachment(
+                color_attachment);
+            color_attachment.view = engine->glyph_atlas_texture_view;
+            color_attachment.loadOp = WGPULoadOp_Load;
+            color_attachment.storeOp = WGPUStoreOp_Store;
+            WGPURenderPassDescriptor render_descriptor{};
+            render_descriptor.label =
+                progpu::native::webgpu::string_view(
+                    "ProGPU native glyph raster shader fallback pass");
+            render_descriptor.colorAttachmentCount = 1U;
+            render_descriptor.colorAttachments = &color_attachment;
+            WGPURenderPassEncoder render_pass =
+                wgpuCommandEncoderBeginRenderPass(
+                    encoder,
+                    &render_descriptor);
+            if (render_pass == nullptr) {
+                if (owns_encoder) {
+                    wgpuCommandEncoderRelease(encoder);
+                }
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                    "The native glyph raster shader pass could not be created.");
+            }
+            wgpuRenderPassEncoderSetPipeline(
+                render_pass,
+                engine->glyph_raster_fallback_pipeline);
+            for (std::uint32_t index = 0U;
+                 index < engine->glyph_rasters.size();
+                 ++index) {
+                const std::uint32_t dynamic_offset = index * 256U;
+                wgpuRenderPassEncoderSetBindGroup(
+                    render_pass,
+                    0U,
+                    temporary.bind_group,
+                    1U,
+                    &dynamic_offset);
+                const auto& raster = engine->glyph_rasters[index];
+                wgpuRenderPassEncoderSetViewport(
+                    render_pass,
+                    static_cast<float>(raster.atlas_x),
+                    static_cast<float>(raster.atlas_y),
+                    static_cast<float>(raster.width),
+                    static_cast<float>(raster.height),
+                    0.0F,
+                    1.0F);
+                wgpuRenderPassEncoderSetScissorRect(
+                    render_pass,
+                    raster.atlas_x,
+                    raster.atlas_y,
+                    raster.width,
+                    raster.height);
+                wgpuRenderPassEncoderDraw(
+                    render_pass,
+                    3U,
+                    1U,
+                    0U,
+                    0U);
+            }
+            wgpuRenderPassEncoderEnd(render_pass);
+            wgpuRenderPassEncoderRelease(render_pass);
+        } else {
         WGPUComputePassDescriptor compute_descriptor{};
         compute_descriptor.label = progpu::native::webgpu::string_view("ProGPU native glyph coverage pass");
         WGPUComputePassEncoder compute_pass =
@@ -953,6 +1218,7 @@ progpu_native_status render_glyphs(
                 &source,
                 &destination,
                 &extent);
+        }
         }
     }
 
@@ -1108,7 +1374,9 @@ progpu_native_status render_glyphs(
             ? instance_bytes
             : 0U;
         metrics->outline_upload_bytes = outline_upload_bytes;
-        metrics->coverage_staging_bytes = coverage_staging_bytes;
+        metrics->coverage_staging_bytes = glyph_raster_shader_fallback
+            ? 0U
+            : coverage_staging_bytes;
         metrics->uniform_upload_bytes = uploaded_uniforms
             ? sizeof(gpu_uniforms)
             : 0U;

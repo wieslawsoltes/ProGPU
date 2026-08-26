@@ -22,6 +22,7 @@
 #include "progpu_native_child_engine.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -255,7 +256,10 @@ progpu_native_status progpu_native_engine_create(
         options->device == 0U || options->queue == 0U ||
         (options->flags &
             ~static_cast<std::uint64_t>(
-                PROGPU_NATIVE_ENGINE_GLYPH_COMPUTE_FALLBACK)) != 0U ||
+                PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK |
+                PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK |
+                PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK)) != 0U ||
+        std::popcount(options->flags) > 1 ||
         texture_format(options->target_format) == WGPUTextureFormat_Undefined) {
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     }
@@ -311,7 +315,10 @@ progpu_native_status progpu_native_dawn_engine_create(
         options->reserved != 0U ||
         (options->flags &
             ~static_cast<std::uint64_t>(
-                PROGPU_NATIVE_ENGINE_GLYPH_COMPUTE_FALLBACK)) != 0U ||
+                PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK |
+                PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK |
+                PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK)) != 0U ||
+        std::popcount(options->flags) > 1 ||
         options->resolver_context == nullptr ||
         options->resolve_proc == nullptr ||
         options->instance == 0U || options->device == 0U ||

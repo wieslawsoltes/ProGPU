@@ -791,10 +791,12 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
-    public void ParallelsD3D12GlyphRasterizationUsesTypedComputeFallback()
+    public void ParallelsD3D12GlyphRasterizationUsesTypedGpuFirstFallback()
     {
         string managedContext = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Backend", "WgpuContext.cs"));
+        string managedPolicy = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Backend", "GpuComputeExecutionPolicy.cs"));
         string managedAtlas = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Text", "GlyphAtlas.cs"));
         string managedNativeHost = File.ReadAllText(FindRepoFile(
@@ -806,23 +808,23 @@ public class NativeRendererInteropTests
             "progpu_native_glyph_execution.cpp"));
 
         Assert.Contains(
-            "RequiresGlyphComputeFallback",
+            "GlyphRasterizationPath",
             managedContext,
             StringComparison.Ordinal);
         Assert.Contains(
-            "AdapterBackendType == BackendType.D3D12",
-            managedContext,
+            "backendType == BackendType.D3D12",
+            managedPolicy,
             StringComparison.Ordinal);
         Assert.Contains(
             "Parallels Display Adapter",
-            managedContext,
+            managedPolicy,
             StringComparison.Ordinal);
         Assert.Contains(
-            "_context.RequiresGlyphComputeFallback",
+            "GpuComputeExecutionPath.RasterShader",
             managedAtlas,
             StringComparison.Ordinal);
         Assert.Contains(
-            "RasterizeGlyphCoverageCpu(",
+            "RasterizeGlyphWithRasterShader(",
             managedAtlas,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -834,11 +836,15 @@ public class NativeRendererInteropTests
             managedNativeHost,
             StringComparison.Ordinal);
         Assert.Contains(
-            "PROGPU_NATIVE_ENGINE_GLYPH_COMPUTE_FALLBACK",
+            "PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK",
             nativeContract,
             StringComparison.Ordinal);
         Assert.Contains(
-            "rasterize_glyph_coverage_cpu(",
+            "glyph_raster_shader_fallback",
+            nativeGlyphExecution,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "intrinsic_winding_8",
             nativeGlyphExecution,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
