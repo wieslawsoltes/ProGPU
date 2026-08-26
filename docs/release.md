@@ -5,46 +5,43 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 It also builds the separately versioned Avalonia 11 and 12 integration packages
 from `scripts/progpu-package-list.sh`.
 
-Preview.61 advances the successfully published preview.60 boundary with the
-complete Avalonia Silk.NET windowing, input, rendering, and WebGPU recovery work
-merged in pull request #152. The windowing host keeps client, pointer, and
-framebuffer coordinates in the correct DPI domains, updates layout throughout
-live resize, and delegates custom-title-bar dragging to native caption behavior.
-Routed input covers repeat keys, UTF-32 text, modifiers and shortcuts, pointer
-leave, five mouse buttons, two-axis wheels, Win32 touch, XInput 2.2 touch, and
-AppKit gestures.
+Preview.62 advances the successfully published preview.61 boundary with a
+second measured optimization round for the ProGPU-backed SkiaSharp compatibility
+layer. Avalonia's common bounded SaveLayer containing one analytic rounded
+rectangle now retains the exact `PushClip`, `DrawRoundedRect`, `PopClip` stream
+in typed fields instead of allocating a general picture-command collection,
+transform table, and per-layer typed arrays. A single cleared canvas-local
+transient context can be reused by sequential layers; nested layers cannot
+borrow an active context and the slot cannot grow into an unbounded pool.
 
-Silk/wgpu-native and Dawn now track loss per exact WebGPU device, reject unsafe
-submission after terminal loss, invalidate affected surfaces, drop failed
-Avalonia frames cleanly, and recreate only healthy contexts. Dawn presentation
-surfaces retain explicit context leases so the device cannot be destroyed before
-the old render target. Immutable bitmap CPU sources remain available for
-cross-device migration. Deterministic recovery telemetry and CI smoke tests cover
-both managed and native presentation paths.
+The optimized path preserves geometry, clip and draw transforms, presentation
+dependencies, antialiasing, pen semantics, effect ownership, and command order.
+All other layer shapes continue through the existing exact compact picture
+path. This is a SkiaSharp front-end storage change: the managed and native scene
+compilers receive the same expanded commands, so no one-sided renderer change
+is required.
 
-## Preview.61 Avalonia integration and recovery closure
+## Preview.62 retained SaveLayer optimization closure
 
-The Silk.NET windowing and input contracts pass 129 tests against Avalonia
-12.1.1 and 104 against Avalonia 11.3.20. The Avalonia rendering integration
-passes 104 focused contracts, 28 retained-compositor contracts pass against the
-pinned Avalonia source, and the complete local managed suites pass 3,808
-renderer tests and 240 headless tests.
+The alternating three-process Release comparison uses official SkiaSharp
+4.151.0 with 32 warmups and 24 samples in each process. All 62 semantic
+checksums match. The `avalonia-layer-recording` median improves from 3,847.625
+to 2,673.188 ns/op (-30.5%), p95 from 14,958.313 to 4,333.313 ns/op (-71.0%),
+and managed allocation from 8,189 to 6,131 B/op (-25.1%). The ProGPU-to-official
+median ratio improves from 6.808 to 4.512; official allocation counters exclude
+native Skia command storage, so they are not treated as equal total-memory
+accounting.
 
-Interactive validation covers the macOS host plus Windows 11 and Ubuntu VMs in
-Parallels. Windows verifies 200% DPI sizing, title dragging, live resize,
-keyboard shortcuts, pointer and touch routing, and 1024x800 logical / 2048x1600
-physical ControlCatalog output. Native Win32, macOS, and X11 windowing all render
-the catalog through ProGPU without the observed clipping regressions. Forced
-device loss recovers Silk and Dawn in one frame on Windows and Linux; macOS
-recovers Silk in one frame and Dawn Metal/IOSurface in two frames. The recovered
-Border page preserves circular image clipping and the expected framebuffer size.
-
-All 27 checks on pull request #152 pass, including the managed platform matrix,
-native C++ renderer and compiler matrix, browser WebGPU, mobile and portable
-packing, native package creation, six native package consumers, and the new
-Avalonia Dawn recovery smokes on Windows, macOS, and Linux. The tagged Release
-workflow repeats the repository, native, package-consumer, mobile, and Avalonia
-integration validation before publishing.
+Matched 50,000-operation Xcode Allocations/VM Tracker, Time Profiler, and Metal
+System Trace captures preserve the checksum. Managed allocation falls from
+3,309 to 1,205 B/op (-63.6%); persistent heap plus anonymous VM changes by
++0.16%, with zero target Metal resources, submissions, waits, spills, potential
+hangs, hang risks, or command-buffer errors. The Release validation includes
+the 110-test `SkCanvasStateTests` suite, 3,809 core tests, 240 headless tests,
+Avalonia and Silk.NET contract lanes, all 307 XAML tests, and the official
+SkiaSharp metadata gate at 4,222/4,222 with zero missing declarations. Detailed
+research, complexity, rejected experiments, and profiler evidence are recorded
+in `docs/AVALONIA_SKIA_RETAINED_COMMAND_STREAM_RESEARCH.md`.
 
 ## Compatibility and continuation
 
@@ -107,19 +104,19 @@ pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 
 ## Avalonia Integration Packages
 
-- `ProGPU.Avalonia.Rendering` `12.1.1-preview.61`
-- `ProGPU.Avalonia.SilkNet` `12.1.1-preview.61`
-- `ProGPU.Avalonia.Rendering` `11.3.20-preview.61`
-- `ProGPU.Avalonia.SilkNet` `11.3.20-preview.61`
+- `ProGPU.Avalonia.Rendering` `12.1.1-preview.62`
+- `ProGPU.Avalonia.SilkNet` `12.1.1-preview.62`
+- `ProGPU.Avalonia.Rendering` `11.3.20-preview.62`
+- `ProGPU.Avalonia.SilkNet` `11.3.20-preview.62`
 
 These packages are packed on the portable runner and published after the
-`0.1.0-preview.61` runtime package set so their exact ProGPU dependencies are
+`0.1.0-preview.62` runtime package set so their exact ProGPU dependencies are
 available first.
 
 ## Local Package Build
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.61 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.62 ./eng/progpu-pack.sh
 PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
 ```
 
@@ -137,7 +134,7 @@ release workflow combines and re-verifies both outputs before publishing.
 ```bash
 read -rsp "NuGet API key: " NUGET_API_KEY
 export NUGET_API_KEY
-PROGPU_PACKAGE_VERSION=0.1.0-preview.61 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.62 ./eng/progpu-publish.sh
 ./scripts/progpu-publish.sh
 unset NUGET_API_KEY
 ```
@@ -155,7 +152,7 @@ feed.
 - `Release` validates and packs portable packages and the Avalonia integration lanes on Linux, packs mobile packages on macOS, verifies the combined runtime dependency closure, publishes runtime packages followed by Avalonia packages, and creates a tag-driven GitHub Release.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
-for example `v0.1.0-preview.61`.
+for example `v0.1.0-preview.62`.
 
 ## NuGet Publishing
 
