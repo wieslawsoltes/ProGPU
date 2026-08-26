@@ -5822,6 +5822,23 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         }
     }
 
+    [Theory]
+    [InlineData(2.9f, 2u)]
+    [InlineData(-1f, 0u)]
+    [InlineData(200f, 128u)]
+    public void BoxBlurParamsUseBoundedIntegerRadius(
+        float radius,
+        uint expectedRadius)
+    {
+        ComputeAccelerator.GaussianBlurParams parameters =
+            ComputeAccelerator.GaussianBlurParams.Box(radius);
+
+        Assert.Equal(0f, parameters.Sigma);
+        Assert.Equal(expectedRadius, parameters.Radius);
+        Assert.Equal(1u, parameters.KernelType);
+        Assert.Equal(16, Marshal.SizeOf<ComputeAccelerator.GaussianBlurParams>());
+    }
+
     [Fact]
     public void ComputeAcceleratorCreatesOnlyTheRequestedEffectFamilyAndReusesIt()
     {
@@ -5882,6 +5899,15 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.Equal(2, accelerator.CachedEffectPipelineCount);
         Assert.Equal(32UL, accelerator.PersistentEffectParameterBufferBytes);
         Assert.Equal(firstResult, destination.ReadPixels());
+
+        accelerator.ApplyBoxBlur(source, temporary, destination, 1f);
+        byte[] boxResult = destination.ReadPixels();
+
+        Assert.Equal(2, accelerator.CachedEffectShaderCount);
+        Assert.Equal(2, accelerator.CachedEffectPipelineCount);
+        Assert.Equal(32UL, accelerator.PersistentEffectParameterBufferBytes);
+        Assert.Contains(boxResult, static value => value != 0);
+        Assert.NotEqual(firstResult, boxResult);
     }
 
     [Fact]

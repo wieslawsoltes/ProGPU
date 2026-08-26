@@ -1904,6 +1904,31 @@ public unsafe partial class Compositor : IDisposable
         float sigma) =>
         ApplyGaussianBlur(source, temporary, destination, sigma, sigma);
 
+    public void ApplyBoxBlur(
+        GpuTexture source,
+        GpuTexture temporary,
+        GpuTexture destination,
+        float radiusX,
+        float radiusY)
+    {
+        lock (_context.RenderLock)
+        {
+            _compute.ApplyBoxBlur(
+                source,
+                temporary,
+                destination,
+                radiusX,
+                radiusY);
+        }
+    }
+
+    public void ApplyBoxBlur(
+        GpuTexture source,
+        GpuTexture temporary,
+        GpuTexture destination,
+        float radius) =>
+        ApplyBoxBlur(source, temporary, destination, radius, radius);
+
     public void ApplyDropShadow(
         GpuTexture source,
         GpuTexture temporary,
@@ -15595,7 +15620,10 @@ SceneStateUploadComplete:
 
         if (effect is BlurEffect blur)
         {
-            float padding = MathF.Ceiling(blur.BlurRadius * 2f);
+            float padding = MathF.Ceiling(
+                blur.KernelType == BlurKernelType.Box
+                    ? blur.BlurRadius
+                    : blur.BlurRadius * 2f);
             paddingX = padding;
             paddingY = padding;
         }
@@ -15733,11 +15761,22 @@ SceneStateUploadComplete:
             {
                 if (blurEffect.BlurRadius > 0.01f)
                 {
-                    _compute.ApplyGaussianBlur(
-                        activeTextures.Source,
-                        activeTextures.Temporary!,
-                        activeTextures.Destination!,
-                        blurEffect.BlurRadius * dpiScale);
+                    if (blurEffect.KernelType == BlurKernelType.Box)
+                    {
+                        _compute.ApplyBoxBlur(
+                            activeTextures.Source,
+                            activeTextures.Temporary!,
+                            activeTextures.Destination!,
+                            blurEffect.BlurRadius * dpiScale);
+                    }
+                    else
+                    {
+                        _compute.ApplyGaussianBlur(
+                            activeTextures.Source,
+                            activeTextures.Temporary!,
+                            activeTextures.Destination!,
+                            blurEffect.BlurRadius * dpiScale);
+                    }
                 }
             }
             else if (fe.Effect is DropShadowEffect shadowEffect)

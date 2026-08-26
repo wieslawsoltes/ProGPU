@@ -558,8 +558,10 @@ public class DiagnosticsLoggingSourceTests
     {
         string source = ReadSource("src", "ProGPU.Compute", "ComputeAccelerator.cs");
 
-        Assert.Contains("_blurHorizontalParams!.WriteSingle(new GaussianBlurParams(sigmaX));", source, StringComparison.Ordinal);
-        Assert.Contains("_blurVerticalParams!.WriteSingle(new GaussianBlurParams(sigmaY));", source, StringComparison.Ordinal);
+        Assert.Contains("_blurHorizontalParams!.WriteSingle(horizontalParams);", source, StringComparison.Ordinal);
+        Assert.Contains("_blurVerticalParams!.WriteSingle(verticalParams);", source, StringComparison.Ordinal);
+        Assert.Contains("public void ApplyBoxBlur(", source, StringComparison.Ordinal);
+        Assert.Contains("GaussianBlurParams.Box(radiusX)", source, StringComparison.Ordinal);
         Assert.Contains("private CachedPassBinding _blurHorizontalBinding;", source, StringComparison.Ordinal);
         Assert.Contains("private CachedPassBinding _shadowVerticalBinding;", source, StringComparison.Ordinal);
         Assert.Contains("private BindGroup* GetOrCreatePassBinding(", source, StringComparison.Ordinal);

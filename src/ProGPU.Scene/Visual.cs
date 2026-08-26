@@ -1501,9 +1501,19 @@ public sealed class WpfShaderEffect : EffectBase
     }
 }
 
+/// <summary>
+/// Selects the separable GPU kernel used by <see cref="BlurEffect"/>.
+/// </summary>
+public enum BlurKernelType
+{
+    Gaussian = 0,
+    Box = 1
+}
+
 public class BlurEffect : EffectBase
 {
     private float _blurRadius;
+    private BlurKernelType _kernelType;
 
     public float BlurRadius
     {
@@ -1513,6 +1523,27 @@ public class BlurEffect : EffectBase
             if (_blurRadius != value)
             {
                 _blurRadius = value;
+                Invalidate();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the GPU blur kernel. Gaussian remains the default.
+    /// </summary>
+    public BlurKernelType KernelType
+    {
+        get => _kernelType;
+        set
+        {
+            if (value is not BlurKernelType.Gaussian and
+                not BlurKernelType.Box)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+            if (_kernelType != value)
+            {
+                _kernelType = value;
                 Invalidate();
             }
         }

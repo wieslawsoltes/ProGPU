@@ -3168,6 +3168,14 @@ it is not a product fallback. Apple M3 Pro Metal is exact at radius 2/1x with
 hash `22A8BEC63E7C7494`; at 2x its maximum difference is 1/255, no pixel exceeds
 tolerance, and mean absolute error is 0.000455 byte/channel.
 
+The portable managed compositor now exposes that shared shader selection as
+`BlurEffect.KernelType` and `ComputeAccelerator.ApplyBoxBlur(...)`. Box keeps
+the same cached two-pipeline/two-uniform-buffer resource family as Gaussian,
+uses the native path's floored physical radius bounded to 128, and remains
+fully GPU-resident. Gaussian is still the source-compatible default. Headless
+WebGPU tests execute both kernels without adding another shader or pipeline
+and assert bounded parameter layout plus distinct transparent-edge output.
+
 Exact pre-Box Windows checkpoint `edd98b71` completed the full Parallels D3D12
 Smoke/package lane after the PowerShell 5 expected-failure harness was made
 host-independent. ARM64 MSVC `/W4 /WX` rebuilt both providers, all 11 CTests
