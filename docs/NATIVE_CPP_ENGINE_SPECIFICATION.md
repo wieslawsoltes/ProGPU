@@ -125,6 +125,8 @@ submission percentiles in its matched managed/native qualification.
 | [WebGPU texture formats](https://www.w3.org/TR/webgpu/#texture-formats) and [DirectWrite `IDWriteGlyphRunAnalysis::CreateAlphaTexture`](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwriteglyphrunanalysis-createalphatexture) | WebGPU defines `r8unorm` as a filterable one-channel normalized format. DirectWrite exposes bounded glyph coverage as caller-owned alpha bytes for a physical rectangle, separating text analysis from later compositing. | Add one exact pointer-free R8 coverage-mask resource for precomputed text, image-alpha, or reusable visual coverage. Upload the immutable bytes once, retain the texture/view/binding with the compiled replay span, and apply its independently invertible affine in the production mask shader. ProGPU does not adopt DirectWrite's rasterizer or buffer organization. |
 | [wgpu-native pinned C API](https://github.com/gfx-rs/wgpu-native/tree/33133da4ec5a0174cb21539ef2d3346f75200411/ffi) | A native WebGPU C ABI over Metal, Vulkan, and D3D12. Header layouts are revision-sensitive. | The Silk lane is compiled only against commit `33133da4...` and headers `aef5e428...`; incompatible ABIs are rejected before handle use. |
 | [Dawn architecture overview](https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/overview.md) | Native WebGPU implementation with proc dispatch, validation, backend abstraction, wire support, and Tint. | Add a separately compiled Dawn adapter. Do not reinterpret current Dawn handles through the older Silk/wgpu-native structs. |
+| [Microsoft DirectX Graphics Samples](https://github.com/microsoft/DirectX-Graphics-Samples) | Microsoft's native D3D12 samples provide small, reviewable rendering contracts and exercise the Windows runtime directly, but the executables are Windows-only. | Pin source and file hashes for one sample at a time, apply only an auditable capture patch in an ignored worktree, and compare its Windows frame with a semantically equivalent ProGPU scene rendered through D3D12, Metal, and Vulkan. Do not attempt to compile the native D3D12 sample on macOS or Linux. |
+| [DirectX 12 Agility SDK](https://devblogs.microsoft.com/directx/gettingstarted-dx12agility/) and [`Microsoft.Direct3D.D3D12`](https://www.nuget.org/packages/Microsoft.Direct3D.D3D12/) | The NuGet package carries native D3D12 headers and an app-local redistributable runtime selected by exports from the process executable; it is not a managed Direct3D wrapper. | Restore the version declared by the pinned Microsoft sample and record it in oracle evidence. Treat that runtime as native-oracle provenance. ProGPU's Dawn/wgpu-native D3D12 provider remains independently owned until the host executable and provider are deliberately qualified against the same app-local runtime contract. |
 | [Dawn Emdawnwebgpu build and package guidance](https://dawn.googlesource.com/dawn/+/HEAD/src/emdawnwebgpu/README.md) and the [stable WebGPU C headers](https://github.com/webgpu-native/webgpu-headers) | Emdawnwebgpu maps the stable `webgpu.h` contract to JavaScript WebGPU for WebAssembly; Dawn documents `emcmake` builds and browser-served HTML tests. | Compile the same private renderer modules and shared WGSL with the pinned Emscripten Emdawnwebgpu port, expose a distinct browser ABI, keep browser queue completion in the host scheduler, and gate the result through a real `navigator.gpu` Chromium run rather than a mock proc table. |
 | [Skia Graphite `Recorder`](https://skia.googlesource.com/skia/+/refs/heads/main/include/gpu/graphite/Recorder.h) and [`Context`](https://skia.googlesource.com/skia/+/refs/heads/main/include/gpu/graphite/Context.h) | Recording is separable from device submission; recordings own transferable GPU work while context/device resources remain explicit. | Separate semantic scene recording, native compilation, and queue submission. Make recordings immutable and device-domain caches explicit. |
 | [Skia `SkImage`](https://api.skia.org/classSkImage.html) | Images are immutable logical resources and may be raster- or texture-backed; drawing does not imply rebuilding their pixel payload. | Treat image and draw-content revisions independently. A changed image revision updates the retained GPU texture; a changed content revision alone recompiles the transformed destination quad. |
@@ -3384,6 +3386,9 @@ runtime boundary:
 - property/fuzz tests for command validation and bounded counts/offsets;
 - managed/native CPU compilation differentials;
 - hardware offscreen pixel differentials with exact fixture inventories;
+- a pinned Microsoft D3D12 sample capture on Windows plus the equivalent
+  ProGPU D3D12, Metal, and Vulkan frames, compared by deterministic probes and
+  bounded whole-image differential;
 - resource lifetime, cache generation, device loss, resize/DPI, and teardown;
 - native sample on Metal, D3D12, and Vulkan without software fallback;
 - .NET package consumer and NativeAOT smoke tests;
@@ -3405,6 +3410,20 @@ runtime, pixel, performance, or package coverage from the required CI graph.
 CI must report the exact native dependency revisions and binary hashes. A
 backend lane is skipped only by an explicit unsupported-platform condition, not
 by converting failures into warnings.
+
+The DirectX sample oracle is a cross-platform comparison gate, not a
+cross-platform build of Microsoft's Windows program. The Windows lane checks
+out commit `213dd4fd4918ea009dd8f35adee1aff1f2ecaba4`, verifies the selected
+source files before applying ProGPU's capture-only patch, restores the sample's
+declared `Microsoft.Direct3D.D3D12` 1.618.3 package, and captures
+`D3D12HelloTriangle` with WARP. WARP makes the reference independent of hosted
+runner GPU availability; it is not reported as physical-device qualification.
+Platform lanes render the same clear color, vertices, interpolation, viewport,
+and edge policy through ProGPU. The aggregate job compares D3D12, Metal, and
+Vulkan candidates with the native frame and publishes the images, manifests,
+and differential JSON. A newer Agility package is adopted only by an explicit
+reviewed lock update; silently following the latest NuGet version would make
+the oracle non-reproducible.
 
 ## 13. Packaging and security
 
