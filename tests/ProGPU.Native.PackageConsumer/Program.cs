@@ -124,7 +124,7 @@ if (!renderOnly)
         ? 14U
         : imageDrawingOnly
         ? 12U
-        : drawingGroupOnly ? 25U : focusedMil ? 15U : 78U;
+        : drawingGroupOnly ? 26U : focusedMil ? 15U : 78U;
     uint expectedResourceCount = guidelineOnly
         ? 8U
         : drawingImageOnly
@@ -183,7 +183,18 @@ if (!renderOnly)
             scene.Metrics.BrushCount != expectedBrushCount)
         {
             throw new InvalidOperationException(
-                "The packaged wgpu-native MIL channel is incomplete.");
+                "The packaged wgpu-native MIL channel is incomplete: " +
+                $"commands={milMetrics.CommandCount}/{expectedCommandCount}, " +
+                $"resources={mil.ResourceCount}/{expectedResourceCount}, " +
+                $"visuals={scene.Metrics.VisualCount}/1, " +
+                $"rectangles={scene.Metrics.RectangleCount}/" +
+                    $"{expectedRectangleCount}, " +
+                $"ellipses={scene.Metrics.EllipseCount}/" +
+                    $"{expectedEllipseCount}, " +
+                $"rounded={scene.Metrics.RoundedRectangleCount}/" +
+                    $"{expectedRoundedRectangleCount}, " +
+                $"lines={scene.Metrics.LineCount}/{expectedLineCount}, " +
+                $"brushes={scene.Metrics.BrushCount}/{expectedBrushCount}.");
         }
         compiledMilStream = scene.Stream;
     }
@@ -216,7 +227,18 @@ if (!renderOnly)
             scene.Metrics.BrushCount != expectedBrushCount)
         {
             throw new InvalidOperationException(
-                "The packaged Dawn MIL channel is incomplete.");
+                "The packaged Dawn MIL channel is incomplete: " +
+                $"commands={milMetrics.CommandCount}/{expectedCommandCount}, " +
+                $"resources={dawnMil.ResourceCount}/{expectedResourceCount}, " +
+                $"visuals={scene.Metrics.VisualCount}/1, " +
+                $"rectangles={scene.Metrics.RectangleCount}/" +
+                    $"{expectedRectangleCount}, " +
+                $"ellipses={scene.Metrics.EllipseCount}/" +
+                    $"{expectedEllipseCount}, " +
+                $"rounded={scene.Metrics.RoundedRectangleCount}/" +
+                    $"{expectedRoundedRectangleCount}, " +
+                $"lines={scene.Metrics.LineCount}/{expectedLineCount}, " +
+                $"brushes={scene.Metrics.BrushCount}/{expectedBrushCount}.");
         }
     }
     Console.WriteLine("package-consumer: Dawn MIL");
