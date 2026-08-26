@@ -104,18 +104,28 @@ internal static class PerPointPathGuidelineQualification
         float secondTop = reference ? 19f : 19.25f;
         float secondRight = reference ? 36f : 35.75f;
         float secondBottom = reference ? 25f : 24.75f;
+        float quadraticControlX = reference ? 32f : 32.25f;
+        float quadraticControlY = reference ? 17.5f : 17.25f;
+        float cubicControl1X = reference ? 34.5f : 34.25f;
+        float cubicControl2X = reference ? 30.5f : 30.75f;
+        float cubicControlY = reference ? 26.5f : 26.25f;
         Span<NativePathSegment> segments = stackalloc NativePathSegment[8]
         {
             new(NativePathSegmentKind.Line, new(left, top), new(right, top)),
             new(NativePathSegmentKind.Line, new(right, top), new(right, bottom)),
             new(NativePathSegmentKind.Line, new(right, bottom), new(left, bottom)),
             new(NativePathSegmentKind.Line, new(left, bottom), new(left, top)),
-            new(NativePathSegmentKind.Line,
-                new(secondLeft, secondTop), new(secondRight, secondTop)),
+            new(NativePathSegmentKind.Quadratic,
+                new(secondLeft, secondTop),
+                new(quadraticControlX, quadraticControlY),
+                new(secondRight, secondTop)),
             new(NativePathSegmentKind.Line,
                 new(secondRight, secondTop), new(secondRight, secondBottom)),
-            new(NativePathSegmentKind.Line,
-                new(secondRight, secondBottom), new(secondLeft, secondBottom)),
+            new(NativePathSegmentKind.Cubic,
+                new(secondRight, secondBottom),
+                new(cubicControl1X, cubicControlY),
+                new(cubicControl2X, cubicControlY),
+                new(secondLeft, secondBottom)),
             new(NativePathSegmentKind.Line,
                 new(secondLeft, secondBottom), new(secondLeft, secondTop))
         };
@@ -133,8 +143,8 @@ internal static class PerPointPathGuidelineQualification
             new(
                 4U,
                 4U,
-                new Vector2(secondLeft, secondTop),
-                new Vector2(secondRight, secondBottom),
+                new Vector2(secondLeft, quadraticControlY),
+                new Vector2(secondRight, cubicControlY),
                 new Vector4(0f, 1f, 0f, 1f),
                 Matrix3x2.Identity,
                 NativeFillRule.NonZero,
@@ -182,7 +192,7 @@ internal static class PerPointPathGuidelineQualification
                     left,
                     top,
                     secondRight - left,
-                    secondBottom - top),
+                    cubicControlY - top),
                 stateIndex: stateIndex) &&
             builder.TryBuild(out stream);
         Require(success, "failed to build the per-point guideline path scene");
