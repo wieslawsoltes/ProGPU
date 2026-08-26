@@ -6730,6 +6730,76 @@ struct channel::implementation {
                 scope_layers.push_back(true);
                 continue;
             }
+            if (view.kind == command::push_opacity_mask) {
+                float left = 0.0F;
+                float top = 0.0F;
+                float right = 0.0F;
+                float bottom = 0.0F;
+                std::uint32_t opacity_mask_handle = 0U;
+                std::uint32_t padding = 0U;
+                if (!has_exact_size(view, 28U) ||
+                    !read_at(view.packet, 4U, left) ||
+                    !read_at(view.packet, 8U, top) ||
+                    !read_at(view.packet, 12U, right) ||
+                    !read_at(view.packet, 16U, bottom) ||
+                    !read_at(view.packet, 20U, opacity_mask_handle) ||
+                    !read_at(view.packet, 24U, padding) || padding != 0U ||
+                    !std::isfinite(left) || !std::isfinite(top) ||
+                    !std::isfinite(right) || !std::isfinite(bottom) ||
+                    right < left || bottom < top ||
+                    opacity_mask_handle == 0U) {
+                    return status::malformed_batch;
+                }
+                const double width = static_cast<double>(right) - left;
+                const double height = static_cast<double>(bottom) - top;
+                double uniform_alpha = 1.0;
+                std::uint32_t mask_resource_index =
+                    PROGPU_NATIVE_SCENE_NO_INDEX;
+                const bool spatial_mask = gradient_brushes.contains(
+                    opacity_mask_handle);
+                const status mask_status = spatial_mask
+                    ? add_gradient_opacity_mask(
+                        opacity_mask_handle,
+                        left,
+                        top,
+                        width,
+                        height,
+                        current.transform,
+                        builder,
+                        mask_resource_index)
+                    : resolve_uniform_opacity_mask_alpha(
+                        opacity_mask_handle,
+                        uniform_alpha);
+                if (mask_status != status::success) {
+                    return mask_status;
+                }
+                progpu_native_scene_layer layer{};
+                layer.struct_size = sizeof(layer);
+                layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+                if (spatial_mask || uniform_alpha != 1.0) {
+                    layer.flags |= PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+                }
+                if (!try_transform_bounds(
+                        left,
+                        top,
+                        width,
+                        height,
+                        current.transform,
+                        layer.bounds)) {
+                    return status::invalid_graph;
+                }
+                layer.opacity = static_cast<float>(uniform_alpha);
+                layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+                layer.mask_resource_index = mask_resource_index;
+                layer.effect_resource_index =
+                    PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (!builder.push_layer(layer)) {
+                    return status::invalid_graph;
+                }
+                scope_states.push_back(current);
+                scope_layers.push_back(true);
+                continue;
+            }
             if (view.kind == command::push_clip) {
                 std::uint32_t geometry_handle = 0U;
                 std::uint32_t padding = 0U;
@@ -8989,6 +9059,8 @@ struct channel::implementation {
                     continue;
                 } else if (view.kind == command::push_opacity_animate) {
                     append_packet_handle(12U);
+                } else if (view.kind == command::push_opacity_mask) {
+                    append_packet_handle(20U);
                 } else if (view.kind == command::push_clip ||
                     view.kind == command::push_transform ||
                     view.kind == command::push_guideline_set ||
@@ -9096,9 +9168,12 @@ struct channel::implementation {
         return status::success;
     }
 
-    status add_visual_opacity_mask(
+    status add_gradient_opacity_mask(
         std::uint32_t brush_handle,
-        const visual_state& visual,
+        double bounds_x,
+        double bounds_y,
+        double bounds_width,
+        double bounds_height,
         const affine_2d_double& mask_transform,
         native::semantic_scene_builder& builder,
         std::uint32_t& mask_resource_index) const {
@@ -9107,10 +9182,10 @@ struct channel::implementation {
             return status::success;
         }
         const brush_use_state use{
-            visual.cache_bounds_x,
-            visual.cache_bounds_y,
-            visual.cache_bounds_width,
-            visual.cache_bounds_height,
+            bounds_x,
+            bounds_y,
+            bounds_width,
+            bounds_height,
             mask_transform};
         progpu_native_scene_brush brush{};
         std::vector<progpu_native_scene_gradient_stop> stops;
@@ -9124,10 +9199,10 @@ struct channel::implementation {
         mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH;
         mask.gradient_stop_count = static_cast<std::uint32_t>(stops.size());
         mask.bounds = {
-            static_cast<float>(visual.cache_bounds_x),
-            static_cast<float>(visual.cache_bounds_y),
-            static_cast<float>(visual.cache_bounds_width),
-            static_cast<float>(visual.cache_bounds_height)};
+            static_cast<float>(bounds_x),
+            static_cast<float>(bounds_y),
+            static_cast<float>(bounds_width),
+            static_cast<float>(bounds_height)};
         if (!try_to_native_affine(mask_transform, mask.transform)) {
             return status::invalid_graph;
         }
@@ -9136,6 +9211,23 @@ struct channel::implementation {
         return builder.add_brush_mask(mask, stops, mask_resource_index)
             ? status::success
             : status::invalid_graph;
+    }
+
+    status add_visual_opacity_mask(
+        std::uint32_t brush_handle,
+        const visual_state& visual,
+        const affine_2d_double& mask_transform,
+        native::semantic_scene_builder& builder,
+        std::uint32_t& mask_resource_index) const {
+        return add_gradient_opacity_mask(
+            brush_handle,
+            visual.cache_bounds_x,
+            visual.cache_bounds_y,
+            visual.cache_bounds_width,
+            visual.cache_bounds_height,
+            mask_transform,
+            builder,
+            mask_resource_index);
     }
 
     status add_visual_cache_layer(
