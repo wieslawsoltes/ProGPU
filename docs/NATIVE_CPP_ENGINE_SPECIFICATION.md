@@ -2405,6 +2405,18 @@ staging. Qualified base/Dawn SHA-256 values are
 `07E97B185A066124719A2593CBE2AD7762B9FF00FEB406255B428FC7CF2BA85D` and
 `35744D6CAF0F8C7789D7DE0E7EFA0985529A27217C7F65613BD0889487D879B2`.
 
+Source-built WPF may publish the final effect clip through the existing typed
+Visual geometry and scroll-rectangle commands. The supported geometry subset
+is a non-rounded rectangle with an axis-preserving effective matrix; the
+scroll rectangle likewise requires an axis-preserving parent matrix because
+WPF defines it as a world-space pixel-aligned rectangle and disables the
+accelerated scroll path under rotation. The native compiler intersects both
+rectangles and attaches the result to the outer effect composite State.
+Ellipse/path clips, either nonzero rectangle radius, rotation, and shear return
+`unsupported_command` rather than broadening to an axis-aligned bound. The
+LibreWPF producer preflights the local typed primitive shape, while this native
+check remains authoritative for complete ancestor transforms.
+
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then
 12x9 page extents. Package-mode managed Dawn rendering/readback and forced
