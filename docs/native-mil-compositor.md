@@ -53,6 +53,23 @@ The neutral manifest records SHA-256 provenance for all four inputs plus the
 invalid/debug command sentinels. Standalone ProGPU builds verify
 header/manifest agreement; LibreWPF's SDK gate regenerates from its live WPF
 source tree and fails on drift.
+Managed-producer-oracle checkpoint `563c031c` additionally parses the 25
+packed render-data payload structs in `Generated/RenderData.cs`. That producer
+metadata agrees exactly with 24 native generated layouts. The sole discrepancy
+is legacy `MILCMD_PUSH_EFFECT`: the native `wgx_renderdata_commands.h`
+declaration contains only the opcode, while the managed writer emits
+`hEffect` and `hEffectInput` as two additional 32-bit handles. The bytes that
+WPF actually writes are the wire-framing authority, so the generated command
+view is 12 bytes with handle offsets 4 and 8. The manifest records this
+producer-authority exception explicitly instead of hiding it in handwritten
+C++ metadata.
+
+Native execution intentionally does not approximate the obsolete bitmap-effect
+scope. Both scene lowering and retained cache dependency traversal require the
+exact 12-byte producer record, read both handles with bounded copies, and then
+return `unsupported_command`. A header-only 4-byte command view is
+`malformed_batch`. Tests lock down both outcomes so future generator drift
+cannot silently reinterpret the following nested record as effect payload.
 Follow-up `d4a1f370` makes the complete retained Visual update family plus
 DoubleResource and PointResource consume generated sizes/offsets. That includes
 transform/effect/cache/clip/alpha/render-option/content/mask state, variable
