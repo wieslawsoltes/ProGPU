@@ -16,7 +16,7 @@ public class PrinterSettings : ICloneable
     public PageSettings DefaultPageSettings => _defaultPageSettings is null ? new(this) : (PageSettings)_defaultPageSettings.Clone();
     public Duplex Duplex { get; set; } = Duplex.Default;
     public int FromPage { get; set; }
-    public static StringCollection InstalledPrinters { get; } = new(Array.Empty<string>());
+    public static StringCollection InstalledPrinters => new(Array.Empty<string>());
     public bool IsDefaultPrinter => false;
     public bool IsPlotter => false;
     public bool IsValid => false;
@@ -61,33 +61,117 @@ public class PrinterSettings : ICloneable
     public override string ToString() => $"[PrinterSettings {PrinterName}]";
     private static IntPtr NativeUnavailable() => throw new PlatformNotSupportedException("Native printer handles require a platform adapter.");
 
-    public sealed class StringCollection : ReadOnlyCollectionBase
+    public class StringCollection : ICollection, IEnumerable<string>
     {
-        internal StringCollection(IReadOnlyList<string> values) { foreach (string value in values) InnerList.Add(value); }
-        public string this[int index] => (string)InnerList[index]!;
-        public int IndexOf(string value) => InnerList.IndexOf(value);
-        public bool Contains(string value) => InnerList.Contains(value);
-        public void CopyTo(string[] array, int index) => InnerList.CopyTo(array, index);
+        private readonly List<string> _items;
+
+        public StringCollection(string[] array)
+        {
+            ArgumentNullException.ThrowIfNull(array);
+            _items = new List<string>(array);
+        }
+
+        public int Count => _items.Count;
+        public virtual string this[int index] => _items[index];
+        bool ICollection.IsSynchronized => false;
+        object ICollection.SyncRoot => this;
+
+        public int Add(string value)
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            _items.Add(value);
+            return _items.Count - 1;
+        }
+
+        public int IndexOf(string value) => _items.IndexOf(value);
+        public bool Contains(string value) => _items.Contains(value);
+        public void CopyTo(string[] array, int index) => _items.CopyTo(array, index);
+        void ICollection.CopyTo(Array array, int index) => ((ICollection)_items).CopyTo(array, index);
+        public IEnumerator GetEnumerator() => _items.GetEnumerator();
+        IEnumerator<string> IEnumerable<string>.GetEnumerator() => _items.GetEnumerator();
     }
-    public sealed class PaperSizeCollection : ReadOnlyCollectionBase
+
+    public class PaperSizeCollection : ICollection
     {
-        internal PaperSizeCollection(IReadOnlyList<PaperSize> values) { foreach (PaperSize value in values) InnerList.Add(value); }
-        public PaperSize this[int index] => (PaperSize)InnerList[index]!;
-        public int IndexOf(PaperSize value) => InnerList.IndexOf(value);
-        public bool Contains(PaperSize value) => InnerList.Contains(value);
-        public void CopyTo(PaperSize[] array, int index) => InnerList.CopyTo(array, index);
+        private readonly List<PaperSize> _items;
+
+        public PaperSizeCollection(PaperSize[] array)
+        {
+            ArgumentNullException.ThrowIfNull(array);
+            _items = new List<PaperSize>(array);
+        }
+
+        public int Count => _items.Count;
+        public virtual PaperSize this[int index] => _items[index];
+        bool ICollection.IsSynchronized => false;
+        object ICollection.SyncRoot => this;
+
+        public int Add(PaperSize value)
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            _items.Add(value);
+            return _items.Count - 1;
+        }
+
+        public int IndexOf(PaperSize value) => _items.IndexOf(value);
+        public bool Contains(PaperSize value) => _items.Contains(value);
+        public void CopyTo(PaperSize[] array, int index) => _items.CopyTo(array, index);
+        void ICollection.CopyTo(Array array, int index) => ((ICollection)_items).CopyTo(array, index);
+        public IEnumerator GetEnumerator() => _items.GetEnumerator();
     }
-    public sealed class PaperSourceCollection : ReadOnlyCollectionBase
+
+    public class PaperSourceCollection : ICollection
     {
-        internal PaperSourceCollection(IReadOnlyList<PaperSource> values) { foreach (PaperSource value in values) InnerList.Add(value); }
-        public PaperSource this[int index] => (PaperSource)InnerList[index]!;
-        public void CopyTo(PaperSource[] array, int index) => InnerList.CopyTo(array, index);
+        private readonly List<PaperSource> _items;
+
+        public PaperSourceCollection(PaperSource[] array)
+        {
+            ArgumentNullException.ThrowIfNull(array);
+            _items = new List<PaperSource>(array);
+        }
+
+        public int Count => _items.Count;
+        public virtual PaperSource this[int index] => _items[index];
+        bool ICollection.IsSynchronized => false;
+        object ICollection.SyncRoot => this;
+
+        public int Add(PaperSource value)
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            _items.Add(value);
+            return _items.Count - 1;
+        }
+
+        public void CopyTo(PaperSource[] array, int index) => _items.CopyTo(array, index);
+        void ICollection.CopyTo(Array array, int index) => ((ICollection)_items).CopyTo(array, index);
+        public IEnumerator GetEnumerator() => _items.GetEnumerator();
     }
-    public sealed class PrinterResolutionCollection : ReadOnlyCollectionBase
+
+    public class PrinterResolutionCollection : ICollection
     {
-        internal PrinterResolutionCollection(IReadOnlyList<PrinterResolution> values) { foreach (PrinterResolution value in values) InnerList.Add(value); }
-        public PrinterResolution this[int index] => (PrinterResolution)InnerList[index]!;
-        public void CopyTo(PrinterResolution[] array, int index) => InnerList.CopyTo(array, index);
+        private readonly List<PrinterResolution> _items;
+
+        public PrinterResolutionCollection(PrinterResolution[] array)
+        {
+            ArgumentNullException.ThrowIfNull(array);
+            _items = new List<PrinterResolution>(array);
+        }
+
+        public int Count => _items.Count;
+        public virtual PrinterResolution this[int index] => _items[index];
+        bool ICollection.IsSynchronized => false;
+        object ICollection.SyncRoot => this;
+
+        public int Add(PrinterResolution value)
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            _items.Add(value);
+            return _items.Count - 1;
+        }
+
+        public void CopyTo(PrinterResolution[] array, int index) => _items.CopyTo(array, index);
+        void ICollection.CopyTo(Array array, int index) => ((ICollection)_items).CopyTo(array, index);
+        public IEnumerator GetEnumerator() => _items.GetEnumerator();
     }
 }
 

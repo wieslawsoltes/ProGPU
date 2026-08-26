@@ -858,70 +858,6 @@
     <Target>M:System.Drawing.Printing.PrinterResolution.set_Kind(System.Drawing.Printing.PrinterResolutionKind)</Target>
   </Suppression>
   <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.PaperSizeCollection.#ctor(System.Drawing.Printing.PaperSize[])</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.PaperSizeCollection.Add(System.Drawing.Printing.PaperSize)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.PaperSizeCollection.get_Count</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.PaperSizeCollection.GetEnumerator</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.PaperSourceCollection.#ctor(System.Drawing.Printing.PaperSource[])</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.PaperSourceCollection.Add(System.Drawing.Printing.PaperSource)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.PaperSourceCollection.get_Count</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.PaperSourceCollection.GetEnumerator</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.PrinterResolutionCollection.#ctor(System.Drawing.Printing.PrinterResolution[])</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.PrinterResolutionCollection.Add(System.Drawing.Printing.PrinterResolution)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.PrinterResolutionCollection.get_Count</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.PrinterResolutionCollection.GetEnumerator</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.StringCollection.#ctor(System.String[])</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.StringCollection.Add(System.String)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.StringCollection.get_Count</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.StringCollection.GetEnumerator</Target>
-  </Suppression>
-  <Suppression>
     <DiagnosticId>CP0003</DiagnosticId>
     <Target>System.Drawing.Common, Version=10.0.0.0, Culture=neutral, PublicKeyToken=c29c9752855ee183</Target>
   </Suppression>
@@ -936,22 +872,6 @@
   <Suppression>
     <DiagnosticId>CP0007</DiagnosticId>
     <Target>T:System.Drawing.Printing.PrintDocument</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0007</DiagnosticId>
-    <Target>T:System.Drawing.Printing.PrinterSettings.PaperSizeCollection</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0007</DiagnosticId>
-    <Target>T:System.Drawing.Printing.PrinterSettings.PaperSourceCollection</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0007</DiagnosticId>
-    <Target>T:System.Drawing.Printing.PrinterSettings.PrinterResolutionCollection</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0007</DiagnosticId>
-    <Target>T:System.Drawing.Printing.PrinterSettings.StringCollection</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0007</DiagnosticId>
@@ -987,22 +907,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0008</DiagnosticId>
-    <Target>T:System.Drawing.Printing.PrinterSettings.PaperSizeCollection</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0008</DiagnosticId>
-    <Target>T:System.Drawing.Printing.PrinterSettings.PaperSourceCollection</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0008</DiagnosticId>
-    <Target>T:System.Drawing.Printing.PrinterSettings.PrinterResolutionCollection</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0008</DiagnosticId>
-    <Target>T:System.Drawing.Printing.PrinterSettings.StringCollection</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0008</DiagnosticId>
     <Target>T:System.Drawing.Printing.StandardPrintController</Target>
   </Suppression>
   <Suppression>
@@ -1027,22 +931,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0009</DiagnosticId>
-    <Target>T:System.Drawing.Printing.PrinterSettings.PaperSizeCollection</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0009</DiagnosticId>
-    <Target>T:System.Drawing.Printing.PrinterSettings.PaperSourceCollection</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0009</DiagnosticId>
-    <Target>T:System.Drawing.Printing.PrinterSettings.PrinterResolutionCollection</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0009</DiagnosticId>
-    <Target>T:System.Drawing.Printing.PrinterSettings.StringCollection</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0009</DiagnosticId>
     <Target>T:System.Drawing.Printing.QueryPageSettingsEventArgs</Target>
   </Suppression>
   <Suppression>
@@ -1059,38 +947,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0012</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.PaperSizeCollection.get_Item(System.Int32)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0012</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.PaperSourceCollection.get_Item(System.Int32)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0012</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.PrinterResolutionCollection.get_Item(System.Int32)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0012</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterSettings.StringCollection.get_Item(System.Int32)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0012</DiagnosticId>
     <Target>P:System.Drawing.Printing.PreviewPrintController.UseAntiAlias</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0012</DiagnosticId>
-    <Target>P:System.Drawing.Printing.PrinterSettings.PaperSizeCollection.Item(System.Int32)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0012</DiagnosticId>
-    <Target>P:System.Drawing.Printing.PrinterSettings.PaperSourceCollection.Item(System.Int32)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0012</DiagnosticId>
-    <Target>P:System.Drawing.Printing.PrinterSettings.PrinterResolutionCollection.Item(System.Int32)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0012</DiagnosticId>
-    <Target>P:System.Drawing.Printing.PrinterSettings.StringCollection.Item(System.Int32)</Target>
   </Suppression>
 </Suppressions>
