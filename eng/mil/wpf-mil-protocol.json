@@ -1557,7 +1557,7 @@
     },
     {
       "name": "MILCMD_VISUAL_SETGUIDELINECOLLECTION",
-      "fixedSize": 14,
+      "fixedSize": 16,
       "fields": [
         {
           "name": "Type",
@@ -1582,6 +1582,12 @@
           "type": "UInt16",
           "offset": 12,
           "size": 2
+        },
+        {
+          "name": "BYTEPacking0",
+          "type": "byte",
+          "offset": 15,
+          "size": 1
         }
       ]
     },
@@ -2187,7 +2193,7 @@
     },
     {
       "name": "MILCMD_GLYPHRUN_CREATE",
-      "fixedSize": 74,
+      "fixedSize": 76,
       "fields": [
         {
           "name": "Type",
@@ -2248,6 +2254,12 @@
           "type": "UInt16",
           "offset": 72,
           "size": 2
+        },
+        {
+          "name": "BYTEPacking0",
+          "type": "byte",
+          "offset": 75,
+          "size": 1
         }
       ]
     },

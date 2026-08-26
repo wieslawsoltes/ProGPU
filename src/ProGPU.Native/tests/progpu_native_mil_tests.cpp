@@ -33,6 +33,8 @@ static_assert(command_layouts::visual_set_offset::handle_offset == 4U);
 static_assert(command_layouts::visual_set_offset::offset_x_offset == 8U);
 static_assert(command_layouts::visual_set_offset::offset_y_offset == 16U);
 static_assert(
+    command_layouts::visual_set_guideline_collection::fixed_size == 16U);
+static_assert(
     command_layouts::fixed_header_size(command::visual_set_offset) == 24U);
 static_assert(
     command_layouts::fixed_header_size(command::transport_sync_flush) == 0U);
