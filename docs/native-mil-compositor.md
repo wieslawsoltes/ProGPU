@@ -2122,8 +2122,19 @@ renders the same Gaussian scene once with full-target isolation and once with
 the exact inflated extent. On Apple M3 Pro Metal, the layer shrinks from
 `96x64` to `28x24`, layer storage from 24,576 to 2,688 bytes, and effect storage
 from 73,728 to 8,064 bytes. The output remains byte-identical (`changed=0`) at
-extent `[24,14]-[51,37]`, red sum 48,960. The Windows lane runs the same gate
-against the shared DirectX/D3D12 executor.
+extent `[24,14]-[51,37]`, red sum 48,960.
+
+The same gate passed with identical allocation metrics and pixels on the
+Parallels Display Adapter D3D12 backend from clean detached ProGPU commit
+`ef811a7c`. The strict Windows ARM64 MSVC `/W4 /WX` lane passed all 11
+native/Dawn CTests, both export allowlists, two zero-warning managed Release
+builds, independent C++ and managed D3D12 allocation/readback, the complete
+bounded semantic/image/mask/effect/vector/text/blend smoke matrix, and
+nine-file package staging. Qualified win-arm64 SHA-256 values are
+`09B17325EFC71E90131AAA4538F883C4D3C9EAFFA3A54539BCE50E18FB07F47B`
+for `progpu_native.dll` and
+`CE4A5E6E81F11DB499E8B160A550A14701F4D050EC80AC484C5CEEA57BA92F0A`
+for `progpu_native_dawn.dll`.
 
 The implementation sequence is intentionally architectural:
 
