@@ -1948,12 +1948,25 @@ save so the deformed frame cannot leak into retained-page rasterization.
 
 Native, managed, and MIL regressions cover flag/count mismatch, unsorted input,
 ordinary-State rejection, cache-composite acceptance, exact midpoint selection
-of the lower guide, mapped payload coordinates, and content-revision stability
-across a guideline-only update. The live Apple M3 Pro Metal gate keeps the
-retained page (`passes=1/1 -> 0/1`) while two X and two Y guides deform its red
-extent from `[10,8]-[25,15]` to `[11,9]-[25,15]` with 23 changed pixels. This
-qualifies the shared WebGPU executor path on Metal; the exact Windows D3D12
-gate remains required for this checkpoint.
+of the lower guide, mapped/negative-scale payload coordinates, and
+content-revision stability across a guideline-only update. The live Apple M3
+Pro Metal and Parallels Display Adapter D3D12 gates both keep the retained page
+(`passes=1/1 -> 0/1`) while two X and two Y guides deform its red extent from
+`[10,8]-[25,15]` to `[11,9]-[25,15]`, change red sum from `32640` to `26775`,
+and alter 23 pixels.
+
+The exact Windows qualification completed from clean detached latest-main-
+integrated commit `d99acbc8`. ARM64 MSVC rebuilt both modules under `/W4 /WX`,
+all 11 native/Dawn CTests and both export allowlists passed, both managed
+Release builds completed with zero warnings, the independent C++ and managed
+D3D12 samples passed allocation/readback checks, and the complete bounded
+semantic/image/mask/effect/vector/text/blend smoke matrix completed before the
+nine-file package was staged. The win-arm64 DLL SHA-256 values are
+`F65DA33BFCE4242A869369052E4C52C3CDB67951988FFCB740E85173A74D2C75` for
+`progpu_native.dll` and
+`E445C3DED9FC741EFECEDC4764A5AE84C120A4FECD15293058504C39ED8E400F` for
+`progpu_native_dawn.dll`. This qualifies the same reusable composite executor
+on Metal/WebGPU and DirectX/D3D12.
 
 The implementation sequence is intentionally architectural:
 
