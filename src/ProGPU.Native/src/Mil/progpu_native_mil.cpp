@@ -4956,6 +4956,7 @@ struct channel::implementation {
         batch_reader reader(bytes);
         command_view view{};
         std::vector<render_scope_state> scope_states;
+        std::vector<bool> scope_layers;
         const auto save_state = [&builder](
             const render_scope_state& source) noexcept {
             auto state = native::semantic_scene_builder::identity_state();
@@ -6642,7 +6643,7 @@ struct channel::implementation {
         for (;;) {
             const status read_status = reader.next(view);
             if (read_status == status::end_of_batch) {
-                return scope_states.empty()
+                return scope_states.empty() && scope_layers.empty()
                     ? status::success
                     : status::invalid_graph;
             }
@@ -6660,18 +6661,25 @@ struct channel::implementation {
                     opacity > 1.0) {
                     return status::malformed_batch;
                 }
-                const double combined_opacity = current.opacity * opacity;
-                if (!std::isfinite(combined_opacity) ||
-                    combined_opacity < 0.0 || combined_opacity > 1.0) {
-                    return status::invalid_graph;
-                }
-                render_scope_state next = current;
-                next.opacity = combined_opacity;
-                if (!save_state(next)) {
+                const progpu_native_scene_layer layer{
+                    sizeof(progpu_native_scene_layer),
+                    opacity == 1.0
+                        ? 0U
+                        : PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION,
+                    {},
+                    static_cast<float>(opacity),
+                    PROGPU_NATIVE_BLEND_SRC_OVER,
+                    PROGPU_NATIVE_SCENE_NO_INDEX,
+                    PROGPU_NATIVE_SCENE_NO_INDEX,
+                    0U,
+                    0U,
+                    0U,
+                    0U};
+                if (!builder.push_layer(layer)) {
                     return status::invalid_graph;
                 }
                 scope_states.push_back(current);
-                current = next;
+                scope_layers.push_back(true);
                 continue;
             }
             if (view.kind == command::push_opacity_animate) {
@@ -6701,19 +6709,25 @@ struct channel::implementation {
                     resolved_opacity < 0.0 || resolved_opacity > 1.0) {
                     return status::invalid_graph;
                 }
-                const double combined_opacity =
-                    current.opacity * resolved_opacity;
-                if (!finite_double_as_float(combined_opacity) ||
-                    combined_opacity < 0.0 || combined_opacity > 1.0) {
-                    return status::invalid_graph;
-                }
-                render_scope_state next = current;
-                next.opacity = combined_opacity;
-                if (!save_state(next)) {
+                const progpu_native_scene_layer layer{
+                    sizeof(progpu_native_scene_layer),
+                    resolved_opacity == 1.0
+                        ? 0U
+                        : PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION,
+                    {},
+                    static_cast<float>(resolved_opacity),
+                    PROGPU_NATIVE_BLEND_SRC_OVER,
+                    PROGPU_NATIVE_SCENE_NO_INDEX,
+                    PROGPU_NATIVE_SCENE_NO_INDEX,
+                    0U,
+                    0U,
+                    0U,
+                    0U};
+                if (!builder.push_layer(layer)) {
                     return status::invalid_graph;
                 }
                 scope_states.push_back(current);
-                current = next;
+                scope_layers.push_back(true);
                 continue;
             }
             if (view.kind == command::push_clip) {
@@ -6739,6 +6753,7 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
                 scope_states.push_back(current);
+                scope_layers.push_back(false);
                 current = next;
                 continue;
             }
@@ -6770,6 +6785,7 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
                 scope_states.push_back(current);
+                scope_layers.push_back(false);
                 current = next;
                 continue;
             }
@@ -6810,6 +6826,7 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
                 scope_states.push_back(current);
+                scope_layers.push_back(false);
                 current = next;
                 continue;
             }
@@ -6817,14 +6834,18 @@ struct channel::implementation {
                 if (!has_exact_size(view, 4U)) {
                     return status::malformed_batch;
                 }
-                if (scope_states.empty()) {
+                if (scope_states.empty() || scope_layers.empty()) {
                     return status::invalid_graph;
                 }
-                if (!builder.restore()) {
+                const bool restored = scope_layers.back()
+                    ? builder.pop_layer()
+                    : builder.restore();
+                if (!restored) {
                     return status::invalid_graph;
                 }
                 current = scope_states.back();
                 scope_states.pop_back();
+                scope_layers.pop_back();
                 continue;
             }
             if (view.kind == command::draw_glyph_run) {
