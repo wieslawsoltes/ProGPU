@@ -2979,9 +2979,9 @@ bool visual_bitmap_cache_applies_gradient_mask_at_composite() {
     PROGPU_REQUIRE(changed_mask.brush.radius == 12.0F);
     PROGPU_REQUIRE(changed_mask.brush.radius_y == 9.0F);
 
-    std::vector<std::byte> unsupported_ordering;
+    std::vector<std::byte> combined_ordering;
     append_command(
-        unsupported_ordering,
+        combined_ordering,
         command::visual_set_guideline_collection,
         visual,
         std::uint16_t{1U},
@@ -2990,10 +2990,34 @@ bool visual_bitmap_cache_applies_gradient_mask_at_composite() {
         std::uint16_t{0U},
         2.25F,
         3.5F);
-    PROGPU_REQUIRE(state.apply(unsupported_ordering) == status::success);
+    PROGPU_REQUIRE(state.apply(combined_ordering) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 9018U, 3U, stream, &metrics) ==
-        status::unsupported_command);
+        status::success);
+    progpu_native_scene_layer guided{};
+    PROGPU_REQUIRE(try_get_cached_layer(stream, guided));
+    PROGPU_REQUIRE(guided.content_revision == changed.content_revision);
+    PROGPU_REQUIRE(
+        guided.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX);
+    progpu_native_scene_state guided_composite{};
+    PROGPU_REQUIRE(try_get_state_resource(
+        stream, guided.reserved0, guided_composite));
+    PROGPU_REQUIRE((guided_composite.flags &
+        PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U);
+    const auto guided_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    const auto guideline_resource = read_value<progpu_native_scene_resource>(
+        stream,
+        guided_header.resource_offset +
+            guided_composite.guideline_resource_index *
+                sizeof(progpu_native_scene_resource));
+    PROGPU_REQUIRE(
+        guideline_resource.kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET);
+    const auto guideline_set = read_value<progpu_native_scene_guideline_set>(
+        stream, guideline_resource.payload_offset);
+    PROGPU_REQUIRE(guideline_set.guideline_x_count == 1U);
+    PROGPU_REQUIRE(guideline_set.guideline_y_count == 1U);
 
     std::vector<std::byte> masked_effect;
     append_create(masked_effect, blur, 36U);

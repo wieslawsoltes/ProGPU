@@ -10,6 +10,10 @@
 #include <cstdint>
 #include <vector>
 
+namespace progpu::native::semantic {
+class semantic_state_cursor;
+}
+
 namespace progpu::native::execution {
 
 void apply_scissor(
@@ -125,6 +129,8 @@ bool create_semantic_layer_mask_binding(
     const progpu_native_scene_resource& resource,
     const semantic::scissor& target_extent,
     float dpi_scale,
+    const semantic::semantic_state_cursor* composite_state_cursor,
+    const progpu_native_scene_state* composite_state,
     semantic_render_bundle_span& operation,
     std::uint64_t& texture_upload_bytes);
 

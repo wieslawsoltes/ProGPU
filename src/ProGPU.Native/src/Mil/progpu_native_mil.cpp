@@ -8984,13 +8984,12 @@ struct channel::implementation {
         // reusable GPU brush-mask resource at composite time. When an effect
         // is present this cache layer is nested inside the effect layer, so
         // the spatial mask is applied to the isolated retained page before
-        // effect execution, matching WPF. Inherited mask composition remains
-        // an explicit fail-closed gap. Fant/HighQuality sampling is retained
-        // as composite-only state.
+        // effect execution, matching WPF. Static cache-root guidelines share
+        // the same composite State; the backend deforms the retained quad and
+        // brush-mask coverage through that frame without rerasterizing cached
+        // content. Arbitrary inherited semantic masks remain fail closed.
+        // Fant/HighQuality sampling is retained as composite-only state.
         if (state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
-            (has_spatial_opacity_mask &&
-                (state.guideline_resource_index !=
-                        PROGPU_NATIVE_SCENE_NO_INDEX)) ||
             (state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR &&
                 state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST &&
                 state.image_sampling != PROGPU_NATIVE_IMAGE_SAMPLING_FANT)) {

@@ -26,7 +26,10 @@ internal static class RetainedCacheMultiGuidelineQualification
             context,
             TextureFormat.Rgba8Unorm);
 
-        byte[] baselineScene = BuildScene(generation: 1U, guided: false);
+        byte[] baselineScene = BuildScene(
+            generation: 1U,
+            guided: false,
+            reference: false);
         NativeSceneUpdateMetrics baselineUpdate =
             compositor.UpdateScene(baselineScene);
         NativeSceneFrameMetrics baselineFrame = compositor.RenderScene(
@@ -39,7 +42,10 @@ internal static class RetainedCacheMultiGuidelineQualification
         byte[] baselinePixels = target.ReadPixels();
         NativeLayerMetrics baselineLayer = compositor.GetLayerMetrics();
 
-        byte[] guidedScene = BuildScene(generation: 2U, guided: true);
+        byte[] guidedScene = BuildScene(
+            generation: 2U,
+            guided: true,
+            reference: false);
         NativeSceneUpdateMetrics guidedUpdate =
             compositor.UpdateScene(guidedScene);
         NativeSceneFrameMetrics guidedFrame = compositor.RenderScene(
@@ -52,46 +58,81 @@ internal static class RetainedCacheMultiGuidelineQualification
         byte[] guidedPixels = target.ReadPixels();
         NativeLayerMetrics guidedLayer = compositor.GetLayerMetrics();
 
+        byte[] referenceScene = BuildScene(
+            generation: 3U,
+            guided: false,
+            reference: true);
+        NativeSceneUpdateMetrics referenceUpdate =
+            compositor.UpdateScene(referenceScene);
+        NativeSceneFrameMetrics referenceFrame = compositor.RenderScene(
+            target,
+            dpiScale: 1f,
+            SceneId,
+            generation: 3U,
+            clearColor: new Vector4(0f, 0f, 0f, 1f));
+        context.WaitIdle();
+        byte[] referencePixels = target.ReadPixels();
+        NativeLayerMetrics referenceLayer = compositor.GetLayerMetrics();
+
         Require(
             baselineUpdate.ValidationError ==
                 NativeSceneValidationError.None &&
             guidedUpdate.ValidationError == NativeSceneValidationError.None &&
+            referenceUpdate.ValidationError ==
+                NativeSceneValidationError.None &&
             baselineFrame.SubmissionCount > 0U &&
             guidedFrame.SubmissionCount > 0U &&
+            referenceFrame.SubmissionCount > 0U &&
             baselineLayer.ContentPassCount == 1U &&
             baselineLayer.CompositePassCount == 1U &&
             guidedLayer.ContentPassCount == 0U &&
-            guidedLayer.CompositePassCount == 1U,
+            guidedLayer.CompositePassCount == 1U &&
+            referenceLayer.ContentPassCount == 0U &&
+            referenceLayer.CompositePassCount == 1U,
             "retained cache multi-guideline replay metrics are invalid: " +
             $"baseline update={baselineUpdate}, frame={baselineFrame}, " +
             $"layer={baselineLayer}; guided update={guidedUpdate}, " +
-            $"frame={guidedFrame}, layer={guidedLayer}");
+            $"frame={guidedFrame}, layer={guidedLayer}; reference update=" +
+            $"{referenceUpdate}, frame={referenceFrame}, " +
+            $"layer={referenceLayer}");
 
         PixelExtent baseline = Measure(baselinePixels);
         PixelExtent guided = Measure(guidedPixels);
+        PixelExtent reference = Measure(referencePixels);
         int changedPixels = CountChangedPixels(
             baselinePixels,
             guidedPixels);
+        int referenceChanges = CountChangedPixels(
+            guidedPixels,
+            referencePixels);
         Require(
             baseline.IsVisible && guided.IsVisible &&
+            reference.IsVisible &&
             changedPixels >= 8 && baseline.RedSum != guided.RedSum &&
-            Red(guidedPixels, 2, 2) == 0,
-            "the live retained cache multi-guideline path did not deform " +
+            referenceChanges == 0 && Red(guidedPixels, 2, 2) == 0,
+            "the live retained cache mask/guideline path did not deform " +
             $"the composite: baseline={baseline}, guided={guided}, " +
-            $"changed={changedPixels}");
+            $"reference={reference}, changed={changedPixels}, " +
+            $"referenceChanged={referenceChanges}");
 
         Console.WriteLine(
-            "Qualified live local retained cache multi-guideline " +
+            "Qualified live local retained cache mask/multi-guideline " +
             $"composition on adapter '{context.AdapterName}', " +
             $"backend={context.AdapterBackendType}; passes=" +
             $"{baselineLayer.ContentPassCount}/" +
             $"{baselineLayer.CompositePassCount}->" +
             $"{guidedLayer.ContentPassCount}/" +
-            $"{guidedLayer.CompositePassCount}, baseline={baseline}, " +
-            $"guided={guided}, changed={changedPixels}.");
+            $"{guidedLayer.CompositePassCount}->" +
+            $"{referenceLayer.ContentPassCount}/" +
+            $"{referenceLayer.CompositePassCount}, baseline={baseline}, " +
+            $"guided={guided}, reference={reference}, " +
+            $"changed={changedPixels}, referenceChanged={referenceChanges}.");
     }
 
-    private static byte[] BuildScene(ulong generation, bool guided)
+    private static byte[] BuildScene(
+        ulong generation,
+        bool guided,
+        bool reference)
     {
         Span<NativeAnalyticPrimitive> rectangle =
             stackalloc NativeAnalyticPrimitive[1];
@@ -103,7 +144,7 @@ internal static class RetainedCacheMultiGuidelineQualification
             8f,
             new Vector4(1f, 0f, 0f, 1f),
             Matrix3x2.Identity);
-        int resourceCapacity = guided ? 3 : 2;
+        const int resourceCapacity = 4;
         int size = NativeSceneStreamBuilder.GetRequiredBufferSize(
             commandCapacity: 3,
             resourceCapacity,
@@ -119,24 +160,60 @@ internal static class RetainedCacheMultiGuidelineQualification
         uint nextResourceId = 1U;
         uint guidelineIndex = uint.MaxValue;
         ReadOnlySpan<byte> stream = default;
-        bool success = !guided ||
+        bool success =
             builder.TryAddCompositeGuidelineSetResource(
                 nextResourceId++,
                 generation,
                 [10.5, 26.0],
                 [8.5, 16.0],
                 out guidelineIndex);
+        Matrix3x2 placement = reference
+            ? new Matrix3x2(0.96875f, 0f, 0f, 0.9375f, 10.75f, 8.75f)
+            : new Matrix3x2(1f, 0f, 0f, 1f, 10.25f, 8.25f);
         var compositeState = new NativeSceneState(
-            new Matrix3x2(1f, 0f, 0f, 1f, 10.25f, 8.25f),
+            placement,
             flags: guided
                 ? NativeSceneStateFlags.GuidelineSet
                 : NativeSceneStateFlags.None,
             guidelineResourceIndex: guided ? guidelineIndex : 0U);
+        NativeSceneGradientStop[] stops =
+        [
+            new NativeSceneGradientStop(
+                new Vector4(1f, 1f, 1f, 0f),
+                0f),
+            new NativeSceneGradientStop(
+                new Vector4(1f, 1f, 1f, 1f),
+                1f)
+        ];
+        Matrix3x2 brushPlacement = reference
+            ? new Matrix3x2(1f, 0f, 0f, 1f, 10.25f, 8.25f)
+            : placement;
+        Require(
+            Matrix3x2.Invert(brushPlacement, out Matrix3x2 brushMapping),
+            "failed to invert the cache mask placement");
+        NativeSceneBrush maskBrush = NativeSceneBrush.LinearGradient(
+            Vector2.Zero,
+            new Vector2(16f, 0f),
+            stopOffset: 0U,
+            stops,
+            opacity: 1f,
+            coordinateTransform: brushMapping);
+        var mask = new NativeSceneLayerBrushMask(
+            new NativeImageRect(0f, 0f, 16f, 8f),
+            placement,
+            in maskBrush,
+            gradientStopCount: (uint)stops.Length);
         success &= builder.TryAddStateResource(
                 nextResourceId++,
                 generation,
                 in compositeState,
                 out uint compositeStateIndex) &&
+            builder.TryAddLayerBrushMaskResource(
+                nextResourceId++,
+                generation,
+                in mask,
+                stops,
+                out uint maskResourceIndex) &&
             builder.TryAddAnalyticResource(
                 nextResourceId,
                 ContentRevision,
@@ -149,6 +226,7 @@ internal static class RetainedCacheMultiGuidelineQualification
                         NativeSceneLayerFlags.CacheContent |
                         NativeSceneLayerFlags.CacheLocalSpace,
                     bounds: new NativeImageRect(0f, 0f, 16f, 8f),
+                    maskResourceIndex: maskResourceIndex,
                     contentRevision: ContentRevision,
                     compositeRevision: CompositeRevision,
                     compositeStateResourceIndex: compositeStateIndex)) &&

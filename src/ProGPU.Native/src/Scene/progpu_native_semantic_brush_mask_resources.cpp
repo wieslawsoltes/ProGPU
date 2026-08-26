@@ -1,5 +1,6 @@
 #include "progpu_native_semantic_layer_mask_resources.hpp"
 #include "progpu_native_semantic_layer_mask.hpp"
+#include "progpu_native_semantic_state.hpp"
 
 #if !defined(PROGPU_NATIVE_DAWN_ABI)
 #include <webgpu.h>
@@ -117,6 +118,8 @@ bool create_semantic_brush_mask_binding(
     const semantic::semantic_layer_mask& parsed,
     const semantic::scissor& target_extent,
     float dpi_scale,
+    const semantic::semantic_state_cursor* composite_state_cursor,
+    const progpu_native_scene_state* composite_state,
     semantic_render_bundle_span& operation) {
     const bool geometry_mask = parsed.kind ==
         PROGPU_NATIVE_SCENE_LAYER_MASK_GEOMETRY;
@@ -180,15 +183,67 @@ bool create_semantic_brush_mask_binding(
                 static_cast<float>(target_extent.x) / dpi_scale;
             primitive.transform.m32 -=
                 static_cast<float>(target_extent.y) / dpi_scale;
+            if (composite_state_cursor != nullptr &&
+                composite_state != nullptr) {
+                if (primitive.width <= 0.0F || primitive.height <= 0.0F) {
+                    return false;
+                }
+                // A WPF cache-root guideline deforms the retained bitmap and
+                // opacity-mask coverage as one post-cache shape. Visual
+                // guidelines are disabled under rotation/shear, so snapping
+                // the exact mask rectangle corners yields the separable
+                // affine frame used by the composite quad. Brush coordinates
+                // intentionally remain in their original target-space frame.
+                const float target_x =
+                    static_cast<float>(target_extent.x) / dpi_scale;
+                const float target_y =
+                    static_cast<float>(target_extent.y) / dpi_scale;
+                float left = primitive.x * primitive.transform.m11 +
+                    primitive.y * primitive.transform.m21 +
+                    primitive.transform.m31 + target_x;
+                float top = primitive.x * primitive.transform.m12 +
+                    primitive.y * primitive.transform.m22 +
+                    primitive.transform.m32 + target_y;
+                float right =
+                    (primitive.x + primitive.width) *
+                        primitive.transform.m11 +
+                    (primitive.y + primitive.height) *
+                        primitive.transform.m21 +
+                    primitive.transform.m31 + target_x;
+                float bottom =
+                    (primitive.x + primitive.width) *
+                        primitive.transform.m12 +
+                    (primitive.y + primitive.height) *
+                        primitive.transform.m22 +
+                    primitive.transform.m32 + target_y;
+                composite_state_cursor->snap_composite_point(
+                    *composite_state,
+                    left,
+                    top);
+                composite_state_cursor->snap_composite_point(
+                    *composite_state,
+                    right,
+                    bottom);
+                primitive.transform.m11 =
+                    (right - left) / primitive.width;
+                primitive.transform.m12 = 0.0F;
+                primitive.transform.m21 = 0.0F;
+                primitive.transform.m22 =
+                    (bottom - top) / primitive.height;
+                primitive.transform.m31 = left - target_x -
+                    primitive.x * primitive.transform.m11;
+                primitive.transform.m32 = top - target_y -
+                    primitive.y * primitive.transform.m22;
+            }
             float minimum_scale = 0.0F;
             vertices.reserve(4U);
             indices.reserve(6U);
             if (!try_get_minimum_scale(primitive.transform, minimum_scale) ||
                 !append_analytic_primitive(
-                    primitive,
-                    antialias_padding_pixels / minimum_scale,
-                    vertices,
-                    indices)) {
+                        primitive,
+                        antialias_padding_pixels / minimum_scale,
+                        vertices,
+                        indices)) {
                 return false;
             }
         }
@@ -459,6 +514,8 @@ bool create_semantic_geometry_mask_binding(
         parsed,
         target_extent,
         dpi_scale,
+        nullptr,
+        nullptr,
         operation);
 }
 
