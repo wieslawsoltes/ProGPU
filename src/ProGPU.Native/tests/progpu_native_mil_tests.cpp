@@ -7658,6 +7658,152 @@ bool render_data_static_guideline_scope_uses_active_transform() {
     return true;
 }
 
+bool render_data_opacity_mask_scope_uses_gpu_brush_layer() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t opacity_mask = 5U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, opacity_mask, 77U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_offset, visual, 5.0, 6.0);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.25F, 0.5F, 0.75F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    const std::array mask_stops{
+        mil_gradient_stop{0.0, {1.0F, 1.0F, 1.0F, 0.0F}},
+        mil_gradient_stop{1.0, {1.0F, 1.0F, 1.0F, 1.0F}}};
+    append_linear_gradient_brush(
+        batch,
+        opacity_mask,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0U,
+        0U,
+        0U,
+        1U,
+        1U,
+        0U,
+        0U,
+        0U,
+        mask_stops);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::push_opacity_mask,
+        2.0F,
+        3.0F,
+        12.0F,
+        23.0F,
+        opacity_mask,
+        0U);
+    append_command(
+        nested,
+        command::draw_rectangle,
+        2.0,
+        3.0,
+        10.0,
+        20.0,
+        brush,
+        0U);
+    append_command(nested, command::pop);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7009U, 1U, stream) == status::success);
+    const auto layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(layers.size() == 1U);
+    PROGPU_REQUIRE(
+        (layers[0].flags & PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION) != 0U);
+    PROGPU_REQUIRE(
+        (layers[0].flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) != 0U);
+    PROGPU_REQUIRE(layers[0].bounds.x == 7.0F);
+    PROGPU_REQUIRE(layers[0].bounds.y == 9.0F);
+    PROGPU_REQUIRE(layers[0].bounds.width == 10.0F);
+    PROGPU_REQUIRE(layers[0].bounds.height == 20.0F);
+    PROGPU_REQUIRE(layers[0].opacity == 1.0F);
+    PROGPU_REQUIRE(
+        layers[0].mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX);
+    progpu_native_scene_layer_brush_mask mask{};
+    std::vector<progpu_native_scene_gradient_stop> stops;
+    PROGPU_REQUIRE(try_get_brush_mask_resource(
+        stream, layers[0].mask_resource_index, mask, stops));
+    PROGPU_REQUIRE(mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH);
+    PROGPU_REQUIRE(mask.bounds.x == 2.0F);
+    PROGPU_REQUIRE(mask.bounds.y == 3.0F);
+    PROGPU_REQUIRE(mask.bounds.width == 10.0F);
+    PROGPU_REQUIRE(mask.bounds.height == 20.0F);
+    PROGPU_REQUIRE(mask.transform.m31 == 5.0F);
+    PROGPU_REQUIRE(mask.transform.m32 == 6.0F);
+    PROGPU_REQUIRE(stops.size() == 2U);
+
+    const std::array changed_stops{
+        mil_gradient_stop{0.0, {1.0F, 1.0F, 1.0F, 0.25F}},
+        mil_gradient_stop{1.0, {1.0F, 1.0F, 1.0F, 0.75F}}};
+    std::vector<std::byte> mask_update;
+    append_linear_gradient_brush(
+        mask_update,
+        opacity_mask,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0U,
+        0U,
+        0U,
+        1U,
+        1U,
+        0U,
+        0U,
+        0U,
+        changed_stops);
+    PROGPU_REQUIRE(state.apply(mask_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7009U, 2U, stream) == status::success);
+    const auto updated_layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(updated_layers.size() == 1U);
+    PROGPU_REQUIRE(try_get_brush_mask_resource(
+        stream,
+        updated_layers[0].mask_resource_index,
+        mask,
+        stops));
+    PROGPU_REQUIRE(stops.size() == 2U);
+    PROGPU_REQUIRE(stops[0].color.a == 0.25F);
+    PROGPU_REQUIRE(stops[1].color.a == 0.75F);
+    return true;
+}
+
 bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -10045,6 +10191,7 @@ int main() {
         retained_static_guideline_set_snaps_one_guide_per_axis());
     PROGPU_REQUIRE(
         render_data_static_guideline_scope_uses_active_transform());
+    PROGPU_REQUIRE(render_data_opacity_mask_scope_uses_gpu_brush_layer());
     PROGPU_REQUIRE(
         retained_image_drawing_uses_pointer_free_bitmap_sideband());
     PROGPU_REQUIRE(

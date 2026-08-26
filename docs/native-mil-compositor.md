@@ -426,6 +426,18 @@ changes the next layer descriptor without retransmitting render data. Null
 animation handles preserve the packet's base value; wrong-type/missing handles,
 nonzero padding, non-finite values, or values outside `[0,1]` fail closed.
 
+Canonical nested `MILCMD_PUSH_OPACITY_MASK` now consumes WPF's retained
+`MilRectF` local-content bounds and brush handle without reconstructing managed
+brush objects. Static solid brushes fold to one isolated group-alpha layer;
+typed linear/radial gradients compile to the existing GPU brush-mask resource
+and are sampled over the packet bounds in the transform active at the push.
+The semantic layer carries transformed bounds, applies the mask once at `Pop`,
+and therefore preserves overlap semantics and nesting with opacity, clip,
+transform, and guideline scopes. Updating only the retained gradient resource
+regenerates the mask on the next scene compile while the render-data stream
+stays unchanged. Missing/wrong-type resources, malformed LTRB bounds, and
+unsupported brush families fail closed.
+
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.
 - Implement scalar animation resources, remaining transform kinds, curve dashes,

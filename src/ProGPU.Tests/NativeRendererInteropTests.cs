@@ -489,6 +489,30 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWriteCanonicalOpacityMaskScope()
+    {
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.PushOpacityMask(new NativeMilRect(2, 3, 10, 20), 11);
+        byte[] encoded = renderData.WrittenSpan.ToArray();
+
+        Assert.Equal(32, encoded.Length);
+        Assert.Equal(32U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x4eU, ReadUInt32(encoded, 4));
+        Assert.Equal(2F, ReadSingle(encoded, 8));
+        Assert.Equal(3F, ReadSingle(encoded, 12));
+        Assert.Equal(12F, ReadSingle(encoded, 16));
+        Assert.Equal(23F, ReadSingle(encoded, 20));
+        Assert.Equal(11U, ReadUInt32(encoded, 24));
+        Assert.Equal(0U, ReadUInt32(encoded, 28));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderData.PushOpacityMask(default, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderData.PushOpacityMask(
+                new NativeMilRect(0, 0, double.NaN, 1), 11));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalVisualEffectPackets()
     {
         var batch = new NativeMilBatchBuilder();

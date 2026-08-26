@@ -1510,6 +1510,35 @@ public sealed class NativeMilRenderDataBuilder
         NativeMilBatchBuilder.WriteUInt32(packet, 4, geometryHandle);
     }
 
+    public void PushOpacityMask(
+        NativeMilRect bounds,
+        uint opacityMaskHandle)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(opacityMaskHandle);
+        if (!double.IsFinite(bounds.X) || !double.IsFinite(bounds.Y) ||
+            !double.IsFinite(bounds.Width) || bounds.Width < 0.0 ||
+            !double.IsFinite(bounds.Height) || bounds.Height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(bounds));
+        }
+        float left = (float)bounds.X;
+        float top = (float)bounds.Y;
+        float right = (float)(bounds.X + bounds.Width);
+        float bottom = (float)(bounds.Y + bounds.Height);
+        if (!float.IsFinite(left) || !float.IsFinite(top) ||
+            !float.IsFinite(right) || !float.IsFinite(bottom))
+        {
+            throw new ArgumentOutOfRangeException(nameof(bounds));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PushOpacityMask, 28);
+        NativeMilBatchBuilder.WriteSingle(packet, 4, left);
+        NativeMilBatchBuilder.WriteSingle(packet, 8, top);
+        NativeMilBatchBuilder.WriteSingle(packet, 12, right);
+        NativeMilBatchBuilder.WriteSingle(packet, 16, bottom);
+        NativeMilBatchBuilder.WriteUInt32(packet, 20, opacityMaskHandle);
+    }
+
     public void PushTransform(uint transformHandle)
     {
         Span<byte> packet = NativeMilBatchEncoding.Allocate(
@@ -1710,6 +1739,7 @@ internal static class NativeMilCommand
     internal const uint DrawGlyphRun = 0x49;
     internal const uint DrawDrawing = 0x4a;
     internal const uint PushClip = 0x4d;
+    internal const uint PushOpacityMask = 0x4e;
     internal const uint PushOpacity = 0x4f;
     internal const uint PushOpacityAnimate = 0x50;
     internal const uint PushTransform = 0x51;
