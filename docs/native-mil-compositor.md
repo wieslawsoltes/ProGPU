@@ -50,9 +50,16 @@ WPF inputs, all 141 retail commands plus invalid/debug sentinels, and all 108
 managed `Pack=1` packet layouts with field type, offset, width, and fixed header
 size. Standalone ProGPU builds verify header/manifest agreement; LibreWPF's SDK
 gate additionally regenerates from its live WPF source tree and fails on drift.
-The Visual-offset, DoubleResource, and PointResource decoders already consume
-generated sizes/offsets. Remaining decoder magic offsets are an explicit
-mechanical migration, not an independent protocol authority.
+Follow-up `d4a1f370` makes the complete retained Visual update family plus
+DoubleResource and PointResource consume generated sizes/offsets. That includes
+transform/effect/cache/clip/alpha/render-option/content/mask state, variable
+guideline collections, scroll clips, and child topology. The generator also
+captures MCG's private `BYTEPacking` fields, requires every managed command
+header to remain DWORD-sized, and proves every parsed layout maps to one command;
+this preserves the guideline packet's 16-byte payload boundary rather than
+misreading its last private packing byte as a 14-byte header. Remaining decoder
+magic offsets are an explicit mechanical migration, not an independent
+protocol authority.
 
 ## Architecture
 
