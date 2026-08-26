@@ -2530,6 +2530,22 @@ Qualified base/Dawn win-arm64 SHA-256 values are
 `9BC233F2462CCA5CE5A9BA31A296BEF80E22D6982D5B706F9756D9F62EC6CB97`
 and `743FE185F4D4C900CA1B7F5B18AD85BEAAD47CEA592315AF22D81E625DF0393D`.
 
+Nested masks also preserve retained-cache ownership. A cache-root mask is
+composite-only around a child effect and independently cached child mask.
+Updating only the root mask leaves both cached content revisions stable.
+Updating the child mask leaves the child raster stable but invalidates the
+root page, because that child composite is root-page content. Tests assert the
+three layer descriptors, two typed brush-mask payloads, and those revision
+relationships.
+
+The Apple M3 Pro Metal first/stable/root-mask/child-mask sequence reports
+content passes `3 -> 0 -> 0 -> 2`, effect passes `2 -> 0 -> 0 -> 2`, and pixel
+changes `0/379/161`. Extent/red sum changes from
+`[12,6]-[33,25]`/23,482 to `[12,6]-[33,25]`/11,772 and finally
+`[12,6]-[33,24]`/11,266. Existing semantic cache, effect, and mask resources
+carry the complete state without an ABI or backend-specific path. DirectX
+qualification is pending for exact test/qualification commit `f8bd57b5`.
+
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then
 12x9 page extents. Package-mode managed Dawn rendering/readback and forced
