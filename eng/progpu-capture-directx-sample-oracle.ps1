@@ -23,14 +23,17 @@ $OraclePath = Join-Path $OutputDirectory "microsoft-d3d12-hello-triangle.ppm"
 if (-not $IsWindows) {
     throw "The Microsoft DirectX sample oracle can only run on Windows."
 }
+$CreatedSourceCache = $false
 if (-not (Test-Path (Join-Path $SourceDirectory ".git"))) {
     New-Item -ItemType Directory -Force -Path $CacheRoot | Out-Null
     git clone --filter=blob:none --no-checkout $Lock.repository $SourceDirectory
     if ($LASTEXITCODE -ne 0) { throw "DirectX sample clone failed." }
     git -C $SourceDirectory sparse-checkout init --cone
     git -C $SourceDirectory sparse-checkout set "Samples/Desktop/D3D12HelloWorld"
+    $CreatedSourceCache = $true
 }
-if (git -C $SourceDirectory status --porcelain --untracked-files=no) {
+if (-not $CreatedSourceCache -and
+    (git -C $SourceDirectory status --porcelain --untracked-files=no)) {
     throw "Refusing to change the modified DirectX sample source cache."
 }
 git -C $SourceDirectory fetch --depth 1 origin $Lock.commit
