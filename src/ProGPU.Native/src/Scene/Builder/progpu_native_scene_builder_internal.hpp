@@ -52,7 +52,9 @@ struct semantic_scene_builder::implementation final {
         return false;
     }
 
-    bool valid_state_index(std::uint32_t index) const noexcept {
+    bool valid_state_index(
+        std::uint32_t index,
+        bool allow_per_point = false) const noexcept {
         if (index == PROGPU_NATIVE_SCENE_NO_INDEX) {
             return true;
         }
@@ -83,7 +85,9 @@ struct semantic_scene_builder::implementation final {
         progpu_native_scene_guideline_set header{};
         std::memcpy(&header, guidelines.payload.data(), sizeof(header));
         return (header.flags &
-            PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY) == 0U;
+                PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY) == 0U &&
+            (allow_per_point || (header.flags &
+                PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT) == 0U);
     }
 
     bool try_merge_image_draw(

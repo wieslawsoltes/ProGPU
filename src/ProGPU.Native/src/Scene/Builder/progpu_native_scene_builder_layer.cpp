@@ -371,7 +371,18 @@ bool semantic_scene_builder::push_layer(
                     implementation_->resources.size() &&
                 implementation_->resources[state.guideline_resource_index]
                         .record.kind ==
-                    PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET);
+                    PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET && [&]() {
+                        const auto& guideline_resource =
+                            implementation_->resources[
+                                state.guideline_resource_index];
+                        progpu_native_scene_guideline_set guidelines{};
+                        std::memcpy(
+                            &guidelines,
+                            guideline_resource.payload.data(),
+                            sizeof(guidelines));
+                        return (guidelines.flags &
+                            PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT) == 0U;
+                    }());
         const bool canonical_transform = local_cache ||
             (state.transform.m11 == 1.0F &&
                 state.transform.m12 == 0.0F &&

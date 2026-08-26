@@ -224,7 +224,9 @@ enum {
 
 enum {
     /* Multi-guide point deformation is valid only for local-cache composites. */
-    PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY = 1U << 0U
+    PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY = 1U << 0U,
+    /* Multi-guide point deformation is applied to ordinary draw geometry. */
+    PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT = 1U << 1U
 };
 
 enum {
@@ -1028,8 +1030,12 @@ typedef struct progpu_native_scene_state {
  * GUIDELINE_COMPOSITE_ONLY, at least one axis has multiple sorted coordinates
  * and the State may be referenced only by a CACHE_LOCAL_SPACE composite. The
  * executor applies WPF nearest-guide snapping independently to the retained
- * page's four vertices. General multi-guide geometry deformation and dynamic
- * leading/driven pairs remain future append-only capabilities.
+ * page's four vertices. With GUIDELINE_PER_POINT, at least one axis has
+ * multiple sorted coordinates and ordinary supported draw geometry is first
+ * transformed to target space, then each path point/control point is snapped
+ * to the nearest guide's WPF pixel offset. The multi-guide flags are mutually
+ * exclusive. Dynamic leading/driven pairs remain a future append-only
+ * capability.
  */
 typedef struct progpu_native_scene_guideline_set {
     uint32_t struct_size;

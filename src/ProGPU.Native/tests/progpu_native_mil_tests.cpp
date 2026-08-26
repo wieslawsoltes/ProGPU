@@ -3572,7 +3572,27 @@ bool visual_static_guidelines_reset_at_child_boundaries() {
     PROGPU_REQUIRE(state.apply(multiple) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 9012U, 2U, stream, &metrics) ==
-        status::unsupported_command);
+        status::success);
+    const auto multiple_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    bool found_per_point = false;
+    for (std::uint32_t index = 0U;
+         index < multiple_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            multiple_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET) {
+            continue;
+        }
+        const auto value = read_value<progpu_native_scene_guideline_set>(
+            stream, resource.payload_offset);
+        found_per_point |= value.flags ==
+                PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT &&
+            value.guideline_x_count == 2U;
+    }
+    PROGPU_REQUIRE(found_per_point);
 
     std::vector<std::byte> clear;
     append_command(
@@ -7268,7 +7288,28 @@ bool retained_static_guideline_set_snaps_one_guide_per_axis() {
     PROGPU_REQUIRE(state.apply(multiple_update) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7007U, 2U, stream, &metrics) ==
-        status::unsupported_command);
+        status::success);
+    const auto updated_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    bool found_per_point_guidelines = false;
+    for (std::uint32_t index = 0U;
+         index < updated_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            updated_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET) {
+            continue;
+        }
+        const auto value = read_value<progpu_native_scene_guideline_set>(
+            stream, resource.payload_offset);
+        found_per_point_guidelines |= value.flags ==
+                PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT &&
+            value.guideline_x_count == 2U &&
+            value.guideline_y_count == 0U;
+    }
+    PROGPU_REQUIRE(found_per_point_guidelines);
     return true;
 }
 

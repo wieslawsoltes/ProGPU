@@ -49,6 +49,17 @@ if (Array.Exists(
         args,
         static value => string.Equals(
             value,
+            "--semantic-per-point-path-guideline",
+            StringComparison.OrdinalIgnoreCase)))
+{
+    PerPointPathGuidelineQualification.Run();
+    return;
+}
+
+if (Array.Exists(
+        args,
+        static value => string.Equals(
+            value,
             "--semantic-nested-cache-effect",
             StringComparison.OrdinalIgnoreCase)))
 {

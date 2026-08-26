@@ -591,11 +591,15 @@ validation_result validate(
                 coordinate_count * sizeof(double);
             const bool multiple = guidelines.guideline_x_count > 1U ||
                 guidelines.guideline_y_count > 1U;
+            const std::uint32_t multi_flags = guidelines.flags &
+                (PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY |
+                 PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT);
             if (guidelines.struct_size != sizeof(guidelines) ||
                 (guidelines.flags &
-                    ~PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY) != 0U ||
-                multiple != ((guidelines.flags &
-                    PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY) != 0U) ||
+                    ~(PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY |
+                      PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT)) != 0U ||
+                multiple != (multi_flags != 0U) ||
+                (multi_flags & (multi_flags - 1U)) != 0U ||
                 guidelines.guideline_x_count >
                     PROGPU_NATIVE_SCENE_MAX_GUIDELINES_PER_AXIS ||
                 guidelines.guideline_y_count >
@@ -1228,8 +1232,25 @@ validation_result validate(
                         composite_state.transform.m22 == 1.0F &&
                         composite_state.transform.m31 == 0.0F &&
                         composite_state.transform.m32 == 0.0F);
+                bool composite_guideline_is_valid = true;
+                if ((composite_state.flags &
+                        PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U) {
+                    const auto guideline_resource = read_record<
+                        progpu_native_scene_resource>(
+                            bytes,
+                            header.resource_offset +
+                                static_cast<std::size_t>(
+                                    composite_state.guideline_resource_index) *
+                                    header.resource_stride);
+                    const auto guidelines = read_record<
+                        progpu_native_scene_guideline_set>(
+                            bytes, guideline_resource.payload_offset);
+                    composite_guideline_is_valid = (guidelines.flags &
+                        PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT) == 0U;
+                }
                 if ((composite_state.flags & ~composite_flags) != 0U ||
                     !canonical_transform ||
+                    !composite_guideline_is_valid ||
                     composite_state.opacity != 1.0F ||
                     composite_state.mask_resource_index != 0U) {
                     return fail(

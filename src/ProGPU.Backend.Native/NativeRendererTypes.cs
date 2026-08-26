@@ -695,7 +695,13 @@ public enum NativeSceneGuidelineSetFlags : uint
     /// Allows multiple sorted static guides only when the containing State is
     /// used by a local retained-cache composite.
     /// </summary>
-    CompositeOnly = 1U << 0
+    CompositeOnly = 1U << 0,
+
+    /// <summary>
+    /// Applies multiple sorted static guides independently to each supported
+    /// draw path point after the complete target transform.
+    /// </summary>
+    PerPoint = 1U << 1
 }
 
 [Flags]

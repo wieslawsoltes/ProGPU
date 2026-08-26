@@ -85,7 +85,8 @@ public:
         std::span<const double> guidelines_x,
         std::span<const double> guidelines_y,
         std::uint32_t& resource_index,
-        bool composite_only = false) noexcept;
+        bool composite_only = false,
+        bool per_point = false) noexcept;
     bool add_rgba8_image(
         std::uint32_t width,
         std::uint32_t height,
