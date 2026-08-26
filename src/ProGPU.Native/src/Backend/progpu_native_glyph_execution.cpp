@@ -327,31 +327,33 @@ public:
 
     void add_crossing(float crossing_x, int direction) noexcept {
         const float32x4_t crossing = vdupq_n_f32(crossing_x);
-        const int32x4_t directions = vdupq_n_s32(direction);
-        winding_first_low_ = vaddq_s32(
-            winding_first_low_,
-            vandq_s32(
-                vreinterpretq_s32_u32(vcltq_f32(
-                    samples_first_low_, crossing)),
-                directions));
-        winding_first_high_ = vaddq_s32(
-            winding_first_high_,
-            vandq_s32(
-                vreinterpretq_s32_u32(vcltq_f32(
-                    samples_first_high_, crossing)),
-                directions));
-        winding_second_low_ = vaddq_s32(
-            winding_second_low_,
-            vandq_s32(
-                vreinterpretq_s32_u32(vcltq_f32(
-                    samples_second_low_, crossing)),
-                directions));
-        winding_second_high_ = vaddq_s32(
-            winding_second_high_,
-            vandq_s32(
-                vreinterpretq_s32_u32(vcltq_f32(
-                    samples_second_high_, crossing)),
-                directions));
+        const int32x4_t first_low_mask = vreinterpretq_s32_u32(
+            vcltq_f32(samples_first_low_, crossing));
+        const int32x4_t first_high_mask = vreinterpretq_s32_u32(
+            vcltq_f32(samples_first_high_, crossing));
+        const int32x4_t second_low_mask = vreinterpretq_s32_u32(
+            vcltq_f32(samples_second_low_, crossing));
+        const int32x4_t second_high_mask = vreinterpretq_s32_u32(
+            vcltq_f32(samples_second_high_, crossing));
+        if (direction > 0) {
+            winding_first_low_ = vsubq_s32(
+                winding_first_low_, first_low_mask);
+            winding_first_high_ = vsubq_s32(
+                winding_first_high_, first_high_mask);
+            winding_second_low_ = vsubq_s32(
+                winding_second_low_, second_low_mask);
+            winding_second_high_ = vsubq_s32(
+                winding_second_high_, second_high_mask);
+        } else {
+            winding_first_low_ = vaddq_s32(
+                winding_first_low_, first_low_mask);
+            winding_first_high_ = vaddq_s32(
+                winding_first_high_, first_high_mask);
+            winding_second_low_ = vaddq_s32(
+                winding_second_low_, second_low_mask);
+            winding_second_high_ = vaddq_s32(
+                winding_second_high_, second_high_mask);
+        }
     }
 
     covered_sample_pair covered_counts() const noexcept {
@@ -426,31 +428,33 @@ public:
 
     void add_crossing(float crossing_x, int direction) noexcept {
         const __m128 crossing = _mm_set1_ps(crossing_x);
-        const __m128i directions = _mm_set1_epi32(direction);
-        winding_first_low_ = _mm_add_epi32(
-            winding_first_low_,
-            _mm_and_si128(
-                _mm_castps_si128(_mm_cmplt_ps(
-                    samples_first_low_, crossing)),
-                directions));
-        winding_first_high_ = _mm_add_epi32(
-            winding_first_high_,
-            _mm_and_si128(
-                _mm_castps_si128(_mm_cmplt_ps(
-                    samples_first_high_, crossing)),
-                directions));
-        winding_second_low_ = _mm_add_epi32(
-            winding_second_low_,
-            _mm_and_si128(
-                _mm_castps_si128(_mm_cmplt_ps(
-                    samples_second_low_, crossing)),
-                directions));
-        winding_second_high_ = _mm_add_epi32(
-            winding_second_high_,
-            _mm_and_si128(
-                _mm_castps_si128(_mm_cmplt_ps(
-                    samples_second_high_, crossing)),
-                directions));
+        const __m128i first_low_mask = _mm_castps_si128(
+            _mm_cmplt_ps(samples_first_low_, crossing));
+        const __m128i first_high_mask = _mm_castps_si128(
+            _mm_cmplt_ps(samples_first_high_, crossing));
+        const __m128i second_low_mask = _mm_castps_si128(
+            _mm_cmplt_ps(samples_second_low_, crossing));
+        const __m128i second_high_mask = _mm_castps_si128(
+            _mm_cmplt_ps(samples_second_high_, crossing));
+        if (direction > 0) {
+            winding_first_low_ = _mm_sub_epi32(
+                winding_first_low_, first_low_mask);
+            winding_first_high_ = _mm_sub_epi32(
+                winding_first_high_, first_high_mask);
+            winding_second_low_ = _mm_sub_epi32(
+                winding_second_low_, second_low_mask);
+            winding_second_high_ = _mm_sub_epi32(
+                winding_second_high_, second_high_mask);
+        } else {
+            winding_first_low_ = _mm_add_epi32(
+                winding_first_low_, first_low_mask);
+            winding_first_high_ = _mm_add_epi32(
+                winding_first_high_, first_high_mask);
+            winding_second_low_ = _mm_add_epi32(
+                winding_second_low_, second_low_mask);
+            winding_second_high_ = _mm_add_epi32(
+                winding_second_high_, second_high_mask);
+        }
     }
 
     covered_sample_pair covered_counts() const noexcept {

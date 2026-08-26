@@ -225,6 +225,28 @@ same 1x/2x hashes, the native/Dawn suite stayed 11/11, and the SSE2 syntax gate
 passed. The source therefore retains the qualified two-pixel, per-scanline
 reduction implementation rather than committing benchmark-negative SIMD code.
 
+The next accepted two-pixel optimization keeps those pressure and tail
+properties while reducing the work for each crossing. NEON and SSE2 compare
+instructions already produce all-one lanes for covered samples. Because the
+winding visitor only publishes direction `+1` or `-1`, the intrinsic path now
+subtracts a positive-direction comparison mask or adds a negative-direction
+mask directly. This removes the per-crossing direction broadcast and four mask
+instructions without changing sample positions, comparison strictness,
+crossing order, accumulator width, horizontal reduction, or quantization. The
+scalar implementation remains independent.
+
+Four alternating Apple M3 Pro Release A/B runs per variant, each with three
+warmups and 120 forced-SIMD rerasterized frames, reduced median-of-run native
+submission p50 from 1.3871 to 1.1183 ms at 1x DPI (-19.4%) and from 1.8757 to
+1.6719 ms at 2x DPI (-10.9%). Synchronized-frame p50 changed from 3.2270 to
+2.6386 ms (-18.2%) at 1x and from 3.4555 to 3.3438 ms (-3.2%) at 2x. Median
+submission/frame p95 improved from 2.6408/5.3165 to 1.7334/4.2798 ms at 1x and
+from 2.9520/5.5350 to 2.7839/5.2307 ms at 2x. All 960 measured frames remained
+byte-exact at `5B6EF4F70536C862` (1x) or `706B261418EC5C3B` (2x). The complete
+ten-test local native suite passes and strict Clang x86_64 compilation covers
+the paired SSE2 branch. These results qualify the intrinsic fallback on this
+Apple adapter without changing the GPU-first automatic policy.
+
 Exact pushed head `644a8d89` also rebuilt both native libraries with ARM64
 MSVC and passed all 11 native/Dawn CTests in the Windows Parallels VM. The
 zero-warning benchmark build ran the full 42-glyph forced-NEON D3D12 gate with
