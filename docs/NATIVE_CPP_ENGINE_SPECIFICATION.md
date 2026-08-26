@@ -2312,8 +2312,9 @@ explicit composite State. It deliberately omits that clip from the ordinary
 saved draw State, and when a local cache is the effect input it also omits the
 clip from the inner cache composite. The resulting order is final rectangle
 clip, outer effect layer, then inner cache opacity/mask, exactly preserving
-WPF's unclipped blur/drop-shadow sampling. Uniform opacity on an uncached
-effect and arbitrary geometry clips remain fail closed.
+WPF's unclipped blur/drop-shadow sampling. Uncached uniform opacity uses the
+separate bounded isolation layer described below; arbitrary geometry clips
+remain fail closed.
 
 The matched Metal and D3D12 nested-cache qualification renders a parent cache,
 Gaussian layer, and half-opacity child cache over three frames. Initial,
@@ -2395,8 +2396,14 @@ zero-radius edge, and inherited-opacity rejection. The live Metal gate proves
 the grouped output is byte-identical to a half-opacity union reference while a
 per-primitive-alpha fallback changes 420 pixels and raises an overlap sample
 from 128 to 188. It executes `2/2/2` content/composite/effect passes at extent
-`[5,5]-[46,30]`, red sum 65,536; the Windows lane runs the same stream on the
-shared D3D12 executor.
+`[5,5]-[46,30]`, red sum 65,536. The same stream passed with identical metrics
+and pixels on the Parallels Display Adapter D3D12 backend from clean detached
+commit `a47d80b5`. The complete strict Windows ARM64 MSVC `/W4 /WX` lane passed
+all 11 native/Dawn CTests, exports, two zero-warning managed Release builds,
+independent C++ and managed D3D12 samples, the bounded smoke matrix, and package
+staging. Qualified base/Dawn SHA-256 values are
+`07E97B185A066124719A2593CBE2AD7762B9FF00FEB406255B428FC7CF2BA85D` and
+`35744D6CAF0F8C7789D7DE0E7EFA0985529A27217C7F65613BD0889487D879B2`.
 
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then
