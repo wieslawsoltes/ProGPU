@@ -932,6 +932,10 @@ public class NativeRendererInteropTests
             nativeGlyphExecution,
             StringComparison.Ordinal);
         Assert.Contains(
+            "intrinsic_winding_8",
+            nativeGlyphExecution,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "$(PROGPU_NATIVE_BUILD_DIR)",
             benchmarkProject,
             StringComparison.Ordinal);

@@ -385,6 +385,65 @@ private:
     int32x4_t winding_second_high_{};
 };
 
+class intrinsic_winding_8 final {
+public:
+    intrinsic_winding_8(
+        float sample_x,
+        float sample_step) noexcept {
+        const std::array<float, 4U> low{
+            sample_x,
+            sample_x + sample_step,
+            sample_x + sample_step * 2.0F,
+            sample_x + sample_step * 3.0F};
+        const std::array<float, 4U> high{
+            sample_x + sample_step * 4.0F,
+            sample_x + sample_step * 5.0F,
+            sample_x + sample_step * 6.0F,
+            sample_x + sample_step * 7.0F};
+        samples_low_ = vld1q_f32(low.data());
+        samples_high_ = vld1q_f32(high.data());
+        reset_winding();
+    }
+
+    void reset_winding() noexcept {
+        winding_low_ = vdupq_n_s32(0);
+        winding_high_ = vdupq_n_s32(0);
+    }
+
+    void add_crossing(float crossing_x, int direction) noexcept {
+        const float32x4_t crossing = vdupq_n_f32(crossing_x);
+        const int32x4_t low_mask = vreinterpretq_s32_u32(
+            vcltq_f32(samples_low_, crossing));
+        const int32x4_t high_mask = vreinterpretq_s32_u32(
+            vcltq_f32(samples_high_, crossing));
+        if (direction > 0) {
+            winding_low_ = vsubq_s32(winding_low_, low_mask);
+            winding_high_ = vsubq_s32(winding_high_, high_mask);
+        } else {
+            winding_low_ = vaddq_s32(winding_low_, low_mask);
+            winding_high_ = vaddq_s32(winding_high_, high_mask);
+        }
+    }
+
+    std::uint32_t covered_count() const noexcept {
+        const int32x4_t zero = vdupq_n_s32(0);
+        const uint32x4_t low = vshrq_n_u32(
+            vmvnq_u32(vceqq_s32(winding_low_, zero)), 31);
+        const uint32x4_t high = vshrq_n_u32(
+            vmvnq_u32(vceqq_s32(winding_high_, zero)), 31);
+        const uint32x2_t pair = vadd_u32(
+            vadd_u32(vget_low_u32(low), vget_high_u32(low)),
+            vadd_u32(vget_low_u32(high), vget_high_u32(high)));
+        return vget_lane_u32(vpadd_u32(pair, pair), 0);
+    }
+
+private:
+    float32x4_t samples_low_{};
+    float32x4_t samples_high_{};
+    int32x4_t winding_low_{};
+    int32x4_t winding_high_{};
+};
+
 #elif defined(PROGPU_NATIVE_GLYPH_INTRINSICS_SSE2)
 
 class intrinsic_winding_16 final {
@@ -481,6 +540,62 @@ private:
     __m128i winding_first_high_{};
     __m128i winding_second_low_{};
     __m128i winding_second_high_{};
+};
+
+class intrinsic_winding_8 final {
+public:
+    intrinsic_winding_8(
+        float sample_x,
+        float sample_step) noexcept
+        : samples_low_(_mm_setr_ps(
+              sample_x,
+              sample_x + sample_step,
+              sample_x + sample_step * 2.0F,
+              sample_x + sample_step * 3.0F)),
+          samples_high_(_mm_setr_ps(
+              sample_x + sample_step * 4.0F,
+              sample_x + sample_step * 5.0F,
+              sample_x + sample_step * 6.0F,
+              sample_x + sample_step * 7.0F)),
+          winding_low_(_mm_setzero_si128()),
+          winding_high_(_mm_setzero_si128()) {
+    }
+
+    void reset_winding() noexcept {
+        winding_low_ = _mm_setzero_si128();
+        winding_high_ = _mm_setzero_si128();
+    }
+
+    void add_crossing(float crossing_x, int direction) noexcept {
+        const __m128 crossing = _mm_set1_ps(crossing_x);
+        const __m128i low_mask = _mm_castps_si128(
+            _mm_cmplt_ps(samples_low_, crossing));
+        const __m128i high_mask = _mm_castps_si128(
+            _mm_cmplt_ps(samples_high_, crossing));
+        if (direction > 0) {
+            winding_low_ = _mm_sub_epi32(winding_low_, low_mask);
+            winding_high_ = _mm_sub_epi32(winding_high_, high_mask);
+        } else {
+            winding_low_ = _mm_add_epi32(winding_low_, low_mask);
+            winding_high_ = _mm_add_epi32(winding_high_, high_mask);
+        }
+    }
+
+    std::uint32_t covered_count() const noexcept {
+        const __m128i zero = _mm_setzero_si128();
+        const int zero_mask = _mm_movemask_ps(_mm_castsi128_ps(
+            _mm_cmpeq_epi32(winding_low_, zero))) |
+            (_mm_movemask_ps(_mm_castsi128_ps(
+                _mm_cmpeq_epi32(winding_high_, zero))) << 4);
+        return 8U - static_cast<std::uint32_t>(std::popcount(
+            static_cast<unsigned int>(zero_mask)));
+    }
+
+private:
+    __m128 samples_low_{};
+    __m128 samples_high_{};
+    __m128i winding_low_{};
+    __m128i winding_high_{};
 };
 
 #endif
@@ -601,7 +716,8 @@ bool rasterize_glyph_coverage_cpu(
                         });
                 }
                 scanline_offsets[8U] = crossings.size();
-                for (std::uint32_t x = 0U; x < raster.width; x += 2U) {
+                std::uint32_t x = 0U;
+                for (; x + 1U < raster.width; x += 2U) {
                     const float first_glyph_x = (
                         uniform.x_start + static_cast<float>(x) +
                         0.0625F - uniform.subpixel_x) * inverse_scale;
@@ -650,10 +766,50 @@ bool rasterize_glyph_coverage_cpu(
                             raster.output_bytes_per_row + x;
                     coverage[first_offset] = static_cast<std::byte>(
                         coverage_from_sample_count(total.first));
-                    if (x + 1U < raster.width) {
-                        coverage[first_offset + 1U] = static_cast<std::byte>(
-                            coverage_from_sample_count(total.second));
+                    coverage[first_offset + 1U] = static_cast<std::byte>(
+                        coverage_from_sample_count(total.second));
+                }
+                if (x < raster.width) {
+                    const float glyph_x = (
+                        uniform.x_start + static_cast<float>(x) +
+                        0.0625F - uniform.subpixel_x) * inverse_scale;
+                    std::uint32_t total = 0U;
+#if defined(PROGPU_NATIVE_GLYPH_INTRINSICS_NEON) || \
+    defined(PROGPU_NATIVE_GLYPH_INTRINSICS_SSE2)
+                    intrinsic_winding_8 winding(
+                        glyph_x,
+                        glyph_sample_step);
+#endif
+                    for (std::uint32_t sample_y = 0U;
+                         sample_y < 8U;
+                         ++sample_y) {
+                        const std::span<const cpu_crossing>
+                            scanline_crossings =
+                                std::span<const cpu_crossing>(crossings).subspan(
+                                    scanline_offsets[sample_y],
+                                    scanline_offsets[sample_y + 1U] -
+                                        scanline_offsets[sample_y]);
+#if defined(PROGPU_NATIVE_GLYPH_INTRINSICS_NEON) || \
+    defined(PROGPU_NATIVE_GLYPH_INTRINSICS_SSE2)
+                        winding.reset_winding();
+                        for (const auto& crossing : scanline_crossings) {
+                            winding.add_crossing(
+                                crossing.x, crossing.direction);
+                        }
+                        total += winding.covered_count();
+#else
+                        total += glyph_covered_samples_pair_scalar(
+                            glyph_x,
+                            glyph_x,
+                            glyph_sample_step,
+                            scanline_crossings).first;
+#endif
                     }
+                    const std::size_t offset = raster.output_offset +
+                        static_cast<std::size_t>(y) *
+                            raster.output_bytes_per_row + x;
+                    coverage[offset] = static_cast<std::byte>(
+                        coverage_from_sample_count(total));
                 }
                 continue;
             }
