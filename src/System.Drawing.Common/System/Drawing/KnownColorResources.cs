@@ -24,7 +24,7 @@ internal static class KnownColorResources
             return current;
         }
 
-        var created = new SolidBrush(Color.FromKnownColor(knownColor));
+        var created = new SolidBrush(Color.FromKnownColor(knownColor), immutable: true);
         return Interlocked.CompareExchange(ref s_brushes[index], created, null) ?? created;
     }
 
@@ -37,7 +37,7 @@ internal static class KnownColorResources
             return current;
         }
 
-        var created = new Pen(Color.FromKnownColor(knownColor));
+        var created = new Pen(Color.FromKnownColor(knownColor), immutable: true);
         return Interlocked.CompareExchange(ref s_pens[index], created, null) ?? created;
     }
 
