@@ -41,6 +41,19 @@ The transport and render-data streams use the same item framing. The outer
 nested command bytes. Commands and structures are packed, so the decoder uses
 bounded byte copies and never casts an untrusted address to a command struct.
 
+Protocol-authority checkpoint `8839f00d` replaces the hand-maintained C++
+command enum with generated output. `eng/progpu-generate-mil-protocol.py`
+reads WPF's checked-in MCG-generated `wgx_command_types.h` and
+`wgx_commands.cs`, verifies contiguous command values, and writes a neutral
+JSON manifest plus the public C++ header. The manifest records SHA-256 for both
+WPF inputs, all 141 retail commands plus invalid/debug sentinels, and all 108
+managed `Pack=1` packet layouts with field type, offset, width, and fixed header
+size. Standalone ProGPU builds verify header/manifest agreement; LibreWPF's SDK
+gate additionally regenerates from its live WPF source tree and fails on drift.
+The Visual-offset, DoubleResource, and PointResource decoders already consume
+generated sizes/offsets. Remaining decoder magic offsets are an explicit
+mechanical migration, not an independent protocol authority.
+
 ## Architecture
 
 ```text
@@ -72,6 +85,9 @@ compositor.
 ### Stage 0 — protocol foundation (implemented)
 
 - Complete command-ID namespace (`0x01`–`0x8d`).
+- Generated command declarations and packed managed packet metadata sourced
+  from the checked-in WPF MCG outputs, with standalone and superproject drift
+  checks.
 - Zero-copy, bounds-checked batch reader.
 - Transactional channel state: a rejected batch cannot partially mutate the
   live graph.
@@ -473,8 +489,8 @@ for `progpu_native.dll` and
 `F002C1FB564334FF21E6F1B18E2FADFD067A955103531A7E1E55B4CC361D6DC8`
 for `progpu_native_dawn.dll`.
 
-- Generate packed protocol declarations and size metadata from a checked-in
-  neutral manifest produced from WPF MCG inputs.
+- Migrate the remaining packet readers from local numeric offsets to the
+  generated neutral WPF MCG layout metadata.
 - Implement scalar animation resources, remaining transform kinds, curve dashes,
   exact translated-equivalent EvenOdd overlap execution,
   remaining pen draws,

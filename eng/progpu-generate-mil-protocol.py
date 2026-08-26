@@ -18,6 +18,7 @@ COMMAND_TYPES_RELATIVE = Path(
 COMMAND_LAYOUTS_RELATIVE = Path(
     "src/Microsoft.DotNet.Wpf/src/WpfGfx/include/Generated/wgx_commands.cs"
 )
+PROGPU_ROOT = Path(__file__).resolve().parent.parent
 
 FIELD_SIZES = {
     "AlignmentX": 4,
@@ -325,13 +326,14 @@ def main() -> int:
     parser.add_argument(
         "--manifest",
         type=Path,
-        default=Path("eng/mil/wpf-mil-protocol.json"),
+        default=PROGPU_ROOT / "eng/mil/wpf-mil-protocol.json",
     )
     parser.add_argument(
         "--header",
         type=Path,
-        default=Path(
-            "src/ProGPU.Native/include/"
+        default=(
+            PROGPU_ROOT
+            / "src/ProGPU.Native/include/"
             "progpu_native_mil_commands.generated.hpp"
         ),
     )
