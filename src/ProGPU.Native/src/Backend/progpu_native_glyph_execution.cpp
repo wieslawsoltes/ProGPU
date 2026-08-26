@@ -23,6 +23,14 @@ struct cpu_crossing {
     int direction = 0;
 };
 
+struct cpu_curve_y_metadata {
+    float minimum = 0.0F;
+    float maximum = 0.0F;
+    float cubic = 0.0F;
+    float quadratic = 0.0F;
+    float linear = 0.0F;
+};
+
 struct covered_sample_pair {
     std::uint32_t first = 0U;
     std::uint32_t second = 0U;
@@ -124,11 +132,12 @@ bool is_winding_root_valid(
     return true;
 }
 
-template<typename TVisitor>
+template<bool UseCurveMetadata, typename TVisitor>
 void visit_glyph_crossings_cpu(
     float sample_y,
     const gpu_glyph_record& record,
     const progpu_native_path_segment* segments,
+    const cpu_curve_y_metadata* curve_metadata,
     TVisitor&& visitor) noexcept {
     const std::uint32_t end = record.start_segment + record.segment_count;
     for (std::uint32_t index = record.start_segment;
@@ -155,15 +164,21 @@ void visit_glyph_crossings_cpu(
 
         const auto& c = segment.p2;
         if (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC) {
-            const float minimum_y = std::min(
-                a.y, std::min(b.y, c.y));
-            const float maximum_y = std::max(
-                a.y, std::max(b.y, c.y));
+            const float minimum_y = UseCurveMetadata
+                ? curve_metadata[index].minimum
+                : std::min(a.y, std::min(b.y, c.y));
+            const float maximum_y = UseCurveMetadata
+                ? curve_metadata[index].maximum
+                : std::max(a.y, std::max(b.y, c.y));
             if (sample_y < minimum_y || sample_y > maximum_y) {
                 continue;
             }
-            const float qa = a.y - 2.0F * b.y + c.y;
-            const float qb = 2.0F * (b.y - a.y);
+            const float qa = UseCurveMetadata
+                ? curve_metadata[index].quadratic
+                : a.y - 2.0F * b.y + c.y;
+            const float qb = UseCurveMetadata
+                ? curve_metadata[index].linear
+                : 2.0F * (b.y - a.y);
             const float qc = a.y - sample_y;
             const cpu_roots roots = solve_quadratic_cpu(qa, qb, qc);
             for (std::uint32_t root_index = 0U;
@@ -200,16 +215,24 @@ void visit_glyph_crossings_cpu(
         }
 
         const auto& d = segment.p3;
-        const float minimum_y = std::min(
-            std::min(a.y, b.y), std::min(c.y, d.y));
-        const float maximum_y = std::max(
-            std::max(a.y, b.y), std::max(c.y, d.y));
+        const float minimum_y = UseCurveMetadata
+            ? curve_metadata[index].minimum
+            : std::min(std::min(a.y, b.y), std::min(c.y, d.y));
+        const float maximum_y = UseCurveMetadata
+            ? curve_metadata[index].maximum
+            : std::max(std::max(a.y, b.y), std::max(c.y, d.y));
         if (sample_y < minimum_y || sample_y > maximum_y) {
             continue;
         }
-        const float ca = -a.y + 3.0F * b.y - 3.0F * c.y + d.y;
-        const float cb = 3.0F * a.y - 6.0F * b.y + 3.0F * c.y;
-        const float cc = -3.0F * a.y + 3.0F * b.y;
+        const float ca = UseCurveMetadata
+            ? curve_metadata[index].cubic
+            : -a.y + 3.0F * b.y - 3.0F * c.y + d.y;
+        const float cb = UseCurveMetadata
+            ? curve_metadata[index].quadratic
+            : 3.0F * a.y - 6.0F * b.y + 3.0F * c.y;
+        const float cc = UseCurveMetadata
+            ? curve_metadata[index].linear
+            : -3.0F * a.y + 3.0F * b.y;
         const float cd = a.y - sample_y;
         const cpu_roots roots = solve_cubic_cpu(ca, cb, cc, cd);
         for (std::uint32_t root_index = 0U;
@@ -249,10 +272,11 @@ int glyph_winding_cpu(
     const gpu_glyph_record& record,
     const progpu_native_path_segment* segments) noexcept {
     int winding = 0;
-    visit_glyph_crossings_cpu(
+    visit_glyph_crossings_cpu<false>(
         sample_y,
         record,
         segments,
+        nullptr,
         [sample_x, &winding](float crossing_x, int direction) noexcept {
             winding += sample_x < crossing_x ? direction : 0;
         });
@@ -488,6 +512,7 @@ bool rasterize_glyph_coverage_cpu(
     bool use_intrinsic_simd) {
     std::vector<cpu_crossing> crossings;
     std::vector<std::uint8_t> covered_row;
+    std::vector<cpu_curve_y_metadata> curve_metadata;
     try {
         coverage.assign(static_cast<std::size_t>(coverage_size), std::byte{});
         if (use_intrinsic_simd) {
@@ -507,6 +532,35 @@ bool rasterize_glyph_coverage_cpu(
             crossings.reserve(
                 static_cast<std::size_t>(maximum_segment_count) * 3U);
             covered_row.resize(maximum_raster_width);
+            curve_metadata.resize(frame.segment_count);
+            for (std::uint32_t index = 0U;
+                 index < frame.segment_count;
+                 ++index) {
+                const auto& segment = frame.segments[index];
+                auto& metadata = curve_metadata[index];
+                const auto& a = segment.p0;
+                const auto& b = segment.p1;
+                const auto& c = segment.p2;
+                if (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC) {
+                    metadata.minimum = std::min(
+                        a.y, std::min(b.y, c.y));
+                    metadata.maximum = std::max(
+                        a.y, std::max(b.y, c.y));
+                    metadata.quadratic = a.y - 2.0F * b.y + c.y;
+                    metadata.linear = 2.0F * (b.y - a.y);
+                } else if (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC) {
+                    const auto& d = segment.p3;
+                    metadata.minimum = std::min(
+                        std::min(a.y, b.y), std::min(c.y, d.y));
+                    metadata.maximum = std::max(
+                        std::max(a.y, b.y), std::max(c.y, d.y));
+                    metadata.cubic =
+                        -a.y + 3.0F * b.y - 3.0F * c.y + d.y;
+                    metadata.quadratic =
+                        3.0F * a.y - 6.0F * b.y + 3.0F * c.y;
+                    metadata.linear = -3.0F * a.y + 3.0F * b.y;
+                }
+            }
         }
     } catch (const std::bad_alloc&) {
         return false;
@@ -532,10 +586,11 @@ bool rasterize_glyph_coverage_cpu(
                         static_cast<float>(sample_y) * 0.125F) *
                         inverse_scale;
                     crossings.clear();
-                    visit_glyph_crossings_cpu(
+                    visit_glyph_crossings_cpu<true>(
                         glyph_y,
                         record,
                         frame.segments,
+                        curve_metadata.data(),
                         [&crossings](
                             float crossing_x,
                             int direction) noexcept {
