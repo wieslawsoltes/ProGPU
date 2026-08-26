@@ -923,6 +923,12 @@ bytes. Qualified DLL SHA-256 values are
 `progpu_native_dawn.dll`. The Windows result is correctness evidence; process
 startup dominates and is not used as a performance comparison.
 
+Follow-up four-pixel NEON batching and packed-byte deferred-reduction
+experiments remained pixel-exact but failed the longer grouped no-regression
+gate at both 1x and 2x DPI, so they were rejected. The full measurements and
+rationale are recorded in `GPU_COMPUTE_FALLBACK_POLICY.md`; the qualified
+two-pixel SIMD implementation remains authoritative.
+
 The corresponding Linux ARM64 checkout at exact commit `28447de4` passed a
 strict GCC 13.3 build of the complete 260-object graph, all 10 wgpu-native CTest
 contracts, the export allowlist, and live Vulkan allocation/render/readback on

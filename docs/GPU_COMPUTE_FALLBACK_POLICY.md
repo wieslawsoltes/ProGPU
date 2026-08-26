@@ -212,6 +212,19 @@ passes. Windows ARM64 MSVC rebuilt both libraries under `/W4 /WX`, passed all
 11 tests, and reproduced the full forced-NEON D3D12 hash
 `5B6EF4F70536C862`; this cold VM run is correctness, not timing, evidence.
 
+Two subsequent NEON experiments were measured and deliberately rejected. A
+four-pixel batch halved crossing broadcasts but increased live-vector pressure
+and wasted work on narrow glyph-row tails; in three 120-frame grouped runs its
+median submission p50 regressed from 1.0566 to 1.0940 ms at 1x and from 1.7831
+to 1.8802 ms at 2x. A lower-pressure packed-byte coverage accumulator deferred
+horizontal reduction until all eight scanlines, but its corresponding medians
+also regressed from 1.1445 to 1.1821 ms and from 1.9788 to 2.0358 ms. Short
+alternating runs had mixed tail-latency wins, so neither candidate met the
+no-regression release rule. Every candidate frame remained byte-exact at the
+same 1x/2x hashes, the native/Dawn suite stayed 11/11, and the SSE2 syntax gate
+passed. The source therefore retains the qualified two-pixel, per-scanline
+reduction implementation rather than committing benchmark-negative SIMD code.
+
 Exact pushed head `644a8d89` also rebuilt both native libraries with ARM64
 MSVC and passed all 11 native/Dawn CTests in the Windows Parallels VM. The
 zero-warning benchmark build ran the full 42-glyph forced-NEON D3D12 gate with
