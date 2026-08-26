@@ -35,10 +35,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Imaging.ColorChannelFlag</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
     <Target>T:System.Drawing.Imaging.ColorMode</Target>
   </Suppression>
   <Suppression>
@@ -468,122 +464,6 @@
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Icon.ExtractIcon(System.String,System.Int32,System.Int32)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.ClearBrushRemapTable</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.ClearGamma</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.ClearGamma(System.Drawing.Imaging.ColorAdjustType)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.ClearNoOp</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.ClearNoOp(System.Drawing.Imaging.ColorAdjustType)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.ClearOutputChannel</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.ClearOutputChannel(System.Drawing.Imaging.ColorAdjustType)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.ClearOutputChannelColorProfile</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.ClearOutputChannelColorProfile(System.Drawing.Imaging.ColorAdjustType)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.ClearThreshold</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.ClearThreshold(System.Drawing.Imaging.ColorAdjustType)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.SetBrushRemapTable(System.Drawing.Imaging.ColorMap[])</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.SetBrushRemapTable(System.ReadOnlySpan{System.Drawing.Imaging.ColorMap})</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.SetBrushRemapTable(System.ReadOnlySpan{System.ValueTuple{System.Drawing.Color,System.Drawing.Color}})</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.SetColorKey(System.Drawing.Color,System.Drawing.Color,System.Drawing.Imaging.ColorAdjustType)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.SetColorKey(System.Drawing.Color,System.Drawing.Color)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.SetColorMatrices(System.Drawing.Imaging.ColorMatrix,System.Drawing.Imaging.ColorMatrix,System.Drawing.Imaging.ColorMatrixFlag,System.Drawing.Imaging.ColorAdjustType)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.SetColorMatrices(System.Drawing.Imaging.ColorMatrix,System.Drawing.Imaging.ColorMatrix,System.Drawing.Imaging.ColorMatrixFlag)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.SetColorMatrices(System.Drawing.Imaging.ColorMatrix,System.Drawing.Imaging.ColorMatrix)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.SetGamma(System.Single,System.Drawing.Imaging.ColorAdjustType)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.SetGamma(System.Single)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.SetNoOp</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.SetNoOp(System.Drawing.Imaging.ColorAdjustType)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.SetOutputChannel(System.Drawing.Imaging.ColorChannelFlag,System.Drawing.Imaging.ColorAdjustType)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.SetOutputChannel(System.Drawing.Imaging.ColorChannelFlag)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.SetOutputChannelColorProfile(System.String,System.Drawing.Imaging.ColorAdjustType)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.SetOutputChannelColorProfile(System.String)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.SetThreshold(System.Single,System.Drawing.Imaging.ColorAdjustType)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Imaging.ImageAttributes.SetThreshold(System.Single)</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>

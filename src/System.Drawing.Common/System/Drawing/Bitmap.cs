@@ -688,7 +688,9 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         }
     }
 
-    internal Bitmap CreateImageAttributesAdjusted(ImageAttributes attributes)
+    internal Bitmap CreateImageAttributesAdjusted(
+        ImageAttributes attributes,
+        ColorAdjustType type = ColorAdjustType.Bitmap)
     {
         ArgumentNullException.ThrowIfNull(attributes);
 
@@ -696,11 +698,7 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         {
             ThrowIfDisposed();
             byte[] pixels = (byte[])ReadPixelsCore(out GpuTextureAlphaMode alphaMode).Clone();
-            var replacements = new Dictionary<int, int>(attributes.RemapTable.Length);
-            foreach ((Color oldColor, Color newColor) in attributes.RemapTable)
-            {
-                replacements[oldColor.ToArgb()] = newColor.ToArgb();
-            }
+            Dictionary<int, int>? replacements = attributes.CreateRemapLookup(type);
 
             for (int offset = 0; offset < pixels.Length; offset += 4)
             {
@@ -716,15 +714,7 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
                 }
 
                 Color color = Color.FromArgb(alpha, red, green, blue);
-                if (replacements.TryGetValue(color.ToArgb(), out int replacementArgb))
-                {
-                    color = Color.FromArgb(replacementArgb);
-                }
-
-                if (attributes.ColorMatrix is not null)
-                {
-                    color = ImageAttributes.ApplyColorMatrix(color, attributes.ColorMatrix);
-                }
+                color = attributes.ApplyAdjustments(color, type, replacements);
 
                 alpha = color.A;
                 red = color.R;

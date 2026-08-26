@@ -7,6 +7,7 @@ public class ImageAttributesBenchmarks
 {
     private Bitmap _source = null!;
     private (Color OldColor, Color NewColor)[] _map = null!;
+    private Imaging.ImageAttributes _advancedAttributes = null!;
 
     [GlobalSetup]
     public void CreateSource()
@@ -21,11 +22,22 @@ public class ImageAttributesBenchmarks
         }
 
         _map = [(Color.Red, Color.Blue)];
+        _advancedAttributes = new Imaging.ImageAttributes();
+        _advancedAttributes.SetGamma(1.8f);
+        _advancedAttributes.SetThreshold(0.45f);
     }
 
     [Benchmark]
     public Bitmap RemapCpuBackedIcon64x64() => _source.CreateColorRemapped(_map);
 
+    [Benchmark]
+    public Bitmap GammaThresholdCpuBackedIcon64x64() =>
+        _source.CreateImageAttributesAdjusted(_advancedAttributes);
+
     [GlobalCleanup]
-    public void DisposeSource() => _source.Dispose();
+    public void DisposeSource()
+    {
+        _advancedAttributes.Dispose();
+        _source.Dispose();
+    }
 }

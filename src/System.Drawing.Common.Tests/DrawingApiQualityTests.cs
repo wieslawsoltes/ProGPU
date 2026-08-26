@@ -163,6 +163,138 @@ public sealed class DrawingApiQualityTests
     }
 
     [Fact]
+    public void ImageAttributesApplyColorKeyGammaAndThresholdInDocumentedOrder()
+    {
+        using var attributes = new ImageAttributes();
+        attributes.SetColorKey(Color.FromArgb(40, 40, 40), Color.FromArgb(80, 80, 80));
+        attributes.SetGamma(2f);
+        attributes.SetThreshold(0.5f);
+
+        using var source = new Bitmap(3, 1);
+        source.SetPixel(0, 0, Color.FromArgb(64, 64, 64));
+        source.SetPixel(1, 0, Color.FromArgb(16, 64, 200));
+        source.SetPixel(2, 0, Color.FromArgb(200, 200, 200));
+        using Bitmap adjusted = source.CreateImageAttributesAdjusted(attributes);
+
+        Assert.Equal(0, adjusted.GetPixel(0, 0).A);
+        Assert.Equal(Color.Cyan.ToArgb(), adjusted.GetPixel(1, 0).ToArgb());
+        Assert.Equal(Color.White.ToArgb(), adjusted.GetPixel(2, 0).ToArgb());
+
+        attributes.ClearColorKey();
+        attributes.ClearGamma();
+        attributes.ClearThreshold();
+        using Bitmap cleared = source.CreateImageAttributesAdjusted(attributes);
+        Assert.Equal(source.GetPixel(0, 0).ToArgb(), cleared.GetPixel(0, 0).ToArgb());
+    }
+
+    [Fact]
+    public void ImageAttributesCategoryOverrideStopsDefaultFallback()
+    {
+        using var attributes = new ImageAttributes();
+        attributes.SetRemapTable(new ColorMap { OldColor = Color.Red, NewColor = Color.Blue });
+        attributes.SetNoOp(ColorAdjustType.Brush);
+
+        using var source = new Bitmap(1, 1);
+        source.SetPixel(0, 0, Color.Red);
+        using Bitmap bitmapAdjusted = source.CreateImageAttributesAdjusted(
+            attributes,
+            ColorAdjustType.Bitmap);
+        using Bitmap brushAdjusted = source.CreateImageAttributesAdjusted(
+            attributes,
+            ColorAdjustType.Brush);
+
+        Assert.Equal(Color.Blue.ToArgb(), bitmapAdjusted.GetPixel(0, 0).ToArgb());
+        Assert.Equal(Color.Red.ToArgb(), brushAdjusted.GetPixel(0, 0).ToArgb());
+
+        attributes.ClearNoOp(ColorAdjustType.Brush);
+        attributes.SetBrushRemapTable(
+            new ColorMap { OldColor = Color.Red, NewColor = Color.Green });
+        attributes.SetNoOp(ColorAdjustType.Brush);
+        attributes.ClearNoOp(ColorAdjustType.Brush);
+        using var clone = Assert.IsType<ImageAttributes>(attributes.Clone());
+        attributes.ClearBrushRemapTable();
+        using Bitmap brushRemapped = source.CreateImageAttributesAdjusted(
+            clone,
+            ColorAdjustType.Brush);
+        Assert.Equal(Color.Green.ToArgb(), brushRemapped.GetPixel(0, 0).ToArgb());
+    }
+
+    [Fact]
+    public void ImageAttributesColorMatricesRespectGrayModesAndSnapshots()
+    {
+        var colorMatrix = new ColorMatrix { Matrix00 = 0f };
+        var grayMatrix = new ColorMatrix { Matrix11 = 0f };
+        using var attributes = new ImageAttributes();
+        attributes.SetColorMatrices(
+            colorMatrix,
+            grayMatrix,
+            ColorMatrixFlag.AltGrays,
+            ColorAdjustType.Bitmap);
+        colorMatrix.Matrix00 = 1f;
+        grayMatrix.Matrix11 = 1f;
+
+        Color colored = attributes.ApplyAdjustments(
+            Color.FromArgb(100, 150, 200),
+            ColorAdjustType.Bitmap);
+        Color gray = attributes.ApplyAdjustments(
+            Color.FromArgb(120, 120, 120),
+            ColorAdjustType.Bitmap);
+
+        Assert.Equal(Color.FromArgb(0, 150, 200).ToArgb(), colored.ToArgb());
+        Assert.Equal(Color.FromArgb(120, 0, 120).ToArgb(), gray.ToArgb());
+
+        attributes.SetColorMatrix(
+            new ColorMatrix { Matrix00 = 0f },
+            ColorMatrixFlag.SkipGrays,
+            ColorAdjustType.Bitmap);
+        Assert.Equal(
+            Color.FromArgb(120, 120, 120).ToArgb(),
+            attributes.ApplyAdjustments(
+                Color.FromArgb(120, 120, 120),
+                ColorAdjustType.Bitmap).ToArgb());
+    }
+
+    [Fact]
+    public void ImageAttributesOutputChannelProducesManagedCmykSeparation()
+    {
+        Assert.Equal(0, (int)ColorChannelFlag.ColorChannelC);
+        Assert.Equal(1, (int)ColorChannelFlag.ColorChannelM);
+        Assert.Equal(2, (int)ColorChannelFlag.ColorChannelY);
+        Assert.Equal(3, (int)ColorChannelFlag.ColorChannelK);
+        Assert.Equal(4, (int)ColorChannelFlag.ColorChannelLast);
+
+        using var attributes = new ImageAttributes();
+        attributes.SetOutputChannel(ColorChannelFlag.ColorChannelC);
+
+        Color cyanSeparation = attributes.ApplyAdjustments(
+            Color.Cyan,
+            ColorAdjustType.Bitmap);
+        Color redSeparation = attributes.ApplyAdjustments(
+            Color.Red,
+            ColorAdjustType.Bitmap);
+
+        Assert.Equal(Color.Black.ToArgb(), cyanSeparation.ToArgb());
+        Assert.Equal(Color.White.ToArgb(), redSeparation.ToArgb());
+        Assert.Throws<ArgumentException>(() =>
+            attributes.SetOutputChannel(ColorChannelFlag.ColorChannelLast));
+        Assert.Throws<PlatformNotSupportedException>(() =>
+            attributes.SetOutputChannelColorProfile("display.icc"));
+    }
+
+    [Fact]
+    public void ImageAttributesValidateManagedAdjustmentRanges()
+    {
+        using var attributes = new ImageAttributes();
+
+        Assert.Throws<ArgumentException>(() => attributes.SetGamma(0f));
+        Assert.Throws<ArgumentException>(() => attributes.SetGamma(float.NaN));
+        Assert.Throws<ArgumentException>(() => attributes.SetThreshold(-0.01f));
+        Assert.Throws<ArgumentException>(() => attributes.SetThreshold(1.01f));
+        Assert.Throws<ArgumentException>(() =>
+            attributes.SetNoOp(ColorAdjustType.Any));
+    }
+
+    [Fact]
     public void CpuBackedIconRemapHasBoundedAllocation()
     {
         using var source = new Bitmap(64, 64);
@@ -180,6 +312,29 @@ public sealed class DrawingApiQualityTests
         long bytesPerRemap = (GC.GetAllocatedBytesForCurrentThread() - before) / iterations;
 
         Assert.InRange(bytesPerRemap, 16_384, 20_000);
+    }
+
+    [Fact]
+    public void CpuBackedImageAttributeAdjustmentHasBoundedAllocation()
+    {
+        using var source = new Bitmap(64, 64);
+        using var attributes = new ImageAttributes();
+        attributes.SetGamma(1.8f);
+        attributes.SetThreshold(0.45f);
+        using (Bitmap warmup = source.CreateImageAttributesAdjusted(attributes))
+        {
+        }
+
+        const int iterations = 16;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < iterations; index++)
+        {
+            using Bitmap adjusted = source.CreateImageAttributesAdjusted(attributes);
+        }
+        long bytesPerAdjustment =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / iterations;
+
+        Assert.InRange(bytesPerAdjustment, 16_384, 20_000);
     }
 
     [Fact]

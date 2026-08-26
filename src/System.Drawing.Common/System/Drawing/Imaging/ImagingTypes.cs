@@ -135,6 +135,15 @@ public enum ColorMatrixFlag
     AltGrays = 2
 }
 
+public enum ColorChannelFlag
+{
+    ColorChannelC = 0,
+    ColorChannelM = 1,
+    ColorChannelY = 2,
+    ColorChannelK = 3,
+    ColorChannelLast = 4
+}
+
 public enum ColorAdjustType
 {
     Default = 0,
@@ -257,10 +266,42 @@ public sealed class ColorMatrix
 
 public sealed class ImageAttributes : IDisposable, ICloneable
 {
-    private bool _isDisposed;
+    private sealed class AdjustmentState
+    {
+        internal bool IsConfigured;
+        internal ColorMatrix? ColorMatrix;
+        internal ColorMatrix? GrayMatrix;
+        internal ColorMatrixFlag MatrixFlag;
+        internal (Color OldColor, Color NewColor)[] RemapTable = [];
+        internal Color? ColorKeyLow;
+        internal Color? ColorKeyHigh;
+        internal float? Gamma;
+        internal float? Threshold;
+        internal bool NoOp;
+        internal ColorChannelFlag? OutputChannel;
 
-    public ColorMatrix? ColorMatrix { get; private set; }
-    internal (Color OldColor, Color NewColor)[] RemapTable { get; private set; } = [];
+        internal AdjustmentState Clone() => new()
+        {
+            IsConfigured = IsConfigured,
+            ColorMatrix = CloneMatrix(ColorMatrix),
+            GrayMatrix = CloneMatrix(GrayMatrix),
+            MatrixFlag = MatrixFlag,
+            RemapTable = (ValueTuple<Color, Color>[])RemapTable.Clone(),
+            ColorKeyLow = ColorKeyLow,
+            ColorKeyHigh = ColorKeyHigh,
+            Gamma = Gamma,
+            Threshold = Threshold,
+            NoOp = NoOp,
+            OutputChannel = OutputChannel
+        };
+    }
+
+    private bool _isDisposed;
+    private AdjustmentState[] _adjustments = CreateAdjustmentStates();
+
+    public ColorMatrix? ColorMatrix => _adjustments[(int)ColorAdjustType.Default].ColorMatrix;
+    internal (Color OldColor, Color NewColor)[] RemapTable =>
+        _adjustments[(int)ColorAdjustType.Default].RemapTable;
     internal Drawing2D.WrapMode WrapMode { get; private set; } = Drawing2D.WrapMode.Clamp;
     internal Color WrapColor { get; private set; } = Color.Black;
     internal bool ClampWrap { get; private set; }
@@ -281,7 +322,35 @@ public sealed class ImageAttributes : IDisposable, ICloneable
         ArgumentNullException.ThrowIfNull(newColorMatrix);
         ValidateColorMatrixFlag(mode);
         ValidateColorAdjustType(type);
-        ColorMatrix = new ColorMatrix(newColorMatrix.Matrix);
+        AdjustmentState state = Configure(type);
+        state.ColorMatrix = CloneMatrix(newColorMatrix);
+        state.GrayMatrix = null;
+        state.MatrixFlag = mode;
+    }
+
+    public void SetColorMatrices(ColorMatrix newColorMatrix, ColorMatrix? grayMatrix) =>
+        SetColorMatrices(newColorMatrix, grayMatrix, ColorMatrixFlag.Default, ColorAdjustType.Default);
+
+    public void SetColorMatrices(
+        ColorMatrix newColorMatrix,
+        ColorMatrix? grayMatrix,
+        ColorMatrixFlag flags) =>
+        SetColorMatrices(newColorMatrix, grayMatrix, flags, ColorAdjustType.Default);
+
+    public void SetColorMatrices(
+        ColorMatrix newColorMatrix,
+        ColorMatrix? grayMatrix,
+        ColorMatrixFlag mode,
+        ColorAdjustType type)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(newColorMatrix);
+        ValidateColorMatrixFlag(mode);
+        ValidateColorAdjustType(type);
+        AdjustmentState state = Configure(type);
+        state.ColorMatrix = CloneMatrix(newColorMatrix);
+        state.GrayMatrix = CloneMatrix(grayMatrix);
+        state.MatrixFlag = mode;
     }
 
     public void ClearColorMatrix() => ClearColorMatrix(ColorAdjustType.Default);
@@ -290,7 +359,10 @@ public sealed class ImageAttributes : IDisposable, ICloneable
     {
         ThrowIfDisposed();
         ValidateColorAdjustType(type);
-        ColorMatrix = null;
+        AdjustmentState state = Configure(type);
+        state.ColorMatrix = null;
+        state.GrayMatrix = null;
+        state.MatrixFlag = ColorMatrixFlag.Default;
     }
 
     public void ClearColorKey() => ClearColorKey(ColorAdjustType.Default);
@@ -299,14 +371,28 @@ public sealed class ImageAttributes : IDisposable, ICloneable
     {
         ThrowIfDisposed();
         ValidateColorAdjustType(type);
-        // Color-key state is intentionally empty until SetColorKey is used.
+        AdjustmentState state = Configure(type);
+        state.ColorKeyLow = null;
+        state.ColorKeyHigh = null;
+    }
+
+    public void SetColorKey(Color colorLow, Color colorHigh) =>
+        SetColorKey(colorLow, colorHigh, ColorAdjustType.Default);
+
+    public void SetColorKey(Color colorLow, Color colorHigh, ColorAdjustType type)
+    {
+        ThrowIfDisposed();
+        ValidateColorAdjustType(type);
+        AdjustmentState state = Configure(type);
+        state.ColorKeyLow = colorLow;
+        state.ColorKeyHigh = colorHigh;
     }
 
     public void SetRemapTable(ColorAdjustType type, ReadOnlySpan<(Color OldColor, Color NewColor)> map)
     {
         ThrowIfDisposed();
         ValidateColorAdjustType(type);
-        RemapTable = map.ToArray();
+        Configure(type).RemapTable = map.ToArray();
     }
 
     public void SetRemapTable(params (Color OldColor, Color NewColor)[] map)
@@ -343,7 +429,7 @@ public sealed class ImageAttributes : IDisposable, ICloneable
             snapshot[index] = (entry.OldColor, entry.NewColor);
         }
 
-        RemapTable = snapshot;
+        Configure(type).RemapTable = snapshot;
     }
 
     public void SetRemapTable(ReadOnlySpan<(Color OldColor, Color NewColor)> map) =>
@@ -355,7 +441,131 @@ public sealed class ImageAttributes : IDisposable, ICloneable
     {
         ThrowIfDisposed();
         ValidateColorAdjustType(type);
-        RemapTable = [];
+        Configure(type).RemapTable = [];
+    }
+
+    public void SetBrushRemapTable(params ColorMap[] map)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        SetRemapTable(ColorAdjustType.Brush, map.AsSpan());
+    }
+
+    public void SetBrushRemapTable(params ReadOnlySpan<ColorMap> map) =>
+        SetRemapTable(ColorAdjustType.Brush, map);
+
+    public void SetBrushRemapTable(params ReadOnlySpan<(Color OldColor, Color NewColor)> map) =>
+        SetRemapTable(ColorAdjustType.Brush, map);
+
+    public void ClearBrushRemapTable() => ClearRemapTable(ColorAdjustType.Brush);
+
+    public void SetGamma(float gamma) => SetGamma(gamma, ColorAdjustType.Default);
+
+    public void SetGamma(float gamma, ColorAdjustType type)
+    {
+        ThrowIfDisposed();
+        ValidateColorAdjustType(type);
+        if (!float.IsFinite(gamma) || gamma <= 0f)
+        {
+            throw new ArgumentException("Gamma must be a finite positive value.", nameof(gamma));
+        }
+
+        Configure(type).Gamma = gamma;
+    }
+
+    public void ClearGamma() => ClearGamma(ColorAdjustType.Default);
+
+    public void ClearGamma(ColorAdjustType type)
+    {
+        ThrowIfDisposed();
+        ValidateColorAdjustType(type);
+        Configure(type).Gamma = null;
+    }
+
+    public void SetThreshold(float threshold) => SetThreshold(threshold, ColorAdjustType.Default);
+
+    public void SetThreshold(float threshold, ColorAdjustType type)
+    {
+        ThrowIfDisposed();
+        ValidateColorAdjustType(type);
+        if (!float.IsFinite(threshold) || threshold < 0f || threshold > 1f)
+        {
+            throw new ArgumentException("Threshold must be between zero and one.", nameof(threshold));
+        }
+
+        Configure(type).Threshold = threshold;
+    }
+
+    public void ClearThreshold() => ClearThreshold(ColorAdjustType.Default);
+
+    public void ClearThreshold(ColorAdjustType type)
+    {
+        ThrowIfDisposed();
+        ValidateColorAdjustType(type);
+        Configure(type).Threshold = null;
+    }
+
+    public void SetNoOp() => SetNoOp(ColorAdjustType.Default);
+
+    public void SetNoOp(ColorAdjustType type)
+    {
+        ThrowIfDisposed();
+        ValidateColorAdjustType(type);
+        Configure(type).NoOp = true;
+    }
+
+    public void ClearNoOp() => ClearNoOp(ColorAdjustType.Default);
+
+    public void ClearNoOp(ColorAdjustType type)
+    {
+        ThrowIfDisposed();
+        ValidateColorAdjustType(type);
+        Configure(type).NoOp = false;
+    }
+
+    public void SetOutputChannel(ColorChannelFlag flags) =>
+        SetOutputChannel(flags, ColorAdjustType.Default);
+
+    public void SetOutputChannel(ColorChannelFlag flags, ColorAdjustType type)
+    {
+        ThrowIfDisposed();
+        ValidateColorAdjustType(type);
+        if (flags < ColorChannelFlag.ColorChannelC || flags >= ColorChannelFlag.ColorChannelLast)
+        {
+            throw new ArgumentException("Invalid output color channel.", nameof(flags));
+        }
+
+        Configure(type).OutputChannel = flags;
+    }
+
+    public void ClearOutputChannel() => ClearOutputChannel(ColorAdjustType.Default);
+
+    public void ClearOutputChannel(ColorAdjustType type)
+    {
+        ThrowIfDisposed();
+        ValidateColorAdjustType(type);
+        Configure(type).OutputChannel = null;
+    }
+
+    public void SetOutputChannelColorProfile(string colorProfileFilename) =>
+        SetOutputChannelColorProfile(colorProfileFilename, ColorAdjustType.Default);
+
+    public void SetOutputChannelColorProfile(string colorProfileFilename, ColorAdjustType type)
+    {
+        ThrowIfDisposed();
+        ArgumentException.ThrowIfNullOrEmpty(colorProfileFilename);
+        ValidateColorAdjustType(type);
+        throw new PlatformNotSupportedException(
+            "ICC output color profiles require a typed platform color-management adapter.");
+    }
+
+    public void ClearOutputChannelColorProfile() =>
+        ClearOutputChannelColorProfile(ColorAdjustType.Default);
+
+    public void ClearOutputChannelColorProfile(ColorAdjustType type)
+    {
+        ThrowIfDisposed();
+        ValidateColorAdjustType(type);
+        Configure(type);
     }
 
     public void SetWrapMode(Drawing2D.WrapMode mode) => SetWrapMode(mode, Color.Black, clamp: false);
@@ -381,52 +591,156 @@ public sealed class ImageAttributes : IDisposable, ICloneable
         ArgumentNullException.ThrowIfNull(palette);
         ValidateColorAdjustType(type);
 
-        Dictionary<int, int>? replacements = null;
-        if (RemapTable.Length != 0)
-        {
-            replacements = new Dictionary<int, int>(RemapTable.Length);
-            foreach ((Color oldColor, Color newColor) in RemapTable)
-            {
-                replacements[oldColor.ToArgb()] = newColor.ToArgb();
-            }
-        }
+        Dictionary<int, int>? replacements = CreateRemapLookup(type);
 
         Color[] entries = palette.Entries;
         for (int index = 0; index < entries.Length; index++)
         {
-            Color color = entries[index];
-            if (replacements is not null && replacements.TryGetValue(color.ToArgb(), out int remappedArgb))
-            {
-                color = Color.FromArgb(remappedArgb);
-            }
-
-            if (ColorMatrix is not null)
-            {
-                color = ApplyColorMatrix(color, ColorMatrix);
-            }
-
-            entries[index] = color;
+            entries[index] = ApplyAdjustments(entries[index], type, replacements);
         }
     }
 
     public object Clone()
     {
         ThrowIfDisposed();
-        return new ImageAttributes
+        var clone = new ImageAttributes
         {
-            ColorMatrix = ColorMatrix is null ? null : new ColorMatrix(ColorMatrix.Matrix),
-            RemapTable = (ValueTuple<Color, Color>[])RemapTable.Clone(),
             WrapMode = WrapMode,
             WrapColor = WrapColor,
             ClampWrap = ClampWrap
         };
+        clone._adjustments = _adjustments.Select(static state => state.Clone()).ToArray();
+        return clone;
     }
 
     public void Dispose()
     {
         _isDisposed = true;
-        ColorMatrix = null;
-        RemapTable = [];
+        _adjustments = CreateAdjustmentStates();
+    }
+
+    internal (Color OldColor, Color NewColor)[] GetRemapTable(ColorAdjustType type)
+    {
+        ThrowIfDisposed();
+        AdjustmentState state = Resolve(type);
+        return state.NoOp ? [] : state.RemapTable;
+    }
+
+    internal ColorMatrix? GetGpuColorMatrix(ColorAdjustType type)
+    {
+        ThrowIfDisposed();
+        AdjustmentState state = Resolve(type);
+        return state.NoOp || state.MatrixFlag != ColorMatrixFlag.Default || state.GrayMatrix is not null
+            ? null
+            : state.ColorMatrix;
+    }
+
+    internal bool RequiresCpuAdjustment(ColorAdjustType type)
+    {
+        ThrowIfDisposed();
+        AdjustmentState state = Resolve(type);
+        if (state.NoOp)
+        {
+            return false;
+        }
+
+        return state.ColorKeyLow.HasValue ||
+            state.Gamma.HasValue ||
+            state.Threshold.HasValue ||
+            state.OutputChannel.HasValue ||
+            state.MatrixFlag != ColorMatrixFlag.Default ||
+            state.GrayMatrix is not null;
+    }
+
+    internal Dictionary<int, int>? CreateRemapLookup(ColorAdjustType type)
+    {
+        ThrowIfDisposed();
+        (Color OldColor, Color NewColor)[] table = GetRemapTable(type);
+        if (table.Length == 0)
+        {
+            return null;
+        }
+
+        var replacements = new Dictionary<int, int>(table.Length);
+        foreach ((Color oldColor, Color newColor) in table)
+        {
+            replacements[oldColor.ToArgb()] = newColor.ToArgb();
+        }
+
+        return replacements;
+    }
+
+    internal Color ApplyAdjustments(
+        Color color,
+        ColorAdjustType type,
+        IReadOnlyDictionary<int, int>? replacements = null)
+    {
+        ThrowIfDisposed();
+        AdjustmentState state = Resolve(type);
+        if (state.NoOp)
+        {
+            return color;
+        }
+
+        if (replacements is not null &&
+            replacements.TryGetValue(color.ToArgb(), out int remappedArgb))
+        {
+            color = Color.FromArgb(remappedArgb);
+        }
+
+        if (state.ColorKeyLow is Color low && state.ColorKeyHigh is Color high &&
+            IsWithinColorKey(color, low, high))
+        {
+            color = Color.FromArgb(0, color);
+        }
+
+        if (state.ColorMatrix is not null)
+        {
+            bool isGray = color.R == color.G && color.G == color.B;
+            if (!isGray || state.MatrixFlag != ColorMatrixFlag.SkipGrays)
+            {
+                ColorMatrix matrix = isGray &&
+                    state.MatrixFlag == ColorMatrixFlag.AltGrays &&
+                    state.GrayMatrix is not null
+                        ? state.GrayMatrix
+                        : state.ColorMatrix;
+                color = ApplyColorMatrix(color, matrix);
+            }
+        }
+
+        if (state.Gamma is float gamma)
+        {
+            color = Color.FromArgb(
+                color.A,
+                ApplyGamma(color.R, gamma),
+                ApplyGamma(color.G, gamma),
+                ApplyGamma(color.B, gamma));
+        }
+
+        if (state.Threshold is float threshold)
+        {
+            color = Color.FromArgb(
+                color.A,
+                color.R / 255f >= threshold ? 255 : 0,
+                color.G / 255f >= threshold ? 255 : 0,
+                color.B / 255f >= threshold ? 255 : 0);
+        }
+
+        if (state.OutputChannel is ColorChannelFlag channel)
+        {
+            int ink = channel switch
+            {
+                ColorChannelFlag.ColorChannelC => 255 - color.R,
+                ColorChannelFlag.ColorChannelM => 255 - color.G,
+                ColorChannelFlag.ColorChannelY => 255 - color.B,
+                ColorChannelFlag.ColorChannelK => Math.Min(255 - color.R, Math.Min(255 - color.G, 255 - color.B)),
+                _ => 0
+            };
+            int separation = 255 - ink;
+            color = Color.FromArgb(color.A, separation, separation, separation);
+        }
+
+        return color;
     }
 
     private void ThrowIfDisposed()
@@ -436,7 +750,7 @@ public sealed class ImageAttributes : IDisposable, ICloneable
 
     private static void ValidateColorAdjustType(ColorAdjustType type)
     {
-        if (type < ColorAdjustType.Default || type > ColorAdjustType.Any)
+        if (type < ColorAdjustType.Default || type > ColorAdjustType.Text)
         {
             throw new ArgumentException("Invalid color-adjust type.", nameof(type));
         }
@@ -467,6 +781,38 @@ public sealed class ImageAttributes : IDisposable, ICloneable
 
     private static int ToByte(float value) =>
         (int)MathF.Round(Math.Clamp(value, 0f, 1f) * 255f);
+
+    private static byte ApplyGamma(byte value, float gamma) =>
+        (byte)ToByte(MathF.Pow(value / 255f, 1f / gamma));
+
+    private static bool IsWithinColorKey(Color color, Color low, Color high) =>
+        color.R >= low.R && color.R <= high.R &&
+        color.G >= low.G && color.G <= high.G &&
+        color.B >= low.B && color.B <= high.B;
+
+    private static ColorMatrix? CloneMatrix(ColorMatrix? matrix) =>
+        matrix is null ? null : new ColorMatrix(matrix.Matrix);
+
+    private static AdjustmentState[] CreateAdjustmentStates() =>
+        Enumerable.Range(0, (int)ColorAdjustType.Count)
+            .Select(static _ => new AdjustmentState())
+            .ToArray();
+
+    private AdjustmentState Configure(ColorAdjustType type)
+    {
+        AdjustmentState state = _adjustments[(int)type];
+        state.IsConfigured = true;
+        return state;
+    }
+
+    private AdjustmentState Resolve(ColorAdjustType type)
+    {
+        ValidateColorAdjustType(type);
+        AdjustmentState state = _adjustments[(int)type];
+        return type != ColorAdjustType.Default && state.IsConfigured
+            ? state
+            : _adjustments[(int)ColorAdjustType.Default];
+    }
 }
 
 [StructLayout(LayoutKind.Sequential)]

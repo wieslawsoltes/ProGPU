@@ -247,7 +247,9 @@ public sealed class TextureBrush : Brush, ICloneable
 
         try
         {
-            Bitmap adjusted = cropped.CreateImageAttributesAdjusted(imageAttributes);
+            Bitmap adjusted = cropped.CreateImageAttributesAdjusted(
+                imageAttributes,
+                ColorAdjustType.Brush);
             cropped.Dispose();
             return adjusted;
         }

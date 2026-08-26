@@ -3583,36 +3583,59 @@ public class Graphics :
 
     private void DrawBitmap(Bitmap bitmap, RectangleF rect, RectangleF sourceRect, ImageAttributes? imageAttributes)
     {
-        using Bitmap? remappedBitmap = imageAttributes is { RemapTable.Length: > 0 }
-            ? bitmap.CreateColorRemapped(imageAttributes.RemapTable)
-            : null;
-        var retainedTexture = RetainBitmapTexture(remappedBitmap ?? bitmap);
-        var srcRect = sourceRect.Width > 0f && sourceRect.Height > 0f
-            ? new Rect(sourceRect.X, sourceRect.Y, sourceRect.Width, sourceRect.Height)
-            : Rect.Empty;
-
-        var colorMatrix = TryCreateImageEffectColorMatrix(imageAttributes?.ColorMatrix);
-        if (colorMatrix.HasValue)
+        Bitmap? adjustedBitmap = null;
+        if (imageAttributes is not null)
         {
-            _context.DrawImageWithEffect(
-                retainedTexture,
-                new Rect(rect.X, rect.Y, rect.Width, rect.Height),
-                sourceRect: srcRect,
-                samplingMode: GetTextureSamplingMode(),
-                colorMatrix: colorMatrix,
-                transform: CurrentTransform4x4());
-            return;
+            if (imageAttributes.RequiresCpuAdjustment(ColorAdjustType.Bitmap))
+            {
+                adjustedBitmap = bitmap.CreateImageAttributesAdjusted(
+                    imageAttributes,
+                    ColorAdjustType.Bitmap);
+            }
+            else
+            {
+                (Color OldColor, Color NewColor)[] remapTable =
+                    imageAttributes.GetRemapTable(ColorAdjustType.Bitmap);
+                if (remapTable.Length != 0)
+                {
+                    adjustedBitmap = bitmap.CreateColorRemapped(remapTable);
+                }
+            }
         }
 
-        _context.Commands.Add(new RenderCommand
+        using (adjustedBitmap)
         {
-            Type = RenderCommandType.DrawTexture,
-            Texture = retainedTexture,
-            Rect = new Rect(rect.X, rect.Y, rect.Width, rect.Height),
-            SrcRect = srcRect,
-            Transform = CurrentTransform4x4(),
-            TextureSamplingMode = GetTextureSamplingMode()
-        });
+            var retainedTexture = RetainBitmapTexture(adjustedBitmap ?? bitmap);
+            var srcRect = sourceRect.Width > 0f && sourceRect.Height > 0f
+                ? new Rect(sourceRect.X, sourceRect.Y, sourceRect.Width, sourceRect.Height)
+                : Rect.Empty;
+
+            var colorMatrix = TryCreateImageEffectColorMatrix(
+                adjustedBitmap is null
+                    ? imageAttributes?.GetGpuColorMatrix(ColorAdjustType.Bitmap)
+                    : null);
+            if (colorMatrix.HasValue)
+            {
+                _context.DrawImageWithEffect(
+                    retainedTexture,
+                    new Rect(rect.X, rect.Y, rect.Width, rect.Height),
+                    sourceRect: srcRect,
+                    samplingMode: GetTextureSamplingMode(),
+                    colorMatrix: colorMatrix,
+                    transform: CurrentTransform4x4());
+                return;
+            }
+
+            _context.Commands.Add(new RenderCommand
+            {
+                Type = RenderCommandType.DrawTexture,
+                Texture = retainedTexture,
+                Rect = new Rect(rect.X, rect.Y, rect.Width, rect.Height),
+                SrcRect = srcRect,
+                Transform = CurrentTransform4x4(),
+                TextureSamplingMode = GetTextureSamplingMode()
+            });
+        }
     }
 
     private RectangleF ConvertSourceRect(RectangleF sourceRect, GraphicsUnit unit)
