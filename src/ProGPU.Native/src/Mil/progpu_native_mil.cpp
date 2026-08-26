@@ -7226,9 +7226,11 @@ struct channel::implementation {
                         active_drawings.erase(drawing_handle);
                         return opacity_mask_status;
                     }
-                    next.opacity *= group_opacity * opacity_mask_alpha;
-                    if (!finite_double_as_float(next.opacity) ||
-                        next.opacity < 0.0 || next.opacity > 1.0) {
+                    const double group_composite_opacity =
+                        group_opacity * opacity_mask_alpha;
+                    if (!finite_double_as_float(group_composite_opacity) ||
+                        group_composite_opacity < 0.0 ||
+                        group_composite_opacity > 1.0) {
                         active_drawings.erase(drawing_handle);
                         return status::invalid_graph;
                     }
@@ -7280,6 +7282,25 @@ struct channel::implementation {
                         }
                         next = clipped;
                     }
+                    const bool isolate_group = group_composite_opacity != 1.0;
+                    if (isolate_group) {
+                        const progpu_native_scene_layer layer{
+                            sizeof(progpu_native_scene_layer),
+                            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION,
+                            {},
+                            static_cast<float>(group_composite_opacity),
+                            PROGPU_NATIVE_BLEND_SRC_OVER,
+                            PROGPU_NATIVE_SCENE_NO_INDEX,
+                            PROGPU_NATIVE_SCENE_NO_INDEX,
+                            0U,
+                            0U,
+                            0U,
+                            0U};
+                        if (!builder.push_layer(layer)) {
+                            active_drawings.erase(drawing_handle);
+                            return status::invalid_graph;
+                        }
+                    }
                     if (!save_state(next)) {
                         active_drawings.erase(drawing_handle);
                         return status::invalid_graph;
@@ -7298,11 +7319,13 @@ struct channel::implementation {
                         clip_boolean_nodes,
                         metrics);
                     const bool restored = builder.restore();
+                    const bool popped_group =
+                        !isolate_group || builder.pop_layer();
                     active_drawings.erase(drawing_handle);
                     if (group_status != status::success) {
                         return group_status;
                     }
-                    if (!restored) {
+                    if (!restored || !popped_group) {
                         return status::invalid_graph;
                     }
                     continue;
