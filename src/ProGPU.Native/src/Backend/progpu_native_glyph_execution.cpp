@@ -315,6 +315,10 @@ public:
         samples_first_high_ = vld1q_f32(first_high.data());
         samples_second_low_ = vld1q_f32(second_low.data());
         samples_second_high_ = vld1q_f32(second_high.data());
+        reset_winding();
+    }
+
+    void reset_winding() noexcept {
         winding_first_low_ = vdupq_n_s32(0);
         winding_first_high_ = vdupq_n_s32(0);
         winding_second_low_ = vdupq_n_s32(0);
@@ -413,6 +417,13 @@ public:
           winding_second_high_(_mm_setzero_si128()) {
     }
 
+    void reset_winding() noexcept {
+        winding_first_low_ = _mm_setzero_si128();
+        winding_first_high_ = _mm_setzero_si128();
+        winding_second_low_ = _mm_setzero_si128();
+        winding_second_high_ = _mm_setzero_si128();
+    }
+
     void add_crossing(float crossing_x, int direction) noexcept {
         const __m128 crossing = _mm_set1_ps(crossing_x);
         const __m128i directions = _mm_set1_epi32(direction);
@@ -470,20 +481,13 @@ private:
 
 #endif
 
-covered_sample_pair glyph_covered_samples_pair_intrinsic(
+#if !defined(PROGPU_NATIVE_GLYPH_INTRINSICS_NEON) && \
+    !defined(PROGPU_NATIVE_GLYPH_INTRINSICS_SSE2)
+covered_sample_pair glyph_covered_samples_pair_scalar(
     float first_sample_x,
     float second_sample_x,
     float sample_step,
     std::span<const cpu_crossing> crossings) noexcept {
-#if defined(PROGPU_NATIVE_GLYPH_INTRINSICS_NEON) || \
-    defined(PROGPU_NATIVE_GLYPH_INTRINSICS_SSE2)
-    intrinsic_winding_16 winding(
-        first_sample_x, second_sample_x, sample_step);
-    for (const auto& crossing : crossings) {
-        winding.add_crossing(crossing.x, crossing.direction);
-    }
-    return winding.covered_counts();
-#else
     covered_sample_pair covered{};
     for (std::uint32_t pixel = 0U; pixel < 2U; ++pixel) {
         for (std::uint32_t sample_x = 0U; sample_x < 8U; ++sample_x) {
@@ -499,8 +503,8 @@ covered_sample_pair glyph_covered_samples_pair_intrinsic(
         }
     }
     return covered;
-#endif
 }
+#endif
 
 bool rasterize_glyph_coverage_cpu(
     const progpu_native_glyph_frame& frame,
@@ -511,13 +515,11 @@ bool rasterize_glyph_coverage_cpu(
     std::vector<std::byte>& coverage,
     bool use_intrinsic_simd) {
     std::vector<cpu_crossing> crossings;
-    std::vector<std::uint8_t> covered_row;
     std::vector<cpu_curve_y_metadata> curve_metadata;
     try {
         coverage.assign(static_cast<std::size_t>(coverage_size), std::byte{});
         if (use_intrinsic_simd) {
             std::uint32_t maximum_segment_count = 0U;
-            std::uint32_t maximum_raster_width = 0U;
             for (std::size_t glyph_index = 0U;
                  glyph_index < rasters.size();
                  ++glyph_index) {
@@ -525,13 +527,9 @@ bool rasterize_glyph_coverage_cpu(
                 maximum_segment_count = std::max(
                     maximum_segment_count,
                     record.segment_count);
-                maximum_raster_width = std::max(
-                    maximum_raster_width,
-                    rasters[glyph_index].width);
             }
             crossings.reserve(
-                static_cast<std::size_t>(maximum_segment_count) * 3U);
-            covered_row.resize(maximum_raster_width);
+                static_cast<std::size_t>(maximum_segment_count) * 24U);
             curve_metadata.resize(frame.segment_count);
             for (std::uint32_t index = 0U;
                  index < frame.segment_count;
@@ -575,17 +573,18 @@ bool rasterize_glyph_coverage_cpu(
         const float glyph_sample_step = 0.125F * inverse_scale;
         for (std::uint32_t y = 0U; y < raster.height; ++y) {
             if (use_intrinsic_simd) {
-                std::fill_n(covered_row.begin(), raster.width, 0U);
                 const float pixel_y = uniform.y_start +
                     static_cast<float>(y);
+                std::array<std::size_t, 9U> scanline_offsets{};
+                crossings.clear();
                 for (std::uint32_t sample_y = 0U;
                      sample_y < 8U;
                      ++sample_y) {
+                    scanline_offsets[sample_y] = crossings.size();
                     const float glyph_y = -(
                         pixel_y + 0.0625F +
                         static_cast<float>(sample_y) * 0.125F) *
                         inverse_scale;
-                    crossings.clear();
                     visit_glyph_crossings_cpu<true>(
                         glyph_y,
                         record,
@@ -596,37 +595,61 @@ bool rasterize_glyph_coverage_cpu(
                             int direction) noexcept {
                             crossings.push_back({crossing_x, direction});
                         });
-                    const std::span<const cpu_crossing> scanline_crossings(
-                        crossings.data(),
-                        crossings.size());
-                    for (std::uint32_t x = 0U; x < raster.width; x += 2U) {
-                        const float first_glyph_x = (
-                            uniform.x_start + static_cast<float>(x) +
-                            0.0625F - uniform.subpixel_x) * inverse_scale;
-                        const float second_glyph_x = (
-                            uniform.x_start + static_cast<float>(x + 1U) +
-                            0.0625F - uniform.subpixel_x) * inverse_scale;
+                }
+                scanline_offsets[8U] = crossings.size();
+                for (std::uint32_t x = 0U; x < raster.width; x += 2U) {
+                    const float first_glyph_x = (
+                        uniform.x_start + static_cast<float>(x) +
+                        0.0625F - uniform.subpixel_x) * inverse_scale;
+                    const float second_glyph_x = (
+                        uniform.x_start + static_cast<float>(x + 1U) +
+                        0.0625F - uniform.subpixel_x) * inverse_scale;
+                    covered_sample_pair total{};
+#if defined(PROGPU_NATIVE_GLYPH_INTRINSICS_NEON) || \
+    defined(PROGPU_NATIVE_GLYPH_INTRINSICS_SSE2)
+                    intrinsic_winding_16 winding(
+                        first_glyph_x,
+                        second_glyph_x,
+                        glyph_sample_step);
+#endif
+                    for (std::uint32_t sample_y = 0U;
+                         sample_y < 8U;
+                         ++sample_y) {
+                        const std::span<const cpu_crossing>
+                            scanline_crossings =
+                                std::span<const cpu_crossing>(crossings).subspan(
+                                    scanline_offsets[sample_y],
+                                    scanline_offsets[sample_y + 1U] -
+                                        scanline_offsets[sample_y]);
+#if defined(PROGPU_NATIVE_GLYPH_INTRINSICS_NEON) || \
+    defined(PROGPU_NATIVE_GLYPH_INTRINSICS_SSE2)
+                        winding.reset_winding();
+                        for (const auto& crossing : scanline_crossings) {
+                            winding.add_crossing(
+                                crossing.x, crossing.direction);
+                        }
                         const covered_sample_pair covered =
-                            glyph_covered_samples_pair_intrinsic(
+                            winding.covered_counts();
+#else
+                        const covered_sample_pair covered =
+                            glyph_covered_samples_pair_scalar(
                                 first_glyph_x,
                                 second_glyph_x,
                                 glyph_sample_step,
                                 scanline_crossings);
-                        covered_row[x] = static_cast<std::uint8_t>(
-                            covered_row[x] + covered.first);
-                        if (x + 1U < raster.width) {
-                            covered_row[x + 1U] =
-                                static_cast<std::uint8_t>(
-                                    covered_row[x + 1U] + covered.second);
-                        }
+#endif
+                        total.first += covered.first;
+                        total.second += covered.second;
                     }
-                }
-                for (std::uint32_t x = 0U; x < raster.width; ++x) {
-                    const std::size_t offset = raster.output_offset +
+                    const std::size_t first_offset = raster.output_offset +
                         static_cast<std::size_t>(y) *
                             raster.output_bytes_per_row + x;
-                    coverage[offset] = static_cast<std::byte>(
-                        coverage_from_sample_count(covered_row[x]));
+                    coverage[first_offset] = static_cast<std::byte>(
+                        coverage_from_sample_count(total.first));
+                    if (x + 1U < raster.width) {
+                        coverage[first_offset + 1U] = static_cast<std::byte>(
+                            coverage_from_sample_count(total.second));
+                    }
                 }
                 continue;
             }
