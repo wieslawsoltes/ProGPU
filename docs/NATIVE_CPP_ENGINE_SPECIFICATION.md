@@ -2506,6 +2506,22 @@ and nine-file runtime/SDK staging. Qualified base/Dawn win-arm64 SHA-256 values
 are `A4A917F47FBA3BA246BCE9D61C1160384C660F8D07D0BA06A02292BDFDAC0018`
 and `743FE185F4D4C900CA1B7F5B18AD85BEAAD47CEA592315AF22D81E625DF0393D`.
 
+Nested Visual masks retain separate owner boundaries. With a horizontal mask
+on an ancestor and a vertical mask plus effect on its child, the semantic
+stack is parent mask -> child effect -> child mask/local opacity. Each brush
+mask carries its own Visual-local bounds, mapping, gradient range, and resource
+identity. The generalized per-Visual planner composes these layers directly;
+it does not merge, replace, or distribute either mask and needs no new ABI or
+backend branch.
+
+Native tests assert the independent 48x30 and 32x24 mask resources, three-layer
+order, child-local alpha, and unit descendant State opacity. On Apple M3 Pro
+Metal the correct nested stack executes `3/3/2` content/composite/effect
+passes, samples red `28/200`, and yields `[7,4]-[41,29]`, red sum 59,308. A
+deliberately flattened parent mask executes `4/4/2`, changes 348 pixels,
+samples `29/200`, and yields `[6,5]-[41,28]`, red sum 63,032. DirectX
+qualification is pending for exact test/qualification commit `66592f2c`.
+
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then
 12x9 page extents. Package-mode managed Dawn rendering/readback and forced
