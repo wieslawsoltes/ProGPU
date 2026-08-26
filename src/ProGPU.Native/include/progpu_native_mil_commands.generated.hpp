@@ -485,7 +485,7 @@ struct visual_insert_child_at final {
 
 struct visual_set_guideline_collection final {
     static constexpr command kind = command::visual_set_guideline_collection;
-    static constexpr std::uint32_t fixed_size = 14U;
+    static constexpr std::uint32_t fixed_size = 16U;
     static constexpr std::uint32_t type_offset = 0U;
     static constexpr std::uint32_t type_size = 4U;
     static constexpr std::uint32_t handle_offset = 4U;
@@ -494,6 +494,8 @@ struct visual_set_guideline_collection final {
     static constexpr std::uint32_t count_x_size = 2U;
     static constexpr std::uint32_t count_y_offset = 12U;
     static constexpr std::uint32_t count_y_size = 2U;
+    static constexpr std::uint32_t byte_packing0_offset = 15U;
+    static constexpr std::uint32_t byte_packing0_size = 1U;
 };
 
 struct visual_set_scrollable_area_clip final {
@@ -752,7 +754,7 @@ struct hwnd_target_dpi_changed final {
 
 struct glyph_run_create final {
     static constexpr command kind = command::glyph_run_create;
-    static constexpr std::uint32_t fixed_size = 74U;
+    static constexpr std::uint32_t fixed_size = 76U;
     static constexpr std::uint32_t type_offset = 0U;
     static constexpr std::uint32_t type_size = 4U;
     static constexpr std::uint32_t handle_offset = 4U;
@@ -773,6 +775,8 @@ struct glyph_run_create final {
     static constexpr std::uint32_t bidi_level_size = 2U;
     static constexpr std::uint32_t d_write_text_measuring_method_offset = 72U;
     static constexpr std::uint32_t d_write_text_measuring_method_size = 2U;
+    static constexpr std::uint32_t byte_packing0_offset = 75U;
+    static constexpr std::uint32_t byte_packing0_size = 1U;
 };
 
 struct double_buffered_bitmap final {

@@ -58,6 +58,7 @@ FIELD_SIZES = {
     "UInt16": 2,
     "UInt32": 4,
     "UInt64": 8,
+    "byte": 1,
     "double": 8,
     "float": 4,
     "int": 4,
@@ -75,7 +76,7 @@ STRUCT_PATTERN = re.compile(
     re.DOTALL,
 )
 FIELD_PATTERN = re.compile(
-    r"\[FieldOffset\((?P<offset>\d+)\)\]\s*internal\s+"
+    r"\[FieldOffset\((?P<offset>\d+)\)\]\s*(?:internal|private)\s+"
     r"(?P<type>[^;]+?)\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*;"
 )
 
@@ -149,6 +150,13 @@ def parse_layouts(source: str) -> tuple[list[dict[str, object]], dict[str, str]]
             )
         if not fields:
             raise ValueError(f"No fields parsed for {name}.")
+        if (
+            fields[0]["name"] != "Type"
+            or fields[0]["offset"] != 0
+            or fields[0]["size"] != 4
+            or fixed_size % 4 != 0
+        ):
+            raise ValueError(f"Unexpected packed command framing for {name}.")
         layout = {"name": name, "fixedSize": fixed_size, "fields": fields}
         layouts.append(layout)
         key = layout_key_from_struct(name)
@@ -195,6 +203,12 @@ def build_manifest(wpf_root: Path) -> dict[str, object]:
     actual_values = [entry["value"] for entry in commands]
     if actual_values != expected_values:
         raise ValueError("WPF MIL command values are no longer contiguous.")
+    linked_layouts = {
+        str(entry["layout"]) for entry in commands if "layout" in entry
+    }
+    expected_layouts = {str(layout["name"]) for layout in layouts}
+    if linked_layouts != expected_layouts:
+        raise ValueError("Not every managed MIL packet layout maps to a command.")
     return {
         "schemaVersion": 1,
         "wireContract": {

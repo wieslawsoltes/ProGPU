@@ -1499,10 +1499,11 @@ struct channel::implementation {
             return status::success;
         }
         case command::visual_set_transform: {
+            using layout = command_layouts::visual_set_transform;
             std::uint32_t transform = 0U;
-            if (!has_exact_size(view, 12U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, transform)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::h_transform_offset, transform)) {
                 return status::malformed_batch;
             }
             if (!require_visual(handle) ||
@@ -1515,10 +1516,11 @@ struct channel::implementation {
             return status::success;
         }
         case command::visual_set_effect: {
+            using layout = command_layouts::visual_set_effect;
             std::uint32_t effect = 0U;
-            if (!has_exact_size(view, 12U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, effect)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::h_effect_offset, effect)) {
                 return status::malformed_batch;
             }
             if (!require_visual(handle) ||
@@ -1531,10 +1533,14 @@ struct channel::implementation {
             return status::success;
         }
         case command::visual_set_cache_mode: {
+            using layout = command_layouts::visual_set_cache_mode;
             std::uint32_t cache_mode = 0U;
-            if (!has_exact_size(view, 12U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, cache_mode)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_cache_mode_offset,
+                    cache_mode)) {
                 return status::malformed_batch;
             }
             if (!require_visual(handle) ||
@@ -1548,10 +1554,11 @@ struct channel::implementation {
             return status::success;
         }
         case command::visual_set_clip: {
+            using layout = command_layouts::visual_set_clip;
             std::uint32_t clip_geometry = 0U;
-            if (!has_exact_size(view, 12U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, clip_geometry)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::h_clip_offset, clip_geometry)) {
                 return status::malformed_batch;
             }
             if (!require_visual(handle) ||
@@ -1565,10 +1572,11 @@ struct channel::implementation {
             return status::success;
         }
         case command::visual_set_alpha: {
+            using layout = command_layouts::visual_set_alpha;
             double opacity = 0.0;
-            if (!has_exact_size(view, 16U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, opacity)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::alpha_offset, opacity)) {
                 return status::malformed_batch;
             }
             if (!require_visual(handle)) {
@@ -1583,6 +1591,7 @@ struct channel::implementation {
             return status::success;
         }
         case command::visual_set_render_options: {
+            using layout = command_layouts::visual_set_render_options;
             std::uint32_t flags = 0U;
             std::uint32_t edge_mode = 0U;
             std::uint32_t compositing_mode = 0U;
@@ -1590,15 +1599,16 @@ struct channel::implementation {
             std::uint32_t clear_type_hint = 0U;
             std::uint32_t text_rendering_mode = 0U;
             std::uint32_t text_hinting_mode = 0U;
-            if (!has_exact_size(view, 36U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, flags) ||
-                !read_at(view.packet, 12U, edge_mode) ||
-                !read_at(view.packet, 16U, compositing_mode) ||
-                !read_at(view.packet, 20U, bitmap_scaling_mode) ||
-                !read_at(view.packet, 24U, clear_type_hint) ||
-                !read_at(view.packet, 28U, text_rendering_mode) ||
-                !read_at(view.packet, 32U, text_hinting_mode)) {
+            const std::size_t options = layout::render_options_offset;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, options, flags) ||
+                !read_at(view.packet, options + 4U, edge_mode) ||
+                !read_at(view.packet, options + 8U, compositing_mode) ||
+                !read_at(view.packet, options + 12U, bitmap_scaling_mode) ||
+                !read_at(view.packet, options + 16U, clear_type_hint) ||
+                !read_at(view.packet, options + 20U, text_rendering_mode) ||
+                !read_at(view.packet, options + 24U, text_hinting_mode)) {
                 return status::malformed_batch;
             }
             if (!require_visual(handle)) {
@@ -1632,10 +1642,11 @@ struct channel::implementation {
             return status::success;
         }
         case command::visual_set_content: {
+            using layout = command_layouts::visual_set_content;
             std::uint32_t content = 0U;
-            if (!has_exact_size(view, 12U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, content)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::h_content_offset, content)) {
                 return status::malformed_batch;
             }
             if (!require_visual(handle) ||
@@ -1649,10 +1660,14 @@ struct channel::implementation {
             return status::success;
         }
         case command::visual_set_alpha_mask: {
+            using layout = command_layouts::visual_set_alpha_mask;
             std::uint32_t alpha_mask = 0U;
-            if (!has_exact_size(view, 12U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, alpha_mask)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_alpha_mask_offset,
+                    alpha_mask)) {
                 return status::malformed_batch;
             }
             if (!require_visual(handle) ||
@@ -1665,20 +1680,27 @@ struct channel::implementation {
             return status::success;
         }
         case command::visual_set_guideline_collection: {
+            using layout = command_layouts::visual_set_guideline_collection;
             std::uint16_t count_x = 0U;
             std::uint16_t padding_x = 0U;
             std::uint16_t count_y = 0U;
             std::uint16_t padding_y = 0U;
-            if (view.packet.size() < 16U ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, count_x) ||
-                !read_at(view.packet, 10U, padding_x) ||
-                !read_at(view.packet, 12U, count_y) ||
-                !read_at(view.packet, 14U, padding_y) ||
+            if (view.packet.size() < layout::fixed_size ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::count_x_offset, count_x) ||
+                !read_at(
+                    view.packet,
+                    layout::count_x_offset + layout::count_x_size,
+                    padding_x) ||
+                !read_at(view.packet, layout::count_y_offset, count_y) ||
+                !read_at(
+                    view.packet,
+                    layout::count_y_offset + layout::count_y_size,
+                    padding_y) ||
                 padding_x != 0U || padding_y != 0U ||
                 static_cast<std::uint64_t>(count_x + count_y) *
                         sizeof(float) !=
-                    view.packet.size() - 16U) {
+                    view.packet.size() - layout::fixed_size) {
                 return status::malformed_batch;
             }
             if (!require_visual(handle)) {
@@ -1692,7 +1714,7 @@ struct channel::implementation {
             } catch (const std::bad_alloc&) {
                 return status::capacity_exceeded;
             }
-            std::size_t offset = 16U;
+            std::size_t offset = layout::fixed_size;
             for (double& coordinate : guidelines_x) {
                 float value = 0.0F;
                 if (!read_at(view.packet, offset, value) ||
@@ -1721,18 +1743,20 @@ struct channel::implementation {
             return status::success;
         }
         case command::visual_set_scrollable_area_clip: {
+            using layout = command_layouts::visual_set_scrollable_area_clip;
             double x = 0.0;
             double y = 0.0;
             double width = 0.0;
             double height = 0.0;
             std::uint32_t enabled = 0U;
-            if (!has_exact_size(view, 44U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, x) ||
-                !read_at(view.packet, 16U, y) ||
-                !read_at(view.packet, 24U, width) ||
-                !read_at(view.packet, 32U, height) ||
-                !read_at(view.packet, 40U, enabled)) {
+            const std::size_t clip = layout::clip_offset;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, clip, x) ||
+                !read_at(view.packet, clip + 8U, y) ||
+                !read_at(view.packet, clip + 16U, width) ||
+                !read_at(view.packet, clip + 24U, height) ||
+                !read_at(view.packet, layout::is_enabled_offset, enabled)) {
                 return status::malformed_batch;
             }
             if (!require_visual(handle)) {
@@ -1756,8 +1780,9 @@ struct channel::implementation {
             return status::success;
         }
         case command::visual_remove_all_children: {
-            if (!has_exact_size(view, 8U) ||
-                !read_at(view.packet, 4U, handle)) {
+            using layout = command_layouts::visual_remove_all_children;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle)) {
                 return status::malformed_batch;
             }
             if (!require_visual(handle)) {
@@ -1769,10 +1794,11 @@ struct channel::implementation {
             return status::success;
         }
         case command::visual_remove_child: {
+            using layout = command_layouts::visual_remove_child;
             std::uint32_t child = 0U;
-            if (!has_exact_size(view, 12U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, child)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::h_child_offset, child)) {
                 return status::malformed_batch;
             }
             if (!require_visual(handle) || !require_visual(child)) {
@@ -1789,12 +1815,13 @@ struct channel::implementation {
             return status::success;
         }
         case command::visual_insert_child_at: {
+            using layout = command_layouts::visual_insert_child_at;
             std::uint32_t child = 0U;
             std::uint32_t index = 0U;
-            if (!has_exact_size(view, 16U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, child) ||
-                !read_at(view.packet, 12U, index)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::h_child_offset, child) ||
+                !read_at(view.packet, layout::index_offset, index)) {
                 return status::malformed_batch;
             }
             if (!require_visual(handle) || !require_visual(child) ||
