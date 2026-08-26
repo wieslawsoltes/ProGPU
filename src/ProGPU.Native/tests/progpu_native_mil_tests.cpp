@@ -3023,14 +3023,6 @@ bool visual_bitmap_cache_applies_gradient_mask_at_composite() {
     append_create(masked_effect, blur, 36U);
     append_command(
         masked_effect,
-        command::visual_set_guideline_collection,
-        visual,
-        std::uint16_t{0U},
-        std::uint16_t{0U},
-        std::uint16_t{0U},
-        std::uint16_t{0U});
-    append_command(
-        masked_effect,
         command::blur_effect,
         blur,
         6.0,
@@ -3058,6 +3050,22 @@ bool visual_bitmap_cache_applies_gradient_mask_at_composite() {
     PROGPU_REQUIRE(layers[1].opacity == 0.5F);
     PROGPU_REQUIRE(
         layers[1].content_revision == changed.content_revision);
+    progpu_native_scene_state effect_cache_composite{};
+    PROGPU_REQUIRE(try_get_state_resource(
+        stream, layers[1].reserved0, effect_cache_composite));
+    PROGPU_REQUIRE((effect_cache_composite.flags &
+        PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U);
+    const auto effect_guided_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    const auto effect_guideline_resource =
+        read_value<progpu_native_scene_resource>(
+            stream,
+            effect_guided_header.resource_offset +
+                effect_cache_composite.guideline_resource_index *
+                    sizeof(progpu_native_scene_resource));
+    PROGPU_REQUIRE(
+        effect_guideline_resource.kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET);
 
     std::vector<std::byte> uncached_masked_effect;
     append_command(
