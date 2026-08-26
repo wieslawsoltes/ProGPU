@@ -208,6 +208,17 @@ Important parity surfaces include:
 - compiled-scene reuse, incremental pages/uploads, GPU hit testing, external
   texture/media interop, presentation, device loss, and diagnostics.
 
+The native MIL wire authority is generated rather than independently mirrored.
+`eng/progpu-generate-mil-protocol.py` reads WPF's checked-in MCG command enum
+and explicit `Pack=1` managed packet layouts, records their SHA-256 provenance
+in `eng/mil/wpf-mil-protocol.json`, and emits the public C++ command/layout
+header. The manifest currently covers 141 retail commands, the invalid/debug
+sentinels, and 108 packet structures with every top-level field offset and
+width. Standalone builds reject a stale header; the LibreWPF package gate also
+checks the manifest against the live WPF sources. Decoder migration to those
+generated constants is incremental and must not change bounded-copy parsing or
+transactional rejection behavior.
+
 The native migration must preserve the managed invalidation and resource
 generation contract. A native cache hit may skip compilation/uploads but never
 the current clear/render/present operation.
