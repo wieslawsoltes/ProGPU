@@ -61,6 +61,17 @@ misreading its last private packing byte as a 14-byte header. Remaining decoder
 magic offsets are an explicit mechanical migration, not an independent
 protocol authority.
 
+Clean detached `22bf5bf1` qualified that generated Visual-layout checkpoint on
+Windows ARM64 in the Parallels VM. MSVC rebuilt the generated C++ header and
+both native modules under `/W4 /WX`; all 11 native/Dawn CTests passed, including
+the MIL packet/layout suite. Qualified SHA-256 values are
+`FB4304088E87A3F07CA59A84B16FEDA21A4DDADBB9377028553740D51B30F290`
+for `progpu_native.dll` and
+`9F73E41536B3BD96A0A44692EA65888C9DE004B19FBF5DE90489768667FBBDDBC`
+for the wgpu-native runtime DLL. The Python regeneration/drift check remains a
+host/CI gate because the qualification VM intentionally has no Python runtime;
+MSVC independently proves the committed generated header is valid ARM64 C++.
+
 ## Architecture
 
 ```text
