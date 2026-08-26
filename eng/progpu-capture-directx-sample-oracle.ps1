@@ -20,7 +20,12 @@ if (-not $OutputDirectory) {
 $OutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
 $OraclePath = Join-Path $OutputDirectory "microsoft-d3d12-hello-triangle.ppm"
 
-if (-not $IsWindows) {
+$RunningOnWindows = if (Get-Variable IsWindows -ErrorAction SilentlyContinue) {
+    $IsWindows
+} else {
+    [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
+}
+if (-not $RunningOnWindows) {
     throw "The Microsoft DirectX sample oracle can only run on Windows."
 }
 $CreatedSourceCache = $false
@@ -53,9 +58,13 @@ function Get-NormalizedSha256([string] $Path) {
         }
         $normalized.Add($bytes[$index])
     }
-    return [Convert]::ToHexString(
-        [System.Security.Cryptography.SHA256]::HashData($normalized.ToArray())
-    ).ToLowerInvariant()
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = $sha256.ComputeHash($normalized.ToArray())
+        return ([BitConverter]::ToString($hash) -replace "-", "").ToLowerInvariant()
+    } finally {
+        $sha256.Dispose()
+    }
 }
 
 foreach ($entry in $Lock.files.PSObject.Properties) {
