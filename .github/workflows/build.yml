@@ -580,7 +580,10 @@ jobs:
           PROGPU_AVALONIA_PAGE_FILTER: ^(Border|Canvas|ScrollViewer|TextBlock|Viewbox)$
           PROGPU_AVALONIA_WARMUP_FRAMES: 5
           PROGPU_AVALONIA_MEASURE_FRAMES: 10
-          PROGPU_AVALONIA_SCREENSHOTS: 1
+          # Windows visual captures run in the interactive Parallels lane. A
+          # service-desktop RenderTargetBitmap readback can block indefinitely
+          # after valid D3D12/HWND telemetry on GitHub-hosted Windows runners.
+          PROGPU_AVALONIA_SCREENSHOTS: 0
           PROGPU_AVALONIA_LAYOUT_CLIP_FIXTURE: 1
           PROGPU_AVALONIA_GEOMETRY_CLIP_FIXTURE: 1
           PROGPU_AVALONIA_BITMAP_CACHE_FIXTURE: 1
