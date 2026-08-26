@@ -1593,7 +1593,7 @@ it through the normalized orthogonal transform, and runs the existing shared
 blur, shadow-composite, and source-composite passes. Both wgpu-native/Dawn and
 DirectX therefore consume the same retained scene and effect descriptors.
 
-This checkpoint is intentionally narrower than general WPF Effect parity.
+This initial checkpoint was intentionally narrower than general WPF Effect parity.
 Only Gaussian BlurEffect and DropShadowEffect with static values and an
 orthogonal effective transform are accepted. Box blur, animated effect fields,
 shear, and composition with an active Visual clip or an uncached spatial
@@ -1605,8 +1605,10 @@ the outer effect layer. WPF applies Visual effect after
 opacity-mask/opacity and before the final clip; the current semantic layer does
 not yet represent separate inflated-source and final-composite clip regions,
 so accepting the remaining combinations would silently change ordering. The
-native effect currently uses a conservative full-target isolated layer;
-retained dirty-region tightening is follow-up performance work.
+native effect used a conservative full-target isolated layer. The bounded-
+effect checkpoint below replaces that allocation for typed LibreWPF Visuals
+while retaining full-target compatibility for native callers that have not
+supplied bounds.
 
 Native regressions cover blur sigma, drop-shadow direction/color/opacity,
 dependency lifetime, Box rejection, and modifier-combination rejection. All
@@ -2094,6 +2096,34 @@ package staging. Qualified win-arm64 SHA-256 values are
 for `progpu_native.dll` and
 `CF01D087373FD1580EBE1A5B72BC2314CDCE2AEFA4FE02DBF782C88F3DB11C91`
 for `progpu_native_dawn.dll`.
+
+The bounded-effect checkpoint broadens the existing append-only Visual-bounds
+sideband without changing the MIL or semantic scene ABI. Despite its retained
+`set_visual_cache_bounds` name for binary compatibility, the value is the
+source-built Visual's exact descendant bounds and now drives both BitmapCache
+page sizing and temporary effect isolation. LibreWPF supplies that value from
+`IPortableVisualBoundsSource` whenever a Visual has a cache or effect and fails
+closed if the typed snapshot is absent. The native channel preserves a
+conservative full-target layer only for older direct consumers that omit the
+optional sideband.
+
+The compiler maps descendant bounds through the effective affine transform,
+then expands them with WPF's already resolved physical kernel radius. Gaussian
+blur inflates every edge by `floor(floor(Radius) * minimumScale)`, capped at
+100. DropShadow unions the unmodified source with the translated shadow bounds
+inflated by that same radius. A zero-radius effect retained solely to apply a
+final clip uses the exact transformed source bounds. The final effect-output
+clip remains independent and is never intersected into the sampling extent,
+so the optimization cannot truncate blur or shadow input.
+
+Native MIL tests cover the compatibility full-target layer, exact blur,
+drop-shadow, and zero-radius bounds. The live `--semantic-bounded-effect` gate
+renders the same Gaussian scene once with full-target isolation and once with
+the exact inflated extent. On Apple M3 Pro Metal, the layer shrinks from
+`96x64` to `28x24`, layer storage from 24,576 to 2,688 bytes, and effect storage
+from 73,728 to 8,064 bytes. The output remains byte-identical (`changed=0`) at
+extent `[24,14]-[51,37]`, red sum 48,960. The Windows lane runs the same gate
+against the shared DirectX/D3D12 executor.
 
 The implementation sequence is intentionally architectural:
 

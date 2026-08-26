@@ -2202,8 +2202,12 @@ budget. Missing owners are evicted after preflight, owner replacement
 invalidates the completed-output key, texture reallocation increments the slot
 generation, and normal engine/device teardown releases every page.
 Source-built WPF descendant bounds arrive through the typed
-`progpu_native_mil_channel_set_visual_cache_bounds` sideband and missing bounds
-fail closed instead of allocating the full target.
+`progpu_native_mil_channel_set_visual_cache_bounds` sideband. Its cache-specific
+symbol name is retained for ABI compatibility, but the metadata is the general
+Visual descendant extent used by both persistent cache pages and bounded
+temporary effect layers. LibreWPF fails closed when a cache/effect Visual lacks
+that typed extent; direct native consumers that omit it retain the conservative
+full-target effect layer, while a BitmapCache still fails closed.
 
 `PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE` is the additive local-raster
 contract. It preserves the 64-byte layer ABI: bounds are a positive zero-origin
@@ -2347,6 +2351,24 @@ staging. Qualified win-arm64 SHA-256 values are
 for `progpu_native.dll` and
 `CF01D087373FD1580EBE1A5B72BC2314CDCE2AEFA4FE02DBF782C88F3DB11C91`
 for `progpu_native_dawn.dll`.
+
+The bounded-effect checkpoint consumes that same Visual extent before emitting
+the semantic layer. The compiler transforms the source rectangle through the
+effective affine state. Blur expands all sides by WPF's physical kernel radius
+`min(100, floor(floor(Radius) * minimumOrthogonalScale))`. DropShadow unions
+the original source with its transformed offset copy expanded by the kernel
+radius. A zero-radius effect that exists only for final rectangle clipping uses
+the exact transformed source. Output clipping stays on the independent
+composite State and is not folded into these input bounds.
+
+The shared executor therefore receives an ordinary bounded semantic layer; no
+backend-specific DirectX branch or managed rendering fallback is introduced.
+The Metal qualification reduces one Gaussian layer from `96x64` to `28x24`,
+layer bytes `24576 -> 2688`, and effect bytes `73728 -> 8064`, while exact
+readback remains unchanged at extent `[24,14]-[51,37]`, red sum 48,960. Native
+MIL tests separately assert the compatibility unbounded case and exact blur,
+drop-shadow, and zero-radius descriptors. The Windows D3D12 lane executes the
+same `--semantic-bounded-effect` pixel/allocation gate.
 
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then

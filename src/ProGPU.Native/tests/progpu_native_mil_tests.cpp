@@ -1516,6 +1516,22 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
 
     channel state;
     PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> unbounded_stream;
+    progpu::native::mil::scene_metrics unbounded_metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(
+            target,
+            9014U,
+            1U,
+            unbounded_stream,
+            &unbounded_metrics) == status::success);
+    const auto unbounded_layers = get_scene_layers(unbounded_stream);
+    PROGPU_REQUIRE(unbounded_layers.size() == 1U);
+    PROGPU_REQUIRE(
+        (unbounded_layers[0].flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) == 0U);
+    PROGPU_REQUIRE(
+        state.set_visual_cache_bounds(
+            visual, 8.0, 10.0, 32.0, 24.0) == status::success);
     std::vector<std::byte> stream;
     progpu::native::mil::scene_metrics metrics{};
     const auto read_effect = [&]() {
@@ -1534,12 +1550,20 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
         return progpu_native_group_effect{};
     };
     PROGPU_REQUIRE(
-        state.build_scene(target, 9014U, 1U, stream, &metrics) ==
+        state.build_scene(target, 9014U, 2U, stream, &metrics) ==
         status::success);
     auto effect = read_effect();
     PROGPU_REQUIRE(
         effect.kind == PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR);
     PROGPU_REQUIRE(effect.sigma_x == 3.0F && effect.sigma_y == 3.0F);
+    auto bounded_layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(bounded_layers.size() == 1U);
+    PROGPU_REQUIRE(
+        (bounded_layers[0].flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) != 0U);
+    PROGPU_REQUIRE(bounded_layers[0].bounds.x == -1.0F);
+    PROGPU_REQUIRE(bounded_layers[0].bounds.y == 1.0F);
+    PROGPU_REQUIRE(bounded_layers[0].bounds.width == 50.0F);
+    PROGPU_REQUIRE(bounded_layers[0].bounds.height == 42.0F);
 
     std::vector<std::byte> unsupported_box;
     append_command(
@@ -1573,7 +1597,7 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     append_command(replace, command::visual_set_effect, visual, shadow);
     PROGPU_REQUIRE(state.apply(replace) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 9014U, 2U, stream, &metrics) ==
+        state.build_scene(target, 9014U, 3U, stream, &metrics) ==
         status::success);
     effect = read_effect();
     PROGPU_REQUIRE(effect.kind == PROGPU_NATIVE_GROUP_EFFECT_DROP_SHADOW);
@@ -1583,6 +1607,14 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     PROGPU_REQUIRE(effect.color_r == 0.1F && effect.color_g == 0.2F &&
         effect.color_b == 0.3F &&
         std::abs(effect.color_a - 0.2F) < 0.00001F);
+    bounded_layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(bounded_layers.size() == 1U);
+    PROGPU_REQUIRE(
+        std::abs(bounded_layers[0].bounds.x - 5.535534F) < 0.00001F);
+    PROGPU_REQUIRE(
+        std::abs(bounded_layers[0].bounds.y - 7.535534F) < 0.00001F);
+    PROGPU_REQUIRE(bounded_layers[0].bounds.width == 44.0F);
+    PROGPU_REQUIRE(bounded_layers[0].bounds.height == 36.0F);
 
     std::vector<std::byte> delete_referenced;
     append_command(
@@ -1616,7 +1648,7 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     append_command(clipped_effect, command::visual_set_effect, visual, blur);
     PROGPU_REQUIRE(state.apply(clipped_effect) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 9014U, 3U, stream, &metrics) ==
+        state.build_scene(target, 9014U, 4U, stream, &metrics) ==
         status::success);
     const auto clipped_layers = get_scene_layers(stream);
     PROGPU_REQUIRE(clipped_layers.size() == 1U);
@@ -1640,7 +1672,7 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
         zero_blur, command::blur_effect, blur, 0.0, 0U, 0U, 1U);
     PROGPU_REQUIRE(state.apply(zero_blur) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 9014U, 4U, stream, &metrics) ==
+        state.build_scene(target, 9014U, 5U, stream, &metrics) ==
         status::success);
     const auto zero_blur_layers = get_scene_layers(stream);
     PROGPU_REQUIRE(zero_blur_layers.size() == 1U);
@@ -1653,12 +1685,16 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
                 PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE)) ==
         (PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
             PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE));
+    PROGPU_REQUIRE(zero_blur_layers[0].bounds.x == 8.0F);
+    PROGPU_REQUIRE(zero_blur_layers[0].bounds.y == 10.0F);
+    PROGPU_REQUIRE(zero_blur_layers[0].bounds.width == 32.0F);
+    PROGPU_REQUIRE(zero_blur_layers[0].bounds.height == 24.0F);
 
     std::vector<std::byte> opacity_effect;
     append_command(opacity_effect, command::visual_set_alpha, visual, 0.5);
     PROGPU_REQUIRE(state.apply(opacity_effect) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 9014U, 5U, stream, &metrics) ==
+        state.build_scene(target, 9014U, 6U, stream, &metrics) ==
         status::unsupported_command);
     return true;
 }

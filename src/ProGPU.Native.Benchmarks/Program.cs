@@ -82,6 +82,17 @@ if (Array.Exists(
         args,
         static value => string.Equals(
             value,
+            "--semantic-bounded-effect",
+            StringComparison.OrdinalIgnoreCase)))
+{
+    RetainedBoundedEffectQualification.Run();
+    return;
+}
+
+if (Array.Exists(
+        args,
+        static value => string.Equals(
+            value,
             "--managed-picture",
             StringComparison.OrdinalIgnoreCase)))
 {

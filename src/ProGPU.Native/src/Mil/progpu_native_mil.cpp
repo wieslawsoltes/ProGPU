@@ -8311,6 +8311,7 @@ struct channel::implementation {
     }
 
     status add_visual_effect_layer(
+        std::uint32_t visual_handle,
         std::uint32_t effect_handle,
         const render_scope_state& state,
         bool has_local_cache_input,
@@ -8322,7 +8323,9 @@ struct channel::implementation {
         }
         const auto effect = effects.find(effect_handle);
         const auto resource = resources.find(effect_handle);
-        if (effect == effects.end() || resource == resources.end()) {
+        const auto visual = visuals.find(visual_handle);
+        if (effect == effects.end() || resource == resources.end() ||
+            visual == visuals.end()) {
             return status::invalid_handle;
         }
         // WPF composes Clip > Effect > OpacityMask/Opacity. A local cache is
@@ -8373,7 +8376,8 @@ struct channel::implementation {
         }
         const double minimum_scale = std::min(scale_x, scale_y);
         const auto wpf_scaled_radius = [&](double radius,
-                                           float& sigma) noexcept {
+                                           float& sigma,
+                                           double& scaled_radius) noexcept {
             if (radius > static_cast<double>(
                     std::numeric_limits<std::uint32_t>::max())) {
                 return false;
@@ -8381,6 +8385,7 @@ struct channel::implementation {
             const double local_radius = std::floor(radius);
             const double scaled = std::min(
                 100.0, std::floor(local_radius * minimum_scale));
+            scaled_radius = scaled;
             sigma = static_cast<float>(scaled / 3.0);
             return std::isfinite(sigma);
         };
@@ -8392,8 +8397,11 @@ struct channel::implementation {
         if (descriptor.revision == 0U) {
             descriptor.revision = 1U;
         }
+        double effect_radius = 0.0;
         if (!wpf_scaled_radius(
-                effect->second.radius, descriptor.sigma_x)) {
+                effect->second.radius,
+                descriptor.sigma_x,
+                effect_radius)) {
             return status::unsupported_command;
         }
         descriptor.sigma_y = descriptor.sigma_x;
@@ -8415,6 +8423,18 @@ struct channel::implementation {
                 const status clip_status = attach_final_clip(clip_layer);
                 if (clip_status != status::success) {
                     return clip_status;
+                }
+                if (visual->second.has_cache_bounds) {
+                    if (!try_transform_bounds(
+                            visual->second.cache_bounds_x,
+                            visual->second.cache_bounds_y,
+                            visual->second.cache_bounds_width,
+                            visual->second.cache_bounds_height,
+                            state.transform,
+                            clip_layer.bounds)) {
+                        return status::invalid_graph;
+                    }
+                    clip_layer.flags |= PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
                 }
                 if (!builder.push_layer(clip_layer)) {
                     return status::invalid_graph;
@@ -8473,6 +8493,55 @@ struct channel::implementation {
         layer.effect_resource_index = effect_index;
         layer.content_revision = resource->second.generation;
         layer.composite_revision = resource->second.generation;
+        if (visual->second.has_cache_bounds) {
+            progpu_native_image_rect source_bounds{};
+            if (!try_transform_bounds(
+                    visual->second.cache_bounds_x,
+                    visual->second.cache_bounds_y,
+                    visual->second.cache_bounds_width,
+                    visual->second.cache_bounds_height,
+                    state.transform,
+                    source_bounds)) {
+                return status::invalid_graph;
+            }
+            const double source_left = source_bounds.x;
+            const double source_top = source_bounds.y;
+            const double source_right = source_left + source_bounds.width;
+            const double source_bottom = source_top + source_bounds.height;
+            double effect_left = source_left - effect_radius;
+            double effect_top = source_top - effect_radius;
+            double effect_right = source_right + effect_radius;
+            double effect_bottom = source_bottom + effect_radius;
+            if (effect->second.type == effect_state::kind::drop_shadow) {
+                effect_left = std::min(
+                    source_left,
+                    source_left + descriptor.offset_x - effect_radius);
+                effect_top = std::min(
+                    source_top,
+                    source_top + descriptor.offset_y - effect_radius);
+                effect_right = std::max(
+                    source_right,
+                    source_right + descriptor.offset_x + effect_radius);
+                effect_bottom = std::max(
+                    source_bottom,
+                    source_bottom + descriptor.offset_y + effect_radius);
+            }
+            const double effect_width = effect_right - effect_left;
+            const double effect_height = effect_bottom - effect_top;
+            if (!finite_double_as_float(effect_left) ||
+                !finite_double_as_float(effect_top) ||
+                !finite_double_as_float(effect_width) ||
+                !finite_double_as_float(effect_height) ||
+                effect_width <= 0.0 || effect_height <= 0.0) {
+                return status::invalid_graph;
+            }
+            layer.flags |= PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+            layer.bounds = {
+                static_cast<float>(effect_left),
+                static_cast<float>(effect_top),
+                static_cast<float>(effect_width),
+                static_cast<float>(effect_height)};
+        }
         if (!builder.push_layer(layer)) {
             return status::invalid_graph;
         }
@@ -9237,6 +9306,7 @@ struct channel::implementation {
 
         bool effect_layer_pushed = false;
         const status effect_status = add_visual_effect_layer(
+            handle,
             visual->second.effect_handle,
             current,
             visual->second.cache_mode_handle != 0U,

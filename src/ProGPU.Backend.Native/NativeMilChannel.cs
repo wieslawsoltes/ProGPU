@@ -206,7 +206,7 @@ public sealed unsafe class NativeMilChannel : IDisposable
 
     /// <summary>
     /// Sets exact source-built Visual descendant bounds used to size its
-    /// native target-space BitmapCache page.
+    /// native target-space BitmapCache page or bounded effect isolation.
     /// </summary>
     public void SetVisualCacheBounds(
         uint handle,
