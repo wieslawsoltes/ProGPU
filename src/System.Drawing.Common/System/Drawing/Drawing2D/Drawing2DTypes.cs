@@ -16,6 +16,13 @@ public enum CompositingMode
     SourceCopy = 1,
 }
 
+public enum CoordinateSpace
+{
+    World = 0,
+    Page = 1,
+    Device = 2,
+}
+
 public enum SmoothingMode
 {
     Invalid = -1,

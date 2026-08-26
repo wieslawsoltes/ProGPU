@@ -9,6 +9,8 @@ using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.Globalization;
 using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace System.Drawing;
@@ -623,6 +625,127 @@ public class Graphics :
     public void ResetTransform()
     {
         _transform.Reset();
+    }
+
+    public void TransformPoints(
+        CoordinateSpace destSpace,
+        CoordinateSpace srcSpace,
+        params PointF[] pts)
+    {
+        ArgumentNullException.ThrowIfNull(pts);
+        TransformPoints(destSpace, srcSpace, (ReadOnlySpan<PointF>)pts);
+    }
+
+    public void TransformPoints(
+        CoordinateSpace destSpace,
+        CoordinateSpace srcSpace,
+        scoped ReadOnlySpan<PointF> pts) =>
+        TransformPointsCore(destSpace, srcSpace, AsWritableSpan(pts));
+
+    public void TransformPoints(
+        CoordinateSpace destSpace,
+        CoordinateSpace srcSpace,
+        params Point[] pts)
+    {
+        ArgumentNullException.ThrowIfNull(pts);
+        TransformPoints(destSpace, srcSpace, (ReadOnlySpan<Point>)pts);
+    }
+
+    public void TransformPoints(
+        CoordinateSpace destSpace,
+        CoordinateSpace srcSpace,
+        scoped ReadOnlySpan<Point> pts) =>
+        TransformPointsCore(destSpace, srcSpace, AsWritableSpan(pts));
+
+    private void TransformPointsCore(
+        CoordinateSpace destSpace,
+        CoordinateSpace srcSpace,
+        Span<PointF> points)
+    {
+        Matrix3x2 transform = GetCoordinateTransform(destSpace, srcSpace, points.Length);
+        if (srcSpace == destSpace)
+        {
+            return;
+        }
+
+        for (int index = 0; index < points.Length; index++)
+        {
+            Vector2 transformed = Vector2.Transform(
+                new Vector2(points[index].X, points[index].Y),
+                transform);
+            points[index] = new PointF(transformed.X, transformed.Y);
+        }
+    }
+
+    private void TransformPointsCore(
+        CoordinateSpace destSpace,
+        CoordinateSpace srcSpace,
+        Span<Point> points)
+    {
+        Matrix3x2 transform = GetCoordinateTransform(destSpace, srcSpace, points.Length);
+        if (srcSpace == destSpace)
+        {
+            return;
+        }
+
+        for (int index = 0; index < points.Length; index++)
+        {
+            Vector2 transformed = Vector2.Transform(
+                new Vector2(points[index].X, points[index].Y),
+                transform);
+            points[index] = Point.Round(new PointF(transformed.X, transformed.Y));
+        }
+    }
+
+    private Matrix3x2 GetCoordinateTransform(
+        CoordinateSpace destSpace,
+        CoordinateSpace srcSpace,
+        int pointCount)
+    {
+        ThrowIfDisposed();
+        ValidateCoordinateSpace(destSpace);
+        ValidateCoordinateSpace(srcSpace);
+        if (pointCount == 0)
+        {
+            throw new ArgumentException("Parameter is not valid.");
+        }
+
+        if (srcSpace == destSpace)
+        {
+            return Matrix3x2.Identity;
+        }
+
+        Matrix3x2 sourceToDevice = GetCoordinateToDevice(srcSpace);
+        Matrix3x2 destinationToDevice = GetCoordinateToDevice(destSpace);
+        if (!Matrix3x2.Invert(destinationToDevice, out Matrix3x2 deviceToDestination))
+        {
+            throw new ArgumentException("The destination coordinate space is not invertible.");
+        }
+
+        return sourceToDevice * deviceToDestination;
+    }
+
+    private Matrix3x2 GetCoordinateToDevice(CoordinateSpace space) =>
+        space switch
+        {
+            CoordinateSpace.World => CombinedTransform,
+            CoordinateSpace.Page => GetPageTransform() * _baseTransform,
+            CoordinateSpace.Device => Matrix3x2.Identity,
+            _ => throw new ArgumentException("Parameter is not valid."),
+        };
+
+    private static void ValidateCoordinateSpace(CoordinateSpace space)
+    {
+        if (space is < CoordinateSpace.World or > CoordinateSpace.Device)
+        {
+            throw new ArgumentException("Parameter is not valid.");
+        }
+    }
+
+    private static Span<T> AsWritableSpan<T>(ReadOnlySpan<T> source)
+    {
+        ref T first = ref Unsafe.AsRef(in MemoryMarshal.GetReference(source));
+        return MemoryMarshal.CreateSpan(ref first, source.Length);
     }
 
     private Matrix3x2 CombinedTransform => _transform.Value * GetPageTransform() * _baseTransform;
