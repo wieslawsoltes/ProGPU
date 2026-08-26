@@ -176,6 +176,20 @@ retained zero pixel difference and hash `5B6EF4F70536C862`. These figures
 qualify the CPU fallback on this machine; they do not change the GPU-first
 automatic policy.
 
+Intrinsic follow-up `e6ab073e` compiles each quadratic/cubic segment's
+control-point Y hull and Y-polynomial coefficients once per rerasterized
+frame. The eight subpixel scanlines then retain the same conservative reject,
+root solver, crossing order, winding rules, and scalar oracle without
+recomputing that invariant curve data. Four alternating pre-change/candidate
+Apple M3 Pro Release runs, each with three warmups and 30 forced-SIMD
+rerasterized frames, reduced the median of per-run native-submission p50 from
+1.1648 ms to 1.0533 ms (-9.6%) and synchronized-frame p50 from 2.7528 ms to
+2.5981 ms (-5.6%). Median submission/frame p95 improved from 2.0873/4.3461 ms
+to 1.4839/4.0934 ms. Every measured frame and all forced compute, raster,
+SIMD, and scalar qualification routes remained byte-exact at
+`5B6EF4F70536C862`; the 11-test native/Dawn suite and strict x86_64 SSE2 syntax
+compile also pass.
+
 Exact pushed head `644a8d89` also rebuilt both native libraries with ARM64
 MSVC and passed all 11 native/Dawn CTests in the Windows Parallels VM. The
 zero-warning benchmark build ran the full 42-glyph forced-NEON D3D12 gate with
