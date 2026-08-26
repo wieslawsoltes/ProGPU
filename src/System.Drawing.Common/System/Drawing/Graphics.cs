@@ -28,8 +28,9 @@ public class Graphics :
     private readonly Action<FlushIntention>? _flushed;
     // Device/host state is immutable; public Transform APIs mutate only _transform.
     private readonly Matrix3x2 _baseTransform;
+    private Matrix3x2 _containerTransform = Matrix3x2.Identity;
     private Matrix _transform = new();
-    private readonly List<SavedGraphicsState> _savedStates = new();
+    private readonly List<SavedGraphicsContext> _savedStates = new();
     private int _nextStateId;
     private float _pageScale = 1f;
     private GraphicsUnit _pageUnit = GraphicsUnit.Display;
@@ -729,7 +730,7 @@ public class Graphics :
         space switch
         {
             CoordinateSpace.World => CombinedTransform,
-            CoordinateSpace.Page => GetPageTransform() * _baseTransform,
+            CoordinateSpace.Page => GetPageTransform() * _containerTransform * _baseTransform,
             CoordinateSpace.Device => Matrix3x2.Identity,
             _ => throw new ArgumentException("Parameter is not valid."),
         };
@@ -748,7 +749,8 @@ public class Graphics :
         return MemoryMarshal.CreateSpan(ref first, source.Length);
     }
 
-    private Matrix3x2 CombinedTransform => _transform.Value * GetPageTransform() * _baseTransform;
+    private Matrix3x2 CombinedTransform =>
+        _transform.Value * GetPageTransform() * _containerTransform * _baseTransform;
 
     bool IProGpuDrawingContextSource.TryGetProGpuDrawingContext(
         out ProGpuDrawingContextState state)
@@ -786,9 +788,116 @@ public class Graphics :
     public GraphicsState Save()
     {
         var state = new GraphicsState(++_nextStateId);
-        _savedStates.Add(new SavedGraphicsState(
+        SaveContext(state, isContainer: false, hasInheritedClip: false);
+        return state;
+    }
+
+    public void Restore(GraphicsState gstate)
+    {
+        ArgumentNullException.ThrowIfNull(gstate);
+        int stateIndex = FindSavedContext(gstate, isContainer: false);
+        if (stateIndex < 0)
+        {
+            throw new ArgumentException("The graphics state does not belong to this Graphics instance or has already been restored.", nameof(gstate));
+        }
+
+        RestoreContext(stateIndex);
+    }
+
+    public GraphicsContainer BeginContainer()
+    {
+        ThrowIfDisposed();
+        Matrix3x2 parentTransform =
+            _transform.Value * GetPageTransform() * _containerTransform;
+        return BeginContainerCore(parentTransform);
+    }
+
+    public GraphicsContainer BeginContainer(
+        RectangleF dstrect,
+        RectangleF srcrect,
+        GraphicsUnit unit)
+    {
+        ThrowIfDisposed();
+        ValidateContainerUnit(unit);
+        if (!IsFinite(dstrect) || !IsFinite(srcrect)
+            || srcrect.Width == 0f || srcrect.Height == 0f)
+        {
+            throw new ArgumentException("Parameter is not valid.");
+        }
+
+        float unitScaleX = UnitToPixelScale(unit, DpiX);
+        float unitScaleY = UnitToPixelScale(unit, DpiY);
+        float sourceX = srcrect.X * unitScaleX;
+        float sourceY = srcrect.Y * unitScaleY;
+        float sourceWidth = srcrect.Width * unitScaleX;
+        float sourceHeight = srcrect.Height * unitScaleY;
+        float scaleX = dstrect.Width / sourceWidth;
+        float scaleY = dstrect.Height / sourceHeight;
+        Matrix3x2 mapping = new(
+            scaleX,
+            0f,
+            0f,
+            scaleY,
+            dstrect.X - (sourceX * scaleX),
+            dstrect.Y - (sourceY * scaleY));
+        Matrix3x2 parentTransform =
+            _transform.Value * GetPageTransform() * _containerTransform;
+        return BeginContainerCore(mapping * parentTransform);
+    }
+
+    public GraphicsContainer BeginContainer(
+        Rectangle dstrect,
+        Rectangle srcrect,
+        GraphicsUnit unit) =>
+        BeginContainer((RectangleF)dstrect, (RectangleF)srcrect, unit);
+
+    public void EndContainer(GraphicsContainer container)
+    {
+        ArgumentNullException.ThrowIfNull(container);
+        int stateIndex = FindSavedContext(container, isContainer: true);
+        if (stateIndex < 0)
+        {
+            throw new ArgumentException("The graphics container does not belong to this Graphics instance or has already been ended.", nameof(container));
+        }
+
+        RestoreContext(stateIndex);
+    }
+
+    private GraphicsContainer BeginContainerCore(Matrix3x2 containerTransform)
+    {
+        var container = new GraphicsContainer(++_nextStateId);
+        bool hasInheritedClip = _hasPushedClip;
+        SaveContext(container, isContainer: true, hasInheritedClip);
+
+        // Keep the parent's effective clip as an enclosing recorder clip while
+        // exposing a fresh, infinite public clip inside the new container.
+        _hasPushedClip = false;
+        _clip?.Dispose();
+        _clip = null;
+
+        _transform.Dispose();
+        _transform = new Matrix();
+        _containerTransform = containerTransform;
+        SmoothingMode = SmoothingMode.None;
+        InterpolationMode = InterpolationMode.Bilinear;
+        TextRenderingHint = TextRenderingHint.SystemDefault;
+        PixelOffsetMode = PixelOffsetMode.Default;
+        _pageScale = 1f;
+        _pageUnit = GraphicsUnit.Display;
+        CompositingMode = CompositingMode.SourceOver;
+        _compositingQuality = CompositingQuality.Default;
+        _textContrast = 4;
+        return container;
+    }
+
+    private void SaveContext(object state, bool isContainer, bool hasInheritedClip)
+    {
+        _savedStates.Add(new SavedGraphicsContext(
             state,
+            isContainer,
+            hasInheritedClip,
             _transform.Value,
+            _containerTransform,
             SmoothingMode,
             InterpolationMode,
             TextRenderingHint,
@@ -800,31 +909,42 @@ public class Graphics :
             RenderingOrigin,
             TextContrast,
             _clip?.Clone()));
-        return state;
     }
 
-    public void Restore(GraphicsState gstate)
+    private int FindSavedContext(object state, bool isContainer)
     {
-        ArgumentNullException.ThrowIfNull(gstate);
-
-        int stateIndex = -1;
         for (int i = _savedStates.Count - 1; i >= 0; i--)
         {
-            if (ReferenceEquals(_savedStates[i].State, gstate))
+            if (_savedStates[i].IsContainer == isContainer
+                && ReferenceEquals(_savedStates[i].State, state))
             {
-                stateIndex = i;
-                break;
+                return i;
             }
         }
 
-        if (stateIndex < 0)
+        return -1;
+    }
+
+    private void RestoreContext(int stateIndex)
+    {
+        if (_hasPushedClip)
         {
-            throw new ArgumentException("The graphics state does not belong to this Graphics instance or has already been restored.", nameof(gstate));
+            _context.PopGeometryClip();
+            _hasPushedClip = false;
         }
 
-        SavedGraphicsState saved = _savedStates[stateIndex];
+        for (int index = _savedStates.Count - 1; index >= stateIndex; index--)
+        {
+            if (_savedStates[index].HasInheritedClip)
+            {
+                _context.PopGeometryClip();
+            }
+        }
+
+        SavedGraphicsContext saved = _savedStates[stateIndex];
         _transform.Dispose();
         _transform = new Matrix(saved.Transform);
+        _containerTransform = saved.ContainerTransform;
         SmoothingMode = saved.SmoothingMode;
         InterpolationMode = saved.InterpolationMode;
         TextRenderingHint = saved.TextRenderingHint;
@@ -837,12 +957,33 @@ public class Graphics :
         _textContrast = saved.TextContrast;
         ReplaceClip(saved.Clip?.Clone());
 
+        for (int index = stateIndex; index < _savedStates.Count; index++)
+        {
+            _savedStates[index].Clip?.Dispose();
+        }
         _savedStates.RemoveRange(stateIndex, _savedStates.Count - stateIndex);
     }
 
-    private readonly record struct SavedGraphicsState(
-        GraphicsState State,
+    private static void ValidateContainerUnit(GraphicsUnit unit)
+    {
+        if (unit is < GraphicsUnit.Pixel or > GraphicsUnit.Millimeter)
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(unit));
+        }
+    }
+
+    private static bool IsFinite(RectangleF rectangle) =>
+        float.IsFinite(rectangle.X)
+        && float.IsFinite(rectangle.Y)
+        && float.IsFinite(rectangle.Width)
+        && float.IsFinite(rectangle.Height);
+
+    private readonly record struct SavedGraphicsContext(
+        object State,
+        bool IsContainer,
+        bool HasInheritedClip,
         Matrix3x2 Transform,
+        Matrix3x2 ContainerTransform,
         SmoothingMode SmoothingMode,
         InterpolationMode InterpolationMode,
         TextRenderingHint TextRenderingHint,
@@ -3566,10 +3707,17 @@ public class Graphics :
             _context.PopGeometryClip();
             _hasPushedClip = false;
         }
+        for (int index = _savedStates.Count - 1; index >= 0; index--)
+        {
+            if (_savedStates[index].HasInheritedClip)
+            {
+                _context.PopGeometryClip();
+            }
+        }
         PopCurrentCompositingMode();
         _clip?.Dispose();
         _clip = null;
-        foreach (SavedGraphicsState state in _savedStates)
+        foreach (SavedGraphicsContext state in _savedStates)
         {
             state.Clip?.Dispose();
         }
