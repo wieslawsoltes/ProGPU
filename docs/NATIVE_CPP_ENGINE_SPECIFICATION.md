@@ -2650,6 +2650,19 @@ base DLL was 2,001,920 bytes with SHA-256
 the Dawn DLL was 2,039,808 bytes with SHA-256
 `1B181A7CF2692164C809D8799539A1FDB8839688C6C01B66AF11F326E39908D1`.
 
+Exact gate commit `7889fa17` then proves that the same composite remains inside
+an outer effect without losing the guideline frame. The MIL regression retains
+the static guideline packet while adding BlurEffect and asserts the resulting
+layer stack as outer effect -> local cache with brush mask plus guideline
+composite State. The live semantic scene adds a two-pass Gaussian layer around
+the cache and compares the complete blurred output with the independent affine
+reference. Apple M3 Pro Metal executes `2/2/2 -> 1/2/2 -> 1/2/2`
+content/composite/effect passes, changes 69 pixels, moves from
+`[19,6]-[27,17]`/red 1,876 to `[19,7]-[27,17]`/red 1,617, and matches the
+reference byte for byte (`referenceChanged=0`). No ABI, shader, or
+backend-specific execution path is involved. DirectX qualification is pending
+for exact gate commit `7889fa17`.
+
 The exact latest-main-integrated commit `d99acbc8` then passed strict Windows
 11 ARM64 MSVC and live Parallels D3D12 qualification. All 11 native/Dawn CTests,
 both export allowlists, two zero-warning managed Release builds, independent

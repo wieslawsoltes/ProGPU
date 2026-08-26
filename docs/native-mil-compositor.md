@@ -1984,6 +1984,21 @@ with SHA-256 `FF3EAAB807826914615FD98EEEC5EBACB6E783EB8E3A4061178D785CD5B95780`;
 the Dawn DLL was 2,039,808 bytes with SHA-256
 `1B181A7CF2692164C809D8799539A1FDB8839688C6C01B66AF11F326E39908D1`.
 
+ProGPU commit `7889fa17` closes the remaining regression/qualification hole for
+this same cache-root implementation by retaining the guideline packet while an
+outer Gaussian effect owns the final output. The native MIL test now proves the
+outer effect layer encloses a local cache whose composite State still owns the
+guideline set and whose layer still owns the brush mask. The live gate wraps
+the cached mask/guideline scene in a two-pass Gaussian effect and compares the
+entire blurred result with the same independent affine reference. Apple M3 Pro
+Metal executes `2/2/2 -> 1/2/2 -> 1/2/2` content/composite/effect passes,
+changes 69 pixels, moves the extent from `[19,6]-[27,17]`/red 1,876 to
+`[19,7]-[27,17]`/red 1,617, and remains byte-identical to the reference
+(`referenceChanged=0`). This adds no product branch or ABI: it proves WPF's
+mask -> cache-root guideline deformation -> effect ordering through the shared
+semantic layer executor. DirectX qualification is pending for exact gate commit
+`7889fa17`.
+
 The exact Windows qualification completed from clean detached latest-main-
 integrated commit `d99acbc8`. ARM64 MSVC rebuilt both modules under `/W4 /WX`,
 all 11 native/Dawn CTests and both export allowlists passed, both managed
