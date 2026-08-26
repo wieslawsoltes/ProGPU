@@ -130,6 +130,20 @@ for `progpu_native.dll` and
 `9F73E41536B3BD96A0A44692EA65888C9DE004B19FBF5DE90489768667FBBDDBC`
 for the wgpu-native runtime DLL.
 
+Effect checkpoint `1ac97d67` migrates BlurEffect and DropShadowEffect,
+including every animation-resource handle and rendering-bias field. Target
+checkpoint `ee54c934` migrates GenericTarget creation, root, clear color,
+flags, invalidate rectangles, and variable RenderData payload boundaries.
+Effect parameter validation, unsupported animation policy, target/resource
+ownership, and nested render-data byte preservation are unchanged. Both
+commits passed the generator check and all 11 Apple Silicon native/Dawn CTests.
+Clean detached `ee54c934`, which contains both commits, rebuilt both Windows
+ARM64 modules under MSVC `/W4 /WX` and passed all 11 tests. Qualified SHA-256
+is `5B0F5505811EB938A9FDC097B330ECFBD4CFFA0CD7409E9BD1305798FAD35A94`
+for `progpu_native.dll` and
+`9F73E41536B3BD96A0A44692EA65888C9DE004B19FBF5DE90489768667FBBDDBC`
+for the wgpu-native runtime DLL.
+
 ## Architecture
 
 ```text
