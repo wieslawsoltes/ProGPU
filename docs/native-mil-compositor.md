@@ -633,6 +633,18 @@ crossings once per subpixel scanline and reuse them across the full glyph row;
 the direct Windows cold SIMD qualification fell from roughly 123 seconds to 67
 seconds without changing the exact `5B6EF4F70536C862` pixel hash.
 
+The corresponding Linux ARM64 checkout at exact commit `28447de4` passed a
+strict GCC 13.3 build of the complete 260-object graph, all 10 wgpu-native CTest
+contracts, the export allowlist, and live Vulkan allocation/render/readback on
+llvmpipe LLVM 20.1.2. Forced compute, raster, SIMD, and scalar glyph paths all
+matched their managed renderer exactly at `1F9AE0BB0AC59113`; raster retained
+its zero-staging contract. The run exposed two gate portability issues now
+closed in source: WebGPU texture-usage flags are normalized by the shared
+header compatibility layer, and custom native build directories flow into the
+managed benchmark copy target instead of allowing a stale default library.
+This is software-Vulkan correctness evidence, not physical Vulkan performance
+qualification.
+
 Package-consumer commit `a11ad9fd` then exercised that exact staged native
 implementation rather than a source-only fixture. Its app-local SHA-256 hashes
 matched the newly staged `progpu_native.dll` and `progpu_native_dawn.dll`; the
