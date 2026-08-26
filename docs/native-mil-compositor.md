@@ -2069,6 +2069,17 @@ remained clean and the full script exited normally. The staged base DLL was
 the Dawn DLL was 2,042,368 bytes with SHA-256
 `DB359E0C6155530B87DFC7183E4BE071455964F84B9A3D1ED9DAE20A2AB7148F`.
 
+The hosted GCC 13.3 compatibility lane subsequently exposed C-enum versus
+`0U` conditional-expression warnings in the new guideline builder and older
+MIL aliased-primitive flag assembly. ProGPU commits `c6080cb0` and `84b0258d`
+normalize those ABI flag writes to explicit `std::uint32_t` values without
+changing packet layout or rendering behavior. The exact GCC 13.3 Linux ARM64
+lane then compiled all 260 strict C++20 objects with
+`-Wall -Wextra -Wpedantic -Werror`, passed 10/10 CTests and the native export
+allowlist, and rendered the retained sample plus GPU hit-test/readback through
+Vulkan llvmpipe. This is compiler/software-adapter qualification; it is not
+reported as physical Vulkan-device evidence.
+
 ### Microsoft D3D12 sample oracle
 
 ProGPU commit `0624a2e3` adds a source-pinned cross-platform graphics oracle
