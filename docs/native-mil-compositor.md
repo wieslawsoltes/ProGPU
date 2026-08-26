@@ -595,14 +595,9 @@ for `progpu_native.dll` and
 `F002C1FB564334FF21E6F1B18E2FADFD067A955103531A7E1E55B4CC361D6DC8`
 for `progpu_native_dawn.dll`.
 
-- Migrate the remaining packet readers from local numeric offsets to the
-  generated neutral WPF MCG layout metadata.
-- Implement scalar animation resources, remaining transform kinds, curve dashes,
-  exact translated-equivalent EvenOdd overlap execution,
-  remaining pen draws,
-  brushes, drawings, images, glyph runs, caches, multi-guide/dynamic
-  guidelines, effects, and
-  complete render-data decoding.
+- Implement the remaining 2D/3D resource execution, curve dashes, exact
+  translated-equivalent EvenOdd overlap execution, remaining pen/image/media
+  paths, dynamic guidelines, caches, effects, and render-data commands.
 - Lower every supported update to stable semantic resource identities and
   generation numbers; unchanged resources must not be rebuilt.
 - Add fixture capture/replay comparison against WPF's `CMilDataStreamReader`
@@ -1524,6 +1519,61 @@ for `progpu_native.dll` and
 for `progpu_native_dawn.dll`. Rect animations, D3DImage/video sources,
 incremental bitmap invalidation, and same-device external texture bindings
 remain explicit follow-up work.
+
+Animated-value implementation `a7dcd8de` closes the scalar resource and core
+render-data animation gap. The native channel now decodes the generated WPF
+layouts for ColorResource, RectResource, SizeResource, Point3DResource,
+Vector3DResource, and QuaternionResource in addition to the existing Double,
+Point, and Matrix resources. Updates require the exact resource type and packet
+size, reject non-finite values and negative rectangle/size extents, increment
+the retained generation only after validation, and roll back transactionally
+with the rest of the submitted batch on failure.
+
+Nested DrawLineAnimate, DrawRectangleAnimate, DrawRoundedRectangleAnimate,
+DrawEllipseAnimate, and DrawImageAnimate commands resolve their live Point,
+Rect, and Double dependencies during semantic-scene compilation. Static
+DrawImage now shares the same path. Direct bitmap draws and retained
+ImageDrawing both consume the copied, pointer-free RGBA8 BitmapSource sideband;
+ImageDrawing also resolves its RectResource destination animation. Dependency
+revision traversal includes every new animation and image handle, so updating a
+value resource invalidates retained output without retransmitting render data.
+Native fixtures exercise all six newly decoded value-resource families, every
+new animated primitive, static and animated image draws, retained animated
+ImageDrawing, exact semantic coordinates, and malformed-update rollback.
+
+The canonical BitmapSource command still contains a process-local
+`IWICBitmapSource*`, so the portable decoder deliberately does not accept that
+packet or BitmapInvalidate as proof of portable pixels. Likewise, direct
+DrawImage of a DrawingImage remains fail closed until a typed drawing-source
+ownership contract exists. D3DImage/video and same-device external texture
+bindings remain separate typed interop work; none are approximated by pointer
+scraping or stale copied bytes.
+
+The exact clean `a7dcd8de` checkpoint passed the complete Apple Silicon native
+gate, including generated-protocol drift, all local CTests and export checks,
+live Metal execution, the managed/native differential matrix, and both
+Microsoft DirectX sample oracles. Clean detached Windows qualification then
+rebuilt the modified MIL compiler, both exports, and the test executable with
+ARM64 MSVC under `/W4 /WX`; all 11 native/Dawn CTests passed. The live Parallels
+D3D12 smoke lane passed fastest raster selection, forced raster, forced
+intrinsic SIMD, the bounded scalar oracle, and the expected typed rejection of
+forced compute on the unqualified adapter. SIMD retained-glyph output was exact
+against managed output with hash `5B6EF4F70536C862`. The remaining retained
+image, mask, clip, effect, blend, mixed-semantic, text, and stress profiles all
+met their declared exact or bounded contracts.
+
+The Microsoft D3D12HelloTriangle and D3D12HelloTexture contracts produced the
+same SHA-256 on Windows D3D12 and macOS Metal:
+`AE1BC0A9B0623BACAB15BE1706FFA3E7FC15E33676A66F05C969C1B86A66FEA3`
+and
+`591CC311F35E3C2612F529C3D4D7061FC93751A9B8614BF588A73599B0AA2790`.
+Qualified Windows binaries are
+`CD33CEEE182F2A77403B96F4D23DF7FBB1A61AEFAD66C927D3282C4A461236C3`
+for `progpu_native.dll`,
+`50362916F0026C1B016A2496F89547B1814C4F3BCA2D414CCC6B39B2E12B84F6`
+for `progpu_native_dawn.dll`, and
+`9F73E41536B3BD96A0A44692EA65888C9DE004B19FBF5DE90489768667FBBDBC`
+for the pinned wgpu-native runtime DLL.
 
 GlyphRun implementation `c8efc666`, transport optimization `6c762f2b`, focused
 package gate `b21fd324`, and fixture correction `fa8d6a33` next added canonical
