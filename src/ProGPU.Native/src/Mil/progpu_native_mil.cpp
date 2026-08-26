@@ -7352,10 +7352,90 @@ struct channel::implementation {
                 ? status::success
                 : status::invalid_graph;
         };
+        const auto append_drawing_image = [
+            this,
+            drawing_depth,
+            &builder,
+            &brush_indices,
+            &image_indices,
+            &glyph_resources,
+            &active_drawings,
+            &clip_paths,
+            &clip_segments,
+            &clip_boolean_nodes,
+            &apply_rectangle_clip,
+            &save_state,
+            &metrics](
+            std::uint32_t image_source_handle,
+            double x,
+            double y,
+            double width,
+            double height,
+            const render_scope_state& state) {
+            const auto drawing_image = drawing_images.find(
+                image_source_handle);
+            if (drawing_image == drawing_images.end()) {
+                return status::invalid_handle;
+            }
+            const auto& source = drawing_image->second;
+            if (source.drawing_handle == 0U) {
+                return status::success;
+            }
+            if (!source.has_bounds) {
+                return status::unsupported_command;
+            }
+            if (!active_drawings.insert(image_source_handle).second) {
+                return status::invalid_graph;
+            }
+            render_scope_state next = state;
+            const status clip_status = apply_rectangle_clip(
+                x,
+                y,
+                width,
+                height,
+                state,
+                next);
+            if (clip_status != status::success) {
+                active_drawings.erase(image_source_handle);
+                return clip_status;
+            }
+            const affine_2d_double mapping{
+                width / source.bounds_width,
+                0.0,
+                0.0,
+                height / source.bounds_height,
+                x - source.bounds_x * width / source.bounds_width,
+                y - source.bounds_y * height / source.bounds_height};
+            next.transform = compose_affine(mapping, state.transform);
+            if (!save_state(next)) {
+                active_drawings.erase(image_source_handle);
+                return status::invalid_graph;
+            }
+            const status image_status = append_render_stream(
+                source.child_render_data,
+                next,
+                drawing_depth + 1U,
+                builder,
+                brush_indices,
+                image_indices,
+                glyph_resources,
+                active_drawings,
+                clip_paths,
+                clip_segments,
+                clip_boolean_nodes,
+                metrics);
+            const bool restored = builder.restore();
+            active_drawings.erase(image_source_handle);
+            if (image_status != status::success) {
+                return image_status;
+            }
+            return restored ? status::success : status::invalid_graph;
+        };
         const auto append_bitmap_source = [
             this,
             &builder,
-            &image_indices](
+            &image_indices,
+            &append_drawing_image](
             std::uint32_t image_source_handle,
             double x,
             double y,
@@ -7370,7 +7450,13 @@ struct channel::implementation {
                 const auto source = resources.find(image_source_handle);
                 return source != resources.end() &&
                     source->second.type == type_drawing_image
-                    ? status::unsupported_command
+                    ? append_drawing_image(
+                        image_source_handle,
+                        x,
+                        y,
+                        width,
+                        height,
+                        state)
                     : status::invalid_handle;
             }
             std::uint32_t image_index = PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -8032,87 +8118,15 @@ struct channel::implementation {
                             image_state.height == 0.0) {
                             continue;
                         }
-                        if (bitmap_sources.contains(
-                                image_state.image_source_handle)) {
-                            const status image_status = append_bitmap_source(
-                                image_state.image_source_handle,
-                                image_state.x,
-                                image_state.y,
-                                image_state.width,
-                                image_state.height,
-                                current);
-                            if (image_status != status::success) {
-                                return image_status;
-                            }
-                            continue;
-                        }
-
-                        const auto drawing_image = drawing_images.find(
-                            image_state.image_source_handle);
-                        if (drawing_image == drawing_images.end()) {
-                            return status::invalid_handle;
-                        }
-                        const auto& source = drawing_image->second;
-                        if (source.drawing_handle == 0U) {
-                            continue;
-                        }
-                        if (!source.has_bounds) {
-                            return status::unsupported_command;
-                        }
-                        if (!active_drawings.insert(
-                                image_state.image_source_handle).second) {
-                            return status::invalid_graph;
-                        }
-                        render_scope_state next = current;
-                        const status clip_status = apply_rectangle_clip(
+                        const status image_status = append_bitmap_source(
+                            image_state.image_source_handle,
                             image_state.x,
                             image_state.y,
                             image_state.width,
                             image_state.height,
-                            current,
-                            next);
-                        if (clip_status != status::success) {
-                            active_drawings.erase(
-                                image_state.image_source_handle);
-                            return clip_status;
-                        }
-                        const affine_2d_double mapping{
-                            image_state.width / source.bounds_width,
-                            0.0,
-                            0.0,
-                            image_state.height / source.bounds_height,
-                            image_state.x - source.bounds_x *
-                                image_state.width / source.bounds_width,
-                            image_state.y - source.bounds_y *
-                                image_state.height / source.bounds_height};
-                        next.transform = compose_affine(
-                            mapping, current.transform);
-                        if (!save_state(next)) {
-                            active_drawings.erase(
-                                image_state.image_source_handle);
-                            return status::invalid_graph;
-                        }
-                        const status image_status = append_render_stream(
-                            source.child_render_data,
-                            next,
-                            drawing_depth + 1U,
-                            builder,
-                            brush_indices,
-                            image_indices,
-                            glyph_resources,
-                            active_drawings,
-                            clip_paths,
-                            clip_segments,
-                            clip_boolean_nodes,
-                            metrics);
-                        const bool restored = builder.restore();
-                        active_drawings.erase(
-                            image_state.image_source_handle);
+                            current);
                         if (image_status != status::success) {
                             return image_status;
-                        }
-                        if (!restored) {
-                            return status::invalid_graph;
                         }
                         continue;
                     }

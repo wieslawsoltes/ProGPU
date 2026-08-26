@@ -8456,6 +8456,7 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
     constexpr std::uint32_t geometry_drawing = 6U;
     constexpr std::uint32_t drawing_image = 7U;
     constexpr std::uint32_t image_drawing = 8U;
+    constexpr std::uint32_t rectangle_animation = 10U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -8466,6 +8467,7 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
     append_create(batch, geometry_drawing, 87U);
     append_create(batch, drawing_image, 59U);
     append_create(batch, image_drawing, 89U);
+    append_create(batch, rectangle_animation, 52U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -8506,6 +8508,14 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
         geometry_drawing);
     append_command(
         batch,
+        command::rect_resource,
+        rectangle_animation,
+        44.0,
+        8.0,
+        8.0,
+        12.0);
+    append_command(
+        batch,
         command::image_drawing,
         image_drawing,
         2.0,
@@ -8516,6 +8526,24 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
         0U);
     std::vector<std::byte> nested;
     append_command(nested, command::draw_drawing, image_drawing, 0U);
+    append_command(
+        nested,
+        command::draw_image,
+        30.0,
+        6.0,
+        10.0,
+        15.0,
+        drawing_image,
+        0U);
+    append_command(
+        nested,
+        command::draw_image_animate,
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        drawing_image,
+        rectangle_animation);
     append_render_data(batch, content, nested);
     append_command(
         batch,
@@ -8543,11 +8571,13 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
     PROGPU_REQUIRE(
         state.build_scene(target, 7006U, 2U, stream, &metrics) ==
         status::success);
-    PROGPU_REQUIRE(metrics.rectangle_count == 1U);
+    PROGPU_REQUIRE(metrics.rectangle_count == 3U);
     PROGPU_REQUIRE(metrics.brush_count == 1U);
 
     const auto header = read_value<progpu_native_scene_header>(stream, 0U);
     bool found_mapping = false;
+    bool found_direct_mapping = false;
+    bool found_animated_mapping = false;
     for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
         const auto resource = read_value<progpu_native_scene_resource>(
             stream,
@@ -8568,9 +8598,31 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
             scene_state.clip_rect.width == 40.0F &&
             scene_state.clip_rect.height == 20.0F) {
             found_mapping = true;
+        } else if (scene_state.transform.m11 == 0.5F &&
+            scene_state.transform.m22 == 1.5F &&
+            scene_state.transform.m31 == 25.0F &&
+            scene_state.transform.m32 == -24.0F &&
+            (scene_state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U &&
+            scene_state.clip_rect.x == 30.0F &&
+            scene_state.clip_rect.y == 6.0F &&
+            scene_state.clip_rect.width == 10.0F &&
+            scene_state.clip_rect.height == 15.0F) {
+            found_direct_mapping = true;
+        } else if (scene_state.transform.m11 == 0.4F &&
+            scene_state.transform.m22 == 1.2F &&
+            scene_state.transform.m31 == 40.0F &&
+            scene_state.transform.m32 == -16.0F &&
+            (scene_state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U &&
+            scene_state.clip_rect.x == 44.0F &&
+            scene_state.clip_rect.y == 8.0F &&
+            scene_state.clip_rect.width == 8.0F &&
+            scene_state.clip_rect.height == 12.0F) {
+            found_animated_mapping = true;
         }
     }
     PROGPU_REQUIRE(found_mapping);
+    PROGPU_REQUIRE(found_direct_mapping);
+    PROGPU_REQUIRE(found_animated_mapping);
 
     constexpr std::uint32_t transform = 9U;
     std::vector<std::byte> affine_update;
