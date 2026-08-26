@@ -1564,6 +1564,15 @@ Native fixtures exercise all six newly decoded value-resource families, every
 new animated primitive, static and animated image draws, retained animated
 ImageDrawing, exact semantic coordinates, and malformed-update rollback.
 
+SolidColorBrush now resolves both its DoubleResource opacity animation and
+ColorResource color animation at scene-compilation time. The shared resolver
+feeds analytic/path fills, pen brushes, glyph text styles, and uniform opacity
+masks, so no draw family can accidentally retain the brush's base value while
+another consumes its live value. Retained revision traversal includes both
+animation handles, deletion is dependency-protected, and tests mutate both
+resources without retransmitting the brush or render data and verify the new
+semantic brush payload.
+
 Direct DrawingImage replay now uses the same typed retained vector path as an
 ImageDrawing that references a DrawingImage. Static and animated DrawImage
 resolve the source's canonical Drawing handle, require the existing exact

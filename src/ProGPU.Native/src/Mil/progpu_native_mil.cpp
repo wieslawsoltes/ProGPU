@@ -668,6 +668,8 @@ struct channel::implementation {
     struct solid_brush_state {
         double opacity{1.0};
         progpu_native_color color{};
+        std::uint32_t opacity_animation_handle{};
+        std::uint32_t color_animation_handle{};
     };
 
     struct point_resource_state {
@@ -1069,6 +1071,59 @@ struct channel::implementation {
         return status::success;
     }
 
+    status resolve_animated_color(
+        progpu_native_color base_value,
+        std::uint32_t animation_handle,
+        progpu_native_color& value) const noexcept {
+        if (animation_handle == 0U) {
+            value = base_value;
+            return status::success;
+        }
+        const auto animation = color_resources.find(animation_handle);
+        if (animation == color_resources.end()) {
+            return status::invalid_handle;
+        }
+        value = {
+            animation->second[0],
+            animation->second[1],
+            animation->second[2],
+            animation->second[3]};
+        return status::success;
+    }
+
+    status resolve_solid_brush(
+        std::uint32_t handle,
+        progpu_native_color& color,
+        double& opacity) const noexcept {
+        const auto brush = solid_brushes.find(handle);
+        if (brush == solid_brushes.end()) {
+            return require_brush(handle)
+                ? status::unsupported_command
+                : status::invalid_handle;
+        }
+        const status opacity_status = resolve_animated_double(
+            brush->second.opacity,
+            brush->second.opacity_animation_handle,
+            opacity);
+        if (opacity_status != status::success) {
+            return opacity_status;
+        }
+        const status color_status = resolve_animated_color(
+            brush->second.color,
+            brush->second.color_animation_handle,
+            color);
+        if (color_status != status::success) {
+            return color_status;
+        }
+        if (!finite_double_as_float(opacity) ||
+            opacity < 0.0 || opacity > 1.0 ||
+            !std::isfinite(color.r) || !std::isfinite(color.g) ||
+            !std::isfinite(color.b) || !std::isfinite(color.a)) {
+            return status::invalid_graph;
+        }
+        return status::success;
+    }
+
     status resolve_animated_point(
         double base_x,
         double base_y,
@@ -1445,6 +1500,13 @@ struct channel::implementation {
                      brush.second_point_animation == handle ||
                      brush.radius_x_animation == handle ||
                      brush.radius_y_animation == handle)) {
+                    return status::invalid_graph;
+                }
+            }
+            for (const auto& [brush_handle, brush] : solid_brushes) {
+                if (brush_handle != handle &&
+                    (brush.opacity_animation_handle == handle ||
+                     brush.color_animation_handle == handle)) {
                     return status::invalid_graph;
                 }
             }
@@ -3473,9 +3535,18 @@ struct channel::implementation {
             if (!require_resource(handle, type_solid_color_brush)) {
                 return status::invalid_handle;
             }
-            if (opacity_animations != 0U || transform != 0U ||
-                relative_transform != 0U || color_animations != 0U) {
+            if (transform != 0U || relative_transform != 0U) {
                 return status::unsupported_command;
+            }
+            if ((opacity_animations != 0U &&
+                 !require_resource(
+                     opacity_animations,
+                     type_double_resource)) ||
+                (color_animations != 0U &&
+                 !require_resource(
+                     color_animations,
+                     type_color_resource))) {
+                return status::invalid_handle;
             }
             if (!std::isfinite(opacity) || opacity < 0.0 || opacity > 1.0 ||
                 !std::isfinite(color.r) || !std::isfinite(color.g) ||
@@ -3483,7 +3554,12 @@ struct channel::implementation {
                 return status::malformed_batch;
             }
             solid_brushes.insert_or_assign(
-                handle, solid_brush_state{opacity, color});
+                handle,
+                solid_brush_state{
+                    opacity,
+                    color,
+                    opacity_animations,
+                    color_animations});
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -4612,11 +4688,14 @@ struct channel::implementation {
         if (glyph_run_entry == glyph_runs.end()) {
             return status::invalid_handle;
         }
-        const auto solid = solid_brushes.find(foreground_brush_handle);
-        if (solid == solid_brushes.end()) {
-            return require_brush(foreground_brush_handle)
-                ? status::unsupported_command
-                : status::invalid_handle;
+        progpu_native_color text_color{};
+        double text_opacity = 0.0;
+        const status brush_status = resolve_solid_brush(
+            foreground_brush_handle,
+            text_color,
+            text_opacity);
+        if (brush_status != status::success) {
+            return brush_status;
         }
         const auto& glyph_run = glyph_run_entry->second;
         if ((glyph_run.flags & 0x0001U) != 0U) {
@@ -4793,8 +4872,7 @@ struct channel::implementation {
         if (positioned.empty()) {
             return status::success;
         }
-        progpu_native_color text_color = solid->second.color;
-        text_color.a *= static_cast<float>(solid->second.opacity);
+        text_color.a *= static_cast<float>(text_opacity);
         const std::uint32_t text_rendering_mode =
             current.text_rendering_mode == 1U
             ? PROGPU_NATIVE_SCENE_TEXT_ALIASED
@@ -6088,10 +6166,19 @@ struct channel::implementation {
                     result = existing->second;
                     return status::success;
                 }
+                progpu_native_color color{};
+                double opacity = 0.0;
+                const status brush_status = resolve_solid_brush(
+                    brush_handle,
+                    color,
+                    opacity);
+                if (brush_status != status::success) {
+                    return brush_status;
+                }
                 std::uint32_t added = PROGPU_NATIVE_SCENE_NO_INDEX;
                 if (!builder.add_solid_brush(
-                        solid->second.color,
-                        static_cast<float>(solid->second.opacity),
+                        color,
+                        static_cast<float>(opacity),
                         added)) {
                     return status::invalid_graph;
                 }
@@ -9397,14 +9484,16 @@ struct channel::implementation {
         if (brush_handle == 0U) {
             return status::success;
         }
-        const auto mask = solid_brushes.find(brush_handle);
-        if (mask == solid_brushes.end()) {
-            return has_brush_state(brush_handle)
-                ? status::unsupported_command
-                : status::invalid_handle;
+        progpu_native_color color{};
+        double opacity = 0.0;
+        const status brush_status = resolve_solid_brush(
+            brush_handle,
+            color,
+            opacity);
+        if (brush_status != status::success) {
+            return brush_status;
         }
-        alpha = mask->second.opacity *
-            static_cast<double>(mask->second.color.a);
+        alpha = opacity * static_cast<double>(color.a);
         if (!finite_double_as_float(alpha) ||
             alpha < 0.0 || alpha > 1.0) {
             return status::invalid_graph;
@@ -10140,6 +10229,14 @@ struct channel::implementation {
                      transform->second.animations) {
                     append_if_success(animation);
                 }
+            }
+        } else if (resource->second.type == type_solid_color_brush) {
+            const auto brush = solid_brushes.find(handle);
+            if (brush == solid_brushes.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(brush->second.opacity_animation_handle);
+                append_if_success(brush->second.color_animation_handle);
             }
         } else if (resource->second.type == type_linear_gradient_brush ||
             resource->second.type == type_radial_gradient_brush) {
