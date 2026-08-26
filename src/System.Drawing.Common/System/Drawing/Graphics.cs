@@ -23,6 +23,7 @@ public class Graphics :
     private readonly RectangleF? _deviceBounds;
     private readonly WgpuContext? _targetContext;
     private readonly Action? _completed;
+    private readonly Action<FlushIntention>? _flushed;
     // Device/host state is immutable; public Transform APIs mutate only _transform.
     private readonly Matrix3x2 _baseTransform;
     private Matrix _transform = new();
@@ -161,7 +162,8 @@ public class Graphics :
             Matrix3x2.Identity,
             deviceBounds: null,
             targetContext: null,
-            completed: null)
+            completed: null,
+            flushed: null)
     {
     }
 
@@ -171,7 +173,8 @@ public class Graphics :
         Matrix3x2 baseTransform,
         RectangleF? deviceBounds,
         WgpuContext? targetContext,
-        Action? completed)
+        Action? completed,
+        Action<FlushIntention>? flushed)
     {
         _context = context;
         _bitmap = bitmap;
@@ -179,6 +182,7 @@ public class Graphics :
         _deviceBounds = deviceBounds;
         _targetContext = targetContext;
         _completed = completed;
+        _flushed = flushed;
     }
 
     public static Graphics FromProGpuDrawingContext(DrawingContext drawingContext)
@@ -266,6 +270,37 @@ public class Graphics :
     }
 
     /// <summary>
+    /// Creates a host-owned graphics recorder with a synchronous
+    /// batch-consumption callback and no explicit GPU device. Headless and
+    /// retained-only hosts use this overload to implement flush boundaries.
+    /// </summary>
+    public static Graphics FromProGpuDrawingContext(
+        DrawingContext drawingContext,
+        RectangleF deviceBounds,
+        Matrix4x4 outerTransform,
+        Action<FlushIntention> flushed,
+        Action completed)
+    {
+        ArgumentNullException.ThrowIfNull(flushed);
+        ArgumentNullException.ThrowIfNull(completed);
+
+        if (!IsFiniteNonNegative(deviceBounds))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(deviceBounds),
+                "Device bounds must be finite and have non-negative dimensions.");
+        }
+
+        return FromProGpuDrawingContextCore(
+            drawingContext,
+            outerTransform,
+            deviceBounds,
+            targetContext: null,
+            completed,
+            flushed);
+    }
+
+    /// <summary>
     /// Creates a host-owned Graphics recorder that targets an explicit WebGPU
     /// device and invokes <paramref name="completed"/> exactly once when the
     /// recorder is disposed. Framework hosts use this overload to record on the
@@ -298,12 +333,47 @@ public class Graphics :
             completed);
     }
 
+    /// <summary>
+    /// Creates a host-owned graphics recorder with an explicit device and a
+    /// synchronous batch-consumption callback. The callback must consume or
+    /// clear the current recording before it returns.
+    /// </summary>
+    public static Graphics FromProGpuDrawingContext(
+        DrawingContext drawingContext,
+        RectangleF deviceBounds,
+        Matrix4x4 outerTransform,
+        WgpuContext targetContext,
+        Action<FlushIntention> flushed,
+        Action completed)
+    {
+        ArgumentNullException.ThrowIfNull(targetContext);
+        ArgumentNullException.ThrowIfNull(flushed);
+        ArgumentNullException.ThrowIfNull(completed);
+        ObjectDisposedException.ThrowIf(targetContext.IsDisposed, targetContext);
+
+        if (!IsFiniteNonNegative(deviceBounds))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(deviceBounds),
+                "Device bounds must be finite and have non-negative dimensions.");
+        }
+
+        return FromProGpuDrawingContextCore(
+            drawingContext,
+            outerTransform,
+            deviceBounds,
+            targetContext,
+            completed,
+            flushed);
+    }
+
     private static Graphics FromProGpuDrawingContextCore(
         DrawingContext drawingContext,
         Matrix4x4 outerTransform,
         RectangleF? deviceBounds,
         WgpuContext? targetContext = null,
-        Action? completed = null)
+        Action? completed = null,
+        Action<FlushIntention>? flushed = null)
     {
         ArgumentNullException.ThrowIfNull(drawingContext);
         if (!IsFinite2DAffineTransform(outerTransform))
@@ -325,7 +395,8 @@ public class Graphics :
                 outerTransform.M42),
             deviceBounds,
             targetContext,
-            completed);
+            completed,
+            flushed);
     }
 
     private static bool IsFiniteNonNegative(RectangleF bounds) =>
@@ -369,6 +440,61 @@ public class Graphics :
     public static Graphics FromHwnd(IntPtr hwnd)
     {
         return new Graphics(new DrawingContext());
+    }
+
+    public void Flush() => Flush(FlushIntention.Flush);
+
+    public void Flush(FlushIntention intention)
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            throw new ArgumentException("Parameter is not valid.");
+        }
+
+        if (_bitmap is not null)
+        {
+            SuspendRecorderState();
+            try
+            {
+                _bitmap.Flush();
+                if (intention == FlushIntention.Sync)
+                {
+                    _bitmap.GetDrawingContext().PollDevice(wait: true);
+                }
+            }
+            finally
+            {
+                ResumeRecorderState();
+            }
+
+            return;
+        }
+
+        if (_flushed is null)
+        {
+            throw new InvalidOperationException(
+                "This Graphics recorder has no host submission target to flush.");
+        }
+
+        SuspendRecorderState();
+        try
+        {
+            _flushed(intention);
+            if (_context.Commands.Count != 0)
+            {
+                throw new InvalidOperationException(
+                    "The Graphics flush callback must consume or clear the recorded command batch before returning.");
+            }
+
+            if (intention == FlushIntention.Sync)
+            {
+                _targetContext?.PollDevice(wait: true);
+            }
+        }
+        finally
+        {
+            ResumeRecorderState();
+        }
     }
 
     public void TranslateTransform(float dx, float dy)
@@ -594,6 +720,11 @@ public class Graphics :
 
         _clip?.Dispose();
         _clip = clip;
+        PushCurrentClip();
+    }
+
+    private void PushCurrentClip()
+    {
         if (_clip == null || _clip.IsInfinite(this))
         {
             return;
@@ -604,6 +735,17 @@ public class Graphics :
             CurrentTransform4x4());
         _hasPushedClip = true;
     }
+
+    private void SuspendRecorderState()
+    {
+        if (_hasPushedClip)
+        {
+            _context.PopGeometryClip();
+            _hasPushedClip = false;
+        }
+    }
+
+    private void ResumeRecorderState() => PushCurrentClip();
 
     private RectangleF GetFiniteDrawingUniverse()
     {
