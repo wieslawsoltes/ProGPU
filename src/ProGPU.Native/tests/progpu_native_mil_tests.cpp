@@ -3077,6 +3077,10 @@ bool visual_bitmap_cache_preserves_nested_effect_ordering() {
     constexpr std::uint32_t child_cache = 7U;
     constexpr std::uint32_t blur = 8U;
     constexpr std::uint32_t clip = 9U;
+    constexpr std::uint32_t root_mask = 10U;
+    constexpr std::uint32_t child_mask = 11U;
+    constexpr std::uint32_t changed_root_mask = 12U;
+    constexpr std::uint32_t changed_child_mask = 13U;
 
     std::vector<std::byte> batch;
     append_create(batch, root, 39U);
@@ -3088,12 +3092,91 @@ bool visual_bitmap_cache_preserves_nested_effect_ordering() {
     append_create(batch, child_cache, 94U);
     append_create(batch, blur, 36U);
     append_create(batch, clip, 69U);
+    append_create(batch, root_mask, 77U);
+    append_create(batch, child_mask, 77U);
+    append_create(batch, changed_root_mask, 77U);
+    append_create(batch, changed_child_mask, 77U);
     append_command(batch, command::visual_create, root);
     append_command(batch, command::visual_create, child);
     append_command(batch, command::visual_set_content, child, child_content);
     append_command(batch, command::visual_set_offset, child, 5.0, 6.0);
     append_command(batch, command::visual_set_alpha, child, 0.5);
     append_command(batch, command::visual_set_clip, child, clip);
+    const std::array mask_stops{
+        mil_gradient_stop{0.0, {1.0F, 1.0F, 1.0F, 0.0F}},
+        mil_gradient_stop{1.0, {1.0F, 1.0F, 1.0F, 1.0F}}};
+    append_linear_gradient_brush(
+        batch,
+        root_mask,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0U,
+        0U,
+        0U,
+        1U,
+        1U,
+        0U,
+        0U,
+        0U,
+        mask_stops);
+    append_linear_gradient_brush(
+        batch,
+        child_mask,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0U,
+        0U,
+        0U,
+        1U,
+        1U,
+        0U,
+        0U,
+        0U,
+        mask_stops);
+    append_linear_gradient_brush(
+        batch,
+        changed_root_mask,
+        0.5,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0U,
+        0U,
+        0U,
+        1U,
+        1U,
+        0U,
+        0U,
+        0U,
+        mask_stops);
+    append_linear_gradient_brush(
+        batch,
+        changed_child_mask,
+        0.5,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0U,
+        0U,
+        0U,
+        1U,
+        1U,
+        0U,
+        0U,
+        0U,
+        mask_stops);
+    append_command(
+        batch, command::visual_set_alpha_mask, root, root_mask);
+    append_command(
+        batch, command::visual_set_alpha_mask, child, child_mask);
     append_command(
         batch,
         command::solid_color_brush,
@@ -3170,6 +3253,8 @@ bool visual_bitmap_cache_preserves_nested_effect_ordering() {
     PROGPU_REQUIRE(
         (layers[0].flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U);
     PROGPU_REQUIRE(
+        layers[0].mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX);
+    PROGPU_REQUIRE(
         layers[1].effect_resource_index !=
             PROGPU_NATIVE_SCENE_NO_INDEX);
     PROGPU_REQUIRE(
@@ -3179,6 +3264,8 @@ bool visual_bitmap_cache_preserves_nested_effect_ordering() {
         0U);
     PROGPU_REQUIRE(
         (layers[2].flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U);
+    PROGPU_REQUIRE(
+        layers[2].mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX);
     PROGPU_REQUIRE(layers[1].opacity == 1.0F);
     PROGPU_REQUIRE(layers[2].opacity == 0.5F);
     progpu_native_scene_state effect_composite{};
@@ -3199,6 +3286,62 @@ bool visual_bitmap_cache_preserves_nested_effect_ordering() {
     const auto first_root = layers[0];
     const auto first_child = layers[2];
 
+    std::vector<std::byte> root_mask_update;
+    append_command(
+        root_mask_update,
+        command::visual_set_alpha_mask,
+        root,
+        changed_root_mask);
+    PROGPU_REQUIRE(state.apply(root_mask_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9023U, 2U, stream, &metrics) ==
+        status::success);
+    layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(layers.size() == 3U);
+    PROGPU_REQUIRE(
+        layers[0].content_revision == first_root.content_revision);
+    PROGPU_REQUIRE(
+        layers[2].content_revision == first_child.content_revision);
+    progpu_native_scene_layer_brush_mask root_mask_resource{};
+    std::vector<progpu_native_scene_gradient_stop> root_mask_stops;
+    PROGPU_REQUIRE(try_get_brush_mask_resource(
+        stream,
+        layers[0].mask_resource_index,
+        root_mask_resource,
+        root_mask_stops));
+    PROGPU_REQUIRE(root_mask_resource.brush.opacity == 0.5F);
+    const auto root_masked_root = layers[0];
+    const auto root_masked_child = layers[2];
+
+    std::vector<std::byte> child_mask_update;
+    append_command(
+        child_mask_update,
+        command::visual_set_alpha_mask,
+        child,
+        changed_child_mask);
+    PROGPU_REQUIRE(state.apply(child_mask_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9023U, 3U, stream, &metrics) ==
+        status::success);
+    layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(layers.size() == 3U);
+    PROGPU_REQUIRE(
+        layers[0].content_revision !=
+            root_masked_root.content_revision);
+    PROGPU_REQUIRE(
+        layers[2].content_revision ==
+            root_masked_child.content_revision);
+    progpu_native_scene_layer_brush_mask child_mask_resource{};
+    std::vector<progpu_native_scene_gradient_stop> child_mask_stops;
+    PROGPU_REQUIRE(try_get_brush_mask_resource(
+        stream,
+        layers[2].mask_resource_index,
+        child_mask_resource,
+        child_mask_stops));
+    PROGPU_REQUIRE(child_mask_resource.brush.opacity == 0.5F);
+    const auto combined_root = layers[0];
+    const auto combined_child = layers[2];
+
     std::vector<std::byte> child_composite_update;
     append_command(
         child_composite_update,
@@ -3209,18 +3352,18 @@ bool visual_bitmap_cache_preserves_nested_effect_ordering() {
     PROGPU_REQUIRE(
         state.apply(child_composite_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 9023U, 2U, stream, &metrics) ==
+        state.build_scene(target, 9023U, 4U, stream, &metrics) ==
         status::success);
     layers = get_scene_layers(stream);
     PROGPU_REQUIRE(layers.size() == 3U);
     PROGPU_REQUIRE(
-        layers[0].content_revision != first_root.content_revision);
+        layers[0].content_revision != combined_root.content_revision);
     PROGPU_REQUIRE(
-        layers[0].composite_revision == first_root.composite_revision);
+        layers[0].composite_revision == combined_root.composite_revision);
     PROGPU_REQUIRE(
-        layers[2].content_revision == first_child.content_revision);
+        layers[2].content_revision == combined_child.content_revision);
     PROGPU_REQUIRE(
-        layers[2].composite_revision == first_child.composite_revision);
+        layers[2].composite_revision == combined_child.composite_revision);
     const auto moved_root = layers[0];
     const auto moved_child = layers[2];
 
@@ -3233,7 +3376,7 @@ bool visual_bitmap_cache_preserves_nested_effect_ordering() {
         4.0);
     PROGPU_REQUIRE(state.apply(root_composite_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 9023U, 3U, stream, &metrics) ==
+        state.build_scene(target, 9023U, 5U, stream, &metrics) ==
         status::success);
     layers = get_scene_layers(stream);
     PROGPU_REQUIRE(layers.size() == 3U);
@@ -3247,7 +3390,7 @@ bool visual_bitmap_cache_preserves_nested_effect_ordering() {
         effect_update, command::blur_effect, blur, 9.0, 0U, 0U, 1U);
     PROGPU_REQUIRE(state.apply(effect_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 9023U, 4U, stream, &metrics) ==
+        state.build_scene(target, 9023U, 6U, stream, &metrics) ==
         status::success);
     layers = get_scene_layers(stream);
     PROGPU_REQUIRE(layers.size() == 3U);

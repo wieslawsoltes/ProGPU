@@ -9,6 +9,9 @@ internal static class RetainedCacheMaskEffectQualification
     private const uint Height = 32U;
     private const ulong SceneId = 0x434143484D465831UL;
     private const ulong CacheIdentity = 7201U;
+    private const ulong NestedSceneId = 0x434143484D465832UL;
+    private const ulong RootCacheIdentity = 7202U;
+    private const ulong ChildCacheIdentity = 7203U;
 
     public static void Run()
     {
@@ -72,6 +75,146 @@ internal static class RetainedCacheMaskEffectQualification
             $"{stable.Layer.EffectPassCount}->" +
             $"{changed.Layer.EffectPassCount}, first={firstExtent}, " +
             $"changed={changedExtent}, pixels={maskChanges}.");
+
+        RunNestedCacheOwnership(context);
+    }
+
+    private static void RunNestedCacheOwnership(WgpuContext context)
+    {
+        using var target = new GpuTexture(
+            context,
+            Width,
+            Height,
+            TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc,
+            "Nested retained cache mask ownership qualification target");
+        using var compositor = new NativeCompositor(
+            context,
+            TextureFormat.Rgba8Unorm);
+        FrameResult first = RenderNested(
+            compositor,
+            context,
+            target,
+            generation: 1U,
+            parentMaskOpacity: 1f,
+            childMaskOpacity: 1f,
+            rootContentRevision: 1U,
+            childCompositeRevision: 1U);
+        FrameResult stable = RenderNested(
+            compositor,
+            context,
+            target,
+            generation: 2U,
+            parentMaskOpacity: 1f,
+            childMaskOpacity: 1f,
+            rootContentRevision: 1U,
+            childCompositeRevision: 1U);
+        FrameResult parentChanged = RenderNested(
+            compositor,
+            context,
+            target,
+            generation: 3U,
+            parentMaskOpacity: 0.5f,
+            childMaskOpacity: 1f,
+            rootContentRevision: 1U,
+            childCompositeRevision: 1U);
+        FrameResult childChanged = RenderNested(
+            compositor,
+            context,
+            target,
+            generation: 4U,
+            parentMaskOpacity: 0.5f,
+            childMaskOpacity: 0.5f,
+            rootContentRevision: 2U,
+            childCompositeRevision: 2U);
+
+        int stableChanges = CountChangedPixels(
+            first.Pixels, stable.Pixels);
+        int parentChanges = CountChangedPixels(
+            stable.Pixels, parentChanged.Pixels);
+        int childChanges = CountChangedPixels(
+            parentChanged.Pixels, childChanged.Pixels);
+        PixelExtent firstExtent = Measure(first.Pixels);
+        PixelExtent parentExtent = Measure(parentChanged.Pixels);
+        PixelExtent childExtent = Measure(childChanged.Pixels);
+        Require(
+            first.Update.ValidationError == NativeSceneValidationError.None &&
+            stable.Update.ValidationError == NativeSceneValidationError.None &&
+            parentChanged.Update.ValidationError ==
+                NativeSceneValidationError.None &&
+            childChanged.Update.ValidationError ==
+                NativeSceneValidationError.None &&
+            first.Frame.SubmissionCount > 0U &&
+            stable.Frame.SubmissionCount > 0U &&
+            parentChanged.Frame.SubmissionCount > 0U &&
+            childChanged.Frame.SubmissionCount > 0U &&
+            first.Layer.ContentPassCount == 3U &&
+            stable.Layer.ContentPassCount == 0U &&
+            parentChanged.Layer.ContentPassCount == 0U &&
+            childChanged.Layer.ContentPassCount == 2U &&
+            first.Layer.EffectPassCount == 2U &&
+            stable.Layer.EffectPassCount == 0U &&
+            parentChanged.Layer.EffectPassCount == 0U &&
+            childChanged.Layer.EffectPassCount == 2U,
+            "nested cache mask frame validation failed: " +
+            $"first={first.Layer}; stable={stable.Layer}; parent=" +
+            $"{parentChanged.Layer}; child={childChanged.Layer}");
+        Require(
+            stableChanges == 0 && parentChanges >= 16 &&
+            childChanges >= 8 && firstExtent.IsVisible &&
+            parentExtent.IsVisible && childExtent.IsVisible &&
+            parentExtent.RedSum < firstExtent.RedSum &&
+            childExtent.RedSum < parentExtent.RedSum,
+            "nested cache mask ownership pixels are invalid: " +
+            $"stableChanges={stableChanges}, parentChanges={parentChanges}, " +
+            $"childChanges={childChanges}, first={firstExtent}, " +
+            $"parent={parentExtent}, child={childExtent}");
+
+        Console.WriteLine(
+            "Qualified live nested retained-cache mask ownership " +
+            $"on adapter '{context.AdapterName}', " +
+            $"backend={context.AdapterBackendType}; content passes=" +
+            $"{first.Layer.ContentPassCount}->" +
+            $"{stable.Layer.ContentPassCount}->" +
+            $"{parentChanged.Layer.ContentPassCount}->" +
+            $"{childChanged.Layer.ContentPassCount}, effect passes=" +
+            $"{first.Layer.EffectPassCount}->" +
+            $"{stable.Layer.EffectPassCount}->" +
+            $"{parentChanged.Layer.EffectPassCount}->" +
+            $"{childChanged.Layer.EffectPassCount}, changes=" +
+            $"{stableChanges}/{parentChanges}/{childChanges}, first=" +
+            $"{firstExtent}, parent={parentExtent}, child={childExtent}.");
+    }
+
+    private static FrameResult RenderNested(
+        NativeCompositor compositor,
+        WgpuContext context,
+        GpuTexture target,
+        ulong generation,
+        float parentMaskOpacity,
+        float childMaskOpacity,
+        ulong rootContentRevision,
+        ulong childCompositeRevision)
+    {
+        byte[] scene = BuildNestedScene(
+            generation,
+            parentMaskOpacity,
+            childMaskOpacity,
+            rootContentRevision,
+            childCompositeRevision);
+        NativeSceneUpdateMetrics update = compositor.UpdateScene(scene);
+        NativeSceneFrameMetrics frame = compositor.RenderScene(
+            target,
+            dpiScale: 1f,
+            NestedSceneId,
+            generation,
+            clearColor: new Vector4(0f, 0f, 0f, 1f));
+        context.WaitIdle();
+        return new FrameResult(
+            update,
+            frame,
+            compositor.GetLayerMetrics(),
+            target.ReadPixels());
     }
 
     private static FrameResult Render(
@@ -200,6 +343,177 @@ internal static class RetainedCacheMaskEffectQualification
             builder.TryPopLayer(commandId: 5U) &&
             builder.TryBuild(out stream);
         Require(success, "failed to build the cache mask/effect scene");
+        return stream.ToArray();
+    }
+
+    private static byte[] BuildNestedScene(
+        ulong generation,
+        float parentMaskOpacity,
+        float childMaskOpacity,
+        ulong rootContentRevision,
+        ulong childCompositeRevision)
+    {
+        NativeSceneGradientStop[] parentStops =
+        [
+            new NativeSceneGradientStop(
+                new Vector4(1f, 1f, 1f, 0f), 0f),
+            new NativeSceneGradientStop(
+                new Vector4(1f, 1f, 1f, 1f), 1f)
+        ];
+        NativeSceneBrush parentBrush = NativeSceneBrush.LinearGradient(
+            Vector2.Zero,
+            new Vector2(32f, 0f),
+            stopOffset: 0U,
+            parentStops,
+            opacity: parentMaskOpacity,
+            coordinateTransform: Matrix3x2.CreateTranslation(-6f, -6f));
+        var parentMask = new NativeSceneLayerBrushMask(
+            new NativeImageRect(0f, 0f, 32f, 20f),
+            Matrix3x2.CreateTranslation(6f, 6f),
+            in parentBrush,
+            gradientStopCount: (uint)parentStops.Length);
+        NativeSceneGradientStop[] childStops =
+        [
+            new NativeSceneGradientStop(
+                new Vector4(1f, 1f, 1f, 1f), 0f),
+            new NativeSceneGradientStop(
+                new Vector4(1f, 1f, 1f, 0f), 1f)
+        ];
+        NativeSceneBrush childBrush = NativeSceneBrush.LinearGradient(
+            Vector2.Zero,
+            new Vector2(0f, 12f),
+            stopOffset: 0U,
+            childStops,
+            opacity: childMaskOpacity,
+            coordinateTransform: Matrix3x2.CreateTranslation(-4f, -4f));
+        var childMask = new NativeSceneLayerBrushMask(
+            new NativeImageRect(0f, 0f, 16f, 12f),
+            Matrix3x2.CreateTranslation(4f, 4f),
+            in childBrush,
+            gradientStopCount: (uint)childStops.Length);
+        Span<NativeSceneEffect> effects = stackalloc NativeSceneEffect[1];
+        effects[0] = NativeSceneEffect.GaussianBlur(
+            sigmaX: 2f,
+            sigmaY: 2f,
+            revision: 1U);
+        Span<NativeAnalyticPrimitive> child =
+            stackalloc NativeAnalyticPrimitive[1];
+        child[0] = new NativeAnalyticPrimitive(
+            NativeAnalyticPrimitiveKind.Rectangle,
+            0f,
+            0f,
+            16f,
+            12f,
+            new Vector4(1f, 0f, 0f, 1f),
+            Matrix3x2.Identity);
+        Span<NativeAnalyticPrimitive> sibling =
+            stackalloc NativeAnalyticPrimitive[1];
+        sibling[0] = new NativeAnalyticPrimitive(
+            NativeAnalyticPrimitiveKind.Rectangle,
+            12f,
+            4f,
+            16f,
+            12f,
+            new Vector4(1f, 0f, 0f, 1f),
+            Matrix3x2.Identity);
+        int size = NativeSceneStreamBuilder.GetRequiredBufferSize(
+            commandCapacity: 8,
+            resourceCapacity: 7,
+            arenaCapacity: 3584);
+        byte[] destination = GC.AllocateUninitializedArray<byte>(size);
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            NestedSceneId,
+            generation,
+            commandCapacity: 8,
+            resourceCapacity: 7);
+        var rootCompositeState = new NativeSceneState(
+            Matrix3x2.CreateTranslation(6f, 6f));
+        var childCompositeState = new NativeSceneState(
+            Matrix3x2.CreateTranslation(4f, 4f));
+        ReadOnlySpan<byte> stream = default;
+        bool success = builder.TryAddStateResource(
+                resourceId: 1U,
+                generation: 1U,
+                in rootCompositeState,
+                out uint rootStateIndex) &&
+            builder.TryAddStateResource(
+                resourceId: 2U,
+                generation: 1U,
+                in childCompositeState,
+                out uint childStateIndex) &&
+            builder.TryAddLayerBrushMaskResource(
+                resourceId: 3U,
+                generation: parentMaskOpacity == 1f ? 1U : 2U,
+                in parentMask,
+                parentStops,
+                out uint parentMaskIndex) &&
+            builder.TryAddLayerBrushMaskResource(
+                resourceId: 4U,
+                generation: childMaskOpacity == 1f ? 1U : 2U,
+                in childMask,
+                childStops,
+                out uint childMaskIndex) &&
+            builder.TryAddEffectChainResource(
+                resourceId: 5U,
+                generation: 1U,
+                effects,
+                revision: 1U,
+                out uint effectIndex) &&
+            builder.TryAddAnalyticResource(
+                resourceId: 6U,
+                generation: 1U,
+                child,
+                out uint childIndex) &&
+            builder.TryAddAnalyticResource(
+                resourceId: 7U,
+                generation: 1U,
+                sibling,
+                out uint siblingIndex) &&
+            builder.TryPushLayer(
+                commandId: 1U,
+                new NativeSceneLayer(
+                    flags: NativeSceneLayerFlags.Bounds |
+                        NativeSceneLayerFlags.CacheContent |
+                        NativeSceneLayerFlags.CacheLocalSpace,
+                    bounds: new NativeImageRect(0f, 0f, 32f, 20f),
+                    maskResourceIndex: parentMaskIndex,
+                    contentRevision: rootContentRevision,
+                    compositeRevision: RootCacheIdentity,
+                    compositeStateResourceIndex: rootStateIndex)) &&
+            builder.TryPushLayer(
+                commandId: 2U,
+                new NativeSceneLayer(
+                    flags: NativeSceneLayerFlags.Bounds |
+                        NativeSceneLayerFlags.ForceIsolation,
+                    bounds: new NativeImageRect(0f, 0f, 24f, 20f),
+                    effectResourceIndex: effectIndex,
+                    contentRevision: childCompositeRevision,
+                    compositeRevision: childCompositeRevision)) &&
+            builder.TryPushLayer(
+                commandId: 3U,
+                new NativeSceneLayer(
+                    flags: NativeSceneLayerFlags.Bounds |
+                        NativeSceneLayerFlags.CacheContent |
+                        NativeSceneLayerFlags.CacheLocalSpace,
+                    bounds: new NativeImageRect(0f, 0f, 16f, 12f),
+                    maskResourceIndex: childMaskIndex,
+                    contentRevision: 1U,
+                    compositeRevision: ChildCacheIdentity,
+                    compositeStateResourceIndex: childStateIndex)) &&
+            builder.TryDrawAnalytic(
+                commandId: 4U,
+                childIndex,
+                new NativeImageRect(0f, 0f, 16f, 12f)) &&
+            builder.TryPopLayer(commandId: 5U) &&
+            builder.TryPopLayer(commandId: 6U) &&
+            builder.TryDrawAnalytic(
+                commandId: 7U,
+                siblingIndex,
+                new NativeImageRect(12f, 4f, 16f, 12f)) &&
+            builder.TryPopLayer(commandId: 8U) &&
+            builder.TryBuild(out stream);
+        Require(success, "failed to build nested cache mask scene");
         return stream.ToArray();
     }
 
