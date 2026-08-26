@@ -18,7 +18,7 @@ index f1e707e..7cfedb3 100644
 +        m_capturePath.resize(captureLength);
 +        const DWORD copied = GetEnvironmentVariableW(
 +            L"PROGPU_DIRECTX_ORACLE_OUTPUT",
-+            m_capturePath.data(),
++            &m_capturePath[0],
 +            captureLength);
 +        if (copied == 0 || copied >= captureLength)
 +        {
