@@ -1464,6 +1464,7 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     constexpr std::uint32_t blur = 5U;
     constexpr std::uint32_t shadow = 6U;
     constexpr std::uint32_t clip = 7U;
+    constexpr std::uint32_t parent = 8U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -1691,10 +1692,73 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     PROGPU_REQUIRE(zero_blur_layers[0].bounds.height == 24.0F);
 
     std::vector<std::byte> opacity_effect;
+    append_command(
+        opacity_effect, command::blur_effect, blur, 9.0, 0U, 0U, 1U);
     append_command(opacity_effect, command::visual_set_alpha, visual, 0.5);
     PROGPU_REQUIRE(state.apply(opacity_effect) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 9014U, 6U, stream, &metrics) ==
+        status::success);
+    const auto opacity_effect_layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(opacity_effect_layers.size() == 2U);
+    PROGPU_REQUIRE(
+        opacity_effect_layers[0].effect_resource_index !=
+            PROGPU_NATIVE_SCENE_NO_INDEX);
+    PROGPU_REQUIRE(
+        (opacity_effect_layers[0].flags &
+            PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U);
+    PROGPU_REQUIRE(opacity_effect_layers[0].bounds.x == -1.0F);
+    PROGPU_REQUIRE(opacity_effect_layers[0].bounds.y == 1.0F);
+    PROGPU_REQUIRE(opacity_effect_layers[0].bounds.width == 50.0F);
+    PROGPU_REQUIRE(opacity_effect_layers[0].bounds.height == 42.0F);
+    PROGPU_REQUIRE(
+        opacity_effect_layers[1].effect_resource_index ==
+            PROGPU_NATIVE_SCENE_NO_INDEX);
+    PROGPU_REQUIRE(
+        (opacity_effect_layers[1].flags &
+            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION) != 0U);
+    PROGPU_REQUIRE(opacity_effect_layers[1].opacity == 0.5F);
+    PROGPU_REQUIRE(opacity_effect_layers[1].bounds.x == 8.0F);
+    PROGPU_REQUIRE(opacity_effect_layers[1].bounds.y == 10.0F);
+    PROGPU_REQUIRE(opacity_effect_layers[1].bounds.width == 32.0F);
+    PROGPU_REQUIRE(opacity_effect_layers[1].bounds.height == 24.0F);
+
+    std::vector<std::byte> zero_blur_opacity;
+    append_command(
+        zero_blur_opacity, command::blur_effect, blur, 0.0, 0U, 0U, 1U);
+    append_command(
+        zero_blur_opacity, command::visual_set_clip, visual, 0U);
+    PROGPU_REQUIRE(state.apply(zero_blur_opacity) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9014U, 7U, stream, &metrics) ==
+        status::success);
+    const auto zero_opacity_layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(zero_opacity_layers.size() == 1U);
+    PROGPU_REQUIRE(
+        zero_opacity_layers[0].effect_resource_index ==
+            PROGPU_NATIVE_SCENE_NO_INDEX);
+    PROGPU_REQUIRE(zero_opacity_layers[0].opacity == 0.5F);
+    PROGPU_REQUIRE(zero_opacity_layers[0].bounds.x == 8.0F);
+    PROGPU_REQUIRE(zero_opacity_layers[0].bounds.y == 10.0F);
+    PROGPU_REQUIRE(zero_opacity_layers[0].bounds.width == 32.0F);
+    PROGPU_REQUIRE(zero_opacity_layers[0].bounds.height == 24.0F);
+
+    std::vector<std::byte> inherited_opacity;
+    append_create(inherited_opacity, parent, 39U);
+    append_command(inherited_opacity, command::visual_create, parent);
+    append_command(
+        inherited_opacity, command::visual_set_alpha, parent, 0.5);
+    append_command(
+        inherited_opacity,
+        command::visual_insert_child_at,
+        parent,
+        visual,
+        0U);
+    append_command(
+        inherited_opacity, command::target_set_root, target, parent);
+    PROGPU_REQUIRE(state.apply(inherited_opacity) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9014U, 8U, stream, &metrics) ==
         status::unsupported_command);
     return true;
 }

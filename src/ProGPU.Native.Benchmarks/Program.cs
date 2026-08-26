@@ -93,6 +93,17 @@ if (Array.Exists(
         args,
         static value => string.Equals(
             value,
+            "--semantic-uncached-opacity-effect",
+            StringComparison.OrdinalIgnoreCase)))
+{
+    RetainedOpacityEffectQualification.Run();
+    return;
+}
+
+if (Array.Exists(
+        args,
+        static value => string.Equals(
+            value,
             "--managed-picture",
             StringComparison.OrdinalIgnoreCase)))
 {

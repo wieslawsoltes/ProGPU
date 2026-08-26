@@ -305,6 +305,7 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
         Invoke-NativeBenchmark --semantic-cache-mask-effect
         Invoke-NativeBenchmark --semantic-cache-effect-clip
         Invoke-NativeBenchmark --semantic-bounded-effect
+        Invoke-NativeBenchmark --semantic-uncached-opacity-effect
         Invoke-NativeBenchmark --semantic-scene --rectangles 96 --warmup 2 --iterations 4
         Invoke-NativeBenchmark --semantic-layer-effects --rectangles 96 --warmup 2 --iterations 4
         Invoke-NativeBenchmark --text-shaping --text-repeats 2 --warmup 8 --iterations 16

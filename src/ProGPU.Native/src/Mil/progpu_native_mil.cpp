@@ -8316,8 +8316,8 @@ struct channel::implementation {
         const render_scope_state& state,
         bool has_local_cache_input,
         native::semantic_scene_builder& builder,
-        bool& pushed) const {
-        pushed = false;
+        std::uint32_t& pushed_count) const {
+        pushed_count = 0U;
         if (effect_handle == 0U) {
             return status::success;
         }
@@ -8333,12 +8333,13 @@ struct channel::implementation {
         // stay on the inner cache layer and execute before this outer effect.
         // The clip is attached to the effect's final composite instead of its
         // source state so blur and shadow kernels can sample the untruncated
-        // visual. Uncached opacity would attenuate individual primitives
-        // instead of the isolated visual and remains fail closed.
-        if (state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
-            (state.opacity != 1.0 && !has_local_cache_input)) {
+        // visual. An uncached uniform opacity is represented by a bounded
+        // inner isolation layer so it executes once before the outer effect.
+        if (state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
             return status::unsupported_command;
         }
+        const bool isolate_source_opacity =
+            !has_local_cache_input && state.opacity != 1.0;
         const auto attach_final_clip = [&](
                 progpu_native_scene_layer& layer) -> status {
             if (!state.has_clip) {
@@ -8356,6 +8357,38 @@ struct channel::implementation {
             }
             layer.flags |= PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE;
             layer.reserved0 = composite_state_index;
+            return status::success;
+        };
+        const auto push_source_opacity_layer = [&]() -> status {
+            if (!isolate_source_opacity) {
+                return status::success;
+            }
+            progpu_native_scene_layer opacity_layer{};
+            opacity_layer.struct_size = sizeof(opacity_layer);
+            opacity_layer.flags =
+                PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+            opacity_layer.opacity = static_cast<float>(state.opacity);
+            opacity_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+            opacity_layer.mask_resource_index =
+                PROGPU_NATIVE_SCENE_NO_INDEX;
+            opacity_layer.effect_resource_index =
+                PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (visual->second.has_cache_bounds) {
+                if (!try_transform_bounds(
+                        visual->second.cache_bounds_x,
+                        visual->second.cache_bounds_y,
+                        visual->second.cache_bounds_width,
+                        visual->second.cache_bounds_height,
+                        state.transform,
+                        opacity_layer.bounds)) {
+                    return status::invalid_graph;
+                }
+                opacity_layer.flags |= PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+            }
+            if (!builder.push_layer(opacity_layer)) {
+                return status::invalid_graph;
+            }
+            ++pushed_count;
             return status::success;
         };
         const double scale_x = std::hypot(
@@ -8407,40 +8440,43 @@ struct channel::implementation {
         descriptor.sigma_y = descriptor.sigma_x;
         if (effect->second.type == effect_state::kind::blur) {
             if (descriptor.sigma_x <= 0.01F) {
-                if (!state.has_clip) {
+                if (!state.has_clip && !isolate_source_opacity) {
                     return status::success;
                 }
-                progpu_native_scene_layer clip_layer{};
-                clip_layer.struct_size = sizeof(clip_layer);
-                clip_layer.flags =
-                    PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
-                clip_layer.opacity = 1.0F;
-                clip_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
-                clip_layer.mask_resource_index =
-                    PROGPU_NATIVE_SCENE_NO_INDEX;
-                clip_layer.effect_resource_index =
-                    PROGPU_NATIVE_SCENE_NO_INDEX;
-                const status clip_status = attach_final_clip(clip_layer);
-                if (clip_status != status::success) {
-                    return clip_status;
-                }
-                if (visual->second.has_cache_bounds) {
-                    if (!try_transform_bounds(
-                            visual->second.cache_bounds_x,
-                            visual->second.cache_bounds_y,
-                            visual->second.cache_bounds_width,
-                            visual->second.cache_bounds_height,
-                            state.transform,
-                            clip_layer.bounds)) {
+                if (state.has_clip) {
+                    progpu_native_scene_layer clip_layer{};
+                    clip_layer.struct_size = sizeof(clip_layer);
+                    clip_layer.flags =
+                        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+                    clip_layer.opacity = 1.0F;
+                    clip_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+                    clip_layer.mask_resource_index =
+                        PROGPU_NATIVE_SCENE_NO_INDEX;
+                    clip_layer.effect_resource_index =
+                        PROGPU_NATIVE_SCENE_NO_INDEX;
+                    const status clip_status = attach_final_clip(clip_layer);
+                    if (clip_status != status::success) {
+                        return clip_status;
+                    }
+                    if (visual->second.has_cache_bounds) {
+                        if (!try_transform_bounds(
+                                visual->second.cache_bounds_x,
+                                visual->second.cache_bounds_y,
+                                visual->second.cache_bounds_width,
+                                visual->second.cache_bounds_height,
+                                state.transform,
+                                clip_layer.bounds)) {
+                            return status::invalid_graph;
+                        }
+                        clip_layer.flags |=
+                            PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+                    }
+                    if (!builder.push_layer(clip_layer)) {
                         return status::invalid_graph;
                     }
-                    clip_layer.flags |= PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+                    ++pushed_count;
                 }
-                if (!builder.push_layer(clip_layer)) {
-                    return status::invalid_graph;
-                }
-                pushed = true;
-                return status::success;
+                return push_source_opacity_layer();
             }
             descriptor.kind = PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR;
         } else {
@@ -8545,8 +8581,8 @@ struct channel::implementation {
         if (!builder.push_layer(layer)) {
             return status::invalid_graph;
         }
-        pushed = true;
-        return status::success;
+        ++pushed_count;
+        return push_source_opacity_layer();
     }
 
     status append_cache_resource_revision(
@@ -9234,6 +9270,15 @@ struct channel::implementation {
             active_visuals.erase(handle);
             return status::invalid_graph;
         }
+        const bool isolate_uncached_effect_opacity =
+            visual->second.effect_handle != 0U &&
+            visual->second.cache_mode_handle == 0U &&
+            current.opacity != 1.0;
+        if (isolate_uncached_effect_opacity &&
+            parent_state.opacity != 1.0) {
+            active_visuals.erase(handle);
+            return status::unsupported_command;
+        }
         if ((visual->second.render_options_flags &
                 render_option_bitmap_scaling) != 0U) {
             current.image_sampling =
@@ -9276,7 +9321,9 @@ struct channel::implementation {
             active_visuals.erase(handle);
             return status::invalid_graph;
         }
-        state.opacity = static_cast<float>(current.opacity);
+        state.opacity = isolate_uncached_effect_opacity
+            ? 1.0F
+            : static_cast<float>(current.opacity);
         if (current.has_clip && visual->second.effect_handle == 0U) {
             state.flags |= PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
             state.clip_rect = current.clip_rect;
@@ -9304,15 +9351,19 @@ struct channel::implementation {
             return status::invalid_graph;
         }
 
-        bool effect_layer_pushed = false;
+        std::uint32_t effect_layer_count = 0U;
         const status effect_status = add_visual_effect_layer(
             handle,
             visual->second.effect_handle,
             current,
             visual->second.cache_mode_handle != 0U,
             builder,
-            effect_layer_pushed);
+            effect_layer_count);
         if (effect_status != status::success) {
+            while (effect_layer_count != 0U) {
+                builder.pop_layer();
+                --effect_layer_count;
+            }
             builder.restore();
             active_visuals.erase(handle);
             return effect_status;
@@ -9322,6 +9373,9 @@ struct channel::implementation {
         bool skip_cached_content = false;
         bool cache_content_state_pushed = false;
         render_scope_state content_scope = current;
+        if (isolate_uncached_effect_opacity) {
+            content_scope.opacity = 1.0;
+        }
         const status cache_status = add_visual_cache_layer(
             visual->second.cache_mode_handle,
             handle,
@@ -9339,8 +9393,9 @@ struct channel::implementation {
             if (cache_layer_pushed) {
                 builder.pop_layer();
             }
-            if (effect_layer_pushed) {
+            while (effect_layer_count != 0U) {
                 builder.pop_layer();
+                --effect_layer_count;
             }
             builder.restore();
             active_visuals.erase(handle);
@@ -9387,9 +9442,11 @@ struct channel::implementation {
             result == status::success) {
             result = status::invalid_graph;
         }
-        if (effect_layer_pushed && !builder.pop_layer() &&
-            result == status::success) {
-            result = status::invalid_graph;
+        while (effect_layer_count != 0U) {
+            if (!builder.pop_layer() && result == status::success) {
+                result = status::invalid_graph;
+            }
+            --effect_layer_count;
         }
         if (!builder.restore() && result == status::success) {
             result = status::invalid_graph;

@@ -2379,6 +2379,25 @@ win-arm64 DLL hashes are
 and `CE4A5E6E81F11DB499E8B160A550A14701F4D050EC80AC484C5CEEA57BA92F0A`
 for the base and Dawn exports respectively.
 
+Uncached uniform opacity before an effect is represented by a second bounded
+materialized layer, not by attenuating each draw. When the effect Visual has no
+inherited opacity, the compiler emits outer effect then inner
+`FORCE_ISOLATION` with the combined local uniform alpha, resets saved/content
+opacity to one, and pops the inner layer before effect execution. Exact typed
+source bounds size the inner layer; WPF-inflated bounds size the outer layer;
+the independent final rectangle clip remains outermost. A zero-radius blur
+keeps the opacity isolation even when it contributes no effect node.
+
+Inherited non-unit opacity and spatial opacity masks remain unsupported because
+moving those owner boundaries across a descendant effect would change WPF
+composition. MIL regressions cover exact nesting/bounds, final clip, the
+zero-radius edge, and inherited-opacity rejection. The live Metal gate proves
+the grouped output is byte-identical to a half-opacity union reference while a
+per-primitive-alpha fallback changes 420 pixels and raises an overlap sample
+from 128 to 188. It executes `2/2/2` content/composite/effect passes at extent
+`[5,5]-[46,30]`, red sum 65,536; the Windows lane runs the same stream on the
+shared D3D12 executor.
+
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then
 12x9 page extents. Package-mode managed Dawn rendering/readback and forced
