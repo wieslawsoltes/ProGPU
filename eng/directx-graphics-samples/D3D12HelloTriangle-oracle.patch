@@ -170,3 +170,64 @@ index 4090a40..0485aeb 100644
 +    void WriteCapture();
      void WaitForPreviousFrame();
  };
+diff --git a/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Main.cpp b/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Main.cpp
+index 59f1f6a..614cceb 100644
+--- a/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Main.cpp
++++ b/Samples/Desktop/D3D12HelloWorld/src/HelloTriangle/Main.cpp
+@@ -14,9 +14,54 @@
+ #include "stdafx.h"
+ #include "D3D12HelloTriangle.h"
+ 
++static void WriteOracleFailure(const char* message)
++{
++    const DWORD captureLength = GetEnvironmentVariableW(
++        L"PROGPU_DIRECTX_ORACLE_OUTPUT", nullptr, 0);
++    if (captureLength <= 1)
++    {
++        return;
++    }
++    std::wstring capturePath(captureLength, L'\0');
++    const DWORD copied = GetEnvironmentVariableW(
++        L"PROGPU_DIRECTX_ORACLE_OUTPUT",
++        &capturePath[0],
++        captureLength);
++    if (copied == 0 || copied >= captureLength)
++    {
++        return;
++    }
++    capturePath.resize(copied);
++    capturePath.append(L".error.txt");
++    FILE* output = nullptr;
++    if (_wfopen_s(&output, capturePath.c_str(), L"wb") == 0 && output != nullptr)
++    {
++        fprintf(output, "%s\n", message);
++        fclose(output);
++    }
++}
++
+ _Use_decl_annotations_
+ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
+ {
+-    D3D12HelloTriangle sample(1280, 720, L"D3D12 Hello Triangle");
+-    return Win32Application::Run(&sample, hInstance, nCmdShow);
++    try
++    {
++        D3D12HelloTriangle sample(1280, 720, L"D3D12 Hello Triangle");
++        return Win32Application::Run(&sample, hInstance, nCmdShow);
++    }
++    catch (const HrException& error)
++    {
++        WriteOracleFailure(error.what());
++        return static_cast<int>(error.Error());
++    }
++    catch (const std::exception& error)
++    {
++        WriteOracleFailure(error.what());
++        return 1;
++    }
++    catch (...)
++    {
++        WriteOracleFailure("Unknown native exception.");
++        return 1;
++    }
+ }
