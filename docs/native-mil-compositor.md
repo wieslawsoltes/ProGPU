@@ -2086,13 +2086,19 @@ That boundary matches WPF's figure-by-figure `CShapeClipperForFEB` traversal
 without allowing one immutable segment slot to be snapped twice. Overlapping,
 shared, or out-of-order ranges return `UNSUPPORTED` before submission;
 boolean programs and analytic arcs retain their existing fail-closed results.
-The live differential now renders two separately colored four-line figures in
-one `DRAW_PATH` resource and also submits a deliberately shared-range scene to
+Commit `dab5db6f` upgrades the live differential to render a line-only
+rectangle plus a second quadratic/line/cubic/line figure in one `DRAW_PATH`
+resource, snapping both
+curve control points, and also submits a deliberately shared-range scene to
 prove the negative contract at the native render boundary. Apple M3 Pro Metal
-reports baseline `[10,8]-[35,24]`, red 37,536, green 9,110; guided and
-independently deformed reference `[10,8]-[35,24]`, red 40,800, green 10,710;
-`changed=70` and `referenceChanged=0`. The same qualification is now part of
-the common macOS/Linux build script as well as the Windows D3D12 script.
+reports baseline `[10,8]-[35,25]`, red 37,536, green 11,542; guided and
+independently deformed reference `[10,8]-[35,26]`, red 40,800, green 13,045;
+`changed=76` and `referenceChanged=0`. The same qualification is now part of
+the common macOS/Linux build script as well as the Windows D3D12 script. WPF
+turns `ArcSegment` records into one to four cubic Beziers in `ArcToBezier`
+before `CSnappingTask` traverses the core shape, so exact arc parity requires a
+separate WPF-compatible lowering checkpoint rather than snapping analytic arc
+metadata as if it were an ordinary point tuple.
 
 ### Microsoft D3D12 sample oracle
 
