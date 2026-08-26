@@ -2340,8 +2340,20 @@ strict comparison preserving WPF's lower-guide midpoint tie. MIL cache-root
 compilation maps through scale/translate with float arithmetic, reverses input
 under negative scale, and keeps the composite-only State out of ordinary
 SAVE/draw state. Native, managed, and MIL regressions plus the live Metal gate
-prove cache reuse (`1/1 -> 0/1`) and non-uniform page deformation; exact D3D12
-qualification remains pending for this checkpoint.
+prove cache reuse (`1/1 -> 0/1`) and non-uniform page deformation.
+
+The exact latest-main-integrated commit `d99acbc8` then passed strict Windows
+11 ARM64 MSVC and live Parallels D3D12 qualification. All 11 native/Dawn CTests,
+both export allowlists, two zero-warning managed Release builds, independent
+C++/managed allocation and readback samples, the complete bounded differential
+smoke matrix, and nine-file package staging passed. D3D12 produced the same
+multi-guide evidence as Metal: `passes=1/1 -> 0/1`, extent
+`[10,8]-[25,15] -> [11,9]-[25,15]`, red sum `32640 -> 26775`, and 23 changed
+pixels. Packaged win-arm64 SHA-256 values are
+`F65DA33BFCE4242A869369052E4C52C3CDB67951988FFCB740E85173A74D2C75` for the
+base module and
+`E445C3DED9FC741EFECEDC4764A5AE84C120A4FECD15293058504C39ED8E400F` for the
+Dawn module.
 
 The exact-bounds implementation at `dd3857a4` is qualified on Windows 11 ARM64
 under Parallels. Both wgpu-native and provider-resolved Dawn modules rebuilt
