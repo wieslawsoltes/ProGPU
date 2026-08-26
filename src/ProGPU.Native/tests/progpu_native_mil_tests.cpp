@@ -2082,6 +2082,7 @@ bool visual_bitmap_cache_applies_root_state_at_composite() {
     constexpr std::uint32_t brush = 4U;
     constexpr std::uint32_t cache = 5U;
     constexpr std::uint32_t clip = 6U;
+    constexpr std::uint32_t transform = 7U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -2090,9 +2091,23 @@ bool visual_bitmap_cache_applies_root_state_at_composite() {
     append_create(batch, brush, 75U);
     append_create(batch, cache, 94U);
     append_create(batch, clip, 69U);
+    append_create(batch, transform, 66U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(batch, command::visual_set_offset, visual, 3.0, 4.0);
+    append_command(
+        batch,
+        command::matrix_transform,
+        transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0U);
+    append_command(
+        batch, command::visual_set_transform, visual, transform);
     append_command(batch, command::visual_set_clip, visual, clip);
     append_command(
         batch,
@@ -2237,6 +2252,101 @@ bool visual_bitmap_cache_applies_root_state_at_composite() {
     PROGPU_REQUIRE(changed_composite.clip_rect.width == 8.0F);
     PROGPU_REQUIRE(changed_composite.clip_rect.height == 6.0F);
 
+    std::vector<std::byte> multi_guideline_update;
+    append_command(
+        multi_guideline_update,
+        command::visual_set_guideline_collection,
+        visual,
+        std::uint16_t{2U},
+        std::uint16_t{0U},
+        std::uint16_t{1U},
+        std::uint16_t{0U},
+        1.25F,
+        20.75F,
+        3.25F);
+    PROGPU_REQUIRE(state.apply(multi_guideline_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9017U, 3U, stream, &metrics) ==
+        status::success);
+    progpu_native_scene_layer multi_guideline{};
+    PROGPU_REQUIRE(try_get_cached_layer(stream, multi_guideline));
+    PROGPU_REQUIRE(
+        multi_guideline.content_revision == changed.content_revision);
+    progpu_native_scene_state multi_composite{};
+    PROGPU_REQUIRE(try_get_state_resource(
+        stream, multi_guideline.reserved0, multi_composite));
+    PROGPU_REQUIRE((multi_composite.flags &
+        PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U);
+    const auto multi_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    const auto multi_resource =
+        read_value<progpu_native_scene_resource>(
+            stream,
+            multi_header.resource_offset +
+                multi_composite.guideline_resource_index *
+                    sizeof(progpu_native_scene_resource));
+    const auto multi_set =
+        read_value<progpu_native_scene_guideline_set>(
+            stream, multi_resource.payload_offset);
+    PROGPU_REQUIRE(
+        multi_set.flags ==
+            PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY);
+    PROGPU_REQUIRE(multi_set.guideline_x_count == 2U);
+    PROGPU_REQUIRE(multi_set.guideline_y_count == 1U);
+    PROGPU_REQUIRE(read_value<double>(
+        stream,
+        multi_resource.payload_offset + sizeof(multi_set)) == 4.25);
+    PROGPU_REQUIRE(read_value<double>(
+        stream,
+        multi_resource.payload_offset + sizeof(multi_set) +
+            sizeof(double)) == 23.75);
+    PROGPU_REQUIRE(read_value<double>(
+        stream,
+        multi_resource.payload_offset + sizeof(multi_set) +
+            2U * sizeof(double)) == 7.25);
+
+    std::vector<std::byte> negative_scale_update;
+    append_command(
+        negative_scale_update,
+        command::matrix_transform,
+        transform,
+        -1.0,
+        0.0,
+        0.0,
+        1.0,
+        30.0,
+        0.0,
+        0U);
+    PROGPU_REQUIRE(state.apply(negative_scale_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9017U, 4U, stream, &metrics) ==
+        status::success);
+    progpu_native_scene_layer negative_scale{};
+    PROGPU_REQUIRE(try_get_cached_layer(stream, negative_scale));
+    PROGPU_REQUIRE(
+        negative_scale.content_revision == multi_guideline.content_revision);
+    progpu_native_scene_state negative_composite{};
+    PROGPU_REQUIRE(try_get_state_resource(
+        stream, negative_scale.reserved0, negative_composite));
+    const auto negative_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    const auto negative_resource =
+        read_value<progpu_native_scene_resource>(
+            stream,
+            negative_header.resource_offset +
+                negative_composite.guideline_resource_index *
+                    sizeof(progpu_native_scene_resource));
+    const auto negative_set =
+        read_value<progpu_native_scene_guideline_set>(
+            stream, negative_resource.payload_offset);
+    PROGPU_REQUIRE(read_value<double>(
+        stream,
+        negative_resource.payload_offset + sizeof(negative_set)) == 12.25);
+    PROGPU_REQUIRE(read_value<double>(
+        stream,
+        negative_resource.payload_offset + sizeof(negative_set) +
+            sizeof(double)) == 31.75);
+
     std::vector<std::byte> nearest_sampling;
     append_command(
         nearest_sampling,
@@ -2251,7 +2361,7 @@ bool visual_bitmap_cache_applies_root_state_at_composite() {
         0U);
     PROGPU_REQUIRE(state.apply(nearest_sampling) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 9017U, 3U, stream, &metrics) ==
+        state.build_scene(target, 9017U, 5U, stream, &metrics) ==
         status::success);
     progpu_native_scene_layer nearest{};
     PROGPU_REQUIRE(try_get_cached_layer(stream, nearest));
@@ -2273,7 +2383,7 @@ bool visual_bitmap_cache_applies_root_state_at_composite() {
         0U);
     PROGPU_REQUIRE(state.apply(fant_sampling) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 9017U, 4U, stream, &metrics) ==
+        state.build_scene(target, 9017U, 6U, stream, &metrics) ==
         status::success);
     progpu_native_scene_layer fant{};
     PROGPU_REQUIRE(try_get_cached_layer(stream, fant));

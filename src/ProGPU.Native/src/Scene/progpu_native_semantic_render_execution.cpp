@@ -4040,7 +4040,7 @@ progpu_native_status render_scene(
                     bool composite_drawable = target_extent.drawable;
                     if (local_cache) {
                         const auto composite_state =
-                            state_cursor.resolve_state(layer.reserved0);
+                            state_cursor.read_composite_state(layer.reserved0);
                         if ((composite_state.flags &
                                 PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) {
                             composite_scissor =
@@ -4061,6 +4061,33 @@ progpu_native_status render_scene(
                             frame->dpi_scale,
                             layer.opacity,
                             composite_state.transform);
+                        if ((composite_state.flags &
+                                PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) !=
+                            0U) {
+                            const float target_x =
+                                static_cast<float>(target_extent.x) /
+                                frame->dpi_scale;
+                            const float target_y =
+                                static_cast<float>(target_extent.y) /
+                                frame->dpi_scale;
+                            for (std::size_t vertex_index = first_vertex;
+                                 vertex_index <
+                                    semantic_layer_vertices.size();
+                                 ++vertex_index) {
+                                auto& vertex =
+                                    semantic_layer_vertices[vertex_index];
+                                float absolute_x =
+                                    vertex.position[0] + target_x;
+                                float absolute_y =
+                                    vertex.position[1] + target_y;
+                                state_cursor.snap_composite_point(
+                                    composite_state,
+                                    absolute_x,
+                                    absolute_y);
+                                vertex.position[0] = absolute_x - target_x;
+                                vertex.position[1] = absolute_y - target_y;
+                            }
+                        }
                     } else {
                         append_semantic_layer_quad(
                             semantic_layer_vertices,

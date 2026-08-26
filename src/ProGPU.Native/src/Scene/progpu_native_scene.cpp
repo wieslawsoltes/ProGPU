@@ -589,30 +589,46 @@ validation_result validate(
                 guidelines.guideline_y_count;
             const std::uint64_t expected_size = sizeof(guidelines) +
                 coordinate_count * sizeof(double);
+            const bool multiple = guidelines.guideline_x_count > 1U ||
+                guidelines.guideline_y_count > 1U;
             if (guidelines.struct_size != sizeof(guidelines) ||
-                guidelines.flags != 0U ||
-                guidelines.guideline_x_count > 1U ||
-                guidelines.guideline_y_count > 1U ||
+                (guidelines.flags &
+                    ~PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY) != 0U ||
+                multiple != ((guidelines.flags &
+                    PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY) != 0U) ||
+                guidelines.guideline_x_count >
+                    PROGPU_NATIVE_SCENE_MAX_GUIDELINES_PER_AXIS ||
+                guidelines.guideline_y_count >
+                    PROGPU_NATIVE_SCENE_MAX_GUIDELINES_PER_AXIS ||
                 expected_size != resource.payload_size) {
                 return fail(
                     header,
                     PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
                     resource.payload_offset);
             }
-            for (std::uint64_t coordinate_index = 0U;
-                 coordinate_index < coordinate_count;
-                 ++coordinate_index) {
-                const auto coordinate = read_record<double>(
-                    bytes,
-                    resource.payload_offset + sizeof(guidelines) +
-                        coordinate_index * sizeof(double));
-                if (!std::isfinite(coordinate)) {
-                    return fail(
-                        header,
-                        PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+            std::uint64_t coordinate_index = 0U;
+            for (std::uint32_t axis = 0U; axis < 2U; ++axis) {
+                const std::uint32_t count = axis == 0U
+                    ? guidelines.guideline_x_count
+                    : guidelines.guideline_y_count;
+                double previous = -std::numeric_limits<double>::infinity();
+                for (std::uint32_t axis_index = 0U;
+                     axis_index < count;
+                     ++axis_index, ++coordinate_index) {
+                    const auto coordinate = read_record<double>(
+                        bytes,
                         resource.payload_offset + sizeof(guidelines) +
-                            static_cast<std::uint32_t>(
-                                coordinate_index * sizeof(double)));
+                            coordinate_index * sizeof(double));
+                    if (!std::isfinite(coordinate) ||
+                        coordinate < previous) {
+                        return fail(
+                            header,
+                            PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                            resource.payload_offset + sizeof(guidelines) +
+                                static_cast<std::uint32_t>(
+                                    coordinate_index * sizeof(double)));
+                    }
+                    previous = coordinate;
                 }
             }
         }
@@ -993,6 +1009,28 @@ validation_result validate(
                     header,
                     PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
                     offset);
+            }
+            const auto state = read_record<progpu_native_scene_state>(
+                bytes, state_resource.payload_offset);
+            if ((state.flags &
+                    PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) != 0U) {
+                const auto guideline_resource = read_record<
+                    progpu_native_scene_resource>(
+                        bytes,
+                        header.resource_offset +
+                            static_cast<std::size_t>(
+                                state.guideline_resource_index) *
+                                header.resource_stride);
+                const auto guidelines = read_record<
+                    progpu_native_scene_guideline_set>(
+                        bytes, guideline_resource.payload_offset);
+                if ((guidelines.flags &
+                        PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY) != 0U) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                        offset);
+                }
             }
         }
         if (is_draw_command(command.kind)) {

@@ -828,6 +828,35 @@ void semantic_static_guidelines_adjust_state_at_target_dpi() {
     const auto snapped = cursor.advance(save);
     require(snapped.transform.m31 == 9.75F);
     require(snapped.transform.m32 == 20.5F);
+
+    guidelines.flags = PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY;
+    guidelines.guideline_x_count = 2U;
+    guidelines.guideline_y_count = 0U;
+    guideline_resource.payload_size =
+        sizeof(progpu_native_scene_guideline_set) + 2U * sizeof(double);
+    std::memcpy(storage.data() + header.resource_offset,
+        &guideline_resource, sizeof(guideline_resource));
+    std::memcpy(storage.data() + guideline_resource.payload_offset,
+        &guidelines, sizeof(guidelines));
+    constexpr std::array<double, 2U> composite_guidelines{10.5, 12.0};
+    std::memcpy(
+        storage.data() + guideline_resource.payload_offset +
+            sizeof(guidelines),
+        composite_guidelines.data(),
+        sizeof(composite_guidelines));
+    progpu::native::semantic::semantic_state_cursor composite_cursor(
+        storage.data(), header, 1.0F);
+    const auto composite_state = composite_cursor.read_composite_state(1U);
+    float midpoint_x = 11.25F;
+    float midpoint_y = 4.0F;
+    composite_cursor.snap_composite_point(
+        composite_state, midpoint_x, midpoint_y);
+    require(midpoint_x == 11.75F);
+    require(midpoint_y == 4.0F);
+    float upper_x = 11.26F;
+    composite_cursor.snap_composite_point(
+        composite_state, upper_x, midpoint_y);
+    require(upper_x == 11.26F);
 }
 
 void semantic_payload_validation_is_bounded_and_cpu_only() {
@@ -989,6 +1018,8 @@ int main() {
         semantic_layer_coverage_mask_is_exact_and_bounded());
     require(progpu::native::tests::
         semantic_scene_builder_is_deterministic_and_valid());
+    require(progpu::native::tests::
+        semantic_scene_builder_bounds_composite_only_guidelines());
     require(progpu::native::tests::
         semantic_scene_builder_preserves_shared_path_segments());
     require(progpu::native::tests::

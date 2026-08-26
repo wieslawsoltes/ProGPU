@@ -93,6 +93,93 @@ progpu_native_scene_state semantic_state_cursor::resolve_state(
     return resolve_guidelines(read_state(index));
 }
 
+progpu_native_scene_state semantic_state_cursor::read_composite_state(
+    std::uint32_t index) const noexcept {
+    return read_state(index);
+}
+
+void semantic_state_cursor::snap_composite_point(
+    const progpu_native_scene_state& state,
+    float& target_x,
+    float& target_y) const noexcept {
+    if ((state.flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) == 0U ||
+        !std::isfinite(dpi_scale_) || dpi_scale_ <= 0.0F) {
+        return;
+    }
+    progpu_native_scene_resource resource{};
+    std::memcpy(
+        &resource,
+        bytes_ + header_.resource_offset +
+            static_cast<std::size_t>(state.guideline_resource_index) *
+                header_.resource_stride,
+        sizeof(resource));
+    progpu_native_scene_guideline_set guidelines{};
+    std::memcpy(
+        &guidelines,
+        bytes_ + resource.payload_offset,
+        sizeof(guidelines));
+    const auto snap_axis = [this, &resource](
+        float& coordinate,
+        std::size_t offset,
+        std::uint32_t count) {
+        if (count == 0U) {
+            return;
+        }
+        const float physical_coordinate = coordinate * dpi_scale_;
+        const auto read_coordinate = [this, &resource, offset](
+            std::uint32_t index) {
+            double value = 0.0;
+            std::memcpy(
+                &value,
+                bytes_ + resource.payload_offset + offset +
+                    static_cast<std::size_t>(index) * sizeof(double),
+                sizeof(value));
+            return static_cast<float>(value) * dpi_scale_;
+        };
+        std::uint32_t selected = 0U;
+        const float first = read_coordinate(0U);
+        if (count > 1U && physical_coordinate > first) {
+            std::uint32_t lower = 0U;
+            std::uint32_t upper = count - 1U;
+            float lower_value = first;
+            float upper_value = read_coordinate(upper);
+            if (physical_coordinate > upper_value) {
+                selected = upper;
+            } else {
+                while (upper - lower > 1U) {
+                    const std::uint32_t middle = (lower + upper) >> 1U;
+                    const float middle_value = read_coordinate(middle);
+                    if (physical_coordinate > middle_value) {
+                        lower = middle;
+                        lower_value = middle_value;
+                    } else {
+                        upper = middle;
+                        upper_value = middle_value;
+                    }
+                }
+                selected = upper_value - physical_coordinate <
+                        physical_coordinate - lower_value
+                    ? upper
+                    : lower;
+            }
+        }
+        const float selected_coordinate = read_coordinate(selected);
+        coordinate += wpf_guideline_offset(selected_coordinate) / dpi_scale_;
+    };
+    constexpr std::size_t header_size =
+        sizeof(progpu_native_scene_guideline_set);
+    snap_axis(
+        target_x,
+        header_size,
+        guidelines.guideline_x_count);
+    snap_axis(
+        target_y,
+        header_size +
+            static_cast<std::size_t>(guidelines.guideline_x_count) *
+                sizeof(double),
+        guidelines.guideline_y_count);
+}
+
 progpu_native_scene_state semantic_state_cursor::resolve_guidelines(
     progpu_native_scene_state state) const noexcept {
     if ((state.flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) == 0U ||

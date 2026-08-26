@@ -100,6 +100,7 @@ enum {
     PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES = 256U * 1024U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_BRUSHES = 1024U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS = 64U * 1024U,
+    PROGPU_NATIVE_SCENE_MAX_GUIDELINES_PER_AXIS = 65535U,
     PROGPU_NATIVE_SCENE_MAX_DRAW_BRUSH_INDICES = 1024U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_IMAGE_PATCHES = 64U * 1024U,
     PROGPU_NATIVE_SCENE_MAX_TEXT_STYLES = 1024U * 1024U,
@@ -219,6 +220,11 @@ enum {
     PROGPU_NATIVE_SCENE_STATE_CLIP_RECT = 1U << 0U,
     PROGPU_NATIVE_SCENE_STATE_MASK = 1U << 1U,
     PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET = 1U << 2U
+};
+
+enum {
+    /* Multi-guide point deformation is valid only for local-cache composites. */
+    PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY = 1U << 0U
 };
 
 enum {
@@ -1015,10 +1021,13 @@ typedef struct progpu_native_scene_state {
 /*
  * Prefix of one immutable static WPF/MIL guideline resource. The prefix is
  * followed by guideline_x_count doubles and then guideline_y_count doubles.
- * Version one deliberately accepts at most one coordinate on each axis: that
- * is the exact uniform-offset subset of WPF snapping and works for every
- * semantic draw family. Multi-guide piecewise geometry deformation and
- * dynamic leading/driven pairs are future append-only capabilities.
+ * With flags zero, version one accepts at most one coordinate on each axis:
+ * that exact uniform-offset subset works for every semantic draw family. With
+ * GUIDELINE_COMPOSITE_ONLY, at least one axis has multiple sorted coordinates
+ * and the State may be referenced only by a CACHE_LOCAL_SPACE composite. The
+ * executor applies WPF nearest-guide snapping independently to the retained
+ * page's four vertices. General multi-guide geometry deformation and dynamic
+ * leading/driven pairs remain future append-only capabilities.
  */
 typedef struct progpu_native_scene_guideline_set {
     uint32_t struct_size;

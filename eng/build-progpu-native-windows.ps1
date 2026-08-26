@@ -300,6 +300,7 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
         Invoke-NativeBenchmark --masked-images --warmup 2 --iterations 4
         Invoke-NativeBenchmark --semantic-local-cache-brush-mask
         Invoke-NativeBenchmark --semantic-local-cache-fant
+        Invoke-NativeBenchmark --semantic-local-cache-multi-guideline
         Invoke-NativeBenchmark --semantic-scene --rectangles 96 --warmup 2 --iterations 4
         Invoke-NativeBenchmark --semantic-layer-effects --rectangles 96 --warmup 2 --iterations 4
         Invoke-NativeBenchmark --text-shaping --text-repeats 2 --warmup 8 --iterations 16

@@ -687,6 +687,18 @@ public enum NativeSceneStateFlags : uint
 }
 
 [Flags]
+public enum NativeSceneGuidelineSetFlags : uint
+{
+    None = 0,
+
+    /// <summary>
+    /// Allows multiple sorted static guides only when the containing State is
+    /// used by a local retained-cache composite.
+    /// </summary>
+    CompositeOnly = 1U << 0
+}
+
+[Flags]
 public enum NativeSceneLayerFlags : uint
 {
     /// <summary>
@@ -1552,16 +1564,19 @@ public readonly struct NativeSceneState
 [StructLayout(LayoutKind.Sequential)]
 internal readonly struct NativeSceneGuidelineSetHeader
 {
-    internal NativeSceneGuidelineSetHeader(uint xCount, uint yCount)
+    internal NativeSceneGuidelineSetHeader(
+        uint xCount,
+        uint yCount,
+        NativeSceneGuidelineSetFlags flags)
     {
         StructSize = (uint)Unsafe.SizeOf<NativeSceneGuidelineSetHeader>();
-        Flags = 0U;
+        Flags = flags;
         GuidelineXCount = xCount;
         GuidelineYCount = yCount;
     }
 
     internal readonly uint StructSize;
-    internal readonly uint Flags;
+    internal readonly NativeSceneGuidelineSetFlags Flags;
     internal readonly uint GuidelineXCount;
     internal readonly uint GuidelineYCount;
 }

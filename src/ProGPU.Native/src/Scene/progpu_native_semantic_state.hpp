@@ -24,6 +24,14 @@ public:
     progpu_native_scene_state resolve_state(
         std::uint32_t index) const noexcept;
 
+    progpu_native_scene_state read_composite_state(
+        std::uint32_t index) const noexcept;
+
+    void snap_composite_point(
+        const progpu_native_scene_state& state,
+        float& target_x,
+        float& target_y) const noexcept;
+
 private:
     progpu_native_scene_state read_state(std::uint32_t index) const noexcept;
     progpu_native_scene_state resolve_guidelines(
