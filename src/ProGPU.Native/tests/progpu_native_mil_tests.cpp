@@ -54,6 +54,18 @@ static_assert(command_layouts::matrix_transform::fixed_size == 60U);
 static_assert(command_layouts::matrix_transform::matrix_offset == 8U);
 static_assert(
     command_layouts::matrix_transform::h_matrix_animations_offset == 56U);
+static_assert(command_layouts::line_geometry::fixed_size == 52U);
+static_assert(command_layouts::line_geometry::end_point_offset == 24U);
+static_assert(command_layouts::rectangle_geometry::fixed_size == 72U);
+static_assert(command_layouts::rectangle_geometry::rect_offset == 24U);
+static_assert(command_layouts::ellipse_geometry::fixed_size == 56U);
+static_assert(command_layouts::ellipse_geometry::center_offset == 24U);
+static_assert(command_layouts::geometry_group::fixed_size == 20U);
+static_assert(command_layouts::geometry_group::children_size_offset == 16U);
+static_assert(command_layouts::combined_geometry::fixed_size == 24U);
+static_assert(command_layouts::combined_geometry::h_geometry2_offset == 20U);
+static_assert(command_layouts::path_geometry::fixed_size == 20U);
+static_assert(command_layouts::path_geometry::figures_size_offset == 16U);
 static_assert(
     command_layouts::fixed_header_size(command::visual_set_offset) == 24U);
 static_assert(

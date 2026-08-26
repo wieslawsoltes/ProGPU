@@ -2303,19 +2303,41 @@ struct channel::implementation {
             return status::success;
         }
         case command::line_geometry: {
+            using layout = command_layouts::line_geometry;
             fixed_geometry_state geometry{};
             geometry.kind = fixed_geometry_kind::line;
             std::uint32_t start_animations = 0U;
             std::uint32_t end_animations = 0U;
-            if (!has_exact_size(view, 52U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, geometry.first) ||
-                !read_at(view.packet, 16U, geometry.second) ||
-                !read_at(view.packet, 24U, geometry.third) ||
-                !read_at(view.packet, 32U, geometry.fourth) ||
-                !read_at(view.packet, 40U, geometry.transform_handle) ||
-                !read_at(view.packet, 44U, start_animations) ||
-                !read_at(view.packet, 48U, end_animations)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::start_point_offset,
+                    geometry.first) ||
+                !read_at(
+                    view.packet,
+                    layout::start_point_offset + 8U,
+                    geometry.second) ||
+                !read_at(
+                    view.packet,
+                    layout::end_point_offset,
+                    geometry.third) ||
+                !read_at(
+                    view.packet,
+                    layout::end_point_offset + 8U,
+                    geometry.fourth) ||
+                !read_at(
+                    view.packet,
+                    layout::h_transform_offset,
+                    geometry.transform_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_start_point_animations_offset,
+                    start_animations) ||
+                !read_at(
+                    view.packet,
+                    layout::h_end_point_animations_offset,
+                    end_animations)) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_line_geometry) ||
@@ -2338,23 +2360,43 @@ struct channel::implementation {
             return status::success;
         }
         case command::rectangle_geometry: {
+            using layout = command_layouts::rectangle_geometry;
             fixed_geometry_state geometry{};
             geometry.kind = fixed_geometry_kind::rectangle;
             std::uint32_t radius_x_animations = 0U;
             std::uint32_t radius_y_animations = 0U;
             std::uint32_t rect_animations = 0U;
-            if (!has_exact_size(view, 72U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, geometry.radius_x) ||
-                !read_at(view.packet, 16U, geometry.radius_y) ||
-                !read_at(view.packet, 24U, geometry.first) ||
-                !read_at(view.packet, 32U, geometry.second) ||
-                !read_at(view.packet, 40U, geometry.third) ||
-                !read_at(view.packet, 48U, geometry.fourth) ||
-                !read_at(view.packet, 56U, geometry.transform_handle) ||
-                !read_at(view.packet, 60U, radius_x_animations) ||
-                !read_at(view.packet, 64U, radius_y_animations) ||
-                !read_at(view.packet, 68U, rect_animations)) {
+            const std::size_t rect = layout::rect_offset;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::radius_x_offset,
+                    geometry.radius_x) ||
+                !read_at(
+                    view.packet,
+                    layout::radius_y_offset,
+                    geometry.radius_y) ||
+                !read_at(view.packet, rect, geometry.first) ||
+                !read_at(view.packet, rect + 8U, geometry.second) ||
+                !read_at(view.packet, rect + 16U, geometry.third) ||
+                !read_at(view.packet, rect + 24U, geometry.fourth) ||
+                !read_at(
+                    view.packet,
+                    layout::h_transform_offset,
+                    geometry.transform_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_radius_x_animations_offset,
+                    radius_x_animations) ||
+                !read_at(
+                    view.packet,
+                    layout::h_radius_y_animations_offset,
+                    radius_y_animations) ||
+                !read_at(
+                    view.packet,
+                    layout::h_rect_animations_offset,
+                    rect_animations)) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_rectangle_geometry) ||
@@ -2382,21 +2424,46 @@ struct channel::implementation {
             return status::success;
         }
         case command::ellipse_geometry: {
+            using layout = command_layouts::ellipse_geometry;
             fixed_geometry_state geometry{};
             geometry.kind = fixed_geometry_kind::ellipse;
             std::uint32_t radius_x_animations = 0U;
             std::uint32_t radius_y_animations = 0U;
             std::uint32_t center_animations = 0U;
-            if (!has_exact_size(view, 56U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, geometry.third) ||
-                !read_at(view.packet, 16U, geometry.fourth) ||
-                !read_at(view.packet, 24U, geometry.first) ||
-                !read_at(view.packet, 32U, geometry.second) ||
-                !read_at(view.packet, 40U, geometry.transform_handle) ||
-                !read_at(view.packet, 44U, radius_x_animations) ||
-                !read_at(view.packet, 48U, radius_y_animations) ||
-                !read_at(view.packet, 52U, center_animations)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::radius_x_offset,
+                    geometry.third) ||
+                !read_at(
+                    view.packet,
+                    layout::radius_y_offset,
+                    geometry.fourth) ||
+                !read_at(
+                    view.packet,
+                    layout::center_offset,
+                    geometry.first) ||
+                !read_at(
+                    view.packet,
+                    layout::center_offset + 8U,
+                    geometry.second) ||
+                !read_at(
+                    view.packet,
+                    layout::h_transform_offset,
+                    geometry.transform_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_radius_x_animations_offset,
+                    radius_x_animations) ||
+                !read_at(
+                    view.packet,
+                    layout::h_radius_y_animations_offset,
+                    radius_y_animations) ||
+                !read_at(
+                    view.packet,
+                    layout::h_center_animations_offset,
+                    center_animations)) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_ellipse_geometry) ||
@@ -2421,15 +2488,25 @@ struct channel::implementation {
             return status::success;
         }
         case command::geometry_group: {
+            using layout = command_layouts::geometry_group;
             geometry_group_state geometry{};
             std::uint32_t children_size = 0U;
-            if (view.packet.size() < 20U ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, geometry.transform_handle) ||
-                !read_at(view.packet, 12U, geometry.fill_rule) ||
-                !read_at(view.packet, 16U, children_size) ||
+            if (view.packet.size() < layout::fixed_size ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_transform_offset,
+                    geometry.transform_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::fill_rule_offset,
+                    geometry.fill_rule) ||
+                !read_at(
+                    view.packet,
+                    layout::children_size_offset,
+                    children_size) ||
                 children_size % sizeof(std::uint32_t) != 0U ||
-                view.packet.size() != 20U + children_size) {
+                view.packet.size() != layout::fixed_size + children_size) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_geometry_group) ||
@@ -2449,7 +2526,8 @@ struct channel::implementation {
                 std::uint32_t child = 0U;
                 if (!read_at(
                         view.packet,
-                        20U + index * sizeof(std::uint32_t),
+                        layout::fixed_size +
+                            index * sizeof(std::uint32_t),
                         child)) {
                     return status::malformed_batch;
                 }
@@ -2467,13 +2545,26 @@ struct channel::implementation {
             return status::success;
         }
         case command::combined_geometry: {
+            using layout = command_layouts::combined_geometry;
             combined_geometry_state geometry{};
-            if (!has_exact_size(view, 24U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, geometry.transform_handle) ||
-                !read_at(view.packet, 12U, geometry.combine_mode) ||
-                !read_at(view.packet, 16U, geometry.geometry1_handle) ||
-                !read_at(view.packet, 20U, geometry.geometry2_handle)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_transform_offset,
+                    geometry.transform_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::geometry_combine_mode_offset,
+                    geometry.combine_mode) ||
+                !read_at(
+                    view.packet,
+                    layout::h_geometry1_offset,
+                    geometry.geometry1_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_geometry2_offset,
+                    geometry.geometry2_handle)) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_combined_geometry) ||
@@ -2504,15 +2595,25 @@ struct channel::implementation {
             return status::success;
         }
         case command::path_geometry: {
+            using layout = command_layouts::path_geometry;
             path_geometry_state geometry{};
             std::uint32_t figures_size = 0U;
-            if (view.packet.size() < 20U ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, geometry.transform_handle) ||
-                !read_at(view.packet, 12U, geometry.fill_rule) ||
-                !read_at(view.packet, 16U, figures_size) ||
-                figures_size > view.packet.size() - 20U ||
-                view.packet.size() != 20U + figures_size) {
+            if (view.packet.size() < layout::fixed_size ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_transform_offset,
+                    geometry.transform_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::fill_rule_offset,
+                    geometry.fill_rule) ||
+                !read_at(
+                    view.packet,
+                    layout::figures_size_offset,
+                    figures_size) ||
+                figures_size > view.packet.size() - layout::fixed_size ||
+                view.packet.size() != layout::fixed_size + figures_size) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_path_geometry) ||
@@ -2523,7 +2624,9 @@ struct channel::implementation {
             if (geometry.fill_rule > 1U || figures_size < 48U) {
                 return status::malformed_batch;
             }
-            const auto figures = view.packet.subspan(20U, figures_size);
+            const auto figures = view.packet.subspan(
+                layout::fixed_size,
+                figures_size);
             std::uint32_t declared_size = 0U;
             std::uint32_t path_flags = 0U;
             std::uint32_t figure_count = 0U;
