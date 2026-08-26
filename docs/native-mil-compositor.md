@@ -1599,6 +1599,19 @@ all six live values and verifies sigma, offset, color/alpha, inflated bounds,
 revision changes, and referenced-resource deletion rejection. Box blur remains
 an explicit unsupported kernel; no shader or CPU approximation is substituted.
 
+Nested PushEffect now matches the current WPF milcore behavior rather than the
+obsolete public API's historical intent. The managed producer emits the exact
+12-byte record view (four-byte command header plus two managed dependent-
+resource indices), but WPF's native executor explicitly disables legacy
+BitmapEffect execution and lowers the scope to `PushOpacity(1)`. ProGPU
+therefore validates the generated frame, treats both handles as opaque
+managed-only values, saves identical render state for Pop matching, and does
+not add either value to native cache dependencies. Balanced scopes—including
+inside a retained BitmapCache—compile as semantic no-ops; missing Pop remains
+`invalid_graph`, and the obsolete four-byte header-only shape remains
+`malformed_batch`. Modern typed Visual BlurEffect/DropShadowEffect execution
+is unaffected and continues through the native effect resource path above.
+
 Direct DrawingImage replay now uses the same typed retained vector path as an
 ImageDrawing that references a DrawingImage. Static and animated DrawImage
 resolve the source's canonical Drawing handle, require the existing exact

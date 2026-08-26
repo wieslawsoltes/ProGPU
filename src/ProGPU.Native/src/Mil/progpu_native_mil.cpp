@@ -8007,9 +8007,18 @@ struct channel::implementation {
                         effect_input_handle)) {
                     return status::malformed_batch;
                 }
+                // WPF's native render-data executor intentionally disables
+                // legacy BitmapEffect execution and lowers this command to
+                // PushOpacity(1). The two managed-only handles are opaque to
+                // milcore, but the scope still participates in Pop matching.
                 (void)effect_handle;
                 (void)effect_input_handle;
-                return status::unsupported_command;
+                if (!save_state(current)) {
+                    return status::invalid_graph;
+                }
+                scope_states.push_back(current);
+                scope_layers.push_back(false);
+                continue;
             }
             if (view.kind == command::pop) {
                 if (!has_exact_size(
@@ -10513,9 +10522,12 @@ struct channel::implementation {
                             effect_input_handle)) {
                         result = status::malformed_batch;
                     } else {
+                        // These are managed-only dependent-resource indices.
+                        // WPF milcore ignores them because legacy BitmapEffect
+                        // execution is disabled, so they are not native cache
+                        // dependencies.
                         (void)effect_handle;
                         (void)effect_input_handle;
-                        result = status::unsupported_command;
                     }
                 } else if (view.kind == command::draw_drawing) {
                     append_packet_handle(

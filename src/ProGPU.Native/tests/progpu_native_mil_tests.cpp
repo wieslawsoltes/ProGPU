@@ -2593,6 +2593,8 @@ bool visual_bitmap_cache_uses_canonical_typed_retention() {
         0U);
     std::vector<std::byte> cached_draw;
     append_command(
+        cached_draw, command::push_effect, 0xfeedU, 0xbeefU);
+    append_command(
         cached_draw,
         command::draw_rectangle,
         4.0,
@@ -2601,6 +2603,7 @@ bool visual_bitmap_cache_uses_canonical_typed_retention() {
         18.0,
         brush,
         0U);
+    append_command(cached_draw, command::pop);
     append_render_data(batch, cached_content, cached_draw);
     std::vector<std::byte> sibling_draw;
     append_command(
@@ -10594,12 +10597,27 @@ bool render_data_scope_errors_fail_closed() {
 
     std::vector<std::byte> effect_batch;
     std::vector<std::byte> effect;
-    append_command(effect, command::push_effect, 0U, 0U);
+    append_command(effect, command::push_effect, 0xfeedU, 0xbeefU);
+    append_command(effect, command::pop);
     append_render_data(effect_batch, content, effect);
     PROGPU_REQUIRE(state.apply(effect_batch) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 1U, 7U, stream) ==
-        status::unsupported_command);
+        state.build_scene(target, 1U, 7U, stream) == status::success);
+
+    std::vector<std::byte> unbalanced_effect_batch;
+    std::vector<std::byte> unbalanced_effect;
+    append_command(
+        unbalanced_effect,
+        command::push_effect,
+        0xfeedU,
+        0xbeefU);
+    append_render_data(
+        unbalanced_effect_batch,
+        content,
+        unbalanced_effect);
+    PROGPU_REQUIRE(state.apply(unbalanced_effect_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 1U, 8U, stream) == status::invalid_graph);
 
     std::vector<std::byte> obsolete_effect_batch;
     std::vector<std::byte> obsolete_effect;
@@ -10610,10 +10628,10 @@ bool render_data_scope_errors_fail_closed() {
         obsolete_effect);
     PROGPU_REQUIRE(state.apply(obsolete_effect_batch) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 1U, 8U, stream) ==
+        state.build_scene(target, 1U, 9U, stream) ==
         status::malformed_batch);
 
-    std::uint64_t frame_id = 9U;
+    std::uint64_t frame_id = 10U;
     const auto expect_nested_status = [&state,
                                        &stream,
                                        &frame_id](
