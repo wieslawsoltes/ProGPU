@@ -1664,6 +1664,13 @@ packet or BitmapInvalidate as proof of portable pixels. D3DImage/video and
 same-device external texture bindings remain separate typed interop work; none
 are approximated by pointer scraping or stale copied bytes.
 
+The Windows gate captures the expected forced-compute rejection with
+`System.Diagnostics.Process` rather than a PowerShell native-error pipeline.
+This preserves the same typed adapter-incompatibility and unsafe-WebGPU checks
+under both Windows PowerShell 5 and PowerShell 7: stderr is evidence to inspect,
+not a host-level terminating error before the exit code and message can be
+validated.
+
 The exact clean `a7dcd8de` checkpoint passed the complete Apple Silicon native
 gate, including generated-protocol drift, all local CTests and export checks,
 live Metal execution, the managed/native differential matrix, and both

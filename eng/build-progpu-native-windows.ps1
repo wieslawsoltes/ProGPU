@@ -297,9 +297,32 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
 
             if ($IsParallelsDisplayAdapter) {
                 $env:PROGPU_COMPUTE_EXECUTION = "compute"
-                $ComputeFailureOutput = (& dotnet $BenchmarkDll `
-                    --glyphs --warmup 0 --iterations 1 --sync 2>&1 | Out-String)
-                $ComputeFailureExitCode = $LASTEXITCODE
+                # Capture the expected nonzero child result without routing
+                # native stderr through PowerShell's error stream. Windows
+                # PowerShell 5 promotes that stream under ErrorAction=Stop,
+                # while PowerShell 7 leaves the native exit code available;
+                # Process keeps this qualification identical on both hosts.
+                $ComputeProcessStart = [System.Diagnostics.ProcessStartInfo]::new()
+                $ComputeProcessStart.FileName = (Get-Command dotnet).Source
+                $ComputeProcessStart.Arguments =
+                    ('"{0}" --glyphs --warmup 0 --iterations 1 --sync' -f $BenchmarkDll)
+                $ComputeProcessStart.UseShellExecute = $false
+                $ComputeProcessStart.RedirectStandardOutput = $true
+                $ComputeProcessStart.RedirectStandardError = $true
+                $ComputeProcess = [System.Diagnostics.Process]::new()
+                $ComputeProcess.StartInfo = $ComputeProcessStart
+                if (-not $ComputeProcess.Start()) {
+                    throw "Failed to start the forced native-compute qualification."
+                }
+                $ComputeStandardOutput = $ComputeProcess.StandardOutput.ReadToEndAsync()
+                $ComputeStandardError = $ComputeProcess.StandardError.ReadToEndAsync()
+                $ComputeProcess.WaitForExit()
+                $ComputeFailureExitCode = $ComputeProcess.ExitCode
+                $ComputeFailureOutput =
+                    $ComputeStandardOutput.Result +
+                    [Environment]::NewLine +
+                    $ComputeStandardError.Result
+                $ComputeProcess.Dispose()
                 Write-Host $ComputeFailureOutput
                 if ($ComputeFailureExitCode -eq 0) {
                     throw "Forced native compute unexpectedly succeeded on the unqualified Parallels D3D12 adapter."
