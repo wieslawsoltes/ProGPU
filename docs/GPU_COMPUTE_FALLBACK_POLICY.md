@@ -247,6 +247,16 @@ ten-test local native suite passes and strict Clang x86_64 compilation covers
 the paired SSE2 branch. These results qualify the intrinsic fallback on this
 Apple adapter without changing the GPU-first automatic policy.
 
+A subsequent empty-scanline branch experiment was exact but rejected. It
+skipped winding reset/reduction when a Y subscanline had no crossings. Four
+alternating 120-frame runs per variant retained identical current-scene hashes
+at 1x and 2x, and improved median submission/frame p50 at 2x from
+3.0416/6.5538 ms to 2.8003/6.1728 ms. At 1x, however, submission p50 regressed
+from 1.6761 to 1.7931 ms (+7.0%) and frame p50 from 5.3414 to 5.3760 ms
+(+0.6%). The predictable branch therefore does not satisfy the cross-profile
+no-regression rule, and the source retains unconditional per-scanline vector
+reset/reduction.
+
 Exact pushed head `644a8d89` also rebuilt both native libraries with ARM64
 MSVC and passed all 11 native/Dawn CTests in the Windows Parallels VM. The
 zero-warning benchmark build ran the full 42-glyph forced-NEON D3D12 gate with

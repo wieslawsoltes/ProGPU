@@ -960,6 +960,14 @@ local native suite passed, and the paired SSE2 branch passed strict x86_64
 Clang compilation. The default remains GPU-first; this only improves the typed
 intrinsic fallback selected by policy or configuration.
 
+An exact empty-subscanline skip was evaluated after that accepted optimization
+and deliberately rejected. Across four alternating 120-frame runs per variant,
+it improved 2x submission/frame p50 by 7.9%/5.8% but regressed 1x submission
+p50 by 7.0% (frame p50 by 0.6%). All 960 frames retained identical baseline and
+candidate hashes. Because the branch fails the cross-profile no-regression
+gate, the qualified intrinsic path continues to reset and reduce every
+subscanline unconditionally.
+
 The corresponding Linux ARM64 checkout at exact commit `28447de4` passed a
 strict GCC 13.3 build of the complete 260-object graph, all 10 wgpu-native CTest
 contracts, the export allowlist, and live Vulkan allocation/render/readback on
