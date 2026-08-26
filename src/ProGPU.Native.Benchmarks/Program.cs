@@ -16,6 +16,17 @@ if (Array.Exists(
         args,
         static value => string.Equals(
             value,
+            "--directx-hello-triangle-oracle",
+            StringComparison.OrdinalIgnoreCase)))
+{
+    DirectXHelloTriangleQualification.Run(args);
+    return;
+}
+
+if (Array.Exists(
+        args,
+        static value => string.Equals(
+            value,
             "--text-shaping",
             StringComparison.OrdinalIgnoreCase)))
 {
