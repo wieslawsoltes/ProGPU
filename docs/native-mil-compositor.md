@@ -2370,8 +2370,20 @@ child mask change reuses child pixels and rebuilds only the owning parent/effect
 composition. Pixel changes are `0/379/161`; extents/red sums progress from
 `[12,6]-[33,25]`/23,482 to `[12,6]-[33,25]`/11,772 and
 `[12,6]-[33,24]`/11,266. The existing semantic cache, effect, and brush-mask
-resources require no ABI or backend fork. DirectX qualification is pending for
-exact test/qualification commit `f8bd57b5`.
+resources require no ABI or backend fork.
+
+The exact DirectX qualification completed on 2026-08-26 from clean detached
+commit `f8bd57b5`. ARM64 MSVC passed all 11 native/Dawn CTests under `/W4 /WX`,
+both export allowlists, two zero-warning managed builds, independent native and
+managed D3D12 allocation/readback samples, and the complete bounded smoke lane.
+The Parallels D3D12 live gate reproduced Metal exactly: content passes
+`3 -> 0 -> 0 -> 2`, effect passes `2 -> 0 -> 0 -> 2`, pixel changes
+`0/379/161`, and the same three extents/red sums above. The staged win-arm64
+package contained nine files; SHA-256 was
+`3E5617D3A46F3B2F26A0F727796277A7A9C026C00188EE88BE1D21C320CF8483`
+for `progpu_native.dll` and
+`743FE185F4D4C900CA1B7F5B18AD85BEAAD47CEA592315AF22D81E625DF0393D`
+for `progpu_native_dawn.dll`.
 
 The implementation sequence is intentionally architectural:
 
