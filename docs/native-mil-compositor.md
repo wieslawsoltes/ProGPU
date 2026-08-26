@@ -2069,8 +2069,9 @@ effect consumes a local cache, the inner cache composite also omits that clip;
 cache opacity and a supported spatial mask remain inside the effect. The
 resulting order is final rectangle clip, effect, then cache opacity/mask. This
 matches WPF's `PreSubgraph` behavior and avoids truncating blur or drop-shadow
-input. Uncached opacity/effect and arbitrary geometry clip/effect combinations
-still fail closed.
+input. At this checkpoint uncached opacity/effect and arbitrary geometry
+clip/effect combinations still failed closed; the bounded uncached-opacity
+checkpoint below resolves the root/local uniform-opacity subset.
 
 Native and managed builder regressions cover canonical acceptance plus
 transformed/non-materialized rejection. MIL regressions cover both uncached
@@ -2135,6 +2136,33 @@ nine-file package staging. Qualified win-arm64 SHA-256 values are
 for `progpu_native.dll` and
 `CE4A5E6E81F11DB499E8B160A550A14701F4D050EC80AC484C5CEEA57BA92F0A`
 for `progpu_native_dawn.dll`.
+
+The uncached opacity-before-effect checkpoint extends that bounded layer stack
+without adding an ABI flag. WPF's order is final clip, outer effect, then
+uniform opacity over the isolated source. For an uncached effect Visual with no
+inherited opacity, MIL now emits the bounded effect layer followed by a bounded
+`FORCE_ISOLATION` layer carrying the combined local uniform alpha. The saved
+draw State and child content scope reset opacity to one, preventing the alpha
+from being multiplied independently into overlapping primitives. The inner
+layer is restored first, so Gaussian blur or drop shadow samples the completed
+half-opacity Visual. A zero-radius blur still retains the opacity layer, while
+an optional final rectangle clip remains on a separate outer clip layer.
+
+Inherited non-unit opacity and spatial opacity masks remain fail closed: the
+compiler does not move an ancestor's group boundary across a descendant effect.
+The implementation reuses the exact typed Visual descendant bounds qualified
+above, remains reflection-free, and executes through the same semantic layer
+stack on WebGPU and DirectX.
+
+Native MIL tests assert outer-effect/inner-opacity order, exact source/effect
+bounds, zero-radius retention, final-clip placement, and inherited-opacity
+rejection. The live `--semantic-uncached-opacity-effect` Metal gate compares
+two overlapping opaque rectangles under group opacity against a single
+half-opacity union reference and a deliberately incorrect per-primitive-alpha
+variant. Group/reference output is byte-identical; the incorrect variant
+changes 420 pixels and raises the overlap sample from 128 to 188. The qualified
+stack executes `2/2/2` content/composite/effect passes and produces extent
+`[5,5]-[46,30]`, red sum 65,536. The Windows lane runs the same gate on D3D12.
 
 The implementation sequence is intentionally architectural:
 
