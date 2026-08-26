@@ -72,6 +72,21 @@ for the wgpu-native runtime DLL. The Python regeneration/drift check remains a
 host/CI gate because the qualification VM intentionally has no Python runtime;
 MSVC independently proves the committed generated header is valid ARM64 C++.
 
+Transform-layout checkpoint `4e7d8f55` moves MatrixResource and the complete
+retained 2D transform family onto that same generated authority: variable
+TransformGroup children, TranslateTransform, ScaleTransform, SkewTransform,
+RotateTransform, and MatrixTransform, including every animation-resource
+handle. Existing finite-value, resource-type, cycle, and graph validation is
+unchanged; only packet size and field-location ownership moved from local
+numeric literals to the WPF-generated layouts. The generator drift check and
+all 11 native/Dawn CTests pass on Apple Silicon. Clean detached Windows ARM64
+MSVC `/W4 /WX` also rebuilt both native modules and passed all 11 tests.
+Qualified SHA-256 is
+`B514024B7F83A06C5F6FD2CDED7C9677255AD283076B3E61AA096DC633288E48`
+for `progpu_native.dll` and
+`9F73E41536B3BD96A0A44692EA65888C9DE004B19FBF5DE90489768667FBBDDBC`
+for the wgpu-native runtime DLL.
+
 ## Architecture
 
 ```text
