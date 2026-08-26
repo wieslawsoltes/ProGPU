@@ -544,18 +544,18 @@ internal static class RetainedOpacityEffectQualification
                 NativeSceneValidationError.None &&
             inherited.Frame.SubmissionCount > 0U &&
             flattened.Frame.SubmissionCount > 0U &&
-            inherited.Layer.ContentPassCount == 2U &&
-            inherited.Layer.CompositePassCount == 2U &&
+            inherited.Layer.ContentPassCount == 3U &&
+            inherited.Layer.CompositePassCount == 3U &&
             inherited.Layer.EffectPassCount == 2U &&
-            flattened.Layer.ContentPassCount == 3U &&
-            flattened.Layer.CompositePassCount == 3U &&
+            flattened.Layer.ContentPassCount == 4U &&
+            flattened.Layer.CompositePassCount == 4U &&
             flattened.Layer.EffectPassCount == 2U,
             "inherited mask/effect layer metrics are invalid: " +
             $"inherited={inherited.Layer}; flattened={flattened.Layer}");
         Require(
             changed > 32 &&
             inheritedRight >= inheritedLeft + 64 &&
-            flattenedExtent.RedSum >= inheritedExtent.RedSum + 4096 &&
+            flattenedExtent.RedSum >= inheritedExtent.RedSum + 2048 &&
             inheritedExtent.IsVisible && flattenedExtent.IsVisible,
             "ancestor opacity mask was flattened into descendants: " +
             $"changed={changed}, inherited=" +
@@ -602,6 +602,24 @@ internal static class RetainedOpacityEffectQualification
             Matrix3x2.Identity,
             in maskBrush,
             gradientStopCount: (uint)stops.Length);
+        NativeSceneGradientStop[] childStops =
+        [
+            new NativeSceneGradientStop(
+                new Vector4(1f, 1f, 1f, 1f), 0f),
+            new NativeSceneGradientStop(
+                new Vector4(1f, 1f, 1f, 0f), 1f)
+        ];
+        NativeSceneBrush childMaskBrush = NativeSceneBrush.LinearGradient(
+            new Vector2(0f, 10f),
+            new Vector2(0f, 26f),
+            stopOffset: 0U,
+            childStops,
+            coordinateTransform: Matrix3x2.Identity);
+        var childMask = new NativeSceneLayerBrushMask(
+            SourceBounds,
+            Matrix3x2.Identity,
+            in childMaskBrush,
+            gradientStopCount: (uint)childStops.Length);
         Span<NativeSceneEffect> effects = stackalloc NativeSceneEffect[1];
         effects[0] = NativeSceneEffect.GaussianBlur(
             sigmaX: 2f,
@@ -627,19 +645,20 @@ internal static class RetainedOpacityEffectQualification
             16f,
             new Vector4(1f, 0f, 0f, 1f),
             Matrix3x2.Identity);
-        int commandCapacity = preserveParentBoundary ? 6 : 8;
+        int commandCapacity = preserveParentBoundary ? 8 : 10;
         int size = NativeSceneStreamBuilder.GetRequiredBufferSize(
             commandCapacity,
-            resourceCapacity: 4,
-            arenaCapacity: 2560);
+            resourceCapacity: 5,
+            arenaCapacity: 3072);
         byte[] destination = GC.AllocateUninitializedArray<byte>(size);
         var builder = new NativeSceneStreamBuilder(
             destination,
             sceneId,
             generation: 1U,
             commandCapacity,
-            resourceCapacity: 4);
+            resourceCapacity: 5);
         uint maskIndex = 0U;
+        uint childMaskIndex = 0U;
         uint effectIndex = 0U;
         uint childIndex = 0U;
         uint siblingIndex = 0U;
@@ -650,19 +669,25 @@ internal static class RetainedOpacityEffectQualification
                 in mask,
                 stops,
                 out maskIndex) &&
-            builder.TryAddEffectChainResource(
+            builder.TryAddLayerBrushMaskResource(
                 resourceId: 2U,
+                generation: 1U,
+                in childMask,
+                childStops,
+                out childMaskIndex) &&
+            builder.TryAddEffectChainResource(
+                resourceId: 3U,
                 generation: 1U,
                 effects,
                 revision: 1U,
                 out effectIndex) &&
             builder.TryAddAnalyticResource(
-                resourceId: 3U,
+                resourceId: 4U,
                 generation: 1U,
                 child,
                 out childIndex) &&
             builder.TryAddAnalyticResource(
-                resourceId: 4U,
+                resourceId: 5U,
                 generation: 1U,
                 sibling,
                 out siblingIndex);
@@ -679,7 +704,7 @@ internal static class RetainedOpacityEffectQualification
             flags: NativeSceneLayerFlags.Bounds |
                 NativeSceneLayerFlags.ForceIsolation,
             bounds: SourceBounds,
-            maskResourceIndex: maskIndex);
+            maskResourceIndex: childMaskIndex);
         NativeSceneLayer siblingMaskLayer = new(
             flags: NativeSceneLayerFlags.Bounds |
                 NativeSceneLayerFlags.ForceIsolation,
@@ -690,24 +715,28 @@ internal static class RetainedOpacityEffectQualification
             preserveParentBoundary ? parentMaskLayer : effectLayer);
         success = success && builder.TryPushLayer(
             commandId: 2U,
-            preserveParentBoundary ? effectLayer : childMaskLayer);
+            preserveParentBoundary ? effectLayer : parentMaskLayer);
+        success = success && builder.TryPushLayer(
+            commandId: 3U,
+            childMaskLayer);
         success = success && builder.TryDrawAnalytic(
-                commandId: 3U,
+                commandId: 4U,
                 childIndex,
                 SourceBounds) &&
-            builder.TryPopLayer(commandId: 4U);
+            builder.TryPopLayer(commandId: 5U);
+        success = success && builder.TryPopLayer(commandId: 6U);
         if (!preserveParentBoundary)
-            success = success && builder.TryPopLayer(commandId: 5U);
+            success = success && builder.TryPopLayer(commandId: 7U);
         if (!preserveParentBoundary)
             success = success && builder.TryPushLayer(
-                commandId: 6U,
+                commandId: 8U,
                 siblingMaskLayer);
         success = success && builder.TryDrawAnalytic(
-                commandId: preserveParentBoundary ? 5U : 7U,
+                commandId: preserveParentBoundary ? 7U : 9U,
                 siblingIndex,
                 new NativeImageRect(22f, 10f, 20f, 16f));
         success = success && builder.TryPopLayer(
-                commandId: preserveParentBoundary ? 6U : 8U) &&
+                commandId: preserveParentBoundary ? 8U : 10U) &&
             builder.TryBuild(out stream);
         Require(success, "failed to build inherited mask/effect scene");
         return stream.ToArray();
