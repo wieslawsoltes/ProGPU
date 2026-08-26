@@ -828,12 +828,14 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     constexpr std::uint32_t visual_type = 39U;
     constexpr std::uint32_t render_data_type = 43U;
     constexpr std::uint32_t target_type = 47U;
+    constexpr std::uint32_t double_resource_type = 49U;
     constexpr std::uint32_t solid_brush_type = 75U;
     constexpr std::uint32_t root = 1U;
     constexpr std::uint32_t child = 2U;
     constexpr std::uint32_t content = 3U;
     constexpr std::uint32_t target = 4U;
     constexpr std::uint32_t brush = 5U;
+    constexpr std::uint32_t opacity_animation = 6U;
 
     std::vector<std::byte> batch;
     append_create(batch, root, visual_type);
@@ -841,6 +843,7 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     append_create(batch, content, render_data_type);
     append_create(batch, target, target_type);
     append_create(batch, brush, solid_brush_type);
+    append_create(batch, opacity_animation, double_resource_type);
     append_command(batch, command::visual_create, root);
     append_command(batch, command::visual_create, child);
     append_command(batch, command::visual_set_offset, root, 10.0, 20.0);
@@ -860,6 +863,8 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     append_command(batch, command::visual_set_alpha, child, 0.5);
     append_command(batch, command::visual_set_content, child, content);
     append_command(batch, command::visual_insert_child_at, root, child, 0U);
+    append_command(
+        batch, command::double_resource, opacity_animation, 0.5);
 
     const progpu_native_color color{0.25F, 0.5F, 0.75F, 0.9F};
     append_command(
@@ -873,7 +878,12 @@ bool solid_rectangle_compiles_to_semantic_scene() {
         0U,
         0U);
     std::vector<std::byte> nested;
-    append_command(nested, command::push_opacity, 0.5);
+    append_command(
+        nested,
+        command::push_opacity_animate,
+        0.75,
+        opacity_animation,
+        0U);
     append_command(
         nested,
         command::draw_rectangle,
@@ -1008,6 +1018,40 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     PROGPU_REQUIRE(found_ellipse);
     PROGPU_REQUIRE(found_rounded_rectangle);
     PROGPU_REQUIRE(found_brush);
+
+    std::vector<std::byte> opacity_update;
+    append_command(
+        opacity_update,
+        command::double_resource,
+        opacity_animation,
+        0.25);
+    PROGPU_REQUIRE(state.apply(opacity_update) == status::success);
+    std::vector<std::byte> updated_stream;
+    PROGPU_REQUIRE(
+        state.build_scene(
+            target, 9001U, 8U, updated_stream, &metrics) ==
+        status::success);
+    const auto updated_header = read_value<progpu_native_scene_header>(
+        updated_stream, 0U);
+    bool found_updated_nested_opacity = false;
+    for (std::uint32_t index = 0U;
+         index < updated_header.resource_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            updated_stream,
+            updated_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            continue;
+        }
+        const auto scene_state = read_value<progpu_native_scene_state>(
+            updated_stream, record.payload_offset);
+        found_updated_nested_opacity |=
+            scene_state.transform.m31 == 13.0F &&
+            scene_state.transform.m32 == 24.0F &&
+            scene_state.opacity == 0.1F;
+    }
+    PROGPU_REQUIRE(found_updated_nested_opacity);
 
     progpu_native_mil_channel* native_channel = nullptr;
     PROGPU_REQUIRE(

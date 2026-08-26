@@ -1490,6 +1490,18 @@ public sealed class NativeMilRenderDataBuilder
         NativeMilBatchBuilder.WriteDouble(packet, 4, opacity);
     }
 
+    public void PushOpacity(double opacity, uint opacityAnimationHandle)
+    {
+        if (!double.IsFinite(opacity) || opacity < 0.0 || opacity > 1.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(opacity));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PushOpacityAnimate, 20);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, opacity);
+        NativeMilBatchBuilder.WriteUInt32(packet, 12, opacityAnimationHandle);
+    }
+
     public void PushClip(uint geometryHandle)
     {
         ArgumentOutOfRangeException.ThrowIfZero(geometryHandle);
@@ -1699,6 +1711,7 @@ internal static class NativeMilCommand
     internal const uint DrawDrawing = 0x4a;
     internal const uint PushClip = 0x4d;
     internal const uint PushOpacity = 0x4f;
+    internal const uint PushOpacityAnimate = 0x50;
     internal const uint PushTransform = 0x51;
     internal const uint PushGuidelineSet = 0x52;
     internal const uint Pop = 0x56;

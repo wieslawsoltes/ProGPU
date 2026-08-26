@@ -6674,6 +6674,48 @@ struct channel::implementation {
                 current = next;
                 continue;
             }
+            if (view.kind == command::push_opacity_animate) {
+                double opacity = 0.0;
+                std::uint32_t opacity_animation_handle = 0U;
+                std::uint32_t padding = 0U;
+                if (!has_exact_size(view, 20U) ||
+                    !read_at(view.packet, 4U, opacity) ||
+                    !read_at(
+                        view.packet, 12U, opacity_animation_handle) ||
+                    !read_at(view.packet, 16U, padding) || padding != 0U ||
+                    !std::isfinite(opacity) || opacity < 0.0 ||
+                    opacity > 1.0) {
+                    return status::malformed_batch;
+                }
+                double resolved_opacity = opacity;
+                if (opacity_animation_handle != 0U) {
+                    const status opacity_status = resolve_animated_double(
+                        opacity,
+                        opacity_animation_handle,
+                        resolved_opacity);
+                    if (opacity_status != status::success) {
+                        return opacity_status;
+                    }
+                }
+                if (!finite_double_as_float(resolved_opacity) ||
+                    resolved_opacity < 0.0 || resolved_opacity > 1.0) {
+                    return status::invalid_graph;
+                }
+                const double combined_opacity =
+                    current.opacity * resolved_opacity;
+                if (!finite_double_as_float(combined_opacity) ||
+                    combined_opacity < 0.0 || combined_opacity > 1.0) {
+                    return status::invalid_graph;
+                }
+                render_scope_state next = current;
+                next.opacity = combined_opacity;
+                if (!save_state(next)) {
+                    return status::invalid_graph;
+                }
+                scope_states.push_back(current);
+                current = next;
+                continue;
+            }
             if (view.kind == command::push_clip) {
                 std::uint32_t geometry_handle = 0U;
                 std::uint32_t padding = 0U;
@@ -8924,8 +8966,9 @@ struct channel::implementation {
                 if (view.kind == command::push_opacity ||
                     view.kind == command::pop) {
                     continue;
-                }
-                if (view.kind == command::push_clip ||
+                } else if (view.kind == command::push_opacity_animate) {
+                    append_packet_handle(12U);
+                } else if (view.kind == command::push_clip ||
                     view.kind == command::push_transform ||
                     view.kind == command::push_guideline_set ||
                     view.kind == command::draw_drawing) {
