@@ -155,6 +155,22 @@ enum class command : std::uint32_t {
 
 namespace command_layouts {
 
+struct transport_sync_flush final {
+    static constexpr command kind = command::transport_sync_flush;
+    static constexpr std::uint32_t fixed_size = 4U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+};
+
+struct transport_destroy_resources_on_channel final {
+    static constexpr command kind = command::transport_destroy_resources_on_channel;
+    static constexpr std::uint32_t fixed_size = 8U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t h_channel_offset = 4U;
+    static constexpr std::uint32_t h_channel_size = 4U;
+};
+
 struct partition_register_for_notifications final {
     static constexpr command kind = command::partition_register_for_notifications;
     static constexpr std::uint32_t fixed_size = 8U;
@@ -191,6 +207,41 @@ struct partition_notify_present final {
     static constexpr std::uint32_t frame_time_size = 8U;
 };
 
+struct channel_create_resource final {
+    static constexpr command kind = command::channel_create_resource;
+    static constexpr std::uint32_t fixed_size = 12U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t handle_offset = 4U;
+    static constexpr std::uint32_t handle_size = 4U;
+    static constexpr std::uint32_t res_type_offset = 8U;
+    static constexpr std::uint32_t res_type_size = 4U;
+};
+
+struct channel_delete_resource final {
+    static constexpr command kind = command::channel_delete_resource;
+    static constexpr std::uint32_t fixed_size = 12U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t handle_offset = 4U;
+    static constexpr std::uint32_t handle_size = 4U;
+    static constexpr std::uint32_t res_type_offset = 8U;
+    static constexpr std::uint32_t res_type_size = 4U;
+};
+
+struct channel_duplicate_handle final {
+    static constexpr command kind = command::channel_duplicate_handle;
+    static constexpr std::uint32_t fixed_size = 16U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t original_offset = 4U;
+    static constexpr std::uint32_t original_size = 4U;
+    static constexpr std::uint32_t target_channel_offset = 8U;
+    static constexpr std::uint32_t target_channel_size = 4U;
+    static constexpr std::uint32_t duplicate_offset = 12U;
+    static constexpr std::uint32_t duplicate_size = 4U;
+};
+
 struct d3d_image final {
     static constexpr command kind = command::d3d_image;
     static constexpr std::uint32_t fixed_size = 24U;
@@ -213,6 +264,17 @@ struct d3d_image_present final {
     static constexpr std::uint32_t handle_size = 4U;
     static constexpr std::uint32_t h_event_offset = 8U;
     static constexpr std::uint32_t h_event_size = 8U;
+};
+
+struct bitmap_source final {
+    static constexpr command kind = command::bitmap_source;
+    static constexpr std::uint32_t fixed_size = 16U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t handle_offset = 4U;
+    static constexpr std::uint32_t handle_size = 4U;
+    static constexpr std::uint32_t p_i_bitmap_offset = 8U;
+    static constexpr std::uint32_t p_i_bitmap_size = 8U;
 };
 
 struct bitmap_invalidate final {
@@ -327,6 +389,19 @@ struct quaternion_resource final {
     static constexpr std::uint32_t value_size = 16U;
 };
 
+struct media_player final {
+    static constexpr command kind = command::media_player;
+    static constexpr std::uint32_t fixed_size = 20U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t handle_offset = 4U;
+    static constexpr std::uint32_t handle_size = 4U;
+    static constexpr std::uint32_t p_media_offset = 8U;
+    static constexpr std::uint32_t p_media_size = 8U;
+    static constexpr std::uint32_t notify_uce_direct_offset = 16U;
+    static constexpr std::uint32_t notify_uce_direct_size = 4U;
+};
+
 struct render_data final {
     static constexpr command kind = command::render_data;
     static constexpr std::uint32_t fixed_size = 12U;
@@ -347,6 +422,15 @@ struct etw_event_resource final {
     static constexpr std::uint32_t handle_size = 4U;
     static constexpr std::uint32_t id_offset = 8U;
     static constexpr std::uint32_t id_size = 4U;
+};
+
+struct visual_create final {
+    static constexpr command kind = command::visual_create;
+    static constexpr std::uint32_t fixed_size = 8U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t handle_offset = 4U;
+    static constexpr std::uint32_t handle_size = 4U;
 };
 
 struct visual_set_offset final {
@@ -492,10 +576,12 @@ struct visual_set_guideline_collection final {
     static constexpr std::uint32_t handle_size = 4U;
     static constexpr std::uint32_t count_x_offset = 8U;
     static constexpr std::uint32_t count_x_size = 2U;
+    static constexpr std::uint32_t uint16_padding0_offset = 10U;
+    static constexpr std::uint32_t uint16_padding0_size = 2U;
     static constexpr std::uint32_t count_y_offset = 12U;
     static constexpr std::uint32_t count_y_size = 2U;
-    static constexpr std::uint32_t byte_packing0_offset = 15U;
-    static constexpr std::uint32_t byte_packing0_size = 1U;
+    static constexpr std::uint32_t uint16_padding1_offset = 14U;
+    static constexpr std::uint32_t uint16_padding1_size = 2U;
 };
 
 struct visual_set_scrollable_area_clip final {
@@ -763,6 +849,8 @@ struct glyph_run_create final {
     static constexpr std::uint32_t p_id_write_font_size = 8U;
     static constexpr std::uint32_t glyph_run_flags_offset = 16U;
     static constexpr std::uint32_t glyph_run_flags_size = 2U;
+    static constexpr std::uint32_t uint16_padding0_offset = 18U;
+    static constexpr std::uint32_t uint16_padding0_size = 2U;
     static constexpr std::uint32_t origin_offset = 20U;
     static constexpr std::uint32_t origin_size = 8U;
     static constexpr std::uint32_t mu_size_offset = 28U;
@@ -771,12 +859,16 @@ struct glyph_run_create final {
     static constexpr std::uint32_t managed_bounds_size = 32U;
     static constexpr std::uint32_t glyph_count_offset = 64U;
     static constexpr std::uint32_t glyph_count_size = 2U;
+    static constexpr std::uint32_t uint16_padding1_offset = 66U;
+    static constexpr std::uint32_t uint16_padding1_size = 2U;
     static constexpr std::uint32_t bidi_level_offset = 68U;
     static constexpr std::uint32_t bidi_level_size = 2U;
+    static constexpr std::uint32_t uint16_padding2_offset = 70U;
+    static constexpr std::uint32_t uint16_padding2_size = 2U;
     static constexpr std::uint32_t d_write_text_measuring_method_offset = 72U;
     static constexpr std::uint32_t d_write_text_measuring_method_size = 2U;
-    static constexpr std::uint32_t byte_packing0_offset = 75U;
-    static constexpr std::uint32_t byte_packing0_size = 1U;
+    static constexpr std::uint32_t uint16_padding3_offset = 74U;
+    static constexpr std::uint32_t uint16_padding3_size = 2U;
 };
 
 struct double_buffered_bitmap final {
@@ -810,6 +902,345 @@ struct partition_notify_policy_change_for_non_interactive_mode final {
     static constexpr std::uint32_t type_size = 4U;
     static constexpr std::uint32_t should_render_even_when_no_display_devices_are_available_offset = 4U;
     static constexpr std::uint32_t should_render_even_when_no_display_devices_are_available_size = 4U;
+};
+
+struct draw_line final {
+    static constexpr command kind = command::draw_line;
+    static constexpr std::uint32_t fixed_size = 44U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t point0_offset = 4U;
+    static constexpr std::uint32_t point0_size = 16U;
+    static constexpr std::uint32_t point1_offset = 20U;
+    static constexpr std::uint32_t point1_size = 16U;
+    static constexpr std::uint32_t h_pen_offset = 36U;
+    static constexpr std::uint32_t h_pen_size = 4U;
+    static constexpr std::uint32_t quad_word_pad0_offset = 40U;
+    static constexpr std::uint32_t quad_word_pad0_size = 4U;
+};
+
+struct draw_line_animate final {
+    static constexpr command kind = command::draw_line_animate;
+    static constexpr std::uint32_t fixed_size = 52U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t point0_offset = 4U;
+    static constexpr std::uint32_t point0_size = 16U;
+    static constexpr std::uint32_t point1_offset = 20U;
+    static constexpr std::uint32_t point1_size = 16U;
+    static constexpr std::uint32_t h_pen_offset = 36U;
+    static constexpr std::uint32_t h_pen_size = 4U;
+    static constexpr std::uint32_t h_point0_animations_offset = 40U;
+    static constexpr std::uint32_t h_point0_animations_size = 4U;
+    static constexpr std::uint32_t h_point1_animations_offset = 44U;
+    static constexpr std::uint32_t h_point1_animations_size = 4U;
+    static constexpr std::uint32_t quad_word_pad0_offset = 48U;
+    static constexpr std::uint32_t quad_word_pad0_size = 4U;
+};
+
+struct draw_rectangle final {
+    static constexpr command kind = command::draw_rectangle;
+    static constexpr std::uint32_t fixed_size = 44U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t rectangle_offset = 4U;
+    static constexpr std::uint32_t rectangle_size = 32U;
+    static constexpr std::uint32_t h_brush_offset = 36U;
+    static constexpr std::uint32_t h_brush_size = 4U;
+    static constexpr std::uint32_t h_pen_offset = 40U;
+    static constexpr std::uint32_t h_pen_size = 4U;
+};
+
+struct draw_rectangle_animate final {
+    static constexpr command kind = command::draw_rectangle_animate;
+    static constexpr std::uint32_t fixed_size = 52U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t rectangle_offset = 4U;
+    static constexpr std::uint32_t rectangle_size = 32U;
+    static constexpr std::uint32_t h_brush_offset = 36U;
+    static constexpr std::uint32_t h_brush_size = 4U;
+    static constexpr std::uint32_t h_pen_offset = 40U;
+    static constexpr std::uint32_t h_pen_size = 4U;
+    static constexpr std::uint32_t h_rectangle_animations_offset = 44U;
+    static constexpr std::uint32_t h_rectangle_animations_size = 4U;
+    static constexpr std::uint32_t quad_word_pad0_offset = 48U;
+    static constexpr std::uint32_t quad_word_pad0_size = 4U;
+};
+
+struct draw_rounded_rectangle final {
+    static constexpr command kind = command::draw_rounded_rectangle;
+    static constexpr std::uint32_t fixed_size = 60U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t rectangle_offset = 4U;
+    static constexpr std::uint32_t rectangle_size = 32U;
+    static constexpr std::uint32_t radius_x_offset = 36U;
+    static constexpr std::uint32_t radius_x_size = 8U;
+    static constexpr std::uint32_t radius_y_offset = 44U;
+    static constexpr std::uint32_t radius_y_size = 8U;
+    static constexpr std::uint32_t h_brush_offset = 52U;
+    static constexpr std::uint32_t h_brush_size = 4U;
+    static constexpr std::uint32_t h_pen_offset = 56U;
+    static constexpr std::uint32_t h_pen_size = 4U;
+};
+
+struct draw_rounded_rectangle_animate final {
+    static constexpr command kind = command::draw_rounded_rectangle_animate;
+    static constexpr std::uint32_t fixed_size = 76U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t rectangle_offset = 4U;
+    static constexpr std::uint32_t rectangle_size = 32U;
+    static constexpr std::uint32_t radius_x_offset = 36U;
+    static constexpr std::uint32_t radius_x_size = 8U;
+    static constexpr std::uint32_t radius_y_offset = 44U;
+    static constexpr std::uint32_t radius_y_size = 8U;
+    static constexpr std::uint32_t h_brush_offset = 52U;
+    static constexpr std::uint32_t h_brush_size = 4U;
+    static constexpr std::uint32_t h_pen_offset = 56U;
+    static constexpr std::uint32_t h_pen_size = 4U;
+    static constexpr std::uint32_t h_rectangle_animations_offset = 60U;
+    static constexpr std::uint32_t h_rectangle_animations_size = 4U;
+    static constexpr std::uint32_t h_radius_x_animations_offset = 64U;
+    static constexpr std::uint32_t h_radius_x_animations_size = 4U;
+    static constexpr std::uint32_t h_radius_y_animations_offset = 68U;
+    static constexpr std::uint32_t h_radius_y_animations_size = 4U;
+    static constexpr std::uint32_t quad_word_pad0_offset = 72U;
+    static constexpr std::uint32_t quad_word_pad0_size = 4U;
+};
+
+struct draw_ellipse final {
+    static constexpr command kind = command::draw_ellipse;
+    static constexpr std::uint32_t fixed_size = 44U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t center_offset = 4U;
+    static constexpr std::uint32_t center_size = 16U;
+    static constexpr std::uint32_t radius_x_offset = 20U;
+    static constexpr std::uint32_t radius_x_size = 8U;
+    static constexpr std::uint32_t radius_y_offset = 28U;
+    static constexpr std::uint32_t radius_y_size = 8U;
+    static constexpr std::uint32_t h_brush_offset = 36U;
+    static constexpr std::uint32_t h_brush_size = 4U;
+    static constexpr std::uint32_t h_pen_offset = 40U;
+    static constexpr std::uint32_t h_pen_size = 4U;
+};
+
+struct draw_ellipse_animate final {
+    static constexpr command kind = command::draw_ellipse_animate;
+    static constexpr std::uint32_t fixed_size = 60U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t center_offset = 4U;
+    static constexpr std::uint32_t center_size = 16U;
+    static constexpr std::uint32_t radius_x_offset = 20U;
+    static constexpr std::uint32_t radius_x_size = 8U;
+    static constexpr std::uint32_t radius_y_offset = 28U;
+    static constexpr std::uint32_t radius_y_size = 8U;
+    static constexpr std::uint32_t h_brush_offset = 36U;
+    static constexpr std::uint32_t h_brush_size = 4U;
+    static constexpr std::uint32_t h_pen_offset = 40U;
+    static constexpr std::uint32_t h_pen_size = 4U;
+    static constexpr std::uint32_t h_center_animations_offset = 44U;
+    static constexpr std::uint32_t h_center_animations_size = 4U;
+    static constexpr std::uint32_t h_radius_x_animations_offset = 48U;
+    static constexpr std::uint32_t h_radius_x_animations_size = 4U;
+    static constexpr std::uint32_t h_radius_y_animations_offset = 52U;
+    static constexpr std::uint32_t h_radius_y_animations_size = 4U;
+    static constexpr std::uint32_t quad_word_pad0_offset = 56U;
+    static constexpr std::uint32_t quad_word_pad0_size = 4U;
+};
+
+struct draw_geometry final {
+    static constexpr command kind = command::draw_geometry;
+    static constexpr std::uint32_t fixed_size = 20U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t h_brush_offset = 4U;
+    static constexpr std::uint32_t h_brush_size = 4U;
+    static constexpr std::uint32_t h_pen_offset = 8U;
+    static constexpr std::uint32_t h_pen_size = 4U;
+    static constexpr std::uint32_t h_geometry_offset = 12U;
+    static constexpr std::uint32_t h_geometry_size = 4U;
+    static constexpr std::uint32_t quad_word_pad0_offset = 16U;
+    static constexpr std::uint32_t quad_word_pad0_size = 4U;
+};
+
+struct draw_image final {
+    static constexpr command kind = command::draw_image;
+    static constexpr std::uint32_t fixed_size = 44U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t rectangle_offset = 4U;
+    static constexpr std::uint32_t rectangle_size = 32U;
+    static constexpr std::uint32_t h_image_source_offset = 36U;
+    static constexpr std::uint32_t h_image_source_size = 4U;
+    static constexpr std::uint32_t quad_word_pad0_offset = 40U;
+    static constexpr std::uint32_t quad_word_pad0_size = 4U;
+};
+
+struct draw_image_animate final {
+    static constexpr command kind = command::draw_image_animate;
+    static constexpr std::uint32_t fixed_size = 44U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t rectangle_offset = 4U;
+    static constexpr std::uint32_t rectangle_size = 32U;
+    static constexpr std::uint32_t h_image_source_offset = 36U;
+    static constexpr std::uint32_t h_image_source_size = 4U;
+    static constexpr std::uint32_t h_rectangle_animations_offset = 40U;
+    static constexpr std::uint32_t h_rectangle_animations_size = 4U;
+};
+
+struct draw_glyph_run final {
+    static constexpr command kind = command::draw_glyph_run;
+    static constexpr std::uint32_t fixed_size = 12U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t h_foreground_brush_offset = 4U;
+    static constexpr std::uint32_t h_foreground_brush_size = 4U;
+    static constexpr std::uint32_t h_glyph_run_offset = 8U;
+    static constexpr std::uint32_t h_glyph_run_size = 4U;
+};
+
+struct draw_drawing final {
+    static constexpr command kind = command::draw_drawing;
+    static constexpr std::uint32_t fixed_size = 12U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t h_drawing_offset = 4U;
+    static constexpr std::uint32_t h_drawing_size = 4U;
+    static constexpr std::uint32_t quad_word_pad0_offset = 8U;
+    static constexpr std::uint32_t quad_word_pad0_size = 4U;
+};
+
+struct draw_video final {
+    static constexpr command kind = command::draw_video;
+    static constexpr std::uint32_t fixed_size = 44U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t rectangle_offset = 4U;
+    static constexpr std::uint32_t rectangle_size = 32U;
+    static constexpr std::uint32_t h_player_offset = 36U;
+    static constexpr std::uint32_t h_player_size = 4U;
+    static constexpr std::uint32_t quad_word_pad0_offset = 40U;
+    static constexpr std::uint32_t quad_word_pad0_size = 4U;
+};
+
+struct draw_video_animate final {
+    static constexpr command kind = command::draw_video_animate;
+    static constexpr std::uint32_t fixed_size = 44U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t rectangle_offset = 4U;
+    static constexpr std::uint32_t rectangle_size = 32U;
+    static constexpr std::uint32_t h_player_offset = 36U;
+    static constexpr std::uint32_t h_player_size = 4U;
+    static constexpr std::uint32_t h_rectangle_animations_offset = 40U;
+    static constexpr std::uint32_t h_rectangle_animations_size = 4U;
+};
+
+struct push_clip final {
+    static constexpr command kind = command::push_clip;
+    static constexpr std::uint32_t fixed_size = 12U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t h_clip_geometry_offset = 4U;
+    static constexpr std::uint32_t h_clip_geometry_size = 4U;
+    static constexpr std::uint32_t quad_word_pad0_offset = 8U;
+    static constexpr std::uint32_t quad_word_pad0_size = 4U;
+};
+
+struct push_opacity_mask final {
+    static constexpr command kind = command::push_opacity_mask;
+    static constexpr std::uint32_t fixed_size = 28U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t bounding_box_cache_local_space_offset = 4U;
+    static constexpr std::uint32_t bounding_box_cache_local_space_size = 16U;
+    static constexpr std::uint32_t h_opacity_mask_offset = 20U;
+    static constexpr std::uint32_t h_opacity_mask_size = 4U;
+    static constexpr std::uint32_t quad_word_pad0_offset = 24U;
+    static constexpr std::uint32_t quad_word_pad0_size = 4U;
+};
+
+struct push_opacity final {
+    static constexpr command kind = command::push_opacity;
+    static constexpr std::uint32_t fixed_size = 12U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t opacity_offset = 4U;
+    static constexpr std::uint32_t opacity_size = 8U;
+};
+
+struct push_opacity_animate final {
+    static constexpr command kind = command::push_opacity_animate;
+    static constexpr std::uint32_t fixed_size = 20U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t opacity_offset = 4U;
+    static constexpr std::uint32_t opacity_size = 8U;
+    static constexpr std::uint32_t h_opacity_animations_offset = 12U;
+    static constexpr std::uint32_t h_opacity_animations_size = 4U;
+    static constexpr std::uint32_t quad_word_pad0_offset = 16U;
+    static constexpr std::uint32_t quad_word_pad0_size = 4U;
+};
+
+struct push_transform final {
+    static constexpr command kind = command::push_transform;
+    static constexpr std::uint32_t fixed_size = 12U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t h_transform_offset = 4U;
+    static constexpr std::uint32_t h_transform_size = 4U;
+    static constexpr std::uint32_t quad_word_pad0_offset = 8U;
+    static constexpr std::uint32_t quad_word_pad0_size = 4U;
+};
+
+struct push_guideline_set final {
+    static constexpr command kind = command::push_guideline_set;
+    static constexpr std::uint32_t fixed_size = 12U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t h_guidelines_offset = 4U;
+    static constexpr std::uint32_t h_guidelines_size = 4U;
+    static constexpr std::uint32_t quad_word_pad0_offset = 8U;
+    static constexpr std::uint32_t quad_word_pad0_size = 4U;
+};
+
+struct push_guideline_y1 final {
+    static constexpr command kind = command::push_guideline_y1;
+    static constexpr std::uint32_t fixed_size = 12U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t coordinate_offset = 4U;
+    static constexpr std::uint32_t coordinate_size = 8U;
+};
+
+struct push_guideline_y2 final {
+    static constexpr command kind = command::push_guideline_y2;
+    static constexpr std::uint32_t fixed_size = 20U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t leading_coordinate_offset = 4U;
+    static constexpr std::uint32_t leading_coordinate_size = 8U;
+    static constexpr std::uint32_t offset_to_driven_coordinate_offset = 12U;
+    static constexpr std::uint32_t offset_to_driven_coordinate_size = 8U;
+};
+
+struct push_effect final {
+    static constexpr command kind = command::push_effect;
+    static constexpr std::uint32_t fixed_size = 4U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
+};
+
+struct pop final {
+    static constexpr command kind = command::pop;
+    static constexpr std::uint32_t fixed_size = 4U;
+    static constexpr std::uint32_t type_offset = 0U;
+    static constexpr std::uint32_t type_size = 4U;
 };
 
 struct axis_angle_rotation3d final {
@@ -2009,6 +2440,10 @@ struct bitmap_cache final {
 
 constexpr std::uint32_t fixed_header_size(command value) noexcept {
     switch (value) {
+    case command::transport_sync_flush:
+        return transport_sync_flush::fixed_size;
+    case command::transport_destroy_resources_on_channel:
+        return transport_destroy_resources_on_channel::fixed_size;
     case command::partition_register_for_notifications:
         return partition_register_for_notifications::fixed_size;
     case command::channel_request_tier:
@@ -2017,10 +2452,18 @@ constexpr std::uint32_t fixed_header_size(command value) noexcept {
         return partition_set_vblank_sync_mode::fixed_size;
     case command::partition_notify_present:
         return partition_notify_present::fixed_size;
+    case command::channel_create_resource:
+        return channel_create_resource::fixed_size;
+    case command::channel_delete_resource:
+        return channel_delete_resource::fixed_size;
+    case command::channel_duplicate_handle:
+        return channel_duplicate_handle::fixed_size;
     case command::d3d_image:
         return d3d_image::fixed_size;
     case command::d3d_image_present:
         return d3d_image_present::fixed_size;
+    case command::bitmap_source:
+        return bitmap_source::fixed_size;
     case command::bitmap_invalidate:
         return bitmap_invalidate::fixed_size;
     case command::double_resource:
@@ -2041,10 +2484,14 @@ constexpr std::uint32_t fixed_header_size(command value) noexcept {
         return vector3d_resource::fixed_size;
     case command::quaternion_resource:
         return quaternion_resource::fixed_size;
+    case command::media_player:
+        return media_player::fixed_size;
     case command::render_data:
         return render_data::fixed_size;
     case command::etw_event_resource:
         return etw_event_resource::fixed_size;
+    case command::visual_create:
+        return visual_create::fixed_size;
     case command::visual_set_offset:
         return visual_set_offset::fixed_size;
     case command::visual_set_transform:
@@ -2115,6 +2562,56 @@ constexpr std::uint32_t fixed_header_size(command value) noexcept {
         return double_buffered_bitmap_copy_forward::fixed_size;
     case command::partition_notify_policy_change_for_non_interactive_mode:
         return partition_notify_policy_change_for_non_interactive_mode::fixed_size;
+    case command::draw_line:
+        return draw_line::fixed_size;
+    case command::draw_line_animate:
+        return draw_line_animate::fixed_size;
+    case command::draw_rectangle:
+        return draw_rectangle::fixed_size;
+    case command::draw_rectangle_animate:
+        return draw_rectangle_animate::fixed_size;
+    case command::draw_rounded_rectangle:
+        return draw_rounded_rectangle::fixed_size;
+    case command::draw_rounded_rectangle_animate:
+        return draw_rounded_rectangle_animate::fixed_size;
+    case command::draw_ellipse:
+        return draw_ellipse::fixed_size;
+    case command::draw_ellipse_animate:
+        return draw_ellipse_animate::fixed_size;
+    case command::draw_geometry:
+        return draw_geometry::fixed_size;
+    case command::draw_image:
+        return draw_image::fixed_size;
+    case command::draw_image_animate:
+        return draw_image_animate::fixed_size;
+    case command::draw_glyph_run:
+        return draw_glyph_run::fixed_size;
+    case command::draw_drawing:
+        return draw_drawing::fixed_size;
+    case command::draw_video:
+        return draw_video::fixed_size;
+    case command::draw_video_animate:
+        return draw_video_animate::fixed_size;
+    case command::push_clip:
+        return push_clip::fixed_size;
+    case command::push_opacity_mask:
+        return push_opacity_mask::fixed_size;
+    case command::push_opacity:
+        return push_opacity::fixed_size;
+    case command::push_opacity_animate:
+        return push_opacity_animate::fixed_size;
+    case command::push_transform:
+        return push_transform::fixed_size;
+    case command::push_guideline_set:
+        return push_guideline_set::fixed_size;
+    case command::push_guideline_y1:
+        return push_guideline_y1::fixed_size;
+    case command::push_guideline_y2:
+        return push_guideline_y2::fixed_size;
+    case command::push_effect:
+        return push_effect::fixed_size;
+    case command::pop:
+        return pop::fixed_size;
     case command::axis_angle_rotation3d:
         return axis_angle_rotation3d::fixed_size;
     case command::quaternion_rotation3d:
@@ -2230,7 +2727,7 @@ constexpr std::uint32_t fixed_header_size(command value) noexcept {
     }
 }
 
-inline constexpr std::uint32_t count = 108U;
+inline constexpr std::uint32_t count = 141U;
 
 } // namespace command_layouts
 

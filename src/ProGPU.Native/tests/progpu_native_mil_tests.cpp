@@ -27,7 +27,7 @@ static_assert(static_cast<std::uint32_t>(command::invalid) == 0x00U);
 static_assert(static_cast<std::uint32_t>(command::bitmap_cache) == 0x8dU);
 static_assert(
     static_cast<std::uint32_t>(command::validate_structure_order) == 0x8eU);
-static_assert(command_layouts::count == 108U);
+static_assert(command_layouts::count == 141U);
 static_assert(command_layouts::visual_set_offset::fixed_size == 24U);
 static_assert(command_layouts::visual_set_offset::handle_offset == 4U);
 static_assert(command_layouts::visual_set_offset::offset_x_offset == 8U);
@@ -110,7 +110,14 @@ static_assert(command_layouts::render_data::cb_data_offset == 8U);
 static_assert(
     command_layouts::fixed_header_size(command::visual_set_offset) == 24U);
 static_assert(
-    command_layouts::fixed_header_size(command::transport_sync_flush) == 0U);
+    command_layouts::fixed_header_size(command::transport_sync_flush) == 4U);
+static_assert(command_layouts::channel_create_resource::fixed_size == 12U);
+static_assert(command_layouts::visual_create::fixed_size == 8U);
+static_assert(command_layouts::glyph_run_create::fixed_size == 76U);
+static_assert(command_layouts::draw_rectangle::fixed_size == 44U);
+static_assert(command_layouts::draw_rounded_rectangle::fixed_size == 60U);
+static_assert(command_layouts::push_effect::fixed_size == 4U);
+static_assert(command_layouts::pop::fixed_size == 4U);
 
 void require(bool condition, const char* expression, int line) {
     if (condition) {

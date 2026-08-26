@@ -15,8 +15,15 @@ COMMAND_TYPES_RELATIVE = Path(
     "src/Microsoft.DotNet.Wpf/src/WpfGfx/include/Generated/"
     "wgx_command_types.h"
 )
-COMMAND_LAYOUTS_RELATIVE = Path(
+MANAGED_LAYOUTS_RELATIVE = Path(
     "src/Microsoft.DotNet.Wpf/src/WpfGfx/include/Generated/wgx_commands.cs"
+)
+NATIVE_LAYOUTS_RELATIVE = Path(
+    "src/Microsoft.DotNet.Wpf/src/WpfGfx/include/Generated/wgx_commands.h"
+)
+RENDER_DATA_LAYOUTS_RELATIVE = Path(
+    "src/Microsoft.DotNet.Wpf/src/WpfGfx/include/Generated/"
+    "wgx_renderdata_commands.h"
 )
 PROGPU_ROOT = Path(__file__).resolve().parent.parent
 
@@ -64,6 +71,56 @@ FIELD_SIZES = {
     "int": 4,
 }
 
+C_FIELD_LAYOUTS = {
+    "BOOL": (4, 4),
+    "D3DMATRIX": (64, 4),
+    "DOUBLE": (8, 8),
+    "FLOAT": (4, 4),
+    "HMIL_CHANNEL": (4, 4),
+    "HMIL_RESOURCE": (4, 4),
+    "INT": (4, 4),
+    "IWICBitmapSource*": (8, 8),
+    "MILCMD": (4, 4),
+    "MIL_RESOURCE_TYPE": (4, 4),
+    "MilBitmapScalingMode::Enum": (4, 4),
+    "MilBrushMappingMode::Enum": (4, 4),
+    "MilCachingHint::Enum": (4, 4),
+    "MilClearTypeHint::Enum": (4, 4),
+    "MilColorF": (16, 4),
+    "MilColorInterpolationMode::Enum": (4, 4),
+    "MilCombineMode::Enum": (4, 4),
+    "MilEdgeMode::Enum": (4, 4),
+    "MilEffectRenderingBias::Enum": (4, 4),
+    "MilFillMode::Enum": (4, 4),
+    "MilGradientSpreadMethod::Enum": (4, 4),
+    "MilHorizontalAlignment::Enum": (4, 4),
+    "MilKernelType::Enum": (4, 4),
+    "MilMatrix3x2D": (48, 8),
+    "MilPenCap::Enum": (4, 4),
+    "MilPenJoin::Enum": (4, 4),
+    "MilPixelFormat::Enum": (4, 4),
+    "MilPoint2D": (16, 8),
+    "MilPoint2F": (8, 4),
+    "MilPoint3F": (12, 4),
+    "MilPointAndSizeD": (32, 8),
+    "MilQuaternionF": (16, 4),
+    "MilRectF": (16, 4),
+    "MilRenderOptions": (28, 4),
+    "MilSizeD": (16, 8),
+    "MilStretch::Enum": (4, 4),
+    "MilTileMode::Enum": (4, 4),
+    "MilTransparency::Flags": (4, 4),
+    "MilVerticalAlignment::Enum": (4, 4),
+    "MilWindowLayerType::Enum": (4, 4),
+    "RECT": (16, 4),
+    "ShaderEffectShaderRenderMode::Enum": (4, 4),
+    "UINT": (4, 4),
+    "UINT16": (2, 2),
+    "UINT32": (4, 4),
+    "UINT64": (8, 8),
+    "WORD": (2, 2),
+}
+
 COMMAND_PATTERN = re.compile(
     r"/\*\s*0x[0-9a-fA-F]+\s*\*/\s*"
     r"(?P<name>MilPop|Mil(?:Cmd|Draw|Push)[A-Za-z0-9]+)\s*=\s*"
@@ -78,6 +135,21 @@ STRUCT_PATTERN = re.compile(
 FIELD_PATTERN = re.compile(
     r"\[FieldOffset\((?P<offset>\d+)\)\]\s*(?:internal|private)\s+"
     r"(?P<type>[^;]+?)\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*;"
+)
+C_TYPEDEF_STRUCT_PATTERN = re.compile(
+    r"typedef\s+struct\s*\{(?P<body>.*?)\}\s*"
+    r"(?P<name>MILCMD_[A-Z0-9_]+)\s*;",
+    re.DOTALL,
+)
+C_NAMED_STRUCT_PATTERN = re.compile(
+    r"struct\s+(?P<name>MILCMD_[A-Z0-9_]+)\s*"
+    r"\{(?P<body>.*?)\}\s*;",
+    re.DOTALL,
+)
+C_FIELD_PATTERN = re.compile(
+    r"^\s*(?P<type>[A-Za-z_][A-Za-z0-9_:]*(?:\s*\*)?)\s+"
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*;\s*$",
+    re.MULTILINE,
 )
 
 
@@ -124,7 +196,9 @@ def layout_key_from_struct(struct_name: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", struct_name.removeprefix("MILCMD_"))
 
 
-def parse_layouts(source: str) -> tuple[list[dict[str, object]], dict[str, str]]:
+def parse_managed_layouts(
+    source: str,
+) -> tuple[list[dict[str, object]], dict[str, str]]:
     layouts: list[dict[str, object]] = []
     keys: dict[str, str] = {}
     for match in STRUCT_PATTERN.finditer(source):
@@ -168,16 +242,147 @@ def parse_layouts(source: str) -> tuple[list[dict[str, object]], dict[str, str]]
     return layouts, keys
 
 
+def parse_native_layouts(
+    source: str,
+    pattern: re.Pattern[str],
+    source_kind: str,
+) -> tuple[list[dict[str, object]], dict[str, str]]:
+    layouts: list[dict[str, object]] = []
+    keys: dict[str, str] = {}
+    for match in pattern.finditer(source):
+        name = match.group("name")
+        fields: list[dict[str, object]] = []
+        offset = 0
+        body = match.group("body")
+        for field_match in C_FIELD_PATTERN.finditer(body):
+            field_type = re.sub(r"\s*\*\s*$", "*", field_match.group("type"))
+            if field_type not in C_FIELD_LAYOUTS:
+                raise ValueError(
+                    f"No native wire layout for {field_type!r} in {name}."
+                )
+            size, alignment = C_FIELD_LAYOUTS[field_type]
+            # WPF includes these generated command declarations under its
+            # packed wire-structure boundary. Explicit QuadWord/BYTE padding
+            # fields in the MCG output are therefore protocol bytes, while
+            # host ABI alignment must never change an offset.
+            del alignment
+            fields.append(
+                {
+                    "name": field_match.group("name"),
+                    "type": field_type,
+                    "offset": offset,
+                    "size": size,
+                }
+            )
+            offset += size
+        if not fields:
+            raise ValueError(f"No native fields parsed for {name}.")
+        fixed_size = offset
+        if (
+            str(fields[0]["name"]).lower() != "type"
+            or fields[0]["offset"] != 0
+            or fields[0]["size"] != 4
+            or fixed_size % 4 != 0
+        ):
+            raise ValueError(f"Unexpected native command framing for {name}.")
+        layout = {
+            "name": name,
+            "fixedSize": fixed_size,
+            "sourceKind": source_kind,
+            "fields": fields,
+        }
+        layouts.append(layout)
+        key = layout_key_from_struct(name)
+        if key in keys:
+            raise ValueError(f"Duplicate normalized native layout key {key}.")
+        keys[key] = name
+    if not layouts:
+        raise ValueError(f"No {source_kind} MIL packet layouts were parsed.")
+    return layouts, keys
+
+
+def validate_managed_overlap(
+    managed_layouts: list[dict[str, object]],
+    native_layouts: list[dict[str, object]],
+) -> None:
+    native_by_key = {
+        layout_key_from_struct(str(layout["name"])): layout
+        for layout in native_layouts
+    }
+    for managed in managed_layouts:
+        key = layout_key_from_struct(str(managed["name"]))
+        native = native_by_key.get(key)
+        if native is None:
+            raise ValueError(
+                f"Managed MIL layout {managed['name']} has no native peer."
+            )
+        if managed["fixedSize"] != native["fixedSize"]:
+            raise ValueError(
+                f"Managed/native size mismatch for {managed['name']}: "
+                f"{managed['fixedSize']} != {native['fixedSize']}."
+            )
+        native_fields = {
+            cpp_identifier(str(field["name"])): field
+            for field in native["fields"]
+        }
+        for managed_field in managed["fields"]:
+            field_name = str(managed_field["name"])
+            if field_name.startswith("BYTEPacking"):
+                continue
+            native_field = native_fields.get(cpp_identifier(field_name))
+            if native_field is None:
+                raise ValueError(
+                    f"Managed field {managed['name']}.{field_name} has no "
+                    "native peer."
+                )
+            if (
+                managed_field["offset"] != native_field["offset"]
+                or managed_field["size"] != native_field["size"]
+            ):
+                raise ValueError(
+                    f"Managed/native field mismatch for "
+                    f"{managed['name']}.{field_name}."
+                )
+
+
 def build_manifest(wpf_root: Path) -> dict[str, object]:
     command_types_path = wpf_root / COMMAND_TYPES_RELATIVE
-    command_layouts_path = wpf_root / COMMAND_LAYOUTS_RELATIVE
-    if not command_types_path.is_file() or not command_layouts_path.is_file():
+    managed_layouts_path = wpf_root / MANAGED_LAYOUTS_RELATIVE
+    native_layouts_path = wpf_root / NATIVE_LAYOUTS_RELATIVE
+    render_data_layouts_path = wpf_root / RENDER_DATA_LAYOUTS_RELATIVE
+    source_paths = (
+        command_types_path,
+        managed_layouts_path,
+        native_layouts_path,
+        render_data_layouts_path,
+    )
+    if not all(path.is_file() for path in source_paths):
         raise FileNotFoundError(
             "The WPF root does not contain the checked-in MCG command outputs."
         )
     command_source = command_types_path.read_text(encoding="utf-8-sig")
-    layout_source = command_layouts_path.read_text(encoding="utf-8-sig")
-    layouts, layout_keys = parse_layouts(layout_source)
+    managed_source = managed_layouts_path.read_text(encoding="utf-8-sig")
+    native_source = native_layouts_path.read_text(encoding="utf-8-sig")
+    render_data_source = render_data_layouts_path.read_text(encoding="utf-8-sig")
+    managed_layouts, _ = parse_managed_layouts(managed_source)
+    native_layouts, native_keys = parse_native_layouts(
+        native_source,
+        C_TYPEDEF_STRUCT_PATTERN,
+        "native-command",
+    )
+    render_data_layouts, render_data_keys = parse_native_layouts(
+        render_data_source,
+        C_NAMED_STRUCT_PATTERN,
+        "render-data",
+    )
+    duplicate_keys = set(native_keys) & set(render_data_keys)
+    if duplicate_keys:
+        raise ValueError(
+            f"Duplicate native/render-data layout keys: {sorted(duplicate_keys)}"
+        )
+    layouts = native_layouts + render_data_layouts
+    layout_keys = native_keys | render_data_keys
+    validate_managed_overlap(managed_layouts, layouts)
     commands: list[dict[str, object]] = []
     values: set[int] = set()
     names: set[str] = set()
@@ -208,22 +413,44 @@ def build_manifest(wpf_root: Path) -> dict[str, object]:
     }
     expected_layouts = {str(layout["name"]) for layout in layouts}
     if linked_layouts != expected_layouts:
-        raise ValueError("Not every managed MIL packet layout maps to a command.")
+        raise ValueError("Not every native MIL packet layout maps to a command.")
+    retail_commands = {
+        str(entry["wpfName"])
+        for entry in commands
+        if 0 < int(entry["value"]) < int(commands[-1]["value"])
+    }
+    linked_commands = {
+        str(entry["wpfName"])
+        for entry in commands
+        if "layout" in entry
+    }
+    if linked_commands != retail_commands:
+        raise ValueError("Not every retail MIL command has a packet layout.")
     return {
         "schemaVersion": 1,
         "wireContract": {
             "byteOrder": "little-endian",
             "commandWidth": 4,
             "managedLayoutPack": 1,
+            "nativeLayoutPack": 1,
         },
         "source": {
             "commandTypes": {
                 "path": COMMAND_TYPES_RELATIVE.as_posix(),
                 "sha256": sha256(command_types_path),
             },
-            "commandLayouts": {
-                "path": COMMAND_LAYOUTS_RELATIVE.as_posix(),
-                "sha256": sha256(command_layouts_path),
+            "managedLayouts": {
+                "path": MANAGED_LAYOUTS_RELATIVE.as_posix(),
+                "sha256": sha256(managed_layouts_path),
+                "overlapCount": len(managed_layouts),
+            },
+            "nativeLayouts": {
+                "path": NATIVE_LAYOUTS_RELATIVE.as_posix(),
+                "sha256": sha256(native_layouts_path),
+            },
+            "renderDataLayouts": {
+                "path": RENDER_DATA_LAYOUTS_RELATIVE.as_posix(),
+                "sha256": sha256(render_data_layouts_path),
             },
         },
         "commands": commands,
@@ -365,7 +592,7 @@ def main() -> int:
         print(
             f"MIL protocol artifacts are current: "
             f"{len(manifest['commands'])} commands, "
-            f"{len(manifest['layouts'])} managed packet layouts."
+            f"{len(manifest['layouts'])} complete packet layouts."
         )
         return 0
     args.manifest.parent.mkdir(parents=True, exist_ok=True)
@@ -375,7 +602,7 @@ def main() -> int:
     print(
         f"Generated {args.manifest} and {args.header}: "
         f"{len(manifest['commands'])} commands, "
-        f"{len(manifest['layouts'])} managed packet layouts."
+        f"{len(manifest['layouts'])} complete packet layouts."
     )
     return 0
 
