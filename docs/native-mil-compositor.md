@@ -2080,6 +2080,20 @@ allowlist, and rendered the retained sample plus GPU hit-test/readback through
 Vulkan llvmpipe. This is compiler/software-adapter qualification; it is not
 reported as physical Vulkan-device evidence.
 
+ProGPU commit `2f8cf3c9` extends ordinary per-point deformation from one path
+to any number of path records whose segment ranges are ordered and disjoint.
+That boundary matches WPF's figure-by-figure `CShapeClipperForFEB` traversal
+without allowing one immutable segment slot to be snapped twice. Overlapping,
+shared, or out-of-order ranges return `UNSUPPORTED` before submission;
+boolean programs and analytic arcs retain their existing fail-closed results.
+The live differential now renders two separately colored four-line figures in
+one `DRAW_PATH` resource and also submits a deliberately shared-range scene to
+prove the negative contract at the native render boundary. Apple M3 Pro Metal
+reports baseline `[10,8]-[35,24]`, red 37,536, green 9,110; guided and
+independently deformed reference `[10,8]-[35,24]`, red 40,800, green 10,710;
+`changed=70` and `referenceChanged=0`. The same qualification is now part of
+the common macOS/Linux build script as well as the Windows D3D12 script.
+
 ### Microsoft D3D12 sample oracle
 
 ProGPU commit `0624a2e3` adds a source-pinned cross-platform graphics oracle
@@ -2118,6 +2132,13 @@ Metal frame produced the identical PPM hash. Both differentials report maximum
 channel difference 0, mean absolute channel difference 0, zero changed
 channels/pixels, and zero difference at all four probes. Linux/Vulkan is part
 of the hosted aggregate gate and remains separately identified evidence.
+
+The Ubuntu 24.04 ARM64 Parallels guest also rendered the ProGPU candidate
+through Vulkan llvmpipe and produced that exact PPM SHA-256. Its native RGBA
+readback SHA-256 was
+`AE1BC0D52F98442D79358971BC466A4289904014237851367C6665F9291EFEA3`.
+This proves deterministic software-Vulkan agreement with the WARP, D3D12, and
+Metal captures; it is not labeled as physical Vulkan hardware qualification.
 
 The same WARP program returns `DXGI_ERROR_NOT_CURRENTLY_AVAILABLE`
 (`0x887A0022`) when launched by the Parallels service account because that

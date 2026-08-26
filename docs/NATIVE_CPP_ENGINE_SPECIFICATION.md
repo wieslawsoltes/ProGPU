@@ -2655,8 +2655,10 @@ the Dawn DLL was 2,039,808 bytes with SHA-256
 Commit `80560d34` introduces mutually exclusive
 `GUIDELINE_COMPOSITE_ONLY` and `GUIDELINE_PER_POINT` resource modes. The latter
 is legal for an ordinary State only when the eventual draw family can deform
-its native geometry. Version one implements one non-boolean semantic path per
-resource with line, quadratic, and cubic segments. The executor must:
+its native geometry. The first checkpoint implemented one non-boolean semantic
+path per resource with line, quadratic, and cubic segments. Commit `2f8cf3c9`
+extends that same algorithm to multiple path records when their segment ranges
+are ordered and disjoint. The executor must:
 
 1. preserve the per-point flag while resolving State rather than adding the
    first guide's offset to the affine transform;
@@ -2669,23 +2671,25 @@ resource with line, quadratic, and cubic segments. The executor must:
 5. write identity transform plus recomputed conservative control-hull bounds
    for the deformed immutable path page.
 
-The executor must reject analytic arcs, multi/shared or boolean path batches,
-analytic/geometry primitives, point batches, meshes, connected strokes,
-glyphs, images, and 3D while those families lack exact deformation. Direct
-builder APIs reject a per-point State on non-path draw commands and on a cache
-composite. Scoped SAVE remains legal for MIL tree state; preflight inspects the
-resolved State on every descendant command and returns `UNSUPPORTED` before
-rendering an unimplemented family. Dynamic leading/driven pairs remain outside
-this static resource mode.
+The executor must reject analytic arcs, shared/overlapping/out-of-order segment
+ranges, boolean path programs, analytic/geometry primitives, point batches,
+meshes, connected strokes, glyphs, images, and 3D while those families lack
+exact deformation. Direct builder APIs reject a per-point State on non-path
+draw commands and on a cache composite. Scoped SAVE remains legal for MIL tree
+state; preflight inspects the resolved State on every descendant command and
+returns `UNSUPPORTED` before rendering an unimplemented family. Dynamic
+leading/driven pairs remain outside this static resource mode.
 
-The Metal qualification uses two X and two Y guides over a fractional
-four-line rectangle. Guided execution and a separate already-deformed
-reference are byte-identical: red sums `40,800/40,800` and
-`referenceChanged=0`; baseline red sum is 37,536 and 48 pixels change. All ten
-native CTests, 80 managed native-interop tests after warmup, the zero-warning
-benchmark build, and 72/72 LibreWPF MIL compiler tests pass. The Windows smoke
-profile includes the same live gate. Exact DirectX qualification completed on
-2026-08-26 from clean detached implementation commit
+The current Metal qualification uses four X and four Y guides over two
+fractional four-line figures stored in one resource. Guided execution and a
+separate already-deformed reference are byte-identical: red/green sums are
+`40,800/10,710` for both and `referenceChanged=0`; baseline red/green sums are
+`37,536/9,110` and 70 pixels change. It additionally proves that a shared
+segment range fails with `UNSUPPORTED`. All ten native CTests, 80 managed
+native-interop tests after warmup, and the zero-warning benchmark build pass.
+The common macOS/Linux build and Windows smoke profiles include the same live
+gate. Exact DirectX qualification for the original one-path checkpoint
+completed on 2026-08-26 from clean detached implementation commit
 `80560d340d6d12eb5e4f846cbcac61a53a482b24`. ARM64 MSVC rebuilt the base and
 Dawn modules under `/W4 /WX`; all 11 native/Dawn CTests, both export allowlists,
 two zero-warning managed Release builds, independent native and managed D3D12
