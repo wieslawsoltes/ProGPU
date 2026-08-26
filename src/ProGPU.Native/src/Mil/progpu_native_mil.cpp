@@ -5496,7 +5496,8 @@ struct channel::implementation {
                 primitive.kind = PROGPU_NATIVE_GEOMETRY_PATH_CAP;
                 primitive.flags =
                     (current.edge_aliased
-                        ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+                        ? static_cast<std::uint32_t>(
+                            PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
                         : 0U) |
                     (cap << PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT);
                 primitive.p0 = point;
@@ -5633,7 +5634,8 @@ struct channel::implementation {
             }
             const std::uint32_t flags =
                 (current.edge_aliased
-                    ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+                    ? static_cast<std::uint32_t>(
+                        PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
                     : 0U) |
                 (pen->second.start_line_cap <<
                     PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT) |
@@ -5761,7 +5763,8 @@ struct channel::implementation {
             }
             const std::uint32_t flags =
                 (current.edge_aliased
-                    ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+                    ? static_cast<std::uint32_t>(
+                        PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
                     : 0U) |
                 (PROGPU_NATIVE_STROKE_CAP_ROUND <<
                     PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT) |
@@ -6040,7 +6043,8 @@ struct channel::implementation {
                         progpu_native_geometry_primitive& primitive) noexcept {
                         primitive = {};
                         primitive.flags = current.edge_aliased
-                            ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+                            ? static_cast<std::uint32_t>(
+                                PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
                             : 0U;
                         primitive.stroke_thickness =
                             static_cast<float>(pen.thickness);
@@ -6116,7 +6120,8 @@ struct channel::implementation {
                         primitive.kind = PROGPU_NATIVE_GEOMETRY_PATH_CAP;
                         primitive.flags =
                             (current.edge_aliased
-                                ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+                                ? static_cast<std::uint32_t>(
+                                    PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
                                 : 0U) |
                             (cap <<
                                 PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT);
@@ -6164,7 +6169,8 @@ struct channel::implementation {
                         join.kind = PROGPU_NATIVE_GEOMETRY_PATH_JOIN;
                         join.flags =
                             (current.edge_aliased
-                                ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+                                ? static_cast<std::uint32_t>(
+                                    PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
                                 : 0U) |
                             ((smooth_join
                                   ? static_cast<std::uint32_t>(
@@ -7667,7 +7673,8 @@ struct channel::implementation {
                                         ? PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE
                                         : PROGPU_NATIVE_PRIMITIVE_RECTANGLE),
                             current.edge_aliased
-                                ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+                                ? static_cast<std::uint32_t>(
+                                    PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
                                 : 0U,
                             static_cast<float>(x),
                             static_cast<float>(y),
@@ -7757,7 +7764,8 @@ struct channel::implementation {
                                 progpu_native_geometry_primitive{
                                     PROGPU_NATIVE_GEOMETRY_ARC,
                                     current.edge_aliased
-                                        ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+                                        ? static_cast<std::uint32_t>(
+                                            PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
                                         : 0U,
                                     {static_cast<float>(first),
                                         static_cast<float>(second)},
@@ -7811,7 +7819,8 @@ struct channel::implementation {
                                     progpu_native_analytic_primitive{
                                         PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE,
                                         current.edge_aliased
-                                            ? PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED
+                                            ? static_cast<std::uint32_t>(
+                                                PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
                                             : 0U,
                                         static_cast<float>(x),
                                         static_cast<float>(y),
