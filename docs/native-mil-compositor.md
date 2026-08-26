@@ -691,6 +691,14 @@ M3 Pro forced SIMD and independent scalar oracle remain byte-identical to the
 managed renderer at `5B6EF4F70536C862`, and the full local native/Dawn suite
 passes 11/11.
 
+Exact pushed implementation `436c0521` also passes ARM64 MSVC compilation of
+both native DLLs and all 11 native/Dawn tests in the Windows Parallels VM.
+Forced NEON on the D3D12 adapter reports zero pixel difference and the same
+`5B6EF4F70536C862` hash; its synchronized retained frame measured `1.0494 ms`
+versus `1.8201 ms` managed in the one-frame qualification sample. A strict
+Clang x86_64 cross-architecture syntax pass covers the paired SSE2 branch on
+the macOS host pending the ordinary x64 CI/runtime lane.
+
 The corresponding Linux ARM64 checkout at exact commit `28447de4` passed a
 strict GCC 13.3 build of the complete 260-object graph, all 10 wgpu-native CTest
 contracts, the export allowlist, and live Vulkan allocation/render/readback on
