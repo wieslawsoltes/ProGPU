@@ -681,6 +681,16 @@ crossings once per subpixel scanline and reuse them across the full glyph row;
 the direct Windows cold SIMD qualification fell from roughly 123 seconds to 67
 seconds without changing the exact `5B6EF4F70536C862` pixel hash.
 
+The next intrinsic checkpoint batches two adjacent pixels per crossing loop:
+four NEON/SSE2 winding vectors evaluate 16 horizontal samples from one crossing
+broadcast, while each pixel origin is still evaluated with the original
+floating-point expression to preserve edge decisions. Final 64-sample coverage
+uses the exact positive-integer form `(samples * 255 + 32) / 64`, eliminating
+per-pixel floating-point rounding in both SIMD and scalar fallbacks. The Apple
+M3 Pro forced SIMD and independent scalar oracle remain byte-identical to the
+managed renderer at `5B6EF4F70536C862`, and the full local native/Dawn suite
+passes 11/11.
+
 The corresponding Linux ARM64 checkout at exact commit `28447de4` passed a
 strict GCC 13.3 build of the complete 260-object graph, all 10 wgpu-native CTest
 contracts, the export allowlist, and live Vulkan allocation/render/readback on
