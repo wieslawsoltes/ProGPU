@@ -94,8 +94,10 @@ stream. `MILCMD_DRAW_ROUNDED_RECTANGLE` is also lowered with either the
 uniform analytic primitive or the exact positive non-uniform vector-path lane.
 Ellipse centers/radii are converted exactly to native analytic
 bounds, and every primitive kind is reported separately in typed scene metrics.
-Scope opacity is composed with retained visual opacity in native semantic
-state; malformed opacity and over/underflowed scope stacks fail closed.
+Scope opacity uses one native isolated layer and is applied once when its
+subgraph is popped, preserving overlap semantics instead of multiplying every
+draw independently. Retained Visual opacity remains in native semantic state;
+malformed opacity and over/underflowed mixed state/layer stacks fail closed.
 Typed `MILCMD_MATRIXTRANSFORM`, `MILCMD_TRANSLATETRANSFORM`,
 `MILCMD_SCALETRANSFORM`, `MILCMD_SKEWTRANSFORM`,
 `MILCMD_ROTATETRANSFORM`, variable-size `MILCMD_TRANSFORMGROUP`,
@@ -416,11 +418,13 @@ scheduling ABI will carry the required clock/state in Stage 2.
 
 Nested `MILCMD_PUSH_OPACITY_ANIMATE` is also decoded as a typed scope. Its base
 opacity and optional `MILCMD_DOUBLERESOURCE` handle resolve on every scene
-compilation, compose with the current Visual/drawing opacity, and participate
-in retained cache dependency hashing. Updating only the double resource changes
-the next semantic state without retransmitting render data. Null animation
-handles preserve the packet's base value; wrong-type/missing handles, nonzero
-padding, non-finite values, or values outside `[0,1]` fail closed.
+compilation and participate in retained cache dependency hashing. Constant and
+animated opacity scopes both emit one isolated full-target semantic layer, so
+their alpha is applied once to the completed subgraph and overlapping child
+draws do not receive alpha independently. Updating only the double resource
+changes the next layer descriptor without retransmitting render data. Null
+animation handles preserve the packet's base value; wrong-type/missing handles,
+nonzero padding, non-finite values, or values outside `[0,1]` fail closed.
 
 - Generate packed protocol declarations and size metadata from a checked-in
   neutral manifest produced from WPF MCG inputs.

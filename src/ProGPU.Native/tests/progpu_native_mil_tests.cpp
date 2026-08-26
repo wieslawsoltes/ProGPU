@@ -945,10 +945,9 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     PROGPU_REQUIRE(header.scene_id == 9001U);
     PROGPU_REQUIRE(header.generation == 7U);
     PROGPU_REQUIRE(header.command_count == 9U);
-    PROGPU_REQUIRE(header.resource_count == 7U);
+    PROGPU_REQUIRE(header.resource_count == 6U);
 
     bool found_child_state = false;
-    bool found_nested_opacity_state = false;
     bool found_rectangle = false;
     bool found_ellipse = false;
     bool found_rounded_rectangle = false;
@@ -965,8 +964,6 @@ bool solid_rectangle_compiles_to_semantic_scene() {
                 scene_state.transform.m32 == 24.0F) {
                 if (scene_state.opacity == 0.4F) {
                     found_child_state = true;
-                } else if (scene_state.opacity == 0.2F) {
-                    found_nested_opacity_state = true;
                 }
             }
         } else if (
@@ -1013,7 +1010,18 @@ bool solid_rectangle_compiles_to_semantic_scene() {
         }
     }
     PROGPU_REQUIRE(found_child_state);
-    PROGPU_REQUIRE(found_nested_opacity_state);
+    const auto opacity_layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(opacity_layers.size() == 1U);
+    PROGPU_REQUIRE(
+        (opacity_layers[0].flags &
+            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION) != 0U);
+    PROGPU_REQUIRE(opacity_layers[0].opacity == 0.5F);
+    PROGPU_REQUIRE(
+        opacity_layers[0].mask_resource_index ==
+        PROGPU_NATIVE_SCENE_NO_INDEX);
+    PROGPU_REQUIRE(
+        opacity_layers[0].effect_resource_index ==
+        PROGPU_NATIVE_SCENE_NO_INDEX);
     PROGPU_REQUIRE(found_rectangle);
     PROGPU_REQUIRE(found_ellipse);
     PROGPU_REQUIRE(found_rounded_rectangle);
@@ -1031,27 +1039,9 @@ bool solid_rectangle_compiles_to_semantic_scene() {
         state.build_scene(
             target, 9001U, 8U, updated_stream, &metrics) ==
         status::success);
-    const auto updated_header = read_value<progpu_native_scene_header>(
-        updated_stream, 0U);
-    bool found_updated_nested_opacity = false;
-    for (std::uint32_t index = 0U;
-         index < updated_header.resource_count;
-         ++index) {
-        const auto record = read_value<progpu_native_scene_resource>(
-            updated_stream,
-            updated_header.resource_offset +
-                index * sizeof(progpu_native_scene_resource));
-        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
-            continue;
-        }
-        const auto scene_state = read_value<progpu_native_scene_state>(
-            updated_stream, record.payload_offset);
-        found_updated_nested_opacity |=
-            scene_state.transform.m31 == 13.0F &&
-            scene_state.transform.m32 == 24.0F &&
-            scene_state.opacity == 0.1F;
-    }
-    PROGPU_REQUIRE(found_updated_nested_opacity);
+    const auto updated_opacity_layers = get_scene_layers(updated_stream);
+    PROGPU_REQUIRE(updated_opacity_layers.size() == 1U);
+    PROGPU_REQUIRE(updated_opacity_layers[0].opacity == 0.25F);
 
     progpu_native_mil_channel* native_channel = nullptr;
     PROGPU_REQUIRE(
@@ -3792,13 +3782,12 @@ bool matrix_transform_scopes_compile_to_semantic_state() {
         state.build_scene(target, 7001U, 3U, stream) == status::success);
     const auto header = read_value<progpu_native_scene_header>(stream, 0U);
     PROGPU_REQUIRE(header.command_count == 11U);
-    PROGPU_REQUIRE(header.resource_count == 7U);
+    PROGPU_REQUIRE(header.resource_count == 6U);
 
     bool found_visual_state = false;
     bool found_transform_state = false;
     bool found_clip_state = false;
     bool found_nested_clip_state = false;
-    bool found_opacity_state = false;
     for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
         const auto record = read_value<progpu_native_scene_resource>(
             stream,
@@ -3835,12 +3824,6 @@ bool matrix_transform_scopes_compile_to_semantic_state() {
                     PROGPU_REQUIRE(scene_state.clip_rect.width == 2.0F);
                     PROGPU_REQUIRE(scene_state.clip_rect.height == 2.0F);
                     found_nested_clip_state = true;
-                } else if (scene_state.opacity == 0.5F && has_clip) {
-                    PROGPU_REQUIRE(scene_state.clip_rect.x == 25.0F);
-                    PROGPU_REQUIRE(scene_state.clip_rect.y == 40.0F);
-                    PROGPU_REQUIRE(scene_state.clip_rect.width == 2.0F);
-                    PROGPU_REQUIRE(scene_state.clip_rect.height == 2.0F);
-                    found_opacity_state = true;
                 }
             }
         }
@@ -3863,7 +3846,12 @@ bool matrix_transform_scopes_compile_to_semantic_state() {
     PROGPU_REQUIRE(found_transform_state);
     PROGPU_REQUIRE(found_clip_state);
     PROGPU_REQUIRE(found_nested_clip_state);
-    PROGPU_REQUIRE(found_opacity_state);
+    const auto layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(layers.size() == 1U);
+    PROGPU_REQUIRE(layers[0].opacity == 0.5F);
+    PROGPU_REQUIRE(
+        (layers[0].flags & PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION) !=
+        0U);
     PROGPU_REQUIRE(found_transformed_bounds);
 
     const auto transform_generation =
