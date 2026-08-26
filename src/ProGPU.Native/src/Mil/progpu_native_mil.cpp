@@ -8328,14 +8328,33 @@ struct channel::implementation {
         // WPF composes Clip > Effect > OpacityMask/Opacity. A local cache is
         // already the required isolated input, so its composite opacity can
         // stay on the inner cache layer and execute before this outer effect.
-        // Uncached opacity would attenuate individual primitives instead of
-        // the isolated visual, and clips still need separate source/output
-        // semantics, so those combinations remain fail closed.
-        if (state.has_clip ||
-            state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+        // The clip is attached to the effect's final composite instead of its
+        // source state so blur and shadow kernels can sample the untruncated
+        // visual. Uncached opacity would attenuate individual primitives
+        // instead of the isolated visual and remains fail closed.
+        if (state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
             (state.opacity != 1.0 && !has_local_cache_input)) {
             return status::unsupported_command;
         }
+        const auto attach_final_clip = [&](
+                progpu_native_scene_layer& layer) -> status {
+            if (!state.has_clip) {
+                return status::success;
+            }
+            auto composite_state =
+                native::semantic_scene_builder::identity_state();
+            composite_state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+            composite_state.clip_rect = state.clip_rect;
+            std::uint32_t composite_state_index =
+                PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!builder.add_state(
+                    composite_state, composite_state_index)) {
+                return status::invalid_graph;
+            }
+            layer.flags |= PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE;
+            layer.reserved0 = composite_state_index;
+            return status::success;
+        };
         const double scale_x = std::hypot(
             state.transform.m11, state.transform.m12);
         const double scale_y = std::hypot(
@@ -8380,6 +8399,27 @@ struct channel::implementation {
         descriptor.sigma_y = descriptor.sigma_x;
         if (effect->second.type == effect_state::kind::blur) {
             if (descriptor.sigma_x <= 0.01F) {
+                if (!state.has_clip) {
+                    return status::success;
+                }
+                progpu_native_scene_layer clip_layer{};
+                clip_layer.struct_size = sizeof(clip_layer);
+                clip_layer.flags =
+                    PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+                clip_layer.opacity = 1.0F;
+                clip_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+                clip_layer.mask_resource_index =
+                    PROGPU_NATIVE_SCENE_NO_INDEX;
+                clip_layer.effect_resource_index =
+                    PROGPU_NATIVE_SCENE_NO_INDEX;
+                const status clip_status = attach_final_clip(clip_layer);
+                if (clip_status != status::success) {
+                    return clip_status;
+                }
+                if (!builder.push_layer(clip_layer)) {
+                    return status::invalid_graph;
+                }
+                pushed = true;
                 return status::success;
             }
             descriptor.kind = PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR;
@@ -8423,6 +8463,10 @@ struct channel::implementation {
         }
         progpu_native_scene_layer layer{};
         layer.struct_size = sizeof(layer);
+        const status clip_status = attach_final_clip(layer);
+        if (clip_status != status::success) {
+            return clip_status;
+        }
         layer.opacity = 1.0F;
         layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
         layer.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -8907,7 +8951,7 @@ struct channel::implementation {
                 composite_transform, composite_state.transform)) {
             return status::invalid_graph;
         }
-        if (state.has_clip) {
+        if (state.has_clip && cache_visual.effect_handle == 0U) {
             composite_state.flags |= PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
             composite_state.clip_rect = state.clip_rect;
         }
@@ -9164,7 +9208,7 @@ struct channel::implementation {
             return status::invalid_graph;
         }
         state.opacity = static_cast<float>(current.opacity);
-        if (current.has_clip) {
+        if (current.has_clip && visual->second.effect_handle == 0U) {
             state.flags |= PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
             state.clip_rect = current.clip_rect;
         }

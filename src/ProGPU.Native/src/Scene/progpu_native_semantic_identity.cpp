@@ -129,13 +129,13 @@ std::uint64_t append_scope_command(
         bytes, command.payload_offset);
     const std::uint32_t mask_resource_index = layer.mask_resource_index;
     const std::uint32_t effect_resource_index = layer.effect_resource_index;
-    const bool local_cache =
-        (layer.flags &
-            PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
+    const bool has_composite_state =
+        (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
+            PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE)) != 0U;
     const std::uint32_t composite_state_resource_index = layer.reserved0;
     layer.mask_resource_index = 0U;
     layer.effect_resource_index = 0U;
-    if (local_cache) {
+    if (has_composite_state) {
         layer.reserved0 = 0U;
     }
     hash = append_fnv1a64(hash, &layer, sizeof(layer));
@@ -143,7 +143,7 @@ std::uint64_t append_scope_command(
         hash, bytes, header, mask_resource_index);
     hash = append_resource_reference(
         hash, bytes, header, effect_resource_index);
-    return local_cache
+    return has_composite_state
         ? append_resource_reference(
             hash, bytes, header, composite_state_resource_index)
         : hash;

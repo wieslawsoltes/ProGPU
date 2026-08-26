@@ -2051,6 +2051,38 @@ for `progpu_native.dll` and
 `7A98FA8A4A69E11886ED6879D430295BAD370F88D463B4E638847D1F8CBE6836`
 for `progpu_native_dawn.dll`.
 
+The effect final-output clip checkpoint adds one append-only semantic layer
+flag without changing the 64-byte layer descriptor. On a materialized
+non-local layer, `LAYER_COMPOSITE_STATE` makes `reserved0` reference a
+preceding identity-transform, unit-opacity, clip-only State. The shared
+WebGPU/DirectX executor resolves that rectangle as a target-local scissor while
+restoring the layer, after the effect chain has sampled the complete isolated
+input. Validation rejects the flag on local caches or non-materialized layers,
+as well as transformed, masked, guideline-bearing, wrong-kind, or missing
+State resources.
+
+MIL compilation now moves the combined current rectangle clip from the
+ordinary saved State to the outer effect layer's composite State. When the
+effect consumes a local cache, the inner cache composite also omits that clip;
+cache opacity and a supported spatial mask remain inside the effect. The
+resulting order is final rectangle clip, effect, then cache opacity/mask. This
+matches WPF's `PreSubgraph` behavior and avoids truncating blur or drop-shadow
+input. Uncached opacity/effect and arbitrary geometry clip/effect combinations
+still fail closed.
+
+Native and managed builder regressions cover canonical acceptance plus
+transformed/non-materialized rejection. MIL regressions cover both uncached
+and cached effect input, assert that the outer effect owns the clip-only State,
+and assert the inner cache State is un-clipped. The live
+`--semantic-cache-effect-clip` gate passes on Apple M3 Pro Metal with
+content/effect-input passes `2 -> 1 -> 1` and Gaussian passes `2 -> 2 -> 2`;
+both later frames report effect-cache hits. The stable frame is byte-identical.
+Narrowing only the final clip changes 428 pixels and crops the red extent from
+`[6,4]-[33,27]` to `[14,8]-[25,21]`, while every pixel inside the clip remains
+byte-identical to the previously blurred output and every outside pixel is
+black. That explicitly proves post-effect clipping rather than source
+truncation.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool

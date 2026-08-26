@@ -1021,6 +1021,8 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_builder_bounds_composite_only_guidelines());
     require(progpu::native::tests::
+        semantic_scene_builder_records_final_composite_clip());
+    require(progpu::native::tests::
         semantic_scene_builder_preserves_shared_path_segments());
     require(progpu::native::tests::
         semantic_scene_builder_records_general_brushes());

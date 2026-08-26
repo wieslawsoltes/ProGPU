@@ -71,6 +71,17 @@ if (Array.Exists(
         args,
         static value => string.Equals(
             value,
+            "--semantic-cache-effect-clip",
+            StringComparison.OrdinalIgnoreCase)))
+{
+    RetainedCacheEffectClipQualification.Run();
+    return;
+}
+
+if (Array.Exists(
+        args,
+        static value => string.Equals(
+            value,
             "--managed-picture",
             StringComparison.OrdinalIgnoreCase)))
 {

@@ -2207,8 +2207,9 @@ fail closed instead of allocating the full target.
 
 `PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE` is the additive local-raster
 contract. It preserves the 64-byte layer ABI: bounds are a positive zero-origin
-raster-page extent, and `reserved0` references a preceding transform-only State
-resource that maps page logical coordinates into the parent target. The local
+raster-page extent, and `reserved0` references a preceding transform/clip/
+guideline State resource that maps page logical coordinates into the parent
+target. The local
 flag requires `CACHE_CONTENT`, `BOUNDS`, source-over, and no layer-local effect;
 an optional typed layer mask is evaluated only while compositing the retained
 page. The target cursor does not intersect the page allocation with parent
@@ -2287,8 +2288,28 @@ This permits a parent miss plus child hit after a child move or effect update.
 One cache-root linear/radial spatial mask may also remain on the inner local
 cache composite before the descendant effect. Uncached opacity/effect,
 inherited or combined spatial-mask/effect, spatial-mask/guideline, and
-clip/effect combinations remain fail closed until their distinct isolation
-and inflated output regions are represented explicitly.
+non-rectangle clip/effect combinations remain fail closed until their distinct
+isolation and inflated output regions are represented explicitly.
+
+`PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE` is the append-only final-output
+clip contract. It reuses `reserved0` without changing the 64-byte layer ABI and
+is valid only on a materialized non-local layer. The referenced preceding State
+must have an identity transform, unit opacity, no mask or guideline, and no
+flags except `CLIP_RECT`. The executor resolves that rectangle into a
+target-local scissor only while popping the materialized layer, after its effect
+chain has consumed the complete isolated source. Local caches keep their
+existing transform/clip/guideline composite State and cannot also set the new
+flag. Native builder, serialized-stream, managed builder, and semantic identity
+validation all enforce the same typed contract; transformed, non-materialized,
+wrong-resource, or noncanonical states fail before GPU submission.
+
+MIL lowering uses the combined current rectangle clip as the effect layer's
+explicit composite State. It deliberately omits that clip from the ordinary
+saved draw State, and when a local cache is the effect input it also omits the
+clip from the inner cache composite. The resulting order is final rectangle
+clip, outer effect layer, then inner cache opacity/mask, exactly preserving
+WPF's unclipped blur/drop-shadow sampling. Uniform opacity on an uncached
+effect and arbitrary geometry clips remain fail closed.
 
 The matched Metal and D3D12 nested-cache qualification renders a parent cache,
 Gaussian layer, and half-opacity child cache over three frames. Initial,
@@ -2303,6 +2324,17 @@ and D3D12 evidence. A stable or mask-only frame reuses the retained source page
 but deliberately reruns mask composition and both Gaussian passes. Halving
 only mask opacity changes 164 pixels and red sum `756 -> 372`; it does not
 change the cached content identity.
+
+The live final-output clip gate uses an outer Gaussian layer with an explicit
+composite State around one local retained page. On Apple M3 Pro Metal, a stable
+frame and a clip-only update both reuse the retained source and the completed
+effect cache: content/effect-input passes are `2 -> 1 -> 1`, Gaussian passes
+are `2 -> 2 -> 2` with effect-cache hits on both later frames, and the stable
+pixels are byte-identical. Narrowing the output clip changes 428 pixels and
+crops the red extent from `[6,4]-[33,27]` to `[14,8]-[25,21]`. Every pixel
+inside the new rectangle is byte-identical to the already blurred wide output,
+while every pixel outside is black, proving the clip executes after effect
+sampling rather than truncating its input.
 
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then

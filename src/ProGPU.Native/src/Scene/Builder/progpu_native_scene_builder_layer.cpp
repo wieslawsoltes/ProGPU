@@ -333,8 +333,11 @@ bool semantic_scene_builder::push_layer(
     const progpu_native_scene_layer& source) noexcept {
     progpu_native_scene_layer layer = source;
     layer.struct_size = sizeof(layer);
-    if ((layer.flags &
-            PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) == 0U) {
+    const bool local_cache = (layer.flags &
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
+    const bool explicit_composite_state = (layer.flags &
+        PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U;
+    if (!local_cache && !explicit_composite_state) {
         layer.reserved0 = 0U;
     }
     layer.reserved1 = 0U;
@@ -344,9 +347,8 @@ bool semantic_scene_builder::push_layer(
             (index < implementation_->resources.size() &&
                 implementation_->resources[index].record.kind == kind);
     };
-    const auto valid_local_composite_state = [&]() noexcept {
-        if ((layer.flags &
-                PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) == 0U) {
+    const auto valid_composite_state = [&]() noexcept {
+        if (!local_cache && !explicit_composite_state) {
             return true;
         }
         if (layer.reserved0 >= implementation_->resources.size()) {
@@ -359,9 +361,10 @@ bool semantic_scene_builder::push_layer(
         }
         progpu_native_scene_state state{};
         std::memcpy(&state, resource.payload.data(), sizeof(state));
-        constexpr std::uint32_t composite_flags =
-            PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
-            PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+        const std::uint32_t composite_flags = local_cache
+            ? PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
+                PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET
+            : PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
         const bool guideline_is_valid =
             (state.flags & PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET) == 0U ||
             (state.guideline_resource_index <
@@ -369,7 +372,15 @@ bool semantic_scene_builder::push_layer(
                 implementation_->resources[state.guideline_resource_index]
                         .record.kind ==
                     PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET);
+        const bool canonical_transform = local_cache ||
+            (state.transform.m11 == 1.0F &&
+                state.transform.m12 == 0.0F &&
+                state.transform.m21 == 0.0F &&
+                state.transform.m22 == 1.0F &&
+                state.transform.m31 == 0.0F &&
+                state.transform.m32 == 0.0F);
         return (state.flags & ~composite_flags) == 0U &&
+            canonical_transform &&
             state.opacity == 1.0F && state.mask_resource_index == 0U &&
             guideline_is_valid;
     };
@@ -381,7 +392,7 @@ bool semantic_scene_builder::push_layer(
         !valid_resource(
             layer.effect_resource_index,
             PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) ||
-        !valid_local_composite_state()) {
+        !valid_composite_state()) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
     if (implementation_->stack_depth >=
