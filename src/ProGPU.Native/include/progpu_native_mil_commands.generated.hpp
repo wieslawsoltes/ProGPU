@@ -1231,9 +1231,13 @@ struct push_guideline_y2 final {
 
 struct push_effect final {
     static constexpr command kind = command::push_effect;
-    static constexpr std::uint32_t fixed_size = 4U;
+    static constexpr std::uint32_t fixed_size = 12U;
     static constexpr std::uint32_t type_offset = 0U;
     static constexpr std::uint32_t type_size = 4U;
+    static constexpr std::uint32_t h_effect_offset = 4U;
+    static constexpr std::uint32_t h_effect_size = 4U;
+    static constexpr std::uint32_t h_effect_input_offset = 8U;
+    static constexpr std::uint32_t h_effect_input_size = 4U;
 };
 
 struct pop final {

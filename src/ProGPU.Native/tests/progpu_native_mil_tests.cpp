@@ -121,7 +121,9 @@ static_assert(
     command_layouts::draw_rounded_rectangle_animate::fixed_size == 76U);
 static_assert(command_layouts::draw_ellipse_animate::fixed_size == 60U);
 static_assert(command_layouts::draw_rounded_rectangle::fixed_size == 60U);
-static_assert(command_layouts::push_effect::fixed_size == 4U);
+static_assert(command_layouts::push_effect::fixed_size == 12U);
+static_assert(command_layouts::push_effect::h_effect_offset == 4U);
+static_assert(command_layouts::push_effect::h_effect_input_offset == 8U);
 static_assert(command_layouts::pop::fixed_size == 4U);
 
 void require(bool condition, const char* expression, int line) {
