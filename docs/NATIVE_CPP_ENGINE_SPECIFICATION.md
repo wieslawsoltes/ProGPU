@@ -3433,6 +3433,16 @@ and differential JSON. A newer Agility package is adopted only by an explicit
 reviewed lock update; silently following the latest NuGet version would make
 the oracle non-reproducible.
 
+The first complete hosted aggregate, GitHub Actions run `32957387184`, passed
+on 2026-08-26. Native Windows/WARP and the ProGPU D3D12, Metal, and Vulkan
+candidates produced one byte-identical 1280x720 PPM with SHA-256
+`1269AE803032CC2BF6AD717E8491CC19BAF7F9FD5C6B233F8C0012D2DFA53933`;
+all three comparisons reported maximum/mean channel difference 0, zero changed
+pixels, and zero difference at all four probes. The D3D12, Metal, and Vulkan
+candidates identify Microsoft Basic Render Driver, Apple Paravirtual device,
+and llvmpipe LLVM 20.1.2 respectively, so this result remains software/virtual
+adapter evidence rather than physical-GPU qualification.
+
 ## 13. Packaging and security
 
 Native binaries ship in separate RID runtime packages so managed-only consumers
