@@ -9,6 +9,9 @@ Initial implementation: `src/ProGPU.Native`
 Pure C++ browser gallery and AOT publish guide:
 [`NATIVE_CPP_BROWSER_GALLERY.md`](NATIVE_CPP_BROWSER_GALLERY.md)
 
+Typed GPU-stage and intrinsic-SIMD fallback policy:
+[`GPU_COMPUTE_FALLBACK_POLICY.md`](GPU_COMPUTE_FALLBACK_POLICY.md)
+
 Managed baseline commit: `eab6754b` plus the exact ProGPU-owned source
 provenance recorded for each ported tranche
 Native ABI: `PROGPU_NATIVE_ABI_VERSION == 3`
