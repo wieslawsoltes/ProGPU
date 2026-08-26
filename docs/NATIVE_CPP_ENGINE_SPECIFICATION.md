@@ -2609,11 +2609,11 @@ The first additive native capability is intentionally local-cache-composite
 only and is implemented. A retained page has exactly four composite vertices,
 so the executor can
 apply the WPF nearest-guide function to each absolute target-space vertex and
-then localize it to the parent target. Validation must reject that multi-guide
-resource from normal SAVE/draw states and accept it only through the
+then localize it to the parent target. Validation rejects that composite-only
+resource from normal SAVE/draw states and accepts it only through the
 `CACHE_LOCAL_SPACE` layer's composite State. Zero/one-guide resources keep the
-existing general uniform-offset contract. General multi-guide path and
-primitive replay remains a separate point-deformation capability.
+existing general uniform-offset contract. Ordinary path deformation uses the
+separate append-only capability described below.
 
 Commit `9eb46b92` gives a cache-root brush mask that explicit shared frame.
 The renderer passes the local-cache composite State and the same semantic state
@@ -2649,6 +2649,40 @@ base DLL was 2,001,920 bytes with SHA-256
 `FF3EAAB807826914615FD98EEEC5EBACB6E783EB8E3A4061178D785CD5B95780`;
 the Dawn DLL was 2,039,808 bytes with SHA-256
 `1B181A7CF2692164C809D8799539A1FDB8839688C6C01B66AF11F326E39908D1`.
+
+Commit `80560d34` introduces mutually exclusive
+`GUIDELINE_COMPOSITE_ONLY` and `GUIDELINE_PER_POINT` resource modes. The latter
+is legal for an ordinary State only when the eventual draw family can deform
+its native geometry. Version one implements one non-boolean semantic path per
+resource with line, quadratic, and cubic segments. The executor must:
+
+1. preserve the per-point flag while resolving State rather than adding the
+   first guide's offset to the affine transform;
+2. compose path-local and complete MIL scope transforms in WPF row-vector
+   order;
+3. transform and snap each active segment point/control point in absolute
+   target space using the same bounded nearest-guide binary search and lower
+   midpoint tie as cache composites;
+4. subtract the materialized parent-target origin only after snapping;
+5. write identity transform plus recomputed conservative control-hull bounds
+   for the deformed immutable path page.
+
+The executor must reject analytic arcs, multi/shared or boolean path batches,
+analytic/geometry primitives, point batches, meshes, connected strokes,
+glyphs, images, and 3D while those families lack exact deformation. Direct
+builder APIs reject a per-point State on non-path draw commands and on a cache
+composite. Scoped SAVE remains legal for MIL tree state; preflight inspects the
+resolved State on every descendant command and returns `UNSUPPORTED` before
+rendering an unimplemented family. Dynamic leading/driven pairs remain outside
+this static resource mode.
+
+The Metal qualification uses two X and two Y guides over a fractional
+four-line rectangle. Guided execution and a separate already-deformed
+reference are byte-identical: red sums `40,800/40,800` and
+`referenceChanged=0`; baseline red sum is 37,536 and 48 pixels change. All ten
+native CTests, 80 managed native-interop tests after warmup, the zero-warning
+benchmark build, and 72/72 LibreWPF MIL compiler tests pass. The Windows smoke
+profile includes the same live gate; DirectX evidence is pending.
 
 Exact gate commit `7889fa17` then proves that the same composite remains inside
 an outer effect without losing the guideline frame. The MIL regression retains
