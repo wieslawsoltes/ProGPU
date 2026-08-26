@@ -2495,8 +2495,16 @@ On Apple M3 Pro Metal, the correct common ancestor mask executes `2/2/2`
 content/composite/effect passes, samples red `60/200`, and yields extent
 `[6,4]-[41,31]`, red sum 66,698. A deliberately flattened per-child version
 executes `3/3/2`, changes 420 pixels, and yields `[6,5]-[41,30]`, red sum
-74,122. DirectX qualification is pending for implementation commit
-`9fb7c4aa`.
+74,122.
+
+Clean detached implementation commit `9fb7c4aa` produces identical evidence
+on the Parallels Display Adapter D3D12 backend. Strict Windows ARM64 MSVC
+`/W4 /WX` passes all 11 native/Dawn CTests, both export allowlists, two
+zero-warning managed Release builds, independent C++ and managed D3D12
+allocation/readback samples, the complete bounded differential smoke matrix,
+and nine-file runtime/SDK staging. Qualified base/Dawn win-arm64 SHA-256 values
+are `A4A917F47FBA3BA246BCE9D61C1160384C660F8D07D0BA06A02292BDFDAC0018`
+and `743FE185F4D4C900CA1B7F5B18AD85BEAAD47CEA592315AF22D81E625DF0393D`.
 
 The pinned provider/Dawn Metal hardware test validates first render, stable
 composite-only translation, and scale-driven rerasterization at 24x18 then
