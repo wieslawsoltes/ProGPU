@@ -1916,6 +1916,26 @@ staged win-arm64 DLL SHA-256 values are
 qualifies the shared bounded Fant path and composite-only cache reuse on both
 native WebGPU implementations and DirectX.
 
+The next multi-guideline checkpoint follows WPF's `CSnappingFrame` and
+`CShapeClipperForFEB` boundary. Static arrays are sorted, transformed to device
+space with WPF float arithmetic, and reversed under a negative axis scale so
+they remain increasing. Zero or one coordinate per axis produces the existing
+uniform transform offset. With multiple coordinates, WPF transforms every
+figure start, line end, and cubic control/end point to device space, chooses the
+nearest guideline independently by binary search, and applies that guide's
+precomputed round-to-pixel offset; an exact midpoint keeps the lower guide.
+Rotation or shear produces an empty snapping frame.
+
+For a cache-root guideline collection, the affected geometry is only the four
+retained-page composite vertices. The planned append-only semantic capability
+therefore marks a multi-guide resource as composite-only, validates that it is
+referenced exclusively by a local-cache composite State, and snaps those four
+absolute target-space coordinates before parent-target localization. It must
+not make multi-guide resources legal for ordinary semantic draw states, where
+WPF requires point-by-point path deformation. Spatial-mask plus guideline
+ordering remains fail closed until the deformed quad and mask coordinate frame
+are represented together.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
