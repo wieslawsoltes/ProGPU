@@ -3802,12 +3802,22 @@ struct channel::implementation {
             return status::success;
         }
         case command::geometry_drawing: {
+            using layout = command_layouts::geometry_drawing;
             geometry_drawing_state drawing{};
-            if (!has_exact_size(view, 20U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, drawing.brush_handle) ||
-                !read_at(view.packet, 12U, drawing.pen_handle) ||
-                !read_at(view.packet, 16U, drawing.geometry_handle)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_brush_offset,
+                    drawing.brush_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_pen_offset,
+                    drawing.pen_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_geometry_offset,
+                    drawing.geometry_handle)) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_geometry_drawing) ||
@@ -3825,14 +3835,17 @@ struct channel::implementation {
             return status::success;
         }
         case command::glyph_run_drawing: {
+            using layout = command_layouts::glyph_run_drawing;
             glyph_run_drawing_state drawing{};
-            if (!has_exact_size(view, 16U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(
-                    view.packet, 8U, drawing.glyph_run_handle) ||
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
                 !read_at(
                     view.packet,
-                    12U,
+                    layout::h_glyph_run_offset,
+                    drawing.glyph_run_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_foreground_brush_offset,
                     drawing.foreground_brush_handle)) {
                 return status::malformed_batch;
             }
@@ -3850,17 +3863,23 @@ struct channel::implementation {
             return status::success;
         }
         case command::image_drawing: {
+            using layout = command_layouts::image_drawing;
             image_drawing_state drawing{};
-            if (!has_exact_size(view, 48U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, drawing.x) ||
-                !read_at(view.packet, 16U, drawing.y) ||
-                !read_at(view.packet, 24U, drawing.width) ||
-                !read_at(view.packet, 32U, drawing.height) ||
+            const std::size_t rect = layout::rect_offset;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, rect, drawing.x) ||
+                !read_at(view.packet, rect + 8U, drawing.y) ||
+                !read_at(view.packet, rect + 16U, drawing.width) ||
+                !read_at(view.packet, rect + 24U, drawing.height) ||
                 !read_at(
-                    view.packet, 40U, drawing.image_source_handle) ||
+                    view.packet,
+                    layout::h_image_source_offset,
+                    drawing.image_source_handle) ||
                 !read_at(
-                    view.packet, 44U, drawing.rect_animation_handle)) {
+                    view.packet,
+                    layout::h_rect_animations_offset,
+                    drawing.rect_animation_handle)) {
                 return status::malformed_batch;
             }
             const auto image_source = resources.find(
@@ -3888,10 +3907,14 @@ struct channel::implementation {
             return status::success;
         }
         case command::drawing_image: {
+            using layout = command_layouts::drawing_image;
             std::uint32_t drawing_handle = 0U;
-            if (!has_exact_size(view, 12U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, drawing_handle)) {
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_drawing_offset,
+                    drawing_handle)) {
                 return status::malformed_batch;
             }
             const auto drawing = resources.find(drawing_handle);
@@ -3937,19 +3960,29 @@ struct channel::implementation {
             return status::success;
         }
         case command::guideline_set: {
+            using layout = command_layouts::guideline_set;
             std::uint32_t guidelines_x_size = 0U;
             std::uint32_t guidelines_y_size = 0U;
             std::uint32_t is_dynamic = 0U;
-            if (view.packet.size() < 20U ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, guidelines_x_size) ||
-                !read_at(view.packet, 12U, guidelines_y_size) ||
-                !read_at(view.packet, 16U, is_dynamic) ||
+            if (view.packet.size() < layout::fixed_size ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::guidelines_x_size_offset,
+                    guidelines_x_size) ||
+                !read_at(
+                    view.packet,
+                    layout::guidelines_y_size_offset,
+                    guidelines_y_size) ||
+                !read_at(
+                    view.packet,
+                    layout::is_dynamic_offset,
+                    is_dynamic) ||
                 guidelines_x_size % sizeof(double) != 0U ||
                 guidelines_y_size % sizeof(double) != 0U ||
                 static_cast<std::uint64_t>(guidelines_x_size) +
                         guidelines_y_size !=
-                    view.packet.size() - 20U ||
+                    view.packet.size() - layout::fixed_size ||
                 guidelines_x_size / sizeof(double) >
                     std::numeric_limits<std::uint16_t>::max() ||
                 guidelines_y_size / sizeof(double) >
@@ -3973,7 +4006,7 @@ struct channel::implementation {
             } catch (const std::bad_alloc&) {
                 return status::capacity_exceeded;
             }
-            std::size_t offset = 20U;
+            std::size_t offset = layout::fixed_size;
             for (double& coordinate : guidelines.guidelines_x) {
                 if (!read_at(view.packet, offset, coordinate) ||
                     !finite_double_as_float(coordinate)) {
@@ -3998,25 +4031,54 @@ struct channel::implementation {
             return status::success;
         }
         case command::drawing_group: {
+            using layout = command_layouts::drawing_group;
             drawing_group_state group{};
             std::uint32_t children_size = 0U;
-            if (view.packet.size() < 52U ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, group.opacity) ||
-                !read_at(view.packet, 16U, children_size) ||
+            if (view.packet.size() < layout::fixed_size ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
                 !read_at(
-                    view.packet, 20U, group.clip_geometry_handle) ||
+                    view.packet,
+                    layout::opacity_offset,
+                    group.opacity) ||
                 !read_at(
-                    view.packet, 24U, group.opacity_animation_handle) ||
-                !read_at(view.packet, 28U, group.opacity_mask_handle) ||
-                !read_at(view.packet, 32U, group.transform_handle) ||
-                !read_at(view.packet, 36U, group.guideline_set_handle) ||
-                !read_at(view.packet, 40U, group.edge_mode) ||
-                !read_at(view.packet, 44U, group.bitmap_scaling_mode) ||
-                !read_at(view.packet, 48U, group.clear_type_hint) ||
+                    view.packet,
+                    layout::children_size_offset,
+                    children_size) ||
+                !read_at(
+                    view.packet,
+                    layout::h_clip_geometry_offset,
+                    group.clip_geometry_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_opacity_animations_offset,
+                    group.opacity_animation_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_opacity_mask_offset,
+                    group.opacity_mask_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_transform_offset,
+                    group.transform_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_guideline_set_offset,
+                    group.guideline_set_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::edge_mode_offset,
+                    group.edge_mode) ||
+                !read_at(
+                    view.packet,
+                    layout::bitmap_scaling_mode_offset,
+                    group.bitmap_scaling_mode) ||
+                !read_at(
+                    view.packet,
+                    layout::clear_type_hint_offset,
+                    group.clear_type_hint) ||
                 children_size % sizeof(std::uint32_t) != 0U ||
                 static_cast<std::size_t>(children_size) !=
-                    view.packet.size() - 52U) {
+                    view.packet.size() - layout::fixed_size) {
                 return status::malformed_batch;
             }
             const auto previous = drawing_groups.find(handle);
@@ -4071,7 +4133,8 @@ struct channel::implementation {
                 std::uint32_t child = 0U;
                 if (!read_at(
                         view.packet,
-                        52U + index * sizeof(std::uint32_t),
+                        layout::fixed_size +
+                            index * sizeof(std::uint32_t),
                         child)) {
                     return status::malformed_batch;
                 }
@@ -4106,18 +4169,28 @@ struct channel::implementation {
             return status::success;
         }
         case command::bitmap_cache: {
+            using layout = command_layouts::bitmap_cache;
             bitmap_cache_state cache{};
             std::uint32_t snaps_to_device_pixels = 0U;
             std::uint32_t enable_clear_type = 0U;
-            if (!has_exact_size(view, 28U) ||
-                !read_at(view.packet, 4U, handle) ||
-                !read_at(view.packet, 8U, cache.render_at_scale) ||
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
                 !read_at(
                     view.packet,
-                    16U,
+                    layout::render_at_scale_offset,
+                    cache.render_at_scale) ||
+                !read_at(
+                    view.packet,
+                    layout::h_render_at_scale_animations_offset,
                     cache.render_at_scale_animation_handle) ||
-                !read_at(view.packet, 20U, snaps_to_device_pixels) ||
-                !read_at(view.packet, 24U, enable_clear_type)) {
+                !read_at(
+                    view.packet,
+                    layout::snaps_to_device_pixels_offset,
+                    snaps_to_device_pixels) ||
+                !read_at(
+                    view.packet,
+                    layout::enable_clear_type_offset,
+                    enable_clear_type)) {
                 return status::malformed_batch;
             }
             if (!require_resource(handle, type_bitmap_cache) ||

@@ -78,6 +78,20 @@ static_assert(command_layouts::dash_style::fixed_size == 24U);
 static_assert(command_layouts::dash_style::dashes_size_offset == 20U);
 static_assert(command_layouts::pen::fixed_size == 52U);
 static_assert(command_layouts::pen::h_dash_style_offset == 48U);
+static_assert(command_layouts::geometry_drawing::fixed_size == 20U);
+static_assert(command_layouts::geometry_drawing::h_geometry_offset == 16U);
+static_assert(command_layouts::glyph_run_drawing::fixed_size == 16U);
+static_assert(
+    command_layouts::glyph_run_drawing::h_foreground_brush_offset == 12U);
+static_assert(command_layouts::image_drawing::fixed_size == 48U);
+static_assert(command_layouts::image_drawing::rect_offset == 8U);
+static_assert(command_layouts::drawing_image::fixed_size == 12U);
+static_assert(command_layouts::guideline_set::fixed_size == 20U);
+static_assert(command_layouts::guideline_set::is_dynamic_offset == 16U);
+static_assert(command_layouts::drawing_group::fixed_size == 52U);
+static_assert(command_layouts::drawing_group::children_size_offset == 16U);
+static_assert(command_layouts::bitmap_cache::fixed_size == 28U);
+static_assert(command_layouts::bitmap_cache::enable_clear_type_offset == 24U);
 static_assert(
     command_layouts::fixed_header_size(command::visual_set_offset) == 24U);
 static_assert(
