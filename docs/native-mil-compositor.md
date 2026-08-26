@@ -1936,9 +1936,11 @@ For a cache-root guideline collection, the affected geometry is only the four
 retained-page composite vertices. The append-only semantic capability marks a
 multi-guide resource as composite-only, validates that it is
 referenced exclusively by a local-cache composite State, and snaps those four
-absolute target-space coordinates before parent-target localization. It must
-not make multi-guide resources legal for ordinary semantic draw states, where
-WPF requires point-by-point path deformation.
+absolute target-space coordinates before parent-target localization. At that
+checkpoint it deliberately did not make multi-guide resources legal for
+ordinary semantic draw states, where WPF requires point-by-point path
+deformation; the separate append-only capability below now covers the first
+ordinary path subset.
 
 ProGPU commit `9eb46b92` also closes the cache-root spatial-mask/guideline
 ordering gap without changing the public ABI. When a local retained layer owns
@@ -2012,6 +2014,47 @@ clean at the exact commit. The staged base DLL was 2,001,920 bytes with SHA-256
 `AD812584A2F7E549755320A44CA76ED5C20DB5DAD1BD66006EB2D0C7B98F0C2D`;
 the Dawn DLL was 2,039,808 bytes with SHA-256
 `1B181A7CF2692164C809D8799539A1FDB8839688C6C01B66AF11F326E39908D1`.
+
+ProGPU commit `80560d34` adds the first ordinary per-point static
+multi-guideline lane without weakening the cache-only contract. The
+pointer-free guideline prefix gains the mutually exclusive append-only
+`GUIDELINE_PER_POINT` flag; zero/one-guide resources retain the established
+zero-flag affine fast path and cache composites retain
+`GUIDELINE_COMPOSITE_ONLY`. Native and managed builders validate flag/count
+agreement, sorted finite coordinates, direct command-family use, and reject a
+per-point State as a local-cache composite.
+
+The first execution subset is one conventional non-boolean semantic path per
+draw resource, containing line, quadratic, or cubic segments. The executor
+composes the path and complete Visual/DrawingGroup transform, maps every start,
+control, and endpoint into absolute target space, applies WPF nearest-guide
+selection and lower-guide midpoint ties independently, then rebases the
+deformed points into a materialized parent target. It publishes an identity
+path transform and recomputes conservative control-hull coverage bounds.
+Analytic arcs, multiple/shared or boolean paths, primitives, strokes, meshes,
+points, images, glyphs, and 3D remain explicitly fail closed with
+`UNSUPPORTED`; dynamic leading/driven pairs remain rejected by MIL. This keeps
+the initial capability exact instead of silently substituting a uniform
+translation or affine approximation.
+
+The MIL compiler now maps multi-value static Visual and DrawingGroup guideline
+collections through the same float scale/translate/reversal rules and emits a
+per-point resource for ordinary render state. The public managed builder only
+accepts a directly referenced per-point State on `DRAW_PATH`; scoped SAVE is
+allowed so MIL subtree state can flow to the executor, which rejects any
+unsupported descendant family before rendering. Native stream, scene-builder,
+MIL, cursor, managed interop, and LibreWPF packet regressions cover the new
+flag and the negative family/arc/boolean boundaries.
+
+The Apple M3 Pro Metal differential authors a fractional rectangle path,
+deforms its four line endpoints through two guides on each axis, and compares
+the result with an independently authored already-deformed path. Baseline red
+sum is 37,536; guided and reference red sums are both 40,800; 48 pixels change
+from baseline and `referenceChanged=0`. All ten local native CTests, the
+80-test native managed interop class, the zero-warning benchmark build, and
+72/72 focused LibreWPF MIL compiler tests pass. The prescribed Windows smoke
+script now runs `--semantic-per-point-path-guideline`; exact D3D12
+qualification and staged hashes remain pending for this commit.
 
 The exact Windows qualification completed from clean detached latest-main-
 integrated commit `d99acbc8`. ARM64 MSVC rebuilt both modules under `/W4 /WX`,
