@@ -1822,7 +1822,7 @@ public ref struct NativeSceneStreamBuilder
             !HasOptionalResourceKind(
                 layer.EffectResourceIndex,
                 NativeSceneResourceKind.EffectChain) ||
-            !HasValidLocalCompositeState(in layer))
+            !HasValidCompositeState(in layer))
         {
             return false;
         }
@@ -3020,9 +3020,12 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneLayerFlags.CacheContent |
             NativeSceneLayerFlags.CacheLocalSpace |
             NativeSceneLayerFlags.CacheNearest |
-            NativeSceneLayerFlags.CacheFant;
+            NativeSceneLayerFlags.CacheFant |
+            NativeSceneLayerFlags.CompositeState;
         bool localCache =
             (layer.Flags & NativeSceneLayerFlags.CacheLocalSpace) != 0;
+        bool explicitCompositeState =
+            (layer.Flags & NativeSceneLayerFlags.CompositeState) != 0;
         bool hasBounds =
             (layer.Flags & NativeSceneLayerFlags.Bounds) != 0;
         bool canonicalBounds = hasBounds ||
@@ -3034,6 +3037,8 @@ public ref struct NativeSceneStreamBuilder
             float.IsFinite(layer.Opacity) &&
             layer.Opacity is >= 0f and <= 1f &&
             (uint)layer.BlendMode <= (uint)GpuBlendMode.Modulate &&
+            (!explicitCompositeState ||
+                (!localCache && RequiresMaterialization(layer))) &&
             ((layer.Flags & NativeSceneLayerFlags.CacheContent) == 0 ||
                 ((layer.Flags & NativeSceneLayerFlags.Backdrop) == 0 &&
                     layer.ContentRevision != 0 &&
@@ -3056,17 +3061,22 @@ public ref struct NativeSceneStreamBuilder
             layer.HasCanonicalReservedFields;
     }
 
-    private readonly bool HasValidLocalCompositeState(
+    private readonly bool HasValidCompositeState(
         in NativeSceneLayer layer)
     {
-        if ((layer.Flags & NativeSceneLayerFlags.CacheLocalSpace) == 0)
+        bool localCache =
+            (layer.Flags & NativeSceneLayerFlags.CacheLocalSpace) != 0;
+        bool explicitCompositeState =
+            (layer.Flags & NativeSceneLayerFlags.CompositeState) != 0;
+        if (!localCache && !explicitCompositeState)
             return true;
         uint resourceIndex = layer.CompositeStateResourceIndex;
         if (!TryReadState(resourceIndex, out NativeSceneState state))
             return false;
-        const NativeSceneStateFlags supportedFlags =
-            NativeSceneStateFlags.ClipRect |
-            NativeSceneStateFlags.GuidelineSet;
+        NativeSceneStateFlags supportedFlags = localCache
+            ? NativeSceneStateFlags.ClipRect |
+                NativeSceneStateFlags.GuidelineSet
+            : NativeSceneStateFlags.ClipRect;
         bool guidelinesAreValid =
             (state.Flags & NativeSceneStateFlags.GuidelineSet) == 0 ||
             TryReadGuidelineFlags(
@@ -3081,7 +3091,9 @@ public ref struct NativeSceneStreamBuilder
         return state.StructSize == Unsafe.SizeOf<NativeSceneState>() &&
             state.HasCanonicalReservedFields &&
             (state.Flags & ~supportedFlags) == 0 &&
-            IsFinite(state.Transform) && state.Opacity == 1f &&
+            IsFinite(state.Transform) &&
+            (localCache || state.Transform == Matrix3x2.Identity) &&
+            state.Opacity == 1f &&
             IsFiniteBounds(state.ClipRect) && canonicalClip &&
             state.MaskResourceIndex == 0U && guidelinesAreValid;
     }

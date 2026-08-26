@@ -3542,6 +3542,66 @@ public class NativeRendererInteropTests
         Assert.False(BuildLayer(
             destination, in missingCompositeState, out _));
 
+        var compositeClipBuilder = new NativeSceneStreamBuilder(
+            destination,
+            14U,
+            1U,
+            commandCapacity: 2,
+            resourceCapacity: 1);
+        var compositeClipState = new NativeSceneState(
+            Matrix3x2.Identity,
+            clipRect: new NativeImageRect(6f, 8f, 20f, 14f),
+            flags: NativeSceneStateFlags.ClipRect);
+        Assert.True(compositeClipBuilder.TryAddStateResource(
+            1U, 1U, in compositeClipState, out uint compositeClipStateIndex));
+        var compositeClipLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.ForceIsolation |
+                NativeSceneLayerFlags.CompositeState,
+            compositeStateResourceIndex: compositeClipStateIndex);
+        Assert.True(compositeClipBuilder.TryPushLayer(
+            1U, in compositeClipLayer));
+        Assert.True(compositeClipBuilder.TryPopLayer(2U));
+        Assert.True(compositeClipBuilder.TryBuild(out _));
+
+        var nonmaterializedCompositeBuilder = new NativeSceneStreamBuilder(
+            destination,
+            15U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+        Assert.True(nonmaterializedCompositeBuilder.TryAddStateResource(
+            1U,
+            1U,
+            in compositeClipState,
+            out uint nonmaterializedCompositeStateIndex));
+        var nonmaterializedCompositeClip = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.CompositeState,
+            compositeStateResourceIndex: nonmaterializedCompositeStateIndex);
+        Assert.False(nonmaterializedCompositeBuilder.TryPushLayer(
+            3U, in nonmaterializedCompositeClip));
+
+        var transformedCompositeBuilder = new NativeSceneStreamBuilder(
+            destination,
+            16U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+        var transformedCompositeState = new NativeSceneState(
+            Matrix3x2.CreateTranslation(1f, 0f),
+            clipRect: new NativeImageRect(6f, 8f, 20f, 14f),
+            flags: NativeSceneStateFlags.ClipRect);
+        Assert.True(transformedCompositeBuilder.TryAddStateResource(
+            1U,
+            1U,
+            in transformedCompositeState,
+            out uint transformedCompositeStateIndex));
+        var transformedCompositeLayer = new NativeSceneLayer(
+            flags: NativeSceneLayerFlags.ForceIsolation |
+                NativeSceneLayerFlags.CompositeState,
+            compositeStateResourceIndex: transformedCompositeStateIndex);
+        Assert.False(transformedCompositeBuilder.TryPushLayer(
+            1U, in transformedCompositeLayer));
+
         NativeSceneLayer invalid = default;
         var invalidBuilder = new NativeSceneStreamBuilder(
             destination,

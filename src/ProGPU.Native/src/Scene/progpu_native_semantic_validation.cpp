@@ -387,9 +387,21 @@ bool is_valid_semantic_layer(
         PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
         PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
         PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST |
-        PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT;
+        PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT |
+        PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE;
     const bool local_cache =
         (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
+    const bool explicit_composite_state =
+        (layer.flags & PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U;
+    const bool has_composite_state = local_cache || explicit_composite_state;
+    const bool materialized =
+        (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
+                PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
+                PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT)) != 0U ||
+        layer.opacity != 1.0F ||
+        layer.blend_mode != PROGPU_NATIVE_BLEND_SRC_OVER ||
+        layer.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+        layer.effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX;
     const bool bounds_are_canonical =
         (layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) != 0U ||
         (layer.bounds.x == 0.0F && layer.bounds.y == 0.0F &&
@@ -404,6 +416,7 @@ bool is_valid_semantic_layer(
         bounds_are_canonical && std::isfinite(layer.opacity) &&
         layer.opacity >= 0.0F && layer.opacity <= 1.0F &&
         layer.blend_mode <= PROGPU_NATIVE_BLEND_MODULATE &&
+        (!explicit_composite_state || (!local_cache && materialized)) &&
         ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) == 0U ||
             ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BACKDROP) == 0U &&
                 layer.content_revision != 0U &&
@@ -425,7 +438,8 @@ bool is_valid_semantic_layer(
                 PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT)) !=
             (PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST |
                 PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT)) &&
-        (local_cache || layer.reserved0 == 0U) && layer.reserved1 == 0U;
+        (has_composite_state || layer.reserved0 == 0U) &&
+        layer.reserved1 == 0U;
 }
 
 bool is_valid_semantic_effect(

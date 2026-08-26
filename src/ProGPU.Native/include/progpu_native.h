@@ -268,14 +268,16 @@ enum {
     /*
      * Rasterizes cached content into layer-local coordinates and composites
      * it through the STATE resource referenced by reserved0. Requires
-     * CACHE_CONTENT, BOUNDS, a zero bounds origin, and a canonical transform-
-     * only composite state.
+     * CACHE_CONTENT, BOUNDS, a zero bounds origin, and a canonical
+     * transform/clip/guideline composite state.
     */
     PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE = 1U << 4U,
     /* Selects nearest-neighbor sampling for a CACHE_LOCAL_SPACE composite. */
     PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST = 1U << 5U,
     /* Selects bounded Fant-style minification for a local cache composite. */
-    PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT = 1U << 6U
+    PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT = 1U << 6U,
+    /* Applies the clip-only STATE in reserved0 to a materialized composite. */
+    PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE = 1U << 7U
 };
 
 typedef enum progpu_native_image_sampling {
@@ -1048,7 +1050,7 @@ typedef struct progpu_native_scene_guideline_set {
  * With LAYER_CACHE_CONTENT, composite_revision is the stable cache-owner
  * identity and content_revision is the subtree pixel version. Both must be
  * nonzero. With LAYER_CACHE_LOCAL_SPACE, bounds describe the zero-origin
- * raster-page extent and reserved0 is a preceding transform-only
+ * raster-page extent and reserved0 is a preceding transform/clip/guideline
  * PROGPU_NATIVE_SCENE_RESOURCE_STATE used to place the cached quad in its
  * parent target. Its optional mask_resource_index is applied to the cached
  * quad during that composite and does not participate in retained content
@@ -1057,6 +1059,9 @@ typedef struct progpu_native_scene_guideline_set {
  * selects a bounded area-prefilter reconstruction for WPF Fant/HighQuality
  * minification and normal linear reconstruction otherwise. Both sampling flags
  * are invalid without LAYER_CACHE_LOCAL_SPACE and are mutually exclusive.
+ * LAYER_COMPOSITE_STATE applies the identity-transform, clip-only State in
+ * reserved0 while restoring any materialized non-local layer. It is used for
+ * final-output clipping after effects without clipping their sampled input.
  * The 64-byte version-one record remains unchanged.
  */
 typedef struct progpu_native_scene_layer {

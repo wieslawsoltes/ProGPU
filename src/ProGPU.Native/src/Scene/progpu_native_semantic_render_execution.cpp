@@ -4030,6 +4030,9 @@ progpu_native_status render_scene(
                         (layer.flags &
                             PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) !=
                         0U;
+                    const bool has_composite_state = local_cache ||
+                        (layer.flags &
+                            PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U;
                     semantic_scissor composite_scissor{
                         0U,
                         0U,
@@ -4038,8 +4041,9 @@ progpu_native_status render_scene(
                         target_extent.drawable};
                     bool has_composite_scissor = true;
                     bool composite_drawable = target_extent.drawable;
-                    if (local_cache) {
-                        const auto composite_state =
+                    progpu_native_scene_state composite_state{};
+                    if (has_composite_state) {
+                        composite_state =
                             state_cursor.read_composite_state(layer.reserved0);
                         if ((composite_state.flags &
                                 PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) {
@@ -4052,6 +4056,8 @@ progpu_native_status render_scene(
                                     frame->dpi_scale);
                             composite_drawable = composite_scissor.drawable;
                         }
+                    }
+                    if (local_cache) {
                         append_semantic_transformed_layer_quad(
                             semantic_layer_vertices,
                             source_extent,

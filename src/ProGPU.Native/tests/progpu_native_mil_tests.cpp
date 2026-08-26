@@ -1463,6 +1463,7 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     constexpr std::uint32_t brush = 4U;
     constexpr std::uint32_t blur = 5U;
     constexpr std::uint32_t shadow = 6U;
+    constexpr std::uint32_t clip = 7U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -1596,11 +1597,68 @@ bool visual_gaussian_effects_compile_to_isolated_layers() {
     PROGPU_REQUIRE(state.apply(delete_referenced) == status::success);
 
     std::vector<std::byte> clipped_effect;
+    append_create(clipped_effect, clip, 69U);
+    append_command(
+        clipped_effect,
+        command::rectangle_geometry,
+        clip,
+        0.0,
+        0.0,
+        12.0,
+        12.0,
+        20.0,
+        14.0,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(clipped_effect, command::visual_set_clip, visual, clip);
     append_command(clipped_effect, command::visual_set_effect, visual, blur);
-    append_command(clipped_effect, command::visual_set_alpha, visual, 0.5);
     PROGPU_REQUIRE(state.apply(clipped_effect) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 9014U, 3U, stream, &metrics) ==
+        status::success);
+    const auto clipped_layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(clipped_layers.size() == 1U);
+    PROGPU_REQUIRE(
+        (clipped_layers[0].flags &
+            PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U);
+    progpu_native_scene_state final_clip{};
+    PROGPU_REQUIRE(try_get_state_resource(
+        stream, clipped_layers[0].reserved0, final_clip));
+    PROGPU_REQUIRE(
+        final_clip.flags == PROGPU_NATIVE_SCENE_STATE_CLIP_RECT);
+    PROGPU_REQUIRE(final_clip.transform.m11 == 1.0F);
+    PROGPU_REQUIRE(final_clip.transform.m22 == 1.0F);
+    PROGPU_REQUIRE(final_clip.clip_rect.x == 12.0F);
+    PROGPU_REQUIRE(final_clip.clip_rect.y == 12.0F);
+    PROGPU_REQUIRE(final_clip.clip_rect.width == 20.0F);
+    PROGPU_REQUIRE(final_clip.clip_rect.height == 14.0F);
+
+    std::vector<std::byte> zero_blur;
+    append_command(
+        zero_blur, command::blur_effect, blur, 0.0, 0U, 0U, 1U);
+    PROGPU_REQUIRE(state.apply(zero_blur) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9014U, 4U, stream, &metrics) ==
+        status::success);
+    const auto zero_blur_layers = get_scene_layers(stream);
+    PROGPU_REQUIRE(zero_blur_layers.size() == 1U);
+    PROGPU_REQUIRE(
+        zero_blur_layers[0].effect_resource_index ==
+        PROGPU_NATIVE_SCENE_NO_INDEX);
+    PROGPU_REQUIRE(
+        (zero_blur_layers[0].flags &
+            (PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
+                PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE)) ==
+        (PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
+            PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE));
+
+    std::vector<std::byte> opacity_effect;
+    append_command(opacity_effect, command::visual_set_alpha, visual, 0.5);
+    PROGPU_REQUIRE(state.apply(opacity_effect) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9014U, 5U, stream, &metrics) ==
         status::unsupported_command);
     return true;
 }
@@ -2649,6 +2707,7 @@ bool visual_bitmap_cache_preserves_nested_effect_ordering() {
     constexpr std::uint32_t root_cache = 6U;
     constexpr std::uint32_t child_cache = 7U;
     constexpr std::uint32_t blur = 8U;
+    constexpr std::uint32_t clip = 9U;
 
     std::vector<std::byte> batch;
     append_create(batch, root, 39U);
@@ -2659,11 +2718,13 @@ bool visual_bitmap_cache_preserves_nested_effect_ordering() {
     append_create(batch, root_cache, 94U);
     append_create(batch, child_cache, 94U);
     append_create(batch, blur, 36U);
+    append_create(batch, clip, 69U);
     append_command(batch, command::visual_create, root);
     append_command(batch, command::visual_create, child);
     append_command(batch, command::visual_set_content, child, child_content);
     append_command(batch, command::visual_set_offset, child, 5.0, 6.0);
     append_command(batch, command::visual_set_alpha, child, 0.5);
+    append_command(batch, command::visual_set_clip, child, clip);
     append_command(
         batch,
         command::solid_color_brush,
@@ -2687,6 +2748,20 @@ bool visual_bitmap_cache_preserves_nested_effect_ordering() {
     append_render_data(batch, child_content, nested);
     append_command(
         batch, command::blur_effect, blur, 6.0, 0U, 0U, 1U);
+    append_command(
+        batch,
+        command::rectangle_geometry,
+        clip,
+        0.0,
+        0.0,
+        2.0,
+        1.0,
+        12.0,
+        10.0,
+        0U,
+        0U,
+        0U,
+        0U);
     append_command(batch, command::visual_set_effect, child, blur);
     append_command(
         batch, command::bitmap_cache, root_cache, 1.0, 0U, 0U, 0U);
@@ -2731,9 +2806,27 @@ bool visual_bitmap_cache_preserves_nested_effect_ordering() {
     PROGPU_REQUIRE(
         (layers[1].flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) == 0U);
     PROGPU_REQUIRE(
+        (layers[1].flags & PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) !=
+        0U);
+    PROGPU_REQUIRE(
         (layers[2].flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U);
     PROGPU_REQUIRE(layers[1].opacity == 1.0F);
     PROGPU_REQUIRE(layers[2].opacity == 0.5F);
+    progpu_native_scene_state effect_composite{};
+    PROGPU_REQUIRE(try_get_state_resource(
+        stream, layers[1].reserved0, effect_composite));
+    PROGPU_REQUIRE(
+        effect_composite.flags == PROGPU_NATIVE_SCENE_STATE_CLIP_RECT);
+    PROGPU_REQUIRE(effect_composite.clip_rect.x == 7.0F);
+    PROGPU_REQUIRE(effect_composite.clip_rect.y == 7.0F);
+    PROGPU_REQUIRE(effect_composite.clip_rect.width == 12.0F);
+    PROGPU_REQUIRE(effect_composite.clip_rect.height == 10.0F);
+    progpu_native_scene_state cache_composite{};
+    PROGPU_REQUIRE(try_get_state_resource(
+        stream, layers[2].reserved0, cache_composite));
+    PROGPU_REQUIRE(
+        (cache_composite.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) ==
+        0U);
     const auto first_root = layers[0];
     const auto first_child = layers[2];
 

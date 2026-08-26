@@ -334,6 +334,56 @@ bool semantic_scene_builder_bounds_composite_only_guidelines() {
         unsorted, std::span<const double>{}, guideline_index, true);
 }
 
+bool semantic_scene_builder_records_final_composite_clip() {
+    semantic_scene_builder builder(704U, 1U);
+    auto clip_state = semantic_scene_builder::identity_state();
+    clip_state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+    clip_state.clip_rect = {6.0F, 8.0F, 20.0F, 14.0F};
+    std::uint32_t clip_state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_state(clip_state, clip_state_index)) {
+        return false;
+    }
+    progpu_native_scene_layer layer{};
+    layer.struct_size = sizeof(layer);
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
+        PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE;
+    layer.opacity = 1.0F;
+    layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    layer.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    layer.reserved0 = clip_state_index;
+    if (!builder.push_layer(layer) || !builder.pop_layer()) {
+        return false;
+    }
+    std::vector<std::byte> stream;
+    if (!builder.build(stream) ||
+        scene::validate(stream.data(), stream.size()).status !=
+            PROGPU_NATIVE_STATUS_SUCCESS) {
+        return false;
+    }
+
+    semantic_scene_builder transformed(705U, 1U);
+    auto transformed_state = clip_state;
+    transformed_state.transform.m31 = 1.0F;
+    std::uint32_t transformed_state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!transformed.add_state(
+            transformed_state, transformed_state_index)) {
+        return false;
+    }
+    layer.reserved0 = transformed_state_index;
+    if (transformed.push_layer(layer)) {
+        return false;
+    }
+
+    semantic_scene_builder nonmaterialized(706U, 1U);
+    if (!nonmaterialized.add_state(clip_state, clip_state_index)) {
+        return false;
+    }
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE;
+    layer.reserved0 = clip_state_index;
+    return !nonmaterialized.push_layer(layer);
+}
+
 bool semantic_scene_builder_preserves_shared_path_segments() {
     const std::array segments{
         progpu_native_path_segment{

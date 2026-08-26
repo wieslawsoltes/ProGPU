@@ -1190,7 +1190,9 @@ validation_result validate(
                     layer.effect_resource_index,
                     PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) ||
                 (((layer.flags &
-                        PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U) &&
+                        (PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
+                            PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE)) !=
+                    0U) &&
                     (layer.reserved0 == PROGPU_NATIVE_SCENE_NO_INDEX ||
                         !valid_layer_resource(
                             layer.reserved0,
@@ -1200,8 +1202,12 @@ validation_result validate(
                     PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
                     offset);
             }
-            if ((layer.flags &
-                    PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U) {
+            const bool local_cache = (layer.flags &
+                PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
+            const bool has_composite_state = local_cache ||
+                (layer.flags &
+                    PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U;
+            if (has_composite_state) {
                 const auto composite_resource = read_record<
                     progpu_native_scene_resource>(
                         bytes,
@@ -1211,10 +1217,19 @@ validation_result validate(
                 const auto composite_state = read_record<
                     progpu_native_scene_state>(
                         bytes, composite_resource.payload_offset);
-                constexpr std::uint32_t composite_flags =
-                    PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
-                    PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+                const std::uint32_t composite_flags = local_cache
+                    ? PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
+                        PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET
+                    : PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+                const bool canonical_transform = local_cache ||
+                    (composite_state.transform.m11 == 1.0F &&
+                        composite_state.transform.m12 == 0.0F &&
+                        composite_state.transform.m21 == 0.0F &&
+                        composite_state.transform.m22 == 1.0F &&
+                        composite_state.transform.m31 == 0.0F &&
+                        composite_state.transform.m32 == 0.0F);
                 if ((composite_state.flags & ~composite_flags) != 0U ||
+                    !canonical_transform ||
                     composite_state.opacity != 1.0F ||
                     composite_state.mask_resource_index != 0U) {
                     return fail(

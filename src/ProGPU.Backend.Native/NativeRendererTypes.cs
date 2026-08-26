@@ -748,7 +748,14 @@ public enum NativeSceneLayerFlags : uint
     /// This flag is invalid without <see cref="CacheLocalSpace"/> and is
     /// mutually exclusive with <see cref="CacheNearest"/>.
     /// </summary>
-    CacheFant = 1U << 6
+    CacheFant = 1U << 6,
+
+    /// <summary>
+    /// Applies the clip-only state referenced by
+    /// <see cref="NativeSceneLayer.CompositeStateResourceIndex"/> while
+    /// compositing a materialized non-local layer.
+    /// </summary>
+    CompositeState = 1U << 7
 }
 
 public enum NativeSceneValidationError : uint
@@ -1592,14 +1599,19 @@ internal readonly struct NativeSceneGuidelineSetHeader
 /// composite revision is the stable owner identity and content revision is the
 /// subtree pixel version; both must be nonzero. A local-space cache uses
 /// <see cref="CompositeStateResourceIndex"/> to reference a preceding
-/// transform-only <see cref="NativeSceneState"/> resource while retaining the
-/// exact 64-byte layer ABI. Its optional <see cref="MaskResourceIndex"/> is
+/// transform/clip/guideline <see cref="NativeSceneState"/> resource while
+/// retaining the exact 64-byte layer ABI. Its optional
+/// <see cref="MaskResourceIndex"/> is
 /// applied while compositing the retained page and does not invalidate cached
 /// content; effects remain unsupported on local cached layers.
 /// <see cref="NativeSceneLayerFlags.CacheNearest"/> selects nearest-neighbor
 /// filtering, while <see cref="NativeSceneLayerFlags.CacheFant"/> selects
 /// bounded WPF-compatible high-quality minification for that cached-page
-/// composite.
+/// composite. <see cref="NativeSceneLayerFlags.CompositeState"/> applies an
+/// identity-transform, clip-only state from
+/// <see cref="CompositeStateResourceIndex"/> when a materialized non-local
+/// layer is restored, allowing effects to receive unclipped input and clip only
+/// their final output.
 /// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct NativeSceneLayer
@@ -1653,7 +1665,8 @@ public readonly struct NativeSceneLayer
     private readonly uint Reserved1;
 
     internal bool HasCanonicalReservedFields =>
-        ((Flags & NativeSceneLayerFlags.CacheLocalSpace) != 0 ||
+        ((Flags & (NativeSceneLayerFlags.CacheLocalSpace |
+                NativeSceneLayerFlags.CompositeState)) != 0 ||
             CompositeStateResourceIndex == 0U) && Reserved1 == 0U;
 }
 
