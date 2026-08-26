@@ -1972,8 +1972,17 @@ It keeps the retained page across baseline/guided/reference frames
 (`1/1 -> 0/1 -> 0/1` content/composite passes), changes 40 pixels, moves the
 masked extent from `[21,8]-[25,15]`/red 1,881 to
 `[21,9]-[25,15]`/red 1,617, and matches the reference byte for byte
-(`referenceChanged=0`). DirectX qualification is pending for exact code commit
-`9eb46b92`.
+(`referenceChanged=0`). Exact DirectX qualification completed on 2026-08-26
+from clean detached commit `9eb46b92`. ARM64 MSVC passed all 11 native/Dawn
+CTest cases under `/W4 /WX`, both export allowlists, two zero-warning managed
+builds, independent native and managed D3D12 allocation/readback samples, the
+complete bounded smoke suite, and nine-file staging. D3D12 reproduced Metal
+exactly: `passes=1/1->0/1->0/1`, baseline `[21,8]-[25,15]`/red 1,881, guided
+`[21,9]-[25,15]`/red 1,617, affine reference `[21,9]-[25,15]`/red 1,617,
+`changed=40`, and `referenceChanged=0`. The staged base DLL was 2,001,920 bytes
+with SHA-256 `FF3EAAB807826914615FD98EEEC5EBACB6E783EB8E3A4061178D785CD5B95780`;
+the Dawn DLL was 2,039,808 bytes with SHA-256
+`1B181A7CF2692164C809D8799539A1FDB8839688C6C01B66AF11F326E39908D1`.
 
 The exact Windows qualification completed from clean detached latest-main-
 integrated commit `d99acbc8`. ARM64 MSVC rebuilt both modules under `/W4 /WX`,
