@@ -138,15 +138,19 @@ Remove-Item -LiteralPath $OraclePath -Force -ErrorAction SilentlyContinue
 $env:PROGPU_DIRECTX_ORACLE_OUTPUT = $OraclePath
 try {
     $RunArguments = if ($UseWarp) { @("-warp") } else { @() }
-    & $Executable @RunArguments
-    if ($LASTEXITCODE -ne 0) {
+    $SampleProcess = Start-Process `
+        -FilePath $Executable `
+        -ArgumentList $RunArguments `
+        -Wait `
+        -PassThru
+    if ($SampleProcess.ExitCode -ne 0) {
         $ErrorPath = "$OraclePath.error.txt"
         $Failure = if (Test-Path $ErrorPath) {
             (Get-Content $ErrorPath -Raw).Trim()
         } else {
             "No native diagnostic was published."
         }
-        throw "The DirectX sample exited with $LASTEXITCODE. $Failure"
+        throw "The DirectX sample exited with $($SampleProcess.ExitCode). $Failure"
     }
 } finally {
     Remove-Item Env:PROGPU_DIRECTX_ORACLE_OUTPUT -ErrorAction SilentlyContinue
