@@ -208,4 +208,4 @@ $Contract = [ordered]@{
 $ContractPath = Join-Path $OutputDirectory "$OracleStem.json"
 $Contract | ConvertTo-Json -Depth 4 | Set-Content $ContractPath -Encoding utf8
 Write-Output "Captured pinned Microsoft $SampleClass oracle: $OraclePath"
-Write-Output "Agility SDK: $($Lock.agilityVersion); SHA-256: $ImageHash"
+Write-Output "Agility SDK: $($Lock.agilityVersion); image SHA-256: $ImageHash"

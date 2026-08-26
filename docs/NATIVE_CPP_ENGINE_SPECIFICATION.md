@@ -3427,11 +3427,15 @@ cross-platform build of Microsoft's Windows program. The Windows lane checks
 out commit `213dd4fd4918ea009dd8f35adee1aff1f2ecaba4`, verifies the selected
 source files before applying ProGPU's capture-only patch, restores the sample's
 declared `Microsoft.Direct3D.D3D12` 1.618.3 package, and captures
-`D3D12HelloTriangle` with WARP. WARP makes the reference independent of hosted
-runner GPU availability; it is not reported as physical-device qualification.
-Platform lanes render the same clear color, vertices, interpolation, viewport,
-and edge policy through ProGPU. The aggregate job compares D3D12, Metal, and
-Vulkan candidates with the native frame and publishes the images, manifests,
+`D3D12HelloTriangle` and `D3D12HelloTexture` with WARP. WARP makes the
+references independent of hosted runner GPU availability; it is not reported
+as physical-device qualification. Platform lanes render the same clear color,
+geometry, interpolation or point-sampling contract, viewport, and edge policy
+through ProGPU. The texture case retains the upstream checkerboard, affine UV
+mapping, and triangular boundary through a typed image resource and
+edge-aliased cover mesh. It qualifies those observable semantics, not a new
+combined textured-mesh ABI. The aggregate job compares D3D12, Metal, and
+Vulkan candidates with each native frame and publishes the images, manifests,
 and differential JSON. A newer Agility package is adopted only by an explicit
 reviewed lock update; silently following the latest NuGet version would make
 the oracle non-reproducible.
@@ -3452,6 +3456,14 @@ particular, the native NuGet package and every runnable desktop JIT/NativeAOT
 consumer passed after the focused DrawingGroup fixture was corrected from 25
 to its actual 26 commands. Oracle success therefore remains coupled to the
 shipping package graph rather than replacing package qualification.
+
+The first local `D3D12HelloTexture` qualification at implementation commit
+`a4ae5576` is byte-exact across Apple M3 Pro Metal, Parallels Display Adapter
+D3D12, and the native Microsoft ARM64/WARP capture. The common 1280x720 PPM
+SHA-256 is
+`480B613A9F4FA0E799E46D310E7A3AB9F917B9B60CDA035A2E2718CBF2391397`;
+ProGPU's RGBA readback SHA-256 is
+`591CC311F35E3C2612F529C3D4D7061FC93751A9B8614BF588A73599B0AA2790`.
 
 ## 13. Packaging and security
 
