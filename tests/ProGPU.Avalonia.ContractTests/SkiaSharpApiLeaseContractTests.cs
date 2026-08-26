@@ -82,6 +82,9 @@ public sealed class SkiaSharpApiLeaseContractTests
             context.GetFeature(typeof(IProGpuApiLeaseFeature)));
         Assert.IsAssignableFrom<ISkiaSharpApiLeaseFeature>(
             context.GetFeature(typeof(ISkiaSharpApiLeaseFeature)));
+        Assert.Same(
+            context.GetFeature(typeof(IProGpuApiLeaseFeature)),
+            context.GetFeature(typeof(ISkiaSharpApiLeaseFeature)));
     }
 
     [Fact]

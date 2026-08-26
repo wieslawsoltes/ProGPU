@@ -1,6 +1,7 @@
 using System;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Platform;
 using Avalonia.SilkNet;
 using ProGPU.Backend;
@@ -239,6 +240,42 @@ public sealed class WindowChromeContractTests
             expected,
             SilkNetWindowChrome.MapResizeEdge(source));
     }
+
+#if !AVALONIA11
+    [Theory]
+    [InlineData(WindowDecorationsElementRole.ResizeN, NativeResizeEdge.Top)]
+    [InlineData(WindowDecorationsElementRole.ResizeS, NativeResizeEdge.Bottom)]
+    [InlineData(WindowDecorationsElementRole.ResizeE, NativeResizeEdge.Right)]
+    [InlineData(WindowDecorationsElementRole.ResizeW, NativeResizeEdge.Left)]
+    [InlineData(WindowDecorationsElementRole.ResizeNE, NativeResizeEdge.TopRight)]
+    [InlineData(WindowDecorationsElementRole.ResizeNW, NativeResizeEdge.TopLeft)]
+    [InlineData(WindowDecorationsElementRole.ResizeSE, NativeResizeEdge.BottomRight)]
+    [InlineData(WindowDecorationsElementRole.ResizeSW, NativeResizeEdge.BottomLeft)]
+    public void DrawnDecorationResizeRolesMapExactly(
+        WindowDecorationsElementRole role,
+        NativeResizeEdge expected)
+    {
+        Assert.True(
+            SilkNetWindowChrome.TryMapResizeRole(
+                role,
+                out NativeResizeEdge actual));
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [InlineData(WindowDecorationsElementRole.None)]
+    [InlineData(WindowDecorationsElementRole.TitleBar)]
+    [InlineData(WindowDecorationsElementRole.User)]
+    [InlineData(WindowDecorationsElementRole.DecorationsElement)]
+    public void InteractiveAndTitleRolesAreNotResizeEdges(
+        WindowDecorationsElementRole role)
+    {
+        Assert.False(
+            SilkNetWindowChrome.TryMapResizeRole(
+                role,
+                out _));
+    }
+#endif
 
     [Fact]
     public void SizeConstraintsNormalizeForNativeWindowing()

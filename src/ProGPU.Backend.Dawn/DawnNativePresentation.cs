@@ -41,6 +41,8 @@ public sealed unsafe partial class DawnGpuContext
         AdapterHandle adapter = AdapterHandle.Null;
         DeviceHandle device = DeviceHandle.Null;
         QueueHandle queue = QueueHandle.Null;
+        DeviceLossCallbackState? deviceLossState = null;
+        GCHandle deviceLossStateHandle = default;
         WgpuContext? context = null;
         try
         {
@@ -161,7 +163,9 @@ public sealed unsafe partial class DawnGpuContext
             device = RequestDevice(
                 instance,
                 adapter,
-                requiredFeatures[..featureCount]);
+                requiredFeatures[..featureCount],
+                out deviceLossState,
+                out deviceLossStateHandle);
             queue = device.GetQueue();
             if (queue == QueueHandle.Null)
             {
@@ -181,7 +185,9 @@ public sealed unsafe partial class DawnGpuContext
                     instance,
                     adapter,
                     device,
-                    queue);
+                    queue,
+                    deviceLossStateHandle);
+            deviceLossStateHandle = default;
             context = new WgpuContext();
             context.InitializeExternalNativeDevice(
                 new DawnWebGpuApi(),
@@ -200,6 +206,7 @@ public sealed unsafe partial class DawnGpuContext
                 adapterBackendType:
                     ToSilkBackendType(source.BackendType),
                 adapterName: source.BackendName);
+            deviceLossState.Bind(context);
 
             InstanceHandle ownedInstance = instance;
             AdapterHandle ownedAdapter = adapter;
@@ -217,6 +224,10 @@ public sealed unsafe partial class DawnGpuContext
         catch
         {
             context?.Dispose();
+            if (deviceLossStateHandle.IsAllocated)
+            {
+                deviceLossStateHandle.Free();
+            }
             if (compatibilitySurface != SurfaceHandle.Null)
             {
                 compatibilitySurface.Release();
@@ -536,6 +547,7 @@ public sealed unsafe partial class DawnGpuContext
 public sealed unsafe class DawnNativePresentationSurface : IDisposable
 {
     private readonly DawnGpuContext _owner;
+    private IDisposable? _ownerLifetime;
     private SurfaceHandle _surface;
     private readonly W.TextureFormat _format;
     private readonly W.CompositeAlphaMode _alphaMode;
@@ -551,6 +563,7 @@ public sealed unsafe class DawnNativePresentationSurface : IDisposable
         W.CompositeAlphaMode alphaMode)
     {
         _owner = owner;
+        _ownerLifetime = owner.AcquireLifetimeLease();
         _surface = surface;
         _format = format;
         _alphaMode = alphaMode;
@@ -561,6 +574,8 @@ public sealed unsafe class DawnNativePresentationSurface : IDisposable
 
     public bool UsesPremultipliedAlpha =>
         _alphaMode == W.CompositeAlphaMode.Premultiplied;
+
+    public bool IsDeviceLost => _owner.Context.IsDeviceLost;
 
     internal SW.Surface* SilkSurface =>
         (SW.Surface*)_surface.GetAddress();
@@ -581,6 +596,11 @@ public sealed unsafe class DawnNativePresentationSurface : IDisposable
 
         lock (_owner.Context.RenderLock)
         {
+            if (_owner.Context.IsDeviceLost)
+            {
+                throw new InvalidOperationException(
+                    "The Dawn presentation device is lost.");
+            }
             ConfigureIfNeeded(width, height);
             SurfaceTextureFFI acquired = default;
             _surface.GetCurrentTexture(ref acquired);
@@ -605,6 +625,14 @@ public sealed unsafe class DawnNativePresentationSurface : IDisposable
                 if (acquired.Texture != TextureHandle.Null)
                 {
                     acquired.Texture.Release();
+                }
+                if (acquired.Status is
+                    W.SurfaceGetCurrentTextureStatus.Timeout or
+                    W.SurfaceGetCurrentTextureStatus.Outdated or
+                    W.SurfaceGetCurrentTextureStatus.Lost)
+                {
+                    throw new TimeoutException(
+                        $"Dawn presentation is temporarily unavailable: {acquired.Status}.");
                 }
                 throw new InvalidOperationException(
                     $"Dawn could not acquire the presentation texture: {acquired.Status}.");
@@ -751,6 +779,11 @@ public sealed unsafe class DawnNativePresentationSurface : IDisposable
 
     private void Configure(uint width, uint height)
     {
+        if (_owner.Context.IsDeviceLost)
+        {
+            throw new InvalidOperationException(
+                "The Dawn presentation device is lost.");
+        }
         var configuration = new SurfaceConfigurationFFI
         {
             Device = _owner.Device,
@@ -761,7 +794,13 @@ public sealed unsafe class DawnNativePresentationSurface : IDisposable
             PresentMode = W.PresentMode.Fifo,
             AlphaMode = _alphaMode
         };
+        _configured = false;
         _surface.Configure(configuration);
+        if (_owner.Context.IsDeviceLost)
+        {
+            throw new InvalidOperationException(
+                "Dawn lost the device while configuring the presentation surface.");
+        }
         _width = width;
         _height = height;
         _configured = true;
@@ -775,13 +814,22 @@ public sealed unsafe class DawnNativePresentationSurface : IDisposable
         }
         lock (_owner.Context.RenderLock)
         {
-            if (_configured)
+            try
             {
-                _surface.Unconfigure();
+                if (_configured && !_owner.Context.IsDeviceLost)
+                {
+                    _surface.Unconfigure();
+                }
+                _surface.Release();
+                _surface = SurfaceHandle.Null;
+                _configured = false;
             }
-            _surface.Release();
-            _surface = SurfaceHandle.Null;
-            _configured = false;
+            finally
+            {
+                Interlocked.Exchange(
+                    ref _ownerLifetime,
+                    null)?.Dispose();
+            }
         }
     }
 }

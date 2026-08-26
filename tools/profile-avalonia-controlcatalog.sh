@@ -17,6 +17,7 @@ opacity_mask_fixture="${PROGPU_AVALONIA_OPACITY_MASK_FIXTURE:-0}"
 inherited_drawing_options_fixture="${PROGPU_AVALONIA_INHERITED_DRAWING_OPTIONS_FIXTURE:-0}"
 topology_fixture="${PROGPU_AVALONIA_TOPOLOGY_FIXTURE:-0}"
 adorner_fixture="${PROGPU_AVALONIA_ADORNER_FIXTURE:-0}"
+skiasharp_custom_fixture="${PROGPU_AVALONIA_SKIASHARP_CUSTOM_FIXTURE:-0}"
 skia_project="$repo_root/integration/AvaloniaSkiaControlCatalogReference/AvaloniaSkiaControlCatalogReference.csproj"
 skia_app="$repo_root/integration/AvaloniaSkiaControlCatalogReference/bin/Release/net10.0/AvaloniaSkiaControlCatalogReference.dll"
 source_project="$repo_root/integration/AvaloniaSourceControlCatalog/AvaloniaSourceControlCatalog.csproj"
@@ -289,6 +290,7 @@ for page in "${pages[@]}"; do
          PROGPU_AVALONIA_BENCHMARK_INHERITED_DRAWING_OPTIONS_CHANNEL="$inherited_drawing_options_fixture" \
          PROGPU_AVALONIA_BENCHMARK_TOPOLOGY_CHANNEL="$topology_fixture" \
          PROGPU_AVALONIA_BENCHMARK_ADORNER_CHANNEL="$adorner_fixture" \
+         PROGPU_AVALONIA_BENCHMARK_SKIASHARP_CUSTOM_DRAW="$skiasharp_custom_fixture" \
          "${native_launch[@]}" \
          dotnet "$app" "${app_args[@]}" 2>&1 | tee "$log_path"; then
         if [[ -s "$json_path" ]]; then

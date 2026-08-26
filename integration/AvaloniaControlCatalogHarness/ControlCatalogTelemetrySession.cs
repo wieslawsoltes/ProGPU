@@ -13,8 +13,11 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Rendering.SceneGraph;
+using Avalonia.Skia;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using SkiaSharp;
 #if PROGPU_AVALONIA_BACKEND
 using Avalonia.ProGpu;
 using Avalonia.SilkNet;
@@ -46,6 +49,8 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
         "PROGPU_AVALONIA_BENCHMARK_DIAGNOSTIC_HOLD_SECONDS";
     private const string ReadyVariable =
         "PROGPU_AVALONIA_BENCHMARK_DIAGNOSTIC_READY";
+    private const string ForceDeviceLossVariable =
+        "PROGPU_AVALONIA_FORCE_DEVICE_LOSS";
 
     private readonly string _backend;
     private readonly string _page;
@@ -58,6 +63,7 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
     private readonly int _run;
     private readonly int _holdSeconds;
     private readonly bool _useSilkFrameSource;
+    private readonly bool _forceDeviceLoss;
     private readonly double[] _frameTimes;
 #if PROGPU_AVALONIA_BACKEND
     private readonly double[] _compileTimes;
@@ -96,6 +102,10 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
     private int _sceneCacheHits;
     private CompositorMetrics _measurementStartMetrics;
     private CompositorMetrics _lastMetrics;
+    private WgpuContext? _lostContext;
+    private int _deviceLossRecoveryFrames;
+    private bool _waitingForDeviceRecovery;
+    private bool _deviceLossRecovered;
 #endif
 
     private ControlCatalogTelemetrySession(
@@ -122,6 +132,11 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
         _holdSeconds = holdSeconds;
         _useSilkFrameSource = backend.Contains(
             "SilkNet",
+            StringComparison.Ordinal);
+        _forceDeviceLoss = string.Equals(
+            Environment.GetEnvironmentVariable(
+                ForceDeviceLossVariable),
+            "1",
             StringComparison.Ordinal);
         _frameTimes = new double[measureFrames];
 #if PROGPU_AVALONIA_BACKEND
@@ -228,12 +243,48 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
             return;
         }
 
+#if PROGPU_AVALONIA_BACKEND
+        if (_waitingForDeviceRecovery)
+        {
+            _deviceLossRecoveryFrames++;
+            _deviceLossRecovered =
+                WgpuContext.ActiveContexts.Any(
+                    candidate =>
+                        !ReferenceEquals(candidate, _lostContext) &&
+                        candidate.BackendKind ==
+                            _lostContext!.BackendKind &&
+                        candidate.IsInitialized &&
+                        !candidate.IsDeviceLost);
+            if (_deviceLossRecovered)
+            {
+                _waitingForDeviceRecovery = false;
+                _previousAnimationTimestamp = default;
+                PrepareMeasurement();
+            }
+            else if (_deviceLossRecoveryFrames >= 600)
+            {
+                throw new InvalidOperationException(
+                    "ControlCatalog did not recreate a healthy WebGPU context within 600 frames after device loss.");
+            }
+            RequestNextFrame();
+            return;
+        }
+#endif
+
         if (_warmupCompleted < _warmupFrames)
         {
             _warmupCompleted++;
             _previousAnimationTimestamp = timestamp;
             if (_warmupCompleted == _warmupFrames)
             {
+#if PROGPU_AVALONIA_BACKEND
+                if (_forceDeviceLoss)
+                {
+                    InjectDeviceLoss();
+                    RequestNextFrame();
+                    return;
+                }
+#endif
                 PrepareMeasurement();
             }
             RequestNextFrame();
@@ -308,6 +359,27 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
     }
 
 #if PROGPU_AVALONIA_BACKEND
+    private void InjectDeviceLoss()
+    {
+        WgpuBackendKind expectedBackend = _useSilkFrameSource
+            ? WgpuBackendKind.SilkNative
+            : WgpuBackendKind.DawnNative;
+        _lostContext = WgpuContext.ActiveContexts.FirstOrDefault(
+            candidate =>
+                candidate.BackendKind == expectedBackend &&
+                candidate.IsInitialized &&
+                !candidate.IsDeviceLost) ??
+            throw new InvalidOperationException(
+                $"ControlCatalog could not find an active {expectedBackend} context for device-loss injection.");
+        _waitingForDeviceRecovery = true;
+        _deviceLossRecoveryFrames = 0;
+        _lostContext.ReportDeviceLost(
+            Silk.NET.WebGPU.DeviceLostReason.Unknown,
+            "ControlCatalog synthetic device-loss integration gate");
+        Console.Error.WriteLine(
+            $"[ControlCatalog] injected device loss for {expectedBackend}");
+    }
+
     private void OnProGpuFrameRendered(CompositorMetrics metrics)
     {
         _lastMetrics = metrics;
@@ -398,6 +470,17 @@ internal sealed class ControlCatalogTelemetrySession : IDisposable
             writer.WriteNumber("Run", _run);
             writer.WriteNumber("WarmupFrames", _warmupFrames);
             writer.WriteNumber("MeasuredFrames", _measuredFrames);
+#if PROGPU_AVALONIA_BACKEND
+            writer.WriteBoolean(
+                "DeviceLossInjected",
+                _lostContext is not null);
+            writer.WriteBoolean(
+                "DeviceLossRecovered",
+                _deviceLossRecovered);
+            writer.WriteNumber(
+                "DeviceLossRecoveryFrames",
+                _deviceLossRecoveryFrames);
+#endif
             writer.WriteNumber("ElapsedSeconds", elapsedSeconds);
             writer.WriteNumber(
                 "FramesPerSecond",
@@ -899,6 +982,8 @@ internal sealed class BenchmarkVisualFixture
         "PROGPU_AVALONIA_BENCHMARK_TOPOLOGY_CHANNEL";
     private const string AdornerVariable =
         "PROGPU_AVALONIA_BENCHMARK_ADORNER_CHANNEL";
+    private const string SkiaSharpCustomDrawVariable =
+        "PROGPU_AVALONIA_BENCHMARK_SKIASHARP_CUSTOM_DRAW";
 
     private readonly Visual _target;
     private readonly Panel? _panel;
@@ -908,6 +993,7 @@ internal sealed class BenchmarkVisualFixture
     private readonly bool _topology;
     private readonly bool _adorner;
     private readonly BenchmarkPulseControl? _pulse;
+    private readonly BenchmarkSkiaSharpControl? _skiaSharpControl;
     private readonly Panel? _topologyFirstParent;
     private readonly Panel? _topologySecondParent;
     private Visual? _adornerFirstTarget;
@@ -933,7 +1019,8 @@ internal sealed class BenchmarkVisualFixture
         Border? topologyChild,
         Border? adornerVisual,
         Visual? adornerFirstTarget,
-        Visual? adornerSecondTarget)
+        Visual? adornerSecondTarget,
+        BenchmarkSkiaSharpControl? skiaSharpControl)
     {
         _target = target;
         _panel = panel;
@@ -949,6 +1036,7 @@ internal sealed class BenchmarkVisualFixture
         _adornerVisual = adornerVisual;
         _adornerFirstTarget = adornerFirstTarget;
         _adornerSecondTarget = adornerSecondTarget;
+        _skiaSharpControl = skiaSharpControl;
     }
 
     public static BenchmarkVisualFixture? Create(Window window)
@@ -978,6 +1066,8 @@ internal sealed class BenchmarkVisualFixture
         bool drawingOptions = ReadEnabled(DrawingOptionsVariable);
         bool topology = ReadEnabled(TopologyVariable);
         bool adorner = ReadEnabled(AdornerVariable);
+        bool skiaSharpCustomDraw =
+            ReadEnabled(SkiaSharpCustomDrawVariable);
         Visual target = window.Content as Visual ?? window;
         if (layoutClip)
         {
@@ -1087,6 +1177,22 @@ internal sealed class BenchmarkVisualFixture
             panel.Children.Add(pulse);
         }
 
+        BenchmarkSkiaSharpControl? skiaSharpControl = null;
+        if (skiaSharpCustomDraw && panel is not null)
+        {
+            skiaSharpControl = new BenchmarkSkiaSharpControl
+            {
+                Width = 320,
+                Height = 240,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Bottom,
+                IsHitTestVisible = false
+            };
+            panel.Children.Add(skiaSharpControl);
+            Console.Error.WriteLine(
+                "[ControlCatalog] deterministic SkiaSharp custom-draw fixture attached");
+        }
+
         Panel? topologyFirstParent = null;
         Panel? topologySecondParent = null;
         Border? topologyChild = null;
@@ -1135,7 +1241,8 @@ internal sealed class BenchmarkVisualFixture
             topologyChild,
             adornerVisual,
             adornerFirstTarget,
-            adornerSecondTarget);
+            adornerSecondTarget,
+            skiaSharpControl);
     }
 
     private static bool TrySelectCustomVisualTab(Visual root)
@@ -1181,6 +1288,7 @@ internal sealed class BenchmarkVisualFixture
 
         _pulsePhase = !_pulsePhase;
         _pulse.SetPhase(_pulsePhase);
+        _skiaSharpControl?.SetPhase(_pulsePhase);
     }
 
     private void TryPrepareAdornerFixture()
@@ -1381,6 +1489,95 @@ internal sealed class BenchmarkPulseControl : Control
         context.FillRectangle(
             _phase ? _firstBrush : _secondBrush,
             new Rect(Bounds.Size));
+    }
+}
+
+internal sealed class BenchmarkSkiaSharpControl : Control
+{
+    private bool _phase;
+
+    internal void SetPhase(bool phase)
+    {
+        _phase = phase;
+        InvalidateVisual();
+    }
+
+    public override void Render(DrawingContext context)
+    {
+        context.Custom(
+            new BenchmarkSkiaSharpDrawOperation(
+                new Rect(Bounds.Size),
+                _phase));
+    }
+
+    private sealed class BenchmarkSkiaSharpDrawOperation :
+        ICustomDrawOperation
+    {
+        private readonly bool _phase;
+
+        internal BenchmarkSkiaSharpDrawOperation(
+            Rect bounds,
+            bool phase)
+        {
+            Bounds = bounds;
+            _phase = phase;
+        }
+
+        public Rect Bounds { get; }
+
+        public bool HitTest(Point point) => false;
+
+        public bool Equals(ICustomDrawOperation? other) =>
+            other is BenchmarkSkiaSharpDrawOperation operation &&
+            operation.Bounds == Bounds &&
+            operation._phase == _phase;
+
+        public void Render(ImmediateDrawingContext context)
+        {
+            ISkiaSharpApiLeaseFeature? feature =
+                context.TryGetFeature<ISkiaSharpApiLeaseFeature>();
+            if (feature is null)
+                return;
+
+            using ISkiaSharpApiLease lease = feature.Lease();
+            SKCanvas canvas = lease.SkCanvas;
+            using var fill = new SKPaint
+            {
+                Color = new SKColor(24, 116, 205, 208),
+                IsAntialias = true
+            };
+            using var stroke = new SKPaint
+            {
+                Color = new SKColor(252, 190, 45),
+                IsAntialias = true,
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = 1.5f
+            };
+            using var pathBuilder = new SKPathBuilder();
+            pathBuilder.MoveTo(0, 10);
+            pathBuilder.QuadTo(18, -8, 34, 12);
+            pathBuilder.CubicTo(44, 26, 58, -4, 72, 14);
+            using SKPath path = pathBuilder.Detach();
+
+            float phaseOffset = _phase ? 0.375f : 0f;
+            for (int index = 0; index < 96; index++)
+            {
+                int save = canvas.Save();
+                float x = (index % 12) * 25f + phaseOffset;
+                float y = (index / 12) * 28f;
+                canvas.Translate(x, y);
+                canvas.ClipRect(new SKRect(0, 0, 24, 27));
+                canvas.DrawRect(1, 2, 19, 17, fill);
+                canvas.DrawCircle(12, 13, 7, stroke);
+                canvas.Scale(0.28f);
+                canvas.DrawPath(path, stroke);
+                canvas.RestoreToCount(save);
+            }
+        }
+
+        public void Dispose()
+        {
+        }
     }
 }
 

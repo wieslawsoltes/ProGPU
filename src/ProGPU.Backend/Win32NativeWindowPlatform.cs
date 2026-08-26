@@ -1,10 +1,12 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 using Silk.NET.Windowing;
 
 namespace ProGPU.Backend;
 
-internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
+internal sealed partial class Win32NativeWindowPlatform :
+    GlfwNativeWindowPlatform
 {
     private const int GwlStyle = -16;
     private const int GwlExStyle = -20;
@@ -28,7 +30,7 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
     private const uint SwpFrameChanged = 0x0020;
     private const uint WmNcCalcSize = 0x0083;
     private const uint WmNcHitTest = 0x0084;
-    private const uint WmNcLButtonDown = 0x00A1;
+    private const uint WmSysCommand = 0x0112;
     private const uint WmTouch = 0x0240;
     private const uint WmMouseFirst = 0x0200;
     private const uint WmMouseLast = 0x020e;
@@ -36,6 +38,8 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
     private const uint WmExitSizeMove = 0x0232;
     private const int HtClient = 1;
     private const int HtCaption = 2;
+    private const int ScMove = 0xF010;
+    private const int ScSize = 0xF000;
     private const int HtLeft = 10;
     private const int HtRight = 11;
     private const int HtTop = 12;
@@ -287,13 +291,13 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
 
     public override bool TryBeginMove(NativeWindowPoint pointer)
     {
+        _ = pointer;
         ReleaseCapture();
-        SendMessage(
+        return PostMessage(
             _hwnd,
-            WmNcLButtonDown,
-            HtCaption,
-            PackScreenPoint(pointer));
-        return true;
+            WmSysCommand,
+            ScMove | HtCaption,
+            0) != 0;
     }
 
     public override bool TryBeginResize(NativeResizeEdge edge, NativeWindowPoint pointer)
@@ -304,12 +308,14 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
         }
 
         ReleaseCapture();
-        SendMessage(
+        NativeWindowPoint screenPointer = GetCursorPos(out Point cursor) != 0
+            ? new NativeWindowPoint(cursor.X, cursor.Y)
+            : pointer;
+        return PostMessage(
             _hwnd,
-            WmNcLButtonDown,
-            MapHitTest(edge),
-            PackScreenPoint(pointer));
-        return true;
+            WmSysCommand,
+            ScSize | MapSizeCommand(edge),
+            PackScreenPoint(screenPointer)) != 0;
     }
 
     private nint WindowProcedure(nint hwnd, uint message, nint wParam, nint lParam)
@@ -568,16 +574,16 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
 
     private static long SetFlag(long value, long flag, bool enabled) => enabled ? value | flag : value & ~flag;
 
-    private static int MapHitTest(NativeResizeEdge edge) => edge switch
+    private static int MapSizeCommand(NativeResizeEdge edge) => edge switch
     {
-        NativeResizeEdge.Left => HtLeft,
-        NativeResizeEdge.Top => HtTop,
-        NativeResizeEdge.Right => HtRight,
-        NativeResizeEdge.Bottom => HtBottom,
-        NativeResizeEdge.TopLeft => HtTopLeft,
-        NativeResizeEdge.TopRight => HtTopRight,
-        NativeResizeEdge.BottomLeft => HtBottomLeft,
-        _ => HtBottomRight
+        NativeResizeEdge.Left => 1,
+        NativeResizeEdge.Right => 2,
+        NativeResizeEdge.Top => 3,
+        NativeResizeEdge.TopLeft => 4,
+        NativeResizeEdge.TopRight => 5,
+        NativeResizeEdge.Bottom => 6,
+        NativeResizeEdge.BottomLeft => 7,
+        _ => 8
     };
 
     private static nint PackScreenPoint(
@@ -689,6 +695,9 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
     private static extern bool EnableWindow(nint hwnd, bool enabled);
     [DllImport("user32.dll")]
     private static extern bool ReleaseCapture();
+    [LibraryImport("user32.dll")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+    private static partial int GetCursorPos(out Point point);
     [DllImport("user32.dll")]
     private static extern bool RegisterTouchWindow(nint hwnd, uint flags);
     [DllImport("user32.dll")]
@@ -705,8 +714,13 @@ internal sealed class Win32NativeWindowPlatform : GlfwNativeWindowPlatform
     private static extern bool ScreenToClient(nint hwnd, ref Point point);
     [DllImport("user32.dll")]
     private static extern nint GetMessageExtraInfo();
-    [DllImport("user32.dll", EntryPoint = "SendMessageW")]
-    private static extern nint SendMessage(nint hwnd, uint message, nint wParam, nint lParam);
+    [LibraryImport("user32.dll", EntryPoint = "PostMessageW")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+    private static partial int PostMessage(
+        nint hwnd,
+        uint message,
+        nint wParam,
+        nint lParam);
     [DllImport("user32.dll", EntryPoint = "CallWindowProcW")]
     private static extern nint CallWindowProc(nint previous, nint hwnd, uint message, nint wParam, nint lParam);
     [DllImport("user32.dll", EntryPoint = "DefWindowProcW")]

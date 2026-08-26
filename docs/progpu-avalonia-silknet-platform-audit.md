@@ -1,6 +1,6 @@
 # Avalonia Silk.NET platform contract audit
 
-Audit date: 2026-08-25
+Audit date: 2026-08-26
 
 Supported Avalonia lanes:
 
@@ -40,14 +40,17 @@ both extended-client and ordinary system-chrome windows, tracks the modal
 interval, and synchronously pulses Avalonia layout and presentation only while
 that interval is active. Normal frame scheduling is unchanged.
 
-Custom title-bar dragging previously sent `WM_NCLBUTTONDOWN` synchronously
-with an empty coordinate. The corrected path releases Avalonia pointer capture,
-lets the routed press unwind through a send-priority dispatcher post, and sends
-the signed screen pointer packed in `lParam`, as required by the official
-[`WM_NCLBUTTONDOWN`](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-nclbuttondown)
-contract. This matches the ordering used by Avalonia's official
-[`WindowImpl.BeginMoveDrag`](https://github.com/AvaloniaUI/Avalonia/blob/12.1.1/src/Windows/Avalonia.Win32/WindowImpl.cs)
-without copying its implementation.
+Custom title-bar dragging previously depended on application pointer handlers
+and a synchronous `WM_NCLBUTTONDOWN` transition. That path was unreliable once
+GLFW had advanced the originating event. The windowing backend now resolves
+Avalonia 12's public `WindowDecorationsElementRole` at the raw pointer boundary,
+releases native capture, and posts the documented
+[`WM_SYSCOMMAND`](https://learn.microsoft.com/en-us/windows/win32/menurc/wm-syscommand)
+`SC_MOVE` or `SC_SIZE` request. The raw press is consumed only when a move or
+resize actually starts, so ordinary title-bar controls marked `User` or
+`DecorationsElement` retain client input. macOS and X11 use ProGPU's bounded
+pointer-delta fallback because GLFW does not preserve a usable AppKit event and
+an accepted X11 moveresize message does not prove the compositor honored it.
 
 GLFW's official [window guide](https://www.glfw.org/docs/3.4/window_guide.html)
 was used as the coordinate-space authority. Its distinction between content
@@ -95,13 +98,14 @@ Compatibility mouse messages carrying Microsoft's touch signature are
 suppressed only while their native message is dispatched, preventing one
 finger from producing both touch and mouse routed events.
 
-Linux/X11 touch selects XI2.2 touch begin/update/end events on GLFW's existing
-display connection. A process-local pump removes only matching generic touch
-cookies before GLFW drains the shared Xlib queue, dispatches them to their
-owning X11 window, and suppresses XI2 pointer-emulation mouse events for the
-same poll. The design follows the X.Org
+Linux/X11 touch selects XI2.2 touch begin/update/end events on a dedicated Xlib
+client connection. XI version negotiation is per client; GLFW had already
+negotiated XI2.0 on its connection, which prevented a later XI2.2 touch
+selection from succeeding there. The UI-thread pump drains only the dedicated
+connection, dispatches cookies to their owning X11 window, and suppresses XI2
+pointer-emulation mouse events for the same poll. The design follows the X.Org
 [XI2 protocol](https://www.x.org/releases/current/doc/inputproto/XI2proto.txt)
-and adds no competing display connection or background thread.
+and adds no background thread or access to GLFW's event queue.
 
 macOS desktop hardware exposes indirect trackpad gestures rather than
 touchscreen contacts. The backend adds the public AppKit responder methods
@@ -165,6 +169,13 @@ contract cannot be established by compilation alone.
   scaled X11/Wayland already expose screen-coordinate units. Desktop positions
   remain physical pixels. Deferred window sizes are converted only after the
   native window and its scaling are known.
+- A manual position assigned before `Show` is retained independently of native
+  creation and is supplied in the initial Silk.NET options. Avalonia's later
+  center-screen and center-owner calculations continue through `Move`; native
+  move callbacks update the retained physical position instead of reading a
+  stale platform value back into Avalonia. This covers manual, centered, and
+  subsequent programmatic placement without treating screen coordinates as
+  logical client units.
 - Framebuffer storage uses physical framebuffer pixels. `FrameSize` is unknown
   until native frame insets are available and then includes those insets rather
   than incorrectly returning the client size.
@@ -185,9 +196,11 @@ contract cannot be established by compilation alone.
   notification performs one immediate layout/render pulse so content follows
   the window edge; steady-state and programmatic resize scheduling retain the
   normal event-loop path.
-- Managed title-bar moves release pointer capture and are deferred until the
-  routed press has unwound. The native non-client message carries the actual
-  signed screen coordinate, including negative multi-monitor coordinates.
+- Drawn title bars and resize grips are resolved from Avalonia's decoration
+  role contract before the raw press is routed. Windows enters its native
+  system move/size loop through a posted system command; Cocoa and X11 use one
+  deterministic managed drag state with physical screen deltas. A failed drag
+  start does not swallow client input.
 - An unspecified Avalonia 12 frame theme now resolves through registered
   platform settings, as Avalonia.Native and Win32 do. Native backend defaults
   remain correct for direct controller users: Cocoa clears the explicit
@@ -264,33 +277,35 @@ completed with zero warnings and zero errors.
 
 ## Validation evidence
 
-- The shared Silk.NET contract suite passes in Release against both exact
-  lanes: 115 tests on Avalonia 12.1.1 and 102 tests on Avalonia 11.3.20. The new
+- The Avalonia 12.1.1 Silk.NET contract suite passes 129 tests in Release. The
   coverage includes Windows logical/native client-size conversion, one-to-one
-  Windows framebuffer sizing, scaled frame insets and constraints, scaled
-  Windows pointer input, unchanged Linux screen-coordinate layout/input,
-  UTF-32 text, GLFW modifier mapping, touch phases, X11 ABI layout, macOS
-  gesture mapping, and Windows promoted-mouse suppression.
+  framebuffer sizing, scaled frame insets and constraints, callback-authority
+  for macOS pointer coordinates, UTF-32 text, GLFW modifiers and repeat,
+  decoration-role mapping, touch phases, X11 ABI layout, macOS gesture mapping,
+  and Windows promoted-mouse suppression. The separate pinned Avalonia 11 lane
+  remains compile- and package-gated by its existing compatibility suite.
 - Both windowing projects build in Release, and the focused backend windowing
   presenter suite passes 17 tests.
 - Package validation produced both
-  `ProGPU.Avalonia.SilkNet.12.1.1-preview.60.nupkg` and
-  `ProGPU.Avalonia.SilkNet.11.3.20-preview.60.nupkg`; their nuspec dependencies
+  `ProGPU.Avalonia.SilkNet.12.1.1-preview.61.nupkg` and
+  `ProGPU.Avalonia.SilkNet.11.3.20-preview.61.nupkg`; their nuspec dependencies
   pin Avalonia exactly to 12.1.1 and 11.3.20 respectively.
 - The runtime-reflection audit passes for both `Avalonia.SilkNet.dll`
   variants.
 - A package-backed Release smoke run on macOS rendered the Charting sample
   through `ProGPU/Silk.NET + embedded ProGPU`, presented non-transparent output
   through the same-device WebGPU texture path at 2x DPI, and exited normally.
-- A self-contained Windows ARM64 harness ran in the logged-in Parallels
+- A Windows ARM64 harness ran in the logged-in Parallels
   Windows 11 session at 200% display scaling. Live routed telemetry passed
   keyboard down/up, complete text, Control+Shift+K command routing, pointer
   movement, two-axis-capable wheel routing, and left/right/middle/X1/X2
-  buttons. The window reported a 720x480 logical client, 1440x960 physical
-  rectangle, and `RenderScaling=2`. A custom-title-bar drag moved the native
-  rectangle, and one edge drag produced four client-size notifications and
-  three matching Avalonia layout-size observations before release, proving
-  layout continued inside the modal resize loop.
+  buttons. Windows' synthetic pointer API also delivered a real routed touch
+  begin/update/end sequence without a promoted duplicate mouse event. The
+  window reported a 720x480 logical client, 1440x960 physical framebuffer, and
+  `RenderScaling=2`. A decoration-role title-bar drag moved the native
+  rectangle, and live resize produced matching client-size and Avalonia layout
+  observations before release. Manual initial placement was exactly 180,140
+  physical screen pixels while the surface transitioned from scale 1 to 2.
 - The same Windows VM rendered the ControlCatalog Canvas and text-heavy
   TextBox pages through Avalonia Win32 plus native Dawn/D3D12 at 1024x800
   logical and 2048x1600 physical pixels. The older Silk.NET 2.23
@@ -301,17 +316,27 @@ completed with zero warnings and zero errors.
   remaining VM-specific failure from the corrected Silk.NET window/input
   boundary rather than hiding it as a DPI or layout failure.
 - An Ubuntu X11 VM passed live keyboard, text, pointer, wheel, shortcut, and
-  all five mouse-button telemetry. XI2 touch ABI and conversion are covered by
-  focused contracts because the VM has no injectable physical multitouch
-  device. The rebuilt macOS app passed live keyboard, text, pointer movement,
-  and Command+Shift+K telemetry; AppKit gesture entry points are covered by
-  native mapping contracts because desktop automation cannot synthesize a
-  hardware trackpad gesture at GLFW's responder boundary.
+  all five mouse-button telemetry. A virtual direct-touch device injected
+  through Linux `uinput` produced real XI2.2 begin/update/end events and passed
+  the routed Avalonia touch gate. Title-bar drag, live resize/layout, and manual
+  180,140 placement also passed. The rebuilt macOS app passed keyboard, text,
+  pointer movement, wheel, buttons, Command+Shift+K, title-bar drag, live
+  resize/layout, and exact manual placement at Retina scale 2. AppKit magnify,
+  rotate, and swipe entry points remain native mapping contracts because
+  desktop automation cannot synthesize a hardware trackpad gesture at GLFW's
+  responder boundary.
 - Native Avalonia windowing with Dawn/Metal on macOS passed Border, Canvas,
   ScrollViewer, TextBlock, Viewbox, and AdornerLayer at 1024x800 logical and
   2048x1600 physical output. Typed clip, inherited drawing-option, and adorner
   synchronization gates all passed without a measured full-scene fallback;
   representative screenshots were visually correct.
+- The same Border, Canvas, ScrollViewer, TextBlock, and Viewbox gate passed with
+  Avalonia Win32/Dawn D3D12 and Avalonia X11/Dawn Vulkan. Linux TextBlock
+  exposed a genuine bitmap-only color-emoji culling defect and a too-small
+  managed color-atlas limit. Bitmap strike metrics now contribute glyph-run ink
+  bounds, and the Avalonia renderer grows its color atlas from 64 to at most
+  1024 pixels. The final Noto Color Emoji family sequence rendered without
+  clipping or retained-composition fallback.
 
 ## Managed/native applicability
 
@@ -330,6 +355,13 @@ LRU slot behind retained UVs, and has no equivalent Avalonia incremental-page
 cache. Its applicability audit therefore found no matching defect or native
 code change. Both implementations retain the same shaping, glyph identity,
 DPI, and output contracts; no C ABI record or canonical shader changed.
+
+The bitmap-only color-glyph bounds and Avalonia color-atlas sizing corrections
+are also managed integration concerns. The native C++ color atlas already
+grows dynamically up to its 4096-pixel cap and does not use Avalonia's
+`IGlyphRunImpl.Bounds` for culling. Its applicability audit therefore found no
+paired defect. Both renderers keep the same strike selection, baseline,
+device-scale, and color-glyph image contracts.
 
 No third-party implementation source was copied into ProGPU. The Avalonia and
 GLFW sources were used to identify public contracts and observable platform

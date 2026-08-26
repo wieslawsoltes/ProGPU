@@ -39,6 +39,7 @@ internal static unsafe class AvaloniaGpuDevicePool
             InitialVertexCount = 1024,
             InitialIndexCount = 1536,
             InitialColorGlyphAtlasSize = 64,
+            ColorGlyphAtlasSize = 1024,
             GlyphUniformStagingBytes = 16 * 1024,
             GlyphCoverageStagingBytes =
                 GlyphAtlas.DefaultCoverageRingBufferSize,
@@ -59,17 +60,38 @@ internal static unsafe class AvaloniaGpuDevicePool
         if (surfaceHandle != IntPtr.Zero &&
             WgpuContext.TryGetActiveContextForSurface(
                 surfaceHandle,
-                out WgpuContext? surfaceContext) &&
-            surfaceContext is { IsDisposed: false })
+                out WgpuContext? surfaceContext))
         {
-            WgpuContext.Current = surfaceContext;
-            return surfaceContext;
+            if (surfaceContext is
+            {
+                IsInitialized: true,
+                IsDisposed: false,
+                IsDeviceLost: false
+            })
+            {
+                WgpuContext.Current = surfaceContext;
+                return surfaceContext;
+            }
+            if (surfaceContext.IsDeviceLost)
+            {
+                throw new RenderTargetNotReadyException();
+            }
         }
 
-        if (WgpuContext.Current is { IsDisposed: false } current)
+        if (WgpuContext.Current is
+            {
+                IsInitialized: true,
+                IsDisposed: false,
+                IsDeviceLost: false
+            } current)
             return current;
         if (WgpuContext.TryGetFirstActiveContext(out WgpuContext? active) &&
-            active is { IsDisposed: false })
+            active is
+            {
+                IsInitialized: true,
+                IsDisposed: false,
+                IsDeviceLost: false
+            })
         {
             WgpuContext.Current = active;
             return active;
@@ -78,8 +100,10 @@ internal static unsafe class AvaloniaGpuDevicePool
         lock (s_gate)
         {
             if (s_standaloneContext is null ||
-                s_standaloneContext.IsDisposed)
+                s_standaloneContext.IsDisposed ||
+                s_standaloneContext.IsDeviceLost)
             {
+                s_standaloneContext?.Dispose();
                 s_standaloneContext = new WgpuContext();
                 s_standaloneContext.Initialize(window: null);
             }
@@ -143,8 +167,32 @@ internal static unsafe class AvaloniaGpuDevicePool
             if (surfaceTexture.Status !=
                 SurfaceGetCurrentTextureStatus.Success)
             {
-                throw new InvalidOperationException(
-                    $"The WebGPU surface did not provide a drawable texture: {surfaceTexture.Status}.");
+                if (surfaceTexture.Status ==
+                    SurfaceGetCurrentTextureStatus.DeviceLost)
+                {
+                    context.ReportDeviceLost(
+                        DeviceLostReason.Unknown,
+                        "The presentation surface reported device loss.");
+                    throw new RenderTargetCorruptedException(
+                        "The WebGPU presentation device is lost.");
+                }
+                if (surfaceTexture.Status ==
+                    SurfaceGetCurrentTextureStatus.OutOfMemory)
+                {
+                    throw new OutOfMemoryException(
+                        "The WebGPU presentation surface ran out of memory.");
+                }
+                if (surfaceTexture.Status is
+                    SurfaceGetCurrentTextureStatus.Outdated or
+                    SurfaceGetCurrentTextureStatus.Lost)
+                {
+                    context.InvalidateSurfaceConfiguration();
+                    context.TryConfigureSwapChain(
+                        checked((uint)size.Width),
+                        checked((uint)size.Height),
+                        refreshCapabilities: true);
+                }
+                throw new RenderTargetNotReadyException();
             }
 
             var viewDescriptor = new TextureViewDescriptor

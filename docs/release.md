@@ -5,46 +5,46 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 It also builds the separately versioned Avalonia 11 and 12 integration packages
 from `scripts/progpu-package-list.sh`.
 
-Preview.60 advances the successfully published preview.59 boundary with a
-cross-platform Avalonia integration hardening pass. The Silk.NET windowing host
-now keeps Windows client, pointer, and framebuffer coordinates in the correct
-DPI domains; updates layout and rendering throughout modal resizing; and uses
-native caption dragging for custom title bars. Routed input now covers repeat
-keys, UTF-32 text, symbols and modifiers, pointer leave, five mouse buttons,
-two-axis wheels, Win32 touch, XInput 2.2 touch, and AppKit gestures.
+Preview.61 advances the successfully published preview.60 boundary with the
+complete Avalonia Silk.NET windowing, input, rendering, and WebGPU recovery work
+merged in pull request #152. The windowing host keeps client, pointer, and
+framebuffer coordinates in the correct DPI domains, updates layout throughout
+live resize, and delegates custom-title-bar dragging to native caption behavior.
+Routed input covers repeat keys, UTF-32 text, modifiers and shortcuts, pointer
+leave, five mouse buttons, two-axis wheels, Win32 touch, XInput 2.2 touch, and
+AppKit gestures.
 
-The Avalonia rendering packages also protect retained glyph-atlas entries while
-incremental pages and pictures replay. Native ControlCatalog lanes validate
-Win32/D3D12, Avalonia.Native/Metal, and X11/Vulkan presentation together with
-layout and geometry clips, bitmap caches, effects, opacity masks, inherited
-drawing options, and adorners. The opt-in SkiaSharp 2.x-4.x and Avalonia
-11.x-12.x binary-compatibility boundary from preview.59 remains intact.
+Silk/wgpu-native and Dawn now track loss per exact WebGPU device, reject unsafe
+submission after terminal loss, invalidate affected surfaces, drop failed
+Avalonia frames cleanly, and recreate only healthy contexts. Dawn presentation
+surfaces retain explicit context leases so the device cannot be destroyed before
+the old render target. Immutable bitmap CPU sources remain available for
+cross-device migration. Deterministic recovery telemetry and CI smoke tests cover
+both managed and native presentation paths.
 
-## Preview.60 Avalonia integration closure
+## Preview.61 Avalonia integration and recovery closure
 
-The windowing and input contracts pass 115 tests against Avalonia 12.1.1 and
-102 against Avalonia 11.3.20. The rendering integration passes 99 focused
-contracts, while 84 retained-rendering regressions cover incremental glyph
-residency, clips, effects, layers, and compiled-scene reuse. The complete local
-managed suites pass 3,806 renderer tests and 240 headless tests.
+The Silk.NET windowing and input contracts pass 129 tests against Avalonia
+12.1.1 and 104 against Avalonia 11.3.20. The Avalonia rendering integration
+passes 104 focused contracts, 28 retained-compositor contracts pass against the
+pinned Avalonia source, and the complete local managed suites pass 3,808
+renderer tests and 240 headless tests.
 
-Interactive validation covers Windows 11 ARM64 at 200% scaling and Ubuntu X11
-at 200% in Parallels, plus the macOS host at Retina scaling. Windows verifies
-physical-coordinate title dragging, gradual edge resizing with matching layout
-observations, keyboard shortcuts and text, pointer and five-button mouse input,
-and a 1024x800 logical / 2048x1600 physical Dawn D3D12 ControlCatalog capture.
-Linux verifies the same live keyboard and pointer surface with XI2 contracts and
-native Dawn/Vulkan catalog rendering. macOS verifies key/text/pointer routing,
-command shortcuts, AppKit gesture contracts, and native Dawn/Metal catalog
-rendering. Physical multitouch and trackpad injection remain hardware
-boundaries; their native ABI, phase, suppression, and mapping paths are covered
-by focused contracts.
+Interactive validation covers the macOS host plus Windows 11 and Ubuntu VMs in
+Parallels. Windows verifies 200% DPI sizing, title dragging, live resize,
+keyboard shortcuts, pointer and touch routing, and 1024x800 logical / 2048x1600
+physical ControlCatalog output. Native Win32, macOS, and X11 windowing all render
+the catalog through ProGPU without the observed clipping regressions. Forced
+device loss recovers Silk and Dawn in one frame on Windows and Linux; macOS
+recovers Silk in one frame and Dawn Metal/IOSurface in two frames. The recovered
+Border page preserves circular image clipping and the expected framebuffer size.
 
-All 28 pull-request checks pass, including the managed platform matrix, native
-C++ renderer and compiler matrix, browser WebGPU, image parity, mobile packing,
-portable and native package creation, and six native package consumers. The
-tagged Release workflow repeats repository, native, package-consumer, mobile,
-and Avalonia integration validation before publishing.
+All 27 checks on pull request #152 pass, including the managed platform matrix,
+native C++ renderer and compiler matrix, browser WebGPU, mobile and portable
+packing, native package creation, six native package consumers, and the new
+Avalonia Dawn recovery smokes on Windows, macOS, and Linux. The tagged Release
+workflow repeats the repository, native, package-consumer, mobile, and Avalonia
+integration validation before publishing.
 
 ## Compatibility and continuation
 
@@ -107,19 +107,19 @@ pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 
 ## Avalonia Integration Packages
 
-- `ProGPU.Avalonia.Rendering` `12.1.1-preview.60`
-- `ProGPU.Avalonia.SilkNet` `12.1.1-preview.60`
-- `ProGPU.Avalonia.Rendering` `11.3.20-preview.60`
-- `ProGPU.Avalonia.SilkNet` `11.3.20-preview.60`
+- `ProGPU.Avalonia.Rendering` `12.1.1-preview.61`
+- `ProGPU.Avalonia.SilkNet` `12.1.1-preview.61`
+- `ProGPU.Avalonia.Rendering` `11.3.20-preview.61`
+- `ProGPU.Avalonia.SilkNet` `11.3.20-preview.61`
 
 These packages are packed on the portable runner and published after the
-`0.1.0-preview.60` runtime package set so their exact ProGPU dependencies are
+`0.1.0-preview.61` runtime package set so their exact ProGPU dependencies are
 available first.
 
 ## Local Package Build
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.60 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.61 ./eng/progpu-pack.sh
 PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
 ```
 
@@ -137,7 +137,7 @@ release workflow combines and re-verifies both outputs before publishing.
 ```bash
 read -rsp "NuGet API key: " NUGET_API_KEY
 export NUGET_API_KEY
-PROGPU_PACKAGE_VERSION=0.1.0-preview.60 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.61 ./eng/progpu-publish.sh
 ./scripts/progpu-publish.sh
 unset NUGET_API_KEY
 ```
@@ -155,7 +155,7 @@ feed.
 - `Release` validates and packs portable packages and the Avalonia integration lanes on Linux, packs mobile packages on macOS, verifies the combined runtime dependency closure, publishes runtime packages followed by Avalonia packages, and creates a tag-driven GitHub Release.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
-for example `v0.1.0-preview.60`.
+for example `v0.1.0-preview.61`.
 
 ## NuGet Publishing
 

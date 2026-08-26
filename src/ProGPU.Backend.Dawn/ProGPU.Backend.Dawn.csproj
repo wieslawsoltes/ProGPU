@@ -13,6 +13,7 @@
     <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Avalonia.ProGpu, PublicKey=$(ProGPUPublicKey)" />
     <InternalsVisibleTo Include="Avalonia.ProGpu.UnitTests, PublicKey=$(ProGPUPublicKey)" />
   </ItemGroup>
 </Project>

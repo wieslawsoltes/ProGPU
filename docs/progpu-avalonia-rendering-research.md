@@ -1291,8 +1291,10 @@ boundaries:
 - a monotonic device-loss generation invalidates every existing
   `WgpuContext`; a replacement context starts on the new generation;
 - normal `Destroyed` callbacks are ownership completion, not device loss;
-- lost contexts are excluded from active-context/surface lookup and
-  multi-window device sharing;
+- lost contexts are excluded from healthy-context selection and multi-window
+  device sharing; exact surface lookup can still identify a lost owner so the
+  transition is reported as not-ready instead of silently selecting an
+  unrelated standalone device;
 - `SkiaContext.IsLost` is updated lock-free, allowing Avalonia's renderer
   manager to dispose and recreate the backend without platform graphics;
 - the Silk.NET window creates a replacement device and surface before its
@@ -1325,6 +1327,111 @@ The macOS qualification passed: the shared IOSurface advanced its Metal
 timeline from 4 to 5, Dawn delivered the forced native loss callback with the
 diagnostic message, the existing `WgpuContext` became lost, and a newly
 created Dawn context reported initialized and healthy.
+
+### Device-domain and remote-session surface recovery
+
+The Windows RDP failure gate extends the typed recovery contract to native
+presentation creation and acquisition. Dawn may lose the D3D12 device while
+`Surface.Configure` is creating the DXGI swap chain (including remote-session
+transitions where swap-chain access is temporarily unavailable). A successful
+API return is therefore not sufficient evidence that the surface remained
+configured: the spontaneous device-loss callback is authoritative.
+
+Primary-source comparison:
+
+- the [WebGPU device contract](https://www.w3.org/TR/webgpu/#devices) makes
+  loss terminal for one device and every object created by that device, while
+  recommending creation of a new device for transient causes;
+- [Dawn's surface implementation](https://dawn.googlesource.com/dawn/+/refs/heads/main/src/dawn/native/Surface.cpp)
+  associates configuration with the current device and rejects unconfiguring
+  a surface that was never successfully configured;
+- Avalonia's
+  [`PlatformRenderInterfaceContextManager`](https://github.com/AvaloniaUI/Avalonia/blob/main/src/Avalonia.Base/Rendering/PlatformRenderInterfaceContextManager.cs)
+  discards a lost backend context, while its composition target discards a
+  render target that reports `Corrupted`; ProGPU adopts those public state
+  transitions rather than duplicating Avalonia's backend implementation;
+- [Win2D device-loss guidance](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/handling-device-lost)
+  and the [Direct2D render-target contract](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-quickstart)
+  recreate device-owned resources and replay drawing after the new target is
+  available; DXGI also documents remote/session-disconnect status separately
+  from ordinary success and retry states;
+- [Skia's `GrDirectContext`](https://skia.googlesource.com/skia/+/refs/heads/main/include/gpu/GrDirectContext.h)
+  abandons device-owned buffers and textures after backend loss so later
+  destruction cannot issue unsafe backend calls;
+- WebRender's
+  [GPU process manager](https://searchfox.org/mozilla-central/source/gfx/ipc/GPUProcessManager.cpp)
+  destroys compositor sessions and notifies device-reset listeners before
+  rebuilding or falling back;
+- Vello's
+  [winit integration](https://github.com/linebender/vello/blob/main/examples/with_winit/src/lib.rs)
+  treats outdated/suboptimal and timeout surface acquisition as retryable and
+  requests another redraw. ProGPU adopts that surface/device distinction but
+  replaces Vello's terminal panic with Avalonia corruption recovery;
+- [HarfBuzz shaped buffers](https://harfbuzz.github.io/shaping-and-shape-plans.html)
+  and [Parley layouts](https://docs.rs/parley/latest/parley/struct.Layout.html)
+  are CPU glyph/layout results. They are intentionally retained across device
+  replacement; reshaping text is not part of GPU recovery.
+
+The resulting implementation is original ProGPU code. Each exact native
+callback marks one shared device-domain state in O(1) time and wakes the host;
+it no longer poisons independent WebGPU devices through the compatibility
+process-wide signal. The render thread performs recovery: lost contexts are
+excluded from lookup and sharing, all device-owned compositor/layer/bitmap
+resources report corruption or are disposed, and a new device plus surface is
+created before retained CPU commands are replayed. Surface timeout is skipped;
+outdated/lost surface state invalidates capabilities and reconfigures; explicit
+device loss rebuilds the whole domain. Teardown skips `Unconfigure` after loss,
+preventing Dawn's secondary "Surface is not configured" validation error.
+
+Two additional failure modes were found during physical VM qualification.
+First, Avalonia disposes a lost backend context before the composition target
+releases its old render target. Releasing the Dawn device immediately left the
+still-configured Vulkan/Xlib surface pointing into a destroyed device and
+crashed in Dawn's fenced deleter. Dawn contexts now use explicit O(1) lifetime
+leases: the backend releases owner intent immediately, while each presentation
+surface or Metal target keeps the native device alive until it has released
+its surface and slots. This changes teardown ownership only; steady frames add
+no crossing or allocation.
+
+Second, wgpu-native on the Windows Parallels adapter reported terminal device
+failure through an uncaptured validation error before its device-loss callback
+became observable. Continuing to `wgpuQueueSubmit` then caused a non-unwinding
+native panic with `Parent device is lost`. The exact callback userdata now
+identifies the affected device domain for both device-loss and uncaptured-error
+callbacks. Internal/unknown errors and explicit lost-device/resource-creation
+messages mark that domain terminal, and queue submission rejects it before the
+native call. A failed frame is dropped without presentation; the next frame
+uses Avalonia's ordinary context replacement. A four-byte storage-buffer
+qualification write at device initialization catches adapters that accept
+device creation but fail their first device-owned resource, before expensive
+retained pipeline creation. The qualification is O(1), allocation-free on the
+managed heap after callback setup, and occurs once per new device rather than
+per frame. This is consistent with wgpu's documented
+[DX12 compiler and backend selection](https://github.com/gfx-rs/wgpu#environment-variables)
+contract; it does not change shader source, shader complexity, or retained
+replay semantics.
+
+Normal frames add one lock-free loss-state read and no allocation, upload,
+P/Invoke, or additional managed/native crossing. Recovery is bounded by one
+device/surface recreation and the existing O(C + G) retained-scene replay for
+C commands and G glyphs. The managed and native renderer applicability audit
+found no shader, scene-format, or C ABI change: both compositor
+implementations consume the same lost `WgpuContext` boundary and rebuild their
+device resources; the Dawn native-presentation adapter additionally owns the
+surface-state classification and safe teardown described above.
+
+Physical qualification used the same source-built Border ControlCatalog at
+1024x800 logical size: macOS and Windows rendered at 2048x1600 physical size,
+while the Linux VM's 1x Silk.NET surface rendered at 1024x800 and its 2x native
+X11 surface at 2048x1600. macOS Silk.NET/Metal recovered in one frame and
+native Dawn/Metal in two; Linux Parallels and Windows Parallels recovered in
+one frame for both the Silk.NET and native Dawn lanes. The
+Windows run additionally reproduced the real uncaptured-error/parent-loss path
+without the former native abort. Every final screenshot retained the circular
+image clip, border geometry, text, and 2x layout dimensions. The isolated
+native Dawn diagnostic callback also recreated successfully on macOS. CI now
+runs deterministic forced-loss smoke lanes for both source Silk.NET and native
+Dawn presentation on macOS, Windows, and Linux.
 
 ## Typed multi-window disposal-order validation
 

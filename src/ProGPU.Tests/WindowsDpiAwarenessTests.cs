@@ -105,7 +105,23 @@ public sealed class WindowsDpiAwarenessTests
             window,
             StringComparison.Ordinal);
         Assert.Contains(
-            "Dispatcher.UIThread.Post(",
+            "BeginNativeMoveDrag()",
+            window,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PixelPoint? requestedPosition = _desiredPosition;",
+            window,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Position = requestedPosition is { } initialPosition",
+            window,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "if (requestedPosition is { } desired)",
+            window,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_desiredPosition = new PixelPoint(",
             window,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -125,11 +141,19 @@ public sealed class WindowsDpiAwarenessTests
             win32,
             StringComparison.Ordinal);
         Assert.Contains(
-            "PackScreenPoint(pointer)",
+            "PostMessage(",
             win32,
             StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "SendMessage(_hwnd, WmNcLButtonDown, HtCaption, 0)",
+        Assert.Contains(
+            "WmSysCommand",
+            win32,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ScMove | HtCaption",
+            win32,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PackScreenPoint(screenPointer)",
             win32,
             StringComparison.Ordinal);
     }

@@ -10,8 +10,8 @@
     <Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>true</Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>
     <Avalonia_I_Want_To_Use_Private_Apis_In_Nuget_Package_And_Promise_To_Pin_The_Exact_Avalonia_Version_In_Package_Dependency>true</Avalonia_I_Want_To_Use_Private_Apis_In_Nuget_Package_And_Promise_To_Pin_The_Exact_Avalonia_Version_In_Package_Dependency>
     <PackageId>ProGPU.Avalonia.Rendering</PackageId>
-    <Version>12.1.1-preview.60</Version>
-    <PackageVersion>12.1.1-preview.60</PackageVersion>
+    <Version>12.1.1-preview.61</Version>
+    <PackageVersion>12.1.1-preview.61</PackageVersion>
     <Title>ProGPU rendering platform for Avalonia</Title>
     <Description>GPU-accelerated Avalonia rendering platform backed by ProGPU, Silk.NET, and WebGPU.</Description>
     <PackageTags>progpu;avalonia;rendering;webgpu;silk.net;gpu</PackageTags>
@@ -36,8 +36,12 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(ProGpuAvaloniaSourceRoot)' != ''">
+    <Compile Remove="SkiaSharpApiLeaseContracts.cs" />
     <ProjectReference Include="$(ProGpuAvaloniaSourceRoot)\packages\Avalonia\Avalonia.csproj"
                       GlobalPropertiesToRemove="AvaloniaAccessUnstablePrivateApis;Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE;Avalonia_I_Want_To_Use_Private_Apis_In_Nuget_Package_And_Promise_To_Pin_The_Exact_Avalonia_Version_In_Package_Dependency" />
+    <ProjectReference Include="..\ProGPU.Avalonia.SkiaSourceCompatibility\ProGPU.Avalonia.SkiaSourceCompatibility.csproj"
+                      Aliases="AvaloniaSkiaContract"
+                      AdditionalProperties="ProGpuAvaloniaSourceRoot=$(ProGpuAvaloniaSourceRoot)" />
   </ItemGroup>
 
   <ItemGroup>
@@ -66,11 +70,11 @@
     </PropertyGroup>
     <ItemGroup>
       <Reference Remove="@(Reference)"
-                 Condition="$([System.String]::Copy('%(Filename)').StartsWith('Avalonia'))" />
+                 Condition="$([System.String]::Copy('%(Reference.Filename)').StartsWith('Avalonia')) and '%(Reference.Aliases)' != 'AvaloniaSkiaContract'" />
       <ReferencePath Remove="@(ReferencePath)"
-                     Condition="$([System.String]::Copy('%(Filename)').StartsWith('Avalonia'))" />
+                     Condition="$([System.String]::Copy('%(ReferencePath.Filename)').StartsWith('Avalonia')) and '%(ReferencePath.Aliases)' != 'AvaloniaSkiaContract'" />
       <ReferencePathWithRefAssemblies Remove="@(ReferencePathWithRefAssemblies)"
-                                      Condition="$([System.String]::Copy('%(Filename)').StartsWith('Avalonia'))" />
+                                      Condition="$([System.String]::Copy('%(ReferencePathWithRefAssemblies.Filename)').StartsWith('Avalonia')) and '%(ReferencePathWithRefAssemblies.Aliases)' != 'AvaloniaSkiaContract'" />
       <PinnedAvaloniaAssembly Include="$(PinnedAvaloniaOutput)\Avalonia*.dll" />
       <Reference Include="@(PinnedAvaloniaAssembly)" />
       <ReferencePath Include="@(PinnedAvaloniaAssembly)" />

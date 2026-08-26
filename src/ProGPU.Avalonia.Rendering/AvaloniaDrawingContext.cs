@@ -1,3 +1,7 @@
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+extern alias AvaloniaSkiaContract;
+#endif
+
 using System;
 using System.Collections.Generic;
 using System.Numerics;
@@ -20,6 +24,16 @@ using SceneBrush = ProGPU.Vector.Brush;
 using ScenePen = ProGPU.Vector.Pen;
 using SceneRect = ProGPU.Scene.Rect;
 using AColor = Avalonia.Media.Color;
+#if PROGPU_AVALONIA_SOURCE_COMPOSITOR
+using SkiaApiLeaseFeature =
+    AvaloniaSkiaContract::Avalonia.Skia.ISkiaSharpApiLeaseFeature;
+using SkiaApiLease =
+    AvaloniaSkiaContract::Avalonia.Skia.ISkiaSharpApiLease;
+#else
+using SkiaApiLeaseFeature =
+    Avalonia.Skia.ISkiaSharpApiLeaseFeature;
+using SkiaApiLease = Avalonia.Skia.ISkiaSharpApiLease;
+#endif
 
 namespace Avalonia.ProGpu;
 
@@ -54,6 +68,7 @@ internal partial class DrawingContextImpl :
     private readonly Matrix? _physicalScale;
     private readonly string _presentationPath;
     private readonly AvaloniaDrawingState _drawingState;
+    private readonly LeaseFeature _leaseFeature;
     private readonly Stack<double> _opacityFrames;
     private readonly Stack<bool> _clipFrames;
     private readonly Stack<AvaloniaSkiaClipState> _skiaClipFrames;
@@ -121,6 +136,7 @@ internal partial class DrawingContextImpl :
         _drawingState = _reusableRecording
             ? new AvaloniaDrawingState()
             : _resources.RentDrawingState();
+        _leaseFeature = new LeaseFeature(this);
         _opacityFrames = _drawingState.OpacityFrames;
         _clipFrames = _drawingState.GeometryClipFrames;
         _skiaClipFrames = _drawingState.SkiaClipFrames;
@@ -710,10 +726,9 @@ internal partial class DrawingContextImpl :
     {
         ArgumentNullException.ThrowIfNull(featureType);
         if (featureType == typeof(IProGpuApiLeaseFeature) ||
-            featureType ==
-                typeof(Avalonia.Skia.ISkiaSharpApiLeaseFeature))
+            featureType == typeof(SkiaApiLeaseFeature))
         {
-            return new LeaseFeature(this);
+            return _leaseFeature;
         }
 #if PROGPU_AVALONIA_SOURCE_COMPOSITOR
         if (featureType == typeof(ICompositionRenderDataDrawingContextFeature))
@@ -744,6 +759,14 @@ internal partial class DrawingContextImpl :
             {
                 submitted = Submit();
             }
+        }
+        catch when (GpuContext.IsDeviceLost)
+        {
+            // Device loss can arrive synchronously from a resource write or
+            // queue operation in the middle of this frame. Drop that frame;
+            // the platform context manager observes the terminal state and
+            // supplies a fresh device on the next render pass.
+            submitted = false;
         }
         finally
         {
@@ -1059,7 +1082,7 @@ internal partial class DrawingContextImpl :
 
     private sealed class LeaseFeature :
         IProGpuApiLeaseFeature,
-        Avalonia.Skia.ISkiaSharpApiLeaseFeature
+        SkiaApiLeaseFeature
     {
         private readonly DrawingContextImpl _owner;
 
@@ -1070,8 +1093,8 @@ internal partial class DrawingContextImpl :
 
         public IProGpuApiLease Lease() => new Lease(_owner);
 
-        Avalonia.Skia.ISkiaSharpApiLease
-            Avalonia.Skia.ISkiaSharpApiLeaseFeature.Lease() =>
+        SkiaApiLease
+            SkiaApiLeaseFeature.Lease() =>
                 new ProGpuSkiaSharpApiLease(
                     new Lease(_owner),
                     _owner._skiaClipState);

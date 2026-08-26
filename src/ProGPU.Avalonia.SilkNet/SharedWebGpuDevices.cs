@@ -17,17 +17,27 @@ internal static class SharedWebGpuDevices
     internal static WgpuContext Create(IWindow window)
     {
         ArgumentNullException.ThrowIfNull(window);
-        var context = new WgpuContext();
         lock (s_gate)
         {
-            WgpuContext? owner = FindHealthyContext();
-            if (owner is not null && SharingEnabled())
-                context.InitializeSharedDevice(window, owner);
-            else
-                context.Initialize(window);
+            WgpuContext context = CreateCore(window);
+            if (context.IsDeviceLost)
+            {
+                context.Dispose();
+                context = CreateCore(window);
+            }
             s_contexts.Add(new WeakReference<WgpuContext>(context));
+            return context;
         }
+    }
 
+    private static WgpuContext CreateCore(IWindow window)
+    {
+        var context = new WgpuContext();
+        WgpuContext? owner = FindHealthyContext();
+        if (owner is not null && SharingEnabled())
+            context.InitializeSharedDevice(window, owner);
+        else
+            context.Initialize(window);
         return context;
     }
 
