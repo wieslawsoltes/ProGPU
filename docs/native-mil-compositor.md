@@ -2053,8 +2053,21 @@ sum is 37,536; guided and reference red sums are both 40,800; 48 pixels change
 from baseline and `referenceChanged=0`. All ten local native CTests, the
 80-test native managed interop class, the zero-warning benchmark build, and
 72/72 focused LibreWPF MIL compiler tests pass. The prescribed Windows smoke
-script now runs `--semantic-per-point-path-guideline`; exact D3D12
-qualification and staged hashes remain pending for this commit.
+script now runs `--semantic-per-point-path-guideline`. Exact DirectX
+qualification completed on 2026-08-26 from clean detached implementation
+commit `80560d340d6d12eb5e4f846cbcac61a53a482b24`. ARM64 MSVC rebuilt the base
+and Dawn modules under `/W4 /WX`; all 11 native/Dawn CTests, both export
+allowlists, two zero-warning managed Release builds, independent native and
+managed D3D12 allocation/readback samples, managed/C++ text-shaping parity,
+the complete bounded differential smoke profile, and runtime staging passed.
+The Parallels Display Adapter D3D12 gate reproduced Metal exactly: baseline
+`[10,8]-[25,17]`/red 37,536, guided and independently deformed reference
+`[10,8]-[25,17]`/red 40,800, `changed=48`, and `referenceChanged=0`. The guest
+remained clean and the full script exited normally. The staged base DLL was
+2,004,480 bytes with SHA-256
+`D1F0CF2A09D021523B3F42D43C7E1549CB5FD1DF5FCACEB0FBA3A07CF12FC34D`;
+the Dawn DLL was 2,042,368 bytes with SHA-256
+`DB359E0C6155530B87DFC7183E4BE071455964F84B9A3D1ED9DAE20A2AB7148F`.
 
 The exact Windows qualification completed from clean detached latest-main-
 integrated commit `d99acbc8`. ARM64 MSVC rebuilt both modules under `/W4 /WX`,
