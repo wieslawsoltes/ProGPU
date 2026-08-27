@@ -371,7 +371,56 @@ bool semantic_scene_builder_bounds_composite_only_guidelines() {
         return false;
     }
 
-    semantic_scene_builder invalid(704U, 1U);
+    semantic_scene_builder explicit_builder(704U, 1U);
+    const std::array explicit_guidelines_x{2.25};
+    const std::array explicit_guidelines_y{3.5};
+    const std::array explicit_offsets_x{0.125};
+    const std::array explicit_offsets_y{-0.25};
+    std::uint32_t explicit_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!explicit_builder.add_guideline_set_with_offsets(
+            explicit_guidelines_x,
+            explicit_guidelines_y,
+            explicit_offsets_x,
+            explicit_offsets_y,
+            explicit_index)) {
+        return false;
+    }
+    auto explicit_state = semantic_scene_builder::identity_state();
+    explicit_state.flags = PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+    explicit_state.guideline_resource_index = explicit_index;
+    std::uint32_t explicit_state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!explicit_builder.add_state(explicit_state, explicit_state_index) ||
+        !explicit_builder.save(explicit_state_index) ||
+        !explicit_builder.restore()) {
+        return false;
+    }
+    std::vector<std::byte> explicit_stream;
+    if (!explicit_builder.build(explicit_stream)) {
+        return false;
+    }
+    const auto explicit_validated = scene::validate(
+        explicit_stream.data(), explicit_stream.size());
+    if (explicit_validated.status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return false;
+    }
+    const auto explicit_resource = read<progpu_native_scene_resource>(
+        explicit_stream,
+        explicit_validated.header.resource_offset + explicit_index *
+            explicit_validated.header.resource_stride);
+    const auto explicit_header = read<progpu_native_scene_guideline_set>(
+        explicit_stream, explicit_resource.payload_offset);
+    if (explicit_header.flags !=
+            PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS ||
+        explicit_resource.payload_size != sizeof(explicit_header) +
+            4U * sizeof(double) ||
+        read<double>(
+            explicit_stream,
+            explicit_resource.payload_offset + sizeof(explicit_header) +
+                2U * sizeof(double)) != 0.125) {
+        return false;
+    }
+
+    semantic_scene_builder invalid(705U, 1U);
     const std::array unsorted{2.0, 1.0};
     return !invalid.add_guideline_set(
             unsorted, std::span<const double>{}, guideline_index, true) &&
@@ -380,7 +429,13 @@ bool semantic_scene_builder_bounds_composite_only_guidelines() {
             guidelines_y,
             guideline_index,
             true,
-            true);
+            true) &&
+        !invalid.add_guideline_set_with_offsets(
+            explicit_guidelines_x,
+            explicit_guidelines_y,
+            std::span<const double>{},
+            explicit_offsets_y,
+            guideline_index);
 }
 
 bool semantic_scene_builder_records_final_composite_clip() {

@@ -587,8 +587,11 @@ validation_result validate(
             const std::uint64_t coordinate_count =
                 static_cast<std::uint64_t>(guidelines.guideline_x_count) +
                 guidelines.guideline_y_count;
+            const bool explicit_offsets = (guidelines.flags &
+                PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS) != 0U;
             const std::uint64_t expected_size = sizeof(guidelines) +
-                coordinate_count * sizeof(double);
+                coordinate_count * sizeof(double) *
+                    (explicit_offsets ? 2U : 1U);
             const bool multiple = guidelines.guideline_x_count > 1U ||
                 guidelines.guideline_y_count > 1U;
             const std::uint32_t multi_flags = guidelines.flags &
@@ -597,7 +600,8 @@ validation_result validate(
             if (guidelines.struct_size != sizeof(guidelines) ||
                 (guidelines.flags &
                     ~(PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY |
-                      PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT)) != 0U ||
+                      PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT |
+                      PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS)) != 0U ||
                 multiple != (multi_flags != 0U) ||
                 (multi_flags & (multi_flags - 1U)) != 0U ||
                 guidelines.guideline_x_count >
@@ -633,6 +637,27 @@ validation_result validate(
                                     coordinate_index * sizeof(double)));
                     }
                     previous = coordinate;
+                }
+            }
+            if (explicit_offsets) {
+                for (std::uint64_t offset_index = 0U;
+                     offset_index < coordinate_count;
+                     ++offset_index) {
+                    const auto explicit_offset = read_record<double>(
+                        bytes,
+                        resource.payload_offset + sizeof(guidelines) +
+                            (coordinate_count + offset_index) *
+                                sizeof(double));
+                    if (!std::isfinite(explicit_offset) ||
+                        std::abs(explicit_offset) > 1.0) {
+                        return fail(
+                            header,
+                            PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                            resource.payload_offset + sizeof(guidelines) +
+                                static_cast<std::uint32_t>(
+                                    (coordinate_count + offset_index) *
+                                        sizeof(double)));
+                    }
                 }
             }
         }

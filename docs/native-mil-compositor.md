@@ -3772,6 +3772,26 @@ DPI, context, scheduling-result, and cache contract required by the subsequent
 per-resource phase-state implementation without claiming dynamic-guideline
 pixel parity prematurely.
 
+The following backend-neutral semantic checkpoint adds the representation the
+phase machine will emit. `PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS` is an
+append-only guideline-resource flag: after the existing sorted X and Y
+coordinate arrays, the payload carries one finite physical-device-pixel offset
+for every X and Y coordinate. The existing resource header and scene ABI sizes
+do not change. Static resources remain byte-for-byte unchanged, while explicit
+offsets compose with the existing composite-only/per-point modes and are
+consumed by the shared semantic state cursor before provider-specific draw
+execution. This avoids backend-specific animation code and CPU readback.
+
+The typed scene builder verifies matching coordinate/offset counts, sorted
+finite coordinates, finite offsets bounded to WPF's one-pixel driven-offset
+range, multi-guide mode consistency, and the existing resource caps. The scene
+validator independently checks the extended payload size and every offset.
+Focused tests prove builder/validator round-trip and DPI conversion: a stored
+physical offset is divided by target DPI exactly once when applied to logical
+scene state. The complete configured native/provider matrix remains 12/12.
+MIL dynamic resources are still rejected until the next checkpoint supplies
+their retained phase history and scheduling decisions.
+
 Exact implementation checkpoint `b97b99e3` completed the full Windows 11
 ARM64 Parallels D3D12 smoke/package lane from an immutable source archive.
 MSVC 19.44 rebuilt both native providers in the 312-step `/W4 /WX` graph and

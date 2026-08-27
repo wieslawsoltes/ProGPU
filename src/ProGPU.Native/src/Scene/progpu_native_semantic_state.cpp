@@ -166,10 +166,22 @@ void semantic_state_cursor::snap_point(
         &guidelines,
         bytes_ + resource.payload_offset,
         sizeof(guidelines));
-    const auto snap_axis = [this, &resource](
+    const bool explicit_offsets = (guidelines.flags &
+        PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS) != 0U;
+    const std::size_t coordinate_count =
+        static_cast<std::size_t>(guidelines.guideline_x_count) +
+        guidelines.guideline_y_count;
+    const std::size_t explicit_offset_base =
+        sizeof(progpu_native_scene_guideline_set) +
+        coordinate_count * sizeof(double);
+    const auto snap_axis = [this,
+                            &resource,
+                            explicit_offsets,
+                            explicit_offset_base](
         float& coordinate,
         std::size_t offset,
-        std::uint32_t count) {
+        std::uint32_t count,
+        std::uint32_t offset_index_base) {
         if (count == 0U) {
             return;
         }
@@ -212,20 +224,33 @@ void semantic_state_cursor::snap_point(
             }
         }
         const float selected_coordinate = read_coordinate(selected);
-        coordinate += wpf_guideline_offset(selected_coordinate) / dpi_scale_;
+        float snapping_offset = wpf_guideline_offset(selected_coordinate);
+        if (explicit_offsets) {
+            double stored_offset = 0.0;
+            std::memcpy(
+                &stored_offset,
+                bytes_ + resource.payload_offset + explicit_offset_base +
+                    static_cast<std::size_t>(offset_index_base + selected) *
+                        sizeof(double),
+                sizeof(stored_offset));
+            snapping_offset = static_cast<float>(stored_offset);
+        }
+        coordinate += snapping_offset / dpi_scale_;
     };
     constexpr std::size_t header_size =
         sizeof(progpu_native_scene_guideline_set);
     snap_axis(
         target_x,
         header_size,
-        guidelines.guideline_x_count);
+        guidelines.guideline_x_count,
+        0U);
     snap_axis(
         target_y,
         header_size +
             static_cast<std::size_t>(guidelines.guideline_x_count) *
                 sizeof(double),
-        guidelines.guideline_y_count);
+        guidelines.guideline_y_count,
+        guidelines.guideline_x_count);
 }
 
 progpu_native_scene_state semantic_state_cursor::resolve_guidelines(
@@ -250,12 +275,29 @@ progpu_native_scene_state semantic_state_cursor::resolve_guidelines(
         return state;
     }
     std::size_t offset = resource.payload_offset + sizeof(guidelines);
+    const bool explicit_offsets = (guidelines.flags &
+        PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS) != 0U;
+    const std::size_t coordinate_count =
+        static_cast<std::size_t>(guidelines.guideline_x_count) +
+        guidelines.guideline_y_count;
+    const std::size_t explicit_offset_base =
+        resource.payload_offset + sizeof(guidelines) +
+        coordinate_count * sizeof(double);
     if (guidelines.guideline_x_count != 0U) {
         double coordinate = 0.0;
         std::memcpy(&coordinate, bytes_ + offset, sizeof(coordinate));
         const float physical =
             static_cast<float>(coordinate) * dpi_scale_;
-        state.transform.m31 += wpf_guideline_offset(physical) / dpi_scale_;
+        float snapping_offset = wpf_guideline_offset(physical);
+        if (explicit_offsets) {
+            double stored_offset = 0.0;
+            std::memcpy(
+                &stored_offset,
+                bytes_ + explicit_offset_base,
+                sizeof(stored_offset));
+            snapping_offset = static_cast<float>(stored_offset);
+        }
+        state.transform.m31 += snapping_offset / dpi_scale_;
         offset += sizeof(coordinate);
     }
     if (guidelines.guideline_y_count != 0U) {
@@ -263,7 +305,18 @@ progpu_native_scene_state semantic_state_cursor::resolve_guidelines(
         std::memcpy(&coordinate, bytes_ + offset, sizeof(coordinate));
         const float physical =
             static_cast<float>(coordinate) * dpi_scale_;
-        state.transform.m32 += wpf_guideline_offset(physical) / dpi_scale_;
+        float snapping_offset = wpf_guideline_offset(physical);
+        if (explicit_offsets) {
+            double stored_offset = 0.0;
+            std::memcpy(
+                &stored_offset,
+                bytes_ + explicit_offset_base +
+                    static_cast<std::size_t>(guidelines.guideline_x_count) *
+                        sizeof(double),
+                sizeof(stored_offset));
+            snapping_offset = static_cast<float>(stored_offset);
+        }
+        state.transform.m32 += snapping_offset / dpi_scale_;
     }
     return state;
 }

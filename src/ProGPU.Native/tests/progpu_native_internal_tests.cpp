@@ -829,6 +829,25 @@ void semantic_static_guidelines_adjust_state_at_target_dpi() {
     require(snapped.transform.m31 == 9.75F);
     require(snapped.transform.m32 == 20.5F);
 
+    guidelines.flags = PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS;
+    guideline_resource.payload_size =
+        sizeof(progpu_native_scene_guideline_set) + 4U * sizeof(double);
+    std::memcpy(storage.data() + header.resource_offset,
+        &guideline_resource, sizeof(guideline_resource));
+    std::memcpy(storage.data() + guideline_resource.payload_offset,
+        &guidelines, sizeof(guidelines));
+    constexpr std::array<double, 2U> explicit_offsets{0.125, -0.25};
+    std::memcpy(
+        storage.data() + guideline_resource.payload_offset +
+            sizeof(guidelines) + 2U * sizeof(double),
+        explicit_offsets.data(),
+        sizeof(explicit_offsets));
+    progpu::native::semantic::semantic_state_cursor explicit_cursor(
+        storage.data(), header, 2.0F);
+    const auto explicitly_snapped = explicit_cursor.advance(save);
+    require(explicitly_snapped.transform.m31 == 10.0625F);
+    require(explicitly_snapped.transform.m32 == 19.875F);
+
     guidelines.flags = PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY;
     guidelines.guideline_x_count = 2U;
     guidelines.guideline_y_count = 0U;

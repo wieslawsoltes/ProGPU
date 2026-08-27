@@ -236,6 +236,89 @@ bool semantic_scene_builder::add_guideline_set(
     }
 }
 
+bool semantic_scene_builder::add_guideline_set_with_offsets(
+    std::span<const double> guidelines_x,
+    std::span<const double> guidelines_y,
+    std::span<const double> offsets_x,
+    std::span<const double> offsets_y,
+    std::uint32_t& resource_index,
+    bool composite_only,
+    bool per_point) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    const bool multiple =
+        guidelines_x.size() > 1U || guidelines_y.size() > 1U;
+    const auto finite_offset = [](double value) noexcept {
+        return std::isfinite(value) && std::abs(value) <= 1.0;
+    };
+    if (offsets_x.size() != guidelines_x.size() ||
+        offsets_y.size() != guidelines_y.size() ||
+        (composite_only && per_point) ||
+        multiple != (composite_only || per_point) ||
+        guidelines_x.size() > PROGPU_NATIVE_SCENE_MAX_GUIDELINES_PER_AXIS ||
+        guidelines_y.size() > PROGPU_NATIVE_SCENE_MAX_GUIDELINES_PER_AXIS ||
+        implementation_->resources.size() >=
+            PROGPU_NATIVE_SCENE_MAX_RESOURCES ||
+        !std::ranges::is_sorted(guidelines_x) ||
+        !std::ranges::is_sorted(guidelines_y) ||
+        std::ranges::any_of(guidelines_x,
+            [](double value) { return !std::isfinite(value); }) ||
+        std::ranges::any_of(guidelines_y,
+            [](double value) { return !std::isfinite(value); }) ||
+        !std::ranges::all_of(offsets_x, finite_offset) ||
+        !std::ranges::all_of(offsets_y, finite_offset)) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    try {
+        progpu_native_scene_guideline_set header{};
+        header.struct_size = sizeof(header);
+        header.flags = PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS |
+            (composite_only
+                ? PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY
+                : per_point
+                    ? PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT
+                    : 0U);
+        header.guideline_x_count =
+            static_cast<std::uint32_t>(guidelines_x.size());
+        header.guideline_y_count =
+            static_cast<std::uint32_t>(guidelines_y.size());
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        const std::size_t values_size =
+            (guidelines_x.size() + guidelines_y.size()) * sizeof(double);
+        resource.payload.resize(sizeof(header) + values_size * 2U);
+        std::memcpy(resource.payload.data(), &header, sizeof(header));
+        std::size_t offset = sizeof(header);
+        const auto append = [&resource, &offset](std::span<const double> data) {
+            if (!data.empty()) {
+                std::memcpy(
+                    resource.payload.data() + offset,
+                    data.data(),
+                    data.size_bytes());
+                offset += data.size_bytes();
+            }
+        };
+        append(guidelines_x);
+        append(guidelines_y);
+        append(offsets_x);
+        append(offsets_y);
+        implementation_->resources.reserve(
+            implementation_->resources.size() + 1U);
+        resource_index = static_cast<std::uint32_t>(
+            implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
 bool semantic_scene_builder::save(
     std::uint32_t state_resource_index) noexcept {
     if (!implementation_->valid_state_index(
