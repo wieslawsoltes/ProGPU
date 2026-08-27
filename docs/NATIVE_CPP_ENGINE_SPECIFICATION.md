@@ -3576,6 +3576,14 @@ both face bits or any unknown bit is invalid. This is the reusable face-
 material primitive consumed by WPF `GeometryModel3D.Material` and
 `BackMaterial`, not a WPF-specific renderer branch.
 
+Exact inherited rectangle and scrollable-area clips are retained as semantic
+viewport composite state and execute as a physical scissor around the shared
+3D draw. The live gate intersects its `[32,20]-[96,68]` sub-viewport with a
+typed `[50,30]-[78,55]` rectangle clip and observes 520 colored pixels at
+`[50,30]-[77,54]` for byte-identical front- and back-material generations.
+Arbitrary geometry clips, masks, guidelines, effects, and caches remain
+fail-closed rather than being approximated or silently discarded.
+
 The engine validates every untrusted count, offset, size, enum, finite float,
 resource generation, and nesting depth before allocation or GPU submission.
 Integer arithmetic is checked. User shaders remain a separately permissioned

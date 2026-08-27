@@ -10,9 +10,12 @@ internal static class RetainedViewport3DQualification
     private const uint Height = 96U;
     private const uint ViewportHandle = 1U;
     private const uint TargetHandle = 2U;
+    private const uint ClipHandle = 3U;
     private const ulong SceneId = 0x4D494C5633443031UL;
     private static readonly NativeImageRect Viewport =
         new(32f, 20f, 64f, 48f);
+    private static readonly NativeImageRect Clip =
+        new(50f, 30f, 28f, 25f);
 
     public static void Run()
     {
@@ -55,9 +58,10 @@ internal static class RetainedViewport3DQualification
             $"front={front.Update}/{front.Frame}, " +
             $"back={back.Update}/{back.Frame}");
         Require(
-            IsInsideViewport(front.Extent) && IsInsideViewport(back.Extent),
+            IsInsideViewport(front.Extent) && IsInsideViewport(back.Extent) &&
+            IsInsideClip(front.Extent) && IsInsideClip(back.Extent),
             "retained MIL Viewport3D escaped its typed viewport: " +
-            $"viewport={Viewport}, front={front.Extent}, " +
+            $"viewport={Viewport}, clip={Clip}, front={front.Extent}, " +
             $"back={back.Extent}");
         Require(
             front.Pixels.AsSpan().SequenceEqual(back.Pixels),
@@ -69,7 +73,7 @@ internal static class RetainedViewport3DQualification
             "front/back material selection " +
             $"on adapter '{context.AdapterName}', " +
             $"backend={context.AdapterBackendType}; " +
-            $"viewport={Viewport}, extent={front.Extent}, " +
+            $"viewport={Viewport}, clip={Clip}, extent={front.Extent}, " +
             $"front={front.Frame}, back={back.Frame}.");
     }
 
@@ -110,7 +114,17 @@ internal static class RetainedViewport3DQualification
         batch.CreateResource(
             TargetHandle,
             NativeMilResourceType.GenericRenderTarget);
+        batch.CreateResource(
+            ClipHandle,
+            NativeMilResourceType.RectangleGeometry);
         batch.CreateVisual(ViewportHandle);
+        batch.SetRectangleGeometry(
+            ClipHandle,
+            Clip.X,
+            Clip.Y,
+            Clip.Width,
+            Clip.Height);
+        batch.SetVisualClip(ViewportHandle, ClipHandle);
         batch.CreateGenericTarget(TargetHandle, Width, Height);
         batch.SetTargetClearColor(
             TargetHandle,
@@ -242,6 +256,13 @@ internal static class RetainedViewport3DQualification
         extent.MinimumY >= (int)Viewport.Y &&
         extent.MaximumX < (int)(Viewport.X + Viewport.Width) &&
         extent.MaximumY < (int)(Viewport.Y + Viewport.Height);
+
+    private static bool IsInsideClip(PixelExtent extent) =>
+        extent.IsVisible &&
+        extent.MinimumX >= (int)Clip.X &&
+        extent.MinimumY >= (int)Clip.Y &&
+        extent.MaximumX < (int)(Clip.X + Clip.Width) &&
+        extent.MaximumY < (int)(Clip.Y + Clip.Height);
 
     private static void Require(bool condition, string message)
     {

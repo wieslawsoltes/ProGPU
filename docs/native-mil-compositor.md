@@ -632,10 +632,12 @@ scene to a canonical `TYPE_VIEWPORT3DVISUAL` handle. It accepts the public
 semantic camera/mesh/vertex ABI plus uint32 indices, validates every finite
 field and range transactionally, retains generation identity, and emits the
 same shared 3D semantic resource and command used outside WPF. A viewport
-without this typed binding fails closed. Inherited geometry clips, opacity
-masks, and guideline resources also fail closed until the shared 3D compositor
-can apply them exactly; they are never silently dropped. No reflection, WPF
-object pointer, CPU projection, or bridge-local mesh renderer is introduced.
+without this typed binding fails closed. Exact inherited rectangle and
+scrollable-area clips remain typed MIL state and execute as the semantic
+viewport composite scissor. Arbitrary geometry clips, opacity masks, and
+guideline resources still fail closed until the shared 3D compositor can apply
+them exactly; they are never silently dropped. No reflection, WPF object
+pointer, CPU projection, or bridge-local mesh renderer is introduced.
 
 `--semantic-viewport3d` is the live cross-backend gate for this path. It sends
 a canonical type-40 retained viewport through the MIL sideband, compiles the
@@ -647,8 +649,10 @@ stencil compare modes, and treating the ABI position's reserved fourth float
 as homogeneous `w`. The shared shader now derives line corners without dynamic
 array indexing and constructs mesh positions as `vec4(position.xyz, 1)`; the
 pipeline initializes both unused stencil faces explicitly. Apple M3 Pro Metal
-qualifies one draw at extent `[41,22]-[86,66]` inside viewport
-`[32,20]-[96,68]`, with 1,058 colored pixels and no CPU projection.
+qualifies one draw with no CPU projection. The current gate additionally
+assigns the retained viewport an exact `[50,30]-[78,55]` rectangle clip. Its
+520 colored pixels occupy `[50,30]-[77,54]`, wholly inside both that clip and
+the typed `[32,20]-[96,68]` viewport.
 
 Mesh flags now distinguish the source-compatible two-sided mode from exact
 front-only and back-only material entries without changing the scene ABI.
@@ -657,7 +661,8 @@ back entries use the same shader and storage page with front-face culling.
 Triangle strips remain normalized to triangle lists before selection. The live
 viewport gate renders a front entry and an opposite-winding back entry in
 separate retained generations and requires byte-identical readbacks, so both
-face pipelines and their WPF material semantics execute on every gated backend.
+face pipelines, their WPF material semantics, and the inherited rectangle clip
+execute on every gated backend.
 
 - Implement the remaining 2D/3D resource execution, curve dashes, exact
   translated-equivalent EvenOdd overlap execution, remaining pen/image/media
