@@ -35,6 +35,7 @@ public sealed class CadSelectionTests
         Assert.False(result.IsTruncated);
         Assert.Equal(line.Handle, candidates[0].Handle);
         Assert.Equal(CadEntityKind.Line, candidates[0].Kind);
+        Assert.Equal(snapshot.ContentGeneration, candidates[0].ContentGeneration);
         Assert.Equal(0, candidates[0].EntityIndex);
     }
 
@@ -122,5 +123,188 @@ public sealed class CadSelectionTests
 
         Assert.True(checksum > 0);
         Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void PointHitTesterMeasuresLineCircleAndArcExactly()
+    {
+        AssertHit(
+            new Line(XYZ.Zero, new XYZ(10, 0, 0)),
+            new CadPoint3D(5, 0.25, 0),
+            0.25,
+            expectedDistance: 0.25);
+        AssertMiss(
+            new Circle(XYZ.Zero, 5),
+            CadPoint3D.Zero,
+            1.0,
+            expectedDistance: 5.0);
+
+        var arc = new Arc
+        {
+            Center = XYZ.Zero,
+            Normal = XYZ.AxisZ,
+            Radius = 10,
+            StartAngle = 0,
+            EndAngle = Math.PI / 2.0,
+        };
+        AssertHit(
+            arc,
+            new CadPoint3D(
+                10 * Math.Cos(Math.PI / 4.0),
+                10 * Math.Sin(Math.PI / 4.0),
+                0),
+            1e-10,
+            expectedDistance: 0.0);
+        AssertMiss(
+            (Entity)arc.Clone(),
+            new CadPoint3D(-10, 0, 0),
+            1.0,
+            expectedDistance: Math.Sqrt(200));
+    }
+
+    [Fact]
+    public void PointHitTesterHandlesStraightPolylinesAndReportsBulgesExplicitly()
+    {
+        var straight = new LwPolyline();
+        straight.Vertices.Add(new LwPolyline.Vertex(0, 0));
+        straight.Vertices.Add(new LwPolyline.Vertex(10, 0));
+        CadPointHitResult straightResult = Hit(
+            straight,
+            new CadPoint3D(5, 0.1, 0),
+            0.1);
+        Assert.Equal(CadPointHitStatus.Hit, straightResult.Status);
+
+        var bulged = new LwPolyline();
+        bulged.Vertices.Add(new LwPolyline.Vertex(0, 0) { Bulge = 1.0 });
+        bulged.Vertices.Add(new LwPolyline.Vertex(10, 0));
+        CadPointHitResult bulgedResult = Hit(
+            bulged,
+            new CadPoint3D(5, -5, 0),
+            0.1);
+        Assert.Equal(CadPointHitStatus.UnsupportedGeometry, bulgedResult.Status);
+        Assert.False(bulgedResult.IsSupported);
+
+        var polyline3D = new Polyline3D(
+            [XYZ.Zero, new XYZ(0, 0, 10), new XYZ(10, 0, 10)],
+            isClosed: false);
+        CadPointHitResult threeDimensional = Hit(
+            polyline3D,
+            new CadPoint3D(0.2, 0, 5),
+            0.2);
+        Assert.Equal(CadPointHitStatus.Hit, threeDimensional.Status);
+    }
+
+    [Fact]
+    public void PointHitTesterRejectsStaleCandidatesAndReportsUnsupportedKinds()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add ellipse", document => document.Entities.Add(new Ellipse
+        {
+            Center = XYZ.Zero,
+            MajorAxisEndPoint = new XYZ(5, 0, 0),
+            Normal = XYZ.AxisZ,
+            RadiusRatio = 0.5,
+        }));
+        CadDocumentSnapshot first = new CadSnapshotCompiler().Compile(session);
+        CadSelectionCandidate candidate = SingleCandidate(first);
+
+        CadPointHitResult unsupported = CadSelectionHitTester.HitTestPoint(
+            first,
+            candidate,
+            new CadPoint3D(5, 0, 0),
+            0.1);
+
+        Assert.Equal(CadPointHitStatus.UnsupportedKind, unsupported.Status);
+        session.Edit("Advance generation", _ => { });
+        CadDocumentSnapshot second = new CadSnapshotCompiler().Compile(session);
+        Assert.Throws<InvalidOperationException>(() =>
+            CadSelectionHitTester.HitTestPoint(
+                second,
+                candidate,
+                new CadPoint3D(5, 0, 0),
+                0.1));
+    }
+
+    [Fact]
+    public void WarmExactLineHitTestsAllocateNoManagedMemory()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add line", document =>
+            document.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 0, 0))));
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        CadSelectionCandidate candidate = SingleCandidate(snapshot);
+        _ = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(5, 0.1, 0),
+            0.2);
+        _ = GC.GetAllocatedBytesForCurrentThread();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int checksum = 0;
+        for (int i = 0; i < 1_000; i++)
+        {
+            checksum += CadSelectionHitTester.HitTestPoint(
+                snapshot,
+                candidate,
+                new CadPoint3D(5, 0.1, 0),
+                0.2).IsHit ? 1 : 0;
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(1_000, checksum);
+        Assert.Equal(0, allocated);
+    }
+
+    private static void AssertHit(
+        Entity entity,
+        CadPoint3D point,
+        double tolerance,
+        double expectedDistance)
+    {
+        CadPointHitResult result = Hit(entity, point, tolerance);
+        Assert.Equal(CadPointHitStatus.Hit, result.Status);
+        Assert.Equal(expectedDistance, result.Distance, 10);
+    }
+
+    private static void AssertMiss(
+        Entity entity,
+        CadPoint3D point,
+        double tolerance,
+        double expectedDistance)
+    {
+        CadPointHitResult result = Hit(entity, point, tolerance);
+        Assert.Equal(CadPointHitStatus.Miss, result.Status);
+        Assert.Equal(expectedDistance, result.Distance, 10);
+    }
+
+    private static CadPointHitResult Hit(
+        Entity entity,
+        CadPoint3D point,
+        double tolerance)
+    {
+        var document = new CadDocument();
+        document.Entities.Add(entity);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        return CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            SingleCandidate(snapshot),
+            point,
+            tolerance);
+    }
+
+    private static CadSelectionCandidate SingleCandidate(CadDocumentSnapshot snapshot)
+    {
+        Span<int> scratch = stackalloc int[1];
+        Span<CadSelectionCandidate> candidates = stackalloc CadSelectionCandidate[1];
+        CadSelectionQueryResult result = CadSelectionQuery.QueryBounds(
+            snapshot,
+            snapshot.Bounds,
+            scratch,
+            candidates);
+        Assert.Equal(1, result.WrittenCount);
+        Assert.Equal(1, result.TotalCount);
+        return candidates[0];
     }
 }

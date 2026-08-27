@@ -376,8 +376,14 @@ an interactive browser picker/download smoke remains open.
   maps BVH intersections into caller-owned, generation-tagged primitive/handle
   records with no managed allocation. AABB overlap is explicitly broad phase:
   expanded block primitives remain separate even when they share one root
-  handle, and later exact geometry hit testing owns deduplication, tolerance,
-  crossing/window semantics, and draw-order resolution.
+  handle. `CadSelectionHitTester` then performs exact allocation-free world-space
+  proximity tests for lines, conformal circles/arcs, straight lightweight and
+  legacy 2D polylines, and 3D polylines. It validates candidate generation and
+  immutable header identity before indexing primitive buffers. Affine circular
+  geometry, bulge arcs, ellipses, splines, faces, and text return typed
+  `UnsupportedGeometry`/`UnsupportedKind` results rather than AABB false hits;
+  their full distance contracts plus semantic-handle deduplication,
+  crossing/window semantics, and draw-order resolution remain explicit work.
 - Background compilation captures a generation and publishes only if it still
   matches; obsolete work is discarded. The UI may continue drawing the previous
   immutable snapshot while the next generation compiles.
