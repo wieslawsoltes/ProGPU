@@ -3337,6 +3337,49 @@ public class Graphics :
 
     public void DrawImage(Image image, Rectangle rect) => DrawImage(image, (RectangleF)rect);
 
+    /// <summary>Draws a device-dependent cached bitmap at the given location.</summary>
+    public void DrawCachedBitmap(CachedBitmap cachedBitmap, int x, int y)
+    {
+        ArgumentNullException.ThrowIfNull(cachedBitmap);
+        ThrowIfDisposed();
+
+        Matrix3x2 cacheTransform =
+            _transform.Value * GetPageTransform() * _containerTransform;
+        if (!IsTranslationOnly(cacheTransform))
+        {
+            throw new InvalidOperationException(
+                "CachedBitmap drawing supports translation-only Graphics transforms.");
+        }
+
+        WgpuContext targetContext = GetTargetContextForCachedBitmap();
+        Bitmap snapshot = cachedBitmap.GetSnapshotForDraw(targetContext);
+        if (!_context.TryRetainTexture(snapshot, targetContext, out GpuTexture retainedTexture))
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(cachedBitmap));
+        }
+
+        _context.Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawTexture,
+            Texture = retainedTexture,
+            Rect = new Rect(x, y, snapshot.Width, snapshot.Height),
+            SrcRect = Rect.Empty,
+            Transform = CurrentTransform4x4(),
+            TextureSamplingMode = TextureSamplingMode.Nearest
+        });
+    }
+
+    private static bool IsTranslationOnly(Matrix3x2 transform)
+    {
+        const float epsilon = 1e-5f;
+        return float.IsFinite(transform.M31)
+            && float.IsFinite(transform.M32)
+            && MathF.Abs(transform.M11 - 1f) <= epsilon
+            && MathF.Abs(transform.M12) <= epsilon
+            && MathF.Abs(transform.M21) <= epsilon
+            && MathF.Abs(transform.M22 - 1f) <= epsilon;
+    }
+
     /// <inheritdoc cref="DrawImage(Image, Effect, RectangleF, Matrix?, GraphicsUnit, ImageAttributes?)"/>
     public void DrawImage(Image image, Effect effect) =>
         DrawImage(image, effect, srcRect: default, transform: default, GraphicsUnit.Pixel, imageAttr: null);
@@ -4114,6 +4157,20 @@ public class Graphics :
         }
 
         return retainedTexture;
+    }
+
+    internal WgpuContext GetTargetContextForCachedBitmap()
+    {
+        ThrowIfDisposed();
+        WgpuContext targetContext =
+            _bitmap?.GetDrawingContext() ?? _targetContext ?? GpuProvider.Context;
+        if (targetContext.IsDisposed || !targetContext.IsInitialized)
+        {
+            throw new InvalidOperationException(
+                "The Graphics device is not available for cached bitmap drawing.");
+        }
+
+        return targetContext;
     }
 
     public void Dispose()
