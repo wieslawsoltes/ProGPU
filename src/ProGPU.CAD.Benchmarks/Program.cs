@@ -44,6 +44,10 @@ var snapshotCompiler = new CadSnapshotCompiler();
 var pageSetupCompiler = new CadPageSetupCatalogCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
 var printPlanCompiler = new CadPrintPlanCompiler();
+var rotatedPrintOptions = new CadPrintPlanOptions
+{
+    Rotation = CadPageRotation.CounterClockwise270,
+};
 CadShxFont? shxFont = shxInterpretationCount == 0 && shxLayoutCount == 0 &&
     shxTextEntityCount == 0
     ? null
@@ -76,6 +80,9 @@ for (int i = 0; i < warmupCount; i++)
     _ = pageSetupCompiler.Compile(session);
     _ = sceneCompiler.Compile(warmSnapshot);
     using CadPrintPlan warmPrintPlan = printPlanCompiler.Compile(warmSnapshot);
+    using CadPrintPlan warmRotatedPrintPlan = printPlanCompiler.Compile(
+        warmSnapshot,
+        rotatedPrintOptions);
     if (shxFont is not null)
     {
         if (shxInterpretationCount != 0)
@@ -107,6 +114,10 @@ Measurement printPlanMeasurement = Measure(
     "print-plan",
     iterationCount,
     () => printPlanCompiler.Compile(snapshot));
+Measurement rotatedPrintPlanMeasurement = Measure(
+    "rotated-print-plan",
+    iterationCount,
+    () => printPlanCompiler.Compile(snapshot, rotatedPrintOptions));
 Measurement queryMeasurement = MeasureQueries(snapshot, queryCount);
 Measurement? shxMeasurement = shxInterpretationCount == 0
     ? null
@@ -142,6 +153,7 @@ var report = new CadBenchmarkReport(
     pageSetupMeasurement,
     sceneMeasurement,
     printPlanMeasurement,
+    rotatedPrintPlanMeasurement,
     queryMeasurement,
     shxMeasurement,
     shxLayoutMeasurement,
@@ -468,6 +480,7 @@ internal sealed record CadBenchmarkReport(
     Measurement PageSetupCatalogMilliseconds,
     Measurement PlanSceneMilliseconds,
     Measurement PrintPlanMilliseconds,
+    Measurement RotatedPrintPlanMilliseconds,
     Measurement SpatialQueryNanoseconds,
     Measurement? ShxInterpretBatchMilliseconds,
     Measurement? ShxLayoutBatchMilliseconds,

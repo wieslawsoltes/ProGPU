@@ -626,12 +626,12 @@ public sealed class CadPageSetupPrintOptionsCompiler
                 "Paper-space layouts require paper geometry and viewport compilation before they can be plotted.");
         }
 
-        if (pageSetup.Rotation != CadPageRotation.Degrees0)
+        if (pageSetup.Rotation == CadPageRotation.Unknown)
         {
             AddError(
                 diagnostics,
                 "CADPAGE102",
-                "Page rotation is retained but is not yet lowered into the physical-page transform.");
+                "The source page setup contains an unknown page-rotation value.");
         }
 
         if (pageSetup.PaperUnit is CadPageUnit.DevicePixels or CadPageUnit.Unknown)
@@ -774,6 +774,7 @@ public sealed class CadPageSetupPrintOptionsCompiler
             MarginTopMillimeters = margins.TopMillimeters,
             MarginRightMillimeters = margins.RightMillimeters,
             MarginBottomMillimeters = margins.BottomMillimeters,
+            Rotation = pageSetup.Rotation,
             OutputDpi = options.OutputDpi,
             ScaleMode = scaleMode,
             ModelUnitsPerMillimeter = modelUnitsPerMillimeter,

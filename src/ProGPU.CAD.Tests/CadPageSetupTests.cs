@@ -131,6 +131,58 @@ public sealed class CadPageSetupTests
     }
 
     [Theory]
+    [InlineData(PlotRotation.NoRotation, CadPageRotation.Degrees0, 1000, 500)]
+    [InlineData(PlotRotation.Degrees90, CadPageRotation.CounterClockwise90, 500, 1000)]
+    [InlineData(PlotRotation.Degrees180, CadPageRotation.Degrees180, 1000, 500)]
+    [InlineData(PlotRotation.Degrees270, CadPageRotation.CounterClockwise270, 500, 1000)]
+    public void EveryDefinedPageRotationLowersIntoTheRetainedPrintPlan(
+        PlotRotation sourceRotation,
+        CadPageRotation expectedRotation,
+        int expectedWidth,
+        int expectedHeight)
+    {
+        var document = new CadDocument();
+        document.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 10, 0)));
+        ACadLayout model = document.Layouts[ACadLayout.ModelLayoutName];
+        ConfigureSupported(model);
+        model.PaperRotation = sourceRotation;
+        var session = new CadDocumentSession(document);
+        CadPageSetupSnapshot setup = new CadPageSetupCatalogCompiler()
+            .Compile(session)
+            .FindLayout(ACadLayout.ModelLayoutName)!;
+
+        CadPageSetupPrintOptionsResult result = new CadPageSetupPrintOptionsCompiler().Compile(
+            setup,
+            new CadPageSetupPrintOptionsCompilerOptions { OutputDpi = 254 });
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(expectedRotation, result.PrintOptions!.Rotation);
+        using CadPrintPlan plan = new CadPrintPlanCompiler().CompileFromPageSetup(
+            new CadSnapshotCompiler().Compile(session),
+            result);
+        Assert.Equal(expectedRotation, plan.Rotation);
+        Assert.Equal(new CadPrintPixelSize(expectedWidth, expectedHeight), plan.PageSizePixels);
+    }
+
+    [Fact]
+    public void UnknownPageRotationFailsWithTheSpecificDiagnostic()
+    {
+        var document = new CadDocument();
+        ACadLayout model = document.Layouts[ACadLayout.ModelLayoutName];
+        ConfigureSupported(model);
+        model.PaperRotation = (PlotRotation)99;
+        CadPageSetupSnapshot setup = new CadPageSetupCatalogCompiler()
+            .Compile(new CadDocumentSession(document))
+            .FindLayout(ACadLayout.ModelLayoutName)!;
+
+        CadPageSetupPrintOptionsResult result =
+            new CadPageSetupPrintOptionsCompiler().Compile(setup);
+
+        Assert.False(result.IsSupported);
+        Assert.Contains(result.Diagnostics.ToArray(), item => item.Code == "CADPAGE102");
+    }
+
+    [Theory]
     [InlineData(PlotType.Window, "CADPAGE104")]
     [InlineData(PlotType.DrawingLimits, "CADPAGE105")]
     [InlineData(PlotType.LastScreenDisplay, "CADPAGE106")]
@@ -170,7 +222,6 @@ public sealed class CadPageSetupTests
         var document = new CadDocument();
         ACadLayout model = document.Layouts[ACadLayout.ModelLayoutName];
         ConfigureSupported(model);
-        model.PaperRotation = PlotRotation.Degrees90;
         model.ShadePlotMode = ShadePlotMode.Rendered;
         model.Flags &= ~PlotFlags.PrintLineweights;
         model.Flags |= PlotFlags.ScaleLineweights | PlotFlags.PlotPlotStyles;
@@ -184,7 +235,6 @@ public sealed class CadPageSetupTests
 
         Assert.False(result.IsSupported);
         string[] codes = result.Diagnostics.ToArray().Select(item => item.Code).ToArray();
-        Assert.Contains("CADPAGE102", codes);
         Assert.Contains("CADPAGE110", codes);
         Assert.Contains("CADPAGE112", codes);
         Assert.Contains("CADPAGE113", codes);

@@ -828,8 +828,8 @@ The first model-space print-plan foundation is implemented by
   current custom scale, standard-scale selection/factor, lineweight/style flags,
   and shade mode/resolution/DPI. Retention is not a claim that every policy is
   already renderable;
-- exact lowering presently requires model space, zero page rotation, inch or
-  millimeter paper units, drawing extents, explicit wireframe, enabled and
+- exact lowering presently requires model space, a defined 0/90/180/270-degree
+  page rotation, inch or millimeter paper units, drawing extents, explicit wireframe, enabled and
   unscaled object lineweights, and no applied nonempty CTB/STB style sheet.
   Standard scale code zero selects Fit; otherwise the source's current custom
   numerator/denominator is authoritative and converts to drawing units per
@@ -838,7 +838,7 @@ The first model-space print-plan foundation is implemented by
 - Window is deliberately rejected even though its raw rectangle is retained:
   Autodesk defines the stored coordinates in display coordinate system (DCS),
   while the current print plan accepts an explicit WCS window. Display, named
-  view, Limits, paper-space/Layout viewports, rotation, pixel paper units,
+  view, Limits, paper-space/Layout viewports, pixel paper units,
   hidden/shaded/as-displayed output, disabled/scaled lineweights, and applied
   plot styles likewise return specific diagnostics rather than an approximation;
 - the pinned ACadSharp page-setup surface does not expose Autodesk's separate
@@ -850,6 +850,12 @@ The first model-space print-plan foundation is implemented by
   deterministic integer output pixels with round-half-away-from-zero behavior;
   page coordinates are limited to exact float integers and the default total
   target budget is 268,435,456 pixels;
+- page rotation treats stored paper dimensions and margins as physical,
+  unrotated media coordinates. A 90/270-degree setting exchanges the oriented
+  output axes and permutes the four device margins; 180/270 additionally
+  compose one exact half-turn after placement. The printable clip undergoes the
+  same rotation. Positive offset axes therefore originate at AutoCAD's rotated
+  lower-left corner, including asymmetric-margin and upside-down output;
 - the default plot area is the exact union of visible retained entities on
   plottable layers, while a caller can supply an explicit finite WCS window;
   non-plottable layers remain visible in the screen snapshot but are skipped by
@@ -870,8 +876,8 @@ The first model-space print-plan foundation is implemented by
   storage for E entity headers and C scene commands; no raster surface is
   allocated.
 
-Catalog extraction is now implemented, but this foundation does not claim
-layout/paper-space viewport lowering, paper rotation, DCS camera/view lowering,
+Catalog extraction and model-space page rotation are now implemented, but this
+foundation does not claim layout/paper-space viewport lowering, DCS camera/view lowering,
 CTB/STB overrides, shaded-viewport policies, transparency flattening, PDF/SVG,
 raster encoding, printer enumeration/spooling, or multi-page collation. Those
 remain explicit typed compilers/adapters and conformance gates; unsupported
@@ -910,7 +916,8 @@ Allocations/VM Tracker, Time Profiler, and Metal System Trace captures.
 
 `ProGPU.CAD.Benchmarks` provides JSON p50/p95/p99 and allocation output for
 snapshot construction, page-setup catalog capture, retained plan-scene
-recording, retained physical print-plan construction, and spatial queries. Run:
+recording, retained physical print-plan construction in both zero- and
+270-degree rotation lanes, and spatial queries. Run:
 
 ```bash
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --warmup 3 --iterations 24 --queries 10000
@@ -938,6 +945,16 @@ recording at 300 DPI, physical pen creation, and the owned content picture, but
 does not allocate the eventual raster target. The noisy snapshot/scene tails in
 the same processes and the absence of a prior print implementation make these
 feature baselines only; they are not an improvement or release-acceptance claim.
+
+Two sequential 24-iteration Release runs of the new 270-degree page-rotation
+lane measured p50/p95/p99 at 21.852/66.560/71.728 ms and
+22.781/68.440/99.557 ms, with 12,804,577 and 12,804,706 managed bytes per plan.
+The matching zero-degree lanes in those same processes measured
+15.004/42.328/50.887 ms and 20.200/84.581/140.668 ms. Each plan still rebuilds
+the complete 10,000-command retained print scene, so these noisy measurements
+are a feature-cost baseline only; they neither isolate the fixed-work rotation
+math nor support a regression or improvement claim. Page rotation itself adds
+only bounded integer edge permutation and one affine matrix composition.
 
 The same two fresh 24-iteration Release processes measured the default
 two-layout page-setup catalog at p50/p95/p99 of 0.0012/0.0104/0.0550 ms and
@@ -1143,6 +1160,10 @@ Sources consulted on 2026-08-27:
   atlas, or managed/native renderer contract; both backends continue receiving
   the same existing picture/overlay commands.
 - [Autodesk page setup](https://help.autodesk.com/cloudhelp/2025/ENU/DWGTrueView/files/GUID-0D72CF75-DA37-4937-9D9A-D93AA9BDF8D3.htm),
+  [plot-rotation enum](https://help.autodesk.com/cloudhelp/2019/ENU/OARX-RefGuide/files/OREF-AcDbPlotSettings__plotRotation.html),
+  [drawing-orientation behavior](https://help.autodesk.com/cloudhelp/2025/ENU/DWGTrueView/files/GUID-E05BF1C8-3C44-4E0C-917C-5A95C860A98E.htm),
+  [`PLOTROTMODE` rotated-origin behavior](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-B376D968-4346-4D7E-9AE5-3888317B5730.htm),
+  [physical paper margins](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-AcDbPlotSettings__getPlotPaperMargins_double__double__double__double__const.html),
   [PLOTSETTINGS DXF fields](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-DXF/files/GUID-1113675E-AB07-4567-801A-310CDE0D56E9.htm),
   [LAYOUT DXF fields](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-433D25BF-655D-4697-834E-C666EDFD956D.htm),
   [plot-settings/page-setup ownership](https://help.autodesk.com/cloudhelp/2017/ENU/AutoCAD-NET/files/GUID-56BD3247-471C-4471-A238-FFDFDC3BD2E4.htm),
@@ -1157,26 +1178,38 @@ Sources consulted on 2026-08-27:
   identity, fit or paper-unit/drawing-unit scale, fixed physical lineweight,
   plot eligibility, and explicit CTB/STB override phases. Adapted model-space
   Extents, center/offset, fit/current-custom scale, and object lineweight into
-  the first bounded lowering. Retained Window as raw DCS data and rejected
+  the first bounded lowering. Rotation is adapted as an oriented physical-page
+  contract: portrait/landscape exchanges the page axes and physical margin
+  edges, while the upside-down states rotate placement and clip together around
+  the output page. This follows the documented default rotated-origin offset
+  behavior and keeps asymmetric margins observable. Retained Window as raw DCS data and rejected
   treating it as WCS without the saved view transform; also rejected guessing
-  layout viewports/UCS limits, device pixel scale, style-table, rotation,
+  layout viewports/UCS limits, device pixel scale, style-table,
   disabled/scaled lineweight, shaded-output, or transparency policy. Paper image
   origin remains retained device metadata; the documented plot origin inside
   the paper margins is the current geometric offset authority.
 - [Skia PDF pages](https://skia.org/docs/user/sample/pdf/),
   [Skia canvas backends](https://skia.org/docs/user/api/skcanvas_creation/),
+  [Skia canvas transforms and clips](https://skia.org/docs/user/api/skcanvas_overview/),
   [Direct2D print control](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1device-createprintcontrol),
-  and [Win2D print events](https://microsoft.github.io/Win2D/WinUI3/html/E_Microsoft_Graphics_Canvas_Printing_CanvasPrintDocument_Print.htm):
+  [Direct2D transforms](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-transforms-overview),
+  [Win2D print events](https://microsoft.github.io/Win2D/WinUI3/html/E_Microsoft_Graphics_Canvas_Printing_CanvasPrintDocument_Print.htm),
+  and [Win2D drawing-session transforms](https://microsoft.github.io/Win2D/WinUI3/html/P_Microsoft_Graphics_Canvas_CanvasDrawingSession_Transform.htm):
   adopted replaying one retained/vector page description into backend-specific
   page targets at the target DPI, with preview/output sharing the same page
   transform and clip. Skia's documented PDF fallbacks reinforce treating
   unsupported effects explicitly rather than silently losing text or vectors.
-  WebRender's reviewed display-list architecture has no physical-page contract,
-  so only its retained preview/resource separation applies. Vello's unbaked
-  affine retained fragments support the same transform-reuse decision. Existing
-  HarfBuzz/SkParagraph/DirectWrite/Parley shaped results are retained from the
-  immutable snapshot; the print plan neither reshapes text nor introduces a
-  foreign document renderer.
+  [WebRender's reviewed display-list architecture](https://github.com/servo/servo/wiki/Design/a88683ec289b53b9f50242d4c27fcc22ddb76039)
+  has no physical-page contract, so only its retained spatial-transform,
+  clip-tree, and preview/resource separation applies.
+  [Vello's unbaked affine retained fragments](https://github.com/linebender/vello/blob/main/doc/vision.md)
+  support the same transform-reuse decision. Existing
+  [HarfBuzz positioned glyph output](https://harfbuzz.github.io/shaping-and-shape-plans.html),
+  [SkParagraph shaped-text stages](https://docs.skia.org/docs/dev/design/text_shaper/),
+  [DirectWrite/Direct2D glyph-run transforms](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite),
+  and [Parley layouts](https://github.com/linebender/parley/blob/main/README.md)
+  remain retained CPU results from the immutable snapshot; the page rotation
+  neither reshapes text nor introduces a foreign document renderer.
 - [Autodesk ROTATE](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-1C265537-FBAC-48D5-B448-B72E777071E5.htm),
   [rotation behavior](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-9DB2CB8C-7FB7-45A4-83A7-82FFC53FC7E1.htm),
   and [SCALE](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-Core/files/GUID-D4E17E51-5000-4AB6-8D6A-6D2AB4863C75.htm):

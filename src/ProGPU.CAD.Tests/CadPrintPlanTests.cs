@@ -140,6 +140,123 @@ public sealed class CadPrintPlanTests
             TransformToPage(snapshot, plan.ContentToPage, new CadPoint3D(10, 10, 0)));
     }
 
+    [Theory]
+    [InlineData(
+        CadPageRotation.Degrees0,
+        1000, 500,
+        50, 80, 880, 360,
+        80, 400,
+        130, 350)]
+    [InlineData(
+        CadPageRotation.CounterClockwise90,
+        500, 1000,
+        80, 70, 360, 880,
+        110, 910,
+        160, 860)]
+    [InlineData(
+        CadPageRotation.Degrees180,
+        1000, 500,
+        70, 60, 880, 360,
+        920, 100,
+        870, 150)]
+    [InlineData(
+        CadPageRotation.CounterClockwise270,
+        500, 1000,
+        60, 50, 360, 880,
+        390, 90,
+        340, 140)]
+    public void RotationOrientsPhysicalMarginsOffsetsAndUpsideDownOutput(
+        CadPageRotation rotation,
+        int pageWidth,
+        int pageHeight,
+        int printableX,
+        int printableY,
+        int printableWidth,
+        int printableHeight,
+        float originX,
+        float originY,
+        float farX,
+        float farY)
+    {
+        var document = new CadDocument();
+        document.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 10, 0)));
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        var options = new CadPrintPlanOptions
+        {
+            PaperWidthMillimeters = 100,
+            PaperHeightMillimeters = 50,
+            MarginLeftMillimeters = 5,
+            MarginTopMillimeters = 8,
+            MarginRightMillimeters = 7,
+            MarginBottomMillimeters = 6,
+            Rotation = rotation,
+            OutputDpi = 254,
+            ScaleMode = CadPrintScaleMode.ModelUnitsPerMillimeter,
+            ModelUnitsPerMillimeter = 2,
+            PlacementMode = CadPrintPlacementMode.PrintableAreaOffset,
+            PlotOffsetXMillimeters = 3,
+            PlotOffsetYMillimeters = 4,
+        };
+
+        using CadPrintPlan plan = new CadPrintPlanCompiler().Compile(snapshot, options);
+
+        Assert.Equal(rotation, plan.Rotation);
+        Assert.Equal(new CadPrintPixelSize(pageWidth, pageHeight), plan.PageSizePixels);
+        Assert.Equal(
+            new CadPrintPixelRect(
+                printableX,
+                printableY,
+                printableWidth,
+                printableHeight),
+            plan.PrintableAreaPixels);
+        AssertVector(
+            new Vector2(originX, originY),
+            TransformToPage(snapshot, plan.ContentToPage, CadPoint3D.Zero));
+        AssertVector(
+            new Vector2(farX, farY),
+            TransformToPage(snapshot, plan.ContentToPage, new CadPoint3D(10, 10, 0)));
+
+        using GpuPicture page = plan.CreatePagePicture();
+        Assert.Equal(
+            new Rect(printableX, printableY, printableWidth, printableHeight),
+            page.GetCommand(0).Rect);
+        Assert.Equal(plan.ContentToPage, page.GetCommand(1).CameraView);
+    }
+
+    [Theory]
+    [InlineData(CadPageRotation.CounterClockwise90, 260, 510)]
+    [InlineData(CadPageRotation.CounterClockwise270, 240, 490)]
+    public void QuarterTurnFitUsesTheOrientedPrintableAreaAndItsCenter(
+        CadPageRotation rotation,
+        float expectedCenterX,
+        float expectedCenterY)
+    {
+        var document = new CadDocument();
+        document.Entities.Add(new Line(XYZ.Zero, new XYZ(100, 10, 0)));
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+
+        using CadPrintPlan plan = new CadPrintPlanCompiler().Compile(
+            snapshot,
+            new CadPrintPlanOptions
+            {
+                PaperWidthMillimeters = 100,
+                PaperHeightMillimeters = 50,
+                MarginLeftMillimeters = 5,
+                MarginTopMillimeters = 8,
+                MarginRightMillimeters = 7,
+                MarginBottomMillimeters = 6,
+                Rotation = rotation,
+                OutputDpi = 254,
+            });
+
+        Assert.Equal(3.6f, plan.PixelsPerModelUnit, 4);
+        AssertVector(
+            new Vector2(expectedCenterX, expectedCenterY),
+            TransformToPage(snapshot, plan.ContentToPage, plan.PlotBounds.Center));
+    }
+
     [Fact]
     public void EmptyPlottableOutputAndCancelledCompilationFailExplicitly()
     {
@@ -209,6 +326,9 @@ public sealed class CadPrintPlanTests
         Assert.Throws<ArgumentOutOfRangeException>(() => compiler.Compile(
             snapshot,
             new CadPrintPlanOptions { MaxPagePixelCount = 1 }));
+        Assert.Throws<ArgumentOutOfRangeException>(() => compiler.Compile(
+            snapshot,
+            new CadPrintPlanOptions { Rotation = CadPageRotation.Unknown }));
         Assert.Throws<ArgumentOutOfRangeException>(() => compiler.Compile(
             snapshot,
             new CadPrintPlanOptions

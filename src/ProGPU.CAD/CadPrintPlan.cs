@@ -45,6 +45,14 @@ public sealed class CadPrintPlanOptions
 
     public double MarginBottomMillimeters { get; init; } = 10.0;
 
+    /// <summary>
+    /// Orientation of the drawing on the configured physical media. Quarter-turn
+    /// values exchange the oriented page axes; 180 and 270 degrees additionally
+    /// plot the drawing upside down. Printable-area offsets use the rotated
+    /// origin convention corresponding to AutoCAD PLOTROTMODE 2.
+    /// </summary>
+    public CadPageRotation Rotation { get; init; } = CadPageRotation.Degrees0;
+
     public float OutputDpi { get; init; } = 300.0f;
 
     public CadBounds3D? PlotBounds { get; init; }
@@ -93,6 +101,8 @@ public sealed class CadPrintPlan : IDisposable
 
     public double PaperHeightMillimeters { get; }
 
+    public CadPageRotation Rotation { get; }
+
     public float OutputDpi { get; }
 
     public CadPrintPixelSize PageSizePixels { get; }
@@ -135,6 +145,7 @@ public sealed class CadPrintPlan : IDisposable
         SourcePageSetupName = options.SourcePageSetupName;
         PaperWidthMillimeters = options.PaperWidthMillimeters;
         PaperHeightMillimeters = options.PaperHeightMillimeters;
+        Rotation = options.Rotation;
         OutputDpi = options.OutputDpi;
         PageSizePixels = pageSizePixels;
         PrintableAreaPixels = printableAreaPixels;
@@ -231,20 +242,29 @@ public sealed class CadPrintPlanCompiler
         ValidateOptions(options);
 
         CadPrintPixelSize pageSize = CreatePageSize(options);
-        CadPrintPixelRect printableArea = CreatePrintableArea(options, pageSize);
+        CadPrintPixelRect placementArea = CreatePlacementArea(options, pageSize);
+        CadPrintPixelRect printableArea = CreatePrintableArea(
+            placementArea,
+            pageSize,
+            IsUpsideDown(options.Rotation));
         CadBounds3D plotBounds = ResolvePlotBounds(snapshot, options, cancellationToken);
         float pixelsPerModelUnit = ResolvePixelsPerModelUnit(
             plotBounds,
-            printableArea,
+            placementArea,
             options);
         double modelUnitsPerMillimeter =
             options.OutputDpi / (MillimetersPerInch * pixelsPerModelUnit);
         Matrix4x4 contentToPage = CreateContentToPage(
             snapshot.RebaseOrigin,
             plotBounds,
-            printableArea,
+            placementArea,
             pixelsPerModelUnit,
             options);
+        if (IsUpsideDown(options.Rotation))
+        {
+            // System.Numerics composes row-vector transforms from left to right.
+            contentToPage *= CreateUpsideDownTransform(pageSize);
+        }
 
         CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
             snapshot,
@@ -286,10 +306,12 @@ public sealed class CadPrintPlanCompiler
                 "The physical page exceeds the configured exact page-pixel budget.");
         }
 
-        return new CadPrintPixelSize(width, height);
+        return IsQuarterTurn(options.Rotation)
+            ? new CadPrintPixelSize(height, width)
+            : new CadPrintPixelSize(width, height);
     }
 
-    private static CadPrintPixelRect CreatePrintableArea(
+    private static CadPrintPixelRect CreatePlacementArea(
         CadPrintPlanOptions options,
         CadPrintPixelSize pageSize)
     {
@@ -297,6 +319,12 @@ public sealed class CadPrintPlanCompiler
         int top = MillimetersToPixels(options.MarginTopMillimeters, options.OutputDpi);
         int right = MillimetersToPixels(options.MarginRightMillimeters, options.OutputDpi);
         int bottom = MillimetersToPixels(options.MarginBottomMillimeters, options.OutputDpi);
+        if (IsQuarterTurn(options.Rotation))
+        {
+            // The physical sheet rotates counterclockwise beneath the drawing:
+            // raw top/right/bottom/left become oriented left/top/right/bottom.
+            (left, top, right, bottom) = (top, right, bottom, left);
+        }
         int width = checked(pageSize.Width - left - right);
         int height = checked(pageSize.Height - top - bottom);
         if (width <= 0 || height <= 0)
@@ -307,6 +335,23 @@ public sealed class CadPrintPlanCompiler
         }
 
         return new CadPrintPixelRect(left, top, width, height);
+    }
+
+    private static CadPrintPixelRect CreatePrintableArea(
+        CadPrintPixelRect placementArea,
+        CadPrintPixelSize pageSize,
+        bool upsideDown)
+    {
+        if (!upsideDown)
+        {
+            return placementArea;
+        }
+
+        return new CadPrintPixelRect(
+            checked(pageSize.Width - placementArea.Right),
+            checked(pageSize.Height - placementArea.Bottom),
+            placementArea.Width,
+            placementArea.Height);
     }
 
     private static CadBounds3D ResolvePlotBounds(
@@ -435,6 +480,21 @@ public sealed class CadPrintPlanCompiler
             (float)translationX, (float)translationY, 0, 1);
     }
 
+    private static Matrix4x4 CreateUpsideDownTransform(CadPrintPixelSize pageSize) =>
+        new(
+            -1, 0, 0, 0,
+            0, -1, 0, 0,
+            0, 0, 1, 0,
+            pageSize.Width, pageSize.Height, 0, 1);
+
+    private static bool IsQuarterTurn(CadPageRotation rotation) =>
+        rotation is CadPageRotation.CounterClockwise90 or
+            CadPageRotation.CounterClockwise270;
+
+    private static bool IsUpsideDown(CadPageRotation rotation) =>
+        rotation is CadPageRotation.Degrees180 or
+            CadPageRotation.CounterClockwise270;
+
     private static int MillimetersToPixels(double millimeters, float dpi)
     {
         double pixels = millimeters * dpi / MillimetersPerInch;
@@ -472,12 +532,14 @@ public sealed class CadPrintPlanCompiler
                 nameof(options),
                 "Output DPI must be finite and positive.");
         }
-        if (!Enum.IsDefined(options.ScaleMode) ||
+        if (!Enum.IsDefined(options.Rotation) ||
+            options.Rotation == CadPageRotation.Unknown ||
+            !Enum.IsDefined(options.ScaleMode) ||
             !Enum.IsDefined(options.PlacementMode))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(options),
-                "Print scale and placement modes must be defined values.");
+                "Page rotation, print scale, and placement modes must be defined values.");
         }
         if (!IsFinitePositive(options.ModelUnitsPerMillimeter))
         {
