@@ -632,8 +632,10 @@ scene to a canonical `TYPE_VIEWPORT3DVISUAL` handle. It accepts the public
 semantic camera/mesh/vertex ABI plus uint32 indices, validates every finite
 field and range transactionally, retains generation identity, and emits the
 same shared 3D semantic resource and command used outside WPF. A viewport
-without this typed binding fails closed; no reflection, WPF object pointer,
-CPU projection, or bridge-local mesh renderer is introduced.
+without this typed binding fails closed. Inherited geometry clips, opacity
+masks, and guideline resources also fail closed until the shared 3D compositor
+can apply them exactly; they are never silently dropped. No reflection, WPF
+object pointer, CPU projection, or bridge-local mesh renderer is introduced.
 
 - Implement the remaining 2D/3D resource execution, curve dashes, exact
   translated-equivalent EvenOdd overlap execution, remaining pen/image/media
