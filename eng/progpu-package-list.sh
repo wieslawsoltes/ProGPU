@@ -212,6 +212,7 @@ progpu_nonshipping_projects=(
   src/ProGPU.Avalonia.SkiaSourceCompatibility/ProGPU.Avalonia.SkiaSourceCompatibility.csproj
   src/ProGPU.Avalonia.Skia.BinaryCompatibility/ProGPU.Avalonia.Skia.BinaryCompatibility.csproj
   src/ProGPU.Avalonia.Skia.BinaryCompatibility.V11/ProGPU.Avalonia.Skia.BinaryCompatibility.V11.csproj
+  src/ProGPU.CAD.Benchmarks/ProGPU.CAD.Benchmarks.csproj
   src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj
   src/ProGPU.Native.ManagedSample/ProGPU.Native.ManagedSample.csproj
   src/ProGPU.Samples.ActivityMonitor/ProGPU.Samples.ActivityMonitor.csproj
@@ -235,6 +236,7 @@ progpu_nonshipping_reasons=(
   "Non-shipping source dependency used to validate the ProGPU SkiaSharp contract against Avalonia's ordinary Skia backend."
   "Non-shipping Avalonia.Skia facade shipped inside ProGPU.BinaryCompatibility."
   "Non-shipping Avalonia 11 validation facade for the universal compatibility identity."
+  "ProGPU.CAD immutable snapshot, retained-scene, and spatial-query benchmark."
   "Native C++ renderer differential and performance benchmark."
   "Native C++ renderer managed-host sample."
   "Activity Monitor sample application."
