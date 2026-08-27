@@ -234,6 +234,8 @@ public sealed class PortableViewport3DMaterial
 
     public PortableBrush? Brush { get; set; }
 
+    public PortableTileBrush? TileBrush { get; set; }
+
     public PortableColor4 Color { get; set; } = new(1, 1, 1, 1);
 
     public PortableVector3 AmbientColor { get; set; } = new(1, 1, 1);

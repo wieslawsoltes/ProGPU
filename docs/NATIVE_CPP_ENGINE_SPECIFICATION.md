@@ -3550,8 +3550,9 @@ projection or texture fallback.
 
 The portable scene contract also carries an ordered
 `PortableViewport3DMaterial[]` per mesh. Each layer identifies diffuse,
-specular, or emissive behavior and retains its typed `PortableBrush`, material
-color, ambient color, and specular power. An empty layer array preserves the
+specular, or emissive behavior and retains its typed `PortableBrush` or
+`PortableTileBrush`, material color, ambient color, and specular power. An
+empty layer array preserves the
 legacy aggregate fields for existing producers. The shared managed mesh
 compiler now supports a per-entry shading override, allowing an emissive layer
 to select the existing GPU unlit shader branch without forcing unrelated
