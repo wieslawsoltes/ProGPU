@@ -355,6 +355,16 @@ synchronized-frame p50 regressed 5.2713 -> 5.3665 ms and 6.1248 -> 6.1985 ms;
 the independently evaluated second origin and its established floating-point
 edge semantics.
 
+A branchless winding-direction candidate was exact and rejected as well. It
+normalized each crossing to a replicated `+1`/`-1` vector and masked that
+delta into the paired and odd-tail NEON/SSE2 accumulators. Across eight
+alternating 120-frame runs, median submission/frame p50 regressed
+1.4165/5.2487 -> 1.4850/5.4465 ms at 1x and 1.7186/5.7809 ->
+1.9296/6.0166 ms at 2x; all four p95 medians also worsened. Pixels remained
+exact at the established 1x and 2x hashes. The qualified implementation keeps
+the cheaper direction branch instead of paying an extra vector mask operation
+for every accumulator and crossing.
+
 Exact pushed checkpoint `deb50413` also rebuilt the changed intrinsic source
 with ARM64 MSVC/Ninja in the Windows 11 Parallels VM and passed all ten
 non-Dawn native CTests. This is cross-compiler and DirectX-host correctness
