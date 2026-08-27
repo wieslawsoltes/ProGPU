@@ -120,6 +120,66 @@ public abstract class CadEditCommand
         }
     }
 
+    protected static TValue[] CaptureEntityValues<TValue>(
+        Entity[] entities,
+        Func<Entity, TValue> getter) =>
+        entities.Select(getter).ToArray();
+
+    protected static void SetEntityValuesTransactional<TValue>(
+        Entity[] entities,
+        TValue target,
+        Func<Entity, TValue> getter,
+        Action<Entity, TValue> setter)
+    {
+        TValue[] rollback = CaptureEntityValues(entities, getter);
+        int applied = 0;
+        try
+        {
+            for (; applied < entities.Length; applied++)
+            {
+                setter(entities[applied], target);
+            }
+        }
+        catch
+        {
+            for (int i = applied - 1; i >= 0; i--)
+            {
+                setter(entities[i], rollback[i]);
+            }
+            throw;
+        }
+    }
+
+    protected static void SetEntityValuesTransactional<TValue>(
+        Entity[] entities,
+        TValue[] targets,
+        Func<Entity, TValue> getter,
+        Action<Entity, TValue> setter)
+    {
+        if (targets.Length != entities.Length)
+        {
+            throw new InvalidOperationException(
+                "Retained entity property state does not match the entity set.");
+        }
+        TValue[] rollback = CaptureEntityValues(entities, getter);
+        int applied = 0;
+        try
+        {
+            for (; applied < entities.Length; applied++)
+            {
+                setter(entities[applied], targets[applied]);
+            }
+        }
+        catch
+        {
+            for (int i = applied - 1; i >= 0; i--)
+            {
+                setter(entities[i], rollback[i]);
+            }
+            throw;
+        }
+    }
+
     private enum CadEditCommandState : byte
     {
         New,
@@ -436,17 +496,20 @@ public sealed class CadSetEntityVisibilityCommand : CadEditCommand
         {
             entities = ResolveModelSpaceEntities(document, _handles);
             _entities = entities;
-            _previousValues = entities.Select(static entity => entity.IsInvisible).ToArray();
+            _previousValues = CaptureEntityValues(
+                entities,
+                static entity => entity.IsInvisible);
         }
         else
         {
             entities = GetRetainedEntities(document);
         }
 
-        foreach (Entity entity in entities)
-        {
-            entity.IsInvisible = IsInvisible;
-        }
+        SetEntityValuesTransactional(
+            entities,
+            IsInvisible,
+            static entity => entity.IsInvisible,
+            static (entity, value) => entity.IsInvisible = value);
     }
 
     internal override void Revert(CadDocument document)
@@ -454,10 +517,11 @@ public sealed class CadSetEntityVisibilityCommand : CadEditCommand
         Entity[] entities = GetRetainedEntities(document);
         bool[] values = _previousValues ??
             throw new InvalidOperationException("The visibility command has not been applied.");
-        for (int i = 0; i < entities.Length; i++)
-        {
-            entities[i].IsInvisible = values[i];
-        }
+        SetEntityValuesTransactional(
+            entities,
+            values,
+            static entity => entity.IsInvisible,
+            static (entity, value) => entity.IsInvisible = value);
     }
 
     private Entity[] GetRetainedEntities(CadDocument document)
@@ -521,11 +585,17 @@ public sealed class CadSetEntityLayerCommand : CadEditCommand
             }
             target = targetLayer;
             _entities = entities;
-            _previousLayers = entities.Select(static entity => entity.Layer).ToArray();
+            _previousLayers = CaptureEntityValues(
+                entities,
+                static entity => entity.Layer);
             _targetLayer = target;
         }
 
-        SetLayersTransactional(entities, target);
+        SetEntityValuesTransactional(
+            entities,
+            target,
+            static entity => entity.Layer,
+            static (entity, value) => entity.Layer = value);
     }
 
     internal override void Revert(CadDocument document)
@@ -537,7 +607,11 @@ public sealed class CadSetEntityLayerCommand : CadEditCommand
         {
             ValidateLayer(document, layer);
         }
-        SetLayersTransactional(entities, previous);
+        SetEntityValuesTransactional(
+            entities,
+            previous,
+            static entity => entity.Layer,
+            static (entity, value) => entity.Layer = value);
     }
 
     private Entity[] GetRetainedEntities(CadDocument document)
@@ -558,47 +632,6 @@ public sealed class CadSetEntityLayerCommand : CadEditCommand
         }
     }
 
-    private static void SetLayersTransactional(Entity[] entities, Layer target)
-    {
-        Layer[] rollback = entities.Select(static entity => entity.Layer).ToArray();
-        int applied = 0;
-        try
-        {
-            for (; applied < entities.Length; applied++)
-            {
-                entities[applied].Layer = target;
-            }
-        }
-        catch
-        {
-            for (int i = applied - 1; i >= 0; i--)
-            {
-                entities[i].Layer = rollback[i];
-            }
-            throw;
-        }
-    }
-
-    private static void SetLayersTransactional(Entity[] entities, Layer[] targets)
-    {
-        Layer[] rollback = entities.Select(static entity => entity.Layer).ToArray();
-        int applied = 0;
-        try
-        {
-            for (; applied < entities.Length; applied++)
-            {
-                entities[applied].Layer = targets[applied];
-            }
-        }
-        catch
-        {
-            for (int i = applied - 1; i >= 0; i--)
-            {
-                entities[i].Layer = rollback[i];
-            }
-            throw;
-        }
-    }
 }
 
 /// <summary>Assigns an explicit, ByLayer, or ByBlock lineweight to model-space entities.</summary>
@@ -646,9 +679,15 @@ public sealed class CadSetEntityLineWeightCommand : CadEditCommand
         {
             entities = ResolveModelSpaceEntities(document, _handles);
             _entities = entities;
-            _previousValues = entities.Select(static entity => entity.LineWeight).ToArray();
+            _previousValues = CaptureEntityValues(
+                entities,
+                static entity => entity.LineWeight);
         }
-        SetTransactional(entities, LineWeight);
+        SetEntityValuesTransactional(
+            entities,
+            LineWeight,
+            static entity => entity.LineWeight,
+            static (entity, value) => entity.LineWeight = value);
     }
 
     internal override void Revert(CadDocument document)
@@ -656,7 +695,11 @@ public sealed class CadSetEntityLineWeightCommand : CadEditCommand
         Entity[] entities = GetRetainedEntities(document);
         LineWeightType[] previous = _previousValues ??
             throw new InvalidOperationException("The lineweight command has not been applied.");
-        SetTransactional(entities, previous);
+        SetEntityValuesTransactional(
+            entities,
+            previous,
+            static entity => entity.LineWeight,
+            static (entity, value) => entity.LineWeight = value);
     }
 
     private Entity[] GetRetainedEntities(CadDocument document)
@@ -667,51 +710,6 @@ public sealed class CadSetEntityLineWeightCommand : CadEditCommand
         return entities;
     }
 
-    private static void SetTransactional(Entity[] entities, LineWeightType target)
-    {
-        LineWeightType[] rollback =
-            entities.Select(static entity => entity.LineWeight).ToArray();
-        int applied = 0;
-        try
-        {
-            for (; applied < entities.Length; applied++)
-            {
-                entities[applied].LineWeight = target;
-            }
-        }
-        catch
-        {
-            for (int i = applied - 1; i >= 0; i--)
-            {
-                entities[i].LineWeight = rollback[i];
-            }
-            throw;
-        }
-    }
-
-    private static void SetTransactional(
-        Entity[] entities,
-        LineWeightType[] targets)
-    {
-        LineWeightType[] rollback =
-            entities.Select(static entity => entity.LineWeight).ToArray();
-        int applied = 0;
-        try
-        {
-            for (; applied < entities.Length; applied++)
-            {
-                entities[applied].LineWeight = targets[applied];
-            }
-        }
-        catch
-        {
-            for (int i = applied - 1; i >= 0; i--)
-            {
-                entities[i].LineWeight = rollback[i];
-            }
-            throw;
-        }
-    }
 }
 
 /// <summary>Assigns indexed, true, ByLayer, or ByBlock color to model-space entities.</summary>
@@ -759,9 +757,15 @@ public sealed class CadSetEntityColorCommand : CadEditCommand
         {
             entities = ResolveModelSpaceEntities(document, _handles);
             _entities = entities;
-            _previousValues = entities.Select(static entity => entity.Color).ToArray();
+            _previousValues = CaptureEntityValues(
+                entities,
+                static entity => entity.Color);
         }
-        SetTransactional(entities, Color);
+        SetEntityValuesTransactional(
+            entities,
+            Color,
+            static entity => entity.Color,
+            static (entity, value) => entity.Color = value);
     }
 
     internal override void Revert(CadDocument document)
@@ -769,7 +773,11 @@ public sealed class CadSetEntityColorCommand : CadEditCommand
         Entity[] entities = GetRetainedEntities(document);
         ACadSharp.Color[] previous = _previousValues ??
             throw new InvalidOperationException("The color command has not been applied.");
-        SetTransactional(entities, previous);
+        SetEntityValuesTransactional(
+            entities,
+            previous,
+            static entity => entity.Color,
+            static (entity, value) => entity.Color = value);
     }
 
     private Entity[] GetRetainedEntities(CadDocument document)
@@ -780,52 +788,78 @@ public sealed class CadSetEntityColorCommand : CadEditCommand
         return entities;
     }
 
-    private static void SetTransactional(
-        Entity[] entities,
-        ACadSharp.Color target)
+}
+
+/// <summary>Assigns explicit, ByLayer, or ByBlock transparency to model-space entities.</summary>
+public sealed class CadSetEntityTransparencyCommand : CadEditCommand
+{
+    private readonly ulong[] _handles;
+    private Entity[]? _entities;
+    private Transparency[]? _previousValues;
+
+    public ReadOnlyMemory<ulong> Handles => _handles;
+
+    public Transparency Transparency { get; }
+
+    public CadSetEntityTransparencyCommand(
+        IEnumerable<ulong> handles,
+        Transparency transparency,
+        string description = "Set entity transparency")
+        : base(description)
     {
-        ACadSharp.Color[] rollback =
-            entities.Select(static entity => entity.Color).ToArray();
-        int applied = 0;
-        try
+        ArgumentNullException.ThrowIfNull(handles);
+        _handles = handles.Distinct().ToArray();
+        if (_handles.Length == 0 || _handles.Any(static handle => handle == 0))
         {
-            for (; applied < entities.Length; applied++)
-            {
-                entities[applied].Color = target;
-            }
+            throw new ArgumentException(
+                "At least one non-zero entity handle is required.",
+                nameof(handles));
         }
-        catch
-        {
-            for (int i = applied - 1; i >= 0; i--)
-            {
-                entities[i].Color = rollback[i];
-            }
-            throw;
-        }
+        Transparency = transparency;
     }
 
-    private static void SetTransactional(
-        Entity[] entities,
-        ACadSharp.Color[] targets)
+    internal override void Apply(CadDocument document, bool isRedo)
     {
-        ACadSharp.Color[] rollback =
-            entities.Select(static entity => entity.Color).ToArray();
-        int applied = 0;
-        try
+        Entity[] entities;
+        if (isRedo)
         {
-            for (; applied < entities.Length; applied++)
-            {
-                entities[applied].Color = targets[applied];
-            }
+            entities = GetRetainedEntities(document);
         }
-        catch
+        else
         {
-            for (int i = applied - 1; i >= 0; i--)
-            {
-                entities[i].Color = rollback[i];
-            }
-            throw;
+            entities = ResolveModelSpaceEntities(document, _handles);
+            _entities = entities;
+            _previousValues = CaptureEntityValues(
+                entities,
+                static entity => entity.Transparency);
         }
+        SetEntityValuesTransactional(
+            entities,
+            Transparency,
+            static entity => entity.Transparency,
+            static (entity, value) => entity.Transparency = value);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Entity[] entities = GetRetainedEntities(document);
+        Transparency[] previous = _previousValues ??
+            throw new InvalidOperationException(
+                "The transparency command has not been applied.");
+        SetEntityValuesTransactional(
+            entities,
+            previous,
+            static entity => entity.Transparency,
+            static (entity, value) => entity.Transparency = value);
+    }
+
+    private Entity[] GetRetainedEntities(CadDocument document)
+    {
+        Entity[] entities = _entities ??
+            throw new InvalidOperationException(
+                "The transparency command has not been applied.");
+        ValidateModelSpaceEntities(document, entities);
+        return entities;
     }
 }
 

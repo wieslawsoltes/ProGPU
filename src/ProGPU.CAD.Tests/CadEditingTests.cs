@@ -371,4 +371,40 @@ public sealed class CadEditingTests
                 [1UL],
                 ACadSharp.Color.ByEntity));
     }
+
+    [Fact]
+    public void TransparencyCommandRestoresInheritanceAndRenderedAlpha()
+    {
+        var document = new CadDocument();
+        var inherited = new Line(XYZ.Zero, XYZ.AxisX)
+        {
+            Transparency = Transparency.ByLayer,
+        };
+        var byBlock = new Line(XYZ.AxisY, new XYZ(1, 1, 0))
+        {
+            Transparency = Transparency.ByBlock,
+        };
+        document.Entities.Add(inherited);
+        document.Entities.Add(byBlock);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetEntityTransparencyCommand(
+            [inherited.Handle, byBlock.Handle],
+            new Transparency(25)));
+
+        Assert.Equal((short)25, inherited.Transparency.Value);
+        Assert.Equal((short)25, byBlock.Transparency.Value);
+        CadDocumentSnapshot applied = new CadSnapshotCompiler().Compile(session);
+        Assert.All(
+            applied.Styles.ToArray(),
+            style => Assert.Equal((byte)191, style.Alpha));
+
+        Assert.True(history.TryUndo(out _));
+        Assert.True(inherited.Transparency.IsByLayer);
+        Assert.True(byBlock.Transparency.IsByBlock);
+        Assert.True(history.TryRedo(out _));
+        Assert.Equal((short)25, inherited.Transparency.Value);
+        Assert.Equal((short)25, byBlock.Transparency.Value);
+    }
 }

@@ -310,6 +310,12 @@ an interactive browser picker/download smoke remains open.
   Undo restores each semantic value rather than baking resolved RGB, while the
   snapshot regression verifies that an explicit true color reaches the shared
   retained stroke style unchanged.
+- Transparency assignment likewise retains explicit 0–90, `ByLayer`, and
+  `ByBlock` values instead of baking alpha into the mutable document. The shared
+  bounded property transaction captures a rollback vector, validates retained
+  entity/table identity, and reverses an already-applied setter prefix on
+  failure. Snapshot coverage verifies the existing integer-to-alpha rendering
+  contract after the edit.
 - A direct session edit from another owner invalidates both history branches.
   The expected generation is checked again under the document lock so a race
   cannot apply an undo to the wrong document state. Failed resolution or command
