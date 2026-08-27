@@ -3,7 +3,7 @@ using System;
 namespace System.Drawing;
 
 [AttributeUsage(AttributeTargets.Assembly)]
-public sealed class BitmapSuffixInSatelliteAssemblyAttribute : Attribute
+public class BitmapSuffixInSatelliteAssemblyAttribute : Attribute
 {
 }
 

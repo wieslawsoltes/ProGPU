@@ -3,15 +3,7 @@
 <Suppressions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
   <Suppression>
     <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.BitmapSuffixInSameAssemblyAttribute</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
     <Target>T:System.Drawing.CopyPixelOperation</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Design.CategoryNameCollection</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0001</DiagnosticId>
@@ -28,10 +20,6 @@
   <Suppression>
     <DiagnosticId>CP0001</DiagnosticId>
     <Target>T:System.Drawing.Graphics.EnumerateMetafileProc</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Imaging.ColorMode</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0001</DiagnosticId>
@@ -616,10 +604,6 @@
   <Suppression>
     <DiagnosticId>CP0008</DiagnosticId>
     <Target>T:System.Drawing.Text.PrivateFontCollection</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0009</DiagnosticId>
-    <Target>T:System.Drawing.BitmapSuffixInSatelliteAssemblyAttribute</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0009</DiagnosticId>
