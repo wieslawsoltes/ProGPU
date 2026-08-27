@@ -3336,6 +3336,136 @@ public class Graphics :
 
     public void DrawImage(Image image, Rectangle rect) => DrawImage(image, (RectangleF)rect);
 
+    public void DrawImage(Image image, PointF[] destPoints)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ValidateDestinationPoints(destPoints);
+        DrawImageMapped(
+            image,
+            destPoints[0],
+            destPoints[1],
+            destPoints[2],
+            destPoints.Length == 4 ? destPoints[3] : null,
+            new RectangleF(0f, 0f, image.Width, image.Height),
+            GraphicsUnit.Pixel,
+            null,
+            null,
+            0);
+    }
+
+    public void DrawImage(Image image, Point[] destPoints)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ValidateDestinationPoints(destPoints);
+        DrawImageMapped(
+            image,
+            destPoints[0],
+            destPoints[1],
+            destPoints[2],
+            destPoints.Length == 4 ? destPoints[3] : null,
+            new RectangleF(0f, 0f, image.Width, image.Height),
+            GraphicsUnit.Pixel,
+            null,
+            null,
+            0);
+    }
+
+    public void DrawImage(
+        Image image,
+        PointF[] destPoints,
+        RectangleF srcRect,
+        GraphicsUnit srcUnit) =>
+        DrawImage(image, destPoints, srcRect, srcUnit, null, null, 0);
+
+    public void DrawImage(
+        Image image,
+        PointF[] destPoints,
+        RectangleF srcRect,
+        GraphicsUnit srcUnit,
+        ImageAttributes? imageAttr) =>
+        DrawImage(image, destPoints, srcRect, srcUnit, imageAttr, null, 0);
+
+    public void DrawImage(
+        Image image,
+        PointF[] destPoints,
+        RectangleF srcRect,
+        GraphicsUnit srcUnit,
+        ImageAttributes? imageAttr,
+        DrawImageAbort? callback) =>
+        DrawImage(image, destPoints, srcRect, srcUnit, imageAttr, callback, 0);
+
+    public void DrawImage(
+        Image image,
+        PointF[] destPoints,
+        RectangleF srcRect,
+        GraphicsUnit srcUnit,
+        ImageAttributes? imageAttr,
+        DrawImageAbort? callback,
+        int callbackData)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ValidateDestinationPoints(destPoints);
+        DrawImageMapped(
+            image,
+            destPoints[0],
+            destPoints[1],
+            destPoints[2],
+            destPoints.Length == 4 ? destPoints[3] : null,
+            srcRect,
+            srcUnit,
+            imageAttr,
+            callback,
+            callbackData);
+    }
+
+    public void DrawImage(
+        Image image,
+        Point[] destPoints,
+        Rectangle srcRect,
+        GraphicsUnit srcUnit) =>
+        DrawImage(image, destPoints, srcRect, srcUnit, null, null, 0);
+
+    public void DrawImage(
+        Image image,
+        Point[] destPoints,
+        Rectangle srcRect,
+        GraphicsUnit srcUnit,
+        ImageAttributes? imageAttr) =>
+        DrawImage(image, destPoints, srcRect, srcUnit, imageAttr, null, 0);
+
+    public void DrawImage(
+        Image image,
+        Point[] destPoints,
+        Rectangle srcRect,
+        GraphicsUnit srcUnit,
+        ImageAttributes? imageAttr,
+        DrawImageAbort? callback) =>
+        DrawImage(image, destPoints, srcRect, srcUnit, imageAttr, callback, 0);
+
+    public void DrawImage(
+        Image image,
+        Point[] destPoints,
+        Rectangle srcRect,
+        GraphicsUnit srcUnit,
+        ImageAttributes? imageAttr,
+        DrawImageAbort? callback,
+        int callbackData)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ValidateDestinationPoints(destPoints);
+        DrawImageMapped(
+            image,
+            destPoints[0],
+            destPoints[1],
+            destPoints[2],
+            destPoints.Length == 4 ? destPoints[3] : null,
+            srcRect,
+            srcUnit,
+            imageAttr,
+            callback,
+            callbackData);
+    }
+
     public void DrawImage(Image image, Rectangle destRect, Rectangle srcRect, GraphicsUnit srcUnit)
     {
         DrawImage(image, (RectangleF)destRect, (RectangleF)srcRect, srcUnit);
@@ -3575,6 +3705,199 @@ public class Graphics :
             imageAttr,
             callback,
             callbackData);
+
+    private void DrawImageMapped(
+        Image image,
+        PointF topLeft,
+        PointF topRight,
+        PointF bottomLeft,
+        PointF? bottomRight,
+        RectangleF sourceRect,
+        GraphicsUnit sourceUnit,
+        ImageAttributes? imageAttributes,
+        DrawImageAbort? callback,
+        int callbackData)
+    {
+        Vector2 v0 = new(topLeft.X, topLeft.Y);
+        Vector2 v1 = new(topRight.X, topRight.Y);
+        Vector2 v3 = new(bottomLeft.X, bottomLeft.Y);
+        Vector2 v2 = bottomRight is PointF point
+            ? new Vector2(point.X, point.Y)
+            : v1 + v3 - v0;
+        Vector4 projectiveWeights = CreateProjectiveWeights(
+            v0,
+            v1,
+            v2,
+            v3,
+            bottomRight.HasValue);
+
+        if (callback?.Invoke(new IntPtr(callbackData)) == true)
+        {
+            return;
+        }
+
+        if (image is Bitmap bitmap)
+        {
+            DrawMappedBitmap(
+                bitmap,
+                v0,
+                v1,
+                v2,
+                v3,
+                projectiveWeights,
+                ConvertSourceRect(sourceRect, sourceUnit),
+                imageAttributes);
+        }
+    }
+
+    private void DrawMappedBitmap(
+        Bitmap bitmap,
+        Vector2 destination0,
+        Vector2 destination1,
+        Vector2 destination2,
+        Vector2 destination3,
+        Vector4 projectiveWeights,
+        RectangleF sourceRect,
+        ImageAttributes? imageAttributes)
+    {
+        Bitmap? adjustedBitmap = null;
+        if (imageAttributes is not null &&
+            (imageAttributes.RequiresCpuAdjustment(ColorAdjustType.Bitmap) ||
+                imageAttributes.GetRemapTable(ColorAdjustType.Bitmap).Length != 0 ||
+                imageAttributes.GetGpuColorMatrix(ColorAdjustType.Bitmap) is not null))
+        {
+            adjustedBitmap = bitmap.CreateImageAttributesAdjusted(
+                imageAttributes,
+                ColorAdjustType.Bitmap);
+        }
+
+        using (adjustedBitmap)
+        {
+            GpuTexture retainedTexture = RetainBitmapTexture(adjustedBitmap ?? bitmap);
+            Rect source = sourceRect.Width > 0f && sourceRect.Height > 0f
+                ? new Rect(sourceRect.X, sourceRect.Y, sourceRect.Width, sourceRect.Height)
+                : Rect.Empty;
+            float left = MathF.Min(
+                MathF.Min(destination0.X, destination1.X),
+                MathF.Min(destination2.X, destination3.X));
+            float top = MathF.Min(
+                MathF.Min(destination0.Y, destination1.Y),
+                MathF.Min(destination2.Y, destination3.Y));
+            float right = MathF.Max(
+                MathF.Max(destination0.X, destination1.X),
+                MathF.Max(destination2.X, destination3.X));
+            float bottom = MathF.Max(
+                MathF.Max(destination0.Y, destination1.Y),
+                MathF.Max(destination2.Y, destination3.Y));
+
+            _context.Commands.Add(new RenderCommand
+            {
+                Type = RenderCommandType.DrawTexture,
+                Texture = retainedTexture,
+                Rect = new Rect(left, top, right - left, bottom - top),
+                SrcRect = source,
+                Transform = CurrentTransform4x4(),
+                TextureSamplingMode = GetTextureSamplingMode(),
+                TextureDestination0 = destination0,
+                TextureDestination1 = destination1,
+                TextureDestination2 = destination2,
+                TextureDestination3 = destination3,
+                TextureDestinationProjectiveWeights = projectiveWeights,
+                HasTextureDestinationQuad = true
+            });
+        }
+    }
+
+    private static Vector4 CreateProjectiveWeights(
+        Vector2 topLeft,
+        Vector2 topRight,
+        Vector2 bottomRight,
+        Vector2 bottomLeft,
+        bool isPerspective)
+    {
+        if (!IsFinite(topLeft) ||
+            !IsFinite(topRight) ||
+            !IsFinite(bottomRight) ||
+            !IsFinite(bottomLeft))
+        {
+            throw new ArgumentException(
+                "Destination points must contain finite coordinates.",
+                "destPoints");
+        }
+
+        const float epsilon = 1e-6f;
+        if (!isPerspective)
+        {
+            float affineArea = Cross(topRight - topLeft, bottomLeft - topLeft);
+            if (!float.IsFinite(affineArea) || MathF.Abs(affineArea) <= epsilon)
+            {
+                throw new ArgumentException(
+                    "Destination points must define a non-degenerate parallelogram.",
+                    "destPoints");
+            }
+
+            return Vector4.One;
+        }
+
+        Vector2 firstDiagonal = bottomRight - topLeft;
+        Vector2 secondDiagonal = bottomLeft - topRight;
+        float denominator = Cross(firstDiagonal, secondDiagonal);
+        if (!float.IsFinite(denominator) || MathF.Abs(denominator) <= epsilon)
+        {
+            throw new ArgumentException(
+                "Destination points must define a non-degenerate convex quadrilateral.",
+                "destPoints");
+        }
+
+        Vector2 betweenStarts = topRight - topLeft;
+        float firstFraction = Cross(betweenStarts, secondDiagonal) / denominator;
+        float secondFraction = Cross(betweenStarts, firstDiagonal) / denominator;
+        if (!float.IsFinite(firstFraction) ||
+            !float.IsFinite(secondFraction) ||
+            firstFraction <= epsilon ||
+            firstFraction >= 1f - epsilon ||
+            secondFraction <= epsilon ||
+            secondFraction >= 1f - epsilon)
+        {
+            throw new ArgumentException(
+                "Destination points must define a non-degenerate convex quadrilateral.",
+                "destPoints");
+        }
+
+        var weights = new Vector4(
+            1f / (1f - firstFraction),
+            1f / (1f - secondFraction),
+            1f / firstFraction,
+            1f / secondFraction);
+        float maximum = MathF.Max(
+            MathF.Max(weights.X, weights.Y),
+            MathF.Max(weights.Z, weights.W));
+        if (!float.IsFinite(maximum) || maximum <= epsilon)
+        {
+            throw new ArgumentException(
+                "Destination points must define a finite perspective mapping.",
+                "destPoints");
+        }
+
+        return weights / maximum;
+    }
+
+    private static bool IsFinite(Vector2 value) =>
+        float.IsFinite(value.X) && float.IsFinite(value.Y);
+
+    private static float Cross(Vector2 first, Vector2 second) =>
+        first.X * second.Y - first.Y * second.X;
+
+    private static void ValidateDestinationPoints<T>(T[]? destinationPoints)
+    {
+        ArgumentNullException.ThrowIfNull(destinationPoints);
+        if (destinationPoints.Length is not 3 and not 4)
+        {
+            throw new ArgumentException(
+                "Destination points must contain three or four points.",
+                "destPoints");
+        }
+    }
 
     private void DrawBitmap(Bitmap bitmap, RectangleF rect)
     {

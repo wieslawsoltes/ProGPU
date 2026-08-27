@@ -4375,6 +4375,70 @@ public static partial class GpuPictureNativeSceneCompiler
             return false;
         }
 
+        Matrix3x2 destinationTransform = transform;
+        NativeImageRect destinationRect = new(
+            command.Rect.X,
+            command.Rect.Y,
+            command.Rect.Width,
+            command.Rect.Height);
+        if (command.HasTextureDestinationQuad)
+        {
+            Vector2 topLeft = command.TextureDestination0;
+            Vector2 topRight = command.TextureDestination1;
+            Vector2 bottomRight = command.TextureDestination2;
+            Vector2 bottomLeft = command.TextureDestination3;
+            Vector4 weights = command.TextureDestinationProjectiveWeights;
+            float largestWeight = MathF.Max(
+                MathF.Max(weights.X, weights.Y),
+                MathF.Max(weights.Z, weights.W));
+            float smallestWeight = MathF.Min(
+                MathF.Min(weights.X, weights.Y),
+                MathF.Min(weights.Z, weights.W));
+            Vector2 predictedBottomRight = topRight + bottomLeft - topLeft;
+            float coordinateScale = MathF.Max(
+                1f,
+                MathF.Max(
+                    MathF.Max(topLeft.Length(), topRight.Length()),
+                    MathF.Max(bottomRight.Length(), bottomLeft.Length())));
+            bool isAffine =
+                !hasPatches &&
+                IsFinite(topLeft) &&
+                IsFinite(topRight) &&
+                IsFinite(bottomRight) &&
+                IsFinite(bottomLeft) &&
+                IsFinite(weights) &&
+                smallestWeight > 0f &&
+                largestWeight - smallestWeight <= largestWeight * 1e-5f &&
+                Vector2.Distance(predictedBottomRight, bottomRight) <=
+                    coordinateScale * 1e-5f;
+            if (!isAffine)
+            {
+                // The native scene image command currently carries an affine
+                // Matrix3x2 only. Fail closed for projective quads so native
+                // replay never substitutes an axis-aligned bounds draw.
+                error = NativePictureCompileError.UnsupportedCommand;
+                return false;
+            }
+
+            Vector2 horizontal = topRight - topLeft;
+            Vector2 vertical = bottomLeft - topLeft;
+            if (MathF.Abs(horizontal.X * vertical.Y -
+                    horizontal.Y * vertical.X) <= 1e-6f)
+            {
+                error = NativePictureCompileError.InvalidGeometry;
+                return false;
+            }
+
+            destinationRect = new NativeImageRect(0f, 0f, 1f, 1f);
+            destinationTransform = new Matrix3x2(
+                horizontal.X,
+                horizontal.Y,
+                vertical.X,
+                vertical.Y,
+                topLeft.X,
+                topLeft.Y) * transform;
+        }
+
         NativeImageSampling sampling;
         switch (command.TextureSamplingMode)
         {
@@ -4565,7 +4629,9 @@ public static partial class GpuPictureNativeSceneCompiler
         }
         else
         {
-            bounds = TransformBounds(command.Rect, transform);
+            bounds = command.HasTextureDestinationQuad
+                ? TransformBounds(new Rect(0f, 0f, 1f, 1f), destinationTransform)
+                : TransformBounds(command.Rect, transform);
         }
         if (command.SnapTextureToPixels)
         {
@@ -4581,12 +4647,10 @@ public static partial class GpuPictureNativeSceneCompiler
                 source.Y,
                 source.Width,
                 source.Height),
-            new NativeImageRect(
-                hasPatches ? 0f : command.Rect.X,
-                hasPatches ? 0f : command.Rect.Y,
-                hasPatches ? 1f : command.Rect.Width,
-                hasPatches ? 1f : command.Rect.Height),
-            transform,
+            hasPatches
+                ? new NativeImageRect(0f, 0f, 1f, 1f)
+                : destinationRect,
+            destinationTransform,
             1f,
             flags,
             sampling == NativeImageSampling.LinearMipmap

@@ -13660,7 +13660,13 @@ SceneStateUploadComplete:
                 hasDestinationTransform: false,
                 colorBlendMode: 0f,
                 patchOpacity: 1f,
-                cmd.SnapTextureToPixels);
+                cmd.SnapTextureToPixels,
+                hasExplicitDestination: cmd.HasTextureDestinationQuad,
+                destination0: cmd.TextureDestination0,
+                destination1: cmd.TextureDestination1,
+                destination2: cmd.TextureDestination2,
+                destination3: cmd.TextureDestination3,
+                projectiveWeights: cmd.TextureDestinationProjectiveWeights);
         }
         else
         {
@@ -13810,13 +13816,33 @@ SceneStateUploadComplete:
         bool hasDestinationTransform,
         float colorBlendMode,
         float patchOpacity,
-        bool snapToPixels)
+        bool snapToPixels,
+        bool hasExplicitDestination = false,
+        Vector2 destination0 = default,
+        Vector2 destination1 = default,
+        Vector2 destination2 = default,
+        Vector2 destination3 = default,
+        Vector4 projectiveWeights = default)
     {
-        var r = destination;
-        var v0 = new Vector2(r.X, r.Y);
-        var v1 = new Vector2(r.X + r.Width, r.Y);
-        var v2 = new Vector2(r.X + r.Width, r.Y + r.Height);
-        var v3 = new Vector2(r.X, r.Y + r.Height);
+        Vector2 v0;
+        Vector2 v1;
+        Vector2 v2;
+        Vector2 v3;
+        if (hasExplicitDestination)
+        {
+            v0 = destination0;
+            v1 = destination1;
+            v2 = destination2;
+            v3 = destination3;
+        }
+        else
+        {
+            var r = destination;
+            v0 = new Vector2(r.X, r.Y);
+            v1 = new Vector2(r.X + r.Width, r.Y);
+            v2 = new Vector2(r.X + r.Width, r.Y + r.Height);
+            v3 = new Vector2(r.X, r.Y + r.Height);
+        }
         if (hasDestinationTransform)
         {
             v0 = Vector2.Transform(v0, destinationTransform);
@@ -13880,7 +13906,8 @@ SceneStateUploadComplete:
                 return;
             }
 
-            if (!QuadClipper.TryClipAxisAlignedQuad(
+            if (!hasExplicitDestination &&
+                !QuadClipper.TryClipAxisAlignedQuad(
                     _activeClipRect.Value,
                     ref v0,
                     ref v1,
@@ -13900,14 +13927,18 @@ SceneStateUploadComplete:
         CollectionsMarshal.SetCount(_textureVerticesList, originalVertexCount + 4);
         var vertexSpan = CollectionsMarshal.AsSpan(_textureVerticesList).Slice(originalVertexCount, 4);
 
+        Vector4 q = hasExplicitDestination
+            ? projectiveWeights
+            : Vector4.One;
+
         vertexSpan[0] = new VectorVertex(
-            v0, color, uv0, patchKind, cubicCoefficients, colorBlendMode, patchOpacity);
+            v0, color, uv0, patchKind, cubicCoefficients, colorBlendMode, patchOpacity, q.X);
         vertexSpan[1] = new VectorVertex(
-            v1, color, uv1, patchKind, cubicCoefficients, colorBlendMode, patchOpacity);
+            v1, color, uv1, patchKind, cubicCoefficients, colorBlendMode, patchOpacity, q.Y);
         vertexSpan[2] = new VectorVertex(
-            v2, color, uv2, patchKind, cubicCoefficients, colorBlendMode, patchOpacity);
+            v2, color, uv2, patchKind, cubicCoefficients, colorBlendMode, patchOpacity, q.Z);
         vertexSpan[3] = new VectorVertex(
-            v3, color, uv3, patchKind, cubicCoefficients, colorBlendMode, patchOpacity);
+            v3, color, uv3, patchKind, cubicCoefficients, colorBlendMode, patchOpacity, q.W);
 
         int originalIndexCount = _textureIndicesList.Count;
         CollectionsMarshal.SetCount(_textureIndicesList, originalIndexCount + 6);

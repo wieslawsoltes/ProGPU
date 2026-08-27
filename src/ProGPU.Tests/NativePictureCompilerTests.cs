@@ -926,6 +926,99 @@ public class NativePictureCompilerTests
             command.PayloadSize);
     }
 
+    [Fact]
+    public void CompilerLowersAffineTextureDestinationQuadExactly()
+    {
+        using GpuTexture texture = CreateUnbackedTexture(16U, 8U);
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawTexture,
+                    Texture = texture,
+                    Rect = new Rect(2f, 3f, 8f, 6f),
+                    SrcRect = new Rect(0f, 0f, 16f, 8f),
+                    TextureSamplingMode = TextureSamplingMode.Linear,
+                    TextureDestination0 = new Vector2(10f, 4f),
+                    TextureDestination1 = new Vector2(14f, 10f),
+                    TextureDestination2 = new Vector2(5f, 16f),
+                    TextureDestination3 = new Vector2(1f, 10f),
+                    TextureDestinationProjectiveWeights = Vector4.One,
+                    HasTextureDestinationQuad = true,
+                    Transform = Matrix4x4.Identity
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            124U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        NativeMethods.SceneCommand command =
+            MemoryMarshal.Read<NativeMethods.SceneCommand>(
+                compiled.Stream.Slice(checked((int)header.CommandOffset)));
+        NativeSceneImageDraw draw =
+            MemoryMarshal.Read<NativeSceneImageDraw>(
+                compiled.Stream.Slice(checked((int)command.PayloadOffset)));
+        Assert.Equal(new NativeImageRect(0f, 0f, 1f, 1f), draw.DestinationRect);
+        Assert.Equal(
+            new Matrix3x2(4f, 6f, -9f, 6f, 10f, 4f),
+            draw.Transform);
+        Assert.Equal(1f, command.Bounds.X);
+        Assert.Equal(4f, command.Bounds.Y);
+        Assert.Equal(13f, command.Bounds.Width);
+        Assert.Equal(12f, command.Bounds.Height);
+    }
+
+    [Fact]
+    public void CompilerRejectsProjectiveTextureDestinationQuadWithoutApproximation()
+    {
+        using GpuTexture texture = CreateUnbackedTexture(16U, 8U);
+        using var picture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawTexture,
+                    Texture = texture,
+                    Rect = new Rect(0f, 0f, 8f, 8f),
+                    SrcRect = new Rect(0f, 0f, 16f, 8f),
+                    TextureSamplingMode = TextureSamplingMode.Linear,
+                    TextureDestination0 = new Vector2(0f, 0f),
+                    TextureDestination1 = new Vector2(8f, 0f),
+                    TextureDestination2 = new Vector2(4f, 8f),
+                    TextureDestination3 = new Vector2(0f, 8f),
+                    TextureDestinationProjectiveWeights =
+                        new Vector4(1f, 1f, 0.5f, 0.5f),
+                    HasTextureDestinationQuad = true,
+                    Transform = Matrix4x4.Identity
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            125U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Null(compiled);
+        Assert.Equal(NativePictureCompileError.UnsupportedCommand, failure.Error);
+        Assert.Equal(0, failure.CommandIndex);
+    }
+
     [Theory]
     [InlineData(TextureSamplingMode.Nearest, NativeImageSampling.Nearest, 1U)]
     [InlineData(TextureSamplingMode.Linear, NativeImageSampling.Linear, 1U)]

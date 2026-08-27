@@ -16,7 +16,7 @@ The public signatures and observable behavior are checked against the reference 
 
 `DrawIcon(icon, x, y)` converts the typed managed icon snapshot to a bitmap and records the existing unscaled image command at the requested coordinates. The temporary bitmap is disposed after recording; the drawing command owns its typed texture lease, so deferred rendering remains valid.
 
-The destination-point-array `DrawImage` family remains explicitly suppressed. Those overloads require truthful affine and perspective texture mapping in the renderer and will not be approximated by an axis-aligned rectangle.
+The destination-point-array `DrawImage` family was left for a separate renderer contract. It is now implemented with truthful retained affine and perspective texture mapping; see [`system-drawing-destination-point-image-contract.md`](system-drawing-destination-point-image-contract.md).
 
 ## Gates and evidence
 

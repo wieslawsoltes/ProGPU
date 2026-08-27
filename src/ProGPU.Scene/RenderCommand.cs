@@ -747,6 +747,12 @@ public struct RenderCommand
     public Vector2 TextureCubicCoefficients;
     public bool HasTextureCubicCoefficients;
     public bool SnapTextureToPixels;
+    public Vector2 TextureDestination0;
+    public Vector2 TextureDestination1;
+    public Vector2 TextureDestination2;
+    public Vector2 TextureDestination3;
+    public Vector4 TextureDestinationProjectiveWeights;
+    public bool HasTextureDestinationQuad;
     public bool HasImageEffect;
     private ImageEffectCommandDataBox? _imageEffect;
     internal int ImageEffectBufferIndex;
@@ -1002,6 +1008,12 @@ internal readonly struct RetainedTextureCommandData
     private readonly Vector2 _cubicCoefficients;
     private readonly bool _hasCubicCoefficients;
     private readonly bool _snapToPixels;
+    private readonly Vector2 _destination0;
+    private readonly Vector2 _destination1;
+    private readonly Vector2 _destination2;
+    private readonly Vector2 _destination3;
+    private readonly Vector4 _destinationProjectiveWeights;
+    private readonly bool _hasDestinationQuad;
     private readonly bool _hasImageEffect;
     private readonly ImageEffectCommandDataBox? _inlineImageEffect;
     private readonly int _imageEffectBufferIndex;
@@ -1017,6 +1029,12 @@ internal readonly struct RetainedTextureCommandData
         _cubicCoefficients = command.TextureCubicCoefficients;
         _hasCubicCoefficients = command.HasTextureCubicCoefficients;
         _snapToPixels = command.SnapTextureToPixels;
+        _destination0 = command.TextureDestination0;
+        _destination1 = command.TextureDestination1;
+        _destination2 = command.TextureDestination2;
+        _destination3 = command.TextureDestination3;
+        _destinationProjectiveWeights = command.TextureDestinationProjectiveWeights;
+        _hasDestinationQuad = command.HasTextureDestinationQuad;
         _hasImageEffect = command.HasImageEffect;
         _inlineImageEffect = command.InlineImageEffectBox;
         _imageEffectBufferIndex = command.ImageEffectBufferIndex;
@@ -1033,6 +1051,12 @@ internal readonly struct RetainedTextureCommandData
         command.TextureCubicCoefficients = _cubicCoefficients;
         command.HasTextureCubicCoefficients = _hasCubicCoefficients;
         command.SnapTextureToPixels = _snapToPixels;
+        command.TextureDestination0 = _destination0;
+        command.TextureDestination1 = _destination1;
+        command.TextureDestination2 = _destination2;
+        command.TextureDestination3 = _destination3;
+        command.TextureDestinationProjectiveWeights = _destinationProjectiveWeights;
+        command.HasTextureDestinationQuad = _hasDestinationQuad;
         command.HasImageEffect = _hasImageEffect;
         command.InlineImageEffectBox = _inlineImageEffect;
         command.ImageEffectBufferIndex = _imageEffectBufferIndex;
@@ -1269,6 +1293,7 @@ internal readonly struct RetainedRenderCommand
         command.GeometryCache is null &&
         command.TexturePatches is null &&
         !command.HasTextureCubicCoefficients &&
+        !command.HasTextureDestinationQuad &&
         !command.HasImageEffect &&
         command.InlineImageEffectBox is null &&
         command.ImageEffectBufferIndex == 0 &&
@@ -1425,6 +1450,12 @@ internal readonly struct RetainedRenderCommand
         command.TextureCubicCoefficients != default ||
         command.HasTextureCubicCoefficients ||
         command.SnapTextureToPixels ||
+        command.TextureDestination0 != default ||
+        command.TextureDestination1 != default ||
+        command.TextureDestination2 != default ||
+        command.TextureDestination3 != default ||
+        command.TextureDestinationProjectiveWeights != default ||
+        command.HasTextureDestinationQuad ||
         command.HasImageEffect ||
         command.InlineImageEffectBox is not null ||
         command.ImageEffectBufferIndex != 0 ||
@@ -5179,7 +5210,12 @@ public class DrawingContext :
 
     private static void TranslateRectBackedCommand(ref RenderCommand command, Vector2 translation)
     {
-        if (HasNonIdentityTransform(command))
+        if (command.Type == RenderCommandType.DrawTexture &&
+            command.HasTextureDestinationQuad)
+        {
+            ComposeAppendTranslation(ref command, translation);
+        }
+        else if (HasNonIdentityTransform(command))
         {
             ComposeAppendTranslation(ref command, translation);
         }

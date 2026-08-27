@@ -6,7 +6,7 @@ Date: 2026-08-26
 
 This slice completes the point, unscaled/clipped, point-anchored source rectangle, and float-source destination rectangle members of the official `Graphics.DrawImage` family. The public contract is defined by the pinned .NET 10.0.11 reference assembly and [Graphics.DrawImage](https://learn.microsoft.com/dotnet/api/system.drawing.graphics.drawimage?view=windowsdesktop-10.0) / [Graphics.DrawImageUnscaled](https://learn.microsoft.com/dotnet/api/system.drawing.graphics.drawimageunscaled?view=windowsdesktop-10.0) documentation.
 
-The destination-point-array overloads are intentionally outside this slice. Three points require affine source-to-parallelogram mapping and four points require perspective mapping; those members remain explicit ApiCompat debt until the retained texture command has a reviewed mapping contract. They are not approximated with an axis-aligned bounding rectangle.
+The destination-point-array overloads were intentionally outside this slice because three points require affine source-to-parallelogram mapping and four points require perspective mapping. That follow-up is now implemented through a typed retained texture mapping rather than an axis-aligned bounding rectangle; see [`system-drawing-destination-point-image-contract.md`](system-drawing-destination-point-image-contract.md).
 
 ## Typed behavior
 
