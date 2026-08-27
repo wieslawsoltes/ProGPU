@@ -91,6 +91,15 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   widths. Page dimensions remain integer output pixels with an explicit total-
   pixel budget, while model/page mapping remains allocation-free double-to-float
   matrix math after compilation.
+- `CadPageSetupCatalogCompiler` captures layouts and standalone named
+  `PLOTSETTINGS` overrides under the same document-generation lock into bounded,
+  deterministically ordered, ProGPU-owned snapshots. It copies all strings and
+  retains physical media, margins, plot origin, target space, rotation, plot
+  area/window, custom and standard scale state, lineweight/style flags, and
+  shade policy without retaining an ACadSharp object. The paired typed lowerer
+  accepts only the currently exact model-space extents/wireframe subset and
+  reports every unsupported coordinate, paper, style, or shade policy before a
+  print plan is created.
 - Lightweight polylines retain their whole path as one command. Straight and
   positive/negative bulge segments remain analytic in the entity OCS, with a
   checked affine OCS-to-WCS projection. Wide polylines are deliberately reported
@@ -804,8 +813,39 @@ transparency, raster quality, font substitution, and paper-space ordering. It
 must reuse analytic vector and shaped-text resources and produce deterministic
 preview/output from the same compiled print plan.
 
-The first model-space print-plan foundation is implemented by `CadPrintPlanCompiler`:
+The first model-space print-plan foundation is implemented by
+`CadPageSetupCatalogCompiler`, `CadPageSetupPrintOptionsCompiler`, and
+`CadPrintPlanCompiler`:
 
+- every layout and standalone named page setup is copied synchronously with its
+  matching document generation. Setup count, individual/total UTF-16 ownership,
+  diagnostics, and cancellation are bounded; ordering is deterministic with
+  model layout first, then paper layouts, then named overrides. The immutable
+  catalog exposes no mutable ACadSharp object;
+- the snapshot retains paper/media/printer identifiers, dimensions and margins
+  (which the DXF contract defines in millimeters), paper unit, rotation, plot
+  area, DCS plot-window values, layout limits/extents, plot origin, centering,
+  current custom scale, standard-scale selection/factor, lineweight/style flags,
+  and shade mode/resolution/DPI. Retention is not a claim that every policy is
+  already renderable;
+- exact lowering presently requires model space, zero page rotation, inch or
+  millimeter paper units, drawing extents, explicit wireframe, enabled and
+  unscaled object lineweights, and no applied nonempty CTB/STB style sheet.
+  Standard scale code zero selects Fit; otherwise the source's current custom
+  numerator/denominator is authoritative and converts to drawing units per
+  millimeter. A centered flag selects centered placement; otherwise plot origin
+  becomes an offset from the printable lower-left;
+- Window is deliberately rejected even though its raw rectangle is retained:
+  Autodesk defines the stored coordinates in display coordinate system (DCS),
+  while the current print plan accepts an explicit WCS window. Display, named
+  view, Limits, paper-space/Layout viewports, rotation, pixel paper units,
+  hidden/shaded/as-displayed output, disabled/scaled lineweights, and applied
+  plot styles likewise return specific diagnostics rather than an approximation;
+- the pinned ACadSharp page-setup surface does not expose Autodesk's separate
+  Plot Transparency option. Generation-matched lowering therefore rejects a
+  snapshot containing any non-opaque retained style (`CADPAGE118`) instead of
+  assuming that transparency should or should not print. The direct programmatic
+  print-plan API remains an explicit caller policy and preserves retained alpha;
 - paper size and unprintable margins are finite millimeters converted once to
   deterministic integer output pixels with round-half-away-from-zero behavior;
   page coordinates are limited to exact float integers and the default total
@@ -830,12 +870,16 @@ The first model-space print-plan foundation is implemented by `CadPrintPlanCompi
   storage for E entity headers and C scene commands; no raster surface is
   allocated.
 
-This foundation does not claim layout/paper-space viewport support, page-setup
-extraction from ACadSharp, paper rotation, named views/limits/display areas,
+Catalog extraction is now implemented, but this foundation does not claim
+layout/paper-space viewport lowering, paper rotation, DCS camera/view lowering,
 CTB/STB overrides, shaded-viewport policies, transparency flattening, PDF/SVG,
 raster encoding, printer enumeration/spooling, or multi-page collation. Those
 remain explicit typed compilers/adapters and conformance gates; unsupported
-features are not silently rasterized or dropped.
+features are not silently rasterized or dropped. This CPU metadata/lowering
+slice changes no shader, stable C ABI, native renderer, compositor, atlas, or
+device-loss behavior. Both managed and native renderers continue to consume the
+same existing retained picture, clip, affine transform, shaped text, analytic
+path, and fixed-stroke commands, so no paired native implementation applies.
 
 ## Performance and conformance gates
 
@@ -865,8 +909,8 @@ Allocations/VM Tracker, Time Profiler, and Metal System Trace captures.
 ### Reproducible phase-2 CPU baseline
 
 `ProGPU.CAD.Benchmarks` provides JSON p50/p95/p99 and allocation output for
-snapshot construction, retained plan-scene recording, retained physical print-
-plan construction, and spatial queries. Run:
+snapshot construction, page-setup catalog capture, retained plan-scene
+recording, retained physical print-plan construction, and spatial queries. Run:
 
 ```bash
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --warmup 3 --iterations 24 --queries 10000
@@ -894,6 +938,14 @@ recording at 300 DPI, physical pen creation, and the owned content picture, but
 does not allocate the eventual raster target. The noisy snapshot/scene tails in
 the same processes and the absence of a prior print implementation make these
 feature baselines only; they are not an improvement or release-acceptance claim.
+
+The same two fresh 24-iteration Release processes measured the default
+two-layout page-setup catalog at p50/p95/p99 of 0.0012/0.0104/0.0550 ms and
+0.0014/0.0160/0.0752 ms, allocating 2,120 managed bytes per immutable catalog in
+both runs. Catalog cost depends on layout/setup count and copied text, not entity
+count; the 10,000-entity fixture is retained only to keep the surrounding harness
+comparable. These are feature/cost baselines with no improvement claim and do
+not replace large-layout, corrupt-input, desktop/browser, or full output tests.
 
 The MINSERT mode creates one block reference whose single line expands across
 the requested number of columns. Two consecutive 100-iteration Release runs at
@@ -1090,15 +1142,27 @@ Sources consulted on 2026-08-27:
   interaction/edit slice changes no shader, compositor, upload, device-loss,
   atlas, or managed/native renderer contract; both backends continue receiving
   the same existing picture/overlay commands.
-- [Autodesk page setup](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-LT/files/GUID-D8BE8598-D9F8-49C2-81BC-19786A390379.htm),
+- [Autodesk page setup](https://help.autodesk.com/cloudhelp/2025/ENU/DWGTrueView/files/GUID-0D72CF75-DA37-4937-9D9A-D93AA9BDF8D3.htm),
   [PLOTSETTINGS DXF fields](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-DXF/files/GUID-1113675E-AB07-4567-801A-310CDE0D56E9.htm),
+  [LAYOUT DXF fields](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-433D25BF-655D-4697-834E-C666EDFD956D.htm),
+  [plot-settings/page-setup ownership](https://help.autodesk.com/cloudhelp/2017/ENU/AutoCAD-NET/files/GUID-56BD3247-471C-4471-A238-FFDFDC3BD2E4.htm),
+  [plot-window DCS contract](https://help.autodesk.com/cloudhelp/2022/ENU/OARX-ManagedRefGuide/files/OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_PlotSettingsValidator_SetPlotWindowArea_PlotSettings_Extents2d.html),
+  [plot-origin contract](https://help.autodesk.com/cloudhelp/2019/ENU/OARX-RefGuide/files/OREF-__OVERLOADED_getPlotOrigin_AcDbPlotSettings.html),
+  [custom plot scale](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-__MEMBERTYPE_Methods_AcDbPlotSettings.html),
+  [plot scale behavior](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-LT/files/GUID-FCC2782E-7876-4EE0-86C1-AA222B4DD2E1.htm),
+  [plot-transparency policy](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-AcDbPlotSettings__plotTransparency_const.html),
   and [plot styles](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-Core/files/GUID-929FE8EC-EFE3-43BB-A79F-4FF509A91D5A.htm):
-  adopted separate physical paper/margins, printable-relative offset or
-  centering, extents/window area, fit or paper-unit/drawing-unit scale, fixed
-  physical lineweight, plot eligibility, and explicit CTB/STB override phases.
-  Adapted only model-space extents/window, center/offset, fit/custom scale, and
-  object lineweight into the first bounded plan; rejected guessing layout,
-  device, style-table, rotation, or shaded-output policy.
+  adopted detached layout and named-override ownership, separate physical
+  paper/margins, printable-relative offset or centering, explicit plot-area
+  identity, fit or paper-unit/drawing-unit scale, fixed physical lineweight,
+  plot eligibility, and explicit CTB/STB override phases. Adapted model-space
+  Extents, center/offset, fit/current-custom scale, and object lineweight into
+  the first bounded lowering. Retained Window as raw DCS data and rejected
+  treating it as WCS without the saved view transform; also rejected guessing
+  layout viewports/UCS limits, device pixel scale, style-table, rotation,
+  disabled/scaled lineweight, shaded-output, or transparency policy. Paper image
+  origin remains retained device metadata; the documented plot origin inside
+  the paper margins is the current geometric offset authority.
 - [Skia PDF pages](https://skia.org/docs/user/sample/pdf/),
   [Skia canvas backends](https://skia.org/docs/user/api/skcanvas_creation/),
   [Direct2D print control](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1device-createprintcontrol),

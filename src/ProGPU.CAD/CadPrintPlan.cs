@@ -31,6 +31,8 @@ public sealed class CadPrintPlanOptions
 {
     public const long DefaultMaxPagePixelCount = 268_435_456;
 
+    public string? SourcePageSetupName { get; init; }
+
     public double PaperWidthMillimeters { get; init; } = 210.0;
 
     public double PaperHeightMillimeters { get; init; } = 297.0;
@@ -85,6 +87,8 @@ public sealed class CadPrintPlan : IDisposable
 
     public ulong ContentGeneration { get; }
 
+    public string? SourcePageSetupName { get; }
+
     public double PaperWidthMillimeters { get; }
 
     public double PaperHeightMillimeters { get; }
@@ -128,6 +132,7 @@ public sealed class CadPrintPlan : IDisposable
     {
         _contentPicture = contentPicture;
         ContentGeneration = contentGeneration;
+        SourcePageSetupName = options.SourcePageSetupName;
         PaperWidthMillimeters = options.PaperWidthMillimeters;
         PaperHeightMillimeters = options.PaperHeightMillimeters;
         OutputDpi = options.OutputDpi;
@@ -182,6 +187,38 @@ public sealed class CadPrintPlanCompiler
 {
     private const double MillimetersPerInch = 25.4;
     private const int MaximumExactFloatPixelCoordinate = 16_777_216;
+
+    public CadPrintPlan CompileFromPageSetup(
+        CadDocumentSnapshot snapshot,
+        CadPageSetupPrintOptionsResult pageSetup,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(pageSetup);
+        if (!pageSetup.IsSupported || pageSetup.PrintOptions is null)
+        {
+            string reason = pageSetup.Diagnostics.IsEmpty
+                ? "The page setup cannot be lowered by the current print-plan contract."
+                : pageSetup.Diagnostics.Span[0].Message;
+            throw new NotSupportedException(reason);
+        }
+        if (snapshot.ContentGeneration != pageSetup.ContentGeneration)
+        {
+            throw new InvalidOperationException(
+                $"Page setup generation {pageSetup.ContentGeneration} does not match snapshot generation {snapshot.ContentGeneration}.");
+        }
+        foreach (CadStrokeStyle style in snapshot.Styles.Span)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (style.Alpha != byte.MaxValue)
+            {
+                throw new NotSupportedException(
+                    "CADPAGE118: The pinned page-setup contract does not expose Plot Transparency, so transparent retained styles cannot be lowered without guessing output policy.");
+            }
+        }
+
+        return Compile(snapshot, pageSetup.PrintOptions, cancellationToken);
+    }
 
     public CadPrintPlan Compile(
         CadDocumentSnapshot snapshot,

@@ -41,6 +41,7 @@ CadDocumentSession session = CreateDocument(
     shxTextEntityCount,
     decorateText);
 var snapshotCompiler = new CadSnapshotCompiler();
+var pageSetupCompiler = new CadPageSetupCatalogCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
 var printPlanCompiler = new CadPrintPlanCompiler();
 CadShxFont? shxFont = shxInterpretationCount == 0 && shxLayoutCount == 0 &&
@@ -72,6 +73,7 @@ ValidateRequestedEntities(validationSnapshot);
 for (int i = 0; i < warmupCount; i++)
 {
     CadDocumentSnapshot warmSnapshot = snapshotCompiler.Compile(session, snapshotOptions);
+    _ = pageSetupCompiler.Compile(session);
     _ = sceneCompiler.Compile(warmSnapshot);
     using CadPrintPlan warmPrintPlan = printPlanCompiler.Compile(warmSnapshot);
     if (shxFont is not null)
@@ -91,6 +93,10 @@ Measurement snapshotMeasurement = Measure(
     "snapshot",
     iterationCount,
     () => snapshotCompiler.Compile(session, snapshotOptions));
+Measurement pageSetupMeasurement = Measure(
+    "page-setup-catalog",
+    iterationCount,
+    () => pageSetupCompiler.Compile(session));
 CadDocumentSnapshot snapshot = snapshotCompiler.Compile(session, snapshotOptions);
 Measurement sceneMeasurement = Measure(
     "plan-scene",
@@ -133,6 +139,7 @@ var report = new CadBenchmarkReport(
     snapshot.SpatialIndex.NodeCount,
     recordedScene.Statistics.RecordedCommandCount,
     snapshotMeasurement,
+    pageSetupMeasurement,
     sceneMeasurement,
     printPlanMeasurement,
     queryMeasurement,
@@ -458,6 +465,7 @@ internal sealed record CadBenchmarkReport(
     int SpatialNodeCount,
     int RecordedCommandCount,
     Measurement SnapshotMilliseconds,
+    Measurement PageSetupCatalogMilliseconds,
     Measurement PlanSceneMilliseconds,
     Measurement PrintPlanMilliseconds,
     Measurement SpatialQueryNanoseconds,
