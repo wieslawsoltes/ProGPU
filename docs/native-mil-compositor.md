@@ -683,6 +683,12 @@ pixels at `[48,28]-[66,47]` inside the same transformed viewport/clip. Both
 camera families therefore execute through retained MIL and the shared GPU
 projection path.
 
+Native scene validation now rejects negative directional or ambient intensity
+and nonpositive shininess before retaining or allocating a mesh page. The WGSL
+minimum clamps remain defense in depth for already-validated streams, not an
+API policy that silently converts invalid lighting state. Native C++ coverage
+checks all three rejection boundaries alongside the existing face-flag guard.
+
 - Implement the remaining 2D/3D resource execution, curve dashes, exact
   translated-equivalent EvenOdd overlap execution, remaining pen/image/media
   paths, dynamic guidelines, caches, effects, and render-data commands.
