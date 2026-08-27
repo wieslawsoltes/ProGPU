@@ -1,5 +1,8 @@
 using ProGPU.Backend;
+using ProGPU.Backend.Native;
 using ProGPU.DirectX;
+using ProGPU.Scene;
+using ProGPU.Scene.Native;
 using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.InteropServices;
@@ -9492,6 +9495,141 @@ float4 PSMain() : SV_Target
         });
 
         Assert.Equal(GpuTextureAlphaMode.Straight, texture.BackendTexture!.AlphaMode);
+    }
+
+    [Fact]
+    public void GpuBackedDirectXTexturePublishesTypedInvalidatingLease()
+    {
+        using var wgpu = new WgpuContext();
+        wgpu.Initialize(null);
+        using var device = ProGpuDirectXDevice.FromContext(wgpu);
+        var texture = device.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 2,
+            Height = 2,
+            Format = DxResourceFormat.R8G8B8A8Unorm,
+            Usage = DxTextureUsage.ShaderResource |
+                DxTextureUsage.RenderTarget |
+                DxTextureUsage.CopyDestination
+        });
+        var source = Assert.IsAssignableFrom<IProGpuInvalidatingTextureSource>(texture);
+        var changeCount = 0;
+        source.TextureChanged += (_, _) => changeCount++;
+
+        Assert.True(source.TryGetGpuTexture(out GpuTexture backend));
+        Assert.Same(texture.BackendTexture, backend);
+        Assert.True(source.TryAcquireGpuTextureLease(out IProGpuTextureLease lease));
+        Assert.Same(backend, lease.Texture);
+
+        texture.WritePixels<byte>(
+        [
+            255, 0, 0, 255,
+            0, 255, 0, 255,
+            0, 0, 255, 255,
+            255, 255, 255, 255
+        ]);
+        using (var immediate = device.CreateImmediateContext())
+        {
+            immediate.ClearRenderTarget(
+                texture,
+                new DxColor(0.25f, 0.5f, 0.75f, 1f));
+            immediate.Flush();
+        }
+        texture.Resize(4, 4);
+
+        Assert.Equal(3U, texture.Generation);
+        Assert.Equal(3, changeCount);
+
+        texture.Dispose();
+        Assert.False(source.TryGetGpuTexture(out _));
+        Assert.False(source.TryAcquireGpuTextureLease(out _));
+        Assert.False(backend.IsDisposed);
+
+        lease.Dispose();
+        Assert.True(backend.IsDisposed);
+    }
+
+    [Fact]
+    public void DirectXTextureLeaseFailsClosedForUnsupportedResourceShapes()
+    {
+        using var wgpu = new WgpuContext();
+        wgpu.Initialize(null);
+        using var gpuDevice = ProGpuDirectXDevice.FromContext(wgpu);
+        using var metadataDevice = ProGpuDirectXDevice.CreateMetadataDevice();
+        using var cpuOnly = metadataDevice.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 2,
+            Height = 2
+        });
+        using var arrayTexture = gpuDevice.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 2,
+            Height = 2,
+            ArraySize = 2,
+            Usage = DxTextureUsage.ShaderResource
+        });
+        using var multisampled = gpuDevice.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 2,
+            Height = 2,
+            SampleCount = 4,
+            Usage = DxTextureUsage.ShaderResource |
+                DxTextureUsage.RenderTarget
+        });
+        using var nonBindable = gpuDevice.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 2,
+            Height = 2,
+            Usage = DxTextureUsage.CopySource |
+                DxTextureUsage.CopyDestination
+        });
+
+        Assert.False(cpuOnly.TryGetGpuTexture(out _));
+        Assert.False(arrayTexture.TryAcquireGpuTextureLease(out _));
+        Assert.False(multisampled.TryAcquireGpuTextureLease(out _));
+        Assert.False(nonBindable.TryAcquireGpuTextureLease(out _));
+    }
+
+    [Fact]
+    public void DirectXTextureLeaseCompilesAsNativeMilExternalImageWithoutCpuCopy()
+    {
+        using var wgpu = new WgpuContext();
+        wgpu.Initialize(null);
+        using var device = ProGpuDirectXDevice.FromContext(wgpu);
+        var texture = device.CreateTexture2D(new DxTexture2DDescriptor
+        {
+            Width = 4,
+            Height = 4,
+            Format = DxResourceFormat.B8G8R8A8Unorm,
+            Usage = DxTextureUsage.ShaderResource |
+                DxTextureUsage.RenderTarget |
+                DxTextureUsage.CopyDestination
+        });
+        var drawing = new DrawingContext();
+
+        Assert.True(drawing.TryRetainTexture(texture, wgpu, out GpuTexture retained));
+        drawing.DrawTexture(retained, new Rect(0f, 0f, 4f, 4f));
+        using GpuPicture picture = drawing.CreatePictureSnapshot();
+
+        texture.Dispose();
+        Assert.False(retained.IsDisposed);
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            sceneId: 140U,
+            generation: 1U,
+            new NativePictureCompileOptions(1f),
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.Equal(1, compiled!.ExternalImages.Length);
+        NativeSceneExternalImageBinding binding = compiled.ExternalImages[0];
+        Assert.Same(retained, binding.Texture);
+        Assert.Equal(NativeSceneExternalImageRole.Primary, binding.Role);
+
+        picture.Dispose();
+        Assert.False(retained.IsDisposed);
+        drawing.Clear();
+        Assert.True(retained.IsDisposed);
     }
 
     [Fact]
