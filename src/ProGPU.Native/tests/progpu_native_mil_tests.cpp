@@ -20,6 +20,10 @@ namespace {
 using progpu::native::mil::batch_metrics;
 using progpu::native::mil::channel;
 using progpu::native::mil::command;
+using progpu::native::mil::scene_build_request;
+using progpu::native::mil::scene_build_request_flags;
+using progpu::native::mil::scene_build_result;
+using progpu::native::mil::scene_build_result_flags;
 using progpu::native::mil::status;
 
 namespace command_layouts = progpu::native::mil::command_layouts;
@@ -8707,6 +8711,308 @@ bool render_data_static_guideline_scope_uses_active_transform() {
     return true;
 }
 
+bool dynamic_guidelines_follow_wpf_phase_state() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t guidelines = 5U;
+    constexpr std::uint32_t transform = 6U;
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, guidelines, 92U);
+    append_create(batch, transform, 66U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.25F, 0.5F, 0.75F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::matrix_transform,
+        transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0U);
+    append_command(
+        batch,
+        command::guideline_set,
+        guidelines,
+        16U,
+        0U,
+        1U,
+        0.25,
+        0.5);
+    std::vector<std::byte> nested;
+    append_command(nested, command::push_transform, transform, 0U);
+    append_command(nested, command::push_guideline_set, guidelines, 0U);
+    append_command(
+        nested,
+        command::draw_rectangle,
+        0.0,
+        0.0,
+        8.0,
+        8.0,
+        brush,
+        0U);
+    append_command(nested, command::pop);
+    append_command(nested, command::pop);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        16U,
+        16U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> legacy;
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9'100U, 1U, legacy) ==
+        status::unsupported_command);
+
+    const auto build = [&state](
+        std::uint64_t serial,
+        std::uint64_t milliseconds,
+        scene_build_request_flags flags,
+        std::vector<std::byte>& copy,
+        scene_build_result& result) {
+        scene_build_request request{};
+        request.flags = flags;
+        request.target_handle = target;
+        request.scene_id = 9'100U;
+        request.generation = serial;
+        request.dpi_scale_x = 1.0;
+        request.dpi_scale_y = 1.0;
+        request.monotonic_time_nanoseconds = milliseconds * 1'000'000U;
+        request.request_serial = serial;
+        std::span<const std::byte> stream;
+        const status build_status = state.build_scene(
+            request, stream, nullptr, &result);
+        copy.assign(stream.begin(), stream.end());
+        return build_status;
+    };
+    const auto read_offset = [](const std::vector<std::byte>& stream) {
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        for (std::uint32_t index = 0U;
+             index < header.resource_count;
+             ++index) {
+            const auto resource = read_value<progpu_native_scene_resource>(
+                stream,
+                header.resource_offset +
+                    index * sizeof(progpu_native_scene_resource));
+            if (resource.kind !=
+                PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET) {
+                continue;
+            }
+            const auto set = read_value<progpu_native_scene_guideline_set>(
+                stream, resource.payload_offset);
+            PROGPU_REQUIRE((set.flags &
+                PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS) != 0U);
+            const std::size_t count =
+                static_cast<std::size_t>(set.guideline_x_count) +
+                set.guideline_y_count;
+            return read_value<double>(
+                stream,
+                resource.payload_offset + sizeof(set) +
+                    count * sizeof(double));
+        }
+        PROGPU_REQUIRE(false);
+        return 0.0;
+    };
+    const auto has_guideline_resource = [](const std::vector<std::byte>& stream) {
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        for (std::uint32_t index = 0U;
+             index < header.resource_count;
+             ++index) {
+            const auto resource = read_value<progpu_native_scene_resource>(
+                stream,
+                header.resource_offset +
+                    index * sizeof(progpu_native_scene_resource));
+            if (resource.kind ==
+                PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    scene_build_result result{};
+    std::vector<std::byte> start;
+    PROGPU_REQUIRE(build(
+        1U, 0U, scene_build_request_flags::none, start, result) ==
+        status::success);
+    PROGPU_REQUIRE(std::abs(read_offset(start) - 0.25) < 0.0001);
+    PROGPU_REQUIRE(result.flags == scene_build_result_flags::none);
+    std::span<const std::byte> repeated;
+    scene_build_request repeated_request{
+        scene_build_request_flags::none,
+        target,
+        9'100U,
+        1U,
+        1.0,
+        1.0,
+        0U,
+        1U};
+    PROGPU_REQUIRE(state.build_scene(
+        repeated_request, repeated, nullptr, &result) == status::success);
+    PROGPU_REQUIRE(std::ranges::equal(repeated, start));
+
+    std::vector<std::byte> moved_transform;
+    append_command(
+        moved_transform,
+        command::matrix_transform,
+        transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.1,
+        0.0,
+        0U);
+    PROGPU_REQUIRE(state.apply(moved_transform) == status::success);
+    std::vector<std::byte> animation;
+    PROGPU_REQUIRE(build(
+        2U, 100U, scene_build_request_flags::none, animation, result) ==
+        status::success);
+    PROGPU_REQUIRE(std::abs(read_offset(animation) - 0.5) < 0.0001);
+    PROGPU_REQUIRE(result.flags ==
+        scene_build_result_flags::needs_more_cycles);
+    PROGPU_REQUIRE(result.next_due_time_nanoseconds == 150'000'000U);
+
+    std::vector<std::byte> landing_start;
+    PROGPU_REQUIRE(build(
+        3U, 350U, scene_build_request_flags::none, landing_start, result) ==
+        status::success);
+    PROGPU_REQUIRE(std::abs(read_offset(landing_start) - 0.5) < 0.0001);
+    std::vector<std::byte> landing_step;
+    PROGPU_REQUIRE(build(
+        4U, 400U, scene_build_request_flags::none, landing_step, result) ==
+        status::success);
+    PROGPU_REQUIRE(std::abs(read_offset(landing_step) - 0.45) < 0.0001);
+
+    std::vector<std::byte> visual_brush;
+    PROGPU_REQUIRE(build(
+        5U,
+        450U,
+        scene_build_request_flags::visual_brush,
+        visual_brush,
+        result) == status::success);
+    PROGPU_REQUIRE(std::abs(read_offset(visual_brush) - 0.15) < 0.0001);
+    PROGPU_REQUIRE(result.flags == scene_build_result_flags::none);
+
+    std::vector<std::byte> invalid_nested;
+    append_command(invalid_nested, command::push_transform, transform, 0U);
+    append_command(
+        invalid_nested,
+        command::push_guideline_set,
+        guidelines,
+        0U);
+    append_command(
+        invalid_nested,
+        command::draw_rectangle,
+        0.0,
+        0.0,
+        8.0,
+        8.0,
+        brush,
+        0U);
+    append_command(invalid_nested, command::push_guideline_y1, 1.0);
+    std::vector<std::byte> invalid_content;
+    append_render_data(invalid_content, content, invalid_nested);
+    PROGPU_REQUIRE(state.apply(invalid_content) == status::success);
+    std::vector<std::byte> rejected;
+    PROGPU_REQUIRE(build(
+        6U, 500U, scene_build_request_flags::none, rejected, result) ==
+        status::unsupported_command);
+
+    std::vector<std::byte> restored_content;
+    append_render_data(restored_content, content, nested);
+    PROGPU_REQUIRE(state.apply(restored_content) == status::success);
+    std::vector<std::byte> after_rejection;
+    PROGPU_REQUIRE(build(
+        7U,
+        500U,
+        scene_build_request_flags::none,
+        after_rejection,
+        result) == status::success);
+    PROGPU_REQUIRE(std::abs(read_offset(after_rejection) - 0.4) < 0.0001);
+    PROGPU_REQUIRE(result.flags ==
+        scene_build_result_flags::needs_more_cycles);
+
+    std::vector<std::byte> sheared_transform;
+    append_command(
+        sheared_transform,
+        command::matrix_transform,
+        transform,
+        1.0,
+        0.2,
+        0.0,
+        1.0,
+        0.1,
+        0.0,
+        0U);
+    PROGPU_REQUIRE(state.apply(sheared_transform) == status::success);
+    std::vector<std::byte> flight;
+    PROGPU_REQUIRE(build(
+        8U, 550U, scene_build_request_flags::none, flight, result) ==
+        status::success);
+    PROGPU_REQUIRE(!has_guideline_resource(flight));
+    PROGPU_REQUIRE(result.flags == scene_build_result_flags::none);
+
+    PROGPU_REQUIRE(state.apply(moved_transform) == status::success);
+    std::vector<std::byte> returned_from_flight;
+    PROGPU_REQUIRE(build(
+        9U,
+        600U,
+        scene_build_request_flags::none,
+        returned_from_flight,
+        result) == status::success);
+    PROGPU_REQUIRE(
+        std::abs(read_offset(returned_from_flight) - 0.15) < 0.0001);
+    PROGPU_REQUIRE(result.flags == scene_build_result_flags::none);
+
+    std::vector<std::byte> big_jump_transform;
+    append_command(
+        big_jump_transform,
+        command::matrix_transform,
+        transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        4.1,
+        0.0,
+        0U);
+    PROGPU_REQUIRE(state.apply(big_jump_transform) == status::success);
+    std::vector<std::byte> big_jump;
+    PROGPU_REQUIRE(build(
+        10U, 650U, scene_build_request_flags::none, big_jump, result) ==
+        status::success);
+    PROGPU_REQUIRE(std::abs(read_offset(big_jump) - 0.15) < 0.0001);
+    PROGPU_REQUIRE(result.flags == scene_build_result_flags::none);
+    return true;
+}
+
 bool render_data_opacity_mask_scope_uses_gpu_brush_layer() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -12373,6 +12679,7 @@ int main() {
         retained_static_guideline_set_snaps_one_guide_per_axis());
     PROGPU_REQUIRE(
         render_data_static_guideline_scope_uses_active_transform());
+    PROGPU_REQUIRE(dynamic_guidelines_follow_wpf_phase_state());
     PROGPU_REQUIRE(render_data_opacity_mask_scope_uses_gpu_brush_layer());
     PROGPU_REQUIRE(
         retained_image_drawing_uses_pointer_free_bitmap_sideband());

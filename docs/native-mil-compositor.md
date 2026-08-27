@@ -3789,8 +3789,48 @@ validator independently checks the extended payload size and every offset.
 Focused tests prove builder/validator round-trip and DPI conversion: a stored
 physical offset is divided by target DPI exactly once when applied to logical
 scene state. The complete configured native/provider matrix remains 12/12.
-MIL dynamic resources are still rejected until the next checkpoint supplies
-their retained phase history and scheduling decisions.
+At that checkpoint MIL dynamic resources remained rejected pending retained
+phase history and scheduling decisions.
+
+The retained phase checkpoint now implements canonical dynamic GuidelineSet
+pairs for the versioned stateful build path. Each pair keeps WPF's Start,
+Quiet, Animation, Landing, and Flight state, the low 29 bits of bump time,
+last device-space leading coordinate, and last physical offset on its retained
+resource. The transition code follows `CDynamicGuideline` directly: a 200 ms
+critical window detects movement, jumps of at least three pixels suppress
+animation, animated frames use zero leading offset, and Landing converges by
+0.05 physical pixels per requested cycle. The driven coordinate combines the
+leading coordinate with the pixel-rounded pair separation, preserving WPF's
+stable text/decorator gap.
+
+Animated or landing state sets `NEEDS_MORE_CYCLES` and returns a saturated
+next-due monotonic timestamp 50 ms after the request. Repeating the same request
+serial returns the cached scene/result and cannot advance Landing twice.
+Compilation copies the resource graph only when it contains dynamic guideline
+resources, commits phase history only after a complete successful scene build,
+and discards it on failure. Ordinary stateful/static and all legacy builds do
+not pay that copy; the legacy ABI continues to reject dynamic resources because
+it has no clock, DPI, or idempotency contract.
+
+VisualBrush requests suppress phase mutation and emit ordinary grid-derived
+leading correction plus the rounded driven separation, matching milcore's
+multi-path workaround. Rotation/shear moves every pair to Flight and emits no
+snapping frame; the next axis-aligned use re-enters Quiet from current device
+coordinates. Resource replacement resets history transactionally, while
+unrelated successful resource batches retain it through the channel's existing
+copy-on-write graph.
+
+Focused native tests cover initial Quiet, movement into Animation, the 200 ms
+timeout, the first 0.05-pixel Landing step, exact 50 ms scheduling,
+VisualBrush suppression, legacy fail-closed behavior, and same-request byte
+idempotency. They also prove that a later unsupported render-data record rolls
+back an already advanced Landing step, a shear enters Flight without emitting
+a guideline resource, the next axis-aligned build reinitializes from current
+coordinates, and a four-pixel jump stays in Quiet. The full configured
+native/provider matrix passes 12/12. Two limits remain explicit for the next
+slice: nonuniform X/Y DPI fails closed until the shared state cursor accepts
+per-axis DPI, and compact PushGuidelineY1/Y2 records still require lowering
+into the same retained pair state.
 
 Exact implementation checkpoint `b97b99e3` completed the full Windows 11
 ARM64 Parallels D3D12 smoke/package lane from an immutable source archive.
