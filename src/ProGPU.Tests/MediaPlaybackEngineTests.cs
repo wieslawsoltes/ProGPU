@@ -3135,6 +3135,31 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void Mesh3DEntryCanOverrideViewportShadingMode()
+    {
+        var payload = new Viewport3DCompilationPayload
+        {
+            ShadingMode = ShadingMode3D.Realistic
+        };
+        var inherited = new MeshCompilationEntry();
+        var unlit = new MeshCompilationEntry
+        {
+            ShadingModeOverride = ShadingMode3D.Flat
+        };
+
+        Assert.Equal(
+            ShadingMode3D.Realistic,
+            Mesh3DExtensionPipeline.ResolveShadingMode(
+                payload,
+                inherited));
+        Assert.Equal(
+            ShadingMode3D.Flat,
+            Mesh3DExtensionPipeline.ResolveShadingMode(
+                payload,
+                unlit));
+    }
+
+    [Fact]
     public void Mesh3DShadersSharePlanarStorageRecordAbi()
     {
         string solid = ShaderResource.Load(
