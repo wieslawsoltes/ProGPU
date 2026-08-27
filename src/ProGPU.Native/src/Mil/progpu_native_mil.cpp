@@ -570,6 +570,33 @@ bool try_line_stroke_bounds(
         width >= 0.0 && height >= 0.0;
 }
 
+bool try_degenerate_cap_stroke_bounds(
+    double point_x,
+    double point_y,
+    double thickness,
+    std::uint32_t start_cap,
+    std::uint32_t end_cap,
+    double& x,
+    double& y,
+    double& width,
+    double& height) noexcept {
+    const double half_thickness = thickness * 0.5;
+    const double right = point_x +
+        (end_cap == PROGPU_NATIVE_STROKE_CAP_FLAT
+            ? 0.0
+            : half_thickness);
+    x = point_x -
+        (start_cap == PROGPU_NATIVE_STROKE_CAP_FLAT
+            ? 0.0
+            : half_thickness);
+    y = point_y - half_thickness;
+    width = right - x;
+    height = thickness;
+    return finite_double_as_float(x) && finite_double_as_float(y) &&
+        finite_double_as_float(width) && finite_double_as_float(height) &&
+        width > 0.0 && height > 0.0;
+}
+
 } // namespace
 
 batch_reader::batch_reader(std::span<const std::byte> bytes) noexcept
@@ -6636,21 +6663,28 @@ struct channel::implementation {
                     native_local_transform)) {
                 return status::invalid_graph;
             }
-            const double half_thickness = pen.thickness * 0.5;
-            const double left = double{point.x} -
-                (start_cap == PROGPU_NATIVE_STROKE_CAP_FLAT
-                    ? 0.0
-                    : half_thickness);
-            const double right = double{point.x} +
-                (end_cap == PROGPU_NATIVE_STROKE_CAP_FLAT
-                    ? 0.0
-                    : half_thickness);
+            double local_x = 0.0;
+            double local_y = 0.0;
+            double local_width = 0.0;
+            double local_height = 0.0;
+            if (!try_degenerate_cap_stroke_bounds(
+                    point.x,
+                    point.y,
+                    pen.thickness,
+                    start_cap,
+                    end_cap,
+                    local_x,
+                    local_y,
+                    local_width,
+                    local_height)) {
+                return status::invalid_graph;
+            }
             progpu_native_image_rect stroke_bounds{};
             if (!try_transform_bounds(
-                    left,
-                    double{point.y} - half_thickness,
-                    right - left,
-                    pen.thickness,
+                    local_x,
+                    local_y,
+                    local_width,
+                    local_height,
                     effective_transform,
                     stroke_bounds)) {
                 return status::invalid_graph;
@@ -6742,10 +6776,33 @@ struct channel::implementation {
                         PROGPU_NATIVE_STROKE_CAP_FLAT) {
                     return status::success;
                 }
+                double local_x = 0.0;
+                double local_y = 0.0;
+                double local_width = 0.0;
+                double local_height = 0.0;
+                if (!try_degenerate_cap_stroke_bounds(
+                        x0,
+                        y0,
+                        pen.thickness,
+                        pen.start_line_cap,
+                        pen.end_line_cap,
+                        local_x,
+                        local_y,
+                        local_width,
+                        local_height)) {
+                    return status::invalid_graph;
+                }
                 std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                const brush_use_state brush_use{
+                    local_x,
+                    local_y,
+                    local_width,
+                    local_height,
+                    effective_transform};
                 const status brush_status = resolve_brush_index(
                     pen.brush_handle,
-                    brush_index);
+                    brush_index,
+                    &brush_use);
                 if (brush_status != status::success) {
                     return brush_status;
                 }
@@ -6882,10 +6939,33 @@ struct channel::implementation {
                 return status::success;
             }
             if (radius_x == 0.0 && radius_y == 0.0) {
+                double local_x = 0.0;
+                double local_y = 0.0;
+                double local_width = 0.0;
+                double local_height = 0.0;
+                if (!try_degenerate_cap_stroke_bounds(
+                        center_x,
+                        center_y,
+                        pen.thickness,
+                        PROGPU_NATIVE_STROKE_CAP_ROUND,
+                        PROGPU_NATIVE_STROKE_CAP_ROUND,
+                        local_x,
+                        local_y,
+                        local_width,
+                        local_height)) {
+                    return status::invalid_graph;
+                }
                 std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                const brush_use_state brush_use{
+                    local_x,
+                    local_y,
+                    local_width,
+                    local_height,
+                    effective_transform};
                 const status brush_status = resolve_brush_index(
                     pen.brush_handle,
-                    brush_index);
+                    brush_index,
+                    &brush_use);
                 if (brush_status != status::success) {
                     return brush_status;
                 }

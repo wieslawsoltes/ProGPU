@@ -351,8 +351,22 @@ provider hashes are
 `F46B10C0B21D171D4AF1830F85D7499BF4BE4E43B550A53B3D27145340657EEB`
 and
 `B32E22C7BCF4A11F7BB64D60199670DEE3E9DDA0718FC006190A55069CDE27DF`.
-Gradient brushes on cap-only degenerate pen strokes still fail closed until the
-cap path exposes its exact brush-sizing bounds.
+Cap-only degenerate pen strokes now use the same WPF stroke bounds for both
+relative-brush realization and semantic draw culling. WPF's `DrawShape` path
+passes `GetStrokeBounds(...)` to a stroke brush that needs bounds; for a
+zero-length centerline the existing native cap convention is oriented along
+local +X, expands by half the thickness toward each non-flat endpoint, and
+expands by half the thickness on both Y sides. A point-degenerate ellipse uses
+the corresponding round/round square. One checked helper owns that calculation
+for the brush and emitted cap geometry, so an asymmetric Flat/Triangle line and
+a round point ellipse cannot drift between mapping and culling. Linear/radial
+materials continue through the ordinary canonical GPU brush/stop buffers and
+shared fragment shader; there is no CPU rasterization, readback, new ABI, or
+backend branch. The calculation is constant-size scalar control work rather
+than a lane-independent buffer loop, so SIMD is not applicable. Native MIL
+regression coverage asserts the exact relative-gradient endpoints and draw
+bounds for both shapes; all eight locally configured CTests pass on Apple
+Silicon.
 
 Canonical `MILCMD_GEOMETRYDRAWING` resource `87` and nested
 `MILCMD_DRAW_DRAWING` command `0x4a` are retained as typed native state. A
