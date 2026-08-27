@@ -3578,11 +3578,14 @@ material primitive consumed by WPF `GeometryModel3D.Material` and
 
 Exact inherited rectangle and scrollable-area clips are retained as semantic
 viewport composite state and execute as a physical scissor around the shared
-3D draw. The live gate intersects its `[32,20]-[96,68]` sub-viewport with a
-typed `[50,30]-[78,55]` rectangle clip and observes 520 colored pixels at
-`[50,30]-[77,54]` for byte-identical front- and back-material generations.
-Arbitrary geometry clips, masks, guidelines, effects, and caches remain
-fail-closed rather than being approximated or silently discarded.
+3D draw. The live gate combines a 0.75 axis scale, `[8,6]` retained offset,
+0.5 opacity, a local rectangle clip, and a world-space scroll clip. This maps
+the viewport to `[32,21]-[80,57]`, produces the effective clip
+`[48,28.5]-[66.5,47.25]`, and observes 291 colored pixels at
+`[48,28]-[66,47]` plus the expected half-red center sample for byte-identical
+front- and back-material generations. Arbitrary geometry clips, masks,
+guidelines, effects, and caches remain fail-closed rather than being
+approximated or silently discarded.
 
 The engine validates every untrusted count, offset, size, enum, finite float,
 resource generation, and nesting depth before allocation or GPU submission.
