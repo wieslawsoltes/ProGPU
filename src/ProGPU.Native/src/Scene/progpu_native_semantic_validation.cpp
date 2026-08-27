@@ -576,7 +576,9 @@ bool is_valid_semantic_mesh_3d(
     std::size_t index_count) noexcept {
     constexpr std::uint32_t material_flags =
         PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE |
-        PROGPU_NATIVE_MESH_3D_TILING_MASK;
+        PROGPU_NATIVE_MESH_3D_TILING_MASK |
+        PROGPU_NATIVE_MESH_3D_FRONT_FACE |
+        PROGPU_NATIVE_MESH_3D_BACK_FACE;
     const bool is_edge_list =
         mesh.topology == PROGPU_NATIVE_MESH_3D_EDGE_LIST;
     const std::uint32_t known_flags = is_edge_list
@@ -587,8 +589,12 @@ bool is_valid_semantic_mesh_3d(
         (mesh.flags & PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE) != 0U;
     const std::size_t mesh_vertex_offset = mesh.vertex_offset;
     const std::size_t mesh_index_offset = mesh.index_offset;
+    constexpr std::uint32_t face_mask =
+        PROGPU_NATIVE_MESH_3D_FRONT_FACE |
+        PROGPU_NATIVE_MESH_3D_BACK_FACE;
+    const auto face_flags = mesh.flags & face_mask;
     return mesh.struct_size == sizeof(mesh) &&
-        (mesh.flags & ~known_flags) == 0U &&
+        (mesh.flags & ~known_flags) == 0U && face_flags != face_mask &&
         (has_material_image ||
             (mesh.flags & PROGPU_NATIVE_MESH_3D_TILING_MASK) == 0U) &&
         mesh.topology <= PROGPU_NATIVE_MESH_3D_EDGE_LIST &&

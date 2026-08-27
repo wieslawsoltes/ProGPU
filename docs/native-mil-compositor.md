@@ -650,6 +650,15 @@ pipeline initializes both unused stencil faces explicitly. Apple M3 Pro Metal
 qualifies one draw at extent `[41,22]-[86,66]` inside viewport
 `[32,20]-[96,68]`, with 1,058 colored pixels and no CPU projection.
 
+Mesh flags now distinguish the source-compatible two-sided mode from exact
+front-only and back-only material entries without changing the scene ABI.
+Front entries use the shared triangle-list pipeline with back-face culling;
+back entries use the same shader and storage page with front-face culling.
+Triangle strips remain normalized to triangle lists before selection. The live
+viewport gate renders a front entry and an opposite-winding back entry in
+separate retained generations and requires byte-identical readbacks, so both
+face pipelines and their WPF material semantics execute on every gated backend.
+
 - Implement the remaining 2D/3D resource execution, curve dashes, exact
   translated-equivalent EvenOdd overlap execution, remaining pen/image/media
   paths, dynamic guidelines, caches, effects, and render-data commands.

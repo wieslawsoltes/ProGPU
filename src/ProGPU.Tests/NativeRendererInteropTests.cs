@@ -6149,6 +6149,8 @@ public class NativeRendererInteropTests
         string execution = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "src", "Backend",
             "progpu_native_3d_execution.cpp"));
+        string contract = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "include", "progpu_native.h"));
 
         Assert.Contains(
             "vec4<f32>(vertex.position.xyz, 1.0)",
@@ -6165,6 +6167,14 @@ public class NativeRendererInteropTests
         Assert.Contains(
             "depth.stencilBack.compare = WGPUCompareFunction_Always;",
             execution,
+            StringComparison.Ordinal);
+        Assert.Contains("PROGPU_NATIVE_MESH_3D_FRONT_FACE", contract,
+            StringComparison.Ordinal);
+        Assert.Contains("PROGPU_NATIVE_MESH_3D_BACK_FACE", contract,
+            StringComparison.Ordinal);
+        Assert.Contains("WGPUCullMode_Back", execution,
+            StringComparison.Ordinal);
+        Assert.Contains("WGPUCullMode_Front", execution,
             StringComparison.Ordinal);
     }
 

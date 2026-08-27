@@ -1927,6 +1927,7 @@ bool semantic_scene_builder_records_retained_3d_families() {
     constexpr std::array<std::uint32_t, 3U> indices{0U, 1U, 2U};
     progpu_native_scene_mesh_3d mesh{};
     mesh.struct_size = sizeof(mesh);
+    mesh.flags = PROGPU_NATIVE_MESH_3D_FRONT_FACE;
     mesh.topology = PROGPU_NATIVE_MESH_3D_TRIANGLES;
     mesh.render_mode = PROGPU_NATIVE_MESH_3D_SOLID;
     mesh.vertex_count = 3U;
@@ -1984,6 +1985,20 @@ bool semantic_scene_builder_records_retained_3d_families() {
         return false;
     }
 
+    auto invalid_face_mesh = mesh;
+    invalid_face_mesh.flags = PROGPU_NATIVE_MESH_3D_FRONT_FACE |
+        PROGPU_NATIVE_MESH_3D_BACK_FACE;
+    semantic_scene_builder invalid_face_builder(713U, 1U);
+    if (invalid_face_builder.draw_meshes_3d(
+            std::span<const progpu_native_scene_mesh_3d>(
+                &invalid_face_mesh, 1U),
+            vertices,
+            indices,
+            camera,
+            {0.0F, 0.0F, 256.0F, 256.0F})) {
+        return false;
+    }
+
     semantic_scene_builder builder(712U, 3U);
     if (!builder.draw_lines_3d(
             std::span<const progpu_native_scene_line_3d>(&line, 1U),
@@ -1997,6 +2012,7 @@ bool semantic_scene_builder_records_retained_3d_families() {
         return false;
     }
     mesh.flags = PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE |
+        PROGPU_NATIVE_MESH_3D_FRONT_FACE |
         (PROGPU_NATIVE_MESH_3D_CROP <<
             PROGPU_NATIVE_MESH_3D_TILING_SHIFT);
     mesh.material_image_resource_index = material_image;
@@ -2037,6 +2053,8 @@ bool semantic_scene_builder_records_retained_3d_families() {
     const auto mesh_command = read<progpu_native_scene_command>(
         stream,
         validated.header.command_offset + validated.header.command_stride);
+    const auto retained_mesh = read<progpu_native_scene_mesh_3d>(
+        stream, mesh_resource.payload_offset);
     semantic_scene_builder edge_only_builder(713U, 1U);
     auto edge_only_mesh = edge_mesh;
     edge_only_mesh.vertex_offset = 0U;
@@ -2061,6 +2079,7 @@ bool semantic_scene_builder_records_retained_3d_families() {
         (material_image_resource.flags &
             PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U &&
         mesh_resource.payload_size == sizeof(meshes) &&
+        retained_mesh.flags == mesh.flags &&
         mesh_resource.auxiliary_size == sizeof(vertices) +
             sizeof(indices) &&
         line_command.kind ==

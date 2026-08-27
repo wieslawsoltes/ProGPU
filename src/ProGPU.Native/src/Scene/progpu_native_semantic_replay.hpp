@@ -199,6 +199,7 @@ struct semantic_3d_page {
     std::vector<semantic_3d_draw> draws;
     std::vector<std::uint32_t> mesh_topologies;
     std::vector<std::uint32_t> mesh_flags;
+    std::vector<std::uint32_t> mesh_face_flags;
     std::vector<std::uint32_t> mesh_index_counts;
     std::vector<std::uint32_t> mesh_edge_offsets;
     std::vector<std::uint32_t> mesh_edge_counts;

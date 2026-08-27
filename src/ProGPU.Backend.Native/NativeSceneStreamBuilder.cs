@@ -861,6 +861,8 @@ public ref struct NativeSceneStreamBuilder
         const uint materialImageFlag = 1U;
         const uint tilingMask = 3U << 1;
         const uint edgeDisplayMask = 15U << 8;
+        const uint faceMask = (uint)(NativeMesh3DFlags.FrontFace |
+            NativeMesh3DFlags.BackFace);
         foreach (ref readonly NativeSceneMesh3D mesh in meshes)
         {
             bool hasMaterialImage = (mesh.Flags & materialImageFlag) != 0U;
@@ -868,8 +870,9 @@ public ref struct NativeSceneStreamBuilder
                 mesh.Topology == (uint)NativeMesh3DTopology.EdgeList;
             uint knownFlags = isEdgeList
                 ? edgeDisplayMask
-                : materialImageFlag | tilingMask;
+                : materialImageFlag | tilingMask | faceMask;
             if ((mesh.Flags & ~knownFlags) != 0U ||
+                (mesh.Flags & faceMask) == faceMask ||
                 (isEdgeList &&
                     ((mesh.Flags & edgeDisplayMask) == 0U ||
                      mesh.IndexCount != 0U ||

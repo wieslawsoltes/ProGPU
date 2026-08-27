@@ -1790,7 +1790,10 @@ typedef enum progpu_native_mesh_3d_flags {
     PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE = 1U << 0,
     PROGPU_NATIVE_MESH_3D_TILING_SHIFT = 1,
     PROGPU_NATIVE_MESH_3D_TILING_MASK = 3U <<
-        PROGPU_NATIVE_MESH_3D_TILING_SHIFT
+        PROGPU_NATIVE_MESH_3D_TILING_SHIFT,
+    PROGPU_NATIVE_MESH_3D_TWO_SIDED = 0,
+    PROGPU_NATIVE_MESH_3D_FRONT_FACE = 1U << 3,
+    PROGPU_NATIVE_MESH_3D_BACK_FACE = 1U << 4
 } progpu_native_mesh_3d_flags;
 
 typedef enum progpu_native_mesh_3d_tiling {
@@ -1799,7 +1802,6 @@ typedef enum progpu_native_mesh_3d_tiling {
     PROGPU_NATIVE_MESH_3D_CROP = 2,
     PROGPU_NATIVE_MESH_3D_CLAMP = 3
 } progpu_native_mesh_3d_tiling;
-
 /* PROGPU_CSHARP_STRUCT: Public.NativeSceneMesh3DVertex */
 typedef struct progpu_native_scene_mesh_3d_vertex {
     progpu_native_point_3d position;
