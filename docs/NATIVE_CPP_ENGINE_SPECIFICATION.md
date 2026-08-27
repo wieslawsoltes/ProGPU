@@ -3539,6 +3539,15 @@ CPU-projected 2D geometry. Validation establishes exact vertex/index suffix
 layout and rejects non-finite matrices, invalid indices, unsupported modes, or
 non-canonical reserved storage before resource allocation.
 
+The WPF mesh DTO preserves `MeshGeometry3D.TextureCoordinates` as neutral
+`PortablePoint` values. Source export copies at most one coordinate per vertex
+and pads a short or missing WPF collection with `(0,0)`, matching MIL's
+`CopyTextureCoordinatesFromDoubles` behavior. Managed replay feeds those values
+to the existing ProGPU textured-mesh vertex path; native MIL writes them into
+the already-stable 40-byte mesh vertex record. This is required geometric state
+for the following typed 3D brush-resource slice and does not introduce a CPU
+projection or texture fallback.
+
 Retained 3D command bounds are executable viewport state, not diagnostic
 metadata. The native replay camera retains both the current target extent and
 the command-local viewport rectangle in physical pixels. The shared WGSL maps
