@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using ACadSharp.Entities;
 using ACadSharp.Tables;
@@ -11,6 +12,7 @@ int entityCount = ReadNonNegativeInt("--entities", 10_000);
 int blockArrayColumnCount = ReadNonNegativeInt("--block-array-columns", 0);
 int textEntityCount = ReadNonNegativeInt("--text-entities", 0);
 bool decorateText = HasFlag("--text-decorations");
+int shxInterpretationCount = ReadNonNegativeInt("--shx-interpretations", 0);
 int warmupCount = ReadNonNegativeInt("--warmup", 3);
 int iterationCount = ReadPositiveInt("--iterations", 24);
 int queryCount = ReadPositiveInt("--queries", 10_000);
@@ -36,6 +38,7 @@ CadDocumentSession session = CreateDocument(
     decorateText);
 var snapshotCompiler = new CadSnapshotCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
+CadShxFont? shxFont = shxInterpretationCount == 0 ? null : CreateBenchmarkShxFont();
 CadSnapshotOptions snapshotOptions = textEntityCount == 0
     ? new CadSnapshotOptions()
     : new CadSnapshotOptions
@@ -47,6 +50,10 @@ for (int i = 0; i < warmupCount; i++)
 {
     CadDocumentSnapshot warmSnapshot = snapshotCompiler.Compile(session, snapshotOptions);
     _ = sceneCompiler.Compile(warmSnapshot);
+    if (shxFont is not null)
+    {
+        _ = InterpretShxBatch(shxFont, shxInterpretationCount);
+    }
 }
 
 Measurement snapshotMeasurement = Measure(
@@ -60,6 +67,12 @@ Measurement sceneMeasurement = Measure(
     () => sceneCompiler.Compile(snapshot));
 CadRecordedPlanScene recordedScene = sceneCompiler.Compile(snapshot);
 Measurement queryMeasurement = MeasureQueries(snapshot, queryCount);
+Measurement? shxMeasurement = shxFont is null
+    ? null
+    : Measure(
+        "shx-interpret-batch",
+        iterationCount,
+        () => InterpretShxBatch(shxFont, shxInterpretationCount));
 
 var report = new CadBenchmarkReport(
     DateTimeOffset.UtcNow,
@@ -69,6 +82,7 @@ var report = new CadBenchmarkReport(
     blockArrayColumnCount,
     textEntityCount,
     decorateText,
+    shxInterpretationCount,
     warmupCount,
     iterationCount,
     queryCount,
@@ -78,6 +92,7 @@ var report = new CadBenchmarkReport(
     snapshotMeasurement,
     sceneMeasurement,
     queryMeasurement,
+    shxMeasurement,
     Process.GetCurrentProcess().WorkingSet64);
 
 var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
@@ -168,6 +183,42 @@ CadDocumentSession CreateDocument(
         }
     });
     return result;
+}
+
+CadShxFont CreateBenchmarkShxFont()
+{
+    byte[] program =
+    {
+        0x14, 0x10, 0x1C, 0x18, 0x12,
+        2, 8, 1, 0, 1, 10, 1, 0x02,
+        12, 10, 0, 127,
+        13, 10, 0, 0, 0, 0,
+        0,
+    };
+    using var stream = new MemoryStream();
+    using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true);
+    writer.Write("AutoCAD-86 shapes 1.0\r\n\x1A"u8);
+    writer.Write((ushort)65);
+    writer.Write((ushort)65);
+    writer.Write((ushort)1);
+    writer.Write((ushort)65);
+    writer.Write(checked((ushort)("BENCHMARK".Length + 1 + program.Length)));
+    writer.Write("BENCHMARK"u8);
+    writer.Write((byte)0);
+    writer.Write(program);
+    writer.Write("EOF"u8);
+    return CadShxFont.Parse(stream.ToArray());
+}
+
+object InterpretShxBatch(CadShxFont font, int count)
+{
+    int checksum = 0;
+    for (int i = 0; i < count; i++)
+    {
+        CadShxGeometry geometry = CadShxInterpreter.Interpret(font, 65);
+        checksum = HashCode.Combine(checksum, geometry.SegmentCount, geometry.EndPoint);
+    }
+    return checksum;
 }
 
 Measurement Measure(string name, int count, Func<object> action)
@@ -280,6 +331,7 @@ internal sealed record CadBenchmarkReport(
     int BlockArrayColumnCount,
     int TextEntityCount,
     bool DecoratedText,
+    int ShxInterpretationCount,
     int WarmupCount,
     int IterationCount,
     int QueryCount,
@@ -289,6 +341,7 @@ internal sealed record CadBenchmarkReport(
     Measurement SnapshotMilliseconds,
     Measurement PlanSceneMilliseconds,
     Measurement SpatialQueryNanoseconds,
+    Measurement? ShxInterpretBatchMilliseconds,
     long WorkingSetBytes);
 
 internal sealed class BenchmarkTextFontResolver(TtfFont font) : ICadTextFontResolver

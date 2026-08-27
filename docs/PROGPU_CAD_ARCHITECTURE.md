@@ -122,9 +122,12 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   standard compiled `AutoCAD-86 shapes 1.0` container into one immutable owned
   byte store, retains each shape program as a packed slice, validates the
   directory/range/record boundaries and exact EOF marker, and exposes the
-  standard font header metrics without interpreting drawing opcodes. Unicode
-  and Big Font containers, opcode execution, font resolution, and rendering
-  remain explicit gates; this checkpoint does not claim SHX TEXT support.
+  standard font header metrics. `CadShxInterpreter` executes standard commands
+  0 through 14 into caller-owned retained analytic line/arc paths with bounded
+  recursion, commands, output, scale, coordinates, and the specified four-entry
+  position stack. Unicode and Big Font containers, font resolution, glyph-path
+  caching, TEXT lowering, and rendering remain explicit gates; this checkpoint
+  does not claim SHX TEXT support.
 
 The exact approved ProGPU-owned implementation provenance for this slice is
 `src/ProGPU.Scene/RenderCommand.cs` (`DrawingContext.DrawLine`, `DrawEllipse`,
@@ -429,10 +432,32 @@ signatures before publishing a font.
 
 Parsing takes `O(B + S)` time and `O(B + S)` owned storage for `B` input bytes
 and `S` shape-directory entries. Shape lookup is expected `O(1)` and program
-storage remains packed. Opcode interpretation is deliberately absent from this
-slice: Autodesk's commands 0 through 14, subshape recursion, the four-entry
-location stack, vertical-only command gating, scale arithmetic, and arc
-semantics require a separately bounded interpreter and geometry-quality tests.
+storage remains packed.
+
+`CadShxInterpreter` implements the standard command stream directly from the
+Autodesk contract: 16 encoded vector directions; draw/move modes; cumulative
+divide/multiply scale; balanced push/pop with the specified four-location
+stack; one-byte standard subshape calls; single and repeated signed XY
+displacements; octant, fractional, bulge, and polyarc commands; and command 14
+dual-orientation gating. Arcs stay analytic `ArcSegment` values. A full octant
+circle becomes exactly two retained semicircles because the endpoint-based path
+record cannot encode a coincident-start/end full circle as one segment; no
+curve is sampled. Pen-up commands advance the retained endpoint without
+emitting geometry, and discontinuous moves start a new figure when drawing
+resumes. The font header's above/below units and final pen-up endpoint remain
+available for the later height, baseline, character-advance, and vertical-
+advance lowering.
+
+Interpretation is `O(C + S)` time and `O(S + D)` storage for recursively
+executed commands `C`, emitted retained segments `S`, and active subshape depth
+`D`. Defaults cap commands and segments at 100,000 each, recursion at 32,
+absolute coordinates and cumulative scale at one billion, and position depth
+at the format-defined four entries. Cycles, missing/reserved subshapes,
+unbalanced stack operations, zero/overflowing scale, malformed operands,
+unreachable terminators, unsupported vertical commands, and limit overruns fail
+the whole interpretation. Each call returns a fresh caller-owned path; later
+font integration must cache one immutable interpreted glyph per font identity,
+shape number, and orientation rather than reinterpreting per placed character.
 Unicode two-byte subshape references and Big Font ranges use different
 contracts and are rejected instead of being guessed as standard records.
 
@@ -441,12 +466,27 @@ The binary container layout was independently observed from the compiled
 no ACadSharp or other third-party parser implementation was consulted or
 copied. The regression reads that compiled artifact as an observable fixture.
 Program semantics and the 2,000-byte definition limit come only from the
-official Autodesk shape/font documentation linked below. This managed CPU
-source parser changes no retained command, shader, C ABI, compositor, or GPU
-resource contract, so the native-renderer applicability audit is not applicable
-at this checkpoint. The later interpreter/renderer must feed an equivalent
-shared retained geometry contract to both compositors and add matched output
+official Autodesk shape/font documentation linked below. The pinned fixture
+also executes through the new interpreter, while independent synthetic tests
+cover every command family, direction geometry, analytic endpoints/radii,
+horizontal/vertical behavior, state composition, cycles, malformed programs,
+and configured bounds. This managed CPU source/interpreter adds no production
+scene lowering and changes no retained command, shader, C ABI, compositor, or
+GPU resource contract, so a paired native-renderer implementation is not
+applicable at this checkpoint. The later cached TEXT renderer must feed the
+same retained analytic path contract to both compositors and add matched output
 and performance coverage.
+
+The Release benchmark's optional `--shx-interpretations` lane measures fresh
+uncached path construction outside the document pipeline. Two 24-iteration,
+1,000-shape runs on the same Apple Silicon/.NET 10 host reported batch
+p50/p95/p99 of 3.043/6.942/7.783 ms and 1.490/4.280/5.696 ms, with 1,256,065
+managed bytes per batch in both runs. The synthetic shape exercises direction
+vectors plus octant, bulge, and polyarc output. These numbers establish the
+interpreter construction baseline only; process-to-process tails vary, no
+improvement claim is made, and they are not a steady TEXT replay target. The
+allocation result reinforces the required later per-font glyph cache: normal
+retained replay must not construct a `PathGeometry` for every placed character.
 
 The 2026-08-27 Release applicability/performance audit compared commit
 `778dc69f` with this lowering on the same Apple Silicon/.NET 10 machine and the
