@@ -34,6 +34,19 @@ public sealed class CadSnapshotCompiler
 {
     private const double TwoPi = Math.PI * 2.0;
 
+    [Flags]
+    private enum TextDecorationFlags : byte
+    {
+        None = 0,
+        Overline = 1 << 0,
+        Underline = 1 << 1,
+        StrikeThrough = 1 << 2,
+    }
+
+    private readonly record struct DecodedTextContent(
+        string Text,
+        TextDecorationFlags[]? Decorations);
+
     public CadDocumentSnapshot Compile(
         CadDocumentSession session,
         CadSnapshotOptions? options = null,
@@ -68,6 +81,7 @@ public sealed class CadSnapshotCompiler
         var polylines3D = new List<CadPolyline3DPrimitive>();
         var texts = new List<CadTextPrimitive>();
         var textGlyphRuns = new List<CadTextGlyphRun>();
+        var textDecorations = new List<CadTextDecoration>();
         var textGlyphIndices = new List<ushort>();
         var textGlyphPositions = new List<Vector2>();
         var textFonts = new List<TtfFont>();
@@ -127,6 +141,7 @@ public sealed class CadSnapshotCompiler
             polylines3D.ToArray(),
             texts.ToArray(),
             textGlyphRuns.ToArray(),
+            textDecorations.ToArray(),
             textGlyphIndices.ToArray(),
             textGlyphPositions.ToArray(),
             textFonts.ToArray(),
@@ -242,6 +257,7 @@ public sealed class CadSnapshotCompiler
                         diagnostics,
                         texts,
                         textGlyphRuns,
+                        textDecorations,
                         textGlyphIndices,
                         textGlyphPositions,
                         textFonts,
@@ -1005,6 +1021,7 @@ public sealed class CadSnapshotCompiler
         List<CadDiagnostic> diagnostics,
         List<CadTextPrimitive> destination,
         List<CadTextGlyphRun> runs,
+        List<CadTextDecoration> decorations,
         List<ushort> glyphIndices,
         List<Vector2> glyphPositions,
         List<TtfFont> fonts,
@@ -1053,7 +1070,8 @@ public sealed class CadSnapshotCompiler
                 "Vertical TrueType STYLE requires vertical shaping and glyph-orientation lowering.");
         }
 
-        string content = DecodeTextContent(text.Value);
+        DecodedTextContent decodedContent = DecodeTextContent(text.Value);
+        string content = decodedContent.Text;
 
         ICadTextFontResolver resolver = options.TextFontResolver ??
             throw new CadUnsupportedEntityException(
@@ -1244,6 +1262,24 @@ public sealed class CadSnapshotCompiler
                 runFont));
         }
 
+        List<CadTextDecoration>? compiledDecorations = CompileTextDecorations(
+            decodedContent,
+            layout,
+            font,
+            horizontalOffset,
+            verticalOffset);
+        if (compiledDecorations is not null)
+        {
+            for (int i = 0; i < compiledDecorations.Count; i++)
+            {
+                CadTextDecoration decoration = compiledDecorations[i];
+                minimumX = Math.Min(minimumX, decoration.X);
+                maximumX = Math.Max(maximumX, decoration.X + decoration.Width);
+                minimumY = Math.Min(minimumY, decoration.Y);
+                maximumY = Math.Max(maximumY, decoration.Y + decoration.Height);
+            }
+        }
+
         CadBounds3D bounds = CadBounds3D.FromPoint(
             TransformTextPoint(anchor, xAxis, yAxis, minimumX, minimumY));
         bounds = bounds
@@ -1252,6 +1288,7 @@ public sealed class CadSnapshotCompiler
             .Include(TransformTextPoint(anchor, xAxis, yAxis, maximumX, maximumY));
         int glyphOffset = glyphIndices.Count;
         int runOffset = runs.Count;
+        int decorationOffset = decorations.Count;
         glyphIndices.AddRange(compiledGlyphIndices);
         glyphPositions.AddRange(compiledGlyphPositions);
         for (int i = 0; i < compiledRuns.Count; i++)
@@ -1262,6 +1299,10 @@ public sealed class CadSnapshotCompiler
                 count,
                 InternTextFont(runTypeFace, fonts, fontIndices)));
         }
+        if (compiledDecorations is not null)
+        {
+            decorations.AddRange(compiledDecorations);
+        }
         int primitiveIndex = destination.Count;
         destination.Add(new CadTextPrimitive(
             anchor,
@@ -1270,7 +1311,9 @@ public sealed class CadSnapshotCompiler
             glyphOffset,
             compiledGlyphIndices.Length,
             runOffset,
-            runs.Count - runOffset));
+            runs.Count - runOffset,
+            decorationOffset,
+            decorations.Count - decorationOffset));
         if (fontResolution.IsSubstitution)
         {
             AddDiagnostic(
@@ -1314,17 +1357,295 @@ public sealed class CadSnapshotCompiler
         double x,
         double y) => origin + (xAxis * x) + (yAxis * y);
 
-    private static string DecodeTextContent(string source)
+    private struct DecorationAccumulator
+    {
+        public bool IsActive;
+        public double Start;
+        public double End;
+    }
+
+    private static List<CadTextDecoration>? CompileTextDecorations(
+        DecodedTextContent content,
+        TextLayout layout,
+        TtfFont font,
+        double horizontalOffset,
+        double verticalOffset)
+    {
+        TextDecorationFlags[]? sourceFlags = content.Decorations;
+        if (sourceFlags is null)
+        {
+            return null;
+        }
+
+        TextDecorationFlags usedFlags = TextDecorationFlags.None;
+        for (int i = 0; i < content.Text.Length; i++)
+        {
+            usedFlags |= sourceFlags[i];
+        }
+        if (usedFlags == TextDecorationFlags.None)
+        {
+            return null;
+        }
+
+        if (font.UnitsPerEm == 0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Decorated TEXT requires finite OpenType font metrics.");
+        }
+
+        double unitsPerEm = font.UnitsPerEm;
+        double underlineThickness = (font.UnderlineThickness ?? 0) / unitsPerEm;
+        double strikeThickness = (font.StrikeoutThickness ?? 0) / unitsPerEm;
+        if ((usedFlags & (TextDecorationFlags.Overline | TextDecorationFlags.Underline)) != 0 &&
+            underlineThickness <= 0.0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Overlined and underlined TEXT require a valid OpenType post-table underline thickness.");
+        }
+        if (usedFlags.HasFlag(TextDecorationFlags.Underline) &&
+            !font.UnderlinePosition.HasValue)
+        {
+            throw new CadUnsupportedEntityException(
+                "Underlined TEXT requires a valid OpenType post-table underline position.");
+        }
+        if (usedFlags.HasFlag(TextDecorationFlags.StrikeThrough) &&
+            (!font.StrikeoutPosition.HasValue || strikeThickness <= 0.0))
+        {
+            throw new CadUnsupportedEntityException(
+                "Strike-through TEXT requires valid OpenType OS/2 strikeout metrics.");
+        }
+
+        int textLength = content.Text.Length;
+        var clusterStarts = new bool[textLength];
+        for (int i = 0; i < layout.Glyphs.Count; i++)
+        {
+            int cluster = layout.Glyphs[i].Cluster;
+            if ((uint)cluster >= (uint)textLength)
+            {
+                throw new InvalidOperationException(
+                    "TEXT shaping returned a cluster outside the decoded UTF-16 range.");
+            }
+            clusterStarts[cluster] = true;
+        }
+
+        var clusterEnds = new int[textLength];
+        int nextCluster = textLength;
+        for (int i = textLength - 1; i >= 0; i--)
+        {
+            if (!clusterStarts[i])
+            {
+                continue;
+            }
+            clusterEnds[i] = nextCluster;
+            nextCluster = i;
+        }
+
+        var result = new List<CadTextDecoration>();
+        var overline = new DecorationAccumulator();
+        var underline = new DecorationAccumulator();
+        var strikeThrough = new DecorationAccumulator();
+        for (int glyphIndex = 0; glyphIndex < layout.Glyphs.Count;)
+        {
+            TextRunGlyph first = layout.Glyphs[glyphIndex];
+            int cluster = first.Cluster;
+            int clusterEnd = clusterEnds[cluster];
+            TextDecorationFlags flags = sourceFlags[cluster];
+            for (int i = cluster + 1; i < clusterEnd; i++)
+            {
+                if (sourceFlags[i] != flags)
+                {
+                    throw new CadUnsupportedEntityException(
+                        "A TEXT decoration boundary splits one shaped glyph cluster.");
+                }
+            }
+
+            double left = first.Position.X;
+            double right = first.Position.X + Math.Max(0.0f, first.Glyph.Advance);
+            int glyphEnd = glyphIndex + 1;
+            while (glyphEnd < layout.Glyphs.Count &&
+                   layout.Glyphs[glyphEnd].Cluster == cluster)
+            {
+                TextRunGlyph glyph = layout.Glyphs[glyphEnd++];
+                left = Math.Min(left, glyph.Position.X);
+                right = Math.Max(
+                    right,
+                    glyph.Position.X + Math.Max(0.0f, glyph.Glyph.Advance));
+            }
+
+            left += horizontalOffset;
+            right += horizontalOffset;
+            UpdateDecorationAccumulator(
+                ref overline,
+                flags.HasFlag(TextDecorationFlags.Overline),
+                left,
+                right,
+                TextDecorationFlags.Overline,
+                font,
+                underlineThickness,
+                strikeThickness,
+                verticalOffset,
+                result);
+            UpdateDecorationAccumulator(
+                ref underline,
+                flags.HasFlag(TextDecorationFlags.Underline),
+                left,
+                right,
+                TextDecorationFlags.Underline,
+                font,
+                underlineThickness,
+                strikeThickness,
+                verticalOffset,
+                result);
+            UpdateDecorationAccumulator(
+                ref strikeThrough,
+                flags.HasFlag(TextDecorationFlags.StrikeThrough),
+                left,
+                right,
+                TextDecorationFlags.StrikeThrough,
+                font,
+                underlineThickness,
+                strikeThickness,
+                verticalOffset,
+                result);
+            glyphIndex = glyphEnd;
+        }
+
+        FlushDecorationAccumulator(
+            ref overline,
+            TextDecorationFlags.Overline,
+            font,
+            underlineThickness,
+            strikeThickness,
+            verticalOffset,
+            result);
+        FlushDecorationAccumulator(
+            ref underline,
+            TextDecorationFlags.Underline,
+            font,
+            underlineThickness,
+            strikeThickness,
+            verticalOffset,
+            result);
+        FlushDecorationAccumulator(
+            ref strikeThrough,
+            TextDecorationFlags.StrikeThrough,
+            font,
+            underlineThickness,
+            strikeThickness,
+            verticalOffset,
+            result);
+        return result;
+    }
+
+    private static void UpdateDecorationAccumulator(
+        ref DecorationAccumulator accumulator,
+        bool enabled,
+        double left,
+        double right,
+        TextDecorationFlags kind,
+        TtfFont font,
+        double underlineThickness,
+        double strikeThickness,
+        double verticalOffset,
+        List<CadTextDecoration> destination)
+    {
+        if (!enabled || right <= left)
+        {
+            FlushDecorationAccumulator(
+                ref accumulator,
+                kind,
+                font,
+                underlineThickness,
+                strikeThickness,
+                verticalOffset,
+                destination);
+            return;
+        }
+
+        const double mergeTolerance = 1e-5;
+        if (accumulator.IsActive && left <= accumulator.End + mergeTolerance)
+        {
+            accumulator.Start = Math.Min(accumulator.Start, left);
+            accumulator.End = Math.Max(accumulator.End, right);
+            return;
+        }
+
+        FlushDecorationAccumulator(
+            ref accumulator,
+            kind,
+            font,
+            underlineThickness,
+            strikeThickness,
+            verticalOffset,
+            destination);
+        accumulator.IsActive = true;
+        accumulator.Start = left;
+        accumulator.End = right;
+    }
+
+    private static void FlushDecorationAccumulator(
+        ref DecorationAccumulator accumulator,
+        TextDecorationFlags kind,
+        TtfFont font,
+        double underlineThickness,
+        double strikeThickness,
+        double verticalOffset,
+        List<CadTextDecoration> destination)
+    {
+        if (!accumulator.IsActive)
+        {
+            return;
+        }
+
+        double top;
+        double thickness;
+        switch (kind)
+        {
+            case TextDecorationFlags.Overline:
+                top = verticalOffset - ((double)font.Ascender / font.UnitsPerEm);
+                thickness = underlineThickness;
+                break;
+            case TextDecorationFlags.Underline:
+                top = verticalOffset - ((double)font.UnderlinePosition!.Value / font.UnitsPerEm);
+                thickness = underlineThickness;
+                break;
+            case TextDecorationFlags.StrikeThrough:
+                top = verticalOffset - ((double)font.StrikeoutPosition!.Value / font.UnitsPerEm);
+                thickness = strikeThickness;
+                break;
+            default:
+                throw new InvalidOperationException("Unknown TEXT decoration kind.");
+        }
+
+        float x = checked((float)accumulator.Start);
+        float y = checked((float)top);
+        float width = checked((float)(accumulator.End - accumulator.Start));
+        float height = checked((float)thickness);
+        if (!float.IsFinite(x) || !float.IsFinite(y) ||
+            !float.IsFinite(width) || !float.IsFinite(height))
+        {
+            throw new ArithmeticException(
+                "TEXT decoration geometry exceeds the retained numeric range.");
+        }
+
+        destination.Add(new CadTextDecoration(x, y, width, height));
+        accumulator = default;
+    }
+
+    private static DecodedTextContent DecodeTextContent(string source)
     {
         bool requiresDecoding = source.Contains("%%", StringComparison.Ordinal) ||
             source.Contains("\\U+", StringComparison.OrdinalIgnoreCase);
         if (!requiresDecoding)
         {
             EnsureValidUtf16(source);
-            return source;
+            return new DecodedTextContent(source, null);
         }
 
         var decoded = new char[source.Length];
+        var decorations = new TextDecorationFlags[source.Length];
+        TextDecorationFlags activeDecorations = TextDecorationFlags.None;
+        bool hasDecorations = false;
         int written = 0;
         for (int i = 0; i < source.Length; i++)
         {
@@ -1351,7 +1672,8 @@ public sealed class CadSnapshotCompiler
                     scalar = (scalar << 4) | hex;
                 }
 
-                decoded[written++] = (char)scalar;
+                decoded[written] = (char)scalar;
+                decorations[written++] = activeDecorations;
                 i += 6;
                 continue;
             }
@@ -1365,28 +1687,44 @@ public sealed class CadSnapshotCompiler
                 }
 
                 char code = char.ToLowerInvariant(source[i + 2]);
-                decoded[written++] = code switch
+                if (code is 'o' or 'u' or 'k')
+                {
+                    TextDecorationFlags decoration = code switch
+                    {
+                        'o' => TextDecorationFlags.Overline,
+                        'u' => TextDecorationFlags.Underline,
+                        _ => TextDecorationFlags.StrikeThrough,
+                    };
+                    activeDecorations ^= decoration;
+                    hasDecorations = true;
+                    i += 2;
+                    continue;
+                }
+
+                decoded[written] = code switch
                 {
                     'd' => '\u00B0',
                     'p' => '\u00B1',
                     'c' => '\u2205',
                     '%' => '%',
-                    'o' or 'u' or 'k' => throw new CadUnsupportedEntityException(
-                        "TEXT overline, underline, and strike-through control codes require retained decoration runs."),
                     >= '0' and <= '9' => throw new CadUnsupportedEntityException(
                         "Numeric AutoCAD TEXT control codes require font-specific character mapping."),
                     _ => throw new CadUnsupportedEntityException(
                         $"TEXT contains unsupported AutoCAD control code '%%{source[i + 2]}'."),
                 };
+                decorations[written++] = activeDecorations;
                 i += 2;
                 continue;
             }
 
-            decoded[written++] = value;
+            decoded[written] = value;
+            decorations[written++] = activeDecorations;
         }
 
         EnsureValidUtf16(decoded.AsSpan(0, written));
-        return new string(decoded, 0, written);
+        return new DecodedTextContent(
+            new string(decoded, 0, written),
+            hasDecorations ? decorations : null);
     }
 
     private static int HexValue(char value) => value switch

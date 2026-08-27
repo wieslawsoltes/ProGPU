@@ -10,6 +10,7 @@ using ProGPU.Text;
 int entityCount = ReadNonNegativeInt("--entities", 10_000);
 int blockArrayColumnCount = ReadNonNegativeInt("--block-array-columns", 0);
 int textEntityCount = ReadNonNegativeInt("--text-entities", 0);
+bool decorateText = HasFlag("--text-decorations");
 int warmupCount = ReadNonNegativeInt("--warmup", 3);
 int iterationCount = ReadPositiveInt("--iterations", 24);
 int queryCount = ReadPositiveInt("--queries", 10_000);
@@ -31,7 +32,8 @@ if (blockArrayColumnCount > ushort.MaxValue)
 CadDocumentSession session = CreateDocument(
     entityCount,
     blockArrayColumnCount,
-    textEntityCount);
+    textEntityCount,
+    decorateText);
 var snapshotCompiler = new CadSnapshotCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
 CadSnapshotOptions snapshotOptions = textEntityCount == 0
@@ -66,6 +68,7 @@ var report = new CadBenchmarkReport(
     entityCount,
     blockArrayColumnCount,
     textEntityCount,
+    decorateText,
     warmupCount,
     iterationCount,
     queryCount,
@@ -88,7 +91,8 @@ if (outputPath is not null)
 CadDocumentSession CreateDocument(
     int count,
     int arrayColumns,
-    int textCount)
+    int textCount,
+    bool decorateTextRuns)
 {
     CadDocumentSession result = CadDocumentSession.CreateNew();
     result.Edit("Build benchmark document", document =>
@@ -128,7 +132,7 @@ CadDocumentSession CreateDocument(
                     polyline.Vertices.Add(new LwPolyline.Vertex(x + 5, y + 8));
                     polyline.Vertices.Add(new LwPolyline.Vertex(x + 10, y));
                     document.Entities.Add(polyline);
-                break;
+                    break;
             }
         }
 
@@ -149,7 +153,10 @@ CadDocumentSession CreateDocument(
             document.TextStyles.Add(textStyle);
             for (int i = 0; i < textCount; i++)
             {
-                document.Entities.Add(new TextEntity("ProGPU CAD 0123456789")
+                document.Entities.Add(new TextEntity(
+                    decorateTextRuns
+                        ? "%%uProGPU%%u %%oCAD%%o %%k0123456789%%k"
+                        : "ProGPU CAD 0123456789")
                 {
                     Style = textStyle,
                     InsertPoint = new XYZ((i % 100) * 24.0, (i / 100) * 4.0, 0),
@@ -254,6 +261,9 @@ string? ReadString(string name)
     return index < 0 || index + 1 >= args.Length ? null : args[index + 1];
 }
 
+bool HasFlag(string name) =>
+    Array.Exists(args, value => value.Equals(name, StringComparison.OrdinalIgnoreCase));
+
 internal sealed record Measurement(
     string Name,
     double P50,
@@ -269,6 +279,7 @@ internal sealed record CadBenchmarkReport(
     int EntityCount,
     int BlockArrayColumnCount,
     int TextEntityCount,
+    bool DecoratedText,
     int WarmupCount,
     int IterationCount,
     int QueryCount,

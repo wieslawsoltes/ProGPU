@@ -916,7 +916,7 @@ public sealed class CadSnapshotAndSceneTests
     }
 
     [Fact]
-    public void TextDecodesDocumentedSymbolsAndRejectsUnretainedDecorations()
+    public void TextDecodesDocumentedSymbols()
     {
         TtfFont font = InterFontFamily.Regular;
         CadDocumentSession supported = CadDocumentSession.CreateNew();
@@ -938,13 +938,27 @@ public sealed class CadSnapshotAndSceneTests
         Assert.Equal(
             expected.Glyphs.Select(glyph => glyph.GlyphIndex),
             snapshot.TextGlyphIndices.ToArray());
+    }
+
+    [Fact]
+    public void TextRetainsOverlineUnderlineAndStrikeThroughRuns()
+    {
+        TtfFont font = InterFontFamily.Regular;
+        const string encoded = "%%uA%%oB%%uC%%o %%kEF%%k";
+        const string decoded = "ABC EF";
 
         CadDocumentSession decorated = CadDocumentSession.CreateNew();
         decorated.Edit("Add decorated text", document =>
         {
             var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
             document.TextStyles.Add(textStyle);
-            document.Entities.Add(new TextEntity("%%uCAD") { Style = textStyle });
+            document.Entities.Add(new TextEntity(encoded)
+            {
+                Style = textStyle,
+                Height = 3,
+                WidthFactor = 1.25,
+                ObliqueAngle = 0.1,
+            });
         });
         CadDocumentSnapshot decoratedSnapshot = new CadSnapshotCompiler().Compile(
             decorated,
@@ -952,11 +966,90 @@ public sealed class CadSnapshotAndSceneTests
             {
                 TextFontResolver = new FixedTextFontResolver(font),
             });
+        CadTextPrimitive text = Assert.Single(decoratedSnapshot.Texts.ToArray());
+        CadEntityHeader entity = Assert.Single(decoratedSnapshot.Entities.ToArray());
+        CadTextDecoration[] decorations = decoratedSnapshot.TextDecorations.ToArray();
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(decoratedSnapshot);
+        RenderCommand[] commands = scene.DrawingContext.Commands.ToArray();
+        var expected = new TextLayout(decoded, font, 1.0f, float.PositiveInfinity);
 
-        Assert.Empty(decoratedSnapshot.Entities.ToArray());
+        Assert.Equal(
+            expected.Glyphs.Select(glyph => glyph.GlyphIndex),
+            decoratedSnapshot.TextGlyphIndices.ToArray());
+        Assert.Equal(3, decorations.Length);
+        Assert.Equal(0, text.DecorationOffset);
+        Assert.Equal(3, text.DecorationCount);
+        Assert.All(decorations, decoration =>
+        {
+            Assert.True(decoration.Width > 0);
+            Assert.True(decoration.Height > 0);
+        });
+        Assert.InRange(
+            Math.Abs(decorations[0].Y + ((double)font.UnderlinePosition!.Value / font.UnitsPerEm)),
+            0,
+            Tolerance);
+        Assert.InRange(
+            Math.Abs(decorations[1].Y + ((double)font.Ascender / font.UnitsPerEm)),
+            0,
+            Tolerance);
+        Assert.InRange(
+            Math.Abs(decorations[2].Y + ((double)font.StrikeoutPosition!.Value / font.UnitsPerEm)),
+            0,
+            Tolerance);
+        Assert.Equal(4, commands.Length);
+        Assert.Equal(RenderCommandType.DrawGlyphRun, commands[0].Type);
+        Assert.All(commands.Skip(1), command => Assert.Equal(RenderCommandType.DrawRect, command.Type));
+        Assert.Equal(3.75f, commands[1].Transform.M11, 5);
+        Assert.Equal(-3.0f, commands[1].Transform.M22, 5);
+        foreach (CadTextDecoration decoration in decorations)
+        {
+            AssertDecorationCorner(decoration.X, decoration.Y);
+            AssertDecorationCorner(decoration.X + decoration.Width, decoration.Y);
+            AssertDecorationCorner(decoration.X, decoration.Y + decoration.Height);
+            AssertDecorationCorner(
+                decoration.X + decoration.Width,
+                decoration.Y + decoration.Height);
+        }
+
+        void AssertDecorationCorner(double x, double y)
+        {
+            CadPoint3D point = text.Origin + (text.XAxis * x) + (text.YAxis * y);
+            Assert.InRange(point.X, entity.Bounds.Min.X - Tolerance, entity.Bounds.Max.X + Tolerance);
+            Assert.InRange(point.Y, entity.Bounds.Min.Y - Tolerance, entity.Bounds.Max.Y + Tolerance);
+            Assert.InRange(point.Z, entity.Bounds.Min.Z - Tolerance, entity.Bounds.Max.Z + Tolerance);
+        }
+    }
+
+    [Fact]
+    public void TextDecorationTogglesAutoCloseAndRejectClusterSplits()
+    {
+        TtfFont font = InterFontFamily.Regular;
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add decoration boundaries", document =>
+        {
+            var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            document.Entities.Add(new TextEntity("%%uCAD") { Style = textStyle });
+            document.Entities.Add(new TextEntity("a%%u\u0301%%u")
+            {
+                Style = textStyle,
+                InsertPoint = new XYZ(0, 10, 0),
+            });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(font),
+            });
+
+        Assert.Single(snapshot.Entities.ToArray());
+        Assert.Single(snapshot.TextDecorations.ToArray());
+        Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
         Assert.Contains(
-            decoratedSnapshot.Diagnostics.ToArray(),
-            diagnostic => diagnostic.Message.Contains("decoration", StringComparison.Ordinal));
+            snapshot.Diagnostics.ToArray(),
+            diagnostic => diagnostic.Message.Contains("cluster", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -118,12 +118,24 @@ public readonly record struct CadTextPrimitive(
     int GlyphOffset,
     int GlyphCount,
     int RunOffset,
-    int RunCount);
+    int RunCount,
+    int DecorationOffset,
+    int DecorationCount);
 
 public readonly record struct CadTextGlyphRun(
     int GlyphOffset,
     int GlyphCount,
     int FontIndex);
+
+/// <summary>
+/// A normalized, filled decoration rectangle in the owning text primitive's
+/// local affine coordinate system.
+/// </summary>
+public readonly record struct CadTextDecoration(
+    float X,
+    float Y,
+    float Width,
+    float Height);
 
 public readonly record struct CadSnapshotStatistics(
     int SourceEntityCount,
@@ -157,6 +169,7 @@ public sealed class CadDocumentSnapshot
     private readonly CadPolyline3DPrimitive[] _polylines3D;
     private readonly CadTextPrimitive[] _texts;
     private readonly CadTextGlyphRun[] _textGlyphRuns;
+    private readonly CadTextDecoration[] _textDecorations;
     private readonly ushort[] _textGlyphIndices;
     private readonly Vector2[] _textGlyphPositions;
     private readonly TtfFont[] _textFonts;
@@ -186,6 +199,7 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadPolyline3DPrimitive> Polylines3D => _polylines3D;
     public ReadOnlyMemory<CadTextPrimitive> Texts => _texts;
     public ReadOnlyMemory<CadTextGlyphRun> TextGlyphRuns => _textGlyphRuns;
+    public ReadOnlyMemory<CadTextDecoration> TextDecorations => _textDecorations;
     public ReadOnlyMemory<ushort> TextGlyphIndices => _textGlyphIndices;
     public ReadOnlyMemory<Vector2> TextGlyphPositions => _textGlyphPositions;
     public ReadOnlyMemory<TtfFont> TextFonts => _textFonts;
@@ -216,6 +230,7 @@ public sealed class CadDocumentSnapshot
         CadPolyline3DPrimitive[] polylines3D,
         CadTextPrimitive[] texts,
         CadTextGlyphRun[] textGlyphRuns,
+        CadTextDecoration[] textDecorations,
         ushort[] textGlyphIndices,
         Vector2[] textGlyphPositions,
         TtfFont[] textFonts,
@@ -243,6 +258,7 @@ public sealed class CadDocumentSnapshot
         _polylines3D = polylines3D;
         _texts = texts;
         _textGlyphRuns = textGlyphRuns;
+        _textDecorations = textDecorations;
         _textGlyphIndices = textGlyphIndices;
         _textGlyphPositions = textGlyphPositions;
         _textFonts = textFonts;

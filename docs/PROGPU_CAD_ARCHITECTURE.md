@@ -109,9 +109,10 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   one `DrawGlyphRun` command per
   contiguous fallback-font run and requests retained vector coverage for CAD
   zoom; it never expands ordinary text into per-glyph path commands. Font
-  substitution is an explicit diagnostic. SHX/Big Font, extrusion, decoration
-  control codes, and MTEXT remain diagnosed fidelity gates. Documented degree,
-  plus/minus, diameter, percent, and DXF
+  substitution is an explicit diagnostic. Overline, underline, and strike-
+  through toggles retain bounded filled decoration rectangles in the same
+  affine basis. SHX/Big Font, extrusion, and MTEXT remain diagnosed fidelity
+  gates. Documented degree, plus/minus, diameter, percent, and DXF
   Unicode escapes are decoded before shaping.
 - Model-space lineweights are recorded as fixed device-space strokes; explicit
   zero-width lineweights use the ProGPU hairline sentinel. Non-continuous CAD
@@ -361,16 +362,39 @@ the second point and traverses the same segment in reverse. Non-baseline or
 non-coplanar two-point combinations fail explicitly.
 
 The bounded content decoder maps Autodesk's `%%d`, `%%p`, `%%c`, `%%%`, and
-four-hex-digit `\U+XXXX` sequences before shaping. Invalid UTF-16, numeric or
-unknown font-specific controls, and overline/underline/strike-through toggles
-are explicit fidelity gates until decoration runs and font-specific mappings
-are retained; control syntax is never painted literally.
+four-hex-digit `\U+XXXX` sequences before shaping. It also records the visual
+ranges toggled by `%%o`, `%%u`, and `%%k`; toggles still active at end of TEXT
+close automatically. Underline geometry uses the resolved OpenType `post`
+position/thickness, strike-through uses the `OS/2` position/thickness, and
+overline uses the horizontal ascender plus the font's underline thickness.
+These become filled local rectangles, so width, oblique shear, mirrors, Align/
+Fit, OCS, and ancestor transforms apply exactly once. Visual cluster runs merge
+in one pass; a toggle boundary that splits one shaped cluster fails explicitly
+instead of changing shaping or partially painting a ligature/combining cluster.
+Decoration rectangles participate in conservative WCS bounds. Invalid UTF-16,
+numeric controls, unknown font-specific controls, and missing required metrics
+remain explicit gates; control syntax is never painted literally.
 
-Snapshot work is `O(U + G)` for `U` input Unicode scalars and `G` shaped glyphs,
-with bounded output storage `O(G + R + F)` for fallback runs `R` and interned
-faces `F`. Configurable per-entity UTF-16 and document-wide glyph limits reject
-oversized input atomically before it can enter retained streams. Plan recording
-is `O(R)` commands. Stable replay uses the existing ProGPU retained glyph cache,
+The decoration-specific engine audit preserves the same layout/render split:
+SkParagraph exposes simultaneous underline/overline/line-through state outside
+the glyph stream; DirectWrite and Win2D attach underline/strike-through to text
+ranges and surface separate renderer calls; WebRender tracks interned line-
+decoration primitives separately from interned text runs; Parley resolves
+optional decoration offsets and sizes from containing-run metrics; and Vello's
+glyph encoder remains a glyph-run operation while ordinary filled geometry is a
+separate scene primitive. HarfBuzz defines shaped clusters as indivisible and
+explicitly identifies cluster mapping as the seam for ranged attributes. ProGPU
+therefore adopts retained metric-driven rectangles and cluster-safe range
+mapping, while rejecting per-glyph decoration expansion, re-shaping around a
+toggle, or putting decoration state into cached glyph identities.
+
+Snapshot work is `O(C + G)` for `C` input/decoded UTF-16 code units and `G`
+shaped glyphs, with bounded output storage `O(C + G + R + F + D)` while
+decorations are present, for fallback runs `R`, interned faces `F`, and merged
+visual decoration runs `D <= G`. Configurable per-entity UTF-16 and document-
+wide glyph limits reject oversized input atomically before it can enter retained
+streams. Plan recording is `O(R + D)` commands. Stable replay uses the existing
+ProGPU retained glyph cache,
 DPI/subpixel policy, fallback, color-font, variable-
 font, and vector-text coverage contracts. MTEXT still requires bounded inline-
 format, paragraph, column, background, and attachment lowering. It remains
@@ -443,6 +467,7 @@ snapshot construction, retained plan-scene recording, and spatial queries. Run:
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --block-array-columns 10000 --warmup 5 --iterations 100 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --warmup 5 --iterations 50 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --text-decorations --warmup 3 --iterations 50 --queries 10000
 ```
 
 The initial 2026-08-27 Apple Silicon/.NET 10 baseline for 10,000 mixed analytic
@@ -477,6 +502,20 @@ measured 0.199/1.997/12.281 ms and 0.338/1.955/11.911 ms, with 576,810 and
 allocation. These measurements establish the first feature baseline only; they
 make no speedup claim and do not replace the matched viewer, GPU, native, or
 Instruments acceptance gates.
+
+The optional decoration mode keeps the same decoded twenty-one characters but
+wraps its three logical fields in underline, overline, and strike-through
+toggles. Two consecutive 50-iteration Release runs produced 3,000 merged
+decoration rectangles and 4,000 retained commands. Snapshot p50/p95/p99 was
+11.345/82.567/99.794 ms and 11.598/82.011/98.052 ms, with 5,428,388 and
+5,431,835 managed bytes per generation. Plan recording measured
+0.770/4.363/10.838 ms and 0.854/4.446/11.553 ms, with 2,305,072 and 2,304,948
+managed bytes per generation. Matched undecorated runs after the new fixed
+primitive fields retained 1,000 commands and measured snapshot p50 of
+12.831/11.355 ms with 4,304,227/4,311,072 bytes, and plan p50 of
+0.406/0.335 ms with 576,892/576,968 bytes. Tail timings were visibly noisy;
+these are feature/cost baselines with no latency improvement or regression
+claim. Warm queries remained zero-allocation.
 
 Run the standalone samples with:
 
@@ -545,19 +584,23 @@ Sources consulted on 2026-08-27:
   entire array. Rejected unbounded expansion and undocumented scale-dependent
   spacing.
 - [Autodesk TEXT contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-62E5383D-8A14-47B4-BFC4-35824CAE8363.htm),
-  [text symbol/control-code contract](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-518E1A9D-398C-4A8A-AC32-2D85590CDBE1.htm),
+  [text symbol/control-code contract](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-968CBC1D-BA99-4519-ABDD-88419EB2BF92.htm),
   [DXF string storage contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-2553CF98-44F6-4828-82DD-FE3BC7448113.htm),
   [AcDbText width-factor contract](https://help.autodesk.com/cloudhelp/2018/ENU/OARXMAC-RefGuide/files/OREFMAC-AcDbText__widthFactor.html),
   [text-style inheritance behavior](https://help.autodesk.com/cloudhelp/2018/CHT/AutoCAD-ActiveX/files/GUID-B6880624-B89C-4C7E-8276-6E21070CFBF6.htm),
   [TEXT command Align/Fit behavior](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-D1C664DD-63D9-467E-8EC1-2F5A1777A924.htm),
   [AcDbText alignment-point contract](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-AcDbText__alignmentPoint.html),
+  [OpenType `post` underline metrics](https://learn.microsoft.com/en-us/typography/opentype/spec/post),
+  [OpenType `OS/2` strikeout metrics](https://learn.microsoft.com/en-us/typography/opentype/spec/os2),
+  [OpenType `hhea` ascender](https://learn.microsoft.com/en-us/typography/opentype/spec/hhea),
   [MTEXT contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-5E5DB93B-F8D3-4433-ADF7-E92E250D2BAB.htm),
   and [STYLE contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-EF68AF7C-13EF-45A1-8175-ED6CE66C8FC9.htm):
   adopted OCS/WCS point distinctions, the second-point justification rule,
   effective entity transform values and style creation defaults, two-point
-  Align/Fit scaling, generation flags, font metadata, and MTEXT attachment/flow/
-  column scope; adapted supported TrueType TEXT into normalized retained font
-  runs and conservative affine bounds; rejected guessed text
+  Align/Fit scaling, generation flags, decoration toggles, OpenType decoration
+  metrics, font metadata, and MTEXT attachment/flow/column scope; adapted
+  supported TrueType TEXT into normalized retained font and decoration runs with
+  conservative affine bounds; rejected guessed text
   rectangles, stripped MTEXT formatting, silent SHX substitution, and claiming
   MTEXT support before its complete contract lands.
 - [Autodesk common entity property codes](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-3610039E-27D1-4E23-B6D3-7E60B22BB5BD.htm)
@@ -569,30 +612,36 @@ Sources consulted on 2026-08-27:
 - [Autodesk shape/font descriptions](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Customization/files/GUID-DE941DB5-7044-433C-AA68-2A9AE98A5713.htm):
   adopted SHX regular/Unicode/Big Font scope; parsing remains a separate bounded
   clean-room design.
-- [Skia shaped-text design](https://docs.skia.org/docs/dev/design/text_shaper/)
+- [Skia shaped-text design](https://docs.skia.org/docs/dev/design/text_shaper/),
+  [SkParagraph decoration declarations](https://skia.googlesource.com/skia/+/7a1bf999357aa755768f7b72265b91eea5c2758c/modules/skparagraph/include/TextStyle.h),
   and [Skia text guidance](https://skia.org/docs/user/tips/): adopted separation
   and reuse of shaping, formatting, and positioned-glyph drawing; retained the
   existing ProGPU/HarfBuzz implementation instead of adding another text stack.
-- [DirectWrite resource/layout model](https://learn.microsoft.com/en-us/windows/win32/directwrite/getting-started-with-directwrite)
+- [DirectWrite resource/layout model](https://learn.microsoft.com/en-us/windows/win32/directwrite/getting-started-with-directwrite),
+  [DirectWrite strikethrough renderer contract](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritetextrenderer-drawstrikethrough),
   and [Direct2D geometry realizations](https://learn.microsoft.com/en-us/windows/win32/direct2d/geometry-realizations-overview):
   adopted device-independent semantic/layout results, device-dependent retained
   resources, and explicit flattening-quality tests; rejected fixed realizations
   as the only representation for unbounded CAD zoom.
-- [Win2D cached geometry](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Geometry_CanvasCachedGeometry.htm):
-  adopted pay-once/draw-many retention and device identity; rejected per-frame
-  creation and world-coordinate clipping limits.
+- [Win2D cached geometry](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Geometry_CanvasCachedGeometry.htm)
+  and [Win2D text-layout range methods](https://microsoft.github.io/Win2D/WinUI2/html/Methods_T_Microsoft_Graphics_Canvas_Text_CanvasTextLayout.htm): adopted pay-
+  once/draw-many retention, device identity, and range formatting; rejected per-
+  frame creation and world-coordinate clipping limits.
 - [WebRender overview](https://github.com/servo/servo/wiki/Webrender-Overview)
   and [current profiler counters](https://github.com/servo/webrender/blob/main/webrender/src/profiler.rs):
   adopted serializable retained display data, off-thread scrolling/scene work,
   visibility stages, and explicit upload/cache/memory counters.
-- [Vello retained scene vision](https://github.com/linebender/vello/blob/main/doc/vision.md)
-  and [encoding roadmap](https://github.com/linebender/vello/blob/main/doc/roadmap_2023.md):
+- [Vello retained scene vision](https://github.com/linebender/vello/blob/main/doc/vision.md),
+  [encoding roadmap](https://github.com/linebender/vello/blob/main/doc/roadmap_2023.md),
+  and [glyph-run encoder contract](https://docs.rs/vello/latest/vello/struct.DrawGlyphs.html):
   adopted transform-independent analytic encodings, retained fragments, GPU
   transforms, typed resources, and glyph runs; adapted to ProGPU generations.
 - [Parley text stack](https://github.com/linebender/parley) and
-  [layout model](https://github.com/linebender/parley/blob/main/doc/concept.md):
+  [layout model](https://github.com/linebender/parley/blob/main/doc/concept.md),
+  and [decoration metrics contract](https://docs.rs/parley/latest/parley/layout/struct.Decoration.html):
   adopted reuse of font context, Unicode analysis, shaping, line layout, and
   positioned results; kept CAD text styling outside Unicode shaping identity.
-- [HarfBuzz shaping plans/caching](https://github.com/harfbuzz/harfbuzz/blob/main/docs/usermanual-opentype-features.xml):
+- [HarfBuzz shaping plans/caching](https://github.com/harfbuzz/harfbuzz/blob/main/docs/usermanual-opentype-features.xml)
+  and [cluster contract](https://harfbuzz.github.io/clusters.html):
   adopted reusable shaping inputs/results keyed by font, direction, script,
   language, features, variations, and content; no CAD-specific glyph remapping.

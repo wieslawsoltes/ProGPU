@@ -208,7 +208,7 @@ public sealed class CadSampleCanvas : FrameworkElement
 
             var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
             document.TextStyles.Add(textStyle);
-            document.Entities.Add(new TextEntity("ProGPU CAD")
+            document.Entities.Add(new TextEntity("%%uProGPU%%u %%oCAD%%o")
             {
                 Style = textStyle,
                 InsertPoint = new XYZ(-34, -31, 0),

@@ -63,9 +63,9 @@ public sealed class CadRecordedPlanScene
 /// no viewport tessellation and owns no camera state. Recording is O(N + P), where N is
 /// the entity count and P is the total spline control/knot/weight data copied into the
 /// retained context. Large WCS coordinates are rebased before their checked float
-/// conversion. Text adds O(R) retained commands for R contiguous font runs; it
-/// does not copy or expand glyph streams. A later camera or viewport change can
-/// reuse the recorded scene.
+/// conversion. Text adds O(R + D) retained commands for R contiguous font runs
+/// and D decoration rectangles; it does not copy or expand glyph streams. A later
+/// camera or viewport change can reuse the recorded scene.
 /// </remarks>
 public sealed class CadPlanSceneCompiler
 {
@@ -83,7 +83,10 @@ public sealed class CadPlanSceneCompiler
         ReadOnlySpan<CadEntityHeader> entities = snapshot.Entities.Span;
         ReadOnlySpan<CadStrokeStyle> styles = snapshot.Styles.Span;
         var context = new DrawingContext();
-        context.EnsureCommandCapacity(entities.Length);
+        context.EnsureCommandCapacity(checked(
+            entities.Length +
+            Math.Max(0, snapshot.TextGlyphRuns.Length - snapshot.Texts.Length) +
+            snapshot.TextDecorations.Length));
         Pen[] pens = CreatePens(styles, options);
         var diagnostics = new List<CadDiagnostic>();
         var warnedLineTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -484,6 +487,22 @@ public sealed class CadPlanSceneCompiler
                 Vector2.Zero,
                 transform,
                 useVectorGlyphRendering: true);
+        }
+
+        ReadOnlySpan<CadTextDecoration> decorations = snapshot.TextDecorations.Span;
+        int decorationEnd = checked(text.DecorationOffset + text.DecorationCount);
+        for (int i = text.DecorationOffset; i < decorationEnd; i++)
+        {
+            CadTextDecoration decoration = decorations[i];
+            context.DrawRectangle(
+                brush,
+                null,
+                new Rect(
+                    decoration.X,
+                    decoration.Y,
+                    decoration.Width,
+                    decoration.Height),
+                transform);
         }
     }
 
