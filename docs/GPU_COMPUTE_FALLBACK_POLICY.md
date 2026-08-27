@@ -558,6 +558,52 @@ and
 The source was reverted immediately instead of extending a decisively negative
 CPU-submission result into a longer noisy matrix.
 
+## PCM16 intrinsic-SIMD CPU hot path
+
+The shared managed `MediaPcm16StereoProcessor` is a CPU-only media boundary,
+not a substitute for a GPU-capable kernel, but it follows the same CPU hot-path
+rule. Interleaved signed PCM16 gain and stereo balance now widen independent
+samples into `Vector256<int>` or `Vector128<int>` lanes, multiply by the
+prequantized Q15 left/right levels, apply an exact correction for C# integer
+division toward zero, clamp, and narrow back to PCM16. Unsupported or short
+tails use the bounded scalar operation; the product path never runs a
+whole-buffer scalar loop when hardware vector lanes are available. Identity
+and all-zero stereo blocks retain their no-multiply fast paths.
+
+`MediaPlaybackEngineTests.SharedPcm16StereoProcessorMatchesScalarOracleAcrossVectorTails`
+checks signed extrema, seeded full-range PCM data, both starting channel
+offsets, zero/identity/asymmetric/saturating levels, and lengths around the
+128- and 256-bit boundaries. The scalar implementation remains an independent
+test and benchmark oracle rather than a product-mode default.
+
+The reproducible Release microbenchmark excludes the source-buffer reset from
+the timed interval and can measure either implementation:
+
+```bash
+dotnet build src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj \
+  -c Release -m:1 -nr:false
+
+dotnet run \
+  --project src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj \
+  -c Release --no-build -- \
+  --pcm16-simd --warmup 40 --samples 40 --iterations 50
+
+dotnet run \
+  --project src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj \
+  -c Release --no-build -- \
+  --pcm16-simd --scalar --warmup 40 --samples 40 --iterations 50
+```
+
+On Apple M3 Pro, macOS 26.6, and .NET 10.0.5, four alternating fresh-process
+runs over 48,000 stereo frames produced a median-of-run p50 of 25.537 us/block
+for the `Vector128` path and 150.519 us/block for the scalar oracle (5.89x
+throughput, -83.0% latency). Median p95 was 32.572 versus 222.928 us and median
+p99 was 35.223 versus 233.955 us. Both paths reported zero bytes allocated per
+block and the same checksum, while the pre-measurement differential comparison
+required every output sample and final channel offset to match exactly. This
+qualifies the current ARM64 implementation; x64 and other runtimes still
+require their own measurements before platform-specific speed claims.
+
 ## Extending the policy
 
 Each additional compute-heavy workload must declare the semantics that make a
