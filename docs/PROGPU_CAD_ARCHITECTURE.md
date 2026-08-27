@@ -310,9 +310,11 @@ an interactive browser picker/download smoke remains open.
   applied prefix.
 - Linetype assignment uses the same table-identity and rollback contract for
   explicit, `ByLayer`, and `ByBlock` entries. The immutable snapshot retains the
-  newly resolved linetype name, but this edit does not imply dash rendering:
-  non-continuous patterns continue through the explicit unsupported diagnostic
-  until the documented A-aligned endpoint planner is implemented.
+  newly resolved linetype name. Entity linetype-scale assignment accepts only
+  positive finite values and restores each prior authored scale. These edits do
+  not imply dash rendering: non-continuous patterns continue through the
+  explicit unsupported diagnostic until the documented A-aligned endpoint
+  planner is implemented.
 - Lineweight assignment accepts only declared `LineWeightType` values, retaining
   explicit widths plus `ByLayer`, `ByBlock`, `Default`, and hairline semantics
   without resolving them prematurely. Undo restores each authored enum value;

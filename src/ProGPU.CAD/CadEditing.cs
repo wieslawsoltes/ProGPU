@@ -954,6 +954,85 @@ public sealed class CadSetEntityLineTypeCommand : CadEditCommand
     }
 }
 
+/// <summary>Assigns a positive finite linetype scale to model-space entities.</summary>
+public sealed class CadSetEntityLineTypeScaleCommand : CadEditCommand
+{
+    private readonly ulong[] _handles;
+    private Entity[]? _entities;
+    private double[]? _previousValues;
+
+    public ReadOnlyMemory<ulong> Handles => _handles;
+
+    public double LineTypeScale { get; }
+
+    public CadSetEntityLineTypeScaleCommand(
+        IEnumerable<ulong> handles,
+        double lineTypeScale,
+        string description = "Set entity linetype scale")
+        : base(description)
+    {
+        ArgumentNullException.ThrowIfNull(handles);
+        if (!double.IsFinite(lineTypeScale) || lineTypeScale <= 0.0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(lineTypeScale),
+                "A linetype scale must be finite and positive.");
+        }
+        _handles = handles.Distinct().ToArray();
+        if (_handles.Length == 0 || _handles.Any(static handle => handle == 0))
+        {
+            throw new ArgumentException(
+                "At least one non-zero entity handle is required.",
+                nameof(handles));
+        }
+        LineTypeScale = lineTypeScale;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Entity[] entities;
+        if (isRedo)
+        {
+            entities = GetRetainedEntities(document);
+        }
+        else
+        {
+            entities = ResolveModelSpaceEntities(document, _handles);
+            _entities = entities;
+            _previousValues = CaptureEntityValues(
+                entities,
+                static entity => entity.LineTypeScale);
+        }
+        SetEntityValuesTransactional(
+            entities,
+            LineTypeScale,
+            static entity => entity.LineTypeScale,
+            static (entity, value) => entity.LineTypeScale = value);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Entity[] entities = GetRetainedEntities(document);
+        double[] previous = _previousValues ??
+            throw new InvalidOperationException(
+                "The linetype-scale command has not been applied.");
+        SetEntityValuesTransactional(
+            entities,
+            previous,
+            static entity => entity.LineTypeScale,
+            static (entity, value) => entity.LineTypeScale = value);
+    }
+
+    private Entity[] GetRetainedEntities(CadDocument document)
+    {
+        Entity[] entities = _entities ??
+            throw new InvalidOperationException(
+                "The linetype-scale command has not been applied.");
+        ValidateModelSpaceEntities(document, entities);
+        return entities;
+    }
+}
+
 /// <summary>Assigns an explicit, ByLayer, or ByBlock lineweight to model-space entities.</summary>
 public sealed class CadSetEntityLineWeightCommand : CadEditCommand
 {

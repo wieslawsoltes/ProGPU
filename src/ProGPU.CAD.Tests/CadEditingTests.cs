@@ -428,6 +428,47 @@ public sealed class CadEditingTests
     }
 
     [Fact]
+    public void LineTypeScaleCommandRestoresPriorValuesAndSnapshotState()
+    {
+        var document = new CadDocument();
+        var first = new Line(XYZ.Zero, XYZ.AxisX) { LineTypeScale = 0.5 };
+        var second = new Line(XYZ.AxisY, new XYZ(1, 1, 0)) { LineTypeScale = 4.0 };
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetEntityLineTypeScaleCommand(
+            [first.Handle, second.Handle],
+            2.5));
+
+        Assert.Equal(2.5, first.LineTypeScale);
+        Assert.Equal(2.5, second.LineTypeScale);
+        CadDocumentSnapshot applied = new CadSnapshotCompiler().Compile(session);
+        Assert.All(
+            applied.Styles.ToArray(),
+            style => Assert.Equal(2.5, style.LineTypeScale));
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(0.5, first.LineTypeScale);
+        Assert.Equal(4.0, second.LineTypeScale);
+        Assert.True(history.TryRedo(out _));
+        Assert.Equal(2.5, first.LineTypeScale);
+        Assert.Equal(2.5, second.LineTypeScale);
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-1.0)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public void LineTypeScaleCommandRejectsInvalidValues(double value)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadSetEntityLineTypeScaleCommand([1UL], value));
+    }
+
+    [Fact]
     public void LineWeightCommandRetainsSemanticValuesAndRenderedThickness()
     {
         var document = new CadDocument();
