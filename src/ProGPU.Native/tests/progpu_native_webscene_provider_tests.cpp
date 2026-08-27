@@ -294,8 +294,10 @@ std::vector<std::byte> create_native_vector_mask_scene_stream() {
         {140.0F, 80.0F, 360.0F, 220.0F},
         {180.0F, 100.0F, 280.0F, 160.0F}}};
     constexpr mask_rectangle boolean_hole{200.0F, 110.0F, 40.0F, 30.0F};
+    constexpr mask_rectangle group_xor_island{
+        300.0F, 160.0F, 40.0F, 40.0F};
     std::array<progpu_native_path_segment,
-        rectangles.size() * 4U + 4U> segments{};
+        rectangles.size() * 4U + 8U> segments{};
     std::array<progpu_native_scene_clip_path, rectangles.size()> paths{};
     for (std::size_t index = 0; index < rectangles.size(); ++index) {
         const auto& rectangle = rectangles[index];
@@ -344,7 +346,26 @@ std::vector<std::byte> create_native_vector_mask_scene_stream() {
     segments[hole_offset + 3U] = {{boolean_hole.x, hole_bottom},
         {boolean_hole.x, boolean_hole.y}, {}, {},
         PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U};
-    std::array<progpu_native_scene_path_boolean_node, 3U> boolean_nodes{};
+    const std::size_t island_offset = hole_offset + 4U;
+    const float island_right = group_xor_island.x + group_xor_island.width;
+    const float island_bottom = group_xor_island.y + group_xor_island.height;
+    segments[island_offset + 0U] = {
+        {group_xor_island.x, group_xor_island.y},
+        {island_right, group_xor_island.y}, {}, {},
+        PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U};
+    segments[island_offset + 1U] = {
+        {island_right, group_xor_island.y},
+        {island_right, island_bottom}, {}, {},
+        PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U};
+    segments[island_offset + 2U] = {
+        {island_right, island_bottom},
+        {group_xor_island.x, island_bottom}, {}, {},
+        PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U};
+    segments[island_offset + 3U] = {
+        {group_xor_island.x, island_bottom},
+        {group_xor_island.x, group_xor_island.y}, {}, {},
+        PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U};
+    std::array<progpu_native_scene_path_boolean_node, 5U> boolean_nodes{};
     boolean_nodes[0].segment_count = 4U;
     boolean_nodes[0].min_x = rectangles[0].x;
     boolean_nodes[0].min_y = rectangles[0].y;
@@ -359,6 +380,14 @@ std::vector<std::byte> create_native_vector_mask_scene_stream() {
     boolean_nodes[1].max_y = hole_bottom;
     boolean_nodes[1].kind = PROGPU_NATIVE_PATH_BOOLEAN_LEAF;
     boolean_nodes[2].kind = PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE;
+    boolean_nodes[3].segment_offset = island_offset;
+    boolean_nodes[3].segment_count = 4U;
+    boolean_nodes[3].min_x = group_xor_island.x;
+    boolean_nodes[3].min_y = group_xor_island.y;
+    boolean_nodes[3].max_x = island_right;
+    boolean_nodes[3].max_y = island_bottom;
+    boolean_nodes[3].kind = PROGPU_NATIVE_PATH_BOOLEAN_LEAF;
+    boolean_nodes[4].kind = PROGPU_NATIVE_PATH_BOOLEAN_XOR;
     paths[0].segment_count = segments.size();
     paths[0].boolean_node_count = boolean_nodes.size();
     const progpu_native_analytic_primitive content{
@@ -2911,8 +2940,10 @@ void verify_semantic_vector_mask_scene(IOSurfaceRef surface) {
         return value[0] <= 20U && value[1] <= 20U &&
             value[2] <= 20U && value[3] >= 240U;
     };
-    require(cyan(pixel(320U, 180U)),
+    require(cyan(pixel(280U, 180U)),
         "retained vector mask lost its interior coverage");
+    require(clear(pixel(320U, 180U)),
+        "retained vector-mask group XOR did not remove its island");
     require(clear(pixel(100U, 180U)),
         "retained vector mask escaped its path boundary");
     require(clear(pixel(500U, 180U)),

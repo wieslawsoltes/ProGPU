@@ -154,7 +154,9 @@ XORs those child predicates with ordinary outer-fill contour leaves. Nonzero
 groups with boolean children remain explicitly unsupported because signed
 winding cannot be recovered from an inside predicate. This is backend-neutral
 scene compilation: all pixel coverage stays in the shared GPU path rasterizer,
-with no CPU readback or scalar raster fallback.
+with no CPU readback or scalar raster fallback. The provider-resolved Apple M3
+Pro Metal gate executes and reads back the same five-node Difference/XOR
+program in its retained vector-mask fixture.
 `progpu_native_semantic_identity.cpp` computes allocation-free typed content
 identities once per accepted update. Brush, text-style, analytic, path, glyph,
 and image pages are therefore retained independently across scene generations;

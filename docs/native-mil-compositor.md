@@ -623,6 +623,14 @@ independent-lane SIMD candidate. Pixel coverage remains on the existing shared
 GPU path rasterizer on Metal, D3D12, Vulkan, and browser WebGPU, with no CPU
 readback, repacking, or per-child submission.
 
+The provider-resolved Metal hardware gate now uses the same five-node
+`leaf leaf difference leaf xor` program in its retained vector-mask fixture.
+It asserts cyan coverage in the surviving outer region, clear coverage in the
+Difference hole, and clear coverage where the final XOR island overlaps that
+region. The WebScene Dawn provider selected Apple M3 Pro and completed the
+live render/readback gate in 3.45 seconds. This qualifies actual shared-WGSL
+boolean evaluation rather than only the MIL-to-scene packet compiler.
+
 The shared WGSL path rasterizer keeps these arcs analytic. It rejects samples
 outside each path record's exact bounds, rejects quadratic and cubic work on
 rows outside the curve control hull, and tests arc sweep membership with
