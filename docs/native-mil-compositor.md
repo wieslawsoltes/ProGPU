@@ -3185,6 +3185,22 @@ regressed 1.0949/5.1557 -> 1.1324/5.3494 ms and frame p95 worsened
 7.5805 -> 7.9913 ms. The qualified implementation therefore avoids the extra
 metadata loads and computes deltas only for intersecting lines.
 
+A second exact experiment skipped the first redundant winding reset in every
+pair and odd-tail kernel. Eight alternating 120-frame runs improved 1x
+submission/frame p50 1.1608/4.9743 -> 1.0915/4.7015 ms and 2x
+1.7850/5.9484 -> 1.7218/5.7874 ms, but 2x frame p95 regressed
+7.9814 -> 8.1111 ms (+1.6%). The loop-index branch therefore failed the full
+no-regression gate and was rejected.
+
+The accepted NEON follow-up instead folds exact integer lane reduction. It
+adds the low/high 0-or-1 coverage vectors before reducing their halves, saving
+one vector add per pixel without a new branch, metadata read, or floating-point
+change; SSE2 remains unchanged. Eight alternating 120-frame runs stayed exact
+at both hashes. Submission/frame p50 improved 1.0547/4.6895 ->
+1.0211/4.4603 ms at 1x and 1.7792/5.4060 -> 1.6849/5.0955 ms at 2x; p95
+improved in all four comparisons. The ten-test local native suite and strict
+x86_64 SSE2 syntax compile pass.
+
 The WPF Box blur checkpoint closes the second canonical `KernelType` without a
 managed or CPU rendering fallback. Native MIL accepts kernel 1, retains live
 animated radius dependencies, and emits a typed reusable Box group effect;

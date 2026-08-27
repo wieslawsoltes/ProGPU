@@ -313,6 +313,26 @@ zero pixel difference and hashes `5B6EF4F70536C862` (1x) and
 extra metadata traffic therefore does not qualify, and line deltas remain
 local to an actual crossing.
 
+Skipping the first redundant winding reset in each pixel-pair and odd-tail
+kernel was exact but also rejected. Across eight alternating 120-frame runs,
+submission/frame p50 improved 1.1608/4.9743 -> 1.0915/4.7015 ms at 1x and
+1.7850/5.9484 -> 1.7218/5.7874 ms at 2x. The 2x frame p95 nevertheless
+regressed 7.9814 -> 8.1111 ms (+1.6%). A predictable loop-index branch and
+one fewer reset do not satisfy the complete latency gate, so resets remain
+unconditional at every subscanline.
+
+The accepted follow-up keeps those control-flow and metadata properties while
+folding the NEON lane reduction. The low/high 0-or-1 coverage vectors are
+added first, then their 64-bit halves are reduced; this removes one vector add
+per pixel without changing integer associativity, sample order, or the SSE2
+path. Eight alternating 120-frame runs per variant remained exact at
+`5B6EF4F70536C862` (1x) and `706B261418EC5C3B` (2x). Median
+submission/frame p50 improved 1.0547/4.6895 -> 1.0211/4.4603 ms at 1x and
+1.7792/5.4060 -> 1.6849/5.0955 ms at 2x. Submission/frame p95 also improved
+1.6923/7.1415 -> 1.3913/7.1239 ms and 2.7419/7.8718 ->
+2.2952/7.7180 ms. The complete local native suite and strict x86_64 SSE2
+syntax gate pass.
+
 Exact pushed head `644a8d89` also rebuilt both native libraries with ARM64
 MSVC and passed all 11 native/Dawn CTests in the Windows Parallels VM. The
 zero-warning benchmark build ran the full 42-glyph forced-NEON D3D12 gate with
