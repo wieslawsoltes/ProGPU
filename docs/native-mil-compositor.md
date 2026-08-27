@@ -3163,6 +3163,14 @@ pixel difference, but median submission/frame p50 regressed
 well. The qualified SIMD loop therefore remains branch-free across full pixel
 pairs; typed outline bounds are not used as an assumed hot-path shortcut.
 
+Scalar and native-vector precomputed sample-offset candidates were likewise
+measured with separately hashed dylibs copied into the benchmark output before
+each alternating process. Both were pixel-exact. The refined NEON/SSE2 vector
+form improved submission p50 at 1x and 2x, but eight-run 2x synchronized-frame
+p50/p95 regressed 5.6951/8.4109 -> 5.8623/8.5459 ms. It was rejected under the
+same cross-profile no-regression rule, and the ignored reports retain the
+negative evidence.
+
 The WPF Box blur checkpoint closes the second canonical `KernelType` without a
 managed or CPU rendering fallback. Native MIL accepts kernel 1, retains live
 animated radius dependencies, and emits a typed reusable Box group effect;
