@@ -3586,6 +3586,20 @@ before retention or GPU allocation. A zero `light_count` deliberately executes
 the previous single-directional/ambient shader path byte-for-byte for existing
 callers.
 
+The portable managed `Mesh3DExtensionPipeline` exposes the same bounded
+vocabulary through `Light3DCompilationEntry`. Its 80-byte `GpuLight3DRecord`
+array is retained in the viewport resource, uploaded from reusable compile
+scratch, and bound to both solid/material and wireframe WGSL pipelines. Each
+464-byte managed mesh record carries a light range; zero lights preserves the
+existing ProGPU three-light PBR presentation path for WinUI/Avalonia consumers,
+while an explicit array selects WPF-compatible ambient/diffuse/half-vector
+specular, range, attenuation, and spot-cone evaluation. The public WinUI
+`Viewport3D.Lights` collection uses this reusable compositor contract, and the
+LibreWPF bridge maps its neutral portable light DTOs into the same payload
+without reflection. A Metal headless readback renders point-lit red and
+spot-lit blue meshes, so this is shader execution coverage rather than a
+record-layout-only assertion.
+
 Live qualification must execute this route, not merely validate its retained
 bytes. The shared gate renders a typed MIL mesh into a non-origin sub-viewport
 and proves by GPU readback that every colored pixel remains inside it. Mesh

@@ -683,6 +683,8 @@ fn fs_mesh_3d(
                         1.0);
                     attenuation *= select(
                         0.0, 1.0, distance <= source.position_range.w);
+                    attenuation *= select(
+                        0.0, 1.0, distance > 0.000001);
                     if (source.kind == 3u) {
                         let rho = max(dot(
                             normalize(-source.direction_inner_cos.xyz),

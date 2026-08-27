@@ -1011,6 +1011,7 @@ namespace Microsoft.UI.Xaml.Controls
                 InvalidateRecords();
             }
         }
+        public List<Light3DCompilationEntry> Lights { get; } = new();
 
         public RenderMode3D RenderMode
         {
@@ -1290,6 +1291,9 @@ namespace Microsoft.UI.Xaml.Controls
             payload.SceneCompilationCount = compileScene ? 1 : 0;
             payload.ModelVisualVisitCount = 0;
             payload.MetricsTarget = _metricsTarget;
+
+            payload.Lights.Clear();
+            payload.Lights.AddRange(Lights);
 
             if (compileScene)
             {
