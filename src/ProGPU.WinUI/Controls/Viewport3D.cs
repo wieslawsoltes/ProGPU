@@ -121,6 +121,8 @@ namespace Microsoft.UI.Xaml.Media.Media3D
     public class DiffuseMaterial : Material
     {
         public Brush Brush { get; set; } = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f));
+        public MaterialBrushTarget3D BrushTarget { get; set; } =
+            MaterialBrushTarget3D.Color;
         public Vector4 Color { get; set; } = Vector4.One;
         public Vector3 SpecularColor { get; set; } = new Vector3(0.2f, 0.2f, 0.2f);
         public float Shininess { get; set; } = 32.0f;
@@ -1426,6 +1428,9 @@ namespace Microsoft.UI.Xaml.Controls
                                 IProGpuTextureLeaseSource?
                                     textureSource = null;
                                 Brush? materialBrush = null;
+                                MaterialBrushTarget3D
+                                    materialBrushTarget =
+                                        MaterialBrushTarget3D.Color;
                                 MeshTextureEffect textureEffect =
                                     MeshTextureEffect.Identity;
                                 TextureSamplingMode textureSamplingMode =
@@ -1446,6 +1451,8 @@ namespace Microsoft.UI.Xaml.Controls
                                     shininess = diffuse.Shininess;
                                     ambientColor = diffuse.AmbientColor;
                                     selfIllumination = diffuse.SelfIllumination;
+                                    materialBrushTarget =
+                                        diffuse.BrushTarget;
 
                                     // If the brush is a dynamic theme resource brush, resolve it against the active theme family
                                     Brush? activeBrush = diffuse.Brush;
@@ -1508,6 +1515,8 @@ namespace Microsoft.UI.Xaml.Controls
                                         Edges = mesh.Edges,
                                         TextureSource = textureSource,
                                         MaterialBrush = materialBrush,
+                                        MaterialBrushTarget =
+                                            materialBrushTarget,
                                         TextureEffect = textureEffect,
                                         TextureSamplingMode =
                                             textureSamplingMode,
@@ -1617,6 +1626,8 @@ namespace Microsoft.UI.Xaml.Controls
                                             backTextureSource,
                                         MaterialBrush =
                                             backMaterialBrush,
+                                        MaterialBrushTarget =
+                                            backDiffuse.BrushTarget,
                                         TextureEffect =
                                             backTextureEffect,
                                         TextureSamplingMode =

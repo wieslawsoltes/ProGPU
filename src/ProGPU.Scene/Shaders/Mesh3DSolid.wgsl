@@ -133,7 +133,8 @@ fn ComputeWpfLighting(
     N: vec3<f32>,
     V: vec3<f32>,
     worldPos: vec3<f32>,
-    albedo: vec3<f32>
+    albedo: vec3<f32>,
+    materialSpecular: vec3<f32>
 ) -> vec3<f32> {
     var ambient = vec3<f32>(0.0);
     var diffuse = vec3<f32>(0.0);
@@ -184,7 +185,7 @@ fn ComputeWpfLighting(
             pow(max(dot(N, H), 0.0), shininess) * attenuation;
     }
     return albedo * (ambient * record.materialAmbient.rgb + diffuse) +
-        record.specularColor.rgb * specular;
+        materialSpecular * specular;
 }
 
 fn SampleMaterialSource(
@@ -804,7 +805,9 @@ fn ComputeLighting(
     instanceIdx: u32,
     worldPos: vec3<f32>,
     worldNormal: vec3<f32>,
-    albedo: vec4<f32>
+    albedo: vec4<f32>,
+    materialSpecular: vec3<f32>,
+    hasSpecularMaterial: bool
 ) -> vec4<f32> {
     let record = meshRecords[instanceIdx];
     let shading = u32(record.shadingMode + 0.5);
@@ -837,7 +840,12 @@ fn ComputeLighting(
     let shininess = record.specularColor.w;
     if (record.lightCount != 0u) {
         var resultColor = ComputeWpfLighting(
-            record, N, V, worldPos, albedo.rgb);
+            record,
+            N,
+            V,
+            worldPos,
+            albedo.rgb,
+            materialSpecular);
         if (shading == 4u) {
             let gray = dot(
                 resultColor,
@@ -951,6 +959,10 @@ fn ComputeLighting(
 
     var resultColor = ambient + diffuseOut + specularOut + rimColor +
         albedo.rgb * clamp(record.materialAmbient.w, 0.0, 1.0);
+    if (hasSpecularMaterial) {
+        resultColor =
+            diffuseOut + specularOut * materialSpecular;
+    }
 
     if (shading == 4u) { // Shades of Gray
         let gray = dot(resultColor, vec3<f32>(0.2126, 0.7152, 0.0722));
@@ -994,14 +1006,27 @@ fn fs_main(input: VertexOutput, @builtin(front_facing) is_front: bool) -> @locat
         normal = -input.worldNormal;
     }
     let record = meshRecords[input.instanceIdx];
-    let materialColor =
-        SampleMaterial(record, input.textureCoordinate) *
-        record.color;
+    let materialSample =
+        SampleMaterial(record, input.textureCoordinate);
+    if (record.materialStopMetadata.z > 0.5) {
+        let materialColor = vec4<f32>(
+            record.color.rgb,
+            materialSample.a * record.color.a);
+        return ComputeLighting(
+            input.instanceIdx,
+            input.worldPosition,
+            normal,
+            materialColor,
+            record.specularColor.rgb * materialSample.rgb,
+            true);
+    }
     return ComputeLighting(
         input.instanceIdx,
         input.worldPosition,
         normal,
-        materialColor);
+        materialSample * record.color,
+        record.specularColor.rgb,
+        false);
 }
 
 @fragment
@@ -1014,14 +1039,27 @@ fn fs_unfilterable(
         normal = -input.worldNormal;
     }
     let record = meshRecords[input.instanceIdx];
-    let materialColor =
+    let materialSample =
         SampleMaterialUnfilterable(
             record,
-            input.textureCoordinate) *
-        record.color;
+            input.textureCoordinate);
+    if (record.materialStopMetadata.z > 0.5) {
+        let materialColor = vec4<f32>(
+            record.color.rgb,
+            materialSample.a * record.color.a);
+        return ComputeLighting(
+            input.instanceIdx,
+            input.worldPosition,
+            normal,
+            materialColor,
+            record.specularColor.rgb * materialSample.rgb,
+            true);
+    }
     return ComputeLighting(
         input.instanceIdx,
         input.worldPosition,
         normal,
-        materialColor);
+        materialSample * record.color,
+        record.specularColor.rgb,
+        false);
 }

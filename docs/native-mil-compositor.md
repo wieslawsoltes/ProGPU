@@ -638,6 +638,25 @@ guards the expanded 560-byte record ABI. WinUI no longer approximates mesh
 gradients with the first stop. Texture-plus-gradient ambiguity and unsupported
 brush kinds fail closed; no CPU texture staging or readback is introduced.
 
+The same 560-byte managed record now carries a typed
+`MaterialBrushTarget3D` in `MaterialStopMetadata.z`; zero remains the existing
+color target and one selects the specular target. This reuses the established
+gradient-stop buffer without widening the ABI. The color target retains its
+previous shader arithmetic path. A specular target preserves the mesh's
+black diffuse pass, multiplies `SpecularColor` by the sampled linear/radial
+brush, and applies the result in both the explicit WPF-light loop and the
+default ProGPU light rig. Ambient and presentation-only rim contributions are
+suppressed for that ordered specular-only pass. Invalid target values and a
+non-color target without a typed brush fail closed. WinUI exposes the same
+typed target on `DiffuseMaterial.BrushTarget`, and LibreWPF maps its neutral
+specular material DTO directly to `MeshCompilationEntry.MaterialBrushTarget`.
+No reflection, CPU texture, readback, or per-mesh submission is introduced.
+The Apple M3 Pro Metal execution gate uses an opaque red-to-blue brush, black
+diffuse RGB, and an explicit point light; its full Mesh3D run observes 3,300
+red-dominant and 3,300 blue-dominant pixels with maximum channel deltas of 134
+in both directions. The ordinary managed gradient execution test remains in
+the same gate to protect the zero/default target.
+
 Exact pushed implementation `8eee2170` is also qualified on Windows ARM64
 from an isolated source archive plus the repository's exact pinned
 `microsoft-ui-xaml` submodule file at `25d2cb1c`. .NET SDK 10.0.400 built the
