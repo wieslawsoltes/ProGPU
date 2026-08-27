@@ -2106,3 +2106,28 @@ portable/mobile packaging, and native Dawn. Local final gates pass 3,569 core,
 240 headless, and 185 focused stroke/hairline/hit-test cases. Algorithms,
 quality bounds, complexity, and primary research sources are recorded in
 `docs/STROKE_TRANSFORM_RESEARCH.md`.
+
+## Preview.62 typed retained SaveLayer tranche
+
+Preview.62 preserves the official 4,222/4,222 metadata match and optimizes the
+Avalonia-shaped bounded SaveLayer containing one analytic rounded rectangle.
+The exact `PushClip`, `DrawRoundedRect`, `PopClip` replay is retained in typed
+fields with inline transforms, and sequential layer recording reuses at most
+one cleared transient context. Nested layers cannot borrow an active context;
+unmatched command shapes retain the existing general compact path. Construction
+and retained storage are `O(1)` for the specialized shape, replay is three
+allocation-free indexed expansions, and the canvas-local reuse bound is
+independent of sequential layer count.
+
+The final alternating three-process Release matrix preserves all 62 semantic
+checksums. `avalonia-layer-recording` improves from 3,847.625 to 2,673.188
+ns/op median (-30.5%), from 14,958.313 to 4,333.313 ns/op p95 (-71.0%), and
+from 8,189 to 6,131 managed B/op (-25.1%). Matched 50,000-operation Xcode
+Allocations/VM Tracker, Time Profiler, and Metal System Trace captures retain
+the exact checksum and reduce measured managed allocation from 3,309 to 1,205
+B/op (-63.6%); persistent heap plus anonymous VM changes by +0.16%, with zero
+target Metal resources, submissions, waits, spills, hangs, or command-buffer
+errors. The managed/native audit finds no renderer delta because both scene
+compilers consume the same expanded commands. Full research, rejected
+alternatives, distributions, validation counts, and reproduction evidence are
+in `docs/AVALONIA_SKIA_RETAINED_COMMAND_STREAM_RESEARCH.md`.

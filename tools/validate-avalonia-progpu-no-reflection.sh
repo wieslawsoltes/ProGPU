@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 package_root="${1:-${PROGPU_AVALONIA_REPLACEMENT_OUTPUT:-${repo_root}/artifacts/avalonia-replacement}}"
-integration_version="${PROGPU_INTEGRATION_PACKAGE_VERSION:-12.1.1-preview.61}"
+integration_version="${PROGPU_INTEGRATION_PACKAGE_VERSION:-12.1.1-preview.62}"
 renderer_package="${package_root}/ProGPU.Avalonia.Rendering.${integration_version}.nupkg"
 windowing_package="${package_root}/ProGPU.Avalonia.SilkNet.${integration_version}.nupkg"
 
