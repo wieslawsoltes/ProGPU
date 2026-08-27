@@ -280,6 +280,15 @@ submission/frame p50 improved from 1.7587/5.3875 ms to 1.6904/5.0735 ms at 1x
 native suite passes 10/10, and strict x86_64 compilation covers the paired
 SSE2 tail implementation.
 
+A following conservative right-bound experiment was exact but rejected. It
+stopped a raster row once the first sample of a pixel pair reached the typed
+outline maximum, relying on the already zero-initialized coverage tail. Across
+eight 120-frame 1x runs per variant, the hash remained
+`5B6EF4F70536C862` with zero pixel difference, but median submission p50
+regressed from 1.3922 ms to 1.6106 ms (+15.7%) and synchronized-frame p50
+from 4.9143 ms to 5.2848 ms (+7.5%); both p95 medians also worsened. The
+source therefore retains the branch-free qualified pair loop.
+
 Exact pushed head `644a8d89` also rebuilt both native libraries with ARM64
 MSVC and passed all 11 native/Dawn CTests in the Windows Parallels VM. The
 zero-warning benchmark build ran the full 42-glyph forced-NEON D3D12 gate with
