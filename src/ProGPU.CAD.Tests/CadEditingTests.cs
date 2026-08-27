@@ -424,6 +424,39 @@ public sealed class CadEditingTests
     }
 
     [Fact]
+    public void LayerPlotFlagCommandRetainsScreenVisibilityAndRestoresPriorStates()
+    {
+        var document = new CadDocument();
+        var firstLayer = new Layer("PLOT") { PlotFlag = true };
+        var secondLayer = new Layer("SCREEN_ONLY") { PlotFlag = false };
+        document.Layers.Add(firstLayer);
+        document.Layers.Add(secondLayer);
+        document.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX) { Layer = firstLayer });
+        document.Entities.Add(new Line(XYZ.AxisY, new XYZ(1, 1, 0)) { Layer = secondLayer });
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetLayerPlotFlagCommand(
+            ["plot", "SCREEN_ONLY", "PLOT"],
+            plotFlag: false));
+
+        Assert.True(firstLayer.IsOn);
+        Assert.True(secondLayer.IsOn);
+        Assert.False(firstLayer.PlotFlag);
+        Assert.False(secondLayer.PlotFlag);
+        CadDocumentSnapshot applied = new CadSnapshotCompiler().Compile(session);
+        Assert.Equal(2, applied.Entities.Length);
+        Assert.All(applied.Layers.ToArray(), layer => Assert.False(layer.IsPlottable));
+
+        Assert.True(history.TryUndo(out _));
+        Assert.True(firstLayer.PlotFlag);
+        Assert.False(secondLayer.PlotFlag);
+        Assert.True(history.TryRedo(out _));
+        Assert.False(firstLayer.PlotFlag);
+        Assert.False(secondLayer.PlotFlag);
+    }
+
+    [Fact]
     public void LineTypeCommandRestoresInheritanceAndRetainsSnapshotName()
     {
         var document = new CadDocument();

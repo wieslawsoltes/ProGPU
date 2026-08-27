@@ -120,6 +120,43 @@ public abstract class CadEditCommand
         }
     }
 
+    protected static Layer[] ResolveLayers(
+        CadDocument document,
+        ReadOnlySpan<string> layerNames)
+    {
+        var layers = new Layer[layerNames.Length];
+        for (int i = 0; i < layerNames.Length; i++)
+        {
+            if (!document.Layers.TryGetValue(layerNames[i], out Layer? layer))
+            {
+                throw new InvalidOperationException(
+                    $"Document layer '{layerNames[i]}' does not exist.");
+            }
+            layers[i] = layer;
+        }
+        return layers;
+    }
+
+    protected static void ValidateLayers(
+        CadDocument document,
+        ReadOnlySpan<Layer> layers)
+    {
+        foreach (Layer layer in layers)
+        {
+            ValidateLayer(document, layer);
+        }
+    }
+
+    protected static void ValidateLayer(CadDocument document, Layer layer)
+    {
+        if (!document.Layers.TryGetValue(layer.Name, out Layer? registered) ||
+            !ReferenceEquals(registered, layer))
+        {
+            throw new InvalidOperationException(
+                $"Retained document layer '{layer.Name}' is no longer registered.");
+        }
+    }
+
     protected static TValue[] CaptureEntityValues<TValue>(
         Entity[] entities,
         Func<Entity, TValue> getter) => CaptureValues(entities, getter);
@@ -860,16 +897,6 @@ public sealed class CadSetEntityLayerCommand : CadEditCommand
         return entities;
     }
 
-    private static void ValidateLayer(CadDocument document, Layer layer)
-    {
-        if (!document.Layers.TryGetValue(layer.Name, out Layer? registered) ||
-            !ReferenceEquals(registered, layer))
-        {
-            throw new InvalidOperationException(
-                $"Retained document layer '{layer.Name}' is no longer registered.");
-        }
-    }
-
 }
 
 /// <summary>Sets model visibility for a stable set of existing layers.</summary>
@@ -910,7 +937,7 @@ public sealed class CadSetLayerVisibilityCommand : CadEditCommand
         }
         else
         {
-            layers = ResolveLayers(document);
+            layers = ResolveLayers(document, _layerNames);
             _layers = layers;
             _previousValues = CaptureValues(
                 layers,
@@ -936,41 +963,87 @@ public sealed class CadSetLayerVisibilityCommand : CadEditCommand
             static (layer, value) => layer.IsOn = value);
     }
 
-    private Layer[] ResolveLayers(CadDocument document)
+    private Layer[] GetRetainedLayers(CadDocument document)
     {
-        var layers = new Layer[_layerNames.Length];
-        for (int i = 0; i < _layerNames.Length; i++)
-        {
-            if (!document.Layers.TryGetValue(_layerNames[i], out Layer? layer))
-            {
-                throw new InvalidOperationException(
-                    $"Document layer '{_layerNames[i]}' does not exist.");
-            }
-            layers[i] = layer;
-        }
+        Layer[] layers = _layers ??
+            throw new InvalidOperationException(
+                "The layer-visibility command has not been applied.");
+        ValidateLayers(document, layers);
         return layers;
+    }
+}
+
+/// <summary>Sets plot eligibility for a stable set of existing layers.</summary>
+public sealed class CadSetLayerPlotFlagCommand : CadEditCommand
+{
+    private readonly string[] _layerNames;
+    private Layer[]? _layers;
+    private bool[]? _previousValues;
+
+    public ReadOnlyMemory<string> LayerNames => _layerNames;
+
+    public bool PlotFlag { get; }
+
+    public CadSetLayerPlotFlagCommand(
+        IEnumerable<string> layerNames,
+        bool plotFlag,
+        string description = "Set layer plot eligibility")
+        : base(description)
+    {
+        ArgumentNullException.ThrowIfNull(layerNames);
+        string[] names = layerNames.ToArray();
+        if (names.Length == 0 || names.Any(string.IsNullOrWhiteSpace))
+        {
+            throw new ArgumentException(
+                "At least one non-empty layer name is required.",
+                nameof(layerNames));
+        }
+        _layerNames = names.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        PlotFlag = plotFlag;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Layer[] layers;
+        if (isRedo)
+        {
+            layers = GetRetainedLayers(document);
+        }
+        else
+        {
+            layers = ResolveLayers(document, _layerNames);
+            _layers = layers;
+            _previousValues = CaptureValues(
+                layers,
+                static layer => layer.PlotFlag);
+        }
+        SetValuesTransactional(
+            layers,
+            PlotFlag,
+            static layer => layer.PlotFlag,
+            static (layer, value) => layer.PlotFlag = value);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Layer[] layers = GetRetainedLayers(document);
+        bool[] previous = _previousValues ??
+            throw new InvalidOperationException(
+                "The layer-plot command has not been applied.");
+        SetValuesTransactional(
+            layers,
+            previous,
+            static layer => layer.PlotFlag,
+            static (layer, value) => layer.PlotFlag = value);
     }
 
     private Layer[] GetRetainedLayers(CadDocument document)
     {
         Layer[] layers = _layers ??
             throw new InvalidOperationException(
-                "The layer-visibility command has not been applied.");
-        foreach (Layer layer in layers)
-        {
-            ValidateLayer(document, layer);
-        }
+                "The layer-plot command has not been applied.");
+        ValidateLayers(document, layers);
         return layers;
-    }
-
-    private static void ValidateLayer(CadDocument document, Layer layer)
-    {
-        if (!document.Layers.TryGetValue(layer.Name, out Layer? registered) ||
-            !ReferenceEquals(registered, layer))
-        {
-            throw new InvalidOperationException(
-                $"Retained document layer '{layer.Name}' is no longer registered.");
-        }
     }
 }
 

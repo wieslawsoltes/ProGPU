@@ -311,8 +311,9 @@ an interactive browser picker/download smoke remains open.
 - Layer visibility is a separate multi-layer command over the authored `IsOn`
   state. It resolves every case-insensitively deduplicated table name before
   mutation, retains each prior state, and restores the snapshot's existing
-  visibility filtering on undo. Plot eligibility remains a distinct
-  `PlotFlag` concern and is not changed by this command.
+  visibility filtering on undo. A distinct multi-layer command owns plot
+  eligibility (`PlotFlag`) and retains the snapshot state consumed by later
+  print planning without changing screen visibility.
 - Linetype assignment uses the same table-identity and rollback contract for
   explicit, `ByLayer`, and `ByBlock` entries. The immutable snapshot retains the
   newly resolved linetype name. Entity linetype-scale assignment accepts only
