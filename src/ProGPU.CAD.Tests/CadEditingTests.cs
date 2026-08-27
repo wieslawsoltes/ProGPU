@@ -457,6 +457,61 @@ public sealed class CadEditingTests
     }
 
     [Fact]
+    public void LayerColorCommandUpdatesInheritedSnapshotRgbAndRestoresPriorValues()
+    {
+        var document = new CadDocument();
+        var firstLayer = new Layer("FIRST_COLOR") { Color = ACadSharp.Color.Red };
+        var secondLayer = new Layer("SECOND_COLOR") { Color = ACadSharp.Color.Green };
+        document.Layers.Add(firstLayer);
+        document.Layers.Add(secondLayer);
+        document.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX)
+        {
+            Layer = firstLayer,
+            Color = ACadSharp.Color.ByLayer,
+        });
+        document.Entities.Add(new Line(XYZ.AxisY, new XYZ(1, 1, 0))
+        {
+            Layer = secondLayer,
+            Color = ACadSharp.Color.ByLayer,
+        });
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var target = new ACadSharp.Color(12, 34, 56);
+
+        history.Execute(new CadSetLayerColorCommand(
+            ["first_color", "SECOND_COLOR", "FIRST_COLOR"],
+            target));
+
+        Assert.Equal(target, firstLayer.Color);
+        Assert.Equal(target, secondLayer.Color);
+        CadDocumentSnapshot applied = new CadSnapshotCompiler().Compile(session);
+        Assert.All(applied.Styles.ToArray(), style =>
+        {
+            Assert.Equal((byte)12, style.Red);
+            Assert.Equal((byte)34, style.Green);
+            Assert.Equal((byte)56, style.Blue);
+        });
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(ACadSharp.Color.Red, firstLayer.Color);
+        Assert.Equal(ACadSharp.Color.Green, secondLayer.Color);
+        Assert.True(history.TryRedo(out _));
+        Assert.Equal(target, firstLayer.Color);
+        Assert.Equal(target, secondLayer.Color);
+    }
+
+    [Fact]
+    public void LayerColorCommandRejectsInheritanceAndHeaderSentinels()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadSetLayerColorCommand(["0"], ACadSharp.Color.ByLayer));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadSetLayerColorCommand(["0"], ACadSharp.Color.ByBlock));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadSetLayerColorCommand(["0"], ACadSharp.Color.ByEntity));
+    }
+
+    [Fact]
     public void LineTypeCommandRestoresInheritanceAndRetainsSnapshotName()
     {
         var document = new CadDocument();

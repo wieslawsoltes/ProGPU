@@ -137,6 +137,21 @@ public abstract class CadEditCommand
         return layers;
     }
 
+    protected static string[] NormalizeLayerNames(
+        IEnumerable<string> layerNames,
+        string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(layerNames, parameterName);
+        string[] names = layerNames.ToArray();
+        if (names.Length == 0 || names.Any(string.IsNullOrWhiteSpace))
+        {
+            throw new ArgumentException(
+                "At least one non-empty layer name is required.",
+                parameterName);
+        }
+        return names.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
     protected static void ValidateLayers(
         CadDocument document,
         ReadOnlySpan<Layer> layers)
@@ -916,15 +931,7 @@ public sealed class CadSetLayerVisibilityCommand : CadEditCommand
         string description = "Set layer visibility")
         : base(description)
     {
-        ArgumentNullException.ThrowIfNull(layerNames);
-        string[] names = layerNames.ToArray();
-        if (names.Length == 0 || names.Any(string.IsNullOrWhiteSpace))
-        {
-            throw new ArgumentException(
-                "At least one non-empty layer name is required.",
-                nameof(layerNames));
-        }
-        _layerNames = names.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        _layerNames = NormalizeLayerNames(layerNames, nameof(layerNames));
         IsOn = isOn;
     }
 
@@ -990,15 +997,7 @@ public sealed class CadSetLayerPlotFlagCommand : CadEditCommand
         string description = "Set layer plot eligibility")
         : base(description)
     {
-        ArgumentNullException.ThrowIfNull(layerNames);
-        string[] names = layerNames.ToArray();
-        if (names.Length == 0 || names.Any(string.IsNullOrWhiteSpace))
-        {
-            throw new ArgumentException(
-                "At least one non-empty layer name is required.",
-                nameof(layerNames));
-        }
-        _layerNames = names.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        _layerNames = NormalizeLayerNames(layerNames, nameof(layerNames));
         PlotFlag = plotFlag;
     }
 
@@ -1042,6 +1041,79 @@ public sealed class CadSetLayerPlotFlagCommand : CadEditCommand
         Layer[] layers = _layers ??
             throw new InvalidOperationException(
                 "The layer-plot command has not been applied.");
+        ValidateLayers(document, layers);
+        return layers;
+    }
+}
+
+/// <summary>Assigns an indexed or true color to a stable set of existing layers.</summary>
+public sealed class CadSetLayerColorCommand : CadEditCommand
+{
+    private readonly string[] _layerNames;
+    private Layer[]? _layers;
+    private ACadSharp.Color[]? _previousValues;
+
+    public ReadOnlyMemory<string> LayerNames => _layerNames;
+
+    public ACadSharp.Color Color { get; }
+
+    public CadSetLayerColorCommand(
+        IEnumerable<string> layerNames,
+        ACadSharp.Color color,
+        string description = "Set layer color")
+        : base(description)
+    {
+        if (!color.IsTrueColor &&
+            color.Index is 0 or 256 or 257)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(color),
+                "Layer color must be an indexed or true explicit color.");
+        }
+        _layerNames = NormalizeLayerNames(layerNames, nameof(layerNames));
+        Color = color;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Layer[] layers;
+        if (isRedo)
+        {
+            layers = GetRetainedLayers(document);
+        }
+        else
+        {
+            layers = ResolveLayers(document, _layerNames);
+            _layers = layers;
+            _previousValues = CaptureValues(
+                layers,
+                static layer => layer.Color);
+        }
+        SetValuesTransactional(
+            layers,
+            Color,
+            static layer => layer.Color,
+            static (layer, value) => layer.Color = value);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Layer[] layers = GetRetainedLayers(document);
+        ACadSharp.Color[] previous = _previousValues ??
+            throw new InvalidOperationException(
+                "The layer-color command has not been applied.");
+        SetValuesTransactional(
+            layers,
+            previous,
+            static layer => layer.Color,
+            static (layer, value) => layer.Color = value);
+    }
+
+    private Layer[] GetRetainedLayers(CadDocument document)
+    {
+        Layer[] layers = _layers ??
+            throw new InvalidOperationException(
+                "The layer-color command has not been applied.");
         ValidateLayers(document, layers);
         return layers;
     }

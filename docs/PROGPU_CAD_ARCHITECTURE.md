@@ -314,6 +314,10 @@ an interactive browser picker/download smoke remains open.
   visibility filtering on undo. A distinct multi-layer command owns plot
   eligibility (`PlotFlag`) and retains the snapshot state consumed by later
   print planning without changing screen visibility.
+- Layer color assignment accepts indexed and true explicit colors, rejecting
+  `ByLayer`, `ByBlock`, and the header-only `ByEntity` sentinel. It restores each
+  prior table value and updates inherited entity RGB through the same immutable
+  snapshot style resolution used by both picture compilers.
 - Linetype assignment uses the same table-identity and rollback contract for
   explicit, `ByLayer`, and `ByBlock` entries. The immutable snapshot retains the
   newly resolved linetype name. Entity linetype-scale assignment accepts only
