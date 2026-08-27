@@ -21,6 +21,13 @@ public class Graphics :
     IDeviceContext,
     IProGpuDrawingContextSource
 {
+    public delegate bool EnumerateMetafileProc(
+        EmfPlusRecordType recordType,
+        int flags,
+        int dataSize,
+        IntPtr data,
+        PlayRecordCallback? callbackData);
+
     private readonly DrawingContext _context;
     private readonly Bitmap? _bitmap;
     private readonly RectangleF? _deviceBounds;
