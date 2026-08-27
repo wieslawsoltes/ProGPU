@@ -463,6 +463,18 @@ gate was decisively negative: submission/frame p50 regressed
 candidate was rejected without extending the run matrix; the qualified
 interleaved `{x,direction}` traversal remains in source.
 
+A subsequent row-local descriptor experiment precomputed the eight
+`std::span<const cpu_crossing>` values after collecting crossings, intending
+to remove repeated `subspan` construction from every two-pixel and odd-tail
+iteration. The compiler-visible descriptors instead added hot stack traffic
+and loads without reducing crossing comparisons. Initial Apple M3 Pro Metal
+120-frame gates stayed byte-exact at `5B6EF4F70536C862` (1x) and
+`706B261418EC5C3B` (2x), but submission/frame p50 changed from
+`1.4922/5.5365` to `1.7465/5.2648` ms at 1x and from `1.9650/6.1749` to
+`2.6905/6.3856` ms at 2x. The decisive submission regression rejected the
+candidate before a longer alternating matrix; the qualified offset-array plus
+inline `subspan` form remains authoritative.
+
 ## Extending the policy
 
 Each additional compute-heavy workload must declare the semantics that make a
