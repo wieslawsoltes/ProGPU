@@ -138,6 +138,8 @@ struct MaterialGradientStop3D {
 @group(0) @binding(6) var<storage, read> materials: array<MaterialBrush3D>;
 @group(0) @binding(7) var<storage, read> material_gradient_stops: array<MaterialGradientStop3D>;
 
+const MESH_FLAG_SPECULAR_MATERIAL: u32 = 32u;
+
 struct LineOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
@@ -800,6 +802,10 @@ fn fs_mesh_3d(
     let material_sample = sample_mesh_material(
         materials[input.material], input.texture_coordinate);
     let material_color = input.color * material_sample;
+    let material_specular = select(
+        mesh.specular_color.rgb,
+        mesh.specular_color.rgb * material_sample.rgb,
+        (mesh.flags & MESH_FLAG_SPECULAR_MATERIAL) != 0u);
     let camera = cameras[mesh.camera_index];
     var normal = input.normal;
     if (!is_front) {
@@ -825,14 +831,26 @@ fn fs_mesh_3d(
         texture_alpha = mix(1.0, sampled.a, blend);
     }
     var solid = vec4<f32>(0.0);
-    if (mesh.light_count != 0u) {
+    if (mesh.light_count != 0u ||
+        (mesh.flags & MESH_FLAG_SPECULAR_MATERIAL) != 0u) {
         let n = normalize(normal);
         let view = normalize(camera.camera_position.xyz - input.world_position);
         let shininess = max(mesh.specular_color.w, 0.001);
         var diffuse = vec3<f32>(0.0);
         var ambient = vec3<f32>(0.0);
         var specular = vec3<f32>(0.0);
-        {
+        if (mesh.light_count == 0u) {
+            let light = normalize(-mesh.light_direction.xyz);
+            let light_intensity = max(mesh.light_direction.w, 0.0);
+            let ambient_intensity = max(mesh.ambient_color.w, 0.0);
+            let amount = max(dot(n, light), 0.0) * light_intensity;
+            let reflected = reflect(-light, n);
+            diffuse = vec3<f32>(amount);
+            specular = vec3<f32>(pow(
+                max(dot(view, reflected), 0.0),
+                shininess) * light_intensity);
+            ambient = mesh.ambient_color.rgb * ambient_intensity;
+        } else {
             for (var light_index = 0u; light_index < 16u; light_index++) {
                 if (light_index >= mesh.light_count) {
                     break;
@@ -880,7 +898,7 @@ fn fs_mesh_3d(
         }
         ambient *= mesh.material_ambient.rgb;
         var rgb = diffuse_color * (ambient + diffuse) +
-            mesh.specular_color.rgb * specular;
+            material_specular * specular;
         if (mesh.shading_mode == 2u) {
             rgb = diffuse_color;
         }

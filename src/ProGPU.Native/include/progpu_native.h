@@ -1794,7 +1794,11 @@ typedef enum progpu_native_mesh_3d_flags {
         PROGPU_NATIVE_MESH_3D_TILING_SHIFT,
     PROGPU_NATIVE_MESH_3D_TWO_SIDED = 0,
     PROGPU_NATIVE_MESH_3D_FRONT_FACE = 1U << 3,
-    PROGPU_NATIVE_MESH_3D_BACK_FACE = 1U << 4
+    PROGPU_NATIVE_MESH_3D_BACK_FACE = 1U << 4,
+    /* Apply the optional canonical material brush to specular reflectance
+     * instead of diffuse/emissive color. The mesh color remains the alpha
+     * carrier for ordered WPF SpecularMaterial passes. */
+    PROGPU_NATIVE_MESH_3D_SPECULAR_MATERIAL = 1U << 5
 } progpu_native_mesh_3d_flags;
 
 typedef enum progpu_native_mesh_3d_tiling {

@@ -637,7 +637,8 @@ bool is_valid_semantic_mesh_3d(
         PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE |
         PROGPU_NATIVE_MESH_3D_TILING_MASK |
         PROGPU_NATIVE_MESH_3D_FRONT_FACE |
-        PROGPU_NATIVE_MESH_3D_BACK_FACE;
+        PROGPU_NATIVE_MESH_3D_BACK_FACE |
+        PROGPU_NATIVE_MESH_3D_SPECULAR_MATERIAL;
     const bool is_edge_list =
         mesh.topology == PROGPU_NATIVE_MESH_3D_EDGE_LIST;
     const std::uint32_t known_flags = is_edge_list

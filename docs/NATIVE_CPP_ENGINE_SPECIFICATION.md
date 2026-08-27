@@ -3564,8 +3564,9 @@ caller-owned list through `CollectionsMarshal.AsSpan(...)`. UV-space
 coordinates, inverse affine transforms, Pad/Reflect/Repeat spread, sRGB/scRGB
 interpolation, brush opacity, and stop alpha remain GPU state. WinUI and
 LibreWPF therefore share the same shader path instead of sampling the first
-stop or rasterizing a CPU texture. Tile-brush realization and the native C++
-3D material-resource ABI remain explicit follow-up work and fail closed.
+stop or rasterizing a CPU texture. The native C++ path uses the same canonical
+brush and stop records through its additive material sideband. Tile-brush
+realization remains explicit follow-up work and fails closed.
 
 The managed gradient shader is cross-backend qualified rather than inferred
 from Metal alone. Exact commit `8eee2170` builds warning-free with .NET SDK
@@ -3633,14 +3634,23 @@ and remain valid without reinterpretation. The new MIL
 `progpu_native_mil_channel_set_viewport3d_scene_materials` entry point copies
 one material per mesh plus its gradient stops transactionally.
 
+Mesh flag bit 2 is `PROGPU_NATIVE_MESH_3D_SPECULAR_MATERIAL`. When set, the
+canonical brush multiplies `specular_color.rgb`; the normal diffuse/emissive
+path continues to multiply `mesh.color`. This allows an ordered WPF specular
+gradient pass to carry black diffuse RGB, its material color and exponent in
+the existing specular vector, and its typed brush without changing the
+256-byte mesh ABI. The flag is independent of front/back culling, while an
+entry carrying both exclusive face bits or any unknown bit fails validation.
+
 The 3D retained-content hash hashes the normalized stable identity of that
 brush resource rather than the serialized table ordinal. A material-generation
 change therefore rebuilds the 3D GPU page; inserting an unrelated lower
 ordinal resource does not. Native builder and MIL tests cover both the exact
 payload layout and malformed range rejection. The live Metal MIL gate renders
 one linear-gradient triangle and requires distinct red- and blue-dominant
-regions after GPU readback, in addition to its camera, face, light, clip, and
-opacity generations.
+regions after GPU readback. A second generation enables only the specular
+gradient contribution and requires a distinct non-black red/blue readback, in
+addition to the camera, face, light, clip, and opacity generations.
 
 The buffered shader accumulates ambient, directional, point, and spot terms.
 Point and spot lights apply WPF's range cutoff and diminishing-only

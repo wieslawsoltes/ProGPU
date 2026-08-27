@@ -684,7 +684,8 @@ public enum NativeMesh3DFlags : uint
 {
     TwoSided = 0,
     FrontFace = 1U << 3,
-    BackFace = 1U << 4
+    BackFace = 1U << 4,
+    SpecularMaterial = 1U << 5
 }
 
 public enum NativeLight3DKind : uint

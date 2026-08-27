@@ -1946,7 +1946,8 @@ bool semantic_scene_builder_records_retained_3d_families() {
     lights[3].attenuation_outer_cos = {1.0F, 0.0F, 0.0F, 0.7F};
     progpu_native_scene_mesh_3d mesh{};
     mesh.struct_size = sizeof(mesh);
-    mesh.flags = PROGPU_NATIVE_MESH_3D_FRONT_FACE;
+    mesh.flags = PROGPU_NATIVE_MESH_3D_FRONT_FACE |
+        PROGPU_NATIVE_MESH_3D_SPECULAR_MATERIAL;
     mesh.topology = PROGPU_NATIVE_MESH_3D_TRIANGLES;
     mesh.render_mode = PROGPU_NATIVE_MESH_3D_SOLID;
     mesh.vertex_count = 3U;
@@ -2070,6 +2071,7 @@ bool semantic_scene_builder_records_retained_3d_families() {
     }
     mesh.flags = PROGPU_NATIVE_MESH_3D_MATERIAL_IMAGE |
         PROGPU_NATIVE_MESH_3D_FRONT_FACE |
+        PROGPU_NATIVE_MESH_3D_SPECULAR_MATERIAL |
         (PROGPU_NATIVE_MESH_3D_CROP <<
             PROGPU_NATIVE_MESH_3D_TILING_SHIFT);
     mesh.material_image_resource_index = material_image;

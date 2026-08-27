@@ -889,7 +889,8 @@ public ref struct NativeSceneStreamBuilder
                 mesh.Topology == (uint)NativeMesh3DTopology.EdgeList;
             uint knownFlags = isEdgeList
                 ? edgeDisplayMask
-                : materialImageFlag | tilingMask | faceMask;
+                : materialImageFlag | tilingMask | faceMask |
+                    (uint)NativeMesh3DFlags.SpecularMaterial;
             if ((mesh.Flags & ~knownFlags) != 0U ||
                 (mesh.Flags & faceMask) == faceMask ||
                 (isEdgeList &&
