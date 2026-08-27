@@ -3875,6 +3875,15 @@ the driven Y gap after render-data replacement. Both providers consume the
 same semantic output, and the full configured native/provider matrix remains
 12/12.
 
+The managed canonical render-data builder now exposes typed
+`PushGuidelineY1(double)` and `PushGuidelineY2(double, double)` methods. They
+emit the exact 12-byte and 20-byte generated MIL command layouts inside the
+standard DWORD-aligned size framing, reject non-finite coordinates before
+writing, and keep compact guideline production available to every managed
+host without raw packet construction. The public builder surface therefore
+matches the compact records already consumed by the native phase
+implementation.
+
 Exact implementation checkpoint `b97b99e3` completed the full Windows 11
 ARM64 Parallels D3D12 smoke/package lane from an immutable source archive.
 MSVC 19.44 rebuilt both native providers in the 312-step `/W4 /WX` graph and

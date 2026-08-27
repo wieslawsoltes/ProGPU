@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using ProGPU.Backend;
@@ -27,6 +28,7 @@ if (info.AbiVersion != 3 ||
     throw new InvalidOperationException("The packaged native ABI is incomplete.");
 }
 ValidateNativeMilSceneBuildTiming();
+ValidateNativeMilCompactGuidelineBuilder();
 
 bool milOnly = args.Contains("--mil-only", StringComparer.Ordinal);
 bool renderOnly = args.Contains("--render-only", StringComparer.Ordinal);
@@ -419,6 +421,35 @@ static void ValidateNativeMilSceneBuildTiming()
     {
         throw new InvalidOperationException(
             "The packaged native MIL overdue timing is incomplete.");
+    }
+}
+
+static void ValidateNativeMilCompactGuidelineBuilder()
+{
+    var renderData = new NativeMilRenderDataBuilder();
+    renderData.PushGuidelineY1(1.25);
+    renderData.Pop();
+    renderData.PushGuidelineY2(2.5, -0.75);
+    renderData.Pop();
+    ReadOnlySpan<byte> bytes = renderData.WrittenSpan;
+    if (bytes.Length != 56 ||
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes) != 16 ||
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes[4..]) != 0x53 ||
+        BitConverter.Int64BitsToDouble(
+            BinaryPrimitives.ReadInt64LittleEndian(bytes[8..])) != 1.25 ||
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes[16..]) != 8 ||
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes[20..]) != 0x56 ||
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes[24..]) != 24 ||
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes[28..]) != 0x54 ||
+        BitConverter.Int64BitsToDouble(
+            BinaryPrimitives.ReadInt64LittleEndian(bytes[32..])) != 2.5 ||
+        BitConverter.Int64BitsToDouble(
+            BinaryPrimitives.ReadInt64LittleEndian(bytes[40..])) != -0.75 ||
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes[48..]) != 8 ||
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes[52..]) != 0x56)
+    {
+        throw new InvalidOperationException(
+            "The packaged compact native MIL guideline builder is incomplete.");
     }
 }
 

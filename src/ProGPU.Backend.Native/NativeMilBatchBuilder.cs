@@ -1589,6 +1589,33 @@ public sealed class NativeMilRenderDataBuilder
         NativeMilBatchBuilder.WriteUInt32(packet, 4, guidelineSetHandle);
     }
 
+    public void PushGuidelineY1(double coordinate)
+    {
+        if (!double.IsFinite(coordinate))
+        {
+            throw new ArgumentOutOfRangeException(nameof(coordinate));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PushGuidelineY1, 12);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, coordinate);
+    }
+
+    public void PushGuidelineY2(
+        double leadingCoordinate,
+        double offsetToDrivenCoordinate)
+    {
+        if (!double.IsFinite(leadingCoordinate) ||
+            !double.IsFinite(offsetToDrivenCoordinate))
+        {
+            throw new ArgumentOutOfRangeException(nameof(leadingCoordinate));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PushGuidelineY2, 20);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, leadingCoordinate);
+        NativeMilBatchBuilder.WriteDouble(
+            packet, 12, offsetToDrivenCoordinate);
+    }
+
     public void Pop()
     {
         _ = NativeMilBatchEncoding.Allocate(
@@ -1962,6 +1989,8 @@ internal static class NativeMilCommand
     internal const uint PushOpacityAnimate = 0x50;
     internal const uint PushTransform = 0x51;
     internal const uint PushGuidelineSet = 0x52;
+    internal const uint PushGuidelineY1 = 0x53;
+    internal const uint PushGuidelineY2 = 0x54;
     internal const uint Pop = 0x56;
     internal const uint BlurEffect = 0x6e;
     internal const uint DropShadowEffect = 0x6f;
