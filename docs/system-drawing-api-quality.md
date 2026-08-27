@@ -36,14 +36,14 @@ Baseline regeneration removes machine-specific left/right assembly paths, so sup
 
 ## Current measured debt
 
-After the component-model converter, hosted graphics-flush, graphics-state, point/source-rectangle and destination-point image-overload, coordinate-space, graphics-container, image-convenience, drawing-identity, brush-base, pen-ownership, stock-icon, printer-settings collection, image-attributes, page device-selection, managed printing-shape, effects, cached-bitmap, managed-metadata, managed-identity, pen-transform, typed-LOGFONT, custom-cap/compound-pen, path-gradient, metafile parser, metafile enumeration, type-scoped bitmap-resource, cumulative graphics-context, managed icon-extraction, managed serialization/base-shape, typed desktop-capture, typed native-image-import, and typed native font/graphics interop compatibility slices:
+After the component-model converter, hosted graphics-flush, graphics-state, point/source-rectangle and destination-point image-overload, coordinate-space, graphics-container, image-convenience, drawing-identity, brush-base, pen-ownership, stock-icon, printer-settings collection, image-attributes, page device-selection, managed printing-shape, effects, cached-bitmap, managed-metadata, managed-identity, pen-transform, typed-LOGFONT, custom-cap/compound-pen, path-gradient, metafile parser, metafile enumeration, type-scoped bitmap-resource, cumulative graphics-context, managed icon-extraction, managed serialization/base-shape, typed desktop-capture, typed native-image-import, typed native font/graphics interop, and portable metafile-comment recording compatibility slices:
 
 | Diagnostic group | Count |
 | --- | ---: |
 | Missing types (`CP0001`) | 0 |
-| Missing members (`CP0002`) | 1 |
+| Missing members (`CP0002`) | 0 |
 | Other shape diagnostics | 13 |
-| Total | 14 |
+| Total | 13 |
 
 The starting measured baseline was 121 missing types, 906 missing members, 25 other diagnostics, and 1,052 total. Completing coherent resource, graphics, imaging, matrix, brush, path, text/font, icon, buffered-graphics, printing, and component-model converter groups, followed by typed graphics-flush, graphics-state, and point/source-rectangle image-overload boundaries, reduced the current debt to 48 missing types, 292 missing members, 47 other diagnostics, and 387 total. The first image-overload slice adds point/integer placement, unscaled/clipped drawing, source-rectangle-at-point drawing, and float-source rectangle callback/attributes overloads over the existing typed retained-texture path. It preserves exact source pixels and dimensions, clips without stretching, applies image remapping, and honors abort callbacks before recording; no screen capture, HDC, or platform bitmap is introduced. The destination-point follow-up adds all ten array overloads with affine parallelogram and homogeneous perspective-quad mapping in the managed GPU renderer, exact affine native lowering, and explicit native rejection for projective commands the current native wire cannot represent. The graphics-state slice adds the official `CompositingMode` identity, source-over/source-copy state, rendering origin, text contrast, allocation-free `TransformElements`, ordered world-transform overloads, and rectangle visibility overloads. `SourceCopy` records a balanced typed `GpuBlendMode.Src` scope, survives intermediate flushes, and replaces destination alpha in production bitmap rendering. Rendering origin shifts the retained 8×8 hatch coordinate space with a two-float payload, preserving the existing bounded hatch-lowering allocation gate. Save/restore retains the new state; vector text keeps `TextContrast` as validated compatibility state because its glyph coverage is not GDI raster contrast. `Drawing2D.FlushIntention` and both official `Graphics.Flush` overloads have functional bitmap and hosted-recorder behavior rather than API-only storage: batches are balanced before handoff, persistent clip and compositing state is restored for subsequent drawing, `Sync` polls the explicit WebGPU device, and a recorder without a submission target fails at an explicit boundary. The formatted-text slice removes sixteen exact member suppressions by completing the official string/span draw and measurement entry points and routing measurable ranges through typed shaped-cluster selection geometry. Wrapped lines, alignment offsets, clipped versus `NoClip` bounds, empty-span validation order, and bounded warmed measurement allocation now have focused gates. The retained-primitive slice removes 56 exact member suppressions by routing every official arc, Bézier, cardinal/closed-curve, pie, rectangle, rounded-rectangle, and fill-rule overload—including the .NET 10 span surface—through typed `GraphicsPath`/`PathGeometry` and analytic rectangle commands. `Font`, `FontFamily`, `FontCollection`, `GenericFontFamilies`, `InstalledFontCollection`, and `PrivateFontCollection` now use exact typed ProGPU catalog resolution, owned private file/memory faces, real OpenType metrics, canonical overload/base/interface shapes, independent snapshots, explicit fallback identity, and allocation-free warmed metric reads. Native GDI pointer interfaces remain reviewed platform-boundary debt. `HatchBrush` and the complete `HatchStyle` enum lower all 53 concrete styles to deterministic two-color 8×8 tiles consumed by both managed and native ProGPU paths. The sealed `TextureBrush` now supplies every official constructor, clone/interface shape, mutable wrap mode, and transform operation over an owned bitmap snapshot. Rectangle, ellipse, path, polygon, curve, rounded-rectangle, and region fills share typed texture commands and rectangular or retained-geometry clips; tile, mirror-X, mirror-Y, mirror-XY, clamp, crop, remap, color-matrix, brush transform, and graphics transform behavior are applied instead of stored or ignored. The imaging slice includes the official `ColorMap`, `ColorPalette`, `PaletteFlags`, `PaletteType`, `DitherType`, complete `PixelFormat` and `ImageFormat` identities, `PropertyItem`, `Encoder`, `EncoderParameter`, `EncoderParameters`, and truthful managed `ImageCodecInfo` discovery shapes; defensively snapshotted/cloned image metadata, codec descriptors, and `ImageAttributes` state; behaviorally applied bitmap and palette remap/matrix operations rather than API-only storage; CPU-only image resolution/tag/frame/bounds contracts; deterministic fixed and optimal palette generation; typed scan0/caller-buffer pixel-memory conversion across packed, indexed, premultiplied, and high-depth formats; functional `ConvertFormat` palette, alpha-threshold, ordered/spiral/error-diffusion, and reduced-direct-color quantization; and managed PNG/BMP/JPEG encoding with typed JPEG quality selection. `Drawing2D.Matrix` now has its official base/sealed shape and functional parallelogram, composition, pivot, shear, inverse, point/vector, array/span, value, cloning, and disposal contracts. `Blend`, `ColorBlend`, and `LinearGradientBrush` now provide the official public surface plus functional scalable-angle geometry, state ownership, transforms, gamma/spread mapping, custom stops, and renderable triangular/bell falloffs. `GraphicsPath`, `PathData`, `PathPointType`, and `GraphicsPathIterator` now expose source-compatible path construction, shaped text outlines, cardinal curves, clone/composition, point/type export and iteration, analytic bounds, transforms, fill and outline hit-testing, widening, perspective/bilinear warping, reversal, and adaptive flattening directly over retained ProGPU geometry. The missing-member and other-shape subtotals are not monotonic: once a formerly absent type is added, ApiCompat can report the still-missing members and shape details on that type. The committed suppression file is the reviewed current debt and the gate rejects both new and stale suppressions.
 
@@ -60,10 +60,19 @@ stops on `false`, validates all destination/source overload families, and
 matches the managed adapter's null playback-callback behavior. Focused tests
 execute every overload and enforce a warmed 4,098-record allocation ceiling.
 This reduces measured debt further from 54 to 18 missing members and from 69
-to 33 total diagnostics. It does not claim record rendering:
-`Metafile.PlayRecord`, destination mapping, complete multi-comment EMF+
-assembly, portable recording, and `AddMetafileComment` remain explicit
-follow-up work. Contract, security bounds, and benchmark evidence are recorded
+to 33 total diagnostics. The portable comment-recording checkpoint adds
+`ProGPU.SystemDrawing.PortableMetafile.Create`, an HDC-free, caller-owned stream
+target, exclusive `Graphics.FromImage` recording lifetime, and functional
+`Graphics.AddMetafileComment`. It encodes bounded, aligned EMF+ comment records
+inside a valid EMF transport, reparses the owned output before publication,
+and leaves the caller's stream open. Input arrays are copied immediately;
+read-only targets, invalid bounds, concurrent/repeated recorders, incomplete
+headers, and disposed owners fail explicitly. Ordinary drawing records are not
+silently discarded: this initial encoder aborts without writing when its
+retained command list is nonempty. The checkpoint removes the last missing
+member suppression, leaving zero missing types, zero missing members, and 13
+reviewed shape diagnostics. It does not claim record playback or portable
+drawing-record encoding. Contract, security bounds, and benchmark evidence are recorded
 in
 [`docs/research/system-drawing-metafile-contract.md`](research/system-drawing-metafile-contract.md).
 
@@ -151,8 +160,8 @@ flush, target-device, and completion contracts; zero HDCs, missing providers,
 and null products fail explicitly. Portable tests now create retained recorders
 through `FromProGpuDrawingContext` instead of treating a zero HWND as an empty
 fake window. This removes four exact member suppressions, reducing measured
-debt to 1 missing member and 14 total diagnostics. The only missing member,
-`Graphics.AddMetafileComment`, remains coupled to portable metafile recording.
+debt to 1 missing member and 14 total diagnostics at that checkpoint. The
+subsequent portable metafile-comment recorder removes that final missing member.
 Contract, lifetime, boundary, and allocation evidence is recorded in
 [`docs/research/system-drawing-native-interop-contract.md`](research/system-drawing-native-interop-contract.md).
 
@@ -163,6 +172,15 @@ pinned callback walk independently from parsing. The 2026-08-27 ARM64/.NET
 suite independently executes all 36 overloads and permits at most 4,096 bytes
 across sixteen warmed 4,098-record walks. This is enumeration evidence only;
 typed playback and rendering remain separate checkpoints.
+
+`MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
+256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the
+same parser used by consumers, and final stream publication. The 2026-08-27
+ARM64/.NET 10.0.11 ShortRun measured an 11.346 microsecond median (11.348
+microsecond mean, 0.406 microsecond standard deviation) and 150.72 KB allocated
+for the complete 19 KB owned document and typed record tables. This is coarse
+one-launch throughput/allocation evidence, not a rendering or zero-allocation
+claim; recording cost is intentionally linear in encoded bytes and record count.
 
 The preceding synthesis paragraph's 387 subtotal records the immediately prior image-overload checkpoint; the table above is authoritative for the current head. The coordinate-space slice adds the official `Drawing2D.CoordinateSpace` identity and all four array/span `Graphics.TransformPoints` entry points. World, page, and device conversion uses the same world, page-unit/page-scale, and host base matrices used by retained drawing. Caller-owned storage is mutated in place without allocation; invalid spaces, empty inputs, non-invertible destinations, and disposed graphics fail explicitly. This slice reduces the current measured debt to 47 missing types, 288 missing members, 47 other diagnostics, and 382 total. Contract evidence is recorded in [`docs/research/system-drawing-graphics-coordinate-space-contract.md`](research/system-drawing-graphics-coordinate-space-contract.md).
 

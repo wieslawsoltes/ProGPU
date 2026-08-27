@@ -1,4 +1,5 @@
 using BenchmarkDotNet.Attributes;
+using ProGPU.SystemDrawing;
 using System.Buffers.Binary;
 using System.Drawing.Imaging;
 
@@ -13,6 +14,7 @@ public class MetafileBenchmarks
     private Graphics _graphics = null!;
     private Metafile _metafile = null!;
     private readonly Graphics.EnumerateMetafileProc _enumerate = static (_, _, _, _, _) => true;
+    private readonly byte[] _comment = new byte[64];
 
     [GlobalSetup]
     public void CreateFixture()
@@ -42,6 +44,22 @@ public class MetafileBenchmarks
     [Benchmark]
     public void Enumerate4098RecordsWithoutPayloadCopies() =>
         _graphics.EnumerateMetafile(_metafile, Point.Empty, _enumerate);
+
+    [Benchmark]
+    public int RecordAndFinalize256PortableComments()
+    {
+        using var target = new MemoryStream(capacity: 24 * 1024);
+        using Metafile metafile = PortableMetafile.Create(target, new Rectangle(0, 0, 640, 480));
+        using (Graphics recorder = Graphics.FromImage(metafile))
+        {
+            for (int index = 0; index < 256; index++)
+            {
+                recorder.AddMetafileComment(_comment);
+            }
+        }
+
+        return checked((int)target.Length);
+    }
 
     private static byte[] CreateEmf(int stateRecordCount)
     {

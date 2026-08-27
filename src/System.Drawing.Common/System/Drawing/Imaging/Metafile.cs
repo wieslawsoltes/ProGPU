@@ -1,4 +1,5 @@
 using System.Runtime.Serialization;
+using ProGPU.Scene;
 
 namespace System.Drawing.Imaging;
 
@@ -8,7 +9,8 @@ namespace System.Drawing.Imaging;
 [Serializable]
 public sealed class Metafile : Image
 {
-    private readonly MetafileDocument _document;
+    private MetafileDocument? _document;
+    private readonly PortableMetafileRecordingSession? _recording;
     private bool _disposed;
 
     public Metafile(string filename)
@@ -25,6 +27,12 @@ public sealed class Metafile : Image
     {
         _document = document;
         RawFormat = document.RawFormat;
+    }
+
+    private Metafile(PortableMetafileRecordingSession recording)
+    {
+        _recording = recording;
+        RawFormat = ImageFormat.Emf;
     }
 
 #pragma warning disable SYSLIB0050
@@ -82,19 +90,19 @@ public sealed class Metafile : Image
     public Metafile(Stream stream, IntPtr referenceHdc, Rectangle frameRect, MetafileFrameUnit frameUnit, EmfType type) => throw CreateRecordingException();
     public Metafile(Stream stream, IntPtr referenceHdc, Rectangle frameRect, MetafileFrameUnit frameUnit, EmfType type, string? description) => throw CreateRecordingException();
 
-    public override int Width => _document.Header.Bounds.Width;
-    public override int Height => _document.Header.Bounds.Height;
+    public override int Width => GetBounds().Width;
+    public override int Height => GetBounds().Height;
 
     public override object Clone()
     {
         ThrowIfDisposed();
-        return new Metafile(_document);
+        return new Metafile(GetCompletedDocument());
     }
 
     public MetafileHeader GetMetafileHeader()
     {
         ThrowIfDisposed();
-        return _document.Header.CloneHeader();
+        return GetCompletedDocument().Header.CloneHeader();
     }
 
     public static MetafileHeader GetMetafileHeader(string fileName) =>
@@ -126,20 +134,76 @@ public sealed class Metafile : Image
             "Metafile record playback is enabled by Graphics.EnumerateMetafile in the next typed playback checkpoint.");
     }
 
-    public override void Dispose() => _disposed = true;
+    public override void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
 
-    internal ReadOnlySpan<byte> Source => _document.Source;
-    internal ReadOnlySpan<MetafileRecord> Records => _document.Records;
+        _disposed = true;
+        _recording?.Abort();
+    }
+
+    internal ReadOnlySpan<byte> Source => GetCompletedDocument().Source;
+    internal ReadOnlySpan<MetafileRecord> Records => GetCompletedDocument().Records;
     internal void EnsureNotDisposed() => ThrowIfDisposed();
+    internal static Metafile CreatePortable(Stream target, Rectangle bounds) =>
+        new(new PortableMetafileRecordingSession(target, bounds));
+
+    internal PortableMetafileRecordingSession AcquirePortableRecording()
+    {
+        ThrowIfDisposed();
+        if (_recording is null)
+        {
+            throw new NotSupportedException("Only a portable recording metafile can create a Graphics recorder.");
+        }
+
+        _recording.Acquire();
+        return _recording;
+    }
+
+    internal RectangleF GetRecordingBounds()
+    {
+        ThrowIfDisposed();
+        Rectangle bounds = _recording?.Bounds
+            ?? throw new NotSupportedException("The metafile is not a portable recording target.");
+        return bounds;
+    }
+
+    internal void CompletePortableRecording(PortableMetafileRecordingSession recording, DrawingContext drawingContext)
+    {
+        ThrowIfDisposed();
+        if (!ReferenceEquals(recording, _recording))
+        {
+            throw new InvalidOperationException("The metafile recorder does not belong to this image.");
+        }
+
+        _document = recording.Complete(drawingContext);
+    }
+
     internal override byte[] GetSerializedData()
     {
         ThrowIfDisposed();
-        return _document.Source.ToArray();
+        return GetCompletedDocument().Source.ToArray();
     }
 
     private void ThrowIfDisposed()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+    }
+
+    private Rectangle GetBounds()
+    {
+        ThrowIfDisposed();
+        return _document?.Header.Bounds ?? _recording!.Bounds;
+    }
+
+    private MetafileDocument GetCompletedDocument()
+    {
+        ThrowIfDisposed();
+        return _document ?? throw new InvalidOperationException(
+            "The portable metafile is not complete until its Graphics recording session is disposed.");
     }
 
     private static PlatformNotSupportedException CreateHandleImportException() => new(

@@ -94,10 +94,26 @@ image, and clip operations. Unsupported records fail with the record type and
 offset before the destination command list is committed. They are never
 silently skipped during rendering.
 
-Metafile recording is a later typed encoder over the same immutable record
-model. Portable recording will target a stream without an HDC; official HDC
-constructors remain Windows-adapter entry points. `AddMetafileComment` becomes
-a typed encoder operation only while a graphics instance is actively recording.
+Portable comment recording is a typed encoder over the same immutable record
+model. `ProGPU.SystemDrawing.PortableMetafile.Create` accepts a caller-owned,
+writable stream and integer pixel bounds without an HDC. The resulting
+`Metafile` supplies one exclusive `Graphics.FromImage` session.
+`Graphics.AddMetafileComment` copies each caller buffer synchronously and emits
+an aligned EMF+ `Comment` record. Disposing the graphics instance builds an
+EMF+ header, the ordered comments, and an end record inside one bounded
+`EMR_GDICOMMENT`, adds the outer EMF header/end records, validates the complete
+owned bytes with the normal parser, writes and flushes the target, and publishes
+the immutable document. The stream remains caller-owned.
+
+The comment envelope is capped at the parser's 16 MiB per-record ceiling and
+all size, alignment, coordinate, and frame-unit arithmetic is checked. Header
+queries and cloning reject incomplete recording; a second recorder, a read-only
+target, invalid bounds, a disposed owner, or comments outside the active
+session fail explicitly. The initial portable encoder accepts comment records
+only. If ordinary retained drawing commands were recorded, finalization aborts
+before writing anything rather than publishing a metafile that silently lost
+content. Typed drawing-record encoding and official HDC constructors remain
+later work; HDC constructors stay Windows-adapter entry points.
 
 ## Quality and performance gates
 
@@ -131,6 +147,17 @@ focused tests enforce a maximum 4,096 bytes across sixteen warmed 4,098-record
 walks. Parser complexity must remain linear in source bytes plus record count;
 no record can trigger an unbounded scan of the complete source.
 
+`RecordAndFinalize256PortableComments` measures the complete portable writer:
+256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication
+to a pre-sized memory stream. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun
+measured an 11.346 microsecond median (11.348 microsecond mean, 0.406
+microsecond standard deviation) with 150.72 KB allocated for the complete 19 KB
+document, output stream, and immutable parser tables. The encoder is linear in
+comment bytes plus record count. Focused tests additionally reparse emitted
+bytes, compare exact copied payloads after caller mutation, exercise a
+non-seekable target and zero-length comment, and prove that unsupported drawing
+aborts without partial output.
+
 ## Delivery checkpoints
 
 1. Restore the eight missing public identities and a bounded header/record
@@ -149,12 +176,16 @@ checkpoint three lands, the quality report must describe parsing and
 enumeration as partial metafile support and must not claim portable rendering
 parity.
 
-Checkpoints one and the enumeration half of checkpoint two are implemented at
-this revision. Checkpoint one removes all eight
+Checkpoints one, the enumeration half of checkpoint two, and the portable
+comment portion of checkpoint four are implemented at this revision. Checkpoint
+one removes all eight
 missing-type diagnostics and 44 `Metafile` missing-member diagnostics, reducing
 measured ApiCompat debt from 8 missing types, 98 missing members, 15 other
 diagnostics, and 121 total to 0 missing types, 54 missing members, 15 other
 diagnostics, and 69 total. Typed enumeration removes the remaining 36 overload
 suppressions, leaving 0 missing types, 18 missing members, 15 other diagnostics,
-and 33 total. `Graphics.AddMetafileComment` stays suppressed until checkpoint
-four; no rendering claim is made by the parser/enumerator checkpoint.
+and 33 total at that checkpoint. Later compatibility slices reduce other debt;
+portable comment recording removes the final `Graphics.AddMetafileComment`
+suppression and leaves 0 missing types, 0 missing members, 13 reviewed shape
+diagnostics, and 13 total. No playback, drawing-record encoding, or rendering
+claim is made by these parser/enumerator/comment checkpoints.

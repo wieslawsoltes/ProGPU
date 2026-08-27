@@ -36,6 +36,7 @@ public partial class Graphics :
     private readonly WgpuContext? _targetContext;
     private readonly Action? _completed;
     private readonly Action<FlushIntention>? _flushed;
+    private readonly PortableMetafileRecordingSession? _metafileRecording;
     // Device/host state is immutable; public Transform APIs mutate only _transform.
     private readonly Matrix3x2 _baseTransform;
     private Matrix3x2 _containerTransform = Matrix3x2.Identity;
@@ -259,7 +260,8 @@ public partial class Graphics :
             deviceBounds: null,
             targetContext: null,
             completed: null,
-            flushed: null)
+            flushed: null,
+            metafileRecording: null)
     {
     }
 
@@ -270,7 +272,8 @@ public partial class Graphics :
         RectangleF? deviceBounds,
         WgpuContext? targetContext,
         Action? completed,
-        Action<FlushIntention>? flushed)
+        Action<FlushIntention>? flushed,
+        PortableMetafileRecordingSession? metafileRecording = null)
     {
         _context = context;
         _bitmap = bitmap;
@@ -279,6 +282,7 @@ public partial class Graphics :
         _targetContext = targetContext;
         _completed = completed;
         _flushed = flushed;
+        _metafileRecording = metafileRecording;
     }
 
     public static Graphics FromProGpuDrawingContext(DrawingContext drawingContext)
@@ -608,11 +612,26 @@ public partial class Graphics :
 
     public static Graphics FromImage(Image image)
     {
+        ArgumentNullException.ThrowIfNull(image);
         if (image is Bitmap bitmap)
         {
             return new Graphics(bitmap.RecordedContext, bitmap);
         }
-        throw new NotSupportedException("Only Bitmap image type is supported.");
+        if (image is Metafile metafile)
+        {
+            PortableMetafileRecordingSession recording = metafile.AcquirePortableRecording();
+            var context = new DrawingContext();
+            return new Graphics(
+                context,
+                bitmap: null,
+                baseTransform: Matrix3x2.Identity,
+                deviceBounds: metafile.GetRecordingBounds(),
+                targetContext: null,
+                completed: () => metafile.CompletePortableRecording(recording, context),
+                flushed: null,
+                metafileRecording: recording);
+        }
+        throw new NotSupportedException("Only Bitmap and portable recording Metafile image types are supported.");
     }
 
     public static Graphics FromHwnd(IntPtr hwnd)

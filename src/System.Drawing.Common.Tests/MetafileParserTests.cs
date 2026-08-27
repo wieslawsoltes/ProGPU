@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Drawing.Imaging;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using ProGPU.SystemDrawing;
 using Xunit;
 
 namespace System.Drawing.Common.Tests;
@@ -155,6 +156,118 @@ public sealed class MetafileParserTests
         Assert.Throws<PlatformNotSupportedException>(() => metafile.GetHenhmetafile());
         Assert.Throws<NotSupportedException>(() =>
             metafile.PlayRecord(EmfPlusRecordType.EmfEof, 0, 0, []));
+    }
+
+    [Fact]
+    public void PortableRecorderWritesOwnedCommentsAsAValidEmfPlusDocument()
+    {
+        using var target = new MemoryStream();
+        using Metafile metafile = PortableMetafile.Create(target, new Rectangle(2, 3, 100, 50));
+        Assert.Equal(100, metafile.Width);
+        Assert.Equal(50, metafile.Height);
+        Assert.Throws<InvalidOperationException>(() => metafile.GetMetafileHeader());
+
+        byte[] first = [1, 2, 3];
+        using (Graphics recorder = Graphics.FromImage(metafile))
+        {
+            recorder.AddMetafileComment(first);
+            first.AsSpan().Clear();
+            recorder.AddMetafileComment([4, 5, 6, 7]);
+        }
+
+        Assert.True(target.CanWrite);
+        MetafileHeader completedHeader = metafile.GetMetafileHeader();
+        Assert.Equal(MetafileType.EmfPlusOnly, completedHeader.Type);
+        Assert.Equal(new Rectangle(2, 3, 100, 50), completedHeader.Bounds);
+        Assert.Equal(96, completedHeader.LogicalDpiX);
+        Assert.Equal(96, completedHeader.LogicalDpiY);
+        Assert.True(completedHeader.IsDisplay());
+
+        target.Position = 0;
+        using var reparsed = new Metafile(target);
+        Assert.Equal(completedHeader.MetafileSize, reparsed.GetMetafileHeader().MetafileSize);
+        Assert.Equal(
+            [
+                EmfPlusRecordType.EmfHeader,
+                EmfPlusRecordType.Header,
+                EmfPlusRecordType.Comment,
+                EmfPlusRecordType.Comment,
+                EmfPlusRecordType.EndOfFile,
+                EmfPlusRecordType.EmfEof
+            ],
+            reparsed.Records.ToArray().Select(static record => record.Type));
+        Assert.Equal(new byte[] { 1, 2, 3 }, GetPayload(reparsed, reparsed.Records[2]));
+        Assert.Equal(new byte[] { 4, 5, 6, 7 }, GetPayload(reparsed, reparsed.Records[3]));
+    }
+
+    [Fact]
+    public void PortableRecorderSupportsNonSeekableTargetsAndZeroLengthComments()
+    {
+        using var target = new NonSeekableWriteStream();
+        using Metafile metafile = PortableMetafile.Create(target, Rectangle.Empty);
+        using (Graphics recorder = Graphics.FromImage(metafile))
+        {
+            recorder.AddMetafileComment([]);
+        }
+
+        byte[] encoded = target.ToArray();
+        using var reparsed = new Metafile(new MemoryStream(encoded, writable: false));
+        Assert.Equal(MetafileType.EmfPlusOnly, reparsed.GetMetafileHeader().Type);
+        Assert.Equal(5, reparsed.Records.Length);
+        Assert.Equal(EmfPlusRecordType.Comment, reparsed.Records[2].Type);
+        Assert.Equal(0, reparsed.Records[2].DataLength);
+    }
+
+    [Fact]
+    public void PortableRecorderHasExclusiveLifetimeAndExplicitCommentBoundary()
+    {
+        using var target = new MemoryStream();
+        using Metafile metafile = PortableMetafile.Create(target, new Rectangle(0, 0, 8, 8));
+        Graphics recorder = Graphics.FromImage(metafile);
+
+        Assert.Throws<InvalidOperationException>(() => Graphics.FromImage(metafile));
+        Assert.Throws<ArgumentNullException>(() => recorder.AddMetafileComment(null!));
+
+        using var bitmap = new Bitmap(1, 1);
+        using Graphics ordinary = Graphics.FromImage(bitmap);
+        Assert.Throws<InvalidOperationException>(() => ordinary.AddMetafileComment([1]));
+
+        recorder.Dispose();
+        recorder.Dispose();
+        Assert.Throws<InvalidOperationException>(() => Graphics.FromImage(metafile));
+        Assert.NotEmpty(target.ToArray());
+    }
+
+    [Fact]
+    public void PortableRecorderRejectsUnsupportedDrawingWithoutWritingPartialOutput()
+    {
+        using var target = new MemoryStream();
+        using Metafile metafile = PortableMetafile.Create(target, new Rectangle(0, 0, 8, 8));
+        Graphics recorder = Graphics.FromImage(metafile);
+        recorder.FillRectangle(Brushes.Red, 0, 0, 1, 1);
+
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(recorder.Dispose);
+        Assert.Contains("comment records only", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(0, target.Length);
+        Assert.Throws<InvalidOperationException>(() => metafile.GetMetafileHeader());
+    }
+
+    [Fact]
+    public void PortableRecorderValidatesTargetBoundsAndAbortedOwnerLifetime()
+    {
+        using var readOnly = new MemoryStream([], writable: false);
+        Assert.Throws<ArgumentException>(() => PortableMetafile.Create(readOnly, Rectangle.Empty));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            PortableMetafile.Create(new MemoryStream(), new Rectangle(0, 0, -1, 1)));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            PortableMetafile.Create(new MemoryStream(), new Rectangle(int.MaxValue, 0, 1, 1)));
+
+        using var target = new MemoryStream();
+        var metafile = PortableMetafile.Create(target, Rectangle.Empty);
+        Graphics recorder = Graphics.FromImage(metafile);
+        metafile.Dispose();
+        Assert.Throws<ObjectDisposedException>(recorder.Dispose);
+        Assert.Equal(0, target.Length);
     }
 
     [Fact]
@@ -355,6 +468,9 @@ public sealed class MetafileParserTests
         throw new InvalidOperationException($"Unexpected enumeration parameter type: {type}.");
     }
 
+    private static byte[] GetPayload(Metafile metafile, MetafileRecord record) =>
+        metafile.Source.Slice(record.DataOffset, record.DataLength).ToArray();
+
     private static byte[] CreatePlaceableWmf()
     {
         byte[] bytes = new byte[46];
@@ -496,6 +612,32 @@ public sealed class MetafileParserTests
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _inner.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+    }
+
+    private sealed class NonSeekableWriteStream : Stream
+    {
+        private readonly MemoryStream _inner = new();
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() => _inner.Flush();
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => _inner.Write(buffer, offset, count);
+        public override void Write(ReadOnlySpan<byte> buffer) => _inner.Write(buffer);
+        internal byte[] ToArray() => _inner.ToArray();
         protected override void Dispose(bool disposing)
         {
             if (disposing)

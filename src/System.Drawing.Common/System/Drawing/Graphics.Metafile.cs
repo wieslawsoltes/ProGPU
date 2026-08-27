@@ -5,6 +5,19 @@ namespace System.Drawing;
 
 public partial class Graphics
 {
+    public void AddMetafileComment(byte[] data)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(data);
+        if (_metafileRecording is null)
+        {
+            throw new InvalidOperationException(
+                "Metafile comments require an active portable metafile recording session.");
+        }
+
+        _metafileRecording.AddComment(data);
+    }
+
     public void EnumerateMetafile(Metafile metafile, PointF destPoint, EnumerateMetafileProc callback) =>
         EnumerateMetafile(metafile, destPoint, callback, IntPtr.Zero);
 

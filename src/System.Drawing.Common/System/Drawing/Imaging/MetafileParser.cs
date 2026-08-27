@@ -104,7 +104,7 @@ internal static class MetafileParser
         }
     }
 
-    private static MetafileDocument ParseOwnedSource(byte[] source)
+    internal static MetafileDocument ParseOwnedSource(byte[] source)
     {
         if (source.Length < 6)
         {
