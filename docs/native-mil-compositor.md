@@ -3177,6 +3177,14 @@ p50/p95 regressed 5.6951/8.4109 -> 5.8623/8.5459 ms. It was rejected under the
 same cross-profile no-regression rule, and the ignored reports retain the
 negative evidence.
 
+Precomputing exact line-segment deltas in the existing curve metadata was also
+measured and rejected. Four alternating 120-frame runs per variant remained
+byte-exact at `5B6EF4F70536C862` (1x) and `706B261418EC5C3B` (2x). The 2x
+submission/frame p50 improved 1.7558/5.5705 -> 1.7332/5.0904 ms, but 1x
+regressed 1.0949/5.1557 -> 1.1324/5.3494 ms and frame p95 worsened
+7.5805 -> 7.9913 ms. The qualified implementation therefore avoids the extra
+metadata loads and computes deltas only for intersecting lines.
+
 The WPF Box blur checkpoint closes the second canonical `KernelType` without a
 managed or CPU rendering fallback. Native MIL accepts kernel 1, retains live
 animated radius dependencies, and emits a typed reusable Box group effect;

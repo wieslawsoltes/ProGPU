@@ -302,6 +302,17 @@ Moving arithmetic out of the pair loop is therefore not sufficient evidence;
 the qualified construction remains in source. The A/B harness verified the
 loaded dylib SHA-256 before measurement to prevent stale native-copy results.
 
+A line-segment metadata experiment was also exact and rejected. It cached each
+line's X/Y deltas in the existing curve-metadata table so the eight subscanline
+visits retained the original division and edge comparisons but avoided
+rebuilding the deltas. Four alternating 120-frame runs per variant retained
+zero pixel difference and hashes `5B6EF4F70536C862` (1x) and
+`706B261418EC5C3B` (2x). Although 2x submission/frame p50 improved from
+1.7558/5.5705 ms to 1.7332/5.0904 ms, 1x regressed from 1.0949/5.1557 ms to
+1.1324/5.3494 ms; its frame p95 also worsened from 7.5805 to 7.9913 ms. The
+extra metadata traffic therefore does not qualify, and line deltas remain
+local to an actual crossing.
+
 Exact pushed head `644a8d89` also rebuilt both native libraries with ARM64
 MSVC and passed all 11 native/Dawn CTests in the Windows Parallels VM. The
 zero-warning benchmark build ran the full 42-glyph forced-NEON D3D12 gate with
