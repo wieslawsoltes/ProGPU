@@ -496,6 +496,19 @@ and loads without reducing crossing comparisons. Initial Apple M3 Pro Metal
 candidate before a longer alternating matrix; the qualified offset-array plus
 inline `subspan` form remains authoritative.
 
+Retaining the CPU coverage, crossing, and curve-metadata vectors on the native
+engine was also exact but failed the latency gate. The candidate removed their
+per-rerasterization capacity allocation after warmup while leaving the folded
+NEON kernel, scalar oracle, coverage initialization, and GPU upload unchanged.
+Eight 120-frame process pairs per variant on Apple M3 Pro retained exact hashes
+`5B6EF4F70536C862` at 1x and `706B261418EC5C3B` at 2x. At 1x, median
+submission/frame p50 improved `1.6774/3.3567 -> 1.6351/3.1601` ms, but their
+p95 values regressed `2.4577/4.6988 -> 2.5991/4.8210` ms. At 2x, submission
+and frame p50 regressed `2.4721/3.9839 -> 2.6723/4.3188` ms and frame p95
+regressed `5.8238 -> 6.0608` ms. The retained capacity therefore did not meet
+the cross-scale no-regression rule and was reverted. The qualified folded
+two-pixel NEON/SSE2 implementation continues to use bounded frame-local scratch.
+
 ## Extending the policy
 
 Each additional compute-heavy workload must declare the semantics that make a

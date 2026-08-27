@@ -3675,6 +3675,65 @@ policies above are exact. Treating BitmapCache as a no-op, an ephemeral full-tar
 layer, or a depth-slot effect-cache alias would preserve neither WPF pixels nor
 its performance contract and remains explicitly excluded.
 
+Transform-bearing SolidColorBrush packets now match WPF's native resource
+contract. WPF's generated `CMilSolidColorBrushDuce::ProcessUpdate` validates
+and registers both absolute and relative transform resources, while
+`GetBrushRealizationInternal` intentionally realizes only animated color times
+animated opacity because a uniform color has no brush-coordinate dependence.
+ProGPU now retains those two typed transform handles, validates their resource
+types transactionally, protects them from deletion, and includes their
+generations in dependency revision traversal. Scene brush color and opacity
+remain transform-invariant on every backend; no fake coordinate mapping or
+managed fallback is introduced. Native coverage exercises nonidentity absolute
+and relative transforms, the unchanged semantic brush payload, wrong-type
+rollback, and referenced-transform deletion rejection.
+
+## Dynamic guideline parity design
+
+WPF dynamic guideline arrays are ordered pairs `(leading, shiftToDriven)`, not
+two independent snap coordinates. Native WPF transforms the leading coordinate
+to device space, derives its snap offset, then derives the driven offset from
+the same leading offset plus the pixel-rounded separation. Its retained state
+moves through Start, Quiet, Animation, Landing, and Flight phases. The critical
+animation window is 200 ms, follow-up scheduling uses 50 ms intervals, landing
+converges in 0.05-pixel steps, jumps of at least three pixels do not animate,
+and non-scale/translate transforms enter Flight without applying a snap.
+Rendering into a VisualBrush also suppresses the animated correction because
+WPF does not retain independent path history for repeated brush uses.
+
+The current scene-build ABI cannot represent that behavior exactly. It learns
+the actual DPI only after the immutable semantic scene has been compiled,
+accepts neither a monotonic timestamp nor a VisualBrush-use flag, returns no
+`needMoreCycles` scheduling result, and its managed wrapper commonly performs a
+size query followed by a copy build. Advancing a phase during both calls would
+double-step the state. Recreating `NativeMilChannel` for every compilation also
+discards the per-resource history. Consequently dynamic GuidelineSet and the
+compact PushGuidelineY1/Y2 forms remain fail closed; treating each pair as two
+static coordinates or assuming DPI 1 would be observably wrong.
+
+The required append-only implementation is:
+
+1. Add a versioned build-request struct carrying actual X/Y DPI, monotonic
+   time, a stable request serial, and whether the content is being realized for
+   a VisualBrush path.
+2. Keep per-channel, per-guideline-resource, per-axis pair state containing the
+   phase, bump time, last supplied leading coordinate, and last applied offset.
+3. Resolve each pair once per request into explicit leading/driven offsets in
+   the semantic guideline resource, and return a versioned scheduling result
+   with `needs_more_cycles` plus the next due time.
+4. Make size-query/copy idempotent by caching the compiled request under its
+   serial (or by separating compile from copy); only the first compile may
+   advance the state machine.
+5. Keep the native channel alive for the corresponding retained WPF source and
+   feed scheduler invalidation back through the typed portable render service.
+6. Differential-test every phase, large jumps, integer driven separation,
+   non-axis transforms, VisualBrush suppression, resource replacement/deletion,
+   DPI changes, and the compact Y1/Y2 packet rewrite against Windows WPF.
+
+This design leaves existing static-guideline packets and build callers binary
+compatible while providing enough state for exact Metal, Vulkan, and DirectX
+execution. No backend-specific dynamic-guideline approximation is permitted.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.
