@@ -3559,6 +3559,15 @@ closed. The source-built WPF host remains responsible only for typed scene
 flattening; projection, viewport placement, lighting, depth, and rasterization
 remain reusable ProGPU GPU work.
 
+The neutral camera contract includes WPF `MatrixCamera` as an additive third
+kind. `PortableViewport3DCamera.ViewMatrix` and `ProjectionMatrix` carry the
+complete typed matrices, including the source camera transform already folded
+into the view matrix. Managed and native MIL consumers pass those values to the
+same GPU uniforms used by perspective and orthographic cameras; they do not
+decompose or approximate the caller's projection. Non-finite matrices and a
+singular view matrix fail closed because the compositor cannot derive the
+world-space camera position required by WPF specular lighting.
+
 The typed WPF scene boundary now preserves the complete MIL light vocabulary
 instead of forcing every scene into the legacy single-directional fields.
 `PortableViewport3DLight` carries ambient/directional/point/spot identity,
