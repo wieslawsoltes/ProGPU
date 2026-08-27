@@ -364,9 +364,10 @@ public:
                 vmvnq_u32(vceqq_s32(low_winding, zero)), 31);
             const uint32x4_t high = vshrq_n_u32(
                 vmvnq_u32(vceqq_s32(high_winding, zero)), 31);
+            const uint32x4_t combined = vaddq_u32(low, high);
             const uint32x2_t pair = vadd_u32(
-                vadd_u32(vget_low_u32(low), vget_high_u32(low)),
-                vadd_u32(vget_low_u32(high), vget_high_u32(high)));
+                vget_low_u32(combined),
+                vget_high_u32(combined));
             return vget_lane_u32(vpadd_u32(pair, pair), 0);
         };
         return {
@@ -431,9 +432,10 @@ public:
             vmvnq_u32(vceqq_s32(winding_low_, zero)), 31);
         const uint32x4_t high = vshrq_n_u32(
             vmvnq_u32(vceqq_s32(winding_high_, zero)), 31);
+        const uint32x4_t combined = vaddq_u32(low, high);
         const uint32x2_t pair = vadd_u32(
-            vadd_u32(vget_low_u32(low), vget_high_u32(low)),
-            vadd_u32(vget_low_u32(high), vget_high_u32(high)));
+            vget_low_u32(combined),
+            vget_high_u32(combined));
         return vget_lane_u32(vpadd_u32(pair, pair), 0);
     }
 
