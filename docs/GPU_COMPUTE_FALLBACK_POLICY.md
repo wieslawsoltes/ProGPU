@@ -601,7 +601,7 @@ throughput, -83.0% latency). Median p95 was 32.572 versus 222.928 us and median
 p99 was 35.223 versus 233.955 us. Both paths reported zero bytes allocated per
 block and the same checksum, while the pre-measurement differential comparison
 required every output sample and final channel offset to match exactly. This
-qualifies the current ARM64 implementation; x64 and other runtimes still
+qualifies the current ARM64 implementation; other physical runtimes still
 require their own measurements before platform-specific speed claims.
 
 The Windows, Linux, and Android native export mixers also share
@@ -623,7 +623,20 @@ p50 values of 2.027 us/block for `Vector128` and 6.139 us/block for the scalar
 oracle (3.03x throughput, -67.0% latency). Median p95 was 11.943 versus
 29.017 us and median p99 was 15.330 versus 33.524 us. Output, accumulator,
 checksum, and zero-allocation results were exact. As above, these figures
-qualify ARM64 only; the `Vector256` lane requires x64 runtime measurement.
+qualify ARM64 only.
+
+The self-contained `win-x64` benchmark was also run inside the Windows 11
+ARM64 Parallels integration VM at exact implementation commit `8a8ce383`.
+.NET 10.0.5 reported process architecture `X64`, `Vector128=True`,
+`Vector256=True`, and `Vector512=False`, so this executes the 256-bit product
+lanes under Windows x64 emulation rather than leaving them as compile-only
+coverage. Four alternating fresh-process runs remained exact and allocation
+free. The 48,000-frame gain/balance path produced median-of-run p50
+48.669 us/block SIMD versus 171.175 us/block scalar (3.52x), and the
+1,024-frame wide accumulate/saturate path produced 1.277 versus 4.877
+us/block (3.82x). These figures prove the emulated `Vector256` route wins this
+VM gate; they are explicitly not physical-x64 or hardware-wide performance
+claims.
 
 ## Extending the policy
 
