@@ -241,7 +241,9 @@ enum {
     /* Multi-guide point deformation is valid only for local-cache composites. */
     PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY = 1U << 0U,
     /* Multi-guide point deformation is applied to ordinary draw geometry. */
-    PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT = 1U << 1U
+    PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT = 1U << 1U,
+    /* One device-pixel offset double follows every coordinate double. */
+    PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS = 1U << 2U
 };
 
 enum {
@@ -1059,8 +1061,9 @@ typedef struct progpu_native_scene_state {
  * multiple sorted coordinates and ordinary supported draw geometry is first
  * transformed to target space, then each path point/control point is snapped
  * to the nearest guide's WPF pixel offset. The multi-guide flags are mutually
- * exclusive. Dynamic leading/driven pairs remain a future append-only
- * capability.
+ * exclusive. With GUIDELINE_EXPLICIT_OFFSETS, an equally sized X/Y offset
+ * array follows both coordinate arrays and replaces grid-derived offsets;
+ * offsets are expressed in physical device pixels.
  */
 typedef struct progpu_native_scene_guideline_set {
     uint32_t struct_size;
