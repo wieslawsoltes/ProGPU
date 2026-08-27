@@ -11,6 +11,14 @@ public enum PortableViewport3DCameraKind
     Orthographic = 1
 }
 
+public enum PortableViewport3DLightKind
+{
+    Ambient = 0,
+    Directional = 1,
+    Point = 2,
+    Spot = 3
+}
+
 public readonly struct PortableVector3
 {
     public PortableVector3(double x, double y, double z)
@@ -176,9 +184,33 @@ public sealed class PortableViewport3DMesh
     public bool IsBackFace { get; set; }
 }
 
+public sealed class PortableViewport3DLight
+{
+    public PortableViewport3DLightKind Kind { get; set; }
+
+    public PortableColor4 Color { get; set; } = new(1, 1, 1, 1);
+
+    public PortableVector3 Position { get; set; }
+
+    public PortableVector3 Direction { get; set; } = new(0, 0, -1);
+
+    public double Range { get; set; } = double.PositiveInfinity;
+
+    public double ConstantAttenuation { get; set; } = 1.0;
+
+    public double LinearAttenuation { get; set; }
+
+    public double QuadraticAttenuation { get; set; }
+
+    public double OuterConeAngle { get; set; } = 90.0;
+
+    public double InnerConeAngle { get; set; } = 180.0;
+}
+
 public sealed class PortableViewport3DScene
 {
     private static readonly PortableViewport3DMesh[] s_emptyMeshes = System.Array.Empty<PortableViewport3DMesh>();
+    private static readonly PortableViewport3DLight[] s_emptyLights = System.Array.Empty<PortableViewport3DLight>();
 
     public PortableRect Viewport { get; set; } = PortableRect.Empty;
 
@@ -191,6 +223,8 @@ public sealed class PortableViewport3DScene
     public PortableVector3 AmbientColor { get; set; } = new(1.0, 1.0, 1.0);
 
     public double AmbientIntensity { get; set; } = 0.2;
+
+    public PortableViewport3DLight[] Lights { get; set; } = s_emptyLights;
 
     public PortableViewport3DMesh[] Meshes { get; set; } = s_emptyMeshes;
 }
