@@ -390,6 +390,28 @@ shader failure. Qualified provider hashes are
 `0E2C0667243F49475E81B23FF7E56999F7E4095D906B1A283637EB7CC148B47E` for
 `progpu_native_dawn.dll`.
 
+The EvenOdd boolean-child implementation at exact ProGPU commit
+`1c3bd210932fcd90400696af1bdaf2a18a98c2fd` was qualified in the Windows 11
+ARM64 Parallels guest from archive SHA-256
+`71443727B66A565CF9D270807976859460B29EFBCBB84511630748A830B2CD37`.
+Strict MSVC/Ninja completed all 312 build steps for both native providers and
+all 11 CTests passed, including the exact five-node
+`leaf leaf difference leaf xor` program for both an EvenOdd fill and vector
+clip plus the Nonzero fail-closed regression. The native D3D12 sample selected
+`Parallels Display Adapter (WDDM)` and again produced the exact Metal Pad
+samples `250/133/20`, `0/255/4`, `0/255/253`, and `184/51/245`. The serial
+managed graph built with zero warnings/errors in 4:13.66. As at the preceding
+checkpoint, the first combined managed host encountered the unchanged
+`wgpuDevicePoll` access violation after the independent native sample; four
+fresh hosts passed the builder test, all five 2D gradient tests, ordinary
+Mesh3D gradient, and specular Mesh3D gradient. The specular evidence remained
+3,304 red-dominant and 3,304 blue-dominant pixels with maximum channel deltas
+of 134. Qualified provider hashes are
+`D00CEAB00E6E06C18E49D3952DB80A2593B53727BA23B67EB1914013E76AC828` for
+`progpu_native.dll` and
+`F17C61D361C9C5F51B19E4B602FA052C55A614895886B27DBDD5E8C7B6182FC5` for
+`progpu_native_dawn.dll`.
+
 Canonical `MILCMD_GEOMETRYDRAWING` resource `87` and nested
 `MILCMD_DRAW_DRAWING` command `0x4a` are retained as typed native state. A
 geometry drawing keeps nullable brush, pen, and geometry handles and resolves
