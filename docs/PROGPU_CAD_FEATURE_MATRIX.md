@@ -7,15 +7,15 @@ Status values: `planned`, `foundation`, `in progress`, `verified`.
 | Dependency | ACadSharp fork pinned as a submodule | foundation | clean recursive checkout and build |
 | IO | DXF/DWG stream open with progress, diagnostics, cancellation, and initial byte/entity limits | foundation | version/corrupt/fuzz fixtures and path host adapter |
 | Save | caller-owned stream save with version/certification gates | foundation | atomic path replacement and advertised-version semantic round trips |
-| Model | ACadSharp `CadDocument` authority with locked callbacks and content/saved generations | foundation | broader edit transaction and concurrency tests |
+| Model | ACadSharp `CadDocument` authority with locked callbacks, atomic generation capture, and content/saved generations | in progress | broader edit transaction and concurrency tests |
 | Editing | typed atomic commands, undo/redo, dirty generations | planned | command property/fuzz tests |
-| 2D | all standard entities, blocks, XRefs, hatches, dimensions, images | planned | multi-DPI/zoom image and semantic tests |
+| 2D | all standard entities, blocks, XRefs, hatches, dimensions, images | in progress | line/circle/arc/NURBS snapshot and analytic top projection implemented; remaining families plus multi-DPI/zoom image tests |
 | 3D | meshes, surfaces, solids, ACIS SAT/SAB, orbit/depth | planned | matched managed/native 3D fixtures |
 | Text | complete ProGPU Unicode/OpenType text stack | planned | shaping/fallback/color/variable-font regressions |
 | SHX | regular, Unicode, Big Font, shapes, substitution | planned | Autodesk-spec conformance and corpus fuzzing |
-| Rendering | retained analytic GPU scene with incremental chunks | planned | zero-allocation stable replay; p50/p95/p99 |
-| Camera | uniform-only pan/zoom/orbit after compilation | planned | entity-count-independent CPU counters |
-| Line quality | model cosmetic and paper/plot physical lineweight | planned | visual + physical print measurement fixtures |
+| Rendering | retained analytic GPU scene with incremental chunks | in progress | immutable typed streams, BVH, WCS rebase, and first retained analytic scene implemented; incremental chunks and full replay metrics remain |
+| Camera | uniform-only pan/zoom/orbit after compilation | in progress | first recorded plan scene is camera-independent; GPU camera integration and entity-count-independent CPU counters remain |
+| Line quality | model cosmetic and paper/plot physical lineweight | in progress | fixed device-space/hairline recording implemented; linetype, paper/plot, and physical output fixtures remain |
 | Native parity | equivalent managed/native behavior and quality | planned | differential scene/pixel/performance suite |
 | Desktop app | standalone ProGPU.CAD desktop viewer/editor | planned | automated UI smoke and representative workflows |
 | Browser app | browser/AOT viewer/editor with streamed IO | planned | browser AOT build and UI/performance smoke |

@@ -4,6 +4,10 @@ namespace ProGPU.CAD;
 
 public delegate TResult CadDocumentRead<out TResult>(CadDocument document);
 
+public delegate TResult CadDocumentCapture<out TResult>(
+    CadDocument document,
+    ulong contentGeneration);
+
 public delegate void CadDocumentEdit(CadDocument document);
 
 public sealed class CadDocumentChangedEventArgs : EventArgs
@@ -93,6 +97,24 @@ public sealed class CadDocumentSession
         lock (_gate)
         {
             return read(_document);
+        }
+    }
+
+    /// <summary>
+    /// Reads the document and its matching content generation under one lock.
+    /// </summary>
+    /// <remarks>
+    /// Use this boundary when producing immutable derived state. It prevents a
+    /// snapshot from being tagged with a generation different from its contents.
+    /// The callback must not retain the mutable document.
+    /// </remarks>
+    public TResult Capture<TResult>(CadDocumentCapture<TResult> capture)
+    {
+        ArgumentNullException.ThrowIfNull(capture);
+
+        lock (_gate)
+        {
+            return capture(_document, _contentGeneration);
         }
     }
 

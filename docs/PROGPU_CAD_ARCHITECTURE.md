@@ -64,6 +64,37 @@ ACadSharp readers <--> mutable CadDocument <--> ACadSharp writers
          screen / browser / bitmap / print target
 ```
 
+## Implemented immutable-scene slice
+
+The first phase-2 slice is implemented in `src/ProGPU.CAD`:
+
+- `CadSnapshotCompiler` captures the mutable document and matching content
+  generation under one lock, resolves visible layers and indexed stroke styles,
+  normalizes supported planar entities from OCS to double-precision WCS, and
+  emits fixed typed line, circle, arc, and spline streams.
+- `CadSpatialIndex` is an immutable median-split AABB hierarchy. Construction is
+  `O(N log N)`; caller-buffer queries allocate no managed memory and are
+  `O(log N + K)` on typical spatial data, `O(N + K)` worst case.
+- `CadPlanSceneCompiler` rebases WCS coordinates and records an exact top-view
+  projection through retained analytic ProGPU commands. Circle projection uses
+  the existing affine analytic ellipse primitive, arcs use one `ArcSegment`,
+  and NURBS use the retained spline extension. It performs no fixed-detail
+  curve tessellation and carries no viewport or camera state.
+- Model-space lineweights are recorded as fixed device-space strokes; explicit
+  zero-width lineweights use the ProGPU hairline sentinel. Non-continuous CAD
+  linetypes currently produce a bounded warning and remain a tracked fidelity
+  gap rather than being silently claimed as complete.
+
+The exact approved ProGPU-owned implementation provenance for this slice is
+`src/ProGPU.Scene/RenderCommand.cs` (`DrawingContext.DrawLine`, `DrawEllipse`,
+`DrawPath`, and `DrawSpline`) and `src/ProGPU.Vector/PathGeometry.cs`
+(`PathGeometry`, `PathFigure`, and `ArcSegment`). The new adapter and indexing
+algorithms are original ProGPU code based on the public contracts and Autodesk
+coordinate specification; no third-party renderer source was used. No shader or
+managed/native compositor implementation changed, so the parity audit finds the
+native side not applicable to this typed CPU snapshot/recording adapter. Both
+compositors continue consuming the same pre-existing retained command contract.
+
 ### Document authority
 
 - One `CadDocument` is the semantic authority. Entity handles remain the stable

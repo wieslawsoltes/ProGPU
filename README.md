@@ -40,7 +40,7 @@ Choose the area closest to your application to find the relevant packages.
 | `ProGPU.Scene` | Scene graph, compositor commands, retained visuals, effects, and presentation primitives. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Scene.svg)](https://www.nuget.org/packages/ProGPU.Scene/) |
 | `ProGPU.Scene.Native` | Typed compiler from immutable managed pictures to the retained native C++ WebGPU scene ABI. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Scene.Native.svg)](https://www.nuget.org/packages/ProGPU.Scene.Native/) |
 | `ProGPU.Dxf` | DXF import/rendering support for ProGPU vector scenes. | [![NuGet](https://img.shields.io/nuget/vpre/ProGPU.Dxf.svg)](https://www.nuget.org/packages/ProGPU.Dxf/) |
-| `ProGPU.CAD` | ACadSharp-backed DXF/DWG document sessions and the foundation for retained 2D/3D CAD rendering, editing, printing, and save workflows. | [Architecture](docs/PROGPU_CAD_ARCHITECTURE.md) |
+| `ProGPU.CAD` | ACadSharp-backed DXF/DWG sessions, immutable WCS snapshots, spatial indexing, and retained analytic CAD rendering foundations. | [Architecture](docs/PROGPU_CAD_ARCHITECTURE.md) |
 
 ### UI framework, controls, and layout
 
