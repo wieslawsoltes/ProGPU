@@ -17,8 +17,8 @@ Status values: `planned`, `foundation`, `in progress`, `verified`.
 | Camera | uniform-only pan/zoom/orbit after compilation | in progress | first recorded plan scene is camera-independent; GPU camera integration and entity-count-independent CPU counters remain |
 | Line quality | model cosmetic and paper/plot physical lineweight | in progress | fixed device-space/hairline recording implemented; linetype, paper/plot, and physical output fixtures remain |
 | Native parity | equivalent managed/native behavior and quality | planned | differential scene/pixel/performance suite |
-| Desktop app | standalone ProGPU.CAD desktop viewer/editor | planned | automated UI smoke and representative workflows |
-| Browser app | browser/AOT viewer/editor with streamed IO | planned | browser AOT build and UI/performance smoke |
+| Desktop app | standalone ProGPU.CAD desktop viewer/editor | in progress | shared retained viewer and standalone desktop host build and render the representative analytic scene; file/edit/output workflows remain |
+| Browser app | browser/AOT viewer/editor with streamed IO | in progress | shared retained viewer and Release AOT/native-linked Wasm publish pass; runtime UI, streamed file, and performance smoke remain |
 | Printing | layout/viewports/plot styles/preview/output | planned | deterministic print-plan and output comparisons |
 | Export | vector and raster output with text/line fidelity | planned | round-trip and image-quality baselines |
 

@@ -187,6 +187,35 @@ validated for version, size, alignment, offsets, ranges, and device domain.
   not uniform across versions. Round-trip conformance is required before a
   version is advertised as production save support.
 
+## Standalone sample hosts
+
+The shared interactive viewer lives in `ProGPU.CAD.Sample` and is hosted
+unchanged by `ProGPU.CAD.Sample.Desktop` and `ProGPU.CAD.Sample.Browser`.
+It freezes one generation-tagged scene into an owned `GpuPicture`; wheel zoom
+and pointer pan then update only the replay camera matrix. Camera motion never
+revisits ACadSharp or recompiles geometry. The representative scene exercises
+lines, OCS circles/arcs, analytic bulge polylines, and NURBS while framework
+chrome uses dynamic theme resources.
+
+The desktop host uses the existing ProGPU WinUI/GLFW presentation path. The
+browser host uses `BrowserGpuRuntime`, canonical ProGPU browser assets, SIMD,
+native Wasm linking, and the same shared viewer assembly. These hosts are an
+executable engine-integration baseline, not yet the complete CAD editor shell:
+file pickers, layers/properties, selection, tools, printing, and save workflows
+remain tracked application phases.
+
+The Release browser AOT publish succeeds. Its linker audit currently reports
+annotation warnings in ACadSharp's initialization/reflection utilities and in
+existing UI binding paths. Those warnings remain visible as an AOT-hardening
+gate; the typed CAD snapshot, scene compilation, and retained replay paths do
+not use reflection.
+
+Exact in-repository host provenance is `src/ProGPU.Samples.Desktop/Program.cs`,
+`src/ProGPU.Samples.Browser/Program.cs`, and
+`src/ProGPU.Browser/BrowserAssets/`. The new programs reuse their public host
+contracts and link the canonical browser JavaScript assets; no third-party host
+implementation was copied.
+
 ## Editing model
 
 - Commands are typed and operate on handles. Each command records enough prior
@@ -251,6 +280,13 @@ respectively. These are transparent starting measurements, not an improvement or
 release-acceptance claim. Full representative viewer workloads, GPU counters,
 matched managed/native results, and required macOS Instruments traces remain
 open gates before performance acceptance.
+
+Run the standalone samples with:
+
+```bash
+dotnet run --project src/ProGPU.CAD.Sample.Desktop -c Release -f net10.0
+dotnet run --project src/ProGPU.CAD.Sample.Browser -c Debug
+```
 
 ## Delivery phases
 

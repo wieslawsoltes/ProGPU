@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <WasmEnableSIMD>true</WasmEnableSIMD>
+    <RunAOTCompilation Condition="'$(RunAOTCompilation)' == '' And '$(Configuration)' == 'Release'">true</RunAOTCompilation>
+    <RunAOTCompilation Condition="'$(RunAOTCompilation)' == ''">false</RunAOTCompilation>
+    <PublishTrimmed Condition="'$(RunAOTCompilation)' == 'true'">true</PublishTrimmed>
+    <WasmBuildNative Condition="'$(WasmBuildNative)' == ''">true</WasmBuildNative>
+    <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.Browser\ProGPU.Browser.csproj" />
+    <ProjectReference Include="..\ProGPU.CAD.Sample\ProGPU.CAD.Sample.csproj" />
+    <ProjectReference Include="..\ProGPU.WinRT\ProGPU.WinRT.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\ProGPU.Browser\BrowserAssets\progpu-browser.js"
+             Link="wwwroot/main.js"
+             CopyToOutputDirectory="Always"
+             CopyToPublishDirectory="Always" />
+    <Content Include="..\ProGPU.Browser\BrowserAssets\progpu-browser-host.js"
+             Link="wwwroot/progpu-browser-host.js"
+             CopyToOutputDirectory="Always"
+             CopyToPublishDirectory="Always" />
+    <NativeFileReference Include="..\ProGPU.Backend\Native\progpu-static-resolver-stub.c" />
+  </ItemGroup>
+
+  <Target Name="_ProGpuRemoveBrowserRuntimeWindowsBase" AfterTargets="ResolveReferences">
+    <ItemGroup>
+      <ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)"
+                               Condition="'%(ReferenceCopyLocalPaths.Filename)' == 'WindowsBase'
+                                          And '%(ReferenceCopyLocalPaths.NuGetPackageId)' == 'Microsoft.NETCore.App.Runtime.Mono.browser-wasm'" />
+    </ItemGroup>
+  </Target>
+</Project>

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <ProGpuUseWindowsBaseShim>true</ProGpuUseWindowsBaseShim>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.CAD\ProGPU.CAD.csproj" />
+    <ProjectReference Include="..\ProGPU.Scene\ProGPU.Scene.csproj" />
+    <ProjectReference Include="..\ProGPU.Vector\ProGPU.Vector.csproj" />
+    <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj" />
+    <ProjectReference Include="..\ProGPU.WinUI.Themes.Fluent\ProGPU.WinUI.Themes.Fluent.csproj" />
+  </ItemGroup>
+</Project>

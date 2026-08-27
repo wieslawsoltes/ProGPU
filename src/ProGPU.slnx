@@ -61,6 +61,9 @@
   <Project Path="ProGPU.Dxf/ProGPU.Dxf.csproj" />
   <Project Path="ProGPU.CAD/ProGPU.CAD.csproj" />
   <Project Path="ProGPU.CAD.Benchmarks/ProGPU.CAD.Benchmarks.csproj" />
+  <Project Path="ProGPU.CAD.Sample/ProGPU.CAD.Sample.csproj" />
+  <Project Path="ProGPU.CAD.Sample.Browser/ProGPU.CAD.Sample.Browser.csproj" />
+  <Project Path="ProGPU.CAD.Sample.Desktop/ProGPU.CAD.Sample.Desktop.csproj" />
   <Project Path="ProGPU.CAD.Tests/ProGPU.CAD.Tests.csproj" />
   <Project Path="ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj" />
   <Project Path="ProGPU.Tests/ProGPU.Tests.csproj" />
