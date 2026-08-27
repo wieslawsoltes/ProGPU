@@ -3936,6 +3936,37 @@ managed differential as separate processes. Neither is evidence of
 full DirectX/MIL parity; Stages 1–5 remain open until their listed protocol and
 integration surfaces are implemented.
 
+## DirectX retained-texture boundary
+
+`ProGpuDirectXTexture2D` now implements the framework-neutral
+`IProGpuInvalidatingTextureSource` contract for GPU-backed, shader-bindable,
+single-layer, single-sample, non-depth textures. A WPF, WinUI, or Avalonia
+retained recorder can acquire the existing same-device `GpuTexture` through a
+typed lease, draw it into a `GpuPicture`, and let
+`GpuPictureNativeSceneCompiler` lower that draw to a native external-image
+resource. This route performs no CPU pixel readback, repacking, upload, or
+per-item native call, and it does not expose a WebGPU pointer as managed
+ownership.
+
+The DirectX resource owns a `SharedGpuTextureSource`; deferred recordings own
+borrowed reference-counted leases. Disposing the DirectX wrapper removes the
+owner reference but cannot invalidate a texture still used by a retained
+picture. The backend texture is released after the final picture/recording
+lease is released. `WritePixels`, writable unmap, render/compute/copy
+completion, mip generation, and resize advance one content generation and
+raise `TextureChanged`, allowing retained hosts to rebuild only dependent
+commands.
+
+The boundary fails closed for metadata/CPU-only textures, texture arrays,
+multisampled textures, depth/stencil formats, and resources without
+`ShaderResource` usage. It never converts those cases to a CPU bitmap. The
+consumer-side `DrawingContext.TryRetainTexture(..., requiredContext, ...)` and
+native compositor still enforce the WebGPU device domain, live view, format,
+dimension, sample count, usage, alpha, and role requirements before binding.
+Focused tests cover supported acquisition, unsupported-shape rejection,
+invalidation, owner-before-borrower disposal, and pointer-free native MIL scene
+compilation.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

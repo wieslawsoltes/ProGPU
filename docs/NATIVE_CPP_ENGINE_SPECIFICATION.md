@@ -3772,6 +3772,32 @@ scene retention or GPU resource allocation; the shader's minimum clamps are
 defense in depth only. The C++ scene-builder test exercises each invalid scalar
 independently in addition to simultaneous front/back face-flag rejection.
 
+### DirectX texture ownership into retained scenes
+
+The DirectX compatibility layer and native scene compiler share texture
+identity through `IProGpuInvalidatingTextureSource`; they do not exchange raw
+D3D/WebGPU handles. An eligible `ProGpuDirectXTexture2D` owns its backend
+`GpuTexture` through `SharedGpuTextureSource`. `DrawingContext` acquires a
+reference-counted same-device lease and transfers that lease into the immutable
+picture snapshot. Native lowering records only the pointer-free external-image
+resource identity in the scene stream and supplies the live `GpuTexture`
+through the compositor's existing binding table.
+
+Eligibility is deliberately narrower than DirectX resource creation:
+GPU-backed, `ShaderResource`, one array layer, one sample, and non-depth. Array,
+multisample, depth/stencil, CPU-only, and non-bindable resources return false;
+no readback/upload compatibility path is permitted. The drawing context checks
+the consuming `WgpuContext` device domain, and the native compositor retains its
+existing format, dimension, sample, usage, alpha, role, and live-view checks.
+DirectX content writes, render/compute/copy completion, mip generation, writable
+unmap, and resize publish typed invalidation so host retained caches can replace
+only affected command streams.
+
+This ownership seam is reusable by WPF, WinUI, and Avalonia. Framework layers
+adapt presentation and invalidation scheduling only; they must not create a
+second DirectX-specific scene representation, manufacture a CPU bitmap, or
+infer resource compatibility from a native pointer.
+
 The engine validates every untrusted count, offset, size, enum, finite float,
 resource generation, and nesting depth before allocation or GPU submission.
 Integer arithmetic is checked. User shaders remain a separately permissioned
