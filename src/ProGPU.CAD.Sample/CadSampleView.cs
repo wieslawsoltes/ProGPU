@@ -19,7 +19,11 @@ public sealed class CadSampleView : Grid
     private readonly Button _undoButton;
     private readonly Button _redoButton;
     private readonly Button[] _moveButtons;
+    private readonly Button[] _rotateButtons;
+    private readonly Button[] _scaleButtons;
     private readonly TextBox _moveStepInput;
+    private readonly TextBox _rotationStepInput;
+    private readonly TextBox _scaleFactorInput;
     private readonly List<string> _shxSupportDirectories = new();
     private bool _isBusy;
     private string _currentDocumentName = "Representative analytic scene";
@@ -45,7 +49,7 @@ public sealed class CadSampleView : Grid
     {
         _canvas = new CadSampleCanvas(shxFonts);
         TtfFont font = InterFontFamily.Regular;
-        RowDefinitions.Add(new GridLength(90, GridUnitType.Absolute));
+        RowDefinitions.Add(new GridLength(124, GridUnitType.Absolute));
         RowDefinitions.Add(GridLength.Star(1));
         RowDefinitions.Add(new GridLength(30, GridUnitType.Absolute));
 
@@ -71,8 +75,14 @@ public sealed class CadSampleView : Grid
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Left,
         };
+        var transformActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
         toolbarRows.AddChild(actions);
         toolbarRows.AddChild(editActions);
+        toolbarRows.AddChild(transformActions);
         toolbar.Child = toolbarRows;
 
         _openButton = CreateButton("Open DXF/DWG", font, 132);
@@ -129,6 +139,56 @@ public sealed class CadSampleView : Grid
             editActions.AddChild(moveButton);
         }
 
+        transformActions.AddChild(new TextBlock
+        {
+            Text = "Rotate (degrees, selection center)",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _rotationStepInput = new TextBox
+        {
+            Text = "15",
+            Font = font,
+            WidthConstraint = 76,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        transformActions.AddChild(_rotationStepInput);
+        Button rotateCounterclockwise = CreateButton("↺", font, 48, 30);
+        Button rotateClockwise = CreateButton("↻", font, 48, 30);
+        rotateCounterclockwise.Margin = new Thickness(0, 0, 4, 0);
+        rotateClockwise.Margin = new Thickness(0, 0, 12, 0);
+        _rotateButtons = [rotateCounterclockwise, rotateClockwise];
+        transformActions.AddChild(rotateCounterclockwise);
+        transformActions.AddChild(rotateClockwise);
+        transformActions.AddChild(new TextBlock
+        {
+            Text = "Scale factor (selection center)",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _scaleFactorInput = new TextBox
+        {
+            Text = "2",
+            Font = font,
+            WidthConstraint = 76,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        transformActions.AddChild(_scaleFactorInput);
+        Button scaleUp = CreateButton("×", font, 48, 30);
+        Button scaleDown = CreateButton("÷", font, 48, 30);
+        scaleUp.Margin = new Thickness(0, 0, 4, 0);
+        _scaleButtons = [scaleUp, scaleDown];
+        transformActions.AddChild(scaleUp);
+        transformActions.AddChild(scaleDown);
+
         _status = new TextBlock
         {
             Font = font,
@@ -162,6 +222,10 @@ public sealed class CadSampleView : Grid
         movePositiveX.Click += (_, _) => MoveSelection(1, 0);
         moveNegativeY.Click += (_, _) => MoveSelection(0, -1);
         movePositiveY.Click += (_, _) => MoveSelection(0, 1);
+        rotateCounterclockwise.Click += (_, _) => RotateSelection(1);
+        rotateClockwise.Click += (_, _) => RotateSelection(-1);
+        scaleUp.Click += (_, _) => ScaleSelection(useReciprocal: false);
+        scaleDown.Click += (_, _) => ScaleSelection(useReciprocal: true);
         _canvas.SelectionChanged += (_, _) =>
         {
             if (!_isBusy)
@@ -211,6 +275,101 @@ public sealed class CadSampleView : Grid
         catch (Exception exception)
         {
             SetStatus($"Move failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void RotateSelection(double direction)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+        if (!double.TryParse(
+                _rotationStepInput.Text,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out double degrees) ||
+            !double.IsFinite(degrees) ||
+            degrees <= 0.0)
+        {
+            SetStatus(
+                "Rotate failed: degrees must be a finite positive invariant number.");
+            return;
+        }
+
+        double radians = direction * degrees * (Math.PI / 180.0);
+        if (!double.IsFinite(radians))
+        {
+            SetStatus("Rotate failed: the angle exceeds finite rotation coordinates.");
+            return;
+        }
+
+        try
+        {
+            if (!_canvas.RotateSelection(radians))
+            {
+                SetStatus("Rotate requires at least one selected entity.");
+                return;
+            }
+            SetStatus(DescribeCurrentDocument(
+                _currentDocumentName,
+                _currentDiagnosticCount));
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Rotate failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void ScaleSelection(bool useReciprocal)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+        if (!double.TryParse(
+                _scaleFactorInput.Text,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out double factor) ||
+            !double.IsFinite(factor) ||
+            factor <= 0.0 ||
+            factor == 1.0)
+        {
+            SetStatus(
+                "Scale failed: the factor must be positive, finite, non-unit, and invariant.");
+            return;
+        }
+
+        double appliedFactor = useReciprocal ? 1.0 / factor : factor;
+        if (!double.IsFinite(appliedFactor) || appliedFactor <= 0.0)
+        {
+            SetStatus("Scale failed: the factor does not have a finite positive reciprocal.");
+            return;
+        }
+
+        try
+        {
+            if (!_canvas.ScaleSelection(appliedFactor))
+            {
+                SetStatus("Scale requires at least one selected entity.");
+                return;
+            }
+            SetStatus(DescribeCurrentDocument(
+                _currentDocumentName,
+                _currentDiagnosticCount));
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Scale failed: {exception.Message}");
         }
         finally
         {
@@ -436,11 +595,21 @@ public sealed class CadSampleView : Grid
     {
         _undoButton.IsEnabled = !_isBusy && _canvas.UndoCount > 0;
         _redoButton.IsEnabled = !_isBusy && _canvas.RedoCount > 0;
-        bool canMove = !_isBusy && _canvas.SelectedHandleCount > 0;
+        bool canTransform = !_isBusy && _canvas.SelectedHandleCount > 0;
         _moveStepInput.IsEnabled = !_isBusy;
+        _rotationStepInput.IsEnabled = !_isBusy;
+        _scaleFactorInput.IsEnabled = !_isBusy;
         foreach (Button moveButton in _moveButtons)
         {
-            moveButton.IsEnabled = canMove;
+            moveButton.IsEnabled = canTransform;
+        }
+        foreach (Button rotateButton in _rotateButtons)
+        {
+            rotateButton.IsEnabled = canTransform;
+        }
+        foreach (Button scaleButton in _scaleButtons)
+        {
+            scaleButton.IsEnabled = canTransform;
         }
     }
 

@@ -1,6 +1,7 @@
 using System.Numerics;
 using ACadSharp;
 using ACadSharp.Entities;
+using ACadSharp.Tables;
 using CSMath;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -279,6 +280,97 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void SelectedEntitiesRotateAndScaleAroundOneCompleteBoundsCenter()
+    {
+        var document = new CadDocument();
+        var first = new Line(new XYZ(0, 0, 0), new XYZ(2, 0, 0));
+        var second = new Line(new XYZ(2, 2, 0), new XYZ(4, 2, 0));
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport initialViewport = canvas.CurrentViewport;
+            CadPoint3D pivot = new(2, 1, 0);
+            Vector2 initialPivotScreen = initialViewport.WorldToScreen(pivot);
+            Drag(
+                canvas,
+                initialViewport.WorldToScreen(new CadPoint3D(-1, 3, 0)),
+                initialViewport.WorldToScreen(new CadPoint3D(5, -1, 0)));
+
+            Assert.Equal(2, canvas.SelectedHandleCount);
+            Assert.True(canvas.RotateSelection(Math.PI / 2.0));
+
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(session.ContentGeneration, canvas.CurrentSnapshot!.ContentGeneration);
+            AssertPoint(new XYZ(3, -1, 0), first.StartPoint);
+            AssertPoint(new XYZ(3, 1, 0), first.EndPoint);
+            AssertPoint(new XYZ(1, 1, 0), second.StartPoint);
+            AssertPoint(new XYZ(1, 3, 0), second.EndPoint);
+            Assert.Equal(2, canvas.SelectedHandleCount);
+            AssertVector(initialPivotScreen, canvas.CurrentViewport.WorldToScreen(pivot));
+
+            Assert.True(canvas.ScaleSelection(2.0));
+
+            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal(session.ContentGeneration, canvas.CurrentSnapshot.ContentGeneration);
+            AssertPoint(new XYZ(4, -3, 0), first.StartPoint);
+            AssertPoint(new XYZ(4, 1, 0), first.EndPoint);
+            AssertPoint(new XYZ(0, 1, 0), second.StartPoint);
+            AssertPoint(new XYZ(0, 5, 0), second.EndPoint);
+            AssertVector(initialPivotScreen, canvas.CurrentViewport.WorldToScreen(pivot));
+            Assert.Equal(2, canvas.UndoCount);
+
+            Assert.True(canvas.TryUndo());
+            AssertPoint(new XYZ(3, -1, 0), first.StartPoint);
+            Assert.True(canvas.TryUndo());
+            AssertPoint(XYZ.Zero, first.StartPoint);
+            Assert.Equal(0, canvas.UndoCount);
+            Assert.Equal(2, canvas.RedoCount);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void ExpandedRootTransformUsesTheCompleteSemanticSelectionBounds()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("SHELL_TRANSFORM_ROOT");
+        block.Entities.Add(new Line(new XYZ(-10, 0, 0), new XYZ(-8, 0, 0)));
+        block.Entities.Add(new Line(new XYZ(8, 0, 0), new XYZ(10, 0, 0)));
+        var insert = new Insert(block) { InsertPoint = new XYZ(20, 5, 0) };
+        document.Entities.Add(insert);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            Click(
+                canvas,
+                canvas.CurrentViewport.WorldToScreen(new CadPoint3D(11, 5, 0)));
+
+            Assert.Equal(1, canvas.SelectedHandleCount);
+            Assert.Equal(insert.Handle, canvas.SelectedHandles.Span[0]);
+            Assert.True(canvas.RotateSelection(Math.PI));
+
+            AssertPoint(new XYZ(20, 5, 0), insert.InsertPoint);
+            Assert.Equal(Math.PI, Math.Abs(insert.Rotation), 12);
+            Assert.Equal(1UL, session.ContentGeneration);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewMoveAndHistoryButtonsTrackCanvasState()
     {
         var document = new CadDocument();
@@ -291,7 +383,9 @@ public sealed class CadSampleSelectionTests
             Button movePositiveX = FindButton(view, "+X");
             Button undo = FindButton(view, "Undo");
             Button redo = FindButton(view, "Redo");
-            TextBox moveStep = DescendantsAndSelf(view).OfType<TextBox>().Single();
+            TextBox moveStep = DescendantsAndSelf(view)
+                .OfType<TextBox>()
+                .Single(textBox => textBox.Text == "1");
             Assert.False(movePositiveX.IsEnabled);
             Assert.False(undo.IsEnabled);
             Assert.False(redo.IsEnabled);
@@ -345,6 +439,69 @@ public sealed class CadSampleSelectionTests
         }
     }
 
+    [Fact]
+    public void SharedViewRotateAndScaleControlsValidateAndExecuteTransforms()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(-2, 0, 0), new XYZ(2, 0, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            Button rotateCounterclockwise = FindButton(view, "↺");
+            Button scaleUp = FindButton(view, "×");
+            Button scaleDown = FindButton(view, "÷");
+            TextBox rotationStep = DescendantsAndSelf(view)
+                .OfType<TextBox>()
+                .Single(textBox => textBox.Text == "15");
+            TextBox scaleFactor = DescendantsAndSelf(view)
+                .OfType<TextBox>()
+                .Single(textBox => textBox.Text == "2");
+            Assert.False(rotateCounterclockwise.IsEnabled);
+            Assert.False(scaleUp.IsEnabled);
+            Assert.False(scaleDown.IsEnabled);
+
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 800, 600));
+            Click(
+                view.Canvas,
+                view.Canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
+
+            Assert.True(rotateCounterclockwise.IsEnabled);
+            Assert.True(scaleUp.IsEnabled);
+            Assert.True(scaleDown.IsEnabled);
+            rotationStep.Text = "invalid";
+            PressEnter(rotateCounterclockwise);
+            AssertPoint(new XYZ(-2, 0, 0), line.StartPoint);
+            Assert.Equal(0UL, session.ContentGeneration);
+
+            rotationStep.Text = "90";
+            PressEnter(rotateCounterclockwise);
+            AssertPoint(new XYZ(0, -2, 0), line.StartPoint);
+            Assert.Equal(1UL, session.ContentGeneration);
+
+            scaleFactor.Text = "1";
+            PressEnter(scaleUp);
+            AssertPoint(new XYZ(0, -2, 0), line.StartPoint);
+            Assert.Equal(1UL, session.ContentGeneration);
+
+            scaleFactor.Text = "2";
+            PressEnter(scaleUp);
+            AssertPoint(new XYZ(0, -4, 0), line.StartPoint);
+            Assert.Equal(2UL, session.ContentGeneration);
+
+            PressEnter(scaleDown);
+            AssertPoint(new XYZ(0, -2, 0), line.StartPoint);
+            Assert.Equal(3UL, session.ContentGeneration);
+            Assert.Equal(3, view.Canvas.UndoCount);
+        }
+        finally
+        {
+            view.Canvas.FireUnloaded();
+        }
+    }
+
     private static Button FindButton(Visual root, string label) =>
         DescendantsAndSelf(root)
             .OfType<Button>()
@@ -364,6 +521,25 @@ public sealed class CadSampleSelectionTests
                 yield return descendant;
             }
         }
+    }
+
+    private static void PressEnter(Button button) =>
+        button.OnKeyDown(new KeyRoutedEventArgs
+        {
+            Key = Silk.NET.Input.Key.Enter,
+        });
+
+    private static void AssertPoint(XYZ expected, XYZ actual)
+    {
+        Assert.Equal(expected.X, actual.X, 10);
+        Assert.Equal(expected.Y, actual.Y, 10);
+        Assert.Equal(expected.Z, actual.Z, 10);
+    }
+
+    private static void AssertVector(Vector2 expected, Vector2 actual)
+    {
+        Assert.Equal(expected.X, actual.X, 4);
+        Assert.Equal(expected.Y, actual.Y, 4);
     }
 
     private static void Click(CadSampleCanvas canvas, Vector2 position)

@@ -371,6 +371,59 @@ public sealed class CadSampleCanvas : FrameworkElement
         return true;
     }
 
+    /// <summary>
+    /// Rotates all selected semantic model-space entities around the complete
+    /// selection-bounds center and the WCS positive Z axis as one edit.
+    /// </summary>
+    public bool RotateSelection(double radians)
+    {
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadRotateEntitiesCommand(
+            new ArraySegment<ulong>(_selectedHandles, 0, _selectedHandleCount),
+            new CadPoint3D(0, 0, 1),
+            radians,
+            GetSelectionCenter(),
+            _selectedHandleCount == 1
+                ? "Rotate selected entity"
+                : $"Rotate {_selectedHandleCount} selected entities"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>
+    /// Uniformly scales all selected semantic model-space entities around the
+    /// complete selection-bounds center as one edit.
+    /// </summary>
+    public bool ScaleSelection(double factor)
+    {
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadScaleEntitiesCommand(
+            new ArraySegment<ulong>(_selectedHandles, 0, _selectedHandleCount),
+            factor,
+            GetSelectionCenter(),
+            _selectedHandleCount == 1
+                ? "Scale selected entity"
+                : $"Scale {_selectedHandleCount} selected entities"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
     public bool TryUndo()
     {
         CadDocumentHistory? history = _history;
@@ -450,12 +503,19 @@ public sealed class CadSampleCanvas : FrameworkElement
         _lastSelectionWasTruncated =
             result.AreCandidatesTruncated || result.AreHandlesTruncated;
         LastSelectionMode = mode;
-        _selectedBounds = CadBounds3D.Empty;
-        for (int i = 0; i < result.MatchedPrimitiveCount; i++)
-        {
-            _selectedBounds = _selectedBounds.Union(_selectionMatches[i].Bounds);
-        }
+        RefreshSelectionBounds(snapshot);
         SelectionChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private CadPoint3D GetSelectionCenter()
+    {
+        if (_selectedBounds.IsEmpty)
+        {
+            throw new InvalidOperationException(
+                "The selected CAD entities do not have retained finite bounds.");
+        }
+
+        return _selectedBounds.Center;
     }
 
     private void RefreshSelectionBounds(CadDocumentSnapshot snapshot)

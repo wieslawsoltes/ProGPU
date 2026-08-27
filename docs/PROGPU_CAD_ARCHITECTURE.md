@@ -258,12 +258,19 @@ fixed-device-space selection rectangles after the immutable picture. Camera and
 selection interaction never revisit ACadSharp or recompile geometry. The
 second shared toolbar row applies a finite positive invariant WCS step along
 `-X`, `+X`, `-Y`, or `+Y` to every selected semantic root handle through one
-`CadTranslateEntitiesCommand`. One `CadDocumentHistory` belongs to the loaded
-session, so each Move, Undo, or Redo publishes exactly one generation and then
-prepares one complete replacement snapshot and picture. The prior picture stays
-drawable until replacement preparation succeeds and is disposed immediately
-after the atomic state swap. Selection buffers are reused when the entity count
-still fits, selected handles and overlays survive translation history, and
+`CadTranslateEntitiesCommand`. A third row rotates the same selection in either
+direction by an invariant degree step around WCS +Z and uniformly enlarges or
+shrinks it by an invariant factor. Both use the center of the complete retained
+bounds for every selected semantic root as their base point, including all
+expanded primitives of a selected INSERT. The current plan shell has no UCS
+state, so its explicit base-axis contract is WCS +Z; arbitrary base-point, UCS,
+reference-angle, and reference-length input remain later editor tools. One
+`CadDocumentHistory` belongs to the loaded session, so each Move, Rotate, Scale,
+Undo, or Redo publishes exactly one generation and then prepares one complete
+replacement snapshot and picture. The prior picture stays drawable until
+replacement preparation succeeds and is disposed immediately after the atomic
+state swap. Selection buffers are reused when the entity count still fits,
+selected handles and complete semantic-root overlays survive transform history, and
 `CadPlanViewport.WithRebaseOrigin` compensates pan so a changed snapshot rebase
 does not move unchanged WCS content on screen. This first synchronous editor
 integration is O(E + G) per committed action for E retained entities and G text
@@ -443,9 +450,14 @@ an interactive browser picker/download smoke remains open.
   selection column spanning the snapshot's complete Z range. Spline/text box
   tests, their full distance contracts, arbitrary-camera projected selection
   volumes, and draw-order resolution remain explicit work.
-- The shared sample's first actionable edit consumes selected semantic root
-  handles in one existing multi-entity translation command. It never mutates the
-  frozen picture or command stream in place. Successful Move/Undo/Redo first
+- The shared sample's actionable transforms consume selected semantic root
+  handles in the existing multi-entity translate, pivoted axis-angle rotate, or
+  pivoted uniform-scale commands. Selection-bound refresh visits all retained
+  headers after exact semantic deduplication, so an INSERT selected through one
+  expanded primitive still rotates/scales about the center of its complete root
+  bounds. The plan shell uses WCS +Z and the complete selection center until a
+  typed UCS/base-point input contract lands. It never mutates the frozen picture
+  or command stream in place. Successful Move/Rotate/Scale/Undo/Redo first
   advances the session/history generation, then compiles and installs one
   matching immutable snapshot/picture; if preparation fails, the prior owned
   picture remains installed and the error is surfaced. Rebase compensation is
@@ -1023,6 +1035,17 @@ Sources consulted on 2026-08-27:
   interaction/edit slice changes no shader, compositor, upload, device-loss,
   atlas, or managed/native renderer contract; both backends continue receiving
   the same existing picture/overlay commands.
+- [Autodesk ROTATE](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-1C265537-FBAC-48D5-B448-B72E777071E5.htm),
+  [rotation behavior](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-9DB2CB8C-7FB7-45A4-83A7-82FFC53FC7E1.htm),
+  and [SCALE](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-Core/files/GUID-D4E17E51-5000-4AB6-8D6A-6D2AB4863C75.htm):
+  adopted selected-object transforms around a stationary caller-visible base
+  point, a rotation axis parallel to the coordinate system's Z axis, and uniform
+  factors above/below one for enlargement/reduction. Adapted the initial shared
+  plan shell to use the complete semantic selection-bounds center and WCS +Z,
+  because no typed UCS or arbitrary base-point interaction exists yet. Rejected
+  silently presenting that fixed plan contract as full UCS, reference-angle, or
+  reference-length behavior. The implementation calls only existing original
+  ProGPU transform commands and does not reproduce Autodesk implementation code.
 - [HarfBuzz shaping](https://harfbuzz.github.io/what-is-harfbuzz.html),
   [Parley rich-text architecture](https://github.com/linebender/parley/blob/main/doc/concept.md),
   [SkParagraph](https://docs.skia.org/docs/dev/design/text_shaper/), and
@@ -1030,7 +1053,7 @@ Sources consulted on 2026-08-27:
   confirmed that shaping/layout stays separate from stroke patterns, transient
   selection state, and editor command state. No second text stack or foreign
   layout structure was adopted. The current complete snapshot rebuild may shape
-  unchanged text again after a Move; generation-keyed shaped-run/chunk reuse is
+  unchanged text again after a transform; generation-keyed shaped-run/chunk reuse is
   therefore retained as required work rather than hidden behind a UI shortcut.
 - [Autodesk shape/font descriptions](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Customization/files/GUID-DE941DB5-7044-433C-AA68-2A9AE98A5713.htm),
   [special codes](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Customization/files/GUID-06832147-16BE-4A66-A6D0-3ADF98DC8228.htm),
