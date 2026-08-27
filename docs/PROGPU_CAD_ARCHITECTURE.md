@@ -80,7 +80,17 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   projection through retained analytic ProGPU commands. Circle projection uses
   the existing affine analytic ellipse primitive, arcs use one `ArcSegment`,
   and NURBS use the retained spline extension. It performs no fixed-detail
-  curve tessellation and carries no viewport or camera state.
+  curve tessellation and carries no viewport or camera state. Its print path can
+  exclude non-plottable layers before recording without changing ordinary screen
+  visibility.
+- `CadPrintPlanCompiler` maps one immutable snapshot into bounded physical paper,
+  printable-margin, extents/window, fit/custom-scale, centered/offset, DPI, and
+  fixed-lineweight state. It replays one filtered analytic `GpuPicture` under a
+  printable-area clip; preview and later output adapters therefore share the
+  same generation, camera, vector paths, shaped glyph runs, and physical stroke
+  widths. Page dimensions remain integer output pixels with an explicit total-
+  pixel budget, while model/page mapping remains allocation-free double-to-float
+  matrix math after compilation.
 - Lightweight polylines retain their whole path as one command. Straight and
   positive/negative bulge segments remain analytic in the entity OCS, with a
   checked affine OCS-to-WCS projection. Wide polylines are deliberately reported
@@ -142,8 +152,10 @@ The exact approved ProGPU-owned implementation provenance for this slice is
 algorithms are original ProGPU code based on the public contracts and Autodesk
 coordinate specification; no third-party renderer source was used. No shader or
 managed/native compositor implementation changed, so the parity audit finds the
-native side not applicable to this typed CPU snapshot/recording adapter. Both
-compositors continue consuming the same pre-existing retained command contract.
+native side not applicable to these typed CPU snapshot/recording/physical-page
+adapters. Both compositors continue consuming the same pre-existing retained
+command, clip, fixed-stroke, and picture-transform contracts. No shader, GPU ABI,
+native renderer, atlas, or device-loss behavior changed.
 The exact box-selection implementation is likewise original ProGPU code derived
 from these retained parametric records, inclusive AABB inequalities, and the
 standard convex separating-axis theorem. No third-party selection implementation,
@@ -792,6 +804,39 @@ transparency, raster quality, font substitution, and paper-space ordering. It
 must reuse analytic vector and shaped-text resources and produce deterministic
 preview/output from the same compiled print plan.
 
+The first model-space print-plan foundation is implemented by `CadPrintPlanCompiler`:
+
+- paper size and unprintable margins are finite millimeters converted once to
+  deterministic integer output pixels with round-half-away-from-zero behavior;
+  page coordinates are limited to exact float integers and the default total
+  target budget is 268,435,456 pixels;
+- the default plot area is the exact union of visible retained entities on
+  plottable layers, while a caller can supply an explicit finite WCS window;
+  non-plottable layers remain visible in the screen snapshot but are skipped by
+  the print scene;
+- fit chooses the smaller positive X/Y printable scale. Exact scale expresses
+  drawing units represented by one paper millimeter. Degenerate one-axis extents
+  fit by the other axis; a point-like extent uses the explicit units/mm fallback;
+- centered placement keeps the plot-bounds center at the printable center.
+  Offset placement maps the plot lower-left to a finite millimeter offset from
+  the printable lower-left, preserving CAD's Y-up model and page Y-down output;
+- CAD lineweight millimeters convert through the output DPI and remain fixed
+  device strokes, independent of model plot scale by default. The explicit
+  lineweight multiplier is the future page-setup `ScaleLineweights` seam;
+- one owned content picture is retained by the plan. `CreatePagePicture` adds
+  only one printable clip and one transformed picture replay, and returns an
+  independently owned page picture suitable for preview or a later platform
+  printer/vector/raster adapter. Compilation is O(E + C) time and O(C) retained
+  storage for E entity headers and C scene commands; no raster surface is
+  allocated.
+
+This foundation does not claim layout/paper-space viewport support, page-setup
+extraction from ACadSharp, paper rotation, named views/limits/display areas,
+CTB/STB overrides, shaded-viewport policies, transparency flattening, PDF/SVG,
+raster encoding, printer enumeration/spooling, or multi-page collation. Those
+remain explicit typed compilers/adapters and conformance gates; unsupported
+features are not silently rasterized or dropped.
+
 ## Performance and conformance gates
 
 Representative Release workloads report cold open, first visible frame, pan,
@@ -820,7 +865,8 @@ Allocations/VM Tracker, Time Profiler, and Metal System Trace captures.
 ### Reproducible phase-2 CPU baseline
 
 `ProGPU.CAD.Benchmarks` provides JSON p50/p95/p99 and allocation output for
-snapshot construction, retained plan-scene recording, and spatial queries. Run:
+snapshot construction, retained plan-scene recording, retained physical print-
+plan construction, and spatial queries. Run:
 
 ```bash
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --warmup 3 --iterations 24 --queries 10000
@@ -839,6 +885,15 @@ respectively. These are transparent starting measurements, not an improvement or
 release-acceptance claim. Full representative viewer workloads, GPU counters,
 matched managed/native results, and required macOS Instruments traces remain
 open gates before performance acceptance.
+
+The first two fresh 24-iteration Release runs of the 10,000-entity physical
+print-plan path measured p50/p95/p99 at 16.320/49.488/58.868 ms and
+18.680/46.709/63.583 ms, with 12,804,279 and 12,804,501 managed bytes per plan.
+Each result includes plottable-bounds traversal, filtered retained-scene
+recording at 300 DPI, physical pen creation, and the owned content picture, but
+does not allocate the eventual raster target. The noisy snapshot/scene tails in
+the same processes and the absence of a prior print implementation make these
+feature baselines only; they are not an improvement or release-acceptance claim.
 
 The MINSERT mode creates one block reference whose single line expands across
 the requested number of columns. Two consecutive 100-iteration Release runs at
@@ -1035,6 +1090,29 @@ Sources consulted on 2026-08-27:
   interaction/edit slice changes no shader, compositor, upload, device-loss,
   atlas, or managed/native renderer contract; both backends continue receiving
   the same existing picture/overlay commands.
+- [Autodesk page setup](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-LT/files/GUID-D8BE8598-D9F8-49C2-81BC-19786A390379.htm),
+  [PLOTSETTINGS DXF fields](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-DXF/files/GUID-1113675E-AB07-4567-801A-310CDE0D56E9.htm),
+  and [plot styles](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-Core/files/GUID-929FE8EC-EFE3-43BB-A79F-4FF509A91D5A.htm):
+  adopted separate physical paper/margins, printable-relative offset or
+  centering, extents/window area, fit or paper-unit/drawing-unit scale, fixed
+  physical lineweight, plot eligibility, and explicit CTB/STB override phases.
+  Adapted only model-space extents/window, center/offset, fit/custom scale, and
+  object lineweight into the first bounded plan; rejected guessing layout,
+  device, style-table, rotation, or shaded-output policy.
+- [Skia PDF pages](https://skia.org/docs/user/sample/pdf/),
+  [Skia canvas backends](https://skia.org/docs/user/api/skcanvas_creation/),
+  [Direct2D print control](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1device-createprintcontrol),
+  and [Win2D print events](https://microsoft.github.io/Win2D/WinUI3/html/E_Microsoft_Graphics_Canvas_Printing_CanvasPrintDocument_Print.htm):
+  adopted replaying one retained/vector page description into backend-specific
+  page targets at the target DPI, with preview/output sharing the same page
+  transform and clip. Skia's documented PDF fallbacks reinforce treating
+  unsupported effects explicitly rather than silently losing text or vectors.
+  WebRender's reviewed display-list architecture has no physical-page contract,
+  so only its retained preview/resource separation applies. Vello's unbaked
+  affine retained fragments support the same transform-reuse decision. Existing
+  HarfBuzz/SkParagraph/DirectWrite/Parley shaped results are retained from the
+  immutable snapshot; the print plan neither reshapes text nor introduces a
+  foreign document renderer.
 - [Autodesk ROTATE](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-1C265537-FBAC-48D5-B448-B72E777071E5.htm),
   [rotation behavior](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-9DB2CB8C-7FB7-45A4-83A7-82FFC53FC7E1.htm),
   and [SCALE](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-Core/files/GUID-D4E17E51-5000-4AB6-8D6A-6D2AB4863C75.htm):

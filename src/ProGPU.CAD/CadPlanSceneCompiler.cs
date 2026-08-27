@@ -9,6 +9,7 @@ public sealed class CadPlanSceneOptions
 {
     public float PhysicalDpi { get; init; } = 96.0f;
     public float LineWeightScale { get; init; } = 1.0f;
+    public bool IncludeNonPlottableLayers { get; init; } = true;
 }
 
 public readonly record struct CadPlanSceneStatistics(
@@ -81,6 +82,7 @@ public sealed class CadPlanSceneCompiler
         ValidateOptions(options);
 
         ReadOnlySpan<CadEntityHeader> entities = snapshot.Entities.Span;
+        ReadOnlySpan<CadLayerSnapshot> layers = snapshot.Layers.Span;
         ReadOnlySpan<CadStrokeStyle> styles = snapshot.Styles.Span;
         var context = new DrawingContext();
         context.EnsureCommandCapacity(checked(
@@ -97,6 +99,12 @@ public sealed class CadPlanSceneCompiler
         foreach (CadEntityHeader entity in entities)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (!options.IncludeNonPlottableLayers &&
+                !layers[entity.LayerIndex].IsPlottable)
+            {
+                continue;
+            }
+
             CadStrokeStyle style = styles[entity.StyleIndex];
             if (UsesStroke(entity.Kind) &&
                 !IsContinuous(style.LineTypeName) &&

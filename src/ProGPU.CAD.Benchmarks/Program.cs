@@ -42,6 +42,7 @@ CadDocumentSession session = CreateDocument(
     decorateText);
 var snapshotCompiler = new CadSnapshotCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
+var printPlanCompiler = new CadPrintPlanCompiler();
 CadShxFont? shxFont = shxInterpretationCount == 0 && shxLayoutCount == 0 &&
     shxTextEntityCount == 0
     ? null
@@ -72,6 +73,7 @@ for (int i = 0; i < warmupCount; i++)
 {
     CadDocumentSnapshot warmSnapshot = snapshotCompiler.Compile(session, snapshotOptions);
     _ = sceneCompiler.Compile(warmSnapshot);
+    using CadPrintPlan warmPrintPlan = printPlanCompiler.Compile(warmSnapshot);
     if (shxFont is not null)
     {
         if (shxInterpretationCount != 0)
@@ -95,6 +97,10 @@ Measurement sceneMeasurement = Measure(
     iterationCount,
     () => sceneCompiler.Compile(snapshot));
 CadRecordedPlanScene recordedScene = sceneCompiler.Compile(snapshot);
+Measurement printPlanMeasurement = Measure(
+    "print-plan",
+    iterationCount,
+    () => printPlanCompiler.Compile(snapshot));
 Measurement queryMeasurement = MeasureQueries(snapshot, queryCount);
 Measurement? shxMeasurement = shxInterpretationCount == 0
     ? null
@@ -128,6 +134,7 @@ var report = new CadBenchmarkReport(
     recordedScene.Statistics.RecordedCommandCount,
     snapshotMeasurement,
     sceneMeasurement,
+    printPlanMeasurement,
     queryMeasurement,
     shxMeasurement,
     shxLayoutMeasurement,
@@ -338,6 +345,10 @@ Measurement Measure(string name, int count, Func<object> action)
         object value = action();
         elapsed[i] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         checksum ^= value.GetHashCode();
+        if (value is IDisposable disposable)
+        {
+            disposable.Dispose();
+        }
     }
 
     long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedStart;
@@ -448,6 +459,7 @@ internal sealed record CadBenchmarkReport(
     int RecordedCommandCount,
     Measurement SnapshotMilliseconds,
     Measurement PlanSceneMilliseconds,
+    Measurement PrintPlanMilliseconds,
     Measurement SpatialQueryNanoseconds,
     Measurement? ShxInterpretBatchMilliseconds,
     Measurement? ShxLayoutBatchMilliseconds,
