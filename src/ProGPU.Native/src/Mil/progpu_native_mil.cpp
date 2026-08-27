@@ -641,6 +641,12 @@ std::uint32_t batch_reader::offset() const noexcept {
     return offset_;
 }
 
+struct scene_compile_context {
+    const scene_build_request& request;
+    std::uint32_t current_time_milliseconds{};
+    bool needs_more_cycles{};
+};
+
 struct channel::implementation {
     struct visual_state {
         double offset_x{};
@@ -822,9 +828,24 @@ struct channel::implementation {
     };
 
     struct guideline_set_state {
+        enum class phase : std::uint8_t {
+            start,
+            quiet,
+            animation,
+            landing,
+            flight
+        };
+        struct runtime_state {
+            phase current_phase{phase::start};
+            std::uint32_t bump_time{};
+            float last_given_coordinate{};
+            float last_offset{};
+        };
         bool is_dynamic{};
         std::vector<double> guidelines_x;
         std::vector<double> guidelines_y;
+        mutable std::vector<runtime_state> runtime_x;
+        mutable std::vector<runtime_state> runtime_y;
     };
 
     struct bitmap_cache_state {
@@ -6141,6 +6162,7 @@ struct channel::implementation {
         std::unordered_map<std::uint32_t, std::uint32_t>& image_indices,
         std::unordered_map<std::uint64_t, glyph_scene_resource>&
             glyph_resources,
+        scene_compile_context* compile_context,
         scene_metrics& metrics) const {
         const auto resource = resources.find(content_handle);
         if (resource == resources.end() ||
@@ -6161,6 +6183,7 @@ struct channel::implementation {
             brush_indices,
             image_indices,
             glyph_resources,
+            compile_context,
             active_drawings,
             clip_paths,
             clip_segments,
@@ -6177,6 +6200,7 @@ struct channel::implementation {
         std::unordered_map<std::uint32_t, std::uint32_t>& image_indices,
         std::unordered_map<std::uint64_t, glyph_scene_resource>&
             glyph_resources,
+        scene_compile_context* compile_context,
         std::unordered_set<std::uint32_t>& active_drawings,
         std::vector<progpu_native_scene_clip_path>& clip_paths,
         std::vector<progpu_native_path_segment>& clip_segments,
@@ -7906,6 +7930,7 @@ struct channel::implementation {
             &clip_boolean_nodes,
             &apply_rectangle_clip,
             &save_state,
+            compile_context,
             &metrics](
             std::uint32_t image_source_handle,
             double x,
@@ -7960,6 +7985,7 @@ struct channel::implementation {
                 brush_indices,
                 image_indices,
                 glyph_resources,
+                compile_context,
                 active_drawings,
                 clip_paths,
                 clip_segments,
@@ -8347,17 +8373,26 @@ struct channel::implementation {
                         return status::invalid_handle;
                     }
                     if (guidelines->second.is_dynamic) {
-                        return status::unsupported_command;
-                    }
-                    const status guideline_status =
-                        apply_static_guidelines(
+                        const status guideline_status =
+                            apply_dynamic_guidelines(
+                                guidelines->second,
+                                next,
+                                builder,
+                                false,
+                                compile_context);
+                        if (guideline_status != status::success) {
+                            return guideline_status;
+                        }
+                    } else {
+                        const status guideline_status = apply_static_guidelines(
                             guidelines->second.guidelines_x,
                             guidelines->second.guidelines_y,
                             next,
                             builder,
                             false);
-                    if (guideline_status != status::success) {
-                        return guideline_status;
+                        if (guideline_status != status::success) {
+                            return guideline_status;
+                        }
                     }
                 }
                 if (!save_state(next)) {
@@ -8782,19 +8817,29 @@ struct channel::implementation {
                             return status::invalid_handle;
                         }
                         if (guidelines->second.is_dynamic) {
-                            active_drawings.erase(drawing_handle);
-                            return status::unsupported_command;
-                        }
-                        const status guideline_status =
-                            apply_static_guidelines(
+                            const status guideline_status =
+                                apply_dynamic_guidelines(
+                                    guidelines->second,
+                                    next,
+                                    builder,
+                                    false,
+                                    compile_context);
+                            if (guideline_status != status::success) {
+                                active_drawings.erase(drawing_handle);
+                                return guideline_status;
+                            }
+                        } else {
+                            const status guideline_status =
+                                apply_static_guidelines(
                                 guidelines->second.guidelines_x,
                                 guidelines->second.guidelines_y,
                                 next,
                                 builder,
                                 false);
-                        if (guideline_status != status::success) {
-                            active_drawings.erase(drawing_handle);
-                            return guideline_status;
+                            if (guideline_status != status::success) {
+                                active_drawings.erase(drawing_handle);
+                                return guideline_status;
+                            }
                         }
                     }
                     if (group->second.clip_geometry_handle != 0U) {
@@ -8872,6 +8917,7 @@ struct channel::implementation {
                         brush_indices,
                         image_indices,
                         glyph_resources,
+                        compile_context,
                         active_drawings,
                         clip_paths,
                         clip_segments,
@@ -10484,6 +10530,228 @@ struct channel::implementation {
         return status::success;
     }
 
+    static float wpf_offset_to_rounded(float value) noexcept {
+        constexpr float minimum_without_fraction = 8'388'608.0F;
+        if (!(std::abs(value) < minimum_without_fraction)) {
+            return 0.0F;
+        }
+        const float rounded = std::floor(value + 0.5F);
+        float offset = rounded - value;
+        if (offset <= -0.5F) {
+            offset += 1.0F;
+        }
+        return offset;
+    }
+
+    static void advance_dynamic_guideline(
+        guideline_set_state::runtime_state& runtime,
+        float coordinate,
+        std::uint32_t current_time,
+        bool& needs_more_cycles) noexcept {
+        constexpr std::uint32_t time_mask = (1U << 29U) - 1U;
+        constexpr std::uint32_t critical_time = 200U;
+        constexpr float allowed_step = 0.05F;
+        constexpr float big_jump = 3.0F;
+        const auto bumped_recently = [&]() noexcept {
+            return ((current_time - runtime.bump_time) & time_mask) <
+                critical_time;
+        };
+        switch (runtime.current_phase) {
+        case guideline_set_state::phase::start:
+        case guideline_set_state::phase::flight:
+            runtime.last_given_coordinate = coordinate;
+            runtime.last_offset = wpf_offset_to_rounded(coordinate);
+            runtime.bump_time = current_time & time_mask;
+            runtime.current_phase = guideline_set_state::phase::quiet;
+            break;
+        case guideline_set_state::phase::quiet: {
+            const bool recent = bumped_recently();
+            bool bumped = runtime.last_given_coordinate != coordinate;
+            if (bumped) {
+                if (std::abs(coordinate - runtime.last_given_coordinate) >=
+                    big_jump) {
+                    bumped = false;
+                    runtime.bump_time =
+                        (current_time - critical_time) & time_mask;
+                } else {
+                    runtime.bump_time = current_time & time_mask;
+                }
+                runtime.last_given_coordinate = coordinate;
+            }
+            if (bumped && recent) {
+                runtime.current_phase =
+                    guideline_set_state::phase::animation;
+                runtime.last_offset = 0.0F;
+                needs_more_cycles = true;
+            } else {
+                runtime.last_offset = wpf_offset_to_rounded(coordinate);
+            }
+            break;
+        }
+        case guideline_set_state::phase::animation: {
+            const bool recent = bumped_recently();
+            const bool bumped = runtime.last_given_coordinate != coordinate;
+            if (bumped) {
+                runtime.bump_time = current_time & time_mask;
+                runtime.last_given_coordinate = coordinate;
+            }
+            if (!bumped && !recent) {
+                runtime.current_phase = guideline_set_state::phase::landing;
+            }
+            runtime.last_offset = 0.0F;
+            needs_more_cycles = true;
+            break;
+        }
+        case guideline_set_state::phase::landing: {
+            const bool bumped = runtime.last_given_coordinate != coordinate;
+            if (bumped) {
+                runtime.bump_time = current_time & time_mask;
+                runtime.last_given_coordinate = coordinate;
+                runtime.current_phase =
+                    guideline_set_state::phase::animation;
+                runtime.last_offset = 0.0F;
+                needs_more_cycles = true;
+                break;
+            }
+            const float final_offset = wpf_offset_to_rounded(coordinate);
+            const float distance = final_offset - runtime.last_offset;
+            if (std::abs(distance) > allowed_step) {
+                runtime.last_offset += std::copysign(allowed_step, distance);
+                needs_more_cycles = true;
+            } else {
+                runtime.last_offset = final_offset;
+                runtime.current_phase = guideline_set_state::phase::quiet;
+            }
+            break;
+        }
+        }
+    }
+
+    static status apply_dynamic_guidelines(
+        const guideline_set_state& source,
+        render_scope_state& state,
+        native::semantic_scene_builder& builder,
+        bool composite_only,
+        scene_compile_context* context) {
+        if (context == nullptr) {
+            return status::unsupported_command;
+        }
+        if (context->request.dpi_scale_x != context->request.dpi_scale_y) {
+            return status::unsupported_command;
+        }
+        const std::size_t count_x = source.guidelines_x.size() / 2U;
+        const std::size_t count_y = source.guidelines_y.size() / 2U;
+        if (state.transform.m12 != 0.0 || state.transform.m21 != 0.0) {
+            if ((static_cast<std::uint32_t>(context->request.flags) &
+                    static_cast<std::uint32_t>(
+                        scene_build_request_flags::visual_brush)) == 0U) {
+                try {
+                    source.runtime_x.resize(count_x);
+                    source.runtime_y.resize(count_y);
+                } catch (const std::bad_alloc&) {
+                    return status::capacity_exceeded;
+                }
+                for (auto& runtime : source.runtime_x) {
+                    runtime.current_phase = guideline_set_state::phase::flight;
+                    runtime.bump_time = context->current_time_milliseconds;
+                }
+                for (auto& runtime : source.runtime_y) {
+                    runtime.current_phase = guideline_set_state::phase::flight;
+                    runtime.bump_time = context->current_time_milliseconds;
+                }
+            }
+            state.guideline_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            state.per_point_guidelines = false;
+            return status::success;
+        }
+        try {
+            source.runtime_x.resize(count_x);
+            source.runtime_y.resize(count_y);
+        } catch (const std::bad_alloc&) {
+            return status::capacity_exceeded;
+        }
+        std::vector<double> coordinates_x;
+        std::vector<double> coordinates_y;
+        std::vector<double> offsets_x;
+        std::vector<double> offsets_y;
+        try {
+            coordinates_x.resize(count_x);
+            coordinates_y.resize(count_y);
+            offsets_x.resize(count_x);
+            offsets_y.resize(count_y);
+        } catch (const std::bad_alloc&) {
+            return status::capacity_exceeded;
+        }
+        const bool suppress_animation =
+            (static_cast<std::uint32_t>(context->request.flags) &
+                static_cast<std::uint32_t>(
+                    scene_build_request_flags::visual_brush)) != 0U;
+        const float dpi = static_cast<float>(context->request.dpi_scale_x);
+        const auto resolve_axis = [&](std::span<const double> values,
+                                      std::vector<guideline_set_state::runtime_state>& runtime,
+                                      double scale,
+                                      double translation,
+                                      std::vector<double>& coordinates,
+                                      std::vector<double>& offsets) {
+            const float physical_scale = static_cast<float>(scale) * dpi;
+            const float physical_translation =
+                static_cast<float>(translation) * dpi;
+            for (std::size_t index = 0U; index < runtime.size(); ++index) {
+                const float leading = static_cast<float>(values[index * 2U]);
+                const float shift = static_cast<float>(values[index * 2U + 1U]);
+                const float given =
+                    leading * physical_scale + physical_translation;
+                float leading_offset = wpf_offset_to_rounded(given);
+                if (!suppress_animation) {
+                    advance_dynamic_guideline(
+                        runtime[index],
+                        given,
+                        context->current_time_milliseconds,
+                        context->needs_more_cycles);
+                    leading_offset = runtime[index].last_offset;
+                }
+                const float physical_shift = shift * physical_scale;
+                coordinates[index] = static_cast<double>(
+                    (given + physical_shift) / dpi);
+                offsets[index] = static_cast<double>(
+                    leading_offset + wpf_offset_to_rounded(physical_shift));
+            }
+            if (scale < 0.0) {
+                std::ranges::reverse(coordinates);
+                std::ranges::reverse(offsets);
+            }
+        };
+        resolve_axis(
+            source.guidelines_x,
+            source.runtime_x,
+            state.transform.m11,
+            state.transform.m31,
+            coordinates_x,
+            offsets_x);
+        resolve_axis(
+            source.guidelines_y,
+            source.runtime_y,
+            state.transform.m22,
+            state.transform.m32,
+            coordinates_y,
+            offsets_y);
+        const bool multiple = count_x > 1U || count_y > 1U;
+        std::uint32_t resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder.add_guideline_set_with_offsets(
+                coordinates_x,
+                coordinates_y,
+                offsets_x,
+                offsets_y,
+                resource_index,
+                multiple && composite_only,
+                multiple && !composite_only)) {
+            return status::invalid_graph;
+        }
+        state.guideline_resource_index = resource_index;
+        state.per_point_guidelines = multiple && !composite_only;
+        return status::success;
+    }
+
     status apply_visual_rectangle_clip(
         std::uint32_t geometry_handle,
         render_scope_state& state) const {
@@ -11592,6 +11860,7 @@ struct channel::implementation {
         std::unordered_map<std::uint32_t, std::uint32_t>& image_indices,
         std::unordered_map<std::uint64_t, glyph_scene_resource>&
             glyph_resources,
+        scene_compile_context* compile_context,
         std::unordered_set<std::uint32_t>& active_visuals,
         scene_metrics& metrics) const {
         if (depth == 0U || depth > maximum_visual_depth ||
@@ -11991,6 +12260,7 @@ struct channel::implementation {
                     brush_indices,
                     image_indices,
                     glyph_resources,
+                    compile_context,
                     metrics);
             }
         }
@@ -12005,6 +12275,7 @@ struct channel::implementation {
                     brush_indices,
                     image_indices,
                     glyph_resources,
+                    compile_context,
                     active_visuals,
                     metrics);
                 if (result != status::success) {
@@ -12495,20 +12766,31 @@ bool channel::try_get_target(
     return true;
 }
 
-status channel::build_scene(
+status channel::build_scene_core(
+    const implementation& source,
     std::uint32_t target_handle,
     std::uint64_t scene_id,
     std::uint64_t generation,
+    const scene_build_request* request,
     std::vector<std::byte>& stream,
-    scene_metrics* metrics) const noexcept {
+    scene_metrics* metrics,
+    scene_build_result* result) const noexcept {
     scene_metrics local_metrics{};
-    const auto target = implementation_->targets.find(target_handle);
+    const auto target = source.targets.find(target_handle);
     if (scene_id == 0U || generation == 0U) {
         return status::invalid_argument;
     }
-    if (target == implementation_->targets.end()) {
+    if (target == source.targets.end()) {
         return status::invalid_handle;
     }
+    scene_build_request legacy_request{};
+    scene_compile_context compile_context{
+        request == nullptr ? legacy_request : *request,
+        request == nullptr
+            ? 0U
+            : static_cast<std::uint32_t>(
+                request->monotonic_time_nanoseconds / 1'000'000U),
+        false};
     try {
         native::semantic_scene_builder builder(scene_id, generation);
         std::unordered_map<std::uint32_t, std::uint32_t> brush_indices;
@@ -12517,7 +12799,7 @@ status channel::build_scene(
             implementation::glyph_scene_resource> glyph_resources;
         std::unordered_set<std::uint32_t> active_visuals;
         if (target->second.root_handle != 0U) {
-            const status append_status = implementation_->append_visual(
+            const status append_status = source.append_visual(
                 target->second.root_handle,
                 implementation::render_scope_state{},
                 1U,
@@ -12526,6 +12808,7 @@ status channel::build_scene(
                 brush_indices,
                 image_indices,
                 glyph_resources,
+                request == nullptr ? nullptr : &compile_context,
                 active_visuals,
                 local_metrics);
             if (append_status != status::success) {
@@ -12543,10 +12826,42 @@ status channel::build_scene(
         if (metrics != nullptr) {
             *metrics = local_metrics;
         }
+        if (result != nullptr && request != nullptr) {
+            result->flags = compile_context.needs_more_cycles
+                ? scene_build_result_flags::needs_more_cycles
+                : scene_build_result_flags::none;
+            result->request_serial = request->request_serial;
+            result->stream_bytes = stream.size();
+            result->next_due_time_nanoseconds =
+                compile_context.needs_more_cycles
+                ? request->monotonic_time_nanoseconds <=
+                        std::numeric_limits<std::uint64_t>::max() -
+                            50'000'000U
+                    ? request->monotonic_time_nanoseconds + 50'000'000U
+                    : std::numeric_limits<std::uint64_t>::max()
+                : 0U;
+        }
         return status::success;
     } catch (const std::bad_alloc&) {
         return status::invalid_argument;
     }
+}
+
+status channel::build_scene(
+    std::uint32_t target_handle,
+    std::uint64_t scene_id,
+    std::uint64_t generation,
+    std::vector<std::byte>& stream,
+    scene_metrics* metrics) const noexcept {
+    return build_scene_core(
+        *implementation_,
+        target_handle,
+        scene_id,
+        generation,
+        nullptr,
+        stream,
+        metrics,
+        nullptr);
 }
 
 status channel::build_scene(
@@ -12567,18 +12882,32 @@ status channel::build_scene(
         !same_scene_build_request(build_cache_->request, request)) {
         try {
             auto candidate = std::make_unique<build_cache>();
+            const bool has_dynamic_guidelines = std::ranges::any_of(
+                implementation_->guideline_sets,
+                [](const auto& entry) { return entry.second.is_dynamic; });
+            std::unique_ptr<implementation> state_candidate;
+            const implementation* compile_source = implementation_.get();
+            if (has_dynamic_guidelines) {
+                state_candidate =
+                    std::make_unique<implementation>(*implementation_);
+                compile_source = state_candidate.get();
+            }
             candidate->request = request;
-            const status build_status = build_scene(
+            const status build_status = build_scene_core(
+                *compile_source,
                 request.target_handle,
                 request.scene_id,
                 request.generation,
+                &request,
                 candidate->stream,
-                &candidate->metrics);
+                &candidate->metrics,
+                &candidate->result);
             if (build_status != status::success) {
                 return build_status;
             }
-            candidate->result.request_serial = request.request_serial;
-            candidate->result.stream_bytes = candidate->stream.size();
+            if (state_candidate) {
+                implementation_ = std::move(state_candidate);
+            }
             build_cache_ = std::move(candidate);
         } catch (const std::bad_alloc&) {
             return status::capacity_exceeded;

@@ -247,6 +247,15 @@ public:
 private:
     struct implementation;
     struct build_cache;
+    status build_scene_core(
+        const implementation& source,
+        std::uint32_t target_handle,
+        std::uint64_t scene_id,
+        std::uint64_t generation,
+        const scene_build_request* request,
+        std::vector<std::byte>& stream,
+        scene_metrics* metrics,
+        scene_build_result* result) const noexcept;
     std::unique_ptr<implementation> implementation_;
     std::unique_ptr<build_cache> build_cache_;
 };
