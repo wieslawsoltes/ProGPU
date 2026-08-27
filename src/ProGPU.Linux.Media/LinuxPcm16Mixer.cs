@@ -110,31 +110,22 @@ internal static class LinuxPcm16Mixer
                 Math.Max(
                     levels.Left,
                     levels.Right);
-            for (int index = 0;
-                 index < source.Length;
-                 index++)
-            {
-                accumulator[firstSample + index] +=
-                    (long)source[index] *
-                    monoLevel /
-                    32_768;
-            }
+            MediaPcm16WideAccumulator.AddMono(
+                source,
+                monoLevel,
+                accumulator.Slice(
+                    firstSample,
+                    source.Length));
             return;
         }
 
-        for (int index = 0;
-             index < source.Length;
-             index += 2)
-        {
-            accumulator[firstSample + index] +=
-                (long)source[index] *
-                levels.Left /
-                32_768;
-            accumulator[firstSample + index + 1] +=
-                (long)source[index + 1] *
-                levels.Right /
-                32_768;
-        }
+        MediaPcm16WideAccumulator.AddStereo(
+            source,
+            levels.Left,
+            levels.Right,
+            accumulator.Slice(
+                firstSample,
+                source.Length));
     }
 
     internal static void AccumulateProcessed(
@@ -226,16 +217,9 @@ internal static class LinuxPcm16Mixer
                 "Accumulator and output spans must have equal lengths.",
                 nameof(destination));
         }
-        for (int index = 0;
-             index < accumulator.Length;
-             index++)
-        {
-            destination[index] =
-                (short)Math.Clamp(
-                    accumulator[index],
-                    short.MinValue,
-                    short.MaxValue);
-        }
+        MediaPcm16WideAccumulator.WriteSaturated(
+            accumulator,
+            destination);
     }
 
     private static void AccumulateProcessedSample(

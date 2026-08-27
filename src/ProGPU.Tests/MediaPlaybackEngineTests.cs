@@ -2797,6 +2797,126 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void SharedPcm16WideAccumulatorMatchesScalarOracleAcrossVectorTails()
+    {
+        int[] lengths = [1, 7, 8, 15, 16, 17, 31, 32, 33, 257];
+        (int Left, int Right)[] levels =
+        [
+            (0, 0),
+            (1, 65_536),
+            (16_384, 49_152),
+            (32_768, 32_768),
+            (65_536, 4_096)
+        ];
+        var random = new Random(0x57_49_44);
+
+        foreach (int length in lengths)
+        {
+            short[] source = new short[length];
+            random.NextBytes(
+                System.Runtime.InteropServices.MemoryMarshal.AsBytes(
+                    source.AsSpan()));
+            source[0] = short.MinValue;
+            source[^1] = short.MaxValue;
+            long[] initial = new long[length];
+            for (int index = 0; index < initial.Length; index++)
+            {
+                initial[index] = random.NextInt64(
+                    -1_000_000_000L,
+                    1_000_000_001L);
+            }
+            initial[0] = long.MinValue + 10;
+            initial[^1] = long.MaxValue - 10;
+
+            foreach ((int left, int right) in levels)
+            {
+                long[] expected = initial.ToArray();
+                AddPcm16WideScalarOracle(
+                    source,
+                    left,
+                    right,
+                    expected);
+                long[] actual = initial.ToArray();
+
+                MediaPcm16WideAccumulator.AddStereo(
+                    source,
+                    left,
+                    right,
+                    actual);
+
+                Assert.Equal(expected, actual);
+            }
+
+            long[] monoExpected = initial.ToArray();
+            AddPcm16WideScalarOracle(
+                source,
+                49_152,
+                49_152,
+                monoExpected);
+            long[] monoActual = initial.ToArray();
+            MediaPcm16WideAccumulator.AddMono(
+                source,
+                49_152,
+                monoActual);
+            Assert.Equal(monoExpected, monoActual);
+
+            long[] saturationSource = initial.ToArray();
+            long[] boundaries =
+            [
+                long.MinValue,
+                short.MinValue - 1L,
+                short.MinValue,
+                -1L,
+                0L,
+                1L,
+                short.MaxValue,
+                short.MaxValue + 1L,
+                long.MaxValue
+            ];
+            boundaries.AsSpan(
+                    0,
+                    Math.Min(
+                        boundaries.Length,
+                        saturationSource.Length))
+                .CopyTo(saturationSource);
+            short[] saturatedExpected = new short[length];
+            short[] saturatedActual = new short[length];
+            for (int index = 0;
+                 index < saturationSource.Length;
+                 index++)
+            {
+                saturatedExpected[index] =
+                    (short)Math.Clamp(
+                        saturationSource[index],
+                        short.MinValue,
+                        short.MaxValue);
+            }
+            MediaPcm16WideAccumulator.WriteSaturated(
+                saturationSource,
+                saturatedActual);
+            Assert.Equal(
+                saturatedExpected,
+                saturatedActual);
+        }
+    }
+
+    private static void AddPcm16WideScalarOracle(
+        ReadOnlySpan<short> source,
+        int left,
+        int right,
+        Span<long> destination)
+    {
+        for (int index = 0; index < source.Length; index++)
+        {
+            int level = (index & 1) == 0 ? left : right;
+            long contribution =
+                (long)source[index] * level / 32_768;
+            destination[index] = unchecked(
+                destination[index] + contribution);
+        }
+    }
+
+    [Fact]
     public void SharedPcmTimelineMathUsesHalfOpenFrameBoundaries()
     {
         const uint sampleRate = 48_000;

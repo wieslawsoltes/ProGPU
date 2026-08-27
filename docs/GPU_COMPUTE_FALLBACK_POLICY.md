@@ -604,6 +604,27 @@ required every output sample and final channel offset to match exactly. This
 qualifies the current ARM64 implementation; x64 and other runtimes still
 require their own measurements before platform-specific speed claims.
 
+The Windows, Linux, and Android native export mixers also share
+`MediaPcm16WideAccumulator` for PCM16-to-Int64 Q15 accumulation and the final
+Int64-to-PCM16 saturation pass. Its 256- and 128-bit kernels widen signed
+samples, apply exact left/right scaling, widen contributions again before
+adding to the caller-owned accumulator, clamp final lanes, and narrow twice.
+Lengths around every vector boundary, mono/stereo levels, signed extremes,
+wrapping Int64 accumulator edges, and exact saturation boundaries are checked
+against independent scalar operations. The arbitrary processed-float effect
+lane retains its explicit per-sample finite validation, away-from-zero rounding,
+and saturating Int64 overflow semantics; it is outside this fixed-Q15 kernel
+and needs a separate cross-architecture qualification before vectorization.
+
+Append `--wide` to both benchmark commands above to measure a complete
+1,024-frame stereo accumulate-and-saturate block. Four alternating Apple M3
+Pro runs with 100 warmups and 100 samples of 500 blocks produced median-of-run
+p50 values of 2.027 us/block for `Vector128` and 6.139 us/block for the scalar
+oracle (3.03x throughput, -67.0% latency). Median p95 was 11.943 versus
+29.017 us and median p99 was 15.330 versus 33.524 us. Output, accumulator,
+checksum, and zero-allocation results were exact. As above, these figures
+qualify ARM64 only; the `Vector256` lane requires x64 runtime measurement.
+
 ## Extending the policy
 
 Each additional compute-heavy workload must declare the semantics that make a
