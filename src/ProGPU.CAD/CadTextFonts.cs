@@ -18,6 +18,21 @@ public interface ICadTextFontResolver
     CadTextFontResolution Resolve(in CadTextFontRequest request);
 }
 
+public readonly record struct CadShxFontRequest(
+    string StyleName,
+    string PrimaryFontFilename,
+    string BigFontFilename);
+
+public readonly record struct CadShxFontResolution(
+    CadShxGlyphCache? GlyphCache,
+    string ResolvedFontName,
+    bool IsSubstitution);
+
+public interface ICadShxFontResolver
+{
+    CadShxFontResolution Resolve(in CadShxFontRequest request);
+}
+
 /// <summary>
 /// Resolves CAD TrueType styles through the process font catalog with an optional
 /// caller-owned fallback suitable for browser and sandboxed hosts.

@@ -111,9 +111,9 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   zoom; it never expands ordinary text into per-glyph path commands. Font
   substitution is an explicit diagnostic. Overline, underline, and strike-
   through toggles retain bounded filled decoration rectangles in the same
-  affine basis. SHX/Big Font, extrusion, and MTEXT remain diagnosed fidelity
-  gates. Documented decimal-character, degree, plus/minus, diameter, percent, and DXF
-  Unicode escapes are decoded before shaping.
+  affine basis. Extrusion and MTEXT remain diagnosed fidelity gates. Documented
+  decimal-character, degree, plus/minus, diameter, percent, and DXF Unicode
+  escapes are decoded before shaping.
 - Model-space lineweights are recorded as fixed device-space strokes; explicit
   zero-width lineweights use the ProGPU hairline sentinel. Non-continuous CAD
   linetypes currently produce a bounded warning and remain a tracked fidelity
@@ -127,9 +127,12 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   recursion, commands, output, scale, coordinates, and the specified four-entry
   position stack. `CadShxGlyphCache` and `CadShxTextLayout` retain interpreted
   glyphs per font/shape/orientation and produce bounded standard-font character
-  placements. Unicode and Big Font containers, host font resolution, snapshot
-  TEXT lowering, and rendering remain explicit gates; this checkpoint does not
-  claim SHX TEXT rendering support.
+  placements. A typed host resolver now supplies those caches to standard
+  horizontal SHX TEXT lowering. The immutable snapshot packs placements and
+  affine text bases, and the plan compiler records each drawable placement with
+  its shared analytic glyph path. Unicode and Big Font containers, vertical
+  STYLE layout, decoration metric policy, and automatic host search paths remain
+  explicit gates.
 
 The exact approved ProGPU-owned implementation provenance for this slice is
 `src/ProGPU.Scene/RenderCommand.cs` (`DrawingContext.DrawLine`, `DrawEllipse`,
@@ -197,7 +200,7 @@ compositors continue consuming the same pre-existing retained command contract.
   layout, and vector/atlas text stack. SHX is an additional typed font source,
   not a fallback that bypasses shaping or text identity. Its design must cover
   regular, Unicode, Big Font, stacked text, shape references, search paths,
-  substitution, missing glyphs, and bounded parsing before implementation.
+  substitution, missing glyphs, and bounded parsing as those capabilities land.
 - 3D content shares the renderer's depth, camera, resource, device-loss, and
   retained submission contracts. ACIS/SAT/SAB acceleration must preserve the
   full boundary representation and may not collapse solids to a wireframe-only
@@ -478,6 +481,28 @@ growth, and code-unit/glyph limits fail explicitly. Decoration flags are
 retained per placement for the later metric policy; they are not silently
 dropped or rendered at guessed positions.
 
+`CadSnapshotCompiler` accepts an `ICadShxFontResolver`, keeping desktop font
+search, browser-bundled assets, and application substitution policy outside the
+document and render hot paths. Standard horizontal SHX TEXT scales the font's
+above metric to entity height, preserves its below-baseline metric and actual
+path bounds, and composes effective width, oblique shear, generation mirrors,
+OCS rotation/normal, justification, and ancestor block transforms into one
+double-precision basis. Align and Fit use the two authored endpoints: Align
+changes both axes while preserving the width-factor aspect ratio, and Fit keeps
+the authored height while changing horizontal scale. A substituted SHX font
+emits `CADSNAP006`. Missing glyphs, non-horizontal authored advances, Big Font,
+vertical STYLE, and decoration toggles reject the affected entity rather than
+guessing layout.
+
+The snapshot owns packed `CadShxGlyphInstance` placements but references the
+resolver-owned immutable `CadShxGlyph` metadata. Plan recording is `O(G)` and
+emits one existing `DrawPath` command for each drawable stroked glyph, applying
+only a placement transform; spaces and other pen-up-only shapes emit no command.
+All repeated character instances share the same cached `PathGeometry`, so
+snapshot compilation neither reinterprets nor clones glyph outlines. TrueType
+and SHX placements share one document-wide glyph budget. Freezing the recorded
+scene uses the normal retained picture ownership contract.
+
 The binary container layout was independently observed from the compiled
 `external/ACadSharp/samples/test_shape.shx` artifact pinned by this repository;
 no ACadSharp or other third-party parser implementation was consulted or
@@ -487,12 +512,13 @@ official Autodesk shape/font documentation linked below. The pinned fixture
 also executes through the new interpreter, while independent synthetic tests
 cover every command family, direction geometry, analytic endpoints/radii,
 horizontal/vertical behavior, state composition, cycles, malformed programs,
-and configured bounds. This managed CPU source/interpreter adds no production
-scene lowering and changes no retained command, shader, C ABI, compositor, or
-GPU resource contract, so a paired native-renderer implementation is not
-applicable at this checkpoint. The later cached TEXT renderer must feed the
-same retained analytic path contract to both compositors and add matched output
-and performance coverage.
+and configured bounds. The managed snapshot/recording adapter changes no
+shader, C ABI, compositor algorithm, or GPU resource contract. It feeds the
+pre-existing retained analytic `DrawPath` command consumed by both managed and
+native picture compilers, so a distinct native SHX parser or per-glyph boundary
+call is neither required nor permitted. Existing native analytic-path lowering
+tests remain the paired integration gate; CAD-specific managed/native image
+differentials remain required before full fidelity acceptance.
 
 The Release benchmark's optional `--shx-interpretations` lane measures fresh
 uncached path construction outside the document pipeline. Two 24-iteration,
@@ -504,15 +530,15 @@ interpreter construction baseline only; process-to-process tails vary, no
 improvement claim is made, and they are not a steady TEXT replay target. The
 allocation result motivated the implemented per-font glyph cache: normal
 retained replay must not construct a `PathGeometry` for every placed character.
-Snapshot/scene integration remains the gate that must prove cache reuse under a
-representative document workload.
+Snapshot/scene integration now proves cache reuse under a representative
+document workload.
 
 The same two runs measured 1,000 warm-cache layouts of eight standard glyphs at
 p50/p95/p99 2.475/3.695/4.089 ms and 1.565/2.212/2.507 ms, with 584,024 managed
 bytes per batch in both runs. This is a device-independent placement baseline,
-not retained replay and not an improvement claim. Snapshot integration must
-pack those placements into generation-owned arrays and reuse the cached glyph
-paths; it may not reinterpret or clone eight path graphs per TEXT entity.
+not retained replay and not an improvement claim. Snapshot integration packs
+those placements into generation-owned arrays and reuses the cached glyph paths;
+it does not reinterpret or clone eight path graphs per TEXT entity.
 
 The 2026-08-27 Release applicability/performance audit compared commit
 `778dc69f` with this lowering on the same Apple Silicon/.NET 10 machine and the
@@ -575,6 +601,7 @@ dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --block-array-columns 10000 --warmup 5 --iterations 100 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --warmup 5 --iterations 50 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --text-decorations --warmup 3 --iterations 50 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --shx-text-entities 1000 --warmup 3 --iterations 24 --queries 1000
 ```
 
 The initial 2026-08-27 Apple Silicon/.NET 10 baseline for 10,000 mixed analytic
@@ -623,6 +650,18 @@ primitive fields retained 1,000 commands and measured snapshot p50 of
 0.406/0.335 ms with 576,892/576,968 bytes. Tail timings were visibly noisy;
 these are feature/cost baselines with no latency improvement or regression
 claim. Warm queries remained zero-allocation.
+
+The standard SHX TEXT mode creates 1,000 eight-character entities backed by one
+cached analytic glyph. Its preflight rejects the run if any requested fixture
+entity is unsupported or invalid. Two consecutive 24-iteration Release runs
+retained all 1,000 entities and emitted 8,000 shared-path commands. Snapshot
+p50/p95/p99 was 7.805/13.825/14.920 ms and 7.170/9.546/12.164 ms, with
+1,839,947 and 1,840,014 managed bytes per generation. Plan recording measured
+4.807/16.765/17.074 ms and 4.746/18.753/27.931 ms, with 10,816,601 and
+10,816,564 managed bytes per generation. Warm spatial queries allocated zero
+managed bytes. These are feature/cost baselines with visibly variable tail
+latency, no improvement or regression claim, and no substitute for matched
+viewer, GPU, native-image, or Instruments acceptance evidence.
 
 Run the standalone samples with:
 

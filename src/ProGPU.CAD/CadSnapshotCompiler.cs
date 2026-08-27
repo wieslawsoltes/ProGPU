@@ -27,6 +27,7 @@ public sealed class CadSnapshotOptions
     public int MaxTextGlyphs { get; init; } = DefaultMaxTextGlyphs;
     public bool IncludeNonPlottableLayers { get; init; } = true;
     public ICadTextFontResolver? TextFontResolver { get; init; }
+    public ICadShxFontResolver? ShxFontResolver { get; init; }
 }
 
 /// <summary>Compiles the mutable ACadSharp graph into immutable ProGPU CAD streams.</summary>
@@ -86,6 +87,8 @@ public sealed class CadSnapshotCompiler
         var textGlyphPositions = new List<Vector2>();
         var textFonts = new List<TtfFont>();
         var textFontIndices = new Dictionary<TtfFont, int>(ReferenceEqualityComparer.Instance);
+        var shxTexts = new List<CadShxTextPrimitive>();
+        var shxGlyphInstances = new List<CadShxGlyphInstance>();
         var polylineVertices = new List<CadPolylineVertex>();
         var polyline3DPoints = new List<CadPoint3D>();
         var splineControlPoints = new List<CadPoint3D>();
@@ -145,6 +148,8 @@ public sealed class CadSnapshotCompiler
             textGlyphIndices.ToArray(),
             textGlyphPositions.ToArray(),
             textFonts.ToArray(),
+            shxTexts.ToArray(),
+            shxGlyphInstances.ToArray(),
             polylineVertices.ToArray(),
             polyline3DPoints.ToArray(),
             splineControlPoints.ToArray(),
@@ -261,7 +266,9 @@ public sealed class CadSnapshotCompiler
                         textGlyphIndices,
                         textGlyphPositions,
                         textFonts,
-                        textFontIndices),
+                        textFontIndices,
+                        shxTexts,
+                        shxGlyphInstances),
                     MText => throw new CadUnsupportedEntityException(
                         "MTEXT requires inline-format, paragraph, column, background, and attachment lowering."),
                     _ => null,
@@ -1025,7 +1032,9 @@ public sealed class CadSnapshotCompiler
         List<ushort> glyphIndices,
         List<Vector2> glyphPositions,
         List<TtfFont> fonts,
-        Dictionary<TtfFont, int> fontIndices)
+        Dictionary<TtfFont, int> fontIndices,
+        List<CadShxTextPrimitive> shxTexts,
+        List<CadShxGlyphInstance> shxGlyphInstances)
     {
         if (text.Thickness != 0.0)
         {
@@ -1056,12 +1065,22 @@ public sealed class CadSnapshotCompiler
         }
 
         TextStyle cadStyle = text.Style;
-        if (cadStyle.IsShapeFile ||
-            cadStyle.Filename.EndsWith(".shx", StringComparison.OrdinalIgnoreCase) ||
-            !string.IsNullOrWhiteSpace(cadStyle.BigFontFilename))
+        bool usesShx = cadStyle.IsShapeFile ||
+            cadStyle.Filename.EndsWith(".shx", StringComparison.OrdinalIgnoreCase);
+        if (usesShx || !string.IsNullOrWhiteSpace(cadStyle.BigFontFilename))
         {
-            throw new CadUnsupportedEntityException(
-                "SHX and Big Font TEXT require the bounded ProGPU SHX font source.");
+            return CompileShxText(
+                text,
+                handle,
+                transform,
+                hasTransform,
+                layerIndex,
+                styleIndex,
+                options,
+                diagnostics,
+                shxTexts,
+                shxGlyphInstances,
+                glyphIndices.Count);
         }
 
         if (cadStyle.Flags.HasFlag(StyleFlags.VerticalText))
@@ -1105,7 +1124,8 @@ public sealed class CadSnapshotCompiler
                 "TEXT shaping produced no drawable glyph run.");
         }
 
-        if (layout.Glyphs.Count > options.MaxTextGlyphs - glyphIndices.Count)
+        if (layout.Glyphs.Count > options.MaxTextGlyphs -
+            glyphIndices.Count - shxGlyphInstances.Count)
         {
             throw new CadSnapshotExpansionLimitException(
                 $"Retained TEXT glyph count exceeds the configured document limit of {options.MaxTextGlyphs}.");
@@ -1328,6 +1348,246 @@ public sealed class CadSnapshotCompiler
         return new CadEntityHeader(
             handle,
             CadEntityKind.Text,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            bounds);
+    }
+
+    private static CadEntityHeader CompileShxText(
+        TextEntity text,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        CadSnapshotOptions options,
+        List<CadDiagnostic> diagnostics,
+        List<CadShxTextPrimitive> destination,
+        List<CadShxGlyphInstance> glyphInstances,
+        int retainedTrueTypeGlyphCount)
+    {
+        TextStyle cadStyle = text.Style;
+        if (!string.IsNullOrWhiteSpace(cadStyle.BigFontFilename))
+        {
+            throw new CadUnsupportedEntityException(
+                "Big Font TEXT requires the distinct bounded Big Font container and character-range contract.");
+        }
+        if (cadStyle.Flags.HasFlag(StyleFlags.VerticalText))
+        {
+            throw new CadUnsupportedEntityException(
+                "Vertical SHX STYLE requires vertical anchoring and decoration lowering.");
+        }
+
+        ICadShxFontResolver resolver = options.ShxFontResolver ??
+            throw new CadUnsupportedEntityException(
+                "Standard SHX TEXT requires a host SHX font resolver.");
+        CadShxFontResolution fontResolution = resolver.Resolve(new CadShxFontRequest(
+            cadStyle.Name,
+            cadStyle.Filename,
+            cadStyle.BigFontFilename));
+        CadShxGlyphCache cache = fontResolution.GlyphCache ??
+            throw new CadUnsupportedEntityException(
+                $"Text style '{cadStyle.Name}' could not resolve a standard SHX font.");
+
+        CadShxTextLayout layout;
+        try
+        {
+            layout = new CadShxTextLayout(
+                text.Value,
+                cache,
+                CadShxOrientation.Horizontal,
+                new CadShxTextLayoutOptions
+                {
+                    MaxCodeUnits = options.MaxTextCodeUnitsPerEntity,
+                    MaxGlyphs = options.MaxTextGlyphs,
+                });
+        }
+        catch (Exception exception) when (
+            exception is InvalidDataException or NotSupportedException or
+                KeyNotFoundException or ArgumentOutOfRangeException)
+        {
+            throw new CadUnsupportedEntityException(exception.Message);
+        }
+
+        ReadOnlySpan<CadShxGlyphPlacement> placements = layout.Glyphs.Span;
+        for (int i = 0; i < placements.Length; i++)
+        {
+            if (placements[i].Decorations != CadShxTextDecoration.None)
+            {
+                throw new CadUnsupportedEntityException(
+                    "Decorated SHX TEXT requires an explicit standard-font decoration metric policy.");
+            }
+        }
+        if (placements.Length > options.MaxTextGlyphs -
+            retainedTrueTypeGlyphCount - glyphInstances.Count)
+        {
+            throw new CadSnapshotExpansionLimitException(
+                $"Retained TEXT glyph count exceeds the configured document limit of {options.MaxTextGlyphs}.");
+        }
+
+        double height = text.Height;
+        double widthFactor = text.WidthFactor;
+        double oblique = text.ObliqueAngle;
+        if (!double.IsFinite(height) || height <= 0.0 ||
+            !double.IsFinite(widthFactor) || widthFactor <= 0.0 ||
+            !double.IsFinite(text.Rotation) ||
+            !double.IsFinite(oblique) || Math.Abs(oblique) >= Math.PI * 0.5)
+        {
+            throw new ArgumentException(
+                "TEXT height, width, rotation, and oblique angle must define a finite non-degenerate transform.");
+        }
+
+        double width = layout.Advance.X;
+        if (!double.IsFinite(width) || width <= 0.0 ||
+            Math.Abs(layout.Advance.Y) > Math.Max(1.0, width) * 1e-6)
+        {
+            throw new CadUnsupportedEntityException(
+                $"Horizontal standard SHX TEXT requires a finite positive X-only baseline advance; " +
+                $"font '{cache.Font.Name}' produced ({layout.Advance.X:R}, {layout.Advance.Y:R}).");
+        }
+
+        double horizontalOffset = text.HorizontalAlignment switch
+        {
+            TextHorizontalAlignment.Center or TextHorizontalAlignment.Middle => -width * 0.5,
+            TextHorizontalAlignment.Right => -width,
+            _ => 0.0,
+        };
+        TextVerticalAlignmentType verticalAlignment = text.HorizontalAlignment == TextHorizontalAlignment.Middle
+            ? TextVerticalAlignmentType.Middle
+            : text.VerticalAlignment;
+        double verticalOffset = verticalAlignment switch
+        {
+            TextVerticalAlignmentType.Top => -cache.Font.Above,
+            TextVerticalAlignmentType.Middle => -(cache.Font.Above - cache.Font.Below) * 0.5,
+            TextVerticalAlignmentType.Bottom => cache.Font.Below,
+            _ => 0.0,
+        };
+
+        bool isTwoPointAlignment = text.HorizontalAlignment is
+            TextHorizontalAlignment.Aligned or TextHorizontalAlignment.Fit;
+        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(text.Normal));
+        CadPoint3D anchor;
+        double cosine;
+        double sine;
+        double xScale;
+        double yScale = height / cache.Font.Above;
+        if (isTwoPointAlignment)
+        {
+            CadPoint3D start = ToPoint(text.InsertPoint);
+            CadPoint3D end = ToPoint(text.AlignmentPoint);
+            double deltaX = end.X - start.X;
+            double deltaY = end.Y - start.Y;
+            double deltaZ = end.Z - start.Z;
+            double baselineLength = new CadPoint3D(deltaX, deltaY, 0.0).Length;
+            if (!double.IsFinite(deltaZ) || !double.IsFinite(baselineLength) ||
+                baselineLength <= 0.0 ||
+                Math.Abs(deltaZ) > Math.Max(1.0, baselineLength) * 1e-12)
+            {
+                throw new ArgumentException(
+                    "Aligned and fit TEXT require two distinct coplanar OCS baseline points.");
+            }
+
+            cosine = deltaX / baselineLength;
+            sine = deltaY / baselineLength;
+            xScale = baselineLength / width;
+            if (text.HorizontalAlignment == TextHorizontalAlignment.Aligned)
+            {
+                yScale = xScale / widthFactor;
+            }
+            anchor = basis.Transform(
+                text.Mirror.HasFlag(TextMirrorFlag.Backward) ? end : start);
+        }
+        else
+        {
+            bool usesAlignmentPoint = text.HorizontalAlignment != TextHorizontalAlignment.Left ||
+                text.VerticalAlignment != TextVerticalAlignmentType.Baseline;
+            anchor = basis.Transform(ToPoint(
+                usesAlignmentPoint ? text.AlignmentPoint : text.InsertPoint));
+            cosine = Math.Cos(text.Rotation);
+            sine = Math.Sin(text.Rotation);
+            xScale = yScale * widthFactor;
+        }
+
+        if (!double.IsFinite(xScale) || xScale <= 0.0 ||
+            !double.IsFinite(yScale) || yScale <= 0.0)
+        {
+            throw new ArithmeticException(
+                "SHX TEXT alignment scaling exceeds the supported numeric range.");
+        }
+
+        CadPoint3D horizontal = (basis.XAxis * cosine) + (basis.YAxis * sine);
+        CadPoint3D vertical = (basis.XAxis * -sine) + (basis.YAxis * cosine);
+        TextMirrorFlag mirror = text.Mirror;
+        double mirrorX = mirror.HasFlag(TextMirrorFlag.Backward) ? -1.0 : 1.0;
+        double mirrorY = mirror.HasFlag(TextMirrorFlag.UpsideDown) ? -1.0 : 1.0;
+        CadPoint3D xAxis = horizontal * (xScale * mirrorX);
+        CadPoint3D yAxis =
+            (horizontal * (yScale * Math.Tan(oblique) * mirrorY)) +
+            (vertical * (yScale * mirrorY));
+        if (hasTransform)
+        {
+            anchor = transform.TransformPoint(anchor);
+            xAxis = transform.TransformVector(xAxis);
+            yAxis = transform.TransformVector(yAxis);
+        }
+        EnsureFinite(anchor);
+        EnsureFinite(xAxis);
+        EnsureFinite(yAxis);
+
+        double minimumX = Math.Min(horizontalOffset, layout.BoundsMin.X + horizontalOffset);
+        double maximumX = Math.Max(horizontalOffset + width, layout.BoundsMax.X + horizontalOffset);
+        double minimumY = Math.Min(
+            verticalOffset - cache.Font.Below,
+            layout.BoundsMin.Y + verticalOffset);
+        double maximumY = Math.Max(
+            verticalOffset + cache.Font.Above,
+            layout.BoundsMax.Y + verticalOffset);
+        CadBounds3D bounds = CadBounds3D.FromPoint(
+            TransformTextPoint(anchor, xAxis, yAxis, minimumX, minimumY));
+        bounds = bounds
+            .Include(TransformTextPoint(anchor, xAxis, yAxis, maximumX, minimumY))
+            .Include(TransformTextPoint(anchor, xAxis, yAxis, minimumX, maximumY))
+            .Include(TransformTextPoint(anchor, xAxis, yAxis, maximumX, maximumY));
+
+        int glyphOffset = glyphInstances.Count;
+        for (int i = 0; i < placements.Length; i++)
+        {
+            CadShxGlyphPlacement placement = placements[i];
+            float x = checked((float)(placement.Origin.X + horizontalOffset));
+            float y = checked((float)(placement.Origin.Y + verticalOffset));
+            if (!float.IsFinite(x) || !float.IsFinite(y))
+            {
+                throw new ArithmeticException(
+                    "SHX TEXT glyph positions exceed the retained numeric range.");
+            }
+            glyphInstances.Add(new CadShxGlyphInstance(placement.Glyph, x, y));
+        }
+
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadShxTextPrimitive(
+            anchor,
+            xAxis,
+            yAxis,
+            glyphOffset,
+            placements.Length));
+        if (fontResolution.IsSubstitution)
+        {
+            string resolved = string.IsNullOrWhiteSpace(fontResolution.ResolvedFontName)
+                ? cache.Font.Name
+                : fontResolution.ResolvedFontName;
+            AddDiagnostic(
+                diagnostics,
+                options.DiagnosticLimit,
+                new CadDiagnostic(
+                    CadDiagnosticSeverity.Warning,
+                    "CADSNAP006",
+                    $"TEXT path {FormatEntityPath(handle, text.Handle)} substitutes '{cadStyle.Filename}' with SHX font '{resolved}'."));
+        }
+
+        return new CadEntityHeader(
+            handle,
+            CadEntityKind.ShxText,
             layerIndex,
             styleIndex,
             primitiveIndex,

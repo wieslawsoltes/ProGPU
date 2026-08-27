@@ -11,6 +11,7 @@ using ProGPU.Text;
 int entityCount = ReadNonNegativeInt("--entities", 10_000);
 int blockArrayColumnCount = ReadNonNegativeInt("--block-array-columns", 0);
 int textEntityCount = ReadNonNegativeInt("--text-entities", 0);
+int shxTextEntityCount = ReadNonNegativeInt("--shx-text-entities", 0);
 bool decorateText = HasFlag("--text-decorations");
 int shxInterpretationCount = ReadNonNegativeInt("--shx-interpretations", 0);
 int shxLayoutCount = ReadNonNegativeInt("--shx-layouts", 0);
@@ -19,7 +20,8 @@ int iterationCount = ReadPositiveInt("--iterations", 24);
 int queryCount = ReadPositiveInt("--queries", 10_000);
 string? outputPath = ReadString("--output-json");
 
-if (entityCount == 0 && blockArrayColumnCount == 0 && textEntityCount == 0)
+if (entityCount == 0 && blockArrayColumnCount == 0 && textEntityCount == 0 &&
+    shxTextEntityCount == 0)
 {
     throw new ArgumentException(
         "At least one ordinary entity, block-array column, or text entity is required.");
@@ -36,21 +38,29 @@ CadDocumentSession session = CreateDocument(
     entityCount,
     blockArrayColumnCount,
     textEntityCount,
+    shxTextEntityCount,
     decorateText);
 var snapshotCompiler = new CadSnapshotCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
-CadShxFont? shxFont = shxInterpretationCount == 0 && shxLayoutCount == 0
+CadShxFont? shxFont = shxInterpretationCount == 0 && shxLayoutCount == 0 &&
+    shxTextEntityCount == 0
     ? null
     : CreateBenchmarkShxFont();
-CadShxGlyphCache? shxCache = shxLayoutCount == 0
+CadShxGlyphCache? shxCache = shxLayoutCount == 0 && shxTextEntityCount == 0
     ? null
     : new CadShxGlyphCache(shxFont!);
-CadSnapshotOptions snapshotOptions = textEntityCount == 0
-    ? new CadSnapshotOptions()
-    : new CadSnapshotOptions
-    {
-        TextFontResolver = new BenchmarkTextFontResolver(InterFontFamily.Regular),
-    };
+CadSnapshotOptions snapshotOptions = new()
+{
+    TextFontResolver = textEntityCount == 0
+        ? null
+        : new BenchmarkTextFontResolver(InterFontFamily.Regular),
+    ShxFontResolver = shxTextEntityCount == 0
+        ? null
+        : new BenchmarkShxFontResolver(shxCache!),
+};
+
+CadDocumentSnapshot validationSnapshot = snapshotCompiler.Compile(session, snapshotOptions);
+ValidateRequestedEntities(validationSnapshot);
 
 for (int i = 0; i < warmupCount; i++)
 {
@@ -62,7 +72,7 @@ for (int i = 0; i < warmupCount; i++)
         {
             _ = InterpretShxBatch(shxFont, shxInterpretationCount);
         }
-        if (shxCache is not null)
+        if (shxCache is not null && shxLayoutCount != 0)
         {
             _ = LayoutShxBatch(shxCache, shxLayoutCount);
         }
@@ -86,7 +96,7 @@ Measurement? shxMeasurement = shxInterpretationCount == 0
         "shx-interpret-batch",
         iterationCount,
         () => InterpretShxBatch(shxFont!, shxInterpretationCount));
-Measurement? shxLayoutMeasurement = shxCache is null
+Measurement? shxLayoutMeasurement = shxCache is null || shxLayoutCount == 0
     ? null
     : Measure(
         "shx-layout-batch",
@@ -100,6 +110,7 @@ var report = new CadBenchmarkReport(
     entityCount,
     blockArrayColumnCount,
     textEntityCount,
+    shxTextEntityCount,
     decorateText,
     shxInterpretationCount,
     shxLayoutCount,
@@ -124,10 +135,43 @@ if (outputPath is not null)
     File.WriteAllText(outputPath, json);
 }
 
+void ValidateRequestedEntities(CadDocumentSnapshot source)
+{
+    int expectedSource = checked(
+        entityCount +
+        (blockArrayColumnCount == 0 ? 0 : 1) +
+        textEntityCount +
+        shxTextEntityCount);
+    int expectedExpanded = checked(
+        entityCount +
+        (blockArrayColumnCount == 0 ? 0 : blockArrayColumnCount + 1) +
+        textEntityCount +
+        shxTextEntityCount);
+    if (source.Statistics.SourceEntityCount == expectedSource &&
+        source.Statistics.VisibleEntityCount == expectedSource &&
+        source.Statistics.ExpandedEntityCount == expectedExpanded &&
+        source.Statistics.UnsupportedEntityCount == 0 &&
+        source.Statistics.InvalidEntityCount == 0)
+    {
+        return;
+    }
+
+    string diagnostics = string.Join(
+        Environment.NewLine,
+        source.Diagnostics.Span.ToArray().Select(item => $"{item.Code}: {item.Message}"));
+    throw new InvalidOperationException(
+        $"The benchmark fixture did not compile exactly: expected {expectedSource} source entities, " +
+        $"observed {source.Statistics.SourceEntityCount}, unsupported " +
+        $"{source.Statistics.UnsupportedEntityCount}, invalid {source.Statistics.InvalidEntityCount}, " +
+        $"expected/observed expanded {expectedExpanded}/{source.Statistics.ExpandedEntityCount}." +
+        (diagnostics.Length == 0 ? string.Empty : Environment.NewLine + diagnostics));
+}
+
 CadDocumentSession CreateDocument(
     int count,
     int arrayColumns,
     int textCount,
+    int shxTextCount,
     bool decorateTextRuns)
 {
     CadDocumentSession result = CadDocumentSession.CreateNew();
@@ -202,6 +246,23 @@ CadDocumentSession CreateDocument(
                 });
             }
         }
+
+        if (shxTextCount > 0)
+        {
+            var textStyle = new TextStyle("BENCHMARK_SHX") { Filename = "benchmark.shx" };
+            document.TextStyles.Add(textStyle);
+            for (int i = 0; i < shxTextCount; i++)
+            {
+                document.Entities.Add(new TextEntity("AAAAAAAA")
+                {
+                    Style = textStyle,
+                    InsertPoint = new XYZ((i % 100) * 32.0, (i / 100) * 4.0, 0),
+                    Height = 2.5,
+                    WidthFactor = 0.9,
+                    ObliqueAngle = (i & 1) == 0 ? 0.0 : 0.08,
+                });
+            }
+        }
     });
     return result;
 }
@@ -215,6 +276,7 @@ CadShxFont CreateBenchmarkShxFont()
         2, 8, 1, 0, 1, 10, 1, 0x02,
         12, 10, 0, 127,
         13, 10, 0, 0, 0, 0,
+        2, 8, 10, unchecked((byte)-2),
         0,
     };
     using var stream = new MemoryStream();
@@ -368,6 +430,7 @@ internal sealed record CadBenchmarkReport(
     int EntityCount,
     int BlockArrayColumnCount,
     int TextEntityCount,
+    int ShxTextEntityCount,
     bool DecoratedText,
     int ShxInterpretationCount,
     int ShxLayoutCount,
@@ -388,4 +451,10 @@ internal sealed class BenchmarkTextFontResolver(TtfFont font) : ICadTextFontReso
 {
     public CadTextFontResolution Resolve(in CadTextFontRequest request) =>
         new(font, IsSubstitution: false);
+}
+
+internal sealed class BenchmarkShxFontResolver(CadShxGlyphCache cache) : ICadShxFontResolver
+{
+    public CadShxFontResolution Resolve(in CadShxFontRequest request) =>
+        new(cache, cache.Font.Name, IsSubstitution: false);
 }

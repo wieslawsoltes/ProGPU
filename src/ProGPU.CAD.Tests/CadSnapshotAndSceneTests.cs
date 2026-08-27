@@ -3,6 +3,7 @@ using ACadSharp.Entities;
 using ACadSharp.Tables;
 using CSMath;
 using System.Numerics;
+using System.Text;
 using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
 using ProGPU.Text;
@@ -848,6 +849,211 @@ public sealed class CadSnapshotAndSceneTests
     }
 
     [Fact]
+    public void StandardShxTextRetainsSharedAnalyticGlyphPaths()
+    {
+        CadShxGlyphCache cache = CreateShxCache();
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add standard SHX text", document =>
+        {
+            var textStyle = new TextStyle("TESTSHX") { Filename = "test.shx" };
+            document.TextStyles.Add(textStyle);
+            document.Entities.Add(new TextEntity("A A")
+            {
+                Style = textStyle,
+                InsertPoint = new XYZ(100, 200, 0),
+                Height = 10,
+                WidthFactor = 2,
+            });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                ShxFontResolver = new FixedShxFontResolver(cache),
+            });
+        CadEntityHeader entity = Assert.Single(snapshot.Entities.ToArray());
+        CadShxTextPrimitive text = Assert.Single(snapshot.ShxTexts.ToArray());
+        CadShxGlyphInstance[] glyphs = snapshot.ShxGlyphInstances.ToArray();
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        RenderCommand[] commands = scene.DrawingContext.Commands.ToArray();
+
+        Assert.Equal(CadEntityKind.ShxText, entity.Kind);
+        Assert.Empty(snapshot.Texts.ToArray());
+        Assert.Equal(3, glyphs.Length);
+        Assert.Equal(2, cache.Count);
+        AssertPoint(new CadPoint3D(2, 0, 0), text.XAxis);
+        AssertPoint(new CadPoint3D(0, 1, 0), text.YAxis);
+        AssertPoint(new CadPoint3D(100, 198, 0), entity.Bounds.Min);
+        AssertPoint(new CadPoint3D(240, 210, 0), entity.Bounds.Max);
+        Assert.Equal(2, commands.Length);
+        Assert.All(commands, command => Assert.Equal(RenderCommandType.DrawPath, command.Type));
+        Assert.Same(commands[0].Path, commands[1].Path);
+        Assert.InRange(Math.Abs((commands[1].Transform.M41 - commands[0].Transform.M41) - 80.0f), 0, 1e-5f);
+    }
+
+    [Fact]
+    public void StandardShxAlignAndFitPreserveEndpointAndHeightContracts()
+    {
+        CadShxGlyphCache cache = CreateShxCache();
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add aligned SHX text", document =>
+        {
+            var textStyle = new TextStyle("TESTSHX") { Filename = "test.shx" };
+            document.TextStyles.Add(textStyle);
+            document.Entities.Add(new TextEntity("A")
+            {
+                Style = textStyle,
+                InsertPoint = XYZ.Zero,
+                AlignmentPoint = new XYZ(90, 0, 0),
+                Height = 10,
+                WidthFactor = 1.5,
+                HorizontalAlignment = TextHorizontalAlignment.Aligned,
+            });
+            document.Entities.Add(new TextEntity("A")
+            {
+                Style = textStyle,
+                InsertPoint = new XYZ(0, 30, 0),
+                AlignmentPoint = new XYZ(90, 30, 0),
+                Height = 10,
+                WidthFactor = 1.5,
+                HorizontalAlignment = TextHorizontalAlignment.Fit,
+            });
+        });
+
+        CadShxTextPrimitive[] texts = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                ShxFontResolver = new FixedShxFontResolver(cache),
+            }).ShxTexts.ToArray();
+
+        Assert.Equal(2, texts.Length);
+        AssertPoint(new CadPoint3D(3, 0, 0), texts[0].XAxis);
+        AssertPoint(new CadPoint3D(0, 2, 0), texts[0].YAxis);
+        AssertPoint(new CadPoint3D(3, 0, 0), texts[1].XAxis);
+        AssertPoint(new CadPoint3D(0, 1, 0), texts[1].YAxis);
+    }
+
+    [Fact]
+    public void StandardShxTextInsideNonUniformBlockComposesItsRetainedBasis()
+    {
+        CadShxGlyphCache cache = CreateShxCache();
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        ulong rootHandle = 0;
+        session.Edit("Add block SHX text", document =>
+        {
+            var textStyle = new TextStyle("TESTSHX") { Filename = "test.shx" };
+            document.TextStyles.Add(textStyle);
+            var block = new BlockRecord("SHX_LABEL");
+            block.Entities.Add(new TextEntity("A")
+            {
+                Style = textStyle,
+                Height = 10,
+            });
+            var insert = new Insert(block)
+            {
+                InsertPoint = new XYZ(10, 20, 0),
+                XScale = 2,
+                YScale = 3,
+                Rotation = Math.PI / 2,
+            };
+            document.Entities.Add(insert);
+            rootHandle = insert.Handle;
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                ShxFontResolver = new FixedShxFontResolver(cache),
+            });
+        CadShxTextPrimitive text = Assert.Single(snapshot.ShxTexts.ToArray());
+
+        Assert.Equal(rootHandle, Assert.Single(snapshot.Entities.ToArray()).Handle);
+        AssertPoint(new CadPoint3D(10, 20, 0), text.Origin);
+        AssertPoint(new CadPoint3D(0, 2, 0), text.XAxis);
+        AssertPoint(new CadPoint3D(-3, 0, 0), text.YAxis);
+    }
+
+    [Fact]
+    public void TrueTypeAndShxTextShareOneDocumentGlyphBudget()
+    {
+        CadShxGlyphCache cache = CreateShxCache();
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add mixed text", document =>
+        {
+            var trueTypeStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+            var shxStyle = new TextStyle("TESTSHX") { Filename = "test.shx" };
+            document.TextStyles.Add(trueTypeStyle);
+            document.TextStyles.Add(shxStyle);
+            document.Entities.Add(new TextEntity("A") { Style = trueTypeStyle });
+            document.Entities.Add(new TextEntity("AA") { Style = shxStyle });
+        });
+
+        InvalidOperationException exception = Assert.ThrowsAny<InvalidOperationException>(() =>
+            new CadSnapshotCompiler().Compile(
+                session,
+                new CadSnapshotOptions
+                {
+                    TextFontResolver = new FixedTextFontResolver(InterFontFamily.Regular),
+                    ShxFontResolver = new FixedShxFontResolver(cache),
+                    MaxTextGlyphs = 2,
+                }));
+
+        Assert.Contains("document limit of 2", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnsupportedShxModesRemainExplicitAndSubstitutionIsDiagnosed()
+    {
+        CadShxGlyphCache cache = CreateShxCache();
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add gated SHX text", document =>
+        {
+            var decorated = new TextStyle("DECORATED") { Filename = "test.shx" };
+            var big = new TextStyle("BIG")
+            {
+                Filename = "test.shx",
+                BigFontFilename = "bigfont.shx",
+            };
+            var vertical = new TextStyle("VERTICALSHX")
+            {
+                Filename = "test.shx",
+                Flags = StyleFlags.VerticalText,
+            };
+            document.TextStyles.Add(decorated);
+            document.TextStyles.Add(big);
+            document.TextStyles.Add(vertical);
+            document.Entities.Add(new TextEntity("%%uA") { Style = decorated });
+            document.Entities.Add(new TextEntity("A") { Style = big });
+            document.Entities.Add(new TextEntity("A") { Style = vertical });
+            document.Entities.Add(new TextEntity("A")
+            {
+                Style = decorated,
+                InsertPoint = new XYZ(0, 20, 0),
+            });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                ShxFontResolver = new FixedShxFontResolver(cache, isSubstitution: true),
+            });
+
+        Assert.Single(snapshot.Entities.ToArray());
+        Assert.Equal(3, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic => diagnostic.Code == "CADSNAP006");
+        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
+            diagnostic.Message.Contains("decoration", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
+            diagnostic.Message.Contains("Big Font", StringComparison.Ordinal));
+        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
+            diagnostic.Message.Contains("Vertical SHX", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void VerticalStyleAndMTextAreExplicitFidelityGates()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
@@ -1482,5 +1688,43 @@ public sealed class CadSnapshotAndSceneTests
     {
         public CadTextFontResolution Resolve(in CadTextFontRequest request) =>
             new(font, isSubstitution);
+    }
+
+    private static CadShxGlyphCache CreateShxCache()
+    {
+        (ushort Number, string Name, byte[] Program)[] shapes =
+        {
+            (0, "TESTSHX", new byte[] { 10, 2, 0, 0 }),
+            (32, "SPACE", new byte[] { 2, 8, 10, 0, 0 }),
+            (65, "UCA", new byte[] { 0xA4, 0xA0, 2, 8, 20, 0xF6, 0 }),
+        };
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true);
+        writer.Write("AutoCAD-86 shapes 1.0\r\n\x1A"u8);
+        writer.Write(shapes.Min(shape => shape.Number));
+        writer.Write(shapes.Max(shape => shape.Number));
+        writer.Write(checked((ushort)shapes.Length));
+        foreach ((ushort number, string name, byte[] program) in shapes)
+        {
+            byte[] nameBytes = Encoding.ASCII.GetBytes(name);
+            writer.Write(number);
+            writer.Write(checked((ushort)(nameBytes.Length + 1 + program.Length)));
+        }
+        foreach ((ushort _, string name, byte[] program) in shapes)
+        {
+            writer.Write(Encoding.ASCII.GetBytes(name));
+            writer.Write((byte)0);
+            writer.Write(program);
+        }
+        writer.Write("EOF"u8);
+        return new CadShxGlyphCache(CadShxFont.Parse(stream.ToArray()));
+    }
+
+    private sealed class FixedShxFontResolver(
+        CadShxGlyphCache cache,
+        bool isSubstitution = false) : ICadShxFontResolver
+    {
+        public CadShxFontResolution Resolve(in CadShxFontRequest request) =>
+            new(cache, cache.Font.Name, isSubstitution);
     }
 }

@@ -86,7 +86,8 @@ public sealed class CadPlanSceneCompiler
         context.EnsureCommandCapacity(checked(
             entities.Length +
             Math.Max(0, snapshot.TextGlyphRuns.Length - snapshot.Texts.Length) +
-            snapshot.TextDecorations.Length));
+            snapshot.TextDecorations.Length +
+            snapshot.ShxGlyphInstances.Length));
         Pen[] pens = CreatePens(styles, options);
         var diagnostics = new List<CadDiagnostic>();
         var warnedLineTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -147,6 +148,13 @@ public sealed class CadPlanSceneCompiler
                         pen.Brush,
                         snapshot,
                         snapshot.Texts.Span[entity.PrimitiveIndex]);
+                    break;
+                case CadEntityKind.ShxText:
+                    RecordShxText(
+                        context,
+                        pen,
+                        snapshot,
+                        snapshot.ShxTexts.Span[entity.PrimitiveIndex]);
                     break;
                 default:
                     throw new InvalidOperationException($"Unknown CAD entity kind {entity.Kind}.");
@@ -506,6 +514,35 @@ public sealed class CadPlanSceneCompiler
         }
     }
 
+    private static void RecordShxText(
+        DrawingContext context,
+        Pen pen,
+        CadDocumentSnapshot snapshot,
+        CadShxTextPrimitive text)
+    {
+        ReadOnlySpan<CadShxGlyphInstance> glyphs = snapshot.ShxGlyphInstances.Span.Slice(
+            text.GlyphOffset,
+            text.GlyphCount);
+        for (int i = 0; i < glyphs.Length; i++)
+        {
+            CadShxGlyphInstance glyph = glyphs[i];
+            if (!glyph.Glyph.HasGeometry)
+            {
+                continue;
+            }
+
+            CadPoint3D origin = text.Origin +
+                (text.XAxis * glyph.X) +
+                (text.YAxis * glyph.Y);
+            Matrix4x4 transform = CreateProjectionTransform(
+                origin,
+                text.XAxis,
+                text.YAxis,
+                snapshot.RebaseOrigin);
+            context.DrawPath(null, pen, glyph.Glyph.Path, transform);
+        }
+    }
+
     private static Matrix4x4 CreateProjectionTransform(
         CadPoint3D center,
         CadCoordinateSystem basis,
@@ -550,7 +587,7 @@ public sealed class CadPlanSceneCompiler
         name.Equals("ByBlock", StringComparison.OrdinalIgnoreCase);
 
     private static bool UsesStroke(CadEntityKind kind) =>
-        kind is not (CadEntityKind.Solid or CadEntityKind.Text);
+        kind is not (CadEntityKind.Solid or CadEntityKind.Text or CadEntityKind.ShxText);
 
     private static void ValidateOptions(CadPlanSceneOptions options)
     {

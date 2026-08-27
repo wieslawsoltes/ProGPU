@@ -16,6 +16,7 @@ public enum CadEntityKind : byte
     Polyline2D = 9,
     Polyline3D = 10,
     Text = 11,
+    ShxText = 12,
 }
 
 public readonly record struct CadLayerSnapshot(
@@ -137,6 +138,18 @@ public readonly record struct CadTextDecoration(
     float Width,
     float Height);
 
+public readonly record struct CadShxTextPrimitive(
+    CadPoint3D Origin,
+    CadPoint3D XAxis,
+    CadPoint3D YAxis,
+    int GlyphOffset,
+    int GlyphCount);
+
+public readonly record struct CadShxGlyphInstance(
+    CadShxGlyph Glyph,
+    float X,
+    float Y);
+
 public readonly record struct CadSnapshotStatistics(
     int SourceEntityCount,
     int VisibleEntityCount,
@@ -173,6 +186,8 @@ public sealed class CadDocumentSnapshot
     private readonly ushort[] _textGlyphIndices;
     private readonly Vector2[] _textGlyphPositions;
     private readonly TtfFont[] _textFonts;
+    private readonly CadShxTextPrimitive[] _shxTexts;
+    private readonly CadShxGlyphInstance[] _shxGlyphInstances;
     private readonly CadPolylineVertex[] _polylineVertices;
     private readonly CadPoint3D[] _polyline3DPoints;
     private readonly CadPoint3D[] _splineControlPoints;
@@ -203,6 +218,8 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<ushort> TextGlyphIndices => _textGlyphIndices;
     public ReadOnlyMemory<Vector2> TextGlyphPositions => _textGlyphPositions;
     public ReadOnlyMemory<TtfFont> TextFonts => _textFonts;
+    public ReadOnlyMemory<CadShxTextPrimitive> ShxTexts => _shxTexts;
+    public ReadOnlyMemory<CadShxGlyphInstance> ShxGlyphInstances => _shxGlyphInstances;
     public ReadOnlyMemory<CadPolylineVertex> PolylineVertices => _polylineVertices;
     public ReadOnlyMemory<CadPoint3D> Polyline3DPoints => _polyline3DPoints;
     public ReadOnlyMemory<CadPoint3D> SplineControlPoints => _splineControlPoints;
@@ -234,6 +251,8 @@ public sealed class CadDocumentSnapshot
         ushort[] textGlyphIndices,
         Vector2[] textGlyphPositions,
         TtfFont[] textFonts,
+        CadShxTextPrimitive[] shxTexts,
+        CadShxGlyphInstance[] shxGlyphInstances,
         CadPolylineVertex[] polylineVertices,
         CadPoint3D[] polyline3DPoints,
         CadPoint3D[] splineControlPoints,
@@ -262,6 +281,8 @@ public sealed class CadDocumentSnapshot
         _textGlyphIndices = textGlyphIndices;
         _textGlyphPositions = textGlyphPositions;
         _textFonts = textFonts;
+        _shxTexts = shxTexts;
+        _shxGlyphInstances = shxGlyphInstances;
         _polylineVertices = polylineVertices;
         _polyline3DPoints = polyline3DPoints;
         _splineControlPoints = splineControlPoints;
