@@ -11393,8 +11393,8 @@ bool retained_viewport3d_uses_pointer_free_mesh_sideband() {
     mesh.struct_size = sizeof(mesh);
     mesh.topology = PROGPU_NATIVE_MESH_3D_TRIANGLES;
     mesh.render_mode = PROGPU_NATIVE_MESH_3D_SOLID;
-    mesh.vertex_count = vertices.size();
-    mesh.index_count = indices.size();
+    mesh.vertex_count = static_cast<std::uint32_t>(vertices.size());
+    mesh.index_count = static_cast<std::uint32_t>(indices.size());
     mesh.model_transform = identity;
     mesh.normal_transform = identity;
     mesh.color = {0.25F, 0.5F, 0.75F, 1.0F};
