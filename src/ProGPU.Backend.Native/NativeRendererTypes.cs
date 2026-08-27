@@ -3858,6 +3858,21 @@ public readonly record struct NativeSceneDamageRect(
     float Width,
     float Height);
 
+/// <summary>
+/// A host-owned WebGPU texture view used as a semantic-scene render target.
+/// </summary>
+/// <remarks>
+/// The view must be a live, single-sample render attachment with the format
+/// configured on the <see cref="NativeCompositor"/> and must belong to that
+/// compositor's device. The caller retains ownership and must keep the view
+/// alive through the <c>RenderScene</c> call and its queue submission, then
+/// follow the owning surface API's present/release contract.
+/// </remarks>
+public readonly record struct NativeSceneExternalTarget(
+    nuint TextureView,
+    uint Width,
+    uint Height);
+
 public readonly record struct NativeSceneFrameMetrics(
     uint CommandCount,
     uint DrawCallCount,

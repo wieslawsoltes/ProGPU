@@ -338,6 +338,21 @@ if (compiledMilStream is not null)
         throw new InvalidOperationException(
             "The packaged native renderer did not render the compiled retained MIL path scene.");
     }
+    NativeSceneFrameMetrics externalTargetMetrics = compositor.RenderScene(
+        CreateExternalTarget(target),
+        1f,
+        701,
+        1,
+        new Vector4(0f, 0f, 0f, 1f));
+    NativeSubmissionToken externalTargetSubmission =
+        compositor.GetLastSubmissionToken();
+    if (!externalTargetSubmission.IsValid ||
+        externalTargetMetrics.DrawCallCount == 0)
+    {
+        throw new InvalidOperationException(
+            "The packaged native renderer did not render to a host-owned texture view.");
+    }
+    compositor.WaitForSubmission(externalTargetSubmission);
     Console.WriteLine(
         $"package-consumer: retained MIL render " +
         $"resources={update.ResourceCount}, draws={retainedMetrics.DrawCallCount}, " +
@@ -423,6 +438,12 @@ static void ValidateNativeMilSceneBuildTiming()
             "The packaged native MIL overdue timing is incomplete.");
     }
 }
+
+static unsafe NativeSceneExternalTarget CreateExternalTarget(
+    GpuTexture target) => new(
+        (nuint)target.ViewPtr,
+        target.Width,
+        target.Height);
 
 static void ValidateNativeMilCompactGuidelineBuilder()
 {
