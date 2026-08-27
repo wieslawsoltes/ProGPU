@@ -3559,6 +3559,19 @@ closed. The source-built WPF host remains responsible only for typed scene
 flattening; projection, viewport placement, lighting, depth, and rasterization
 remain reusable ProGPU GPU work.
 
+The typed WPF scene boundary now preserves the complete MIL light vocabulary
+instead of forcing every scene into the legacy single-directional fields.
+`PortableViewport3DLight` carries ambient/directional/point/spot identity,
+linear color, transformed position and direction, range, constant/linear/
+quadratic attenuation, and inner/outer cone angles. The legacy directional
+and ambient members remain for source compatibility while the retained native
+light-buffer ABI is staged. Consumers fail closed for point, spot, or multiple
+lights until that buffer is bound; they must not render those scenes with the
+default directional light. The native follow-up will use a bounded storage
+light array and per-mesh range, preserving the existing mesh record size by
+replacing its two canonical reserved words only when the new capability is
+active.
+
 Live qualification must execute this route, not merely validate its retained
 bytes. The shared gate renders a typed MIL mesh into a non-origin sub-viewport
 and proves by GPU readback that every colored pixel remains inside it. Mesh
