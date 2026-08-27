@@ -263,4 +263,59 @@ public sealed class CadEditingTests
         Assert.Same(original, first.Layer);
         Assert.Same(original, second.Layer);
     }
+
+    [Fact]
+    public void LineWeightCommandRetainsSemanticValuesAndRenderedThickness()
+    {
+        var document = new CadDocument();
+        var layer = new Layer("WEIGHTED") { LineWeight = LineWeightType.W50 };
+        document.Layers.Add(layer);
+        var hairline = new Line(XYZ.Zero, XYZ.AxisX)
+        {
+            Layer = layer,
+            LineWeight = LineWeightType.W0,
+        };
+        var inherited = new Line(XYZ.AxisY, new XYZ(1, 1, 0))
+        {
+            Layer = layer,
+            LineWeight = LineWeightType.ByLayer,
+        };
+        document.Entities.Add(hairline);
+        document.Entities.Add(inherited);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetEntityLineWeightCommand(
+            [hairline.Handle, inherited.Handle],
+            LineWeightType.W100));
+
+        Assert.Equal(LineWeightType.W100, hairline.LineWeight);
+        Assert.Equal(LineWeightType.W100, inherited.LineWeight);
+        CadDocumentSnapshot applied = new CadSnapshotCompiler().Compile(session);
+        Assert.All(
+            applied.Styles.ToArray(),
+            style => Assert.Equal(1.0, style.LineWeightMillimeters));
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(LineWeightType.W0, hairline.LineWeight);
+        Assert.Equal(LineWeightType.ByLayer, inherited.LineWeight);
+        CadDocumentSnapshot reverted = new CadSnapshotCompiler().Compile(session);
+        Assert.Contains(reverted.Styles.ToArray(), style => style.IsHairline);
+        Assert.Contains(
+            reverted.Styles.ToArray(),
+            style => style.LineWeightMillimeters == 0.5 && !style.IsHairline);
+
+        Assert.True(history.TryRedo(out _));
+        Assert.Equal(LineWeightType.W100, hairline.LineWeight);
+        Assert.Equal(LineWeightType.W100, inherited.LineWeight);
+    }
+
+    [Fact]
+    public void LineWeightCommandRejectsUndefinedWireValues()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadSetEntityLineWeightCommand(
+                [1UL],
+                (LineWeightType)1234));
+    }
 }

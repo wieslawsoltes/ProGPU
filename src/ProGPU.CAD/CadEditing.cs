@@ -601,6 +601,119 @@ public sealed class CadSetEntityLayerCommand : CadEditCommand
     }
 }
 
+/// <summary>Assigns an explicit, ByLayer, or ByBlock lineweight to model-space entities.</summary>
+public sealed class CadSetEntityLineWeightCommand : CadEditCommand
+{
+    private readonly ulong[] _handles;
+    private Entity[]? _entities;
+    private LineWeightType[]? _previousValues;
+
+    public ReadOnlyMemory<ulong> Handles => _handles;
+
+    public LineWeightType LineWeight { get; }
+
+    public CadSetEntityLineWeightCommand(
+        IEnumerable<ulong> handles,
+        LineWeightType lineWeight,
+        string description = "Set entity lineweight")
+        : base(description)
+    {
+        ArgumentNullException.ThrowIfNull(handles);
+        if (!Enum.IsDefined(lineWeight))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(lineWeight),
+                "The entity lineweight must be a defined CAD lineweight value.");
+        }
+        _handles = handles.Distinct().ToArray();
+        if (_handles.Length == 0 || _handles.Any(static handle => handle == 0))
+        {
+            throw new ArgumentException(
+                "At least one non-zero entity handle is required.",
+                nameof(handles));
+        }
+        LineWeight = lineWeight;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Entity[] entities;
+        if (isRedo)
+        {
+            entities = GetRetainedEntities(document);
+        }
+        else
+        {
+            entities = ResolveModelSpaceEntities(document, _handles);
+            _entities = entities;
+            _previousValues = entities.Select(static entity => entity.LineWeight).ToArray();
+        }
+        SetTransactional(entities, LineWeight);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Entity[] entities = GetRetainedEntities(document);
+        LineWeightType[] previous = _previousValues ??
+            throw new InvalidOperationException("The lineweight command has not been applied.");
+        SetTransactional(entities, previous);
+    }
+
+    private Entity[] GetRetainedEntities(CadDocument document)
+    {
+        Entity[] entities = _entities ??
+            throw new InvalidOperationException("The lineweight command has not been applied.");
+        ValidateModelSpaceEntities(document, entities);
+        return entities;
+    }
+
+    private static void SetTransactional(Entity[] entities, LineWeightType target)
+    {
+        LineWeightType[] rollback =
+            entities.Select(static entity => entity.LineWeight).ToArray();
+        int applied = 0;
+        try
+        {
+            for (; applied < entities.Length; applied++)
+            {
+                entities[applied].LineWeight = target;
+            }
+        }
+        catch
+        {
+            for (int i = applied - 1; i >= 0; i--)
+            {
+                entities[i].LineWeight = rollback[i];
+            }
+            throw;
+        }
+    }
+
+    private static void SetTransactional(
+        Entity[] entities,
+        LineWeightType[] targets)
+    {
+        LineWeightType[] rollback =
+            entities.Select(static entity => entity.LineWeight).ToArray();
+        int applied = 0;
+        try
+        {
+            for (; applied < entities.Length; applied++)
+            {
+                entities[applied].LineWeight = targets[applied];
+            }
+        }
+        catch
+        {
+            for (int i = applied - 1; i >= 0; i--)
+            {
+                entities[i].LineWeight = rollback[i];
+            }
+            throw;
+        }
+    }
+}
+
 /// <summary>Adds one detached entity to model space with reversible ownership.</summary>
 public sealed class CadAddModelSpaceEntityCommand : CadEditCommand
 {

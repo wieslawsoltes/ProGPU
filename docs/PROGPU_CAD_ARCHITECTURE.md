@@ -299,6 +299,12 @@ an interactive browser picker/download smoke remains open.
   identity before undo/redo. A missing or externally replaced layer therefore
   fails before partial property changes; setter failure rolls back the already
   applied prefix.
+- Lineweight assignment accepts only declared `LineWeightType` values, retaining
+  explicit widths plus `ByLayer`, `ByBlock`, `Default`, and hairline semantics
+  without resolving them prematurely. Undo restores each authored enum value;
+  the next immutable snapshot resolves it through the existing layer/block
+  style contract, so both picture compilers receive the same physical or
+  cosmetic stroke policy.
 - A direct session edit from another owner invalidates both history branches.
   The expected generation is checked again under the document lock so a race
   cannot apply an undo to the wrong document state. Failed resolution or command
