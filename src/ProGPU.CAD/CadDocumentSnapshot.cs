@@ -7,6 +7,9 @@ public enum CadEntityKind : byte
     Arc = 3,
     Spline = 4,
     LightweightPolyline = 5,
+    Ellipse = 6,
+    Solid = 7,
+    Face3D = 8,
 }
 
 public readonly record struct CadLayerSnapshot(
@@ -52,6 +55,28 @@ public readonly record struct CadArcPrimitive(
     public CadPoint3D EndPoint =>
         CoordinateSystem.PointOnCircle(Center, Radius, StartAngle + SweepAngle);
 }
+
+public readonly record struct CadEllipsePrimitive(
+    CadPoint3D Center,
+    CadPoint3D MajorAxis,
+    CadPoint3D MinorAxis,
+    double StartParameter,
+    double SweepParameter)
+{
+    public CadPoint3D PointAt(double parameter) =>
+        Center + (MajorAxis * Math.Cos(parameter)) + (MinorAxis * Math.Sin(parameter));
+
+    public CadPoint3D StartPoint => PointAt(StartParameter);
+
+    public CadPoint3D EndPoint => PointAt(StartParameter + SweepParameter);
+}
+
+public readonly record struct CadFacePrimitive(
+    CadPoint3D First,
+    CadPoint3D Second,
+    CadPoint3D Third,
+    CadPoint3D Fourth,
+    byte InvisibleEdgeMask);
 
 public readonly record struct CadSplinePrimitive(
     int ControlPointOffset,
@@ -99,6 +124,8 @@ public sealed class CadDocumentSnapshot
     private readonly CadLinePrimitive[] _lines;
     private readonly CadCirclePrimitive[] _circles;
     private readonly CadArcPrimitive[] _arcs;
+    private readonly CadEllipsePrimitive[] _ellipses;
+    private readonly CadFacePrimitive[] _faces;
     private readonly CadSplinePrimitive[] _splines;
     private readonly CadPolylinePrimitive[] _polylines;
     private readonly CadPolylineVertex[] _polylineVertices;
@@ -119,6 +146,8 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadLinePrimitive> Lines => _lines;
     public ReadOnlyMemory<CadCirclePrimitive> Circles => _circles;
     public ReadOnlyMemory<CadArcPrimitive> Arcs => _arcs;
+    public ReadOnlyMemory<CadEllipsePrimitive> Ellipses => _ellipses;
+    public ReadOnlyMemory<CadFacePrimitive> Faces => _faces;
     public ReadOnlyMemory<CadSplinePrimitive> Splines => _splines;
     public ReadOnlyMemory<CadPolylinePrimitive> Polylines => _polylines;
     public ReadOnlyMemory<CadPolylineVertex> PolylineVertices => _polylineVertices;
@@ -137,6 +166,8 @@ public sealed class CadDocumentSnapshot
         CadLinePrimitive[] lines,
         CadCirclePrimitive[] circles,
         CadArcPrimitive[] arcs,
+        CadEllipsePrimitive[] ellipses,
+        CadFacePrimitive[] faces,
         CadSplinePrimitive[] splines,
         CadPolylinePrimitive[] polylines,
         CadPolylineVertex[] polylineVertices,
@@ -155,6 +186,8 @@ public sealed class CadDocumentSnapshot
         _lines = lines;
         _circles = circles;
         _arcs = arcs;
+        _ellipses = ellipses;
+        _faces = faces;
         _splines = splines;
         _polylines = polylines;
         _polylineVertices = polylineVertices;

@@ -71,7 +71,8 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
 - `CadSnapshotCompiler` captures the mutable document and matching content
   generation under one lock, resolves visible layers and indexed stroke styles,
   normalizes supported planar entities from OCS to double-precision WCS, and
-  emits fixed typed line, circle, arc, and spline streams.
+  emits fixed typed line, circle, arc, ellipse, spline, polyline, solid, and
+  3D-face streams.
 - `CadSpatialIndex` is an immutable median-split AABB hierarchy. Construction is
   `O(N log N)`; caller-buffer queries allocate no managed memory and are
   `O(log N + K)` on typical spatial data, `O(N + K)` worst case.
@@ -85,6 +86,14 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   checked affine OCS-to-WCS projection. Wide polylines are deliberately reported
   as unsupported until filled-outline lowering lands; they are not confused with
   cosmetic lineweight.
+- Ellipses and elliptical arcs preserve their WCS major/minor basis, parameter
+  sweep, and exact double-precision extrema. The plan compiler records one unit
+  analytic ellipse or arc under an affine transform, never a sampled polygon.
+- SOLID entities retain exact OCS-normalized corners and render as filled paths.
+  3DFACE entities retain WCS corners and invisible-edge flags; the plan
+  wireframe records only visible edges while preserving the same face record
+  for the later shaded/depth compiler. Nonzero ellipse/SOLID thickness is
+  reported until complete 3D side-surface lowering is available.
 - Model-space lineweights are recorded as fixed device-space strokes; explicit
   zero-width lineweights use the ProGPU hairline sentinel. Non-continuous CAD
   linetypes currently produce a bounded warning and remain a tracked fidelity
@@ -194,8 +203,9 @@ unchanged by `ProGPU.CAD.Sample.Desktop` and `ProGPU.CAD.Sample.Browser`.
 It freezes one generation-tagged scene into an owned `GpuPicture`; wheel zoom
 and pointer pan then update only the replay camera matrix. Camera motion never
 revisits ACadSharp or recompiles geometry. The representative scene exercises
-lines, OCS circles/arcs, analytic bulge polylines, and NURBS while framework
-chrome uses dynamic theme resources.
+lines, OCS circles/arcs, analytic ellipses, bulge polylines, NURBS, filled
+SOLID, and 3DFACE visible-edge semantics while framework chrome uses dynamic
+theme resources.
 
 The desktop host uses the existing ProGPU WinUI/GLFW presentation path. The
 browser host uses `BrowserGpuRuntime`, canonical ProGPU browser assets, SIMD,
@@ -316,6 +326,13 @@ Sources consulted on 2026-08-27:
   validation and unconditional DWG-save claims.
 - [Autodesk DXF object coordinate systems](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-D99F1509-E4E4-47A3-8691-92EA07DC88F5.htm):
   adopted OCS/elevation/extrusion normalization and arbitrary-axis conformance.
+- [Autodesk ELLIPSE entity contract](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-DXF/files/GUID-107CB04F-AD4D-4D2F-8EC9-AC90888063AB.htm),
+  [SOLID contract](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-DXF/files/GUID-E0C5F04E-D0C5-48F5-AC09-32733E8848F2.htm),
+  and [3DFACE contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-747865D5-51F0-45F2-BEFE-9572DBC5B151.htm):
+  adopted WCS ellipse axes/parameters, OCS SOLID corners, WCS 3DFACE corners,
+  and invisible-edge flags; adapted them into fixed immutable records and
+  existing ProGPU analytic/fill paths; rejected polygonal ellipse sampling and
+  incomplete extrusion rendering.
 - [Autodesk lineweights](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-4B33ACD3-F6DD-4CB5-8C55-D6D0D7130905.htm):
   adopted distinct cosmetic model-space and physical paper/plot policies.
 - [Autodesk shape/font descriptions](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Customization/files/GUID-DE941DB5-7044-433C-AA68-2A9AE98A5713.htm):

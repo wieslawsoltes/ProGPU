@@ -67,6 +67,104 @@ public sealed class CadSnapshotAndSceneTests
     }
 
     [Fact]
+    public void FullEllipseHasExactRotatedBoundsAndOneAnalyticCommand()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add rotated ellipse", document => document.Entities.Add(new Ellipse
+        {
+            Center = new XYZ(10, 20, 30),
+            MajorAxisEndPoint = new XYZ(3, 4, 0),
+            Normal = XYZ.AxisZ,
+            RadiusRatio = 0.5,
+        }));
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        CadEllipsePrimitive ellipse = Assert.Single(snapshot.Ellipses.ToArray());
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+
+        AssertPoint(new CadPoint3D(-2, 1.5, 0), ellipse.MinorAxis);
+        AssertPoint(
+            new CadPoint3D(10 - Math.Sqrt(13), 20 - Math.Sqrt(18.25), 30),
+            snapshot.Bounds.Min);
+        AssertPoint(
+            new CadPoint3D(10 + Math.Sqrt(13), 20 + Math.Sqrt(18.25), 30),
+            snapshot.Bounds.Max);
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands.ToArray());
+        Assert.Equal(RenderCommandType.DrawEllipse, command.Type);
+        Assert.Equal(1, command.RadiusX);
+        Assert.Equal(1, command.RadiusY);
+        Assert.NotEqual(System.Numerics.Matrix4x4.Identity, command.Transform);
+    }
+
+    [Fact]
+    public void EllipticalArcRetainsOneAnalyticArcAndPartialBounds()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add elliptical arc", document => document.Entities.Add(new Ellipse
+        {
+            Center = new XYZ(5, 7, 0),
+            MajorAxisEndPoint = new XYZ(4, 0, 0),
+            Normal = XYZ.AxisZ,
+            RadiusRatio = 0.5,
+            StartParameter = 0,
+            EndParameter = Math.PI / 2,
+        }));
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+
+        AssertPoint(new CadPoint3D(5, 7, 0), snapshot.Bounds.Min);
+        AssertPoint(new CadPoint3D(9, 9, 0), snapshot.Bounds.Max);
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands.ToArray());
+        Assert.Equal(RenderCommandType.DrawPath, command.Type);
+        ArcSegment arc = Assert.IsType<ArcSegment>(
+            Assert.Single(Assert.Single(command.Path!.Figures).Segments));
+        Assert.Equal(System.Numerics.Vector2.One, arc.Size);
+        Assert.Equal(SweepDirection.Counterclockwise, arc.SweepDirection);
+    }
+
+    [Fact]
+    public void SolidFillsAndFace3DWireframeHonorsInvisibleEdges()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add faces", document =>
+        {
+            document.Entities.Add(new Solid(
+                new XYZ(0, 0, 0),
+                new XYZ(4, 0, 0),
+                new XYZ(4, 3, 0),
+                new XYZ(0, 3, 0)));
+            document.Entities.Add(new Face3D
+            {
+                FirstCorner = new XYZ(10, 0, 1),
+                SecondCorner = new XYZ(14, 0, 2),
+                ThirdCorner = new XYZ(14, 3, 3),
+                FourthCorner = new XYZ(10, 3, 4),
+                Flags = InvisibleEdgeFlags.Second | InvisibleEdgeFlags.Fourth,
+            });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+
+        Assert.Equal(2, snapshot.Faces.Length);
+        Assert.Equal(CadEntityKind.Solid, snapshot.Entities.Span[0].Kind);
+        Assert.Equal(CadEntityKind.Face3D, snapshot.Entities.Span[1].Kind);
+        AssertPoint(new CadPoint3D(0, 0, 0), snapshot.Bounds.Min);
+        AssertPoint(new CadPoint3D(14, 3, 4), snapshot.Bounds.Max);
+        Assert.Equal(2, scene.DrawingContext.Commands.Count);
+        RenderCommand solid = scene.DrawingContext.Commands[0];
+        Assert.Equal(RenderCommandType.DrawPath, solid.Type);
+        Assert.NotNull(solid.Brush);
+        Assert.Null(solid.Pen);
+        Assert.True(Assert.Single(solid.Path!.Figures).IsClosed);
+        RenderCommand face = scene.DrawingContext.Commands[1];
+        Assert.Null(face.Brush);
+        Assert.NotNull(face.Pen);
+        Assert.Equal(2, face.Path!.Figures.Count);
+    }
+
+    [Fact]
     public void SpatialIndexMatchesBruteForceAndReportsTruncation()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();

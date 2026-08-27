@@ -113,6 +113,15 @@ public sealed class CadPlanSceneCompiler
                 case CadEntityKind.Arc:
                     RecordArc(context, pen, snapshot.Arcs.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
                     break;
+                case CadEntityKind.Ellipse:
+                    RecordEllipse(context, pen, snapshot.Ellipses.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
+                    break;
+                case CadEntityKind.Solid:
+                    RecordSolid(context, pen.Brush, snapshot.Faces.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
+                    break;
+                case CadEntityKind.Face3D:
+                    RecordFace3D(context, pen, snapshot.Faces.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
+                    break;
                 case CadEntityKind.Spline:
                     RecordSpline(context, pen, snapshot, snapshot.Splines.Span[entity.PrimitiveIndex]);
                     break;
@@ -218,6 +227,103 @@ public sealed class CadPlanSceneCompiler
         context.DrawPath(null, pen, path, transform);
     }
 
+    private static void RecordEllipse(
+        DrawingContext context,
+        Pen pen,
+        CadEllipsePrimitive ellipse,
+        CadPoint3D origin)
+    {
+        Matrix4x4 transform = CreateProjectionTransform(
+            ellipse.Center,
+            ellipse.MajorAxis,
+            ellipse.MinorAxis,
+            origin);
+        if (ellipse.SweepParameter >= TwoPi - 1e-12)
+        {
+            context.DrawEllipse(null, pen, Vector2.Zero, 1.0f, 1.0f, transform);
+            return;
+        }
+
+        Vector2 start = new(
+            MathF.Cos(ToFloat(ellipse.StartParameter)),
+            MathF.Sin(ToFloat(ellipse.StartParameter)));
+        double endParameter = ellipse.StartParameter + ellipse.SweepParameter;
+        Vector2 end = new(
+            MathF.Cos(ToFloat(endParameter)),
+            MathF.Sin(ToFloat(endParameter)));
+        var path = new PathGeometry();
+        var figure = new PathFigure(start)
+        {
+            IsFilled = false,
+            IsClosed = false,
+        };
+        figure.Segments.Add(new ArcSegment(
+            end,
+            Vector2.One,
+            rotationAngle: 0.0f,
+            isLargeArc: ellipse.SweepParameter > Math.PI,
+            sweepDirection: SweepDirection.Counterclockwise));
+        path.Figures.Add(figure);
+        context.DrawPath(null, pen, path, transform);
+    }
+
+    private static void RecordSolid(
+        DrawingContext context,
+        Brush brush,
+        CadFacePrimitive face,
+        CadPoint3D origin)
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(Project(face.First, origin), isClosed: true);
+        figure.Segments.Add(new LineSegment(Project(face.Second, origin)));
+        figure.Segments.Add(new LineSegment(Project(face.Third, origin)));
+        if (face.Fourth != face.Third)
+        {
+            figure.Segments.Add(new LineSegment(Project(face.Fourth, origin)));
+        }
+
+        path.Figures.Add(figure);
+        context.DrawPath(brush, null, path);
+    }
+
+    private static void RecordFace3D(
+        DrawingContext context,
+        Pen pen,
+        CadFacePrimitive face,
+        CadPoint3D origin)
+    {
+        var path = new PathGeometry();
+        AddFaceEdge(path, face.First, face.Second, origin, face.InvisibleEdgeMask, 1);
+        AddFaceEdge(path, face.Second, face.Third, origin, face.InvisibleEdgeMask, 2);
+        AddFaceEdge(path, face.Third, face.Fourth, origin, face.InvisibleEdgeMask, 4);
+        AddFaceEdge(path, face.Fourth, face.First, origin, face.InvisibleEdgeMask, 8);
+        if (path.Figures.Count != 0)
+        {
+            context.DrawPath(null, pen, path);
+        }
+    }
+
+    private static void AddFaceEdge(
+        PathGeometry path,
+        CadPoint3D start,
+        CadPoint3D end,
+        CadPoint3D origin,
+        byte invisibleEdgeMask,
+        byte edgeFlag)
+    {
+        if ((invisibleEdgeMask & edgeFlag) != 0 || start == end)
+        {
+            return;
+        }
+
+        var figure = new PathFigure(Project(start, origin))
+        {
+            IsFilled = false,
+        };
+        figure.Segments.Add(new LineSegment(Project(end, origin)));
+        path.Figures.Add(figure);
+    }
+
     private static void RecordSpline(
         DrawingContext context,
         Pen pen,
@@ -317,6 +423,17 @@ public sealed class CadPlanSceneCompiler
         new(
             ToFloat(basis.XAxis.X), ToFloat(basis.XAxis.Y), 0.0f, 0.0f,
             ToFloat(basis.YAxis.X), ToFloat(basis.YAxis.Y), 0.0f, 0.0f,
+            0.0f, 0.0f, 1.0f, 0.0f,
+            ToFloat(center.X - origin.X), ToFloat(center.Y - origin.Y), 0.0f, 1.0f);
+
+    private static Matrix4x4 CreateProjectionTransform(
+        CadPoint3D center,
+        CadPoint3D xAxis,
+        CadPoint3D yAxis,
+        CadPoint3D origin) =>
+        new(
+            ToFloat(xAxis.X), ToFloat(xAxis.Y), 0.0f, 0.0f,
+            ToFloat(yAxis.X), ToFloat(yAxis.Y), 0.0f, 0.0f,
             0.0f, 0.0f, 1.0f, 0.0f,
             ToFloat(center.X - origin.X), ToFloat(center.Y - origin.Y), 0.0f, 1.0f);
 

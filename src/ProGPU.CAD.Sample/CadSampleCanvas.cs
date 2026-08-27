@@ -154,6 +154,27 @@ public sealed class CadSampleCanvas : FrameworkElement
             document.Entities.Add(new Line(new XYZ(-80, -45, 0), new XYZ(80, -45, 0)));
             document.Entities.Add(new Circle(new XYZ(-38, 8, 0), 27));
             document.Entities.Add(new Arc(new XYZ(30, 8, 0), 30, 0.2, 5.1));
+            document.Entities.Add(new Ellipse
+            {
+                Center = new XYZ(30, 8, 0),
+                MajorAxisEndPoint = new XYZ(22, 9, 0),
+                RadiusRatio = 0.38,
+                StartParameter = 0.35,
+                EndParameter = 5.65,
+            });
+            document.Entities.Add(new Solid(
+                new XYZ(-9, -8, 0),
+                new XYZ(7, -8, 0),
+                new XYZ(7, 4, 0),
+                new XYZ(-9, 4, 0)));
+            document.Entities.Add(new Face3D
+            {
+                FirstCorner = new XYZ(-6, 12, 0),
+                SecondCorner = new XYZ(9, 15, 2),
+                ThirdCorner = new XYZ(4, 29, 5),
+                FourthCorner = new XYZ(-11, 25, 2),
+                Flags = InvisibleEdgeFlags.Third,
+            });
 
             var polyline = new LwPolyline { IsClosed = true };
             polyline.Vertices.Add(new LwPolyline.Vertex(-72, -30));

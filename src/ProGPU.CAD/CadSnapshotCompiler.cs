@@ -46,6 +46,8 @@ public sealed class CadSnapshotCompiler
         var lines = new List<CadLinePrimitive>();
         var circles = new List<CadCirclePrimitive>();
         var arcs = new List<CadArcPrimitive>();
+        var ellipses = new List<CadEllipsePrimitive>();
+        var faces = new List<CadFacePrimitive>();
         var splines = new List<CadSplinePrimitive>();
         var polylines = new List<CadPolylinePrimitive>();
         var polylineVertices = new List<CadPolylineVertex>();
@@ -78,6 +80,9 @@ public sealed class CadSnapshotCompiler
                     Line line => CompileLine(line, layerIndex, styleIndex, lines),
                     Arc arc => CompileArc(arc, layerIndex, styleIndex, arcs),
                     Circle circle => CompileCircle(circle, layerIndex, styleIndex, circles),
+                    Ellipse ellipse => CompileEllipse(ellipse, layerIndex, styleIndex, ellipses),
+                    Solid solid => CompileSolid(solid, layerIndex, styleIndex, faces),
+                    Face3D face => CompileFace3D(face, layerIndex, styleIndex, faces),
                     Spline spline => CompileSpline(
                         spline,
                         layerIndex,
@@ -151,6 +156,8 @@ public sealed class CadSnapshotCompiler
             lines.ToArray(),
             circles.ToArray(),
             arcs.ToArray(),
+            ellipses.ToArray(),
+            faces.ToArray(),
             splines.ToArray(),
             polylines.ToArray(),
             polylineVertices.ToArray(),
@@ -228,6 +235,145 @@ public sealed class CadSnapshotCompiler
             styleIndex,
             primitiveIndex,
             CadBounds3D.Arc(center, basis, arc.Radius, start, sweep));
+    }
+
+    private static CadEntityHeader CompileEllipse(
+        Ellipse ellipse,
+        int layerIndex,
+        int styleIndex,
+        List<CadEllipsePrimitive> destination)
+    {
+        if (ellipse.Thickness != 0.0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Extruded ellipses require 3D side-surface lowering.");
+        }
+
+        CadPoint3D center = ToPoint(ellipse.Center);
+        CadPoint3D majorAxis = ToPoint(ellipse.MajorAxisEndPoint);
+        CadPoint3D normal = ToPoint(ellipse.Normal).Normalize();
+        EnsureFinite(center);
+        EnsureFinite(majorAxis);
+        double majorLength = majorAxis.Length;
+        if (!double.IsFinite(majorLength) || majorLength <= 0.0 ||
+            !double.IsFinite(ellipse.RadiusRatio) ||
+            ellipse.RadiusRatio <= 0.0 || ellipse.RadiusRatio > 1.0)
+        {
+            throw new ArgumentException(
+                "Ellipse axes and radius ratio must be finite and positive, with ratio at most one.");
+        }
+
+        double perpendicularError = Math.Abs(CadPoint3D.Dot(normal, majorAxis)) / majorLength;
+        if (perpendicularError > 1e-10)
+        {
+            throw new ArgumentException("Ellipse normal and major axis must be perpendicular.");
+        }
+
+        if (!double.IsFinite(ellipse.StartParameter) || !double.IsFinite(ellipse.EndParameter))
+        {
+            throw new ArgumentException("Ellipse parameters must be finite.");
+        }
+
+        CadPoint3D minorAxis = CadPoint3D.Cross(normal, majorAxis).Normalize() *
+            (majorLength * ellipse.RadiusRatio);
+        double start = NormalizeAngle(ellipse.StartParameter);
+        double sweep = NormalizePositiveSweep(ellipse.StartParameter, ellipse.EndParameter);
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadEllipsePrimitive(center, majorAxis, minorAxis, start, sweep));
+        return new CadEntityHeader(
+            ellipse.Handle,
+            CadEntityKind.Ellipse,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            CadBounds3D.EllipseArc(center, majorAxis, minorAxis, start, sweep));
+    }
+
+    private static CadEntityHeader CompileSolid(
+        Solid solid,
+        int layerIndex,
+        int styleIndex,
+        List<CadFacePrimitive> destination)
+    {
+        if (solid.Thickness != 0.0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Extruded solids require 3D side-surface lowering.");
+        }
+
+        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(solid.Normal));
+        CadPoint3D first = basis.Transform(ToPoint(solid.FirstCorner));
+        CadPoint3D second = basis.Transform(ToPoint(solid.SecondCorner));
+        CadPoint3D third = basis.Transform(ToPoint(solid.ThirdCorner));
+        CadPoint3D fourth = basis.Transform(ToPoint(solid.FourthCorner));
+        return AddFace(
+            solid.Handle,
+            CadEntityKind.Solid,
+            layerIndex,
+            styleIndex,
+            destination,
+            first,
+            second,
+            third,
+            fourth,
+            0);
+    }
+
+    private static CadEntityHeader CompileFace3D(
+        Face3D face,
+        int layerIndex,
+        int styleIndex,
+        List<CadFacePrimitive> destination)
+    {
+        int invisibleEdges = (int)face.Flags;
+        if ((invisibleEdges & ~0xF) != 0)
+        {
+            throw new ArgumentException("A 3DFACE contains unsupported invisible-edge flags.");
+        }
+
+        return AddFace(
+            face.Handle,
+            CadEntityKind.Face3D,
+            layerIndex,
+            styleIndex,
+            destination,
+            ToPoint(face.FirstCorner),
+            ToPoint(face.SecondCorner),
+            ToPoint(face.ThirdCorner),
+            ToPoint(face.FourthCorner),
+            (byte)invisibleEdges);
+    }
+
+    private static CadEntityHeader AddFace(
+        ulong handle,
+        CadEntityKind kind,
+        int layerIndex,
+        int styleIndex,
+        List<CadFacePrimitive> destination,
+        CadPoint3D first,
+        CadPoint3D second,
+        CadPoint3D third,
+        CadPoint3D fourth,
+        byte invisibleEdgeMask)
+    {
+        EnsureFinite(first);
+        EnsureFinite(second);
+        EnsureFinite(third);
+        EnsureFinite(fourth);
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadFacePrimitive(
+            first,
+            second,
+            third,
+            fourth,
+            invisibleEdgeMask));
+        return new CadEntityHeader(
+            handle,
+            kind,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            CadBounds3D.FromPoint(first).Include(second).Include(third).Include(fourth));
     }
 
     private static CadEntityHeader CompileSpline(

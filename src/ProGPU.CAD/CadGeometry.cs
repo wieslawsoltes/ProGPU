@@ -205,6 +205,74 @@ public readonly struct CadBounds3D : IEquatable<CadBounds3D>
         return IncludeAxisExtrema(bounds, center, basis, radius, startAngle, sweepAngle, 2);
     }
 
+    internal static CadBounds3D EllipseArc(
+        CadPoint3D center,
+        CadPoint3D majorAxis,
+        CadPoint3D minorAxis,
+        double startParameter,
+        double sweepParameter)
+    {
+        CadBounds3D bounds = FromPoint(EllipsePointAt(center, majorAxis, minorAxis, startParameter))
+            .Include(EllipsePointAt(center, majorAxis, minorAxis, startParameter + sweepParameter));
+        bounds = IncludeEllipseAxisExtrema(
+            bounds,
+            center,
+            majorAxis,
+            minorAxis,
+            startParameter,
+            sweepParameter,
+            0);
+        bounds = IncludeEllipseAxisExtrema(
+            bounds,
+            center,
+            majorAxis,
+            minorAxis,
+            startParameter,
+            sweepParameter,
+            1);
+        return IncludeEllipseAxisExtrema(
+            bounds,
+            center,
+            majorAxis,
+            minorAxis,
+            startParameter,
+            sweepParameter,
+            2);
+    }
+
+    private static CadBounds3D IncludeEllipseAxisExtrema(
+        CadBounds3D bounds,
+        CadPoint3D center,
+        CadPoint3D majorAxis,
+        CadPoint3D minorAxis,
+        double start,
+        double sweep,
+        int axis)
+    {
+        double major = Component(majorAxis, axis);
+        double minor = Component(minorAxis, axis);
+        double stationary = Math.Atan2(minor, major);
+        if (ContainsAngle(start, sweep, stationary))
+        {
+            bounds = bounds.Include(EllipsePointAt(center, majorAxis, minorAxis, stationary));
+        }
+
+        stationary += Math.PI;
+        if (ContainsAngle(start, sweep, stationary))
+        {
+            bounds = bounds.Include(EllipsePointAt(center, majorAxis, minorAxis, stationary));
+        }
+
+        return bounds;
+    }
+
+    private static CadPoint3D EllipsePointAt(
+        CadPoint3D center,
+        CadPoint3D majorAxis,
+        CadPoint3D minorAxis,
+        double parameter) =>
+        center + (majorAxis * Math.Cos(parameter)) + (minorAxis * Math.Sin(parameter));
+
     private static CadBounds3D IncludeAxisExtrema(
         CadBounds3D bounds,
         CadPoint3D center,
