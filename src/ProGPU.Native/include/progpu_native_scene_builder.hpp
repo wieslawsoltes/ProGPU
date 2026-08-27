@@ -193,6 +193,16 @@ public:
         std::span<const progpu_native_scene_mesh_3d> meshes,
         std::span<const progpu_native_scene_mesh_3d_vertex> vertices,
         std::span<const std::uint32_t> indices,
+        std::span<const progpu_native_scene_light_3d> lights,
+        const progpu_native_scene_camera_3d& camera,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+
+    bool draw_meshes_3d(
+        std::span<const progpu_native_scene_mesh_3d> meshes,
+        std::span<const progpu_native_scene_mesh_3d_vertex> vertices,
+        std::span<const std::uint32_t> indices,
         const progpu_native_scene_camera_3d& camera,
         progpu_native_image_rect bounds,
         std::uint32_t state_resource_index =

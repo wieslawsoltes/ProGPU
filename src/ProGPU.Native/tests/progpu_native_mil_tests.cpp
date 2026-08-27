@@ -11403,6 +11403,16 @@ bool retained_viewport3d_uses_pointer_free_mesh_sideband() {
     mesh.specular_color = {0.1F, 0.1F, 0.1F, 1.0F};
     mesh.material_ambient = {1.0F, 1.0F, 1.0F, 1.0F};
     mesh.opacity = 1.0F;
+    std::array<progpu_native_scene_light_3d, 2U> lights{};
+    lights[0].struct_size = sizeof(lights[0]);
+    lights[0].kind = PROGPU_NATIVE_LIGHT_3D_AMBIENT;
+    lights[0].color = {0.1F, 0.2F, 0.3F, 1.0F};
+    lights[1].struct_size = sizeof(lights[1]);
+    lights[1].kind = PROGPU_NATIVE_LIGHT_3D_POINT;
+    lights[1].color = {1.0F, 0.7F, 0.4F, 1.0F};
+    lights[1].position_range = {0.0F, 0.0F, 2.0F, 20.0F};
+    lights[1].attenuation_outer_cos = {1.0F, 0.1F, 0.01F, 0.0F};
+    mesh.light_count = static_cast<std::uint32_t>(lights.size());
     const progpu_native_image_rect viewport{12.0F, 18.0F, 80.0F, 60.0F};
     PROGPU_REQUIRE(
         state.set_viewport3d_scene(
@@ -11411,7 +11421,8 @@ bool retained_viewport3d_uses_pointer_free_mesh_sideband() {
             viewport,
             std::span<const progpu_native_scene_mesh_3d>{&mesh, 1U},
             vertices,
-            indices) == status::success);
+            indices,
+            lights) == status::success);
     PROGPU_REQUIRE(
         state.set_viewport3d_scene(
             target,
@@ -11419,7 +11430,8 @@ bool retained_viewport3d_uses_pointer_free_mesh_sideband() {
             viewport,
             std::span<const progpu_native_scene_mesh_3d>{&mesh, 1U},
             vertices,
-            indices) == status::invalid_handle);
+            indices,
+            lights) == status::invalid_handle);
     PROGPU_REQUIRE(
         state.build_scene(target, 8200U, 2U, stream) == status::success);
 
@@ -11435,7 +11447,7 @@ bool retained_viewport3d_uses_pointer_free_mesh_sideband() {
             PROGPU_REQUIRE(resource.payload_size == sizeof(mesh));
             PROGPU_REQUIRE(
                 resource.auxiliary_size ==
-                sizeof(vertices) + sizeof(indices));
+                sizeof(vertices) + sizeof(indices) + sizeof(lights));
             found_mesh = true;
         }
     }

@@ -20,7 +20,7 @@ typedef struct progpu_native_engine progpu_native_engine;
 typedef struct progpu_native_text_context progpu_native_text_context;
 
 enum {
-    PROGPU_NATIVE_ABI_VERSION = 3U,
+    PROGPU_NATIVE_ABI_VERSION = 4U,
     PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05 = 1U,
     PROGPU_NATIVE_BACKEND_ABI_DAWN_WEBSCENE_2026_07 = 2U,
     PROGPU_NATIVE_BACKEND_ABI_BROWSER_WEBGPU_2025_10 = 3U
@@ -1802,6 +1802,33 @@ typedef enum progpu_native_mesh_3d_tiling {
     PROGPU_NATIVE_MESH_3D_CROP = 2,
     PROGPU_NATIVE_MESH_3D_CLAMP = 3
 } progpu_native_mesh_3d_tiling;
+
+typedef enum progpu_native_light_3d_kind {
+    PROGPU_NATIVE_LIGHT_3D_AMBIENT = 0,
+    PROGPU_NATIVE_LIGHT_3D_DIRECTIONAL = 1,
+    PROGPU_NATIVE_LIGHT_3D_POINT = 2,
+    PROGPU_NATIVE_LIGHT_3D_SPOT = 3
+} progpu_native_light_3d_kind;
+
+enum {
+    PROGPU_NATIVE_SCENE_MAX_3D_LIGHTS_PER_MESH = 16
+};
+
+/* Pointer-free WPF/MIL light state. position_range.w is range;
+ * direction_inner_cos.w is cos(innerConeAngle / 2); and
+ * attenuation_outer_cos.xyz stores constant/linear/quadratic attenuation
+ * while .w is cos(outerConeAngle / 2). Unused fields must be zero. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeSceneLight3D */
+typedef struct progpu_native_scene_light_3d {
+    uint32_t struct_size;
+    uint32_t kind;
+    uint32_t flags;
+    uint32_t reserved0;
+    /* PROGPU_CSHARP_TYPE: Vector4 */ progpu_native_color color;
+    progpu_native_float_4 position_range;
+    progpu_native_float_4 direction_inner_cos;
+    progpu_native_float_4 attenuation_outer_cos;
+} progpu_native_scene_light_3d;
 /* PROGPU_CSHARP_STRUCT: Public.NativeSceneMesh3DVertex */
 typedef struct progpu_native_scene_mesh_3d_vertex {
     progpu_native_point_3d position;
@@ -1842,6 +1869,9 @@ typedef struct progpu_native_scene_mesh_3d {
     uint32_t shading_mode;
     uint32_t material_image_resource_index;
     uint32_t material_factors;
+
+    uint32_t light_offset;
+    uint32_t light_count;
 } progpu_native_scene_mesh_3d;
 
 typedef enum progpu_native_scene_stroke_kind {

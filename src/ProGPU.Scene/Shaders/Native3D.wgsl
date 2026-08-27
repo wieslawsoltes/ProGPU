@@ -1,6 +1,6 @@
-// Algorithm: Transform retained 3D lines, indexed meshes, and unique adjacency edges on the GPU; expand lines and classified boundary/crease/silhouette edges in physical screen space with optional bounded endpoint extension and deterministic three-stroke jitter, address and sample one optional diffuse material image, evaluate the canonical bounded three-light CAD visual-style model, and apply derivative wire coverage.
-// Time complexity: O(L + I + E) shader invocations for L expanded line vertices, I referenced mesh indices, and E retained unique edges with one ordinary or three jitter strokes; every mesh fragment performs at most one filtered texture sample, three fixed lights, and one derivative wire test, while every edge performs bounded adjacency classification.
-// Space complexity: O(C + L + M + V + I + E) read-only storage for cameras, lines, meshes, vertices, indices, and edges; O(1) private storage and no auxiliary output storage per invocation.
+// Algorithm: Transform retained lines, indexed meshes and adjacency edges; shade with canonical CAD materials or an explicit bounded WPF light range.
+// Time complexity: O(L + I + E) vertex work and O(K) per mesh fragment for K<=16 explicit lights (three fixed CAD lights otherwise), plus one optional material sample.
+// Space complexity: O(C + L + M + V + I + E + K) read-only storage; O(1) private storage per invocation.
 // Lines use six vertices per retained edge. Meshes fetch uint32 indices from
 // storage so one pointer-free scene ABI works in native WebGPU and wasm32.
 // Exact ProGPU-owned edge-algorithm provenance: Mesh3DEdges.wgsl. This native
@@ -62,6 +62,20 @@ struct Mesh3D {
     shading_mode: u32,
     material_image_resource_index: u32,
     material_factors: u32,
+    light_offset: u32,
+    light_count: u32,
+    reserved: vec2<u32>,
+};
+
+struct Light3D {
+    struct_size: u32,
+    kind: u32,
+    flags: u32,
+    reserved: u32,
+    color: vec4<f32>,
+    position_range: vec4<f32>,
+    direction_inner_cos: vec4<f32>,
+    attenuation_outer_cos: vec4<f32>,
 };
 
 struct MeshVertex3D {
@@ -86,7 +100,8 @@ struct MeshEdge3D {
 @group(0) @binding(2) var<storage, read> meshes: array<Mesh3D>;
 @group(0) @binding(3) var<storage, read> vertices: array<MeshVertex3D>;
 @group(0) @binding(4) var<storage, read> indices: array<u32>;
-@group(0) @binding(5) var<storage, read> edges: array<MeshEdge3D>;
+@group(0) @binding(5) var<storage, read> lights: array<Light3D>;
+@group(0) @binding(8) var<storage, read> edges: array<MeshEdge3D>;
 @group(1) @binding(0) var material_sampler: sampler;
 @group(1) @binding(1) var material_texture: texture_2d<f32>;
 
@@ -637,12 +652,73 @@ fn fs_mesh_3d(
         diffuse_color *= mix(vec3<f32>(1.0), sampled.rgb, blend);
         texture_alpha = mix(1.0, sampled.a, blend);
     }
-    var solid = compute_mesh_lighting(
-        mesh,
-        camera,
-        input.world_position,
-        normal,
-        diffuse_color);
+    var solid = vec4<f32>(0.0);
+    if (mesh.light_count != 0u) {
+        let n = normalize(normal);
+        let view = normalize(camera.camera_position.xyz - input.world_position);
+        let shininess = max(mesh.specular_color.w, 0.001);
+        var diffuse = vec3<f32>(0.0);
+        var ambient = vec3<f32>(0.0);
+        var specular = vec3<f32>(0.0);
+        {
+            for (var light_index = 0u; light_index < 16u; light_index++) {
+                if (light_index >= mesh.light_count) {
+                    break;
+                }
+                let source = lights[mesh.light_offset + light_index];
+                if (source.kind == 0u) {
+                    ambient += source.color.rgb;
+                    continue;
+                }
+                var light = normalize(-source.direction_inner_cos.xyz);
+                var attenuation = 1.0;
+                if (source.kind >= 2u) {
+                    let to_light = source.position_range.xyz - input.world_position;
+                    let distance = length(to_light);
+                    light = to_light / max(distance, 0.000001);
+                    let terms = source.attenuation_outer_cos.xyz;
+                    attenuation = 1.0 / max(
+                        terms.x + terms.y * distance +
+                            terms.z * distance * distance,
+                        1.0);
+                    attenuation *= select(
+                        0.0, 1.0, distance <= source.position_range.w);
+                    if (source.kind == 3u) {
+                        let rho = max(dot(
+                            normalize(-source.direction_inner_cos.xyz),
+                            light), 0.0);
+                        let outer_cos = source.attenuation_outer_cos.w;
+                        let cone_width = max(
+                            source.direction_inner_cos.w - outer_cos,
+                            0.000001);
+                        attenuation *= clamp(
+                            (rho - outer_cos) / cone_width,
+                            0.0,
+                            1.0);
+                    }
+                }
+                let amount = max(dot(n, light), 0.0) * attenuation;
+                let half_vector = normalize(view + light);
+                diffuse += source.color.rgb * amount;
+                specular += source.color.rgb * pow(
+                    max(dot(n, half_vector), 0.0), shininess) * attenuation;
+            }
+        }
+        ambient *= mesh.material_ambient.rgb;
+        var rgb = diffuse_color * (ambient + diffuse) +
+            mesh.specular_color.rgb * specular;
+        if (mesh.shading_mode == 2u) {
+            rgb = diffuse_color;
+        }
+        solid = vec4<f32>(rgb, mesh.color.a * mesh.opacity);
+    } else {
+        solid = compute_mesh_lighting(
+            mesh,
+            camera,
+            input.world_position,
+            normal,
+            diffuse_color);
+    }
     solid.a *= texture_alpha;
     let derivative_x = dpdx(input.barycentric);
     let derivative_y = dpdy(input.barycentric);

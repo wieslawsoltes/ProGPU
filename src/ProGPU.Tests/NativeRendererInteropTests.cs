@@ -1454,6 +1454,17 @@ public class NativeRendererInteropTests
         Assert.Equal(40, Unsafe.SizeOf<NativeSceneGlyphOutline>());
         Assert.Equal(80, Unsafe.SizeOf<NativeMethods.SceneFrame>());
         Assert.Equal(256, Unsafe.SizeOf<NativeSceneBrush>());
+        Assert.Equal(264, Unsafe.SizeOf<NativeSceneMesh3D>());
+        Assert.Equal(248, OffsetOf<NativeSceneMesh3D>(
+            nameof(NativeSceneMesh3D.MaterialImageResourceIndex)));
+        Assert.Equal(252, OffsetOf<NativeSceneMesh3D>(
+            nameof(NativeSceneMesh3D.MaterialFactors)));
+        Assert.Equal(256, OffsetOf<NativeSceneMesh3D>(
+            nameof(NativeSceneMesh3D.LightOffset)));
+        Assert.Equal(260, OffsetOf<NativeSceneMesh3D>(
+            nameof(NativeSceneMesh3D.LightCount)));
+        Assert.Equal(8U, (uint)NativeMesh3DFlags.FrontFace);
+        Assert.Equal(16U, (uint)NativeMesh3DFlags.BackFace);
         Assert.Equal(32, Unsafe.SizeOf<NativeSceneGradientStop>());
         Assert.Equal(32, Unsafe.SizeOf<NativeSceneTextStyle>());
         Assert.Equal(48, Unsafe.SizeOf<NativeSceneColorGlyphBitmap>());
@@ -1580,7 +1591,7 @@ public class NativeRendererInteropTests
         Assert.Equal(
             40,
             OffsetOf<NativeMethods.SceneCommand>(nameof(NativeMethods.SceneCommand.BoundsX)));
-        Assert.Equal(3U, NativeMethods.AbiVersion);
+        Assert.Equal(4U, NativeMethods.AbiVersion);
         Assert.Equal(1U, NativeMethods.WgpuNativeMay2024BackendAbi);
         Assert.Equal(2U, NativeMethods.DawnWebScene2026JulyBackendAbi);
         Assert.Equal(1U, NativeDawnAdapter.AdapterAbiVersion);
@@ -6176,6 +6187,27 @@ public class NativeRendererInteropTests
             "array<vec2<f32>, 6>",
             shader,
             StringComparison.Ordinal);
+        Assert.Contains("struct Light3D", shader, StringComparison.Ordinal);
+        Assert.Contains(
+            "@group(0) @binding(5) var<storage, read> lights: array<Light3D>;",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "if (mesh.light_count == 0u)",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "terms.x + terms.y * distance",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "let half_vector = normalize(view + light);",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "source.direction_inner_cos.w - outer_cos",
+            shader,
+            StringComparison.Ordinal);
         Assert.Contains(
             "depth.stencilFront.compare = WGPUCompareFunction_Always;",
             execution,
@@ -6187,6 +6219,11 @@ public class NativeRendererInteropTests
         Assert.Contains("PROGPU_NATIVE_MESH_3D_FRONT_FACE", contract,
             StringComparison.Ordinal);
         Assert.Contains("PROGPU_NATIVE_MESH_3D_BACK_FACE", contract,
+            StringComparison.Ordinal);
+        Assert.Contains("progpu_native_scene_light_3d", contract,
+            StringComparison.Ordinal);
+        Assert.Contains("PROGPU_NATIVE_SCENE_MAX_3D_LIGHTS_PER_MESH = 16",
+            contract,
             StringComparison.Ordinal);
         Assert.Contains("WGPUCullMode_Back", execution,
             StringComparison.Ordinal);

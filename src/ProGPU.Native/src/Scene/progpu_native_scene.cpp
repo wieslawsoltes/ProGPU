@@ -842,6 +842,7 @@ validation_result validate(
                 sizeof(progpu_native_scene_mesh_3d);
             std::size_t vertex_count = 0U;
             std::size_t index_count = 0U;
+            std::size_t light_count = 0U;
             for (std::uint32_t mesh_index = 0U;
                  mesh_index < mesh_count;
                  ++mesh_index) {
@@ -857,13 +858,21 @@ validation_result validate(
                     index_count,
                     static_cast<std::size_t>(mesh.index_offset) +
                         mesh.index_count);
+                light_count = std::max(
+                    light_count,
+                    static_cast<std::size_t>(mesh.light_offset) +
+                        mesh.light_count);
             }
             const std::uint64_t vertex_bytes =
                 static_cast<std::uint64_t>(vertex_count) *
                     sizeof(progpu_native_scene_mesh_3d_vertex);
             const std::uint64_t index_bytes =
                 static_cast<std::uint64_t>(index_count) * sizeof(std::uint32_t);
-            if (vertex_bytes + index_bytes != resource.auxiliary_size) {
+            const std::uint64_t light_bytes =
+                static_cast<std::uint64_t>(light_count) *
+                    sizeof(progpu_native_scene_light_3d);
+            if (vertex_bytes + index_bytes + light_bytes !=
+                resource.auxiliary_size) {
                 return fail(
                     header,
                     PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
@@ -889,6 +898,24 @@ validation_result validate(
             }
             const std::size_t indices_offset = resource.auxiliary_offset +
                 static_cast<std::size_t>(vertex_bytes);
+            const std::size_t lights_offset = indices_offset +
+                static_cast<std::size_t>(index_bytes);
+            for (std::size_t light_index = 0U;
+                 light_index < light_count;
+                 ++light_index) {
+                const auto light = read_record<progpu_native_scene_light_3d>(
+                    bytes,
+                    lights_offset + light_index *
+                        sizeof(progpu_native_scene_light_3d));
+                if (!semantic::is_valid_semantic_light_3d(light)) {
+                    return fail(
+                        header,
+                        PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                        static_cast<std::uint32_t>(
+                            lights_offset + light_index *
+                                sizeof(progpu_native_scene_light_3d)));
+                }
+            }
             for (std::uint32_t mesh_index = 0U;
                  mesh_index < mesh_count;
                  ++mesh_index) {
@@ -897,7 +924,7 @@ validation_result validate(
                     resource.payload_offset + mesh_index *
                         sizeof(progpu_native_scene_mesh_3d));
                 if (!semantic::is_valid_semantic_mesh_3d(
-                        mesh, vertex_count, index_count)) {
+                        mesh, vertex_count, index_count, light_count)) {
                     return fail(
                         header,
                         PROGPU_NATIVE_SCENE_VALIDATION_VALUE,

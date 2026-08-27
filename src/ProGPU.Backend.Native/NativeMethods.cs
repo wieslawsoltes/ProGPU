@@ -7,7 +7,7 @@ namespace ProGPU.Backend.Native;
 internal static unsafe partial class NativeMethods
 {
     internal const string LibraryName = "progpu_native";
-    internal const uint AbiVersion = 3;
+    internal const uint AbiVersion = 4;
     internal const uint WgpuNativeMay2024BackendAbi = 1;
     internal const uint DawnWebScene2026JulyBackendAbi = 2;
     internal const uint GeometryFrameCapturePayloadHash = 1U;

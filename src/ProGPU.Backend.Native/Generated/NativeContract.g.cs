@@ -402,6 +402,20 @@ public partial struct NativeSceneLine3D
     public NativeMatrix4x4 Transform;
 }
 
+// Native source: progpu_native_scene_light_3d.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeSceneLight3D
+{
+    public uint StructSize;
+    public uint Kind;
+    public uint Flags;
+    public uint Reserved0;
+    public Vector4 Color;
+    public NativeFloat4 PositionRange;
+    public NativeFloat4 DirectionInnerCos;
+    public NativeFloat4 AttenuationOuterCos;
+}
+
 // Native source: progpu_native_scene_mesh_3d_vertex.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeSceneMesh3DVertex
@@ -436,6 +450,8 @@ public partial struct NativeSceneMesh3D
     public uint ShadingMode;
     public uint MaterialImageResourceIndex;
     public uint MaterialFactors;
+    public uint LightOffset;
+    public uint LightCount;
 }
 
 // Native source: progpu_native_hit_test_primitive.

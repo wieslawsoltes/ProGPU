@@ -686,6 +686,14 @@ public enum NativeMesh3DFlags : uint
     BackFace = 1U << 4
 }
 
+public enum NativeLight3DKind : uint
+{
+    Ambient = 0,
+    Directional = 1,
+    Point = 2,
+    Spot = 3
+}
+
 [Flags]
 public enum NativeSceneRecordFlags : uint
 {

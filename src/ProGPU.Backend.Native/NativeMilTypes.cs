@@ -451,7 +451,8 @@ public sealed record NativeMilViewport3DScene(
     NativeImageRect Viewport,
     NativeSceneMesh3D[] Meshes,
     NativeSceneMesh3DVertex[] Vertices,
-    uint[] Indices);
+    uint[] Indices,
+    NativeSceneLight3D[] Lights);
 
 public sealed class NativeMilException : Exception
 {
