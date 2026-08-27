@@ -677,6 +677,11 @@ directional intensity, 0.2 ambient intensity, half visual opacity, and a green
 specular term. Its center pixel is `77/51/0/255`, matching the composed light
 values, and changing shininess from 1 to 256 must change the final GPU image.
 This validates the same WGSL on Metal now and on the gated D3D12/Vulkan lanes.
+The gate also renders a fourth generation through an orthographic projection,
+requires it to differ from the perspective readback, and observes 278 colored
+pixels at `[48,28]-[66,47]` inside the same transformed viewport/clip. Both
+camera families therefore execute through retained MIL and the shared GPU
+projection path.
 
 - Implement the remaining 2D/3D resource execution, curve dashes, exact
   translated-equivalent EvenOdd overlap execution, remaining pen/image/media

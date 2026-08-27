@@ -3597,6 +3597,11 @@ uses realistic shading and observes center RGBA `77/51/0/255` from 0.4
 directional intensity, 0.2 ambient intensity, and 0.5 visual opacity; changing
 shininess from 1 to 256 must also change the readback. A hardcoded exponent or
 ignored ABI intensity therefore fails live cross-backend qualification.
+An additional retained generation uses an orthographic projection and must
+differ from the perspective readback while staying inside the identical
+transformed viewport and clip. The Metal reference contains 278 colored pixels
+at `[48,28]-[66,47]`; this keeps perspective and orthographic cameras on the
+same reusable GPU projection, depth, lighting, and rasterization implementation.
 
 The engine validates every untrusted count, offset, size, enum, finite float,
 resource generation, and nesting depth before allocation or GPU submission.
