@@ -8,6 +8,9 @@ public class EffectsBenchmarks
 {
     private Bitmap _pointwiseBitmap = null!;
     private Bitmap _convolutionBitmap = null!;
+    private Bitmap _drawSource = null!;
+    private Bitmap _drawTarget = null!;
+    private Graphics _drawGraphics = null!;
     private InvertEffect _invert = null!;
     private BlurEffect _blur = null!;
 
@@ -16,6 +19,9 @@ public class EffectsBenchmarks
     {
         _pointwiseBitmap = CreateGradient(256, 256);
         _convolutionBitmap = CreateGradient(256, 256);
+        _drawSource = CreateGradient(64, 64);
+        _drawTarget = new Bitmap(64, 64);
+        _drawGraphics = Graphics.FromImage(_drawTarget);
         _invert = new InvertEffect();
         _blur = new BlurEffect(8f, expandEdge: true);
     }
@@ -34,13 +40,25 @@ public class EffectsBenchmarks
         return _convolutionBitmap.GetPixel(128, 128);
     }
 
+    [Benchmark]
+    public int RecordInvertDraw64x64()
+    {
+        _drawGraphics.DrawImage(_drawSource, _invert);
+        int commandCount = _drawTarget.RecordedContext.Commands.Count;
+        _drawTarget.RecordedContext.Clear();
+        return commandCount;
+    }
+
     [GlobalCleanup]
     public void DisposeBitmaps()
     {
         _invert.Dispose();
         _blur.Dispose();
+        _drawGraphics.Dispose();
         _pointwiseBitmap.Dispose();
         _convolutionBitmap.Dispose();
+        _drawSource.Dispose();
+        _drawTarget.Dispose();
     }
 
     private static Bitmap CreateGradient(int width, int height)

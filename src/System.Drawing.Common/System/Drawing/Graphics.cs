@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Drawing.Imaging.Effects;
 using System.Drawing.Text;
 using System.Globalization;
 using System.Numerics;
@@ -3335,6 +3336,73 @@ public class Graphics :
     }
 
     public void DrawImage(Image image, Rectangle rect) => DrawImage(image, (RectangleF)rect);
+
+    /// <inheritdoc cref="DrawImage(Image, Effect, RectangleF, Matrix?, GraphicsUnit, ImageAttributes?)"/>
+    public void DrawImage(Image image, Effect effect) =>
+        DrawImage(image, effect, srcRect: default, transform: default, GraphicsUnit.Pixel, imageAttr: null);
+
+    /// <summary>Draws a portion of an image after applying a specified effect.</summary>
+    public void DrawImage(
+        Image image,
+        Effect effect,
+        RectangleF srcRect = default,
+        Matrix? transform = default,
+        GraphicsUnit srcUnit = GraphicsUnit.Pixel,
+        ImageAttributes? imageAttr = default)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(effect);
+        ThrowIfDisposed();
+
+        if (image is not Bitmap bitmap)
+        {
+            throw new NotSupportedException("Effect drawing currently requires bitmap-backed image storage.");
+        }
+
+        RectangleF sourcePixels = srcRect.IsEmpty
+            ? new RectangleF(0f, 0f, bitmap.Width, bitmap.Height)
+            : ConvertSourceRect(srcRect, srcUnit);
+        ValidateEffectSourceRectangle(sourcePixels, bitmap.Width, bitmap.Height);
+
+        Matrix3x2 effectTransform = transform?.Value ?? Matrix3x2.Identity;
+        Vector2 topLeft = Vector2.Transform(new Vector2(sourcePixels.Left, sourcePixels.Top), effectTransform);
+        Vector2 topRight = Vector2.Transform(new Vector2(sourcePixels.Right, sourcePixels.Top), effectTransform);
+        Vector2 bottomLeft = Vector2.Transform(new Vector2(sourcePixels.Left, sourcePixels.Bottom), effectTransform);
+        Vector2 bottomRight = Vector2.Transform(new Vector2(sourcePixels.Right, sourcePixels.Bottom), effectTransform);
+        _ = CreateProjectiveWeights(topLeft, topRight, bottomRight, bottomLeft, isPerspective: false);
+
+        using var effectedBitmap = new Bitmap(bitmap);
+        effectedBitmap.ApplyEffect(effect, Rectangle.FromLTRB(
+            checked((int)MathF.Floor(sourcePixels.Left)),
+            checked((int)MathF.Floor(sourcePixels.Top)),
+            checked((int)MathF.Ceiling(sourcePixels.Right)),
+            checked((int)MathF.Ceiling(sourcePixels.Bottom))));
+        DrawMappedBitmap(
+            effectedBitmap,
+            topLeft,
+            topRight,
+            bottomRight,
+            bottomLeft,
+            Vector4.One,
+            sourcePixels,
+            imageAttr);
+    }
+
+    private static void ValidateEffectSourceRectangle(RectangleF rectangle, int imageWidth, int imageHeight)
+    {
+        if (!float.IsFinite(rectangle.X) || !float.IsFinite(rectangle.Y) ||
+            !float.IsFinite(rectangle.Width) || !float.IsFinite(rectangle.Height) ||
+            rectangle.Width <= 0f || rectangle.Height <= 0f)
+        {
+            throw new ArgumentException("The source rectangle must be finite and non-empty.", "srcRect");
+        }
+
+        if (rectangle.Left < 0f || rectangle.Top < 0f ||
+            rectangle.Right > imageWidth || rectangle.Bottom > imageHeight)
+        {
+            throw new ArgumentException("The source rectangle must be contained within the image.", "srcRect");
+        }
+    }
 
     public void DrawImage(Image image, PointF[] destPoints)
     {

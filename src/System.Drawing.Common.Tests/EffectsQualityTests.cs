@@ -1,5 +1,6 @@
 using System.Drawing.Imaging;
 using System.Drawing.Imaging.Effects;
+using System.Drawing.Drawing2D;
 using Xunit;
 
 namespace System.Drawing.Tests;
@@ -140,6 +141,66 @@ public sealed class EffectsQualityTests
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
         Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void GraphicsDrawImageEffectDrawsWithoutMutatingSource()
+    {
+        using var source = new Bitmap(2, 1);
+        source.SetPixel(0, 0, Color.Red);
+        source.SetPixel(1, 0, Color.Green);
+        using var target = new Bitmap(2, 1);
+        using var effect = new InvertEffect();
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.DrawImage(source, effect);
+        }
+
+        Assert.Equal(Color.Cyan.ToArgb(), target.GetPixel(0, 0).ToArgb());
+        Assert.Equal(Color.FromArgb(255, 255, 127, 255).ToArgb(), target.GetPixel(1, 0).ToArgb());
+        Assert.Equal(Color.Red.ToArgb(), source.GetPixel(0, 0).ToArgb());
+        Assert.Equal(Color.Green.ToArgb(), source.GetPixel(1, 0).ToArgb());
+    }
+
+    [Fact]
+    public void GraphicsDrawImageEffectComposesCropTransformAndAttributes()
+    {
+        using var source = new Bitmap(2, 1);
+        source.SetPixel(0, 0, Color.Red);
+        source.SetPixel(1, 0, Color.Green);
+        using var target = new Bitmap(2, 1);
+        using var effect = new InvertEffect();
+        using var transform = new Matrix(1f, 0f, 0f, 1f, 1f, 0f);
+        using var attributes = new ImageAttributes();
+        attributes.SetRemapTable(new ColorMap { OldColor = Color.Cyan, NewColor = Color.Yellow });
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.DrawImage(
+                source,
+                effect,
+                new RectangleF(0f, 0f, 1f, 1f),
+                transform,
+                GraphicsUnit.Pixel,
+                attributes);
+        }
+
+        Assert.Equal(0, target.GetPixel(0, 0).A);
+        Assert.Equal(Color.Yellow.ToArgb(), target.GetPixel(1, 0).ToArgb());
+    }
+
+    [Fact]
+    public void GraphicsDrawImageEffectRejectsOutOfBoundsSourceBeforeRecording()
+    {
+        using var source = new Bitmap(2, 1);
+        using var target = new Bitmap(2, 1);
+        using var effect = new InvertEffect();
+        using Graphics graphics = Graphics.FromImage(target);
+
+        Assert.Throws<ArgumentException>(() => graphics.DrawImage(
+            source,
+            effect,
+            new RectangleF(1f, 0f, 2f, 1f)));
+        Assert.Empty(target.RecordedContext.Commands);
     }
 
     [Theory]

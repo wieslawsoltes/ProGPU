@@ -143,14 +143,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.DrawImage(System.Drawing.Image,System.Drawing.Imaging.Effects.Effect,System.Drawing.RectangleF,System.Drawing.Drawing2D.Matrix,System.Drawing.GraphicsUnit,System.Drawing.Imaging.ImageAttributes)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Graphics.DrawImage(System.Drawing.Image,System.Drawing.Imaging.Effects.Effect)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Graphics.EnumerateMetafile(System.Drawing.Imaging.Metafile,System.Drawing.Point,System.Drawing.Graphics.EnumerateMetafileProc,System.IntPtr,System.Drawing.Imaging.ImageAttributes)</Target>
   </Suppression>
   <Suppression>
