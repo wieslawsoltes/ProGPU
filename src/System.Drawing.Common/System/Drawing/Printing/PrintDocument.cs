@@ -1,6 +1,8 @@
+using System.ComponentModel;
+
 namespace System.Drawing.Printing;
 
-public class PrintDocument : IDisposable
+public class PrintDocument : Component
 {
     private PrinterSettings _printerSettings = new();
     private PageSettings _defaultPageSettings;
@@ -88,8 +90,4 @@ public class PrintDocument : IDisposable
     protected virtual void OnQueryPageSettings(QueryPageSettingsEventArgs e) => QueryPageSettings?.Invoke(this, e);
 
     public override string ToString() => $"[PrintDocument DocumentName={DocumentName}]";
-
-    public void Dispose()
-    {
-    }
 }

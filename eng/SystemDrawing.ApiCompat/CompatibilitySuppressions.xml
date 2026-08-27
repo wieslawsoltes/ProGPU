@@ -710,10 +710,6 @@
     <Target>M:System.Drawing.Pen.TranslateTransform(System.Single,System.Single)</Target>
   </Suppression>
   <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.InvalidPrinterException.#ctor(System.Runtime.Serialization.SerializationInfo,System.Runtime.Serialization.StreamingContext)</Target>
-  </Suppression>
-  <Suppression>
     <DiagnosticId>CP0003</DiagnosticId>
     <Target>System.Drawing.Common, Version=10.0.0.0, Culture=neutral, PublicKeyToken=c29c9752855ee183</Target>
   </Suppression>
@@ -724,14 +720,6 @@
   <Suppression>
     <DiagnosticId>CP0007</DiagnosticId>
     <Target>T:System.Drawing.Icon</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0007</DiagnosticId>
-    <Target>T:System.Drawing.Printing.PrintDocument</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0007</DiagnosticId>
-    <Target>T:System.Drawing.Printing.QueryPageSettingsEventArgs</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0008</DiagnosticId>
@@ -787,22 +775,6 @@
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0009</DiagnosticId>
-    <Target>T:System.Drawing.Printing.QueryPageSettingsEventArgs</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0009</DiagnosticId>
     <Target>T:System.Drawing.ToolboxBitmapAttribute</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0012</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PreviewPrintController.get_UseAntiAlias</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0012</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PreviewPrintController.set_UseAntiAlias(System.Boolean)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0012</DiagnosticId>
-    <Target>P:System.Drawing.Printing.PreviewPrintController.UseAntiAlias</Target>
   </Suppression>
 </Suppressions>

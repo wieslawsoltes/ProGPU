@@ -1,6 +1,8 @@
 using System.Collections;
 using System.ComponentModel;
 using System.Drawing.Printing;
+using System.Reflection;
+using System.Runtime.Serialization;
 using Xunit;
 
 namespace System.Drawing.Tests;
@@ -194,5 +196,69 @@ public sealed class PrinterSettingsCollectionQualityTests
         }
 
         Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
+    [Fact]
+    public void PrintingTypesPreserveCanonicalManagedInheritanceAndVirtualShape()
+    {
+        Assert.Equal(typeof(Component), typeof(PrintDocument).BaseType);
+        Assert.Equal(typeof(PrintEventArgs), typeof(QueryPageSettingsEventArgs).BaseType);
+        Assert.False(typeof(QueryPageSettingsEventArgs).IsSealed);
+
+        PropertyInfo useAntiAlias = typeof(PreviewPrintController)
+            .GetProperty(nameof(PreviewPrintController.UseAntiAlias))!;
+        Assert.True(useAntiAlias.GetMethod!.IsVirtual);
+        Assert.True(useAntiAlias.SetMethod!.IsVirtual);
+
+        ConstructorInfo? serializationConstructor = typeof(InvalidPrinterException)
+            .GetConstructor(
+                BindingFlags.Instance | BindingFlags.NonPublic,
+                binder: null,
+                [typeof(SerializationInfo), typeof(StreamingContext)],
+                modifiers: null);
+        Assert.NotNull(serializationConstructor);
+        Assert.True(serializationConstructor.IsFamily);
+    }
+
+    [Fact]
+    public void PrintingManagedBaseContractsRemainFunctional()
+    {
+        bool disposed = false;
+        var document = new PrintDocument();
+        document.Disposed += (_, _) => disposed = true;
+        document.Dispose();
+        Assert.True(disposed);
+
+        var initial = new PageSettings();
+        var args = new QueryPageSettingsEventArgs(initial);
+        Assert.Same(initial, args.PageSettings);
+        Assert.Equal(PrintAction.PrintToPrinter, args.PrintAction);
+
+        args.PageSettings = null!;
+        Assert.NotNull(args.PageSettings);
+
+        var controller = new DerivedPreviewPrintController();
+        controller.UseAntiAlias = true;
+        Assert.True(controller.UseAntiAlias);
+        Assert.Equal(2, controller.SetterCalls);
+    }
+
+    private sealed class DerivedPreviewPrintController : PreviewPrintController
+    {
+        private bool _useAntiAlias;
+
+        public int SetterCalls { get; private set; }
+
+        public override bool UseAntiAlias
+        {
+            get => _useAntiAlias;
+            set
+            {
+                SetterCalls++;
+                _useAntiAlias = value;
+                base.UseAntiAlias = value;
+                SetterCalls++;
+            }
+        }
     }
 }

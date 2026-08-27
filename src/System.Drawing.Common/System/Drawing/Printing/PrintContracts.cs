@@ -66,11 +66,28 @@ public delegate void PrintEventHandler(object sender, PrintEventArgs e);
 public delegate void PrintPageEventHandler(object sender, PrintPageEventArgs e);
 public delegate void QueryPageSettingsEventHandler(object sender, QueryPageSettingsEventArgs e);
 
-public sealed class QueryPageSettingsEventArgs : CancelEventArgs
+public class QueryPageSettingsEventArgs : PrintEventArgs
 {
+    private PageSettings _pageSettings;
+
     public QueryPageSettingsEventArgs(PageSettings pageSettings) =>
-        PageSettings = pageSettings ?? throw new ArgumentNullException(nameof(pageSettings));
-    public PageSettings PageSettings { get; set; }
+        _pageSettings = pageSettings;
+
+    public PageSettings PageSettings
+    {
+        get
+        {
+            PageSettingsChanged = true;
+            return _pageSettings;
+        }
+        set
+        {
+            _pageSettings = value ?? new PageSettings();
+            PageSettingsChanged = true;
+        }
+    }
+
+    internal bool PageSettingsChanged { get; set; }
 }
 
 public sealed class PreviewPageInfo
@@ -105,7 +122,7 @@ public class PreviewPrintController : PrintController
     private Bitmap? _currentBitmap;
 
     public override bool IsPreview => true;
-    public bool UseAntiAlias { get; set; }
+    public virtual bool UseAntiAlias { get; set; }
 
     public override void OnStartPrint(PrintDocument document, PrintEventArgs e)
     {
@@ -137,10 +154,19 @@ public class PreviewPrintController : PrintController
     public PreviewPageInfo[] GetPreviewPageInfo() => _pages.ToArray();
 }
 
+[Serializable]
 public class InvalidPrinterException : SystemException
 {
     public InvalidPrinterException(PrinterSettings settings)
         : base($"The printer settings for '{settings?.PrinterName}' are not valid.")
+    {
+    }
+
+    [Obsolete(DiagnosticId = "SYSLIB0051")]
+    protected InvalidPrinterException(
+        System.Runtime.Serialization.SerializationInfo info,
+        System.Runtime.Serialization.StreamingContext context)
+        : base(info, context)
     {
     }
 }
