@@ -170,6 +170,7 @@ public sealed class PortableViewport3DCamera
 public sealed class PortableViewport3DMesh
 {
     private static readonly PortableVector3[] s_emptyVectors = System.Array.Empty<PortableVector3>();
+    private static readonly PortablePoint[] s_emptyPoints = System.Array.Empty<PortablePoint>();
     private static readonly int[] s_emptyIndices = System.Array.Empty<int>();
 
     public object? Geometry { get; set; }
@@ -179,6 +180,12 @@ public sealed class PortableViewport3DMesh
     public PortableVector3[] Positions { get; set; } = s_emptyVectors;
 
     public PortableVector3[] Normals { get; set; } = s_emptyVectors;
+
+    /// <summary>
+    /// Gets or sets WPF mesh brush coordinates. Missing trailing coordinates
+    /// have the canonical WPF value (0,0).
+    /// </summary>
+    public PortablePoint[] TextureCoordinates { get; set; } = s_emptyPoints;
 
     public int[] Indices { get; set; } = s_emptyIndices;
 
