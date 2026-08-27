@@ -11620,8 +11620,7 @@ struct channel::implementation {
             const auto scene = viewport3d_scenes.find(handle);
             if (scene == viewport3d_scenes.end()) {
                 result = status::unsupported_command;
-            } else if (content_scope.has_clip ||
-                       content_scope.mask_resource_index !=
+            } else if (content_scope.mask_resource_index !=
                            PROGPU_NATIVE_SCENE_NO_INDEX ||
                        content_scope.guideline_resource_index !=
                            PROGPU_NATIVE_SCENE_NO_INDEX) {
