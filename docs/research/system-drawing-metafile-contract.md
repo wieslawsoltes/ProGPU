@@ -35,10 +35,12 @@ Placeable WMF parsing validates the XOR checksum, nonzero units-per-inch,
 ordered bounds, the declared word count, maximum-record declaration, record
 word lengths, and terminal `META_EOF`. Standard WMF has no device-independent
 frame; its initial public bounds remain empty until playback derives a window
-and viewport. EMF parsing validates the declared byte and record counts,
-four-byte record alignment, every record's in-buffer extent, and terminal
-`EMR_EOF`. The header's device-pixel and physical-millimeter sizes derive DPI
-only when both denominators are positive.
+and viewport. EMF parsing validates the declared byte count, four-byte record
+alignment, every record's in-buffer extent, and terminal `EMR_EOF`. The record
+count accepts both specification-shaped producers that include `EMR_HEADER` and
+legacy Windows-compatible producers that count only the records following the
+header; no other count mismatch is accepted. The header's device-pixel and
+physical-millimeter sizes derive DPI only when both denominators are positive.
 
 An `EMR_GDICOMMENT` immediately following the EMF header may contain an EMF+
 stream. Its identifier, 12-byte record headers, aligned sizes, data sizes,
@@ -87,9 +89,12 @@ enumeration session without accepting arbitrary native addresses.
 The implemented EMF record set is deliberately narrow: `EMR_SAVEDC`, relative
 negative `EMR_RESTOREDC`, `MM_TEXT` and `MM_ANISOTROPIC` window/viewport state,
 world-transform set/modify, polygon fill mode, move/line, rectangle, ellipse,
-polygon/polyline, solid or null cosmetic pen creation, solid or null brush
-creation, stock/dynamic selection, and safe deletion. EMF/EMF+ structural and
-comment records are nonvisual. The byte layouts and playback state follow the
+polygon/polyline/poly-polygon/poly-polyline, intersect-clip rectangles,
+transparent/opaque background state, `R2_COPYPEN`, solid or null cosmetic pen
+creation, solid or null brush creation, stock/dynamic selection, and safe
+deletion. Saved DC state includes the retained clip and restores it through the
+typed `GraphicsState` path. EMF/EMF+ structural and comment records are
+nonvisual. The byte layouts and playback state follow the
 official [EMR_RECTANGLE](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/3c471238-0a02-4992-90a2-bfd2afd98f2a),
 [EMR_CREATEBRUSHINDIRECT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/b9a8ef5d-0089-4e42-b317-e6ebc0ff098f),
 [EMR_CREATEPEN](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/2374647f-df67-48e3-86aa-384715c28e71),
@@ -138,6 +143,7 @@ access violations, hangs, partial objects, or unbounded allocation.
 Rendering gates compare representative primitives and state transitions in the
 managed bitmap compositor. The first gate covers retained pixels, destination
 scaling and translation, object selection, map/world/save/restore composition,
+saved clip restoration, multi-polygon count/point validation,
 explicit image-attribute/projective rejection, and transactional rollback after
 a supported draw but before an unsupported record. Windows differential and
 headless GPU fixtures remain follow-up evidence. Supported records lower to

@@ -334,7 +334,10 @@ internal static class MetafileParser
             }
         }
 
-        if (!sawEof || records.Count != declaredRecordCount || records[0].Type != EmfPlusRecordType.EmfHeader)
+        uint parsedRecordCount = checked((uint)records.Count);
+        bool countMatches = parsedRecordCount == declaredRecordCount ||
+            parsedRecordCount - 1 == declaredRecordCount;
+        if (!sawEof || !countMatches || records[0].Type != EmfPlusRecordType.EmfHeader)
         {
             throw InvalidMetafile();
         }

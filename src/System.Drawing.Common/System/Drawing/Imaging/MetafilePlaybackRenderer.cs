@@ -109,6 +109,16 @@ internal static class MetafilePlaybackRenderer
                 };
                 return;
 
+            case EmfPlusRecordType.EmfSetBkMode:
+                RequireSize(record, payload, 4);
+                state.SetBackgroundMode(ReadInt32(payload, 0), record);
+                return;
+
+            case EmfPlusRecordType.EmfSetROP2:
+                RequireSize(record, payload, 4);
+                state.SetRasterOperation(ReadInt32(payload, 0), record);
+                return;
+
             case EmfPlusRecordType.EmfMoveToEx:
                 RequireSize(record, payload, 8);
                 state.CurrentPoint = ReadPoint(payload);
@@ -141,6 +151,19 @@ internal static class MetafilePlaybackRenderer
 
             case EmfPlusRecordType.EmfPolyline:
                 DrawPolygon(state, record, payload, close: false);
+                return;
+
+            case EmfPlusRecordType.EmfPolyPolygon:
+                DrawPolyPoly(state, record, payload, close: true);
+                return;
+
+            case EmfPlusRecordType.EmfPolyPolyline:
+                DrawPolyPoly(state, record, payload, close: false);
+                return;
+
+            case EmfPlusRecordType.EmfIntersectClipRect:
+                RequireSize(record, payload, 16);
+                state.IntersectClip(record, ReadRectangle(record, payload));
                 return;
 
             case EmfPlusRecordType.EmfSaveDC:
@@ -270,6 +293,96 @@ internal static class MetafilePlaybackRenderer
             else
             {
                 state.Graphics.DrawLines(pen, points);
+            }
+        }
+    }
+
+    private static void DrawPolyPoly(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload,
+        bool close)
+    {
+        if (payload.Length < 24)
+        {
+            throw Invalid(record);
+        }
+
+        uint polygonCountValue = ReadUInt32(payload, 16);
+        uint pointCountValue = ReadUInt32(payload, 20);
+        if (polygonCountValue == 0 || polygonCountValue > 1_000_000 ||
+            pointCountValue > 1_000_000)
+        {
+            throw Invalid(record);
+        }
+
+        int polygonCount;
+        int pointCount;
+        int pointsOffset;
+        int expectedSize;
+        try
+        {
+            polygonCount = checked((int)polygonCountValue);
+            pointCount = checked((int)pointCountValue);
+            pointsOffset = checked(24 + polygonCount * 4);
+            expectedSize = checked(pointsOffset + pointCount * 8);
+        }
+        catch (OverflowException exception)
+        {
+            throw Invalid(record, exception);
+        }
+        RequireSize(record, payload, expectedSize);
+
+        int consumedPoints = 0;
+        for (int polygonIndex = 0; polygonIndex < polygonCount; polygonIndex++)
+        {
+            uint currentCountValue = ReadUInt32(payload, 24 + polygonIndex * 4);
+            int currentCount;
+            try
+            {
+                currentCount = checked((int)currentCountValue);
+                consumedPoints = checked(consumedPoints + currentCount);
+            }
+            catch (OverflowException exception)
+            {
+                throw Invalid(record, exception);
+            }
+            if (currentCount < (close ? 3 : 2) || consumedPoints > pointCount)
+            {
+                throw Invalid(record);
+            }
+        }
+        if (consumedPoints != pointCount)
+        {
+            throw Invalid(record);
+        }
+
+        state.ApplyTransform(record);
+        int pointIndex = 0;
+        for (int polygonIndex = 0; polygonIndex < polygonCount; polygonIndex++)
+        {
+            int currentCount = checked((int)ReadUInt32(payload, 24 + polygonIndex * 4));
+            var points = new Point[currentCount];
+            for (int index = 0; index < currentCount; index++)
+            {
+                points[index] = ReadPoint(payload[(pointsOffset + pointIndex * 8)..]);
+                pointIndex++;
+            }
+
+            if (close && state.SelectedBrush is Brush brush)
+            {
+                state.Graphics.FillPolygon(brush, points, state.FillMode);
+            }
+            if (state.SelectedPen is Pen pen)
+            {
+                if (close)
+                {
+                    state.Graphics.DrawPolygon(pen, points);
+                }
+                else
+                {
+                    state.Graphics.DrawLines(pen, points);
+                }
             }
         }
     }
@@ -412,6 +525,8 @@ internal static class MetafilePlaybackRenderer
         internal Matrix3x2 WorldTransform { get; set; } = Matrix3x2.Identity;
         internal FillMode FillMode { get; set; } = FillMode.Alternate;
         internal int MapMode { get; set; } = 1;
+        internal int BackgroundMode { get; set; } = 2;
+        internal int RasterOperation { get; set; } = 13;
         internal Pen? SelectedPen => _selectedPen;
         internal Brush? SelectedBrush => _selectedBrush;
 
@@ -494,6 +609,30 @@ internal static class MetafilePlaybackRenderer
             }
         }
 
+        internal void SetBackgroundMode(int mode, in MetafileRecord record)
+        {
+            if (mode is not 1 and not 2)
+            {
+                throw Unsupported(record, "Only TRANSPARENT and OPAQUE background modes are valid.");
+            }
+            BackgroundMode = mode;
+        }
+
+        internal void SetRasterOperation(int operation, in MetafileRecord record)
+        {
+            if (operation != 13)
+            {
+                throw Unsupported(record, "The initial vector player supports R2_COPYPEN only.");
+            }
+            RasterOperation = operation;
+        }
+
+        internal void IntersectClip(in MetafileRecord record, Rectangle rectangle)
+        {
+            ApplyTransform(record);
+            Graphics.IntersectClip(rectangle);
+        }
+
         internal void ModifyWorldTransform(
             Matrix3x2 transform,
             uint mode,
@@ -513,17 +652,24 @@ internal static class MetafilePlaybackRenderer
             }
         }
 
-        internal void Save() => _savedStates.Add(new SavedState(
-            WindowOrigin,
-            WindowExtent,
-            ViewportOrigin,
-            ViewportExtent,
-            CurrentPoint,
-            WorldTransform,
-            FillMode,
-            MapMode,
-            _selectedPen,
-            _selectedBrush));
+        internal void Save()
+        {
+            GraphicsState graphicsState = Graphics.Save();
+            _savedStates.Add(new SavedState(
+                WindowOrigin,
+                WindowExtent,
+                ViewportOrigin,
+                ViewportExtent,
+                CurrentPoint,
+                WorldTransform,
+                FillMode,
+                MapMode,
+                BackgroundMode,
+                RasterOperation,
+                _selectedPen,
+                _selectedBrush,
+                graphicsState));
+        }
 
         internal void Restore(int savedDc, in MetafileRecord record)
         {
@@ -549,8 +695,11 @@ internal static class MetafilePlaybackRenderer
             WorldTransform = saved.WorldTransform;
             FillMode = saved.FillMode;
             MapMode = saved.MapMode;
+            BackgroundMode = saved.BackgroundMode;
+            RasterOperation = saved.RasterOperation;
             _selectedPen = saved.SelectedPen;
             _selectedBrush = saved.SelectedBrush;
+            Graphics.Restore(saved.GraphicsState);
         }
 
         internal void CreatePen(ReadOnlySpan<byte> payload, in MetafileRecord record)
@@ -692,8 +841,11 @@ internal static class MetafilePlaybackRenderer
             Matrix3x2 WorldTransform,
             FillMode FillMode,
             int MapMode,
+            int BackgroundMode,
+            int RasterOperation,
             Pen? SelectedPen,
-            Brush? SelectedBrush);
+            Brush? SelectedBrush,
+            GraphicsState GraphicsState);
     }
 
     private sealed class NullPenMarker

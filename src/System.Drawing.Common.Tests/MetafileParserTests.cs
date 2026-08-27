@@ -78,6 +78,19 @@ public sealed class MetafileParserTests
         Assert.Throws<ArgumentException>(() => _ = header.WmfHeader);
     }
 
+    [Fact]
+    public void EmfAcceptsADeclaredRecordCountThatExcludesTheHeaderRecord()
+    {
+        byte[] bytes = CreateLargeEmf(1);
+        WriteUInt32(bytes, 52, 2);
+
+        using var metafile = new Metafile(new MemoryStream(bytes));
+
+        Assert.Equal(3, metafile.Records.Length);
+        Assert.Equal(EmfPlusRecordType.EmfHeader, metafile.Records[0].Type);
+        Assert.Equal(EmfPlusRecordType.EmfEof, metafile.Records[2].Type);
+    }
+
     [Theory]
     [InlineData(false, MetafileType.EmfPlusOnly)]
     [InlineData(true, MetafileType.EmfPlusDual)]
@@ -290,7 +303,7 @@ public sealed class MetafileParserTests
     public void EmfPlaybackFailureDoesNotPublishPartialCommands()
     {
         byte[] bytes = CreatePlaybackEmf();
-        WriteUInt32(bytes, 204, (uint)EmfPlusRecordType.EmfSetBkMode);
+        WriteUInt32(bytes, 204, (uint)EmfPlusRecordType.EmfSetTextColor);
         using var metafile = new Metafile(new MemoryStream(bytes));
         using var target = new Bitmap(16, 16);
         using (Graphics graphics = Graphics.FromImage(target))
@@ -298,7 +311,7 @@ public sealed class MetafileParserTests
             graphics.Clear(Color.Blue);
             NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
                 graphics.DrawImage(metafile, new Rectangle(0, 0, 16, 16)));
-            Assert.Contains(nameof(EmfPlusRecordType.EmfSetBkMode), exception.Message, StringComparison.Ordinal);
+            Assert.Contains(nameof(EmfPlusRecordType.EmfSetTextColor), exception.Message, StringComparison.Ordinal);
             Assert.Contains("byte offset 204", exception.Message, StringComparison.Ordinal);
         }
 
@@ -363,6 +376,22 @@ public sealed class MetafileParserTests
         }
 
         Assert.Equal(Color.Green.ToArgb(), target.GetPixel(4, 4).ToArgb());
+    }
+
+    [Fact]
+    public void EmfPlaybackRestoresClipAndDrawsPolyPolygonRecords()
+    {
+        using var metafile = new Metafile(new MemoryStream(CreateClippedPolyPolygonEmf()));
+        using var target = new Bitmap(20, 20);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 20, 20));
+        }
+
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(4, 4).ToArgb());
+        Assert.Equal(0, target.GetPixel(14, 4).A);
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(14, 14).ToArgb());
     }
 
     [Fact]
@@ -788,6 +817,75 @@ public sealed class MetafileParserTests
         return bytes;
     }
 
+    private static byte[] CreateClippedPolyPolygonEmf()
+    {
+        byte[] bytes = new byte[376];
+        WriteUInt32(bytes, 0, (uint)EmfPlusRecordType.EmfHeader);
+        WriteUInt32(bytes, 4, 88);
+        WriteInt32(bytes, 16, 10);
+        WriteInt32(bytes, 20, 10);
+        WriteInt32(bytes, 32, 264);
+        WriteInt32(bytes, 36, 264);
+        WriteUInt32(bytes, 40, 0x464D_4520);
+        WriteUInt32(bytes, 44, 0x0001_0000);
+        WriteUInt32(bytes, 48, (uint)bytes.Length);
+        WriteUInt32(bytes, 52, 13);
+        WriteUInt16(bytes, 56, 2);
+        WriteInt32(bytes, 72, 96);
+        WriteInt32(bytes, 76, 96);
+        WriteInt32(bytes, 80, 25);
+        WriteInt32(bytes, 84, 25);
+
+        WriteRecordUInt32(bytes, 88, EmfPlusRecordType.EmfSelectObject, 0x8000_0004);
+        WriteRecordUInt32(bytes, 100, EmfPlusRecordType.EmfSelectObject, 0x8000_0008);
+        WriteRecordInt32(bytes, 112, EmfPlusRecordType.EmfSetBkMode, 1);
+        WriteRecordInt32(bytes, 124, EmfPlusRecordType.EmfSetROP2, 13);
+        WriteUInt32(bytes, 136, (uint)EmfPlusRecordType.EmfSaveDC);
+        WriteUInt32(bytes, 140, 8);
+        WriteRectangleRecord(bytes, 144, EmfPlusRecordType.EmfIntersectClipRect, 0, 0, 5, 10);
+
+        WriteUInt32(bytes, 168, (uint)EmfPlusRecordType.EmfPolyPolygon);
+        WriteUInt32(bytes, 172, 88);
+        WriteInt32(bytes, 176, 1);
+        WriteInt32(bytes, 180, 1);
+        WriteInt32(bytes, 184, 9);
+        WriteInt32(bytes, 188, 4);
+        WriteUInt32(bytes, 192, 2);
+        WriteUInt32(bytes, 196, 6);
+        WriteUInt32(bytes, 200, 3);
+        WriteUInt32(bytes, 204, 3);
+        WritePoint(bytes, 208, 1, 1);
+        WritePoint(bytes, 216, 4, 1);
+        WritePoint(bytes, 224, 1, 4);
+        WritePoint(bytes, 232, 6, 1);
+        WritePoint(bytes, 240, 9, 1);
+        WritePoint(bytes, 248, 6, 4);
+
+        WriteRecordInt32(bytes, 256, EmfPlusRecordType.EmfRestoreDC, -1);
+        WriteUInt32(bytes, 268, (uint)EmfPlusRecordType.EmfCreateBrushIndirect);
+        WriteUInt32(bytes, 272, 24);
+        WriteUInt32(bytes, 276, 1);
+        WriteUInt32(bytes, 280, 0);
+        WriteUInt32(bytes, 284, 0x0000_00FF);
+        WriteRecordUInt32(bytes, 292, EmfPlusRecordType.EmfSelectObject, 1);
+
+        WriteUInt32(bytes, 304, (uint)EmfPlusRecordType.EmfPolygon);
+        WriteUInt32(bytes, 308, 52);
+        WriteInt32(bytes, 312, 6);
+        WriteInt32(bytes, 316, 6);
+        WriteInt32(bytes, 320, 9);
+        WriteInt32(bytes, 324, 9);
+        WriteUInt32(bytes, 328, 3);
+        WritePoint(bytes, 332, 6, 6);
+        WritePoint(bytes, 340, 9, 6);
+        WritePoint(bytes, 348, 6, 9);
+
+        WriteUInt32(bytes, 356, (uint)EmfPlusRecordType.EmfEof);
+        WriteUInt32(bytes, 360, 20);
+        WriteUInt32(bytes, 372, 20);
+        return bytes;
+    }
+
     private static void WriteRecordUInt32(
         byte[] target,
         int offset,
@@ -830,13 +928,36 @@ public sealed class MetafileParserTests
         int top,
         int right,
         int bottom)
+        => WriteRectangleRecord(
+            target,
+            offset,
+            EmfPlusRecordType.EmfRectangle,
+            left,
+            top,
+            right,
+            bottom);
+
+    private static void WriteRectangleRecord(
+        byte[] target,
+        int offset,
+        EmfPlusRecordType type,
+        int left,
+        int top,
+        int right,
+        int bottom)
     {
-        WriteUInt32(target, offset, (uint)EmfPlusRecordType.EmfRectangle);
+        WriteUInt32(target, offset, (uint)type);
         WriteUInt32(target, offset + 4, 24);
         WriteInt32(target, offset + 8, left);
         WriteInt32(target, offset + 12, top);
         WriteInt32(target, offset + 16, right);
         WriteInt32(target, offset + 20, bottom);
+    }
+
+    private static void WritePoint(byte[] target, int offset, int x, int y)
+    {
+        WriteInt32(target, offset, x);
+        WriteInt32(target, offset + 4, y);
     }
 
     private static void WriteUInt16(byte[] target, int offset, ushort value) =>

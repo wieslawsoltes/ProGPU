@@ -75,9 +75,13 @@ member suppression, leaving zero missing types, zero missing members, and 13
     The following direct-playback slice adds transactional `Graphics.DrawImage`
     lowering for an initial bounded EMF vector family: affine destination/source
     mapping; `MM_TEXT` and anisotropic window/viewport state; world transforms;
-    save/relative restore; fill mode; move/line, rectangle, ellipse,
-    polygon/polyline; and solid/null cosmetic pens and brushes with stock/dynamic
-    object selection. Unsupported or malformed records report their type and
+    save/relative restore including clip state; fill/background state and
+    `R2_COPYPEN`; move/line, rectangle, ellipse,
+    polygon/polyline/poly-polygon/poly-polyline; intersect-clip rectangles; and
+    solid/null cosmetic pens and brushes with stock/dynamic object selection.
+    The parser accepts the bounded legacy EMF record-count convention that
+    excludes `EMR_HEADER`, as used by a canonical WinForms test asset, while
+    rejecting every other count mismatch. Unsupported or malformed records report their type and
     source offset and publish no partial commands. Four-point perspective,
     image attributes, paths, clips, text, DIBs, WMF drawing, and nonstructural
     EMF+ drawing remain explicit follow-up work. Contract, security bounds, and benchmark evidence are recorded
@@ -189,7 +193,10 @@ deviation) and 305.26 KB allocation for 256 filled rectangles. This first
 coarse baseline includes transactional command/resource ownership and is an
 optimization target, not a zero-allocation claim. Focused gates independently
 verify pixels, destination transforms, saved/map/world state, explicit feature
-boundaries, and rollback after partial temporary lowering.
+boundaries, saved clip and multi-polygon behavior, and rollback after partial
+temporary lowering. A local unchanged-asset smoke renders the canonical
+WinForms `milkmateya01.emf` fixture end to end; the repository-owned synthetic
+gates preserve the same required record families for standalone ProGPU CI.
 
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the
