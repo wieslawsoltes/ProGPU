@@ -13,6 +13,7 @@ int blockArrayColumnCount = ReadNonNegativeInt("--block-array-columns", 0);
 int textEntityCount = ReadNonNegativeInt("--text-entities", 0);
 int shxTextEntityCount = ReadNonNegativeInt("--shx-text-entities", 0);
 bool decorateText = HasFlag("--text-decorations");
+bool decorateShxText = HasFlag("--shx-decorations");
 int shxInterpretationCount = ReadNonNegativeInt("--shx-interpretations", 0);
 int shxLayoutCount = ReadNonNegativeInt("--shx-layouts", 0);
 int warmupCount = ReadNonNegativeInt("--warmup", 3);
@@ -39,7 +40,8 @@ CadDocumentSession session = CreateDocument(
     blockArrayColumnCount,
     textEntityCount,
     shxTextEntityCount,
-    decorateText);
+    decorateText,
+    decorateShxText);
 var snapshotCompiler = new CadSnapshotCompiler();
 var pageSetupCompiler = new CadPageSetupCatalogCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
@@ -141,6 +143,7 @@ var report = new CadBenchmarkReport(
     textEntityCount,
     shxTextEntityCount,
     decorateText,
+    decorateShxText,
     shxInterpretationCount,
     shxLayoutCount,
     warmupCount,
@@ -204,7 +207,8 @@ CadDocumentSession CreateDocument(
     int arrayColumns,
     int textCount,
     int shxTextCount,
-    bool decorateTextRuns)
+    bool decorateTextRuns,
+    bool decorateShxTextRuns)
 {
     CadDocumentSession result = CadDocumentSession.CreateNew();
     result.Edit("Build benchmark document", document =>
@@ -285,7 +289,10 @@ CadDocumentSession CreateDocument(
             document.TextStyles.Add(textStyle);
             for (int i = 0; i < shxTextCount; i++)
             {
-                document.Entities.Add(new TextEntity("AAAAAAAA")
+                document.Entities.Add(new TextEntity(
+                    decorateShxTextRuns
+                        ? "%%uAAA%%u%%oAAA%%o%%kAA%%k"
+                        : "AAAAAAAA")
                 {
                     Style = textStyle,
                     InsertPoint = new XYZ((i % 100) * 32.0, (i / 100) * 4.0, 0),
@@ -468,6 +475,7 @@ internal sealed record CadBenchmarkReport(
     int TextEntityCount,
     int ShxTextEntityCount,
     bool DecoratedText,
+    bool DecoratedShxText,
     int ShxInterpretationCount,
     int ShxLayoutCount,
     int WarmupCount,

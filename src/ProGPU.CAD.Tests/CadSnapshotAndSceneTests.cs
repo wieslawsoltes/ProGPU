@@ -977,6 +977,132 @@ public sealed class CadSnapshotAndSceneTests
     }
 
     [Fact]
+    public void StandardShxDecorationsCoalesceIntoRetainedStrokeSegments()
+    {
+        CadShxGlyphCache cache = CreateShxCache();
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add decorated SHX text", document =>
+        {
+            var textStyle = new TextStyle("TESTSHX") { Filename = "test.shx" };
+            document.TextStyles.Add(textStyle);
+            document.Entities.Add(new TextEntity("%%uA %%u%%oA%%o%%kA%%k")
+            {
+                Style = textStyle,
+                Height = 10,
+            });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                ShxFontResolver = new FixedShxFontResolver(cache),
+            });
+        CadEntityHeader entity = Assert.Single(snapshot.Entities.ToArray());
+        CadShxTextPrimitive text = Assert.Single(snapshot.ShxTexts.ToArray());
+        CadShxDecorationSegment[] decorations = snapshot.ShxDecorationSegments.ToArray();
+        RenderCommand[] commands = new CadPlanSceneCompiler()
+            .Compile(snapshot)
+            .DrawingContext.Commands.ToArray();
+
+        Assert.Equal(4, text.GlyphCount);
+        Assert.Equal(0, text.DecorationOffset);
+        Assert.Equal(3, text.DecorationCount);
+        Assert.Equal(new CadShxDecorationSegment(0, -2, 40, -2), decorations[0]);
+        Assert.Equal(new CadShxDecorationSegment(40, 10, 70, 10), decorations[1]);
+        Assert.Equal(new CadShxDecorationSegment(70, 4, 100, 4), decorations[2]);
+        AssertPoint(new CadPoint3D(0, -2, 0), entity.Bounds.Min);
+        AssertPoint(new CadPoint3D(100, 10, 0), entity.Bounds.Max);
+        Assert.Equal(3, commands.Count(command => command.Type == RenderCommandType.DrawPath));
+        Assert.Equal(3, commands.Count(command => command.Type == RenderCommandType.DrawLine));
+        Assert.All(commands[^3..], command => Assert.Same(commands[0].Pen, command.Pen));
+    }
+
+    [Fact]
+    public void DualOrientationShxTextUsesTopCenterAndDownwardAuthoredAdvance()
+    {
+        CadShxGlyphCache cache = CreateDualOrientationShxCache();
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add vertical SHX text", document =>
+        {
+            var textStyle = new TextStyle("VERTICALSHX")
+            {
+                Filename = "vertical.shx",
+                Flags = StyleFlags.VerticalText,
+            };
+            document.TextStyles.Add(textStyle);
+            document.Entities.Add(new TextEntity("AA")
+            {
+                Style = textStyle,
+                InsertPoint = new XYZ(100, 200, 0),
+                Height = 10,
+                WidthFactor = 2,
+            });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                ShxFontResolver = new FixedShxFontResolver(cache),
+            });
+        CadEntityHeader entity = Assert.Single(snapshot.Entities.ToArray());
+        CadShxTextPrimitive text = Assert.Single(snapshot.ShxTexts.ToArray());
+        CadShxGlyphInstance[] glyphs = snapshot.ShxGlyphInstances.ToArray();
+        RenderCommand[] commands = new CadPlanSceneCompiler()
+            .Compile(snapshot)
+            .DrawingContext.Commands.ToArray();
+
+        AssertPoint(new CadPoint3D(100, 200, 0), text.Origin);
+        AssertPoint(new CadPoint3D(2, 0, 0), text.XAxis);
+        AssertPoint(new CadPoint3D(0, 1, 0), text.YAxis);
+        Assert.Equal(0, glyphs[0].Y);
+        Assert.Equal(-1, glyphs[1].Y);
+        AssertPoint(new CadPoint3D(98, 198, 0), entity.Bounds.Min);
+        AssertPoint(new CadPoint3D(100, 203, 0), entity.Bounds.Max);
+        Assert.Equal(2, commands.Length);
+        Assert.All(commands, command => Assert.Equal(RenderCommandType.DrawPath, command.Type));
+        Assert.InRange(Math.Abs((commands[1].Transform.M42 - commands[0].Transform.M42) + 1.0f), 0, 1e-5f);
+        Assert.Equal(1, cache.Count);
+    }
+
+    [Fact]
+    public void VerticalShxUnverifiedJustificationAndDecorationRemainExplicit()
+    {
+        CadShxGlyphCache cache = CreateDualOrientationShxCache();
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add gated vertical SHX text", document =>
+        {
+            var textStyle = new TextStyle("VERTICALSHX")
+            {
+                Filename = "vertical.shx",
+                Flags = StyleFlags.VerticalText,
+            };
+            document.TextStyles.Add(textStyle);
+            document.Entities.Add(new TextEntity("A")
+            {
+                Style = textStyle,
+                HorizontalAlignment = TextHorizontalAlignment.Center,
+            });
+            document.Entities.Add(new TextEntity("%%uA") { Style = textStyle });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                ShxFontResolver = new FixedShxFontResolver(cache),
+            });
+
+        Assert.Empty(snapshot.Entities.ToArray());
+        Assert.Equal(2, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
+            diagnostic.Message.Contains("non-default justification", StringComparison.Ordinal));
+        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
+            diagnostic.Message.Contains("vertical decoration", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void TrueTypeAndShxTextShareOneDocumentGlyphBudget()
     {
         CadShxGlyphCache cache = CreateShxCache();
@@ -1005,7 +1131,7 @@ public sealed class CadSnapshotAndSceneTests
     }
 
     [Fact]
-    public void UnsupportedShxModesRemainExplicitAndSubstitutionIsDiagnosed()
+    public void UnsupportedShxContainersAndOrientationRemainExplicitAndSubstitutionIsDiagnosed()
     {
         CadShxGlyphCache cache = CreateShxCache();
         CadDocumentSession session = CadDocumentSession.CreateNew();
@@ -1042,11 +1168,10 @@ public sealed class CadSnapshotAndSceneTests
                 ShxFontResolver = new FixedShxFontResolver(cache, isSubstitution: true),
             });
 
-        Assert.Single(snapshot.Entities.ToArray());
-        Assert.Equal(3, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Equal(2, snapshot.Entities.Length);
+        Assert.Equal(2, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Single(snapshot.ShxDecorationSegments.ToArray());
         Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic => diagnostic.Code == "CADSNAP006");
-        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
-            diagnostic.Message.Contains("decoration", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
             diagnostic.Message.Contains("Big Font", StringComparison.Ordinal));
         Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
@@ -1697,6 +1822,43 @@ public sealed class CadSnapshotAndSceneTests
             (0, "TESTSHX", new byte[] { 10, 2, 0, 0 }),
             (32, "SPACE", new byte[] { 2, 8, 10, 0, 0 }),
             (65, "UCA", new byte[] { 0xA4, 0xA0, 2, 8, 20, 0xF6, 0 }),
+        };
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true);
+        writer.Write("AutoCAD-86 shapes 1.0\r\n\x1A"u8);
+        writer.Write(shapes.Min(shape => shape.Number));
+        writer.Write(shapes.Max(shape => shape.Number));
+        writer.Write(checked((ushort)shapes.Length));
+        foreach ((ushort number, string name, byte[] program) in shapes)
+        {
+            byte[] nameBytes = Encoding.ASCII.GetBytes(name);
+            writer.Write(number);
+            writer.Write(checked((ushort)(nameBytes.Length + 1 + program.Length)));
+        }
+        foreach ((ushort _, string name, byte[] program) in shapes)
+        {
+            writer.Write(Encoding.ASCII.GetBytes(name));
+            writer.Write((byte)0);
+            writer.Write(program);
+        }
+        writer.Write("EOF"u8);
+        return new CadShxGlyphCache(CadShxFont.Parse(stream.ToArray()));
+    }
+
+    private static CadShxGlyphCache CreateDualOrientationShxCache()
+    {
+        (ushort Number, string Name, byte[] Program)[] shapes =
+        {
+            (0, "VERTICALSHX", new byte[] { 10, 2, 2, 0 }),
+            (32, "SPACE", new byte[] { 2, 8, 10, 0, 14, 8, 0xF6, 0xF6, 0 }),
+            (65, "UCA", new byte[]
+            {
+                2, 14, 8, 0xFF, 2,
+                1, 0x14,
+                2, 8, 2, 0xFF,
+                14, 8, 0xFF, 0xFD,
+                0,
+            }),
         };
         using var stream = new MemoryStream();
         using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true);

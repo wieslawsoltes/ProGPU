@@ -146,12 +146,14 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   recursion, commands, output, scale, coordinates, and the specified four-entry
   position stack. `CadShxGlyphCache` and `CadShxTextLayout` retain interpreted
   glyphs per font/shape/orientation and produce bounded standard-font character
-  placements. A typed host resolver now supplies those caches to standard
-  horizontal SHX TEXT lowering. The immutable snapshot packs placements and
-  affine text bases, and the plan compiler records each drawable placement with
-  its shared analytic glyph path. Unicode and Big Font containers, vertical
-  STYLE layout, decoration metric policy, and automatic desktop filesystem
-  discovery remain explicit gates.
+  placements. A typed host resolver supplies those caches to horizontal SHX
+  TEXT and default-insertion dual-orientation vertical TEXT lowering. The
+  immutable snapshot packs placements, coalesced horizontal decoration strokes,
+  and affine text bases; the plan compiler records each drawable placement with
+  its shared analytic glyph path. Compiled Unicode and Big Font containers plus
+  non-default/decorated vertical placement remain explicit gates. Ordered,
+  bounded desktop discovery is host initialization work rather than a render-
+  path filesystem dependency.
 
 The exact approved ProGPU-owned implementation provenance for this slice is
 `src/ProGPU.Scene/RenderCommand.cs` (`DrawingContext.DrawLine`, `DrawEllipse`,
@@ -670,8 +672,8 @@ Unicode equivalents map to the standard format's reserved shapes 256, 257, and
 without changing glyph identity. Missing shapes, malformed controls, surrogate
 pairs, unsupported nonstandard Unicode, empty control-only strings, coordinate
 growth, and code-unit/glyph limits fail explicitly. Decoration flags are
-retained per placement for the later metric policy; they are not silently
-dropped or rendered at guessed positions.
+retained per placement so snapshot lowering can coalesce exact authored spans
+without rescanning or rewriting the source string.
 
 `CadSnapshotCompiler` accepts an `ICadShxFontResolver`, keeping desktop font
 search, browser-bundled assets, and application substitution policy outside the
@@ -681,10 +683,23 @@ path bounds, and composes effective width, oblique shear, generation mirrors,
 OCS rotation/normal, justification, and ancestor block transforms into one
 double-precision basis. Align and Fit use the two authored endpoints: Align
 changes both axes while preserving the width-factor aspect ratio, and Fit keeps
-the authored height while changing horizontal scale. A substituted SHX font
-emits `CADSNAP006`. Missing glyphs, non-horizontal authored advances, Big Font,
-vertical STYLE, and decoration toggles reject the affected entity rather than
-guessing layout.
+the authored height while changing horizontal scale. Horizontal overline,
+underline, and strike-through flags are coalesced into retained stroke segments
+at `above`, `-below`, and the midpoint of that font-header box respectively.
+The spans include decorated spaces, share the entity's fixed-device-space pen,
+and add at most three segments per placed glyph.
+
+A dual-orientation standard font can also lower a default-justified vertical
+STYLE. The font's command-14 program remains authoritative: the entity insert
+point is the documented top-center start, each character must produce a
+downward Y-only authored advance, and the normal height, width-factor, oblique,
+mirror, OCS rotation/normal, and ancestor-block basis is composed once. This
+does not rotate horizontal glyph geometry or synthesize a vertical advance.
+Non-default vertical justification and decorated vertical text still reject the
+affected entity because their placement has not yet been independently
+verified. A substituted SHX font emits `CADSNAP006`. Missing glyphs,
+orientation-inconsistent per-character advances, Big Font, and unsupported
+vertical placement reject the affected entity rather than guessing layout.
 
 `CadShxFontCatalog` is the default reusable resolver for hosts and benchmark
 fixtures. Initialization parses or registers immutable standard caches under a
@@ -741,10 +756,12 @@ per line. Parsing is `O(B)` time and `O(M + T)` retained storage for source byte
 generation; cross-kind mappings remain retained configuration data for the later
 unified TrueType/SHX resolver and cannot silently enter the standard SHX path.
 
-The snapshot owns packed `CadShxGlyphInstance` placements but references the
-resolver-owned immutable `CadShxGlyph` metadata. Plan recording is `O(G)` and
-emits one existing `DrawPath` command for each drawable stroked glyph, applying
-only a placement transform; spaces and other pen-up-only shapes emit no command.
+The snapshot owns packed `CadShxGlyphInstance` placements and
+`CadShxDecorationSegment` values but references the resolver-owned immutable
+`CadShxGlyph` metadata. Plan recording is `O(G + D)` and emits one existing
+`DrawPath` command for each drawable stroked glyph plus one `DrawLine` per
+coalesced decoration segment, applying only retained affine placement; spaces
+and other pen-up-only shapes emit no glyph command. `D` is bounded by `3G`.
 All repeated character instances share the same cached `PathGeometry`, so
 snapshot compilation neither reinterprets nor clones glyph outlines. TrueType
 and SHX placements share one document-wide glyph budget. Freezing the recorded
@@ -755,17 +772,23 @@ The binary container layout was independently observed from the compiled
 no ACadSharp or other third-party parser implementation was consulted or
 copied. The regression reads that compiled artifact as an observable fixture.
 Program semantics and the 2,000-byte definition limit come only from the
-official Autodesk shape/font documentation linked below. The pinned fixture
+official Autodesk shape/font documentation linked below. Autodesk's Unicode
+documentation specifies the source `*UNIFONT` header, 16-bit shape numbers,
+and two-byte command-7 references, but not the compiled container layout; no
+compiled Unicode or Big Font parser is inferred from a foreign implementation
+or signature alone. The pinned standard fixture
 also executes through the new interpreter, while independent synthetic tests
 cover every command family, direction geometry, analytic endpoints/radii,
-horizontal/vertical behavior, state composition, cycles, malformed programs,
-and configured bounds. The managed snapshot/recording adapter changes no
+horizontal/vertical behavior, default top-center vertical snapshot placement,
+decoration run coalescing, state composition, cycles, malformed programs, and
+configured bounds. The managed snapshot/recording adapter changes no
 shader, C ABI, compositor algorithm, or GPU resource contract. It feeds the
-pre-existing retained analytic `DrawPath` command consumed by both managed and
-native picture compilers, so a distinct native SHX parser or per-glyph boundary
-call is neither required nor permitted. Existing native analytic-path lowering
-tests remain the paired integration gate; CAD-specific managed/native image
-differentials remain required before full fidelity acceptance.
+pre-existing retained analytic `DrawPath` and `DrawLine` commands consumed by
+both managed and native picture compilers, so a distinct native SHX parser or
+per-glyph boundary call is neither required nor permitted. Existing native
+line/analytic-path lowering tests remain the paired integration gate;
+CAD-specific managed/native image differentials remain required before full
+fidelity acceptance.
 
 The Release benchmark's optional `--shx-interpretations` lane measures fresh
 uncached path construction outside the document pipeline. Two 24-iteration,
@@ -786,6 +809,18 @@ bytes per batch in both runs. This is a device-independent placement baseline,
 not retained replay and not an improvement claim. Snapshot integration packs
 those placements into generation-owned arrays and reuses the cached glyph paths;
 it does not reinterpret or clone eight path graphs per TEXT entity.
+
+The 2026-08-28 Release decoration baseline used the same final binary, 1,000
+eight-glyph SHX entities, five warmups, and 50 measured iterations. Plain and
+three-run decorated inputs recorded 8,000 and 11,000 commands respectively.
+Snapshot p50/p95/p99 was 7.052/22.980/40.892 ms with 1,900,393 managed bytes for
+plain input and 5.403/17.117/21.360 ms with 3,035,375 bytes for decorated input.
+Plan recording was 7.614/39.206/44.884 ms and 10,816,762 bytes versus
+11.158/58.786/129.463 ms and 15,616,681 bytes. Process-order and GC effects make
+the latency tails unsuitable for a comparative claim; these numbers establish
+the explicit retained-command and allocation cost of three decoration segments
+per entity. The snapshot path uses one generation-owned packed decoration list
+and no per-entity decoration staging list or array.
 
 The 2026-08-27 Release applicability/performance audit compared commit
 `778dc69f` with this lowering on the same Apple Silicon/.NET 10 machine and the
@@ -925,6 +960,7 @@ dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --bloc
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --warmup 5 --iterations 50 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --text-decorations --warmup 3 --iterations 50 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --shx-text-entities 1000 --warmup 3 --iterations 24 --queries 1000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --shx-text-entities 1000 --shx-decorations --warmup 3 --iterations 24 --queries 1000
 ```
 
 The initial 2026-08-27 Apple Silicon/.NET 10 baseline for 10,000 mixed analytic
@@ -1260,10 +1296,13 @@ Sources consulted on 2026-08-27:
   a later unified resolver contract.
 - [Autodesk vertical text-style behavior](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-32786109-F454-47DD-AA4C-FB8C37F4430D.htm)
   and [Text Style dialog contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-1ED81E98-6463-4574-875F-183C8280C4AC.htm):
-  adopted vertical SHX/Big Font mode as a distinct font capability and retained
-  the explicit ordinary-TrueType vertical-style gate; rejected synthesizing
-  vertical Latin TrueType layout for a contract Autodesk reserves for vertical
-  SHX/Big Fonts and supported Asian vertical faces.
+  adopted vertical SHX/Big Font mode as a distinct font capability, the
+  dual-orientation availability gate, and the standard SHX default top-center
+  insertion/downward-advance contract; retained the explicit ordinary-TrueType
+  vertical-style gate. Rejected synthesizing vertical Latin TrueType layout for
+  a contract Autodesk reserves for vertical SHX/Big Fonts and supported Asian
+  vertical faces, and retained non-default/decorated vertical placement as an
+  explicit gate pending observable conformance evidence.
 - [Skia shaped-text design](https://docs.skia.org/docs/dev/design/text_shaper/),
   [SkParagraph decoration declarations](https://skia.googlesource.com/skia/+/7a1bf999357aa755768f7b72265b91eea5c2758c/modules/skparagraph/include/TextStyle.h),
   and [Skia text guidance](https://skia.org/docs/user/tips/): adopted separation

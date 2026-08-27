@@ -92,6 +92,7 @@ public sealed class CadSnapshotCompiler
         var textFontIndices = new Dictionary<TtfFont, int>(ReferenceEqualityComparer.Instance);
         var shxTexts = new List<CadShxTextPrimitive>();
         var shxGlyphInstances = new List<CadShxGlyphInstance>();
+        var shxDecorationSegments = new List<CadShxDecorationSegment>();
         var polylineVertices = new List<CadPolylineVertex>();
         var polyline3DPoints = new List<CadPoint3D>();
         var splineControlPoints = new List<CadPoint3D>();
@@ -153,6 +154,7 @@ public sealed class CadSnapshotCompiler
             textFonts.ToArray(),
             shxTexts.ToArray(),
             shxGlyphInstances.ToArray(),
+            shxDecorationSegments.ToArray(),
             polylineVertices.ToArray(),
             polyline3DPoints.ToArray(),
             splineControlPoints.ToArray(),
@@ -272,6 +274,7 @@ public sealed class CadSnapshotCompiler
                         textFontIndices,
                         shxTexts,
                         shxGlyphInstances,
+                        shxDecorationSegments,
                         shxFontResolver),
                     MText => throw new CadUnsupportedEntityException(
                         "MTEXT requires inline-format, paragraph, column, background, and attachment lowering."),
@@ -1039,6 +1042,7 @@ public sealed class CadSnapshotCompiler
         Dictionary<TtfFont, int> fontIndices,
         List<CadShxTextPrimitive> shxTexts,
         List<CadShxGlyphInstance> shxGlyphInstances,
+        List<CadShxDecorationSegment> shxDecorationSegments,
         ICadShxFontResolver? shxFontResolver)
     {
         if (text.Thickness != 0.0)
@@ -1085,6 +1089,7 @@ public sealed class CadSnapshotCompiler
                 diagnostics,
                 shxTexts,
                 shxGlyphInstances,
+                shxDecorationSegments,
                 glyphIndices.Count,
                 shxFontResolver);
         }
@@ -1371,6 +1376,7 @@ public sealed class CadSnapshotCompiler
         List<CadDiagnostic> diagnostics,
         List<CadShxTextPrimitive> destination,
         List<CadShxGlyphInstance> glyphInstances,
+        List<CadShxDecorationSegment> decorationSegments,
         int retainedTrueTypeGlyphCount,
         ICadShxFontResolver? shxFontResolver)
     {
@@ -1380,10 +1386,13 @@ public sealed class CadSnapshotCompiler
             throw new CadUnsupportedEntityException(
                 "Big Font TEXT requires the distinct bounded Big Font container and character-range contract.");
         }
-        if (cadStyle.Flags.HasFlag(StyleFlags.VerticalText))
+        bool isVertical = cadStyle.Flags.HasFlag(StyleFlags.VerticalText);
+        if (isVertical &&
+            (text.HorizontalAlignment != TextHorizontalAlignment.Left ||
+             text.VerticalAlignment != TextVerticalAlignmentType.Baseline))
         {
             throw new CadUnsupportedEntityException(
-                "Vertical SHX STYLE requires vertical anchoring and decoration lowering.");
+                "Vertical SHX TEXT currently requires the documented default top-center insertion contract; non-default justification requires a verified vertical placement contract.");
         }
 
         ICadShxFontResolver resolver = shxFontResolver ??
@@ -1403,7 +1412,7 @@ public sealed class CadSnapshotCompiler
             layout = new CadShxTextLayout(
                 text.Value,
                 cache,
-                CadShxOrientation.Horizontal,
+                isVertical ? CadShxOrientation.Vertical : CadShxOrientation.Horizontal,
                 new CadShxTextLayoutOptions
                 {
                     MaxCodeUnits = options.MaxTextCodeUnitsPerEntity,
@@ -1418,12 +1427,41 @@ public sealed class CadSnapshotCompiler
         }
 
         ReadOnlySpan<CadShxGlyphPlacement> placements = layout.Glyphs.Span;
-        for (int i = 0; i < placements.Length; i++)
+        if (isVertical)
         {
-            if (placements[i].Decorations != CadShxTextDecoration.None)
+            for (int i = 0; i < placements.Length; i++)
             {
-                throw new CadUnsupportedEntityException(
-                    "Decorated SHX TEXT requires an explicit standard-font decoration metric policy.");
+                CadShxGlyphPlacement placement = placements[i];
+                if (placement.Decorations != CadShxTextDecoration.None)
+                {
+                    throw new CadUnsupportedEntityException(
+                        "Decorated vertical SHX TEXT requires independently verified vertical decoration placement.");
+                }
+                if (Math.Abs(placement.Glyph.Advance.X) >
+                        Math.Max(1.0, Math.Abs(placement.Glyph.Advance.Y)) * 1e-6 ||
+                    placement.Glyph.Advance.Y > 0.0f)
+                {
+                    throw new CadUnsupportedEntityException(
+                        $"Vertical standard SHX TEXT requires downward Y-only character advances; " +
+                        $"font '{cache.Font.Name}' shape {placement.Glyph.ShapeNumber} produced " +
+                        $"({placement.Glyph.Advance.X:R}, {placement.Glyph.Advance.Y:R}).");
+                }
+            }
+        }
+        else
+        {
+            for (int i = 0; i < placements.Length; i++)
+            {
+                CadShxGlyphPlacement placement = placements[i];
+                if (Math.Abs(placement.Glyph.Advance.Y) >
+                        Math.Max(1.0, Math.Abs(placement.Glyph.Advance.X)) * 1e-6 ||
+                    placement.Glyph.Advance.X < 0.0f)
+                {
+                    throw new CadUnsupportedEntityException(
+                        $"Horizontal standard SHX TEXT requires nonnegative X-only character advances; " +
+                        $"font '{cache.Font.Name}' shape {placement.Glyph.ShapeNumber} produced " +
+                        $"({placement.Glyph.Advance.X:R}, {placement.Glyph.Advance.Y:R}).");
+                }
             }
         }
         if (placements.Length > options.MaxTextGlyphs -
@@ -1445,25 +1483,26 @@ public sealed class CadSnapshotCompiler
                 "TEXT height, width, rotation, and oblique angle must define a finite non-degenerate transform.");
         }
 
-        double width = layout.Advance.X;
-        if (!double.IsFinite(width) || width <= 0.0 ||
-            Math.Abs(layout.Advance.Y) > Math.Max(1.0, width) * 1e-6)
+        double flowLength = isVertical ? -layout.Advance.Y : layout.Advance.X;
+        double crossAdvance = isVertical ? layout.Advance.X : layout.Advance.Y;
+        if (!double.IsFinite(flowLength) || flowLength <= 0.0 ||
+            Math.Abs(crossAdvance) > Math.Max(1.0, flowLength) * 1e-6)
         {
             throw new CadUnsupportedEntityException(
-                $"Horizontal standard SHX TEXT requires a finite positive X-only baseline advance; " +
+                $"{(isVertical ? "Vertical" : "Horizontal")} standard SHX TEXT requires a finite positive axis-aligned advance; " +
                 $"font '{cache.Font.Name}' produced ({layout.Advance.X:R}, {layout.Advance.Y:R}).");
         }
 
-        double horizontalOffset = text.HorizontalAlignment switch
+        double horizontalOffset = isVertical ? 0.0 : text.HorizontalAlignment switch
         {
-            TextHorizontalAlignment.Center or TextHorizontalAlignment.Middle => -width * 0.5,
-            TextHorizontalAlignment.Right => -width,
+            TextHorizontalAlignment.Center or TextHorizontalAlignment.Middle => -flowLength * 0.5,
+            TextHorizontalAlignment.Right => -flowLength,
             _ => 0.0,
         };
         TextVerticalAlignmentType verticalAlignment = text.HorizontalAlignment == TextHorizontalAlignment.Middle
             ? TextVerticalAlignmentType.Middle
             : text.VerticalAlignment;
-        double verticalOffset = verticalAlignment switch
+        double verticalOffset = isVertical ? 0.0 : verticalAlignment switch
         {
             TextVerticalAlignmentType.Top => -cache.Font.Above,
             TextVerticalAlignmentType.Middle => -(cache.Font.Above - cache.Font.Below) * 0.5,
@@ -1471,7 +1510,7 @@ public sealed class CadSnapshotCompiler
             _ => 0.0,
         };
 
-        bool isTwoPointAlignment = text.HorizontalAlignment is
+        bool isTwoPointAlignment = !isVertical && text.HorizontalAlignment is
             TextHorizontalAlignment.Aligned or TextHorizontalAlignment.Fit;
         CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(text.Normal));
         CadPoint3D anchor;
@@ -1497,7 +1536,7 @@ public sealed class CadSnapshotCompiler
 
             cosine = deltaX / baselineLength;
             sine = deltaY / baselineLength;
-            xScale = baselineLength / width;
+            xScale = baselineLength / flowLength;
             if (text.HorizontalAlignment == TextHorizontalAlignment.Aligned)
             {
                 yScale = xScale / widthFactor;
@@ -1507,8 +1546,9 @@ public sealed class CadSnapshotCompiler
         }
         else
         {
-            bool usesAlignmentPoint = text.HorizontalAlignment != TextHorizontalAlignment.Left ||
-                text.VerticalAlignment != TextVerticalAlignmentType.Baseline;
+            bool usesAlignmentPoint = !isVertical &&
+                (text.HorizontalAlignment != TextHorizontalAlignment.Left ||
+                 text.VerticalAlignment != TextVerticalAlignmentType.Baseline);
             anchor = basis.Transform(ToPoint(
                 usesAlignmentPoint ? text.AlignmentPoint : text.InsertPoint));
             cosine = Math.Cos(text.Rotation);
@@ -1542,14 +1582,30 @@ public sealed class CadSnapshotCompiler
         EnsureFinite(xAxis);
         EnsureFinite(yAxis);
 
-        double minimumX = Math.Min(horizontalOffset, layout.BoundsMin.X + horizontalOffset);
-        double maximumX = Math.Max(horizontalOffset + width, layout.BoundsMax.X + horizontalOffset);
-        double minimumY = Math.Min(
-            verticalOffset - cache.Font.Below,
-            layout.BoundsMin.Y + verticalOffset);
-        double maximumY = Math.Max(
-            verticalOffset + cache.Font.Above,
-            layout.BoundsMax.Y + verticalOffset);
+        double minimumX;
+        double maximumX;
+        double minimumY;
+        double maximumY;
+        if (isVertical)
+        {
+            minimumX = Math.Min(0.0, layout.BoundsMin.X);
+            maximumX = Math.Max(0.0, layout.BoundsMax.X);
+            minimumY = Math.Min(layout.Advance.Y, layout.BoundsMin.Y);
+            maximumY = Math.Max(0.0, layout.BoundsMax.Y);
+        }
+        else
+        {
+            minimumX = Math.Min(horizontalOffset, layout.BoundsMin.X + horizontalOffset);
+            maximumX = Math.Max(
+                horizontalOffset + flowLength,
+                layout.BoundsMax.X + horizontalOffset);
+            minimumY = Math.Min(
+                verticalOffset - cache.Font.Below,
+                layout.BoundsMin.Y + verticalOffset);
+            maximumY = Math.Max(
+                verticalOffset + cache.Font.Above,
+                layout.BoundsMax.Y + verticalOffset);
+        }
         CadBounds3D bounds = CadBounds3D.FromPoint(
             TransformTextPoint(anchor, xAxis, yAxis, minimumX, minimumY));
         bounds = bounds
@@ -1571,13 +1627,24 @@ public sealed class CadSnapshotCompiler
             glyphInstances.Add(new CadShxGlyphInstance(placement.Glyph, x, y));
         }
 
+        int decorationOffset = decorationSegments.Count;
+        int decorationCount = isVertical
+            ? 0
+            : AppendShxDecorations(
+                placements,
+                cache.Font,
+                horizontalOffset,
+                verticalOffset,
+                decorationSegments);
         int primitiveIndex = destination.Count;
         destination.Add(new CadShxTextPrimitive(
             anchor,
             xAxis,
             yAxis,
             glyphOffset,
-            placements.Length));
+            placements.Length,
+            decorationOffset,
+            decorationCount));
         if (fontResolution.IsSubstitution)
         {
             string resolved = string.IsNullOrWhiteSpace(fontResolution.ResolvedFontName)
@@ -1599,6 +1666,122 @@ public sealed class CadSnapshotCompiler
             styleIndex,
             primitiveIndex,
             bounds);
+    }
+
+    private struct ShxDecorationAccumulator
+    {
+        public bool IsActive;
+        public double Start;
+        public double End;
+    }
+
+    private static int AppendShxDecorations(
+        ReadOnlySpan<CadShxGlyphPlacement> placements,
+        CadShxFont font,
+        double horizontalOffset,
+        double verticalOffset,
+        List<CadShxDecorationSegment> destination)
+    {
+        CadShxTextDecoration used = CadShxTextDecoration.None;
+        for (int i = 0; i < placements.Length; i++)
+        {
+            used |= placements[i].Decorations;
+        }
+        if (used == CadShxTextDecoration.None)
+        {
+            return 0;
+        }
+
+        int initialCount = destination.Count;
+        var overline = new ShxDecorationAccumulator();
+        var underline = new ShxDecorationAccumulator();
+        var strikeThrough = new ShxDecorationAccumulator();
+        double overlineY = verticalOffset + font.Above;
+        double underlineY = verticalOffset - font.Below;
+        double strikeThroughY = verticalOffset + ((font.Above - font.Below) * 0.5);
+        for (int i = 0; i < placements.Length; i++)
+        {
+            CadShxGlyphPlacement placement = placements[i];
+            double start = horizontalOffset + placement.Origin.X;
+            double end = start + placement.Glyph.Advance.X;
+            UpdateShxDecoration(
+                ref overline,
+                placement.Decorations.HasFlag(CadShxTextDecoration.Overline),
+                start,
+                end,
+                overlineY,
+                destination);
+            UpdateShxDecoration(
+                ref underline,
+                placement.Decorations.HasFlag(CadShxTextDecoration.Underline),
+                start,
+                end,
+                underlineY,
+                destination);
+            UpdateShxDecoration(
+                ref strikeThrough,
+                placement.Decorations.HasFlag(CadShxTextDecoration.StrikeThrough),
+                start,
+                end,
+                strikeThroughY,
+                destination);
+        }
+
+        FlushShxDecoration(ref overline, overlineY, destination);
+        FlushShxDecoration(ref underline, underlineY, destination);
+        FlushShxDecoration(ref strikeThrough, strikeThroughY, destination);
+        return destination.Count - initialCount;
+    }
+
+    private static void UpdateShxDecoration(
+        ref ShxDecorationAccumulator accumulator,
+        bool enabled,
+        double start,
+        double end,
+        double y,
+        List<CadShxDecorationSegment> destination)
+    {
+        if (!enabled)
+        {
+            FlushShxDecoration(ref accumulator, y, destination);
+            return;
+        }
+
+        if (!accumulator.IsActive)
+        {
+            accumulator.IsActive = true;
+            accumulator.Start = start;
+        }
+        accumulator.End = end;
+    }
+
+    private static void FlushShxDecoration(
+        ref ShxDecorationAccumulator accumulator,
+        double y,
+        List<CadShxDecorationSegment> destination)
+    {
+        if (!accumulator.IsActive)
+        {
+            return;
+        }
+
+        if (accumulator.Start != accumulator.End)
+        {
+            float start = checked((float)accumulator.Start);
+            float end = checked((float)accumulator.End);
+            float ordinate = checked((float)y);
+            if (!float.IsFinite(start) || !float.IsFinite(end) || !float.IsFinite(ordinate))
+            {
+                throw new ArithmeticException(
+                    "SHX TEXT decoration coordinates exceed the retained numeric range.");
+            }
+            destination.Add(new CadShxDecorationSegment(
+                start,
+                ordinate,
+                end,
+                ordinate));
+        }
+        accumulator = default;
     }
 
     private static int InternTextFont(

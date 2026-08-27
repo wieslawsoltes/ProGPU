@@ -65,7 +65,8 @@ public sealed class CadRecordedPlanScene
 /// the entity count and P is the total spline control/knot/weight data copied into the
 /// retained context. Large WCS coordinates are rebased before their checked float
 /// conversion. Text adds O(R + D) retained commands for R contiguous font runs
-/// and D decoration rectangles; it does not copy or expand glyph streams. A later
+/// and D TrueType decoration rectangles or SHX decoration segments; it does not
+/// copy or expand glyph streams. A later
 /// camera or viewport change can reuse the recorded scene.
 /// </remarks>
 public sealed class CadPlanSceneCompiler
@@ -89,7 +90,8 @@ public sealed class CadPlanSceneCompiler
             entities.Length +
             Math.Max(0, snapshot.TextGlyphRuns.Length - snapshot.Texts.Length) +
             snapshot.TextDecorations.Length +
-            snapshot.ShxGlyphInstances.Length));
+            snapshot.ShxGlyphInstances.Length +
+            snapshot.ShxDecorationSegments.Length));
         Pen[] pens = CreatePens(styles, options);
         var diagnostics = new List<CadDiagnostic>();
         var warnedLineTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -548,6 +550,25 @@ public sealed class CadPlanSceneCompiler
                 text.YAxis,
                 snapshot.RebaseOrigin);
             context.DrawPath(null, pen, glyph.Glyph.Path, transform);
+        }
+
+        ReadOnlySpan<CadShxDecorationSegment> decorations =
+            snapshot.ShxDecorationSegments.Span.Slice(
+                text.DecorationOffset,
+                text.DecorationCount);
+        for (int i = 0; i < decorations.Length; i++)
+        {
+            CadShxDecorationSegment decoration = decorations[i];
+            CadPoint3D start = text.Origin +
+                (text.XAxis * decoration.StartX) +
+                (text.YAxis * decoration.StartY);
+            CadPoint3D end = text.Origin +
+                (text.XAxis * decoration.EndX) +
+                (text.YAxis * decoration.EndY);
+            context.DrawLine(
+                pen,
+                Project(start, snapshot.RebaseOrigin),
+                Project(end, snapshot.RebaseOrigin));
         }
     }
 
