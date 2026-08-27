@@ -215,10 +215,19 @@ theme resources.
 
 The desktop host uses the existing ProGPU WinUI/GLFW presentation path. The
 browser host uses `BrowserGpuRuntime`, canonical ProGPU browser assets, SIMD,
-native Wasm linking, and the same shared viewer assembly. These hosts are an
-executable engine-integration baseline, not yet the complete CAD editor shell:
-file pickers, layers/properties, selection, tools, printing, and save workflows
-remain tracked application phases.
+native Wasm linking, and the same shared viewer assembly. One shared shell now
+uses ProGPU's typed `FileOpenPicker`, `FileSavePicker`, and `StorageFile`
+contracts to open DXF/DWG bytes through `CadDocumentStore`, rebuild one retained
+picture, and save to native paths or browser downloads. Save remains explicitly
+labelled uncertified in the UI and opts into development output; an unknown
+destination extension is rejected rather than receiving mismatched content.
+Staged saves defer their saved-generation commit until the platform storage
+write succeeds, so a failed native write or browser download cannot mark the
+session clean.
+
+The hosts remain an executable engine-integration baseline, not yet the complete
+CAD editor shell: layers/properties, selection, editing tools, printing, and
+round-trip-certified output remain tracked application phases.
 
 The Release browser AOT publish succeeds. Its linker audit currently reports
 annotation warnings in ACadSharp's initialization/reflection utilities and in
@@ -228,9 +237,18 @@ not use reflection.
 
 Exact in-repository host provenance is `src/ProGPU.Samples.Desktop/Program.cs`,
 `src/ProGPU.Samples.Browser/Program.cs`, and
-`src/ProGPU.Browser/BrowserAssets/`. The new programs reuse their public host
-contracts and link the canonical browser JavaScript assets; no third-party host
-implementation was copied.
+`src/ProGPU.Browser/BrowserAssets/`. File workflow provenance is the existing
+ProGPU-owned `src/ProGPU.WinUI/Core/Storage.cs`,
+`src/ProGPU.WinRT/Windows/Storage/StorageFile.cs`, and
+`src/ProGPU.Browser/BrowserStorageServices.cs`. The new programs reuse those
+public host/storage contracts and link the canonical browser JavaScript assets;
+no third-party host implementation was copied.
+
+The 2026-08-27 desktop Release smoke opened a real `floorplan.dxf` through the
+native picker and rendered its retained plan (`967` visible entities, `194`
+unsupported entities, and `709` diagnostics) with the shared toolbar/status
+shell. The browser Debug build completed its native Wasm link with zero warnings;
+an interactive browser picker/download smoke remains open.
 
 ## Editing model
 

@@ -26,6 +26,10 @@ public sealed class CadSampleCanvas : FrameworkElement
     private bool _isPanning;
     private bool _needsFit = true;
 
+    public CadDocumentSession? CurrentSession { get; private set; }
+
+    public CadDocumentSnapshot? CurrentSnapshot { get; private set; }
+
     public CadSampleCanvas()
     {
         HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -46,6 +50,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         GpuPicture picture = scene.CreatePicture();
         GpuPicture? previous = _picture;
         _picture = picture;
+        CurrentSession = session;
+        CurrentSnapshot = snapshot;
         _bounds = snapshot.Bounds;
         _needsFit = true;
         previous?.Dispose();

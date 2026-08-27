@@ -21,7 +21,7 @@ public sealed class CadSampleApp : Application
             Height = 800,
             GlyphAtlasSize = 2048,
         };
-        _window.Content = new CadSampleCanvas();
+        _window.Content = new CadSampleView();
         _window.Activate();
     }
 }

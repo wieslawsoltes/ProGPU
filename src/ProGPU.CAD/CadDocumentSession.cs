@@ -151,15 +151,34 @@ public sealed class CadDocumentSession
         return generation;
     }
 
-    internal TResult Save<TResult>(Func<CadDocument, ulong, TResult> save)
+    internal TResult Save<TResult>(
+        bool markSaved,
+        Func<CadDocument, ulong, TResult> save)
     {
         ArgumentNullException.ThrowIfNull(save);
 
         lock (_gate)
         {
             TResult result = save(_document, _contentGeneration);
-            _savedGeneration = _contentGeneration;
+            if (markSaved)
+            {
+                _savedGeneration = _contentGeneration;
+            }
             return result;
+        }
+    }
+
+    internal bool TryMarkSaved(ulong generation)
+    {
+        lock (_gate)
+        {
+            if (generation > _contentGeneration || generation < _savedGeneration)
+            {
+                return false;
+            }
+
+            _savedGeneration = generation;
+            return true;
         }
     }
 }

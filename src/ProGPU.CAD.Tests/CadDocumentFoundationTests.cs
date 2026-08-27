@@ -119,6 +119,64 @@ public sealed class CadDocumentFoundationTests
     }
 
     [Fact]
+    public async Task DeferredSaveMarksCleanOnlyAfterDestinationCommit()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit(
+            "Add line",
+            document => document.Entities.Add(new Line(XYZ.Zero, new XYZ(1, 2, 0))));
+        var store = new CadDocumentStore();
+        using var output = new MemoryStream();
+
+        CadSaveResult save = await store.SaveAsync(
+            session,
+            output,
+            CadDocumentFormat.Dxf,
+            new CadSaveOptions
+            {
+                AllowUncertifiedWrite = true,
+                DeferSavedGenerationCommit = true,
+            });
+
+        Assert.True(session.IsDirty);
+        Assert.Equal(0UL, session.SavedGeneration);
+        Assert.True(save.RequiresSavedGenerationCommit);
+        Assert.True(save.CommitSavedGeneration());
+        Assert.False(save.RequiresSavedGenerationCommit);
+        Assert.False(session.IsDirty);
+        Assert.False(save.CommitSavedGeneration());
+    }
+
+    [Fact]
+    public async Task DeferredSaveKeepsLaterEditsDirtyAfterCommit()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit(
+            "Add line",
+            document => document.Entities.Add(new Line(XYZ.Zero, new XYZ(1, 2, 0))));
+        var store = new CadDocumentStore();
+        using var output = new MemoryStream();
+
+        CadSaveResult save = await store.SaveAsync(
+            session,
+            output,
+            CadDocumentFormat.Dxf,
+            new CadSaveOptions
+            {
+                AllowUncertifiedWrite = true,
+                DeferSavedGenerationCommit = true,
+            });
+        session.Edit(
+            "Add newer line",
+            document => document.Entities.Add(new Line(XYZ.Zero, new XYZ(3, 4, 0))));
+
+        Assert.True(save.CommitSavedGeneration());
+        Assert.Equal(1UL, session.SavedGeneration);
+        Assert.Equal(2UL, session.ContentGeneration);
+        Assert.True(session.IsDirty);
+    }
+
+    [Fact]
     public void DwgVersionCapabilitiesRejectUnsupportedWriterVersion()
     {
         CadFormatCapabilities unsupported = CadFormatSupport.GetCapabilities(

@@ -22,6 +22,12 @@ public sealed class CadSaveOptions
     public bool BinaryDxf { get; init; }
 
     public bool AllowUncertifiedWrite { get; init; }
+
+    /// <summary>
+    /// Keeps the session dirty after serialization so a staging caller can
+    /// commit the saved generation only after its final destination succeeds.
+    /// </summary>
+    public bool DeferSavedGenerationCommit { get; init; }
 }
 
 public sealed class CadLoadResult
@@ -41,9 +47,14 @@ public sealed class CadLoadResult
 
 public sealed class CadSaveResult
 {
+    private Func<bool>? _commitSavedGeneration;
+
     public ulong SavedGeneration { get; }
 
     public IReadOnlyList<CadDiagnostic> Diagnostics { get; }
+
+    public bool RequiresSavedGenerationCommit =>
+        Volatile.Read(ref _commitSavedGeneration) is not null;
 
     internal CadSaveResult(
         ulong savedGeneration,
@@ -51,6 +62,23 @@ public sealed class CadSaveResult
     {
         SavedGeneration = savedGeneration;
         Diagnostics = diagnostics;
+    }
+
+    /// <summary>
+    /// Marks a deferred serialized generation as persisted. Returns false when
+    /// the result was not deferred, was already committed, or was superseded.
+    /// </summary>
+    public bool CommitSavedGeneration()
+    {
+        Func<bool>? commit = Interlocked.Exchange(
+            ref _commitSavedGeneration,
+            null);
+        return commit is not null && commit();
+    }
+
+    internal void DeferSavedGenerationCommit(Func<bool> commit)
+    {
+        _commitSavedGeneration = commit;
     }
 }
 
@@ -150,8 +178,10 @@ public sealed class CadDocumentStore : ICadDocumentStore
         cancellationToken.ThrowIfCancellationRequested();
         progress?.Report(new CadOperationProgress(CadOperationStage.Preparing, 0, null));
 
-        return await Task.Run(
-            () => session.Save((document, generation) =>
+        CadSaveResult result = await Task.Run(
+            () => session.Save(
+                markSaved: !options.DeferSavedGenerationCommit,
+                (document, generation) =>
                 WriteCore(
                     document,
                     generation,
@@ -161,6 +191,14 @@ public sealed class CadDocumentStore : ICadDocumentStore
                     progress,
                     cancellationToken)),
             cancellationToken).ConfigureAwait(false);
+
+        if (options.DeferSavedGenerationCommit)
+        {
+            result.DeferSavedGenerationCommit(
+                () => session.TryMarkSaved(result.SavedGeneration));
+        }
+
+        return result;
     }
 
     private static CadLoadResult ReadCore(

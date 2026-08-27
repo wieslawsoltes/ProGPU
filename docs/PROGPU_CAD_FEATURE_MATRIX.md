@@ -6,7 +6,7 @@ Status values: `planned`, `foundation`, `in progress`, `verified`.
 |---|---|---:|---|
 | Dependency | ACadSharp fork pinned as a submodule | foundation | clean recursive checkout and build |
 | IO | DXF/DWG stream open with progress, diagnostics, cancellation, and initial byte/entity limits | foundation | version/corrupt/fuzz fixtures and path host adapter |
-| Save | caller-owned stream save with version/certification gates | foundation | atomic path replacement and advertised-version semantic round trips |
+| Save | caller-owned stream save with version/certification gates and deferred destination commit | foundation | atomic path replacement and advertised-version semantic round trips |
 | Model | ACadSharp `CadDocument` authority with locked callbacks, atomic generation capture, and content/saved generations | in progress | broader edit transaction and concurrency tests |
 | Editing | typed atomic commands, undo/redo, dirty generations | in progress | bounded generation-synchronized history plus translate/visibility commands and divergence tests implemented; add/remove/property/tool command families and fuzz tests remain |
 | 2D | all standard entities, blocks, XRefs, hatches, dimensions, images | in progress | line/circle/arc/ellipse/NURBS/lightweight and legacy 2D polyline/SOLID/3DFACE snapshot and top projection implemented; remaining families plus multi-DPI/zoom image tests |
@@ -17,8 +17,8 @@ Status values: `planned`, `foundation`, `in progress`, `verified`.
 | Camera | uniform-only pan/zoom/orbit after compilation | in progress | first recorded plan scene is camera-independent; GPU camera integration and entity-count-independent CPU counters remain |
 | Line quality | model cosmetic and paper/plot physical lineweight | in progress | fixed device-space/hairline recording implemented; linetype, paper/plot, and physical output fixtures remain |
 | Native parity | equivalent managed/native behavior and quality | planned | differential scene/pixel/performance suite |
-| Desktop app | standalone ProGPU.CAD desktop viewer/editor | in progress | shared retained viewer and standalone desktop host build and render the representative analytic scene; file/edit/output workflows remain |
-| Browser app | browser/AOT viewer/editor with streamed IO | in progress | shared retained viewer and Release AOT/native-linked Wasm publish pass; runtime UI, streamed file, and performance smoke remain |
+| Desktop app | standalone ProGPU.CAD desktop viewer/editor | in progress | shared retained viewer, native open/save pickers, dynamic toolbar/status shell, and a real `floorplan.dxf` open/render smoke pass; editing tools and certified output remain |
+| Browser app | browser/AOT viewer/editor with streamed IO | in progress | shared retained viewer and picker/download workflow compile through native-linked Wasm, and Release AOT publish passes; interactive browser IO and performance smoke remain |
 | Printing | layout/viewports/plot styles/preview/output | planned | deterministic print-plan and output comparisons |
 | Export | vector and raster output with text/line fidelity | planned | round-trip and image-quality baselines |
 
