@@ -121,6 +121,7 @@ public sealed class Metafile : Image
 
     internal ReadOnlySpan<byte> Source => _document.Source;
     internal ReadOnlySpan<MetafileRecord> Records => _document.Records;
+    internal void EnsureNotDisposed() => ThrowIfDisposed();
 
     private void ThrowIfDisposed()
     {

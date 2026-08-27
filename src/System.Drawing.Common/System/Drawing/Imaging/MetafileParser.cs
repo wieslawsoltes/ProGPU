@@ -358,7 +358,11 @@ internal static class MetafileParser
         {
             metafileType = dual ? MetafileType.EmfPlusDual : MetafileType.EmfPlusOnly;
             version = emfPlusVersion;
-            records.AddRange(emfPlusRecords);
+            // The EMR_GDICOMMENT is the transport envelope for the contained
+            // EMF+ records. Enumeration exposes the decoded records at the
+            // envelope's source position rather than appending them after EOF.
+            records.RemoveAt(1);
+            records.InsertRange(1, emfPlusRecords);
         }
 
         var header = new MetafileHeader(

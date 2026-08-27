@@ -1,5 +1,7 @@
 using System.Buffers.Binary;
 using System.Drawing.Imaging;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using Xunit;
 
 namespace System.Drawing.Common.Tests;
@@ -89,9 +91,11 @@ public sealed class MetafileParserTests
         Assert.Equal(96, header.LogicalDpiX);
         Assert.Equal(96, header.LogicalDpiY);
         Assert.True(header.IsDisplay());
-        Assert.Equal(5, metafile.Records.Length);
-        Assert.Equal(EmfPlusRecordType.Header, metafile.Records[3].Type);
-        Assert.Equal(EmfPlusRecordType.EndOfFile, metafile.Records[4].Type);
+        Assert.Equal(4, metafile.Records.Length);
+        Assert.Equal(EmfPlusRecordType.EmfHeader, metafile.Records[0].Type);
+        Assert.Equal(EmfPlusRecordType.Header, metafile.Records[1].Type);
+        Assert.Equal(EmfPlusRecordType.EndOfFile, metafile.Records[2].Type);
+        Assert.Equal(EmfPlusRecordType.EmfEof, metafile.Records[3].Type);
     }
 
     [Fact]
@@ -171,6 +175,177 @@ public sealed class MetafileParserTests
 
         long allocatedPerParse = (GC.GetAllocatedBytesForCurrentThread() - before) / 16;
         Assert.InRange(allocatedPerParse, fixture.Length, 256 * 1024);
+    }
+
+    [Fact]
+    public void EnumerationExposesOwnedPayloadsInSourceOrderAndStopsOnFalse()
+    {
+        using var metafile = new Metafile(new MemoryStream(CreateEmf(includeEmfPlus: false, dual: false)));
+        using var target = new Bitmap(8, 8);
+        using Graphics graphics = Graphics.FromImage(target);
+        var records = new List<(EmfPlusRecordType Type, int Flags, int Size, int FirstValue, PlayRecordCallback? Playback)>();
+
+        graphics.EnumerateMetafile(
+            metafile,
+            Point.Empty,
+            (type, flags, size, data, playback) =>
+            {
+                records.Add((type, flags, size, size == 0 ? 0 : Marshal.ReadInt32(data), playback));
+                return true;
+            },
+            new IntPtr(0x1234));
+
+        Assert.Equal(2, records.Count);
+        Assert.Equal((EmfPlusRecordType.EmfHeader, 0, 80, 2, null), records[0]);
+        Assert.Equal(EmfPlusRecordType.EmfEof, records[1].Type);
+        Assert.Equal(12, records[1].Size);
+
+        int stoppedCount = 0;
+        graphics.EnumerateMetafile(
+            metafile,
+            PointF.Empty,
+            (_, _, _, _, _) =>
+            {
+                stoppedCount++;
+                return false;
+            });
+        Assert.Equal(1, stoppedCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EmfPlusEnumerationReplacesTheTransportEnvelopeAtItsSourcePosition(bool dual)
+    {
+        using var metafile = new Metafile(new MemoryStream(CreateEmf(includeEmfPlus: true, dual)));
+        using var target = new Bitmap(8, 8);
+        using Graphics graphics = Graphics.FromImage(target);
+        var recordTypes = new List<EmfPlusRecordType>();
+
+        graphics.EnumerateMetafile(
+            metafile,
+            Rectangle.Empty,
+            (type, _, _, _, _) =>
+            {
+                recordTypes.Add(type);
+                return true;
+            });
+
+        Assert.Equal(
+            [
+                EmfPlusRecordType.EmfHeader,
+                EmfPlusRecordType.Header,
+                EmfPlusRecordType.EndOfFile,
+                EmfPlusRecordType.EmfEof
+            ],
+            recordTypes);
+    }
+
+    [Fact]
+    public void EveryOfficialEnumerationOverloadReachesTheTypedEnumerator()
+    {
+        using var metafile = new Metafile(new MemoryStream(CreateEmf(includeEmfPlus: false, dual: false)));
+        using var target = new Bitmap(8, 8);
+        using Graphics graphics = Graphics.FromImage(target);
+        using var attributes = new ImageAttributes();
+        int callbacks = 0;
+        Graphics.EnumerateMetafileProc callback = (_, _, _, _, _) =>
+        {
+            callbacks++;
+            return false;
+        };
+
+        MethodInfo[] overloads = typeof(Graphics)
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+            .Where(static method => method.Name == nameof(Graphics.EnumerateMetafile))
+            .OrderBy(static method => method.ToString(), StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(36, overloads.Length);
+        foreach (MethodInfo overload in overloads)
+        {
+            object?[] arguments = overload.GetParameters()
+                .Select(parameter => CreateEnumerationArgument(parameter.ParameterType, metafile, callback, attributes))
+                .ToArray();
+            overload.Invoke(graphics, arguments);
+        }
+
+        Assert.Equal(36, callbacks);
+    }
+
+    [Fact]
+    public void EnumerationValidatesTypedInputsAndDisposedState()
+    {
+        using var metafile = new Metafile(new MemoryStream(CreateEmf(includeEmfPlus: false, dual: false)));
+        using var target = new Bitmap(8, 8);
+        using Graphics graphics = Graphics.FromImage(target);
+        Graphics.EnumerateMetafileProc callback = static (_, _, _, _, _) => true;
+
+        Assert.Throws<ArgumentNullException>(() => graphics.EnumerateMetafile(null!, Point.Empty, callback));
+        Assert.Throws<ArgumentNullException>(() => graphics.EnumerateMetafile(metafile, Point.Empty, null!));
+        Assert.Throws<ArgumentNullException>(() => graphics.EnumerateMetafile(metafile, (Point[])null!, callback));
+        Assert.Throws<ArgumentException>(() => graphics.EnumerateMetafile(metafile, new Point[2], callback));
+        Assert.Throws<ArgumentException>(() => graphics.EnumerateMetafile(metafile, new PointF[4], callback));
+        Assert.Throws<System.ComponentModel.InvalidEnumArgumentException>(() =>
+            graphics.EnumerateMetafile(metafile, Point.Empty, Rectangle.Empty, (GraphicsUnit)99, callback));
+
+        var attributes = new ImageAttributes();
+        attributes.Dispose();
+        Assert.Throws<ObjectDisposedException>(() =>
+            graphics.EnumerateMetafile(metafile, Point.Empty, callback, IntPtr.Zero, attributes));
+
+        using var disposedMetafile = new Metafile(new MemoryStream(CreateEmf(includeEmfPlus: false, dual: false)));
+        disposedMetafile.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => graphics.EnumerateMetafile(disposedMetafile, Point.Empty, callback));
+
+        graphics.Dispose();
+        Assert.Throws<ArgumentException>(() => graphics.EnumerateMetafile(metafile, Point.Empty, callback));
+    }
+
+    [Fact]
+    public void WarmedEnumerationDoesNotAllocatePerRecordPayloads()
+    {
+        using var metafile = new Metafile(new MemoryStream(CreateLargeEmf(4_096)));
+        using var target = new Bitmap(8, 8);
+        using Graphics graphics = Graphics.FromImage(target);
+        int count = 0;
+        Graphics.EnumerateMetafileProc callback = (_, _, _, _, _) =>
+        {
+            count++;
+            return true;
+        };
+
+        graphics.EnumerateMetafile(metafile, Point.Empty, callback);
+        count = 0;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 16; iteration++)
+        {
+            graphics.EnumerateMetafile(metafile, Point.Empty, callback);
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(4_098 * 16, count);
+        Assert.InRange(allocated, 0, 4_096);
+    }
+
+    private static object? CreateEnumerationArgument(
+        Type type,
+        Metafile metafile,
+        Graphics.EnumerateMetafileProc callback,
+        ImageAttributes attributes)
+    {
+        if (type == typeof(Metafile)) return metafile;
+        if (type == typeof(Graphics.EnumerateMetafileProc)) return callback;
+        if (type == typeof(IntPtr)) return new IntPtr(0x1234);
+        if (type == typeof(ImageAttributes)) return attributes;
+        if (type == typeof(Point)) return Point.Empty;
+        if (type == typeof(PointF)) return PointF.Empty;
+        if (type == typeof(Rectangle)) return Rectangle.Empty;
+        if (type == typeof(RectangleF)) return RectangleF.Empty;
+        if (type == typeof(Point[])) return new[] { Point.Empty, new Point(1, 0), new Point(0, 1) };
+        if (type == typeof(PointF[])) return new[] { PointF.Empty, new PointF(1, 0), new PointF(0, 1) };
+        if (type == typeof(GraphicsUnit)) return GraphicsUnit.Pixel;
+        throw new InvalidOperationException($"Unexpected enumeration parameter type: {type}.");
     }
 
     private static byte[] CreatePlaceableWmf()

@@ -44,9 +44,11 @@ An `EMR_GDICOMMENT` immediately following the EMF header may contain an EMF+
 stream. Its identifier, 12-byte record headers, aligned sizes, data sizes,
 header-first ordering, and end marker are validated independently. The EMF+
 header flag distinguishes `EmfPlusDual` from `EmfPlusOnly`; its logical DPI and
-graphics version populate `MetafileHeader`. The outer EMF record table and
-inner EMF+ record table remain typed and distinct even though public
-enumeration presents their official `EmfPlusRecordType` identities.
+graphics version populate `MetafileHeader`. The outer EMF transport and inner
+EMF+ stream are validated independently. The enumeration table replaces the
+`EMR_GDICOMMENT` transport envelope with its decoded EMF+ records at that
+envelope's source position, while preserving surrounding outer EMF order and
+official `EmfPlusRecordType` identities.
 
 The parser fails closed before publishing a `Metafile`. Initial limits are
 256 MiB per source, 1,000,000 outer records, 1,000,000 nested EMF+ records,
@@ -65,12 +67,21 @@ objects are defensive managed snapshots. `GetMetafileHeader` for file, stream,
 and instance inputs uses the same parser as construction, so validation cannot
 diverge between inspection and playback.
 
-Enumeration applies the destination point, rectangle, or parallelogram as one
-typed world-to-device mapping and exposes records in source order. Callback
-data is valid only for the duration of the callback. A callback returning
-false stops cleanly. `PlayRecord` accepts only a record currently supplied by
-enumeration and lowers it through the same typed playback state machine; it
-does not accept arbitrary native addresses.
+Enumeration exposes the owned typed records in source order for all 36 official
+destination overloads. It pins the one owned source buffer for the complete
+walk; each nonempty callback pointer addresses the record payload inside that
+buffer and is valid only for the callback duration. No payload is copied per
+record, and a callback returning `false` stops cleanly. The public
+`callbackData` pointer remains ABI-compatible; matching the official managed
+adapter, the managed callback's `PlayRecordCallback` argument is null.
+
+This checkpoint validates destination parallelograms, source units, object
+lifetime, callbacks, and image attributes, but does not yet render. Destination
+point, rectangle, parallelogram, source rectangle, source unit, and image
+attributes become inputs to the typed world-to-device playback mapping in the
+next checkpoint. `Metafile.PlayRecord` therefore continues to reject playback
+rather than silently ignoring those inputs or accepting arbitrary native
+addresses.
 
 The first rendering tranche covers state and vector primitives needed by
 LibreWinForms resources: save/restore, map/window/viewport transforms, world
@@ -105,23 +116,27 @@ official `System.Drawing.Common`. Native compiler snapshots prove that
 supported records lower to ordinary typed ProGPU scene commands and that no
 metafile-specific opaque payload crosses the renderer boundary.
 
-`MetafileBenchmarks.ParseAndEnumerate4096RecordFixture` measures a warmed
-bounded record walk without payload copies. The 2026-08-27 ARM64/.NET 10.0.11
+`MetafileBenchmarks.ParseAndEnumerate4096RecordFixture` measures owned parsing
+and record-table creation. The 2026-08-27 ARM64/.NET 10.0.11
 ShortRun measured a 47.510 microsecond median (48.029 microsecond mean, 2.068
 microsecond standard deviation) with 224.56 KB allocated for the owned 32 KB
-source and 4,098 typed records. One launch, three warmups, and three measured
-iterations make this coarse subsystem evidence. A later second benchmark will
-measure playback into a retained `DrawingContext`. CI stores BenchmarkDotNet
-JSON and focused tests enforce allocation ceilings after warmup. Parser
-complexity must remain linear in source bytes plus record count; no record can
-trigger an unbounded scan of the complete source.
+source and 4,098 typed records. `Enumerate4098RecordsWithoutPayloadCopies`
+isolates the warmed callback walk. On the same host its ShortRun measured a
+1.593 microsecond median (1.495 microsecond mean, 0.177 microsecond standard
+deviation) with zero managed allocation. One launch, three warmups, and three
+measured iterations make these coarse subsystem evidence. A later benchmark
+will measure
+playback into a retained `DrawingContext`. CI stores BenchmarkDotNet JSON and
+focused tests enforce a maximum 4,096 bytes across sixteen warmed 4,098-record
+walks. Parser complexity must remain linear in source bytes plus record count;
+no record can trigger an unbounded scan of the complete source.
 
 ## Delivery checkpoints
 
 1. Restore the eight missing public identities and a bounded header/record
    parser with functional file/stream construction, cloning, and header queries.
-2. Add allocation-free record enumeration and `PlayRecord` callback lifetime
-   rules for all destination overloads.
+2. Add allocation-free record enumeration and callback lifetime rules for all
+   destination overloads, then bind `PlayRecord` to the typed playback session.
 3. Implement state/object tables and the initial WMF/EMF/EMF+ vector and image
    playback families over typed ProGPU drawing commands.
 4. Add portable stream recording and comments, then typed Windows handle/HDC
@@ -129,14 +144,17 @@ trigger an unbounded scan of the complete source.
 5. Remove each ApiCompat suppression only with matching behavior, malformed
    input, pixel, native-boundary, and performance evidence.
 
-API presence alone is not subsystem completion. Until checkpoints two and
-three land, the quality report must describe header decoding as partial
-metafile support and must not claim portable playback parity.
+API presence alone is not subsystem completion. Until typed playback in
+checkpoint three lands, the quality report must describe parsing and
+enumeration as partial metafile support and must not claim portable rendering
+parity.
 
-Checkpoint one is implemented at this revision. It removes all eight
+Checkpoints one and the enumeration half of checkpoint two are implemented at
+this revision. Checkpoint one removes all eight
 missing-type diagnostics and 44 `Metafile` missing-member diagnostics, reducing
 measured ApiCompat debt from 8 missing types, 98 missing members, 15 other
 diagnostics, and 121 total to 0 missing types, 54 missing members, 15 other
-diagnostics, and 69 total. The remaining 36 enumeration overloads and
-`Graphics.AddMetafileComment` stay suppressed until checkpoints two and four;
-no playback claim is made by the header-parser checkpoint.
+diagnostics, and 69 total. Typed enumeration removes the remaining 36 overload
+suppressions, leaving 0 missing types, 18 missing members, 15 other diagnostics,
+and 33 total. `Graphics.AddMetafileComment` stays suppressed until checkpoint
+four; no rendering claim is made by the parser/enumerator checkpoint.

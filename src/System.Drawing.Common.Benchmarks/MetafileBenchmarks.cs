@@ -9,9 +9,27 @@ public class MetafileBenchmarks
 {
     private const int StateRecordCount = 4_096;
     private byte[] _fixture = null!;
+    private Bitmap _target = null!;
+    private Graphics _graphics = null!;
+    private Metafile _metafile = null!;
+    private readonly Graphics.EnumerateMetafileProc _enumerate = static (_, _, _, _, _) => true;
 
     [GlobalSetup]
-    public void CreateFixture() => _fixture = CreateEmf(StateRecordCount);
+    public void CreateFixture()
+    {
+        _fixture = CreateEmf(StateRecordCount);
+        _target = new Bitmap(1, 1);
+        _graphics = Graphics.FromImage(_target);
+        _metafile = new Metafile(new MemoryStream(_fixture, writable: false));
+    }
+
+    [GlobalCleanup]
+    public void DisposeFixture()
+    {
+        _metafile.Dispose();
+        _graphics.Dispose();
+        _target.Dispose();
+    }
 
     [Benchmark]
     public int ParseAndEnumerate4096RecordFixture()
@@ -20,6 +38,10 @@ public class MetafileBenchmarks
         using var metafile = new Metafile(stream);
         return metafile.Records.Length;
     }
+
+    [Benchmark]
+    public void Enumerate4098RecordsWithoutPayloadCopies() =>
+        _graphics.EnumerateMetafile(_metafile, Point.Empty, _enumerate);
 
     private static byte[] CreateEmf(int stateRecordCount)
     {

@@ -748,6 +748,8 @@ public sealed class ImageAttributes : IDisposable, ICloneable
         ObjectDisposedException.ThrowIf(_isDisposed, this);
     }
 
+    internal void EnsureNotDisposed() => ThrowIfDisposed();
+
     private static void ValidateColorAdjustType(ColorAdjustType type)
     {
         if (type < ColorAdjustType.Default || type > ColorAdjustType.Text)
