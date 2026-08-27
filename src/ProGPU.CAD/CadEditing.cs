@@ -1,5 +1,6 @@
 using ACadSharp;
 using ACadSharp.Entities;
+using ACadSharp.Tables;
 using CSMath;
 
 namespace ProGPU.CAD;
@@ -467,6 +468,137 @@ public sealed class CadSetEntityVisibilityCommand : CadEditCommand
         return entities;
     }
 
+}
+
+/// <summary>Assigns one existing layer to a stable set of model-space entities.</summary>
+public sealed class CadSetEntityLayerCommand : CadEditCommand
+{
+    private readonly ulong[] _handles;
+    private Entity[]? _entities;
+    private Layer[]? _previousLayers;
+    private Layer? _targetLayer;
+
+    public ReadOnlyMemory<ulong> Handles => _handles;
+
+    public string LayerName { get; }
+
+    public CadSetEntityLayerCommand(
+        IEnumerable<ulong> handles,
+        string layerName,
+        string description = "Set entity layer")
+        : base(description)
+    {
+        ArgumentNullException.ThrowIfNull(handles);
+        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+        _handles = handles.Distinct().ToArray();
+        if (_handles.Length == 0 || _handles.Any(static handle => handle == 0))
+        {
+            throw new ArgumentException(
+                "At least one non-zero entity handle is required.",
+                nameof(handles));
+        }
+        LayerName = layerName;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Entity[] entities;
+        Layer target;
+        if (isRedo)
+        {
+            entities = GetRetainedEntities(document);
+            target = _targetLayer ??
+                throw new InvalidOperationException("The layer command has not been applied.");
+            ValidateLayer(document, target);
+        }
+        else
+        {
+            entities = ResolveModelSpaceEntities(document, _handles);
+            if (!document.Layers.TryGetValue(LayerName, out Layer? targetLayer))
+            {
+                throw new InvalidOperationException(
+                    $"Document layer '{LayerName}' does not exist.");
+            }
+            target = targetLayer;
+            _entities = entities;
+            _previousLayers = entities.Select(static entity => entity.Layer).ToArray();
+            _targetLayer = target;
+        }
+
+        SetLayersTransactional(entities, target);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Entity[] entities = GetRetainedEntities(document);
+        Layer[] previous = _previousLayers ??
+            throw new InvalidOperationException("The layer command has not been applied.");
+        foreach (Layer layer in previous)
+        {
+            ValidateLayer(document, layer);
+        }
+        SetLayersTransactional(entities, previous);
+    }
+
+    private Entity[] GetRetainedEntities(CadDocument document)
+    {
+        Entity[] entities = _entities ??
+            throw new InvalidOperationException("The layer command has not been applied.");
+        ValidateModelSpaceEntities(document, entities);
+        return entities;
+    }
+
+    private static void ValidateLayer(CadDocument document, Layer layer)
+    {
+        if (!document.Layers.TryGetValue(layer.Name, out Layer? registered) ||
+            !ReferenceEquals(registered, layer))
+        {
+            throw new InvalidOperationException(
+                $"Retained document layer '{layer.Name}' is no longer registered.");
+        }
+    }
+
+    private static void SetLayersTransactional(Entity[] entities, Layer target)
+    {
+        Layer[] rollback = entities.Select(static entity => entity.Layer).ToArray();
+        int applied = 0;
+        try
+        {
+            for (; applied < entities.Length; applied++)
+            {
+                entities[applied].Layer = target;
+            }
+        }
+        catch
+        {
+            for (int i = applied - 1; i >= 0; i--)
+            {
+                entities[i].Layer = rollback[i];
+            }
+            throw;
+        }
+    }
+
+    private static void SetLayersTransactional(Entity[] entities, Layer[] targets)
+    {
+        Layer[] rollback = entities.Select(static entity => entity.Layer).ToArray();
+        int applied = 0;
+        try
+        {
+            for (; applied < entities.Length; applied++)
+            {
+                entities[applied].Layer = targets[applied];
+            }
+        }
+        catch
+        {
+            for (int i = applied - 1; i >= 0; i--)
+            {
+                entities[i].Layer = rollback[i];
+            }
+            throw;
+        }
+    }
 }
 
 /// <summary>Adds one detached entity to model space with reversible ownership.</summary>

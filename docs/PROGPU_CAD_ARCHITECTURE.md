@@ -288,12 +288,17 @@ an interactive browser picker/download smoke remains open.
   abstract mutation methods are internal so consumers cannot inject an
   unvalidated arbitrary command behind the history contract.
 - The first commands translate a deduplicated stable handle set, set entity
-  visibility, and add or remove one model-space entity. They resolve every
-  model-space handle before mutation, preserve the original visibility vector,
-  apply exact inverse translation for undo, and advance one document generation
-  for execute, undo, or redo. Add requires a detached zero-handle object; remove
-  retains the same object for undo and treats a collection cancellation as a
-  failed command with no published generation.
+  visibility, assign an existing layer, and add or remove one model-space
+  entity. They resolve every model-space handle before mutation, preserve the
+  original visibility vector, apply exact inverse translation for undo, and
+  advance one document generation for execute, undo, or redo. Add requires a
+  detached zero-handle object; remove retains the same object for undo and
+  treats a collection cancellation as a failed command with no published generation.
+- Layer assignment resolves the complete entity set and target table entry
+  before mutation, retains each prior layer, and validates every retained table
+  identity before undo/redo. A missing or externally replaced layer therefore
+  fails before partial property changes; setter failure rolls back the already
+  applied prefix.
 - A direct session edit from another owner invalidates both history branches.
   The expected generation is checked again under the document lock so a race
   cannot apply an undo to the wrong document state. Failed resolution or command

@@ -1,5 +1,6 @@
 using ACadSharp;
 using ACadSharp.Entities;
+using ACadSharp.Tables;
 using CSMath;
 using Xunit;
 
@@ -208,5 +209,58 @@ public sealed class CadEditingTests
             new CadAddModelSpaceEntityCommand(line));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new CadRemoveModelSpaceEntityCommand(0));
+    }
+
+    [Fact]
+    public void LayerCommandRestoresEachPriorLayerAcrossUndoRedo()
+    {
+        var document = new CadDocument();
+        var source = new Layer("SOURCE");
+        var target = new Layer("TARGET");
+        document.Layers.Add(source);
+        document.Layers.Add(target);
+        var first = new Line(XYZ.Zero, XYZ.AxisX);
+        var second = new Line(XYZ.AxisY, new XYZ(1, 1, 0)) { Layer = source };
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        Layer firstLayer = first.Layer;
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetEntityLayerCommand(
+            [first.Handle, second.Handle],
+            "target"));
+
+        Assert.Same(target, first.Layer);
+        Assert.Same(target, second.Layer);
+        Assert.True(history.TryUndo(out _));
+        Assert.Same(firstLayer, first.Layer);
+        Assert.Same(source, second.Layer);
+        Assert.True(history.TryRedo(out _));
+        Assert.Same(target, first.Layer);
+        Assert.Same(target, second.Layer);
+    }
+
+    [Fact]
+    public void MissingLayerFailsBeforeEntityMutation()
+    {
+        var document = new CadDocument();
+        var first = new Line(XYZ.Zero, XYZ.AxisX);
+        var second = new Line(XYZ.AxisY, new XYZ(1, 1, 0));
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        Layer original = first.Layer;
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadSetEntityLayerCommand(
+                [first.Handle, second.Handle],
+                "MISSING")));
+
+        Assert.Equal(0UL, session.ContentGeneration);
+        Assert.Equal(0, history.UndoCount);
+        Assert.Same(original, first.Layer);
+        Assert.Same(original, second.Layer);
     }
 }
