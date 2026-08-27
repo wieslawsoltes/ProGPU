@@ -150,7 +150,12 @@ standard convex separating-axis theorem. No third-party selection implementation
 helper layout, lookup data, or source structure was consulted or reproduced. The
 semantic-handle collector is an original bounded open-addressed table over the
 existing ProGPU candidate records; its folding, probing, ordering, and capacity
-contract were designed here rather than taken from a foreign container.
+contract were designed here rather than taken from a foreign container. The
+shared sample interaction is an original composition of the existing ProGPU
+`GpuPicture`, `DrawingContext`, pointer-capture, and dynamic-theme contracts. Its
+`CadPlanViewport` factors the sample's existing rebase/camera mapping into one
+typed double-world/float-screen authority; it does not reproduce a foreign CAD
+viewer or selection implementation.
 
 ### Document authority
 
@@ -244,8 +249,14 @@ validated for version, size, alignment, offsets, ranges, and device domain.
 The shared interactive viewer lives in `ProGPU.CAD.Sample` and is hosted
 unchanged by `ProGPU.CAD.Sample.Desktop` and `ProGPU.CAD.Sample.Browser`.
 It freezes one generation-tagged scene into an owned `GpuPicture`; wheel zoom
-and pointer pan then update only the replay camera matrix. Camera motion never
-revisits ACadSharp or recompiles geometry. The representative scene exercises
+and pointer pan then update only the replay camera matrix. Left click performs a
+five-logical-pixel Crossing query, left-to-right drag performs Window selection,
+and right-to-left drag performs Crossing selection. The shared shell reuses
+snapshot-sized caller buffers, resolves expanded primitives to unique semantic
+root handles, reports unsupported/truncated results, and records only transient
+fixed-device-space selection rectangles after the immutable picture. Camera and
+selection interaction never revisit ACadSharp or recompile geometry. The
+representative scene exercises
 lines, OCS circles/arcs, analytic ellipses, bulge polylines, NURBS, filled
 SOLID, 3DFACE visible-edge semantics, a rotated non-uniform MINSERT array, and
 retained shaped TrueType TEXT while framework chrome uses dynamic theme
@@ -264,8 +275,9 @@ write succeeds, so a failed native write or browser download cannot mark the
 session clean.
 
 The hosts remain an executable engine-integration baseline, not yet the complete
-CAD editor shell: layers/properties, selection, editing tools, printing, and
-round-trip-certified output remain tracked application phases.
+CAD editor shell: properties/layer panels, arbitrary-camera projected selection,
+editing tools, printing, and round-trip-certified output remain tracked
+application phases.
 
 The Release browser AOT publish succeeds. Its linker audit currently reports
 annotation warnings in ACadSharp's initialization/reflection utilities and in
@@ -407,9 +419,14 @@ an interactive browser picker/download smoke remains open.
   snapshot generations before touching scratch/output, keeps its table at no
   more than 50% load, reports destination truncation without changing the total,
   and is O(K) average/O(K^2) collision worst case with O(K) caller-owned storage
-  for K candidates. Spline/text box tests, their full distance contracts,
-  screen-projected selection volumes, and draw-order resolution remain explicit
-  work.
+  for K candidates. `QueryExactBounds` composes broad phase, exact testing, and
+  semantic collection without allocating after the caller buffers are prepared;
+  candidate and destination truncation remain distinct. `CadPlanViewport`
+  applies the same WCS rebase, Y inversion, zoom, pan, and viewport center to
+  rendering and inverse pointer mapping, and creates an inclusive WCS-XY
+  selection column spanning the snapshot's complete Z range. Spline/text box
+  tests, their full distance contracts, arbitrary-camera projected selection
+  volumes, and draw-order resolution remain explicit work.
 - Background compilation captures a generation and publishes only if it still
   matches; obsolete work is discarded. The UI may continue drawing the previous
   immutable snapshot while the next generation compiles.
@@ -954,13 +971,26 @@ Sources consulted on 2026-08-27:
   style ownership, but none is treated as an oracle for CAD A-alignment. The
   existing ProGPU dash path remains the eventual backend after a CAD-specific
   endpoint planner produces conformance-tested intervals.
+- [Skia canvas/picture API](https://skia.org/docs/user/api/),
+  [Direct2D command lists](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/nn-d2d1_1-id2d1commandlist),
+  [Win2D `CanvasCommandList`](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasCommandList.htm),
+  [WebRender's retained display-list architecture](https://github.com/servo/servo/wiki/Webrender-Overview),
+  and [Vello's retained-scene vision](https://github.com/linebender/vello/blob/main/doc/vision.md):
+  adopted the separation between retained static drawing commands, camera/spatial
+  transforms, and a small transient interaction overlay. Adapted that separation
+  to one ProGPU-owned `GpuPicture` plus bounded selection state shared by desktop
+  and browser hosts. Rejected rebuilding the CAD picture or mutating retained
+  commands during pointer motion. This interaction slice changes no shader,
+  compositor, upload, device-loss, atlas, or managed/native renderer contract;
+  both backends continue receiving the same existing picture/overlay commands.
 - [HarfBuzz shaping](https://harfbuzz.github.io/what-is-harfbuzz.html),
   [Parley rich-text architecture](https://github.com/linebender/parley/blob/main/doc/concept.md),
   [SkParagraph](https://docs.skia.org/docs/dev/design/text_shaper/), and
   [DirectWrite](https://learn.microsoft.com/en-us/windows/win32/directwrite/getting-started-with-directwrite):
-  confirmed that shaping/layout stays separate from stroke patterns; these
-  stacks become applicable to embedded-text complex linetypes, not simple dash
-  alignment, so no text shortcut or foreign layout structure was adopted.
+  confirmed that shaping/layout stays separate from stroke patterns and transient
+  selection state; these stacks become applicable to embedded-text complex
+  linetypes, not simple dash alignment or pointer overlays, so no reshaping, text
+  shortcut, or foreign layout structure was adopted.
 - [Autodesk shape/font descriptions](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Customization/files/GUID-DE941DB5-7044-433C-AA68-2A9AE98A5713.htm),
   [special codes](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Customization/files/GUID-06832147-16BE-4A66-A6D0-3ADF98DC8228.htm),
   [vector directions](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Customization/files/GUID-0A8E12A1-F4AB-44AD-8A9B-2140E0D5FD23.htm),

@@ -24,6 +24,22 @@ public readonly record struct CadSelectionHandleResult(
     public bool IsTruncated => WrittenCount != TotalCount;
 }
 
+public readonly record struct CadBoundsSelectionQueryResult(
+    ulong ContentGeneration,
+    int CandidateWrittenCount,
+    int CandidateTotalCount,
+    int MatchedPrimitiveCount,
+    int UnsupportedPrimitiveCount,
+    int HandleWrittenCount,
+    int HandleTotalCount)
+{
+    public bool AreCandidatesTruncated =>
+        CandidateWrittenCount != CandidateTotalCount;
+
+    public bool AreHandlesTruncated =>
+        HandleWrittenCount != HandleTotalCount;
+}
+
 /// <summary>Caller-buffered broad-phase selection over immutable snapshot bounds.</summary>
 public static class CadSelectionQuery
 {
@@ -160,6 +176,86 @@ public static class CadSelectionQuery
             contentGeneration,
             written,
             total);
+    }
+
+    /// <summary>
+    /// Runs broad phase, exact box testing, and semantic-handle collection in one
+    /// caller-buffered operation.
+    /// </summary>
+    /// <remarks>
+    /// Candidate truncation remains explicit and means the exact result covers only
+    /// the written candidate prefix. Matched scratch must cover the candidate capacity,
+    /// and handle scratch must use <see cref="GetUniqueHandleScratchLength"/> for that
+    /// capacity. Unsupported retained kinds are counted and never accepted as hits.
+    /// </remarks>
+    public static CadBoundsSelectionQueryResult QueryExactBounds(
+        CadDocumentSnapshot snapshot,
+        CadBounds3D bounds,
+        CadBoundsSelectionMode mode,
+        Span<int> entityIndexScratch,
+        Span<CadSelectionCandidate> candidateScratch,
+        Span<CadSelectionCandidate> matchedCandidateScratch,
+        Span<int> handleHashScratch,
+        Span<ulong> destinationHandles)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (mode is not CadBoundsSelectionMode.Window and not CadBoundsSelectionMode.Crossing)
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode));
+        }
+        int candidateCapacity = Math.Min(
+            entityIndexScratch.Length,
+            candidateScratch.Length);
+        if (matchedCandidateScratch.Length < candidateCapacity)
+        {
+            throw new ArgumentException(
+                "Matched-candidate scratch must cover the broad-phase candidate capacity.",
+                nameof(matchedCandidateScratch));
+        }
+        int requiredHandleScratch = GetUniqueHandleScratchLength(candidateCapacity);
+        if (handleHashScratch.Length < requiredHandleScratch)
+        {
+            throw new ArgumentException(
+                $"At least {requiredHandleScratch} handle hash entries are required.",
+                nameof(handleHashScratch));
+        }
+
+        CadSelectionQueryResult broadPhase = QueryBounds(
+            snapshot,
+            bounds,
+            entityIndexScratch,
+            candidateScratch);
+        int matchedCount = 0;
+        int unsupportedCount = 0;
+        for (int i = 0; i < broadPhase.WrittenCount; i++)
+        {
+            CadBoundsHitResult hit = CadSelectionHitTester.HitTestBounds(
+                snapshot,
+                candidateScratch[i],
+                bounds,
+                mode);
+            if (hit.IsHit)
+            {
+                matchedCandidateScratch[matchedCount++] = candidateScratch[i];
+            }
+            else if (!hit.IsSupported)
+            {
+                unsupportedCount++;
+            }
+        }
+
+        CadSelectionHandleResult handles = CollectUniqueHandles(
+            matchedCandidateScratch[..matchedCount],
+            handleHashScratch,
+            destinationHandles);
+        return new CadBoundsSelectionQueryResult(
+            snapshot.ContentGeneration,
+            broadPhase.WrittenCount,
+            broadPhase.TotalCount,
+            matchedCount,
+            unsupportedCount,
+            handles.WrittenCount,
+            handles.TotalCount);
     }
 
     private static uint FoldHandle(ulong handle)

@@ -17,6 +17,8 @@ public sealed class CadSampleView : Grid
     private readonly Button _saveButton;
     private readonly List<string> _shxSupportDirectories = new();
     private bool _isBusy;
+    private string _currentDocumentName = "Representative analytic scene";
+    private int _currentDiagnosticCount;
 
     public CadShxFontCatalog ShxFonts => _canvas.ShxFonts;
 
@@ -57,11 +59,14 @@ public sealed class CadSampleView : Grid
         _openButton = CreateButton("Open DXF/DWG", font, 132);
         _saveButton = CreateButton("Save As", font, 92);
         Button fitButton = CreateButton("Fit", font, 68);
+        Button clearSelectionButton = CreateButton("Clear selection", font, 112);
         _openButton.Margin = new Thickness(0, 0, 8, 0);
         _saveButton.Margin = new Thickness(0, 0, 8, 0);
+        fitButton.Margin = new Thickness(0, 0, 8, 0);
         actions.AddChild(_openButton);
         actions.AddChild(_saveButton);
         actions.AddChild(fitButton);
+        actions.AddChild(clearSelectionButton);
 
         _status = new TextBlock
         {
@@ -69,7 +74,7 @@ public sealed class CadSampleView : Grid
             FontSize = 11,
             Foreground = new ThemeResourceBrush("TextSecondary"),
             Padding = new Thickness(10, 6),
-            Text = DescribeCurrentDocument("Representative analytic scene"),
+            Text = DescribeCurrentDocument(_currentDocumentName),
         };
         var statusBorder = new Border
         {
@@ -89,6 +94,16 @@ public sealed class CadSampleView : Grid
         _openButton.Click += async (_, _) => await OpenAsync();
         _saveButton.Click += async (_, _) => await SaveAsAsync();
         fitButton.Click += (_, _) => _canvas.FitToView();
+        clearSelectionButton.Click += (_, _) => _canvas.ClearSelection();
+        _canvas.SelectionChanged += (_, _) =>
+        {
+            if (!_isBusy)
+            {
+                SetStatus(DescribeCurrentDocument(
+                    _currentDocumentName,
+                    _currentDiagnosticCount));
+            }
+        };
     }
 
     private async Task OpenAsync()
@@ -122,6 +137,8 @@ public sealed class CadSampleView : Grid
             _canvas.Load(result.Session);
             int diagnosticCount = result.Diagnostics.Count +
                 (shxDiscovery?.Diagnostics.Length ?? 0);
+            _currentDocumentName = file.Name;
+            _currentDiagnosticCount = diagnosticCount;
             string status = DescribeCurrentDocument(file.Name, diagnosticCount);
             if (shxDiscovery is not null)
             {
@@ -258,7 +275,28 @@ public sealed class CadSampleView : Grid
         return $"{name} | {snapshot.Statistics.VisibleEntityCount:N0} visible | " +
             $"{snapshot.Statistics.ExpandedEntityCount:N0} expanded | " +
             $"{snapshot.Statistics.UnsupportedEntityCount:N0} unsupported | " +
-            $"{diagnosticCount + snapshot.Diagnostics.Length:N0} diagnostics";
+            $"{diagnosticCount + snapshot.Diagnostics.Length:N0} diagnostics" +
+            DescribeSelection();
+    }
+
+    private string DescribeSelection()
+    {
+        if (_canvas.SelectedHandleCount == 0)
+        {
+            string emptySelectionUnsupportedStatus = _canvas.LastUnsupportedPrimitiveCount == 0
+                ? string.Empty
+                : $" | {_canvas.LastUnsupportedPrimitiveCount:N0} unsupported selection candidates";
+            return emptySelectionUnsupportedStatus +
+                " | left select/drag (right: Window, left: Crossing); middle/right pan";
+        }
+
+        string mode = _canvas.LastSelectionMode?.ToString() ?? "Selection";
+        string truncated = _canvas.LastSelectionWasTruncated ? " | truncated" : string.Empty;
+        string selectedUnsupportedStatus = _canvas.LastUnsupportedPrimitiveCount == 0
+            ? string.Empty
+            : $" | {_canvas.LastUnsupportedPrimitiveCount:N0} unsupported selection candidates";
+        return $" | {_canvas.SelectedHandleCount:N0} selected ({mode})" +
+            selectedUnsupportedStatus + truncated;
     }
 
     private void SetStatus(string value) => _status.Text = value;

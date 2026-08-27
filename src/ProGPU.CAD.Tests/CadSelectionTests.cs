@@ -199,6 +199,155 @@ public sealed class CadSelectionTests
     }
 
     [Fact]
+    public void ExactBoundsQueryFiltersUnsupportedPrimitivesAndDeduplicatesRoots()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("EXACT_QUERY_BLOCK");
+        block.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX));
+        block.Entities.Add(new Line(XYZ.AxisY, new XYZ(1, 1, 0)));
+        var insert = new Insert(block);
+        document.Entities.Add(insert);
+        var spline = new Spline { Degree = 2 };
+        spline.ControlPoints.AddRange([
+            new XYZ(3, 0, 0),
+            new XYZ(4, 2, 0),
+            new XYZ(5, 0, 0),
+        ]);
+        spline.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+        document.Entities.Add(spline);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        int capacity = snapshot.Entities.Length;
+        var entityScratch = new int[capacity];
+        var candidates = new CadSelectionCandidate[capacity];
+        var matches = new CadSelectionCandidate[capacity];
+        var hashScratch = new int[
+            CadSelectionQuery.GetUniqueHandleScratchLength(capacity)];
+        var handles = new ulong[capacity];
+
+        CadBoundsSelectionQueryResult result = CadSelectionQuery.QueryExactBounds(
+            snapshot,
+            snapshot.Bounds,
+            CadBoundsSelectionMode.Window,
+            entityScratch,
+            candidates,
+            matches,
+            hashScratch,
+            handles);
+
+        Assert.Equal(snapshot.ContentGeneration, result.ContentGeneration);
+        Assert.Equal(3, result.CandidateWrittenCount);
+        Assert.Equal(3, result.CandidateTotalCount);
+        Assert.False(result.AreCandidatesTruncated);
+        Assert.Equal(2, result.MatchedPrimitiveCount);
+        Assert.Equal(1, result.UnsupportedPrimitiveCount);
+        Assert.Equal(1, result.HandleWrittenCount);
+        Assert.Equal(1, result.HandleTotalCount);
+        Assert.False(result.AreHandlesTruncated);
+        Assert.Equal(insert.Handle, handles[0]);
+    }
+
+    [Fact]
+    public void ExactBoundsQueryReportsBroadPhaseAndHandleTruncation()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX));
+        document.Entities.Add(new Line(XYZ.AxisY, new XYZ(1, 1, 0)));
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        var entityScratch = new int[1];
+        var candidates = new CadSelectionCandidate[1];
+        var matches = new CadSelectionCandidate[1];
+        var hashScratch = new int[
+            CadSelectionQuery.GetUniqueHandleScratchLength(1)];
+
+        CadBoundsSelectionQueryResult result = CadSelectionQuery.QueryExactBounds(
+            snapshot,
+            snapshot.Bounds,
+            CadBoundsSelectionMode.Window,
+            entityScratch,
+            candidates,
+            matches,
+            hashScratch,
+            Span<ulong>.Empty);
+
+        Assert.Equal(1, result.CandidateWrittenCount);
+        Assert.Equal(2, result.CandidateTotalCount);
+        Assert.True(result.AreCandidatesTruncated);
+        Assert.Equal(1, result.MatchedPrimitiveCount);
+        Assert.Equal(0, result.HandleWrittenCount);
+        Assert.Equal(1, result.HandleTotalCount);
+        Assert.True(result.AreHandlesTruncated);
+        Assert.Throws<ArgumentException>(() => CadSelectionQuery.QueryExactBounds(
+            snapshot,
+            snapshot.Bounds,
+            CadBoundsSelectionMode.Window,
+            entityScratch,
+            candidates,
+            Span<CadSelectionCandidate>.Empty,
+            hashScratch,
+            Span<ulong>.Empty));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            CadSelectionQuery.QueryExactBounds(
+                snapshot,
+                CadBounds3D.Empty,
+                (CadBoundsSelectionMode)byte.MaxValue,
+                Span<int>.Empty,
+                Span<CadSelectionCandidate>.Empty,
+                Span<CadSelectionCandidate>.Empty,
+                Span<int>.Empty,
+                Span<ulong>.Empty));
+    }
+
+    [Fact]
+    public void WarmExactBoundsQueriesAllocateNoManagedMemory()
+    {
+        var document = new CadDocument();
+        for (int i = 0; i < 64; i++)
+        {
+            document.Entities.Add(new Circle(new XYZ(i * 3, 0, 0), 1));
+        }
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        int capacity = snapshot.Entities.Length;
+        var entityScratch = new int[capacity];
+        var candidates = new CadSelectionCandidate[capacity];
+        var matches = new CadSelectionCandidate[capacity];
+        var hashScratch = new int[
+            CadSelectionQuery.GetUniqueHandleScratchLength(capacity)];
+        var handles = new ulong[capacity];
+        _ = CadSelectionQuery.QueryExactBounds(
+            snapshot,
+            snapshot.Bounds,
+            CadBoundsSelectionMode.Window,
+            entityScratch,
+            candidates,
+            matches,
+            hashScratch,
+            handles);
+        _ = GC.GetAllocatedBytesForCurrentThread();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int checksum = 0;
+        for (int i = 0; i < 1_000; i++)
+        {
+            checksum += CadSelectionQuery.QueryExactBounds(
+                snapshot,
+                snapshot.Bounds,
+                CadBoundsSelectionMode.Window,
+                entityScratch,
+                candidates,
+                matches,
+                hashScratch,
+                handles).HandleTotalCount;
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(64_000, checksum);
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
     public void WarmBoundsCandidateQueriesAllocateNoManagedMemory()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();

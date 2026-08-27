@@ -19,19 +19,57 @@ public sealed class CadSampleCanvas : FrameworkElement
         new ThemeResourceBrush("ControlBorder"),
         1,
         strokeTransformMode: PenStrokeTransformMode.Fixed);
+    private readonly Pen _selectionPen = new(
+        new ThemeResourceBrush("SystemAccentColor"),
+        2,
+        strokeTransformMode: PenStrokeTransformMode.Fixed);
+    private readonly Pen _crossingPen = new(
+        new ThemeResourceBrush("TextPrimary"),
+        1,
+        strokeTransformMode: PenStrokeTransformMode.Fixed);
     private readonly CadSnapshotOptions _snapshotOptions;
     private GpuPicture? _picture;
     private CadBounds3D _bounds;
+    private CadBounds3D _selectedBounds;
     private Vector2 _pan;
     private Vector2 _pointerOrigin;
     private Vector2 _panOrigin;
+    private Vector2 _selectionCurrent;
     private float _zoom = 1;
+    private int[] _selectionEntityScratch = [];
+    private int[] _selectionHandleScratch = [];
+    private CadSelectionCandidate[] _selectionCandidates = [];
+    private CadSelectionCandidate[] _selectionMatches = [];
+    private ulong[] _selectedHandles = [];
+    private int _selectedHandleCount;
+    private int _lastUnsupportedPrimitiveCount;
+    private bool _lastSelectionWasTruncated;
     private bool _isPanning;
+    private bool _isSelecting;
+    private bool _hasSelectionDrag;
     private bool _needsFit = true;
+
+    private const float SelectionDragThreshold = 4.0f;
+    private const float PointSelectionTolerance = 5.0f;
 
     public CadDocumentSession? CurrentSession { get; private set; }
 
     public CadDocumentSnapshot? CurrentSnapshot { get; private set; }
+
+    public ReadOnlyMemory<ulong> SelectedHandles =>
+        _selectedHandles.AsMemory(0, _selectedHandleCount);
+
+    public int SelectedHandleCount => _selectedHandleCount;
+
+    public int LastUnsupportedPrimitiveCount => _lastUnsupportedPrimitiveCount;
+
+    public bool LastSelectionWasTruncated => _lastSelectionWasTruncated;
+
+    public CadBoundsSelectionMode? LastSelectionMode { get; private set; }
+
+    public CadPlanViewport CurrentViewport => CreateViewport();
+
+    public event EventHandler? SelectionChanged;
 
     public CadShxFontCatalog ShxFonts { get; }
 
@@ -53,8 +91,9 @@ public sealed class CadSampleCanvas : FrameworkElement
         PointerPressed += OnPointerPressed;
         PointerMoved += OnPointerMoved;
         PointerReleased += OnPointerReleased;
+        PointerCanceled += OnPointerCanceled;
         PointerWheelChanged += OnPointerWheelChanged;
-        Unloaded += (_, _) => ReleasePicture();
+        Unloaded += (_, _) => ReleaseResources();
         Load(CreateRepresentativeDocument());
     }
 
@@ -62,6 +101,13 @@ public sealed class CadSampleCanvas : FrameworkElement
     {
         ArgumentNullException.ThrowIfNull(session);
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session, _snapshotOptions);
+        int selectionCapacity = snapshot.Entities.Length;
+        int[] selectionEntityScratch = new int[selectionCapacity];
+        var selectionCandidates = new CadSelectionCandidate[selectionCapacity];
+        var selectionMatches = new CadSelectionCandidate[selectionCapacity];
+        int[] selectionHandleScratch = new int[
+            CadSelectionQuery.GetUniqueHandleScratchLength(selectionCapacity)];
+        ulong[] selectedHandles = new ulong[selectionCapacity];
         CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
         GpuPicture picture = scene.CreatePicture();
         GpuPicture? previous = _picture;
@@ -69,9 +115,16 @@ public sealed class CadSampleCanvas : FrameworkElement
         CurrentSession = session;
         CurrentSnapshot = snapshot;
         _bounds = snapshot.Bounds;
+        _selectionEntityScratch = selectionEntityScratch;
+        _selectionCandidates = selectionCandidates;
+        _selectionMatches = selectionMatches;
+        _selectionHandleScratch = selectionHandleScratch;
+        _selectedHandles = selectedHandles;
+        ResetSelectionState(notify: false);
         _needsFit = true;
         previous?.Dispose();
         Invalidate();
+        SelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 
     protected override void ArrangeOverride(Rect arrangeRect)
@@ -91,15 +144,25 @@ public sealed class CadSampleCanvas : FrameworkElement
             return;
         }
 
-        Matrix4x4 camera = new(
-            _zoom, 0, 0, 0,
-            0, -_zoom, 0, 0,
-            0, 0, 1, 0,
-            (Size.X * 0.5f) + _pan.X,
-            (Size.Y * 0.5f) + _pan.Y,
-            0, 1);
+        CadPlanViewport viewport = CreateViewport();
         context.PushClip(new Rect(0, 0, Size.X, Size.Y));
-        context.DrawPicture(_picture, camera);
+        context.DrawPicture(_picture, viewport.CreateCameraMatrix());
+        if (!_selectedBounds.IsEmpty)
+        {
+            context.DrawRectangle(
+                null,
+                _selectionPen,
+                ToScreenRect(viewport, _selectedBounds));
+        }
+        if (_isSelecting && _hasSelectionDrag)
+        {
+            context.DrawRectangle(
+                null,
+                _selectionCurrent.X >= _pointerOrigin.X
+                    ? _selectionPen
+                    : _crossingPen,
+                ToScreenRect(_pointerOrigin, _selectionCurrent));
+        }
         context.PopClip();
     }
 
@@ -121,32 +184,83 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     private void OnPointerPressed(object? sender, PointerRoutedEventArgs args)
     {
-        if (!args.IsLeftButtonPressed)
+        if (args.IsMiddleButtonPressed || args.IsRightButtonPressed)
+        {
+            _isPanning = true;
+            _isSelecting = false;
+            _pointerOrigin = args.Position;
+            _panOrigin = _pan;
+            CapturePointer(args.Pointer);
+            args.Handled = true;
+            return;
+        }
+        if (!args.IsLeftButtonPressed || CurrentSnapshot is null)
         {
             return;
         }
 
-        _isPanning = true;
+        _isSelecting = true;
+        _isPanning = false;
+        _hasSelectionDrag = false;
         _pointerOrigin = args.Position;
-        _panOrigin = _pan;
+        _selectionCurrent = args.Position;
+        CapturePointer(args.Pointer);
+        Invalidate();
         args.Handled = true;
     }
 
     private void OnPointerMoved(object? sender, PointerRoutedEventArgs args)
     {
-        if (!_isPanning)
+        if (_isPanning)
+        {
+            _pan = _panOrigin + (args.Position - _pointerOrigin);
+            Invalidate();
+            args.Handled = true;
+            return;
+        }
+        if (!_isSelecting)
         {
             return;
         }
 
-        _pan = _panOrigin + (args.Position - _pointerOrigin);
+        _selectionCurrent = args.Position;
+        Vector2 delta = _selectionCurrent - _pointerOrigin;
+        _hasSelectionDrag = delta.LengthSquared() >=
+            SelectionDragThreshold * SelectionDragThreshold;
         Invalidate();
         args.Handled = true;
     }
 
     private void OnPointerReleased(object? sender, PointerRoutedEventArgs args)
     {
+        bool handled = _isPanning || _isSelecting;
+        if (_isSelecting)
+        {
+            _selectionCurrent = args.Position;
+            if (!args.IsCanceled)
+            {
+                CompleteSelection();
+            }
+        }
         _isPanning = false;
+        _isSelecting = false;
+        _hasSelectionDrag = false;
+        ReleasePointerCapture(args.Pointer);
+        if (handled)
+        {
+            Invalidate();
+            args.Handled = true;
+        }
+    }
+
+    private void OnPointerCanceled(object? sender, PointerRoutedEventArgs args)
+    {
+        _isPanning = false;
+        _isSelecting = false;
+        _hasSelectionDrag = false;
+        ReleasePointerCapture(args.Pointer);
+        Invalidate();
+        args.Handled = true;
     }
 
     private void OnPointerWheelChanged(object? sender, PointerRoutedEventArgs args)
@@ -162,8 +276,90 @@ public sealed class CadSampleCanvas : FrameworkElement
         args.Handled = true;
     }
 
-    private void ReleasePicture()
+    public void ClearSelection()
     {
+        ResetSelectionState(notify: true);
+        Invalidate();
+    }
+
+    private void CompleteSelection()
+    {
+        CadDocumentSnapshot? snapshot = CurrentSnapshot;
+        if (snapshot is null)
+        {
+            return;
+        }
+
+        CadBoundsSelectionMode mode = _hasSelectionDrag &&
+            _selectionCurrent.X >= _pointerOrigin.X
+            ? CadBoundsSelectionMode.Window
+            : CadBoundsSelectionMode.Crossing;
+        float inflation = _hasSelectionDrag ? 0.0f : PointSelectionTolerance;
+        CadBounds3D selectionBounds = CreateViewport().CreateSelectionBounds(
+            _pointerOrigin,
+            _selectionCurrent,
+            snapshot.Bounds,
+            inflation);
+        CadBoundsSelectionQueryResult result = CadSelectionQuery.QueryExactBounds(
+            snapshot,
+            selectionBounds,
+            mode,
+            _selectionEntityScratch,
+            _selectionCandidates,
+            _selectionMatches,
+            _selectionHandleScratch,
+            _selectedHandles);
+
+        _selectedHandleCount = result.HandleWrittenCount;
+        _lastUnsupportedPrimitiveCount = result.UnsupportedPrimitiveCount;
+        _lastSelectionWasTruncated =
+            result.AreCandidatesTruncated || result.AreHandlesTruncated;
+        LastSelectionMode = mode;
+        _selectedBounds = CadBounds3D.Empty;
+        for (int i = 0; i < result.MatchedPrimitiveCount; i++)
+        {
+            _selectedBounds = _selectedBounds.Union(_selectionMatches[i].Bounds);
+        }
+        SelectionChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ResetSelectionState(bool notify)
+    {
+        _selectedHandleCount = 0;
+        _lastUnsupportedPrimitiveCount = 0;
+        _lastSelectionWasTruncated = false;
+        LastSelectionMode = null;
+        _selectedBounds = CadBounds3D.Empty;
+        if (notify)
+        {
+            SelectionChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private CadPlanViewport CreateViewport()
+    {
+        CadPoint3D rebaseOrigin = CurrentSnapshot?.RebaseOrigin ?? CadPoint3D.Zero;
+        return new CadPlanViewport(rebaseOrigin, Size, _pan, _zoom);
+    }
+
+    private static Rect ToScreenRect(
+        CadPlanViewport viewport,
+        CadBounds3D bounds)
+    {
+        Vector2 first = viewport.WorldToScreen(bounds.Min);
+        Vector2 second = viewport.WorldToScreen(bounds.Max);
+        return ToScreenRect(first, second);
+    }
+
+    private static Rect ToScreenRect(Vector2 first, Vector2 second) => new(
+        Math.Min(first.X, second.X),
+        Math.Min(first.Y, second.Y),
+        Math.Abs(second.X - first.X),
+        Math.Abs(second.Y - first.Y));
+
+    private void ReleaseResources()
+    {
+        ReleasePointerCaptures();
         _picture?.Dispose();
         _picture = null;
     }
