@@ -15,9 +15,17 @@ public sealed class CadSampleView : Grid
     private readonly TextBlock _status;
     private readonly Button _openButton;
     private readonly Button _saveButton;
+    private readonly List<string> _shxSupportDirectories = new();
     private bool _isBusy;
 
     public CadShxFontCatalog ShxFonts => _canvas.ShxFonts;
+
+    /// <summary>
+    /// Ordered fully-qualified desktop support directories probed after the
+    /// opened drawing's directory. Browser hosts should register bundled SHX
+    /// bytes through <see cref="ShxFonts"/> instead.
+    /// </summary>
+    public IList<string> ShxSupportDirectories => _shxSupportDirectories;
 
     public CadSampleView()
         : this(null)
@@ -109,8 +117,19 @@ public sealed class CadSampleView : Grid
                 source,
                 CadDocumentFormat.Auto,
                 sourceName: file.Name);
+            CadShxFontDiscoveryResult? shxDiscovery =
+                await DiscoverLocalShxFontsAsync(file, result.Session);
             _canvas.Load(result.Session);
-            SetStatus(DescribeCurrentDocument(file.Name, result.Diagnostics.Count));
+            int diagnosticCount = result.Diagnostics.Count +
+                (shxDiscovery?.Diagnostics.Length ?? 0);
+            string status = DescribeCurrentDocument(file.Name, diagnosticCount);
+            if (shxDiscovery is not null)
+            {
+                status += $" | SHX {shxDiscovery.LoadedFontNames.Length:N0} loaded, " +
+                    $"{shxDiscovery.MissingFontCount:N0} missing, " +
+                    $"{shxDiscovery.InvalidFontCount:N0} rejected";
+            }
+            SetStatus(status);
         }
         catch (Exception exception)
         {
@@ -120,6 +139,30 @@ public sealed class CadSampleView : Grid
         {
             EndOperation();
         }
+    }
+
+    private async Task<CadShxFontDiscoveryResult?> DiscoverLocalShxFontsAsync(
+        StorageFile file,
+        CadDocumentSession session)
+    {
+        if (!Path.IsPathFullyQualified(file.Path) || !File.Exists(file.Path))
+        {
+            return null;
+        }
+        string? drawingDirectory = Path.GetDirectoryName(file.Path);
+        if (string.IsNullOrEmpty(drawingDirectory))
+        {
+            return null;
+        }
+
+        return await CadShxFontDiscovery.DiscoverAsync(
+            session,
+            ShxFonts,
+            new CadShxFontDiscoveryOptions
+            {
+                DrawingDirectory = drawingDirectory,
+                SupportDirectories = _shxSupportDirectories.ToArray(),
+            });
     }
 
     private async Task SaveAsAsync()

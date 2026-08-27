@@ -528,6 +528,12 @@ diagnostics. Parsing is `O(B + S)` for total bytes `B` and SHX directory entries
 `S`; exact path probing is `O(F * D)` for unresolved filenames `F` and search
 directories `D`. Browser hosts continue to register bundled bytes directly, and
 snapshot compilation/render replay performs no discovery or file IO.
+The shared sample now invokes this adapter before snapshot compilation when its
+picker returns an existing fully-qualified desktop file. Its public ordered
+support-directory list is copied for the operation; the drawing directory still
+wins. Virtual browser files never enter that path and continue through the same
+byte-only catalog seam. The status bar reports loaded, missing, and rejected SHX
+resource counts rather than hiding substitution state.
 
 `CadFontMappingTable.Parse` provides the bounded configuration seam for the
 documented FMP format. It accepts ordinary ASCII input containing exactly one
