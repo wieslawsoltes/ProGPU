@@ -287,13 +287,19 @@ an interactive browser picker/download smoke remains open.
   It executes only repository-defined `CadEditCommand` implementations; the
   abstract mutation methods are internal so consumers cannot inject an
   unvalidated arbitrary command behind the history contract.
-- The first commands translate a deduplicated stable handle set, set entity
-  visibility, assign an existing layer, and add or remove one model-space
-  entity. They resolve every model-space handle before mutation, preserve the
-  original visibility vector, apply exact inverse translation for undo, and
-  advance one document generation for execute, undo, or redo. Add requires a
-  detached zero-handle object; remove retains the same object for undo and
-  treats a collection cancellation as a failed command with no published generation.
+- The first commands translate or rotate a deduplicated stable handle set, set
+  entity visibility, assign an existing layer, and add or remove one
+  model-space entity. They resolve every model-space handle before mutation,
+  preserve the original visibility vector, apply the inverse transform for
+  undo, and advance one document generation for execute, undo, or redo. The
+  rotate command accepts a finite non-zero axis and radians, normalizes the
+  axis without overflow, and deliberately exposes ACadSharp's documented
+  origin-axis operation only; pivoted composition remains unsupported until a
+  public composition-order contract is established. Both transform commands
+  roll back an already-applied entity prefix if a later entity fails. Add
+  requires a detached zero-handle object; remove retains the same object for
+  undo and treats a collection cancellation as a failed command with no
+  published generation.
 - Layer assignment resolves the complete entity set and target table entry
   before mutation, retains each prior layer, and validates every retained table
   identity before undo/redo. A missing or externally replaced layer therefore
@@ -778,13 +784,18 @@ Sources consulted on 2026-08-27:
 - [ACadSharp repository and format support](https://github.com/DomCR/ACadSharp)
   [reader API](https://github.com/DomCR/ACadSharp/blob/master/docs/articles/samples/reading.md),
   and the pinned fork's public
-  [`CadObjectCollection<T>` contract](https://github.com/wieslawsoltes/ACadSharp/blob/b469bd1ec7db6d7d364425f6165609e5ccf09b04/src/ACadSharp/CadObjectCollection.cs):
+  [`CadObjectCollection<T>` contract](https://github.com/wieslawsoltes/ACadSharp/blob/b469bd1ec7db6d7d364425f6165609e5ccf09b04/src/ACadSharp/CadObjectCollection.cs),
+  [`Entity` transform contract](https://github.com/wieslawsoltes/ACadSharp/blob/b469bd1ec7db6d7d364425f6165609e5ccf09b04/src/ACadSharp/Entities/Entity.cs),
+  and [`Transform` construction surface](https://github.com/wieslawsoltes/ACadSharp/blob/b469bd1ec7db6d7d364425f6165609e5ccf09b04/src/CSUtilities/CSMath/Transform.cs):
   adopted `CadDocument` plus format-specific reader/writer ownership; adapted
   behind typed store/diagnostic/capability services. Add/remove command design
   uses only the public collection ownership, cancellation, and observable handle
   reassignment contracts; it retains ProGPU command state rather than copying
-  collection implementation text or structure. Rejected extension-only
-  validation, unconditional DWG-save claims, and private handle manipulation.
+  collection implementation text or structure. Rotation likewise uses only the
+  public axis-angle/radians entity operation, normalizes the caller's axis in
+  ProGPU, and applies the public inverse operation for undo. Rejected
+  extension-only validation, unconditional DWG-save claims, private handle
+  manipulation, and pivot composition based on undocumented matrix order.
 - [Autodesk DXF object coordinate systems](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-D99F1509-E4E4-47A3-8691-92EA07DC88F5.htm):
   adopted OCS/elevation/extrusion normalization and arbitrary-axis conformance.
 - [Autodesk ELLIPSE entity contract](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-DXF/files/GUID-107CB04F-AD4D-4D2F-8EC9-AC90888063AB.htm),

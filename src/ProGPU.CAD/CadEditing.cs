@@ -462,6 +462,119 @@ public sealed class CadTranslateEntitiesCommand : CadEditCommand
 
 }
 
+/// <summary>Rotates a stable set of entity handles around an origin axis.</summary>
+public sealed class CadRotateEntitiesCommand : CadEditCommand
+{
+    private readonly ulong[] _handles;
+    private readonly XYZ _axis;
+    private readonly double _radians;
+    private Entity[]? _entities;
+
+    public ReadOnlyMemory<ulong> Handles => _handles;
+
+    public CadPoint3D Axis { get; }
+
+    public double Radians => _radians;
+
+    public CadRotateEntitiesCommand(
+        IEnumerable<ulong> handles,
+        CadPoint3D axis,
+        double radians,
+        string description = "Rotate entities")
+        : base(description)
+    {
+        ArgumentNullException.ThrowIfNull(handles);
+        if (!double.IsFinite(axis.X) ||
+            !double.IsFinite(axis.Y) ||
+            !double.IsFinite(axis.Z))
+        {
+            throw new ArgumentException("A rotation axis must be finite.", nameof(axis));
+        }
+        if (!double.IsFinite(radians) || radians == 0.0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(radians),
+                "A rotation angle must be finite and non-zero.");
+        }
+
+        double largestComponent = Math.Max(
+            Math.Abs(axis.X),
+            Math.Max(Math.Abs(axis.Y), Math.Abs(axis.Z)));
+        if (largestComponent == 0.0)
+        {
+            throw new ArgumentException("A rotation axis must be non-zero.", nameof(axis));
+        }
+        double scaledX = axis.X / largestComponent;
+        double scaledY = axis.Y / largestComponent;
+        double scaledZ = axis.Z / largestComponent;
+        double scaledLength = Math.Sqrt(
+            (scaledX * scaledX) +
+            (scaledY * scaledY) +
+            (scaledZ * scaledZ));
+
+        _handles = handles.Distinct().ToArray();
+        if (_handles.Length == 0 || _handles.Any(static handle => handle == 0))
+        {
+            throw new ArgumentException(
+                "At least one non-zero entity handle is required.",
+                nameof(handles));
+        }
+
+        Axis = axis;
+        _axis = new XYZ(
+            scaledX / scaledLength,
+            scaledY / scaledLength,
+            scaledZ / scaledLength);
+        _radians = radians;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Entity[] entities;
+        if (isRedo)
+        {
+            entities = GetRetainedEntities(document);
+        }
+        else
+        {
+            entities = ResolveModelSpaceEntities(document, _handles);
+            _entities = entities;
+        }
+        RotateTransactional(entities, _radians);
+    }
+
+    internal override void Revert(CadDocument document) =>
+        RotateTransactional(GetRetainedEntities(document), -_radians);
+
+    private Entity[] GetRetainedEntities(CadDocument document)
+    {
+        Entity[] entities = _entities ??
+            throw new InvalidOperationException("The rotation command has not been applied.");
+        ValidateModelSpaceEntities(document, entities);
+        return entities;
+    }
+
+    private void RotateTransactional(Entity[] entities, double radians)
+    {
+        int applied = 0;
+        try
+        {
+            for (; applied < entities.Length; applied++)
+            {
+                entities[applied].ApplyRotation(_axis, radians);
+            }
+        }
+        catch
+        {
+            for (int i = applied - 1; i >= 0; i--)
+            {
+                entities[i].ApplyRotation(_axis, -radians);
+            }
+            throw;
+        }
+    }
+}
+
 /// <summary>Sets visibility for a stable set of model-space entity handles.</summary>
 public sealed class CadSetEntityVisibilityCommand : CadEditCommand
 {

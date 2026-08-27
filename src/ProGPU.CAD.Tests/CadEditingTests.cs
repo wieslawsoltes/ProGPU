@@ -44,6 +44,53 @@ public sealed class CadEditingTests
     }
 
     [Fact]
+    public void RotateCommandNormalizesAxisAndRoundTripsThreeDimensionalGeometry()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(0, 1, 0), new XYZ(0, 2, 1));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var command = new CadRotateEntitiesCommand(
+            [line.Handle],
+            new CadPoint3D(2, 0, 0),
+            Math.PI / 2.0);
+
+        history.Execute(command);
+
+        Assert.Equal(new CadPoint3D(2, 0, 0), command.Axis);
+        Assert.Equal(Math.PI / 2.0, command.Radians);
+        AssertPoint(new XYZ(0, 0, 1), line.StartPoint);
+        AssertPoint(new XYZ(0, -1, 2), line.EndPoint);
+
+        Assert.True(history.TryUndo(out _));
+        AssertPoint(new XYZ(0, 1, 0), line.StartPoint);
+        AssertPoint(new XYZ(0, 2, 1), line.EndPoint);
+
+        Assert.True(history.TryRedo(out _));
+        AssertPoint(new XYZ(0, 0, 1), line.StartPoint);
+        AssertPoint(new XYZ(0, -1, 2), line.EndPoint);
+    }
+
+    [Theory]
+    [InlineData(0.0, 0.0, 0.0, 1.0)]
+    [InlineData(double.NaN, 0.0, 0.0, 1.0)]
+    [InlineData(1.0, 0.0, 0.0, 0.0)]
+    [InlineData(1.0, 0.0, 0.0, double.PositiveInfinity)]
+    public void RotateCommandRejectsInvalidAxisOrAngle(
+        double x,
+        double y,
+        double z,
+        double radians)
+    {
+        Assert.ThrowsAny<ArgumentException>(() =>
+            new CadRotateEntitiesCommand(
+                [1UL],
+                new CadPoint3D(x, y, z),
+                radians));
+    }
+
+    [Fact]
     public void VisibilityCommandUpdatesSnapshotAndRestoresPriorValues()
     {
         var document = new CadDocument();
@@ -406,5 +453,13 @@ public sealed class CadEditingTests
         Assert.True(history.TryRedo(out _));
         Assert.Equal((short)25, inherited.Transparency.Value);
         Assert.Equal((short)25, byBlock.Transparency.Value);
+    }
+
+    private static void AssertPoint(XYZ expected, XYZ actual)
+    {
+        const double tolerance = 1e-12;
+        Assert.InRange(actual.X, expected.X - tolerance, expected.X + tolerance);
+        Assert.InRange(actual.Y, expected.Y - tolerance, expected.Y + tolerance);
+        Assert.InRange(actual.Z, expected.Z - tolerance, expected.Z + tolerance);
     }
 }
