@@ -3,6 +3,7 @@ using System.Drawing.Interop;
 using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using ProGPU.Text;
+using ProGPU.SystemDrawing;
 
 namespace System.Drawing;
 
@@ -249,6 +250,9 @@ public sealed class Font : MarshalByRefObject, ICloneable, IDisposable, ISeriali
 
     public static Font FromHfont(IntPtr hfont) =>
         throw new PlatformNotSupportedException("HFONT import requires the explicit Windows GDI font adapter.");
+
+    public static Font FromHdc(IntPtr hdc)
+        => NativeFontInteropServices.ImportFromDeviceContext(hdc);
 
     public static Font FromLogFont(in LOGFONT logFont)
         => CreateFromLogFont(in logFont);

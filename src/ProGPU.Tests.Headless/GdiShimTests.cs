@@ -671,7 +671,7 @@ public class GdiShimTests
     [Fact]
     public void FillRectangleNormalizesReflectedBounds()
     {
-        using var graphics = Graphics.FromHwnd(IntPtr.Zero);
+        using var graphics = Graphics.FromProGpuDrawingContext(new DrawingContext());
         graphics.ScaleTransform(-1f, 1f);
 
         graphics.FillRectangle(Brushes.Blue, 1f, 2f, 3f, 4f);
@@ -684,7 +684,7 @@ public class GdiShimTests
     [Fact]
     public void DrawLineRetainsLocalPenWidthAndCompilesWorldTransform()
     {
-        using var graphics = Graphics.FromHwnd(IntPtr.Zero);
+        using var graphics = Graphics.FromProGpuDrawingContext(new DrawingContext());
         using var pen = new Pen(Color.Red, 2f);
 
         graphics.ScaleTransform(3f, 3f);
@@ -739,7 +739,7 @@ public class GdiShimTests
     [Fact]
     public void DrawLinePreservesNormalizedDashPatternAndOffsetWithLocalPenProvenance()
     {
-        using var graphics = Graphics.FromHwnd(IntPtr.Zero);
+        using var graphics = Graphics.FromProGpuDrawingContext(new DrawingContext());
         using var pen = new Pen(Color.Black, 2f)
         {
             DashStyle = DashStyle.Dot,
@@ -771,7 +771,7 @@ public class GdiShimTests
     [Fact]
     public void DrawRectangleScalesPenWidthByWorldTransform()
     {
-        using var graphics = Graphics.FromHwnd(IntPtr.Zero);
+        using var graphics = Graphics.FromProGpuDrawingContext(new DrawingContext());
         using var pen = new Pen(Color.Red, 2f);
 
         graphics.ScaleTransform(3f, 3f);
@@ -804,7 +804,7 @@ public class GdiShimTests
     [Fact]
     public void DrawEllipseScalesPenWidthByWorldTransform()
     {
-        using var graphics = Graphics.FromHwnd(IntPtr.Zero);
+        using var graphics = Graphics.FromProGpuDrawingContext(new DrawingContext());
         using var pen = new Pen(Color.Red, 2f);
 
         graphics.ScaleTransform(3f, 3f);
@@ -821,7 +821,7 @@ public class GdiShimTests
     [Fact]
     public void DrawPathRetainsLocalPenWidthAndCompilesWorldTransform()
     {
-        using var graphics = Graphics.FromHwnd(IntPtr.Zero);
+        using var graphics = Graphics.FromProGpuDrawingContext(new DrawingContext());
         using var pen = new Pen(Color.Red, 2f);
         using var path = new GraphicsPath();
 
@@ -1231,7 +1231,7 @@ public class GdiShimTests
     [Fact]
     public void MeasureStringWrapsAtWidthAndCapsMeasuredHeight()
     {
-        using var graphics = Graphics.FromHwnd(IntPtr.Zero);
+        using var graphics = Graphics.FromProGpuDrawingContext(new DrawingContext());
         var font = SystemFonts.DefaultFont;
         const string text = "Wrap these words across several lines";
 
@@ -1257,7 +1257,7 @@ public class GdiShimTests
     [Fact]
     public void MeasureStringWidthOverloadUsesTheSameWrappingConstraint()
     {
-        using var graphics = Graphics.FromHwnd(IntPtr.Zero);
+        using var graphics = Graphics.FromProGpuDrawingContext(new DrawingContext());
         var font = SystemFonts.DefaultFont;
         const string text = "One two three four five";
         const int maxWidth = 48;

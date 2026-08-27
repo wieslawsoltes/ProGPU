@@ -16,7 +16,7 @@ The legacy `object` overloads accept a boxed canonical `LOGFONT`. Export mutates
 
 ## Platform boundary
 
-HDC-aware import remains an explicit Windows GDI adapter boundary. A zero handle is rejected, and a nonzero handle fails with `PlatformNotSupportedException` until a typed Windows adapter supplies device-specific font selection. `FromHdc`, `FromHfont`, and `ToHfont` remain separate reviewed native-handle debt; this slice does not fabricate handles or infer native state.
+HDC-aware LOGFONT import remains an explicit Windows GDI adapter boundary. A zero handle is rejected, and a nonzero handle fails with `PlatformNotSupportedException` until a typed Windows adapter supplies device-specific LOGFONT interpretation. The later [native font/graphics interop checkpoint](system-drawing-native-interop-contract.md) routes `Font.FromHdc` through a typed selected-font service. `FromHfont`, `ToHfont`, and the LOGFONT-plus-HDC overload remain separate reviewed native-handle debt; this slice does not fabricate handles or infer native state.
 
 ## Gates and measured debt
 

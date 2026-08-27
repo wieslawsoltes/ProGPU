@@ -287,11 +287,14 @@ public partial class Graphics :
         return new Graphics(drawingContext);
     }
 
-    public static Graphics FromHdc(IntPtr hdc) =>
-        throw new PlatformNotSupportedException(
-            "HDC import requires the explicit Windows GDI drawing adapter.");
+    public static Graphics FromHdc(IntPtr hdc)
+        => NativeGraphicsInteropServices.CreateFromDeviceContext(hdc, IntPtr.Zero);
 
-    public static Graphics FromHdc(IntPtr hdc, IntPtr hdevice) => FromHdc(hdc);
+    public static Graphics FromHdc(IntPtr hdc, IntPtr hdevice)
+        => NativeGraphicsInteropServices.CreateFromDeviceContext(hdc, hdevice);
+
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static Graphics FromHdcInternal(IntPtr hdc) => FromHdc(hdc);
 
     public void CopyFromScreen(
         Point upperLeftSource,
@@ -613,9 +616,13 @@ public partial class Graphics :
     }
 
     public static Graphics FromHwnd(IntPtr hwnd)
-    {
-        return new Graphics(new DrawingContext());
-    }
+        => NativeGraphicsInteropServices.CreateFromWindow(hwnd);
+
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static Graphics FromHwndInternal(IntPtr hwnd) => FromHwnd(hwnd);
+
+    public static IntPtr GetHalftonePalette()
+        => NativeGraphicsInteropServices.CreateHalftonePalette();
 
     public void Flush() => Flush(FlushIntention.Flush);
 
