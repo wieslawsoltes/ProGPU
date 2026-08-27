@@ -372,6 +372,62 @@ public sealed class CadEditingTests
     }
 
     [Fact]
+    public void LineTypeCommandRestoresInheritanceAndRetainsSnapshotName()
+    {
+        var document = new CadDocument();
+        var target = new LineType("DASHED_EDIT");
+        document.LineTypes.Add(target);
+        var inherited = new Line(XYZ.Zero, XYZ.AxisX)
+        {
+            LineType = document.LineTypes.ByLayer,
+        };
+        var byBlock = new Line(XYZ.AxisY, new XYZ(1, 1, 0))
+        {
+            LineType = document.LineTypes.ByBlock,
+        };
+        document.Entities.Add(inherited);
+        document.Entities.Add(byBlock);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetEntityLineTypeCommand(
+            [inherited.Handle, byBlock.Handle],
+            "dashed_edit"));
+
+        Assert.Same(target, inherited.LineType);
+        Assert.Same(target, byBlock.LineType);
+        CadDocumentSnapshot applied = new CadSnapshotCompiler().Compile(session);
+        Assert.All(
+            applied.Styles.ToArray(),
+            style => Assert.Equal("DASHED_EDIT", style.LineTypeName));
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Same(document.LineTypes.ByLayer, inherited.LineType);
+        Assert.Same(document.LineTypes.ByBlock, byBlock.LineType);
+        Assert.True(history.TryRedo(out _));
+        Assert.Same(target, inherited.LineType);
+        Assert.Same(target, byBlock.LineType);
+    }
+
+    [Fact]
+    public void MissingLineTypeFailsBeforeEntityMutation()
+    {
+        var document = new CadDocument();
+        var line = new Line(XYZ.Zero, XYZ.AxisX);
+        document.Entities.Add(line);
+        LineType original = line.LineType;
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadSetEntityLineTypeCommand([line.Handle], "MISSING")));
+
+        Assert.Equal(0UL, session.ContentGeneration);
+        Assert.Equal(0, history.UndoCount);
+        Assert.Same(original, line.LineType);
+    }
+
+    [Fact]
     public void LineWeightCommandRetainsSemanticValuesAndRenderedThickness()
     {
         var document = new CadDocument();

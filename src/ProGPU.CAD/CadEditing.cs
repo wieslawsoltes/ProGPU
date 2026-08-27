@@ -855,6 +855,105 @@ public sealed class CadSetEntityLayerCommand : CadEditCommand
 
 }
 
+/// <summary>Assigns one existing linetype to a stable set of model-space entities.</summary>
+public sealed class CadSetEntityLineTypeCommand : CadEditCommand
+{
+    private readonly ulong[] _handles;
+    private Entity[]? _entities;
+    private LineType[]? _previousLineTypes;
+    private LineType? _targetLineType;
+
+    public ReadOnlyMemory<ulong> Handles => _handles;
+
+    public string LineTypeName { get; }
+
+    public CadSetEntityLineTypeCommand(
+        IEnumerable<ulong> handles,
+        string lineTypeName,
+        string description = "Set entity linetype")
+        : base(description)
+    {
+        ArgumentNullException.ThrowIfNull(handles);
+        ArgumentException.ThrowIfNullOrWhiteSpace(lineTypeName);
+        _handles = handles.Distinct().ToArray();
+        if (_handles.Length == 0 || _handles.Any(static handle => handle == 0))
+        {
+            throw new ArgumentException(
+                "At least one non-zero entity handle is required.",
+                nameof(handles));
+        }
+        LineTypeName = lineTypeName;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Entity[] entities;
+        LineType target;
+        if (isRedo)
+        {
+            entities = GetRetainedEntities(document);
+            target = _targetLineType ??
+                throw new InvalidOperationException("The linetype command has not been applied.");
+            ValidateLineType(document, target);
+        }
+        else
+        {
+            entities = ResolveModelSpaceEntities(document, _handles);
+            if (!document.LineTypes.TryGetValue(LineTypeName, out LineType? targetLineType))
+            {
+                throw new InvalidOperationException(
+                    $"Document linetype '{LineTypeName}' does not exist.");
+            }
+            target = targetLineType;
+            _entities = entities;
+            _previousLineTypes = CaptureEntityValues(
+                entities,
+                static entity => entity.LineType);
+            _targetLineType = target;
+        }
+
+        SetEntityValuesTransactional(
+            entities,
+            target,
+            static entity => entity.LineType,
+            static (entity, value) => entity.LineType = value);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Entity[] entities = GetRetainedEntities(document);
+        LineType[] previous = _previousLineTypes ??
+            throw new InvalidOperationException("The linetype command has not been applied.");
+        foreach (LineType lineType in previous)
+        {
+            ValidateLineType(document, lineType);
+        }
+        SetEntityValuesTransactional(
+            entities,
+            previous,
+            static entity => entity.LineType,
+            static (entity, value) => entity.LineType = value);
+    }
+
+    private Entity[] GetRetainedEntities(CadDocument document)
+    {
+        Entity[] entities = _entities ??
+            throw new InvalidOperationException("The linetype command has not been applied.");
+        ValidateModelSpaceEntities(document, entities);
+        return entities;
+    }
+
+    private static void ValidateLineType(CadDocument document, LineType lineType)
+    {
+        if (!document.LineTypes.TryGetValue(lineType.Name, out LineType? registered) ||
+            !ReferenceEquals(registered, lineType))
+        {
+            throw new InvalidOperationException(
+                $"Retained document linetype '{lineType.Name}' is no longer registered.");
+        }
+    }
+}
+
 /// <summary>Assigns an explicit, ByLayer, or ByBlock lineweight to model-space entities.</summary>
 public sealed class CadSetEntityLineWeightCommand : CadEditCommand
 {
