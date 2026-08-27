@@ -34,10 +34,22 @@ struct GpuMesh3DRecord {
     yuvGreen: vec4<f32>,
     yuvBlue: vec4<f32>,
     textureSourceRect: vec4<f32>,
+    lightOffset: u32,
+    lightCount: u32,
+    lightPadding: vec2<u32>,
+};
+
+struct GpuLight3DRecord {
+    metadata: vec4<f32>,
+    color: vec4<f32>,
+    positionRange: vec4<f32>,
+    directionInnerCos: vec4<f32>,
+    attenuationOuterCos: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: VSUniforms;
 @group(0) @binding(1) var<storage, read> meshRecords: array<GpuMesh3DRecord>;
+@group(0) @binding(2) var<storage, read> lightRecords: array<GpuLight3DRecord>;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -91,6 +103,65 @@ fn GoochShading(N: vec3<f32>, L: vec3<f32>, diffuseColor: vec3<f32>) -> vec3<f32
     return mix(coolCol, warmCol, t);
 }
 
+fn ComputeWpfLighting(
+    record: GpuMesh3DRecord,
+    N: vec3<f32>,
+    V: vec3<f32>,
+    worldPos: vec3<f32>
+) -> vec3<f32> {
+    var ambient = vec3<f32>(0.0);
+    var diffuse = vec3<f32>(0.0);
+    var specular = vec3<f32>(0.0);
+    let shininess = max(record.specularColor.w, 0.001);
+    for (var lightIndex = 0u; lightIndex < 16u; lightIndex++) {
+        if (lightIndex >= record.lightCount) {
+            break;
+        }
+        let source = lightRecords[record.lightOffset + lightIndex];
+        let kind = u32(source.metadata.x + 0.5);
+        if (kind == 0u) {
+            ambient += source.color.rgb;
+            continue;
+        }
+        var L = normalize(-source.directionInnerCos.xyz);
+        var attenuation = 1.0;
+        if (kind >= 2u) {
+            let toLight = source.positionRange.xyz - worldPos;
+            let distance = length(toLight);
+            if (distance <= 0.000001 || distance > source.positionRange.w) {
+                continue;
+            }
+            L = toLight / distance;
+            let terms = source.attenuationOuterCos.xyz;
+            attenuation = 1.0 / max(
+                terms.x + terms.y * distance +
+                    terms.z * distance * distance,
+                1.0);
+            if (kind == 3u) {
+                let rho = max(dot(
+                    normalize(-source.directionInnerCos.xyz), L), 0.0);
+                let outerCos = source.attenuationOuterCos.w;
+                attenuation *= clamp(
+                    (rho - outerCos) /
+                        max(source.directionInnerCos.w - outerCos, 0.000001),
+                    0.0,
+                    1.0);
+            }
+        }
+        let NdotL = max(dot(N, L), 0.0);
+        if (NdotL <= 0.0) {
+            continue;
+        }
+        diffuse += source.color.rgb * NdotL * attenuation;
+        let H = normalize(V + L);
+        specular += source.color.rgb *
+            pow(max(dot(N, H), 0.0), shininess) * attenuation;
+    }
+    return record.color.rgb *
+        (ambient * record.materialAmbient.rgb + diffuse) +
+        record.specularColor.rgb * specular;
+}
+
 fn ComputeLighting(
     instanceIdx: u32,
     worldPos: vec3<f32>,
@@ -117,6 +188,25 @@ fn ComputeLighting(
     let V = normalize(uniforms.cameraPosition - worldPos);
 
     let shininess = record.specularColor.w;
+    if (record.lightCount != 0u) {
+        var resultColor = ComputeWpfLighting(
+            record, N, V, worldPos);
+        if (shading == 4u) {
+            let gray = dot(
+                resultColor,
+                vec3<f32>(0.2126, 0.7152, 0.0722));
+            resultColor = vec3<f32>(gray);
+        }
+        var explicitOpacity = record.opacity;
+        if (shading == 5u) {
+            explicitOpacity = clamp(
+                0.15 + 0.55 *
+                    pow(1.0 - max(dot(N, V), 0.0), 3.0),
+                0.0,
+                1.0) * record.opacity;
+        }
+        return vec4<f32>(resultColor, explicitOpacity);
+    }
     let roughness = clamp(sqrt(2.0 / (max(shininess, 0.001) + 2.0)), 0.04, 1.0);
     let F0 = mix(vec3<f32>(0.04), record.color.rgb, 0.1);
 

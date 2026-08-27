@@ -28,6 +28,14 @@ namespace ProGPU.Scene.Extensions
         Normals = 6
     }
 
+    public enum LightKind3D
+    {
+        Ambient = 0,
+        Directional = 1,
+        Point = 2,
+        Spot = 3
+    }
+
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct GpuVertex3D
     {
@@ -74,6 +82,19 @@ namespace ProGPU.Scene.Extensions
         public Vector4 YuvGreen;
         public Vector4 YuvBlue;
         public Vector4 TextureSourceRect;      // normalized x, y, width, height
+        public uint LightOffset;
+        public uint LightCount;
+        private Vector2 _lightPadding;
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 16)]
+    public struct GpuLight3DRecord
+    {
+        public Vector4 Metadata;               // x = LightKind3D
+        public Vector4 Color;
+        public Vector4 PositionRange;          // xyz = position, w = range
+        public Vector4 DirectionInnerCos;      // xyz = direction, w = cos(inner / 2)
+        public Vector4 AttenuationOuterCos;    // xyz = attenuation, w = cos(outer / 2)
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 16)]
@@ -95,6 +116,8 @@ namespace ProGPU.Scene.Extensions
             Array.Empty<uint>();
         private byte[] _unfilterableMaterials =
             Array.Empty<byte>();
+        private GpuLight3DRecord[] _lights =
+            new GpuLight3DRecord[16];
 
         internal int Capacity => _records.Length;
 
@@ -109,6 +132,9 @@ namespace ProGPU.Scene.Extensions
 
         internal Span<byte> UnfilterableMaterials =>
             _unfilterableMaterials;
+
+        internal Span<GpuLight3DRecord> Lights =>
+            _lights;
 
         internal void EnsureCapacity(int requiredCapacity)
         {
@@ -180,6 +206,7 @@ namespace ProGPU.Scene.Extensions
             public GpuBuffer UniformsBuffer;
             public GpuBuffer? DynamicRecordsBuffer;
             public GpuBuffer? RecordIndexBuffer;
+            public GpuBuffer? LightBuffer;
             public unsafe BindGroup* SolidBindGroup;
             public unsafe BindGroup* WireframeBindGroup;
             public int RecordGen = -1;
@@ -195,6 +222,7 @@ namespace ProGPU.Scene.Extensions
                 UniformsBuffer.Dispose();
                 DynamicRecordsBuffer?.Dispose();
                 RecordIndexBuffer?.Dispose();
+                LightBuffer?.Dispose();
                 if (SolidBindGroup != null) context.Api.BindGroupRelease(SolidBindGroup);
                 if (WireframeBindGroup != null) context.Api.BindGroupRelease(WireframeBindGroup);
             }
@@ -451,7 +479,7 @@ namespace ProGPU.Scene.Extensions
             var wgpu = compositor.Context.Api;
             var device = compositor.Context.Device;
 
-            var solidEntries = stackalloc BindGroupLayoutEntry[2];
+            var solidEntries = stackalloc BindGroupLayoutEntry[3];
             solidEntries[0] = new BindGroupLayoutEntry
             {
                 Binding = 0,
@@ -474,9 +502,20 @@ namespace ProGPU.Scene.Extensions
                     MinBindingSize = 0
                 }
             };
+            solidEntries[2] = new BindGroupLayoutEntry
+            {
+                Binding = 2,
+                Visibility = ShaderStage.Fragment,
+                Buffer = new BufferBindingLayout
+                {
+                    Type = BufferBindingType.ReadOnlyStorage,
+                    HasDynamicOffset = false,
+                    MinBindingSize = 0
+                }
+            };
             var solidLayoutDesc = new BindGroupLayoutDescriptor
             {
-                EntryCount = 2,
+                EntryCount = 3,
                 Entries = solidEntries
             };
             _solidBindGroupLayout =
@@ -1128,6 +1167,100 @@ namespace ProGPU.Scene.Extensions
             return bindGroup;
         }
 
+        private static GpuLight3DRecord CreateLightRecord(
+            Light3DCompilationEntry light)
+        {
+            if (!IsFinite(light.Color))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(light),
+                    "Mesh3D light colors must be finite.");
+            }
+
+            var result = new GpuLight3DRecord
+            {
+                Metadata = new Vector4((float)light.Kind, 0f, 0f, 0f),
+                Color = light.Color
+            };
+            switch (light.Kind)
+            {
+                case LightKind3D.Ambient:
+                    return result;
+                case LightKind3D.Directional:
+                    if (!IsFinite(light.Direction) ||
+                        light.Direction.LengthSquared() <= 0.000001f)
+                    {
+                        throw new ArgumentOutOfRangeException(
+                            nameof(light),
+                            "Directional Mesh3D lights require a finite nonzero direction.");
+                    }
+                    result.DirectionInnerCos = new Vector4(
+                        Vector3.Normalize(light.Direction), 0f);
+                    return result;
+                case LightKind3D.Point:
+                case LightKind3D.Spot:
+                    if (!IsFinite(light.Position) ||
+                        !float.IsFinite(light.Range) || light.Range <= 0f ||
+                        !float.IsFinite(light.ConstantAttenuation) ||
+                        !float.IsFinite(light.LinearAttenuation) ||
+                        !float.IsFinite(light.QuadraticAttenuation) ||
+                        light.ConstantAttenuation < 0f ||
+                        light.LinearAttenuation < 0f ||
+                        light.QuadraticAttenuation < 0f ||
+                        (light.ConstantAttenuation == 0f &&
+                            light.LinearAttenuation == 0f &&
+                            light.QuadraticAttenuation == 0f))
+                    {
+                        throw new ArgumentOutOfRangeException(
+                            nameof(light),
+                            "Point and spot Mesh3D lights require finite position, positive range, and nonnegative attenuation with a positive term.");
+                    }
+                    result.PositionRange = new Vector4(
+                        light.Position, light.Range);
+                    result.AttenuationOuterCos = new Vector4(
+                        light.ConstantAttenuation,
+                        light.LinearAttenuation,
+                        light.QuadraticAttenuation,
+                        0f);
+                    if (light.Kind == LightKind3D.Point)
+                    {
+                        return result;
+                    }
+                    if (!IsFinite(light.Direction) ||
+                        light.Direction.LengthSquared() <= 0.000001f ||
+                        !float.IsFinite(light.InnerConeCosine) ||
+                        !float.IsFinite(light.OuterConeCosine) ||
+                        light.InnerConeCosine < -1f ||
+                        light.InnerConeCosine > 1f ||
+                        light.OuterConeCosine < -1f ||
+                        light.OuterConeCosine > 1f ||
+                        light.InnerConeCosine < light.OuterConeCosine)
+                    {
+                        throw new ArgumentOutOfRangeException(
+                            nameof(light),
+                            "Spot Mesh3D lights require a finite nonzero direction and ordered half-angle cosines.");
+                    }
+                    result.DirectionInnerCos = new Vector4(
+                        Vector3.Normalize(light.Direction),
+                        light.InnerConeCosine);
+                    result.AttenuationOuterCos.W =
+                        light.OuterConeCosine;
+                    return result;
+                default:
+                    throw new ArgumentOutOfRangeException(
+                        nameof(light),
+                        $"Unsupported Mesh3D light kind {light.Kind}.");
+            }
+        }
+
+        private static bool IsFinite(Vector3 value) =>
+            float.IsFinite(value.X) && float.IsFinite(value.Y) &&
+            float.IsFinite(value.Z);
+
+        private static bool IsFinite(Vector4 value) =>
+            float.IsFinite(value.X) && float.IsFinite(value.Y) &&
+            float.IsFinite(value.Z) && float.IsFinite(value.W);
+
         public unsafe void Compile(
             Compositor compositor,
             IRenderDataProvider? provider,
@@ -1155,6 +1288,13 @@ namespace ProGPU.Scene.Extensions
 
             // 1. Create or update dynamic record buffer
             int recordCount = payload.Meshes.Count;
+            int lightCount = payload.Lights.Count;
+            if (lightCount > 16)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(payload),
+                    "Mesh3D supports at most 16 lights per viewport.");
+            }
 
             uint reqRecordsSize = (uint)recordCount * (uint)Marshal.SizeOf<GpuMesh3DRecord>();
             if (res.DynamicRecordsBuffer == null || res.DynamicRecordsBuffer.Size < reqRecordsSize)
@@ -1174,6 +1314,20 @@ namespace ProGPU.Scene.Extensions
                     BufferUsage.Vertex | BufferUsage.CopyDst,
                     "Dynamic Mesh3D Record Indices Buffer");
             }
+            int uploadLightCount = Math.Max(1, lightCount);
+            uint reqLightsSize = (uint)uploadLightCount *
+                (uint)Marshal.SizeOf<GpuLight3DRecord>();
+            if (res.LightBuffer == null ||
+                res.LightBuffer.Size < reqLightsSize)
+            {
+                res.LightBuffer?.Dispose();
+                res.LightBuffer = new GpuBuffer(
+                    compositor.Context,
+                    reqLightsSize,
+                    BufferUsage.Storage | BufferUsage.CopyDst,
+                    "Dynamic Mesh3D Lights Buffer");
+                res.RecordGen = -1;
+            }
 
             // 2. Upload records data
             _compileScratch.EnsureCapacity(recordCount);
@@ -1186,6 +1340,16 @@ namespace ProGPU.Scene.Extensions
             Span<byte> unfilterableMaterials =
                 _compileScratch
                     .UnfilterableMaterials[..recordCount];
+            Span<GpuLight3DRecord> cpuLights =
+                _compileScratch.Lights[..uploadLightCount];
+            cpuLights.Clear();
+            for (int lightIndex = 0;
+                 lightIndex < lightCount;
+                 lightIndex++)
+            {
+                cpuLights[lightIndex] =
+                    CreateLightRecord(payload.Lights[lightIndex]);
+            }
             bool hasUnfilterableMaterials = false;
             int n = recordCount;
             for (int i = 0; i < n; i++)
@@ -1299,11 +1463,14 @@ namespace ProGPU.Scene.Extensions
                         yuvConversion?.Blue ?? default,
                     TextureSourceRect =
                         mesh.TexturePresentation
-                            .NormalizedSourceRect
+                            .NormalizedSourceRect,
+                    LightOffset = 0U,
+                    LightCount = (uint)lightCount
                 };
             }
             res.DynamicRecordsBuffer.Write(cpuRecords);
             res.RecordIndexBuffer.Write(recordIndices);
+            res.LightBuffer.Write(cpuLights);
 
             Matrix4x4.Invert(cmd.CameraView, out var invView);
             Vector3 cameraPos = invView.Translation;
@@ -1428,7 +1595,9 @@ namespace ProGPU.Scene.Extensions
             }
 
             // 5. Create or get cached BindGroup
-            int currentGen = res.DynamicRecordsBuffer.GetHashCode() ^ res.UniformsBuffer.GetHashCode();
+            int currentGen = res.DynamicRecordsBuffer.GetHashCode() ^
+                res.UniformsBuffer.GetHashCode() ^
+                res.LightBuffer.GetHashCode();
             if (res.SolidBindGroup == null ||
                 res.WireframeBindGroup == null ||
                 currentGen != res.RecordGen ||
@@ -1437,7 +1606,7 @@ namespace ProGPU.Scene.Extensions
                 res.RecordGen = currentGen;
                 res.SampleCount = sampleCount;
 
-                var bgEntries = stackalloc BindGroupEntry[2];
+                var bgEntries = stackalloc BindGroupEntry[3];
                 bgEntries[0] = new BindGroupEntry
                 {
                     Binding = 0,
@@ -1452,12 +1621,19 @@ namespace ProGPU.Scene.Extensions
                     Offset = 0,
                     Size = res.DynamicRecordsBuffer.Size
                 };
+                bgEntries[2] = new BindGroupEntry
+                {
+                    Binding = 2,
+                    Buffer = res.LightBuffer.BufferPtr,
+                    Offset = 0,
+                    Size = res.LightBuffer.Size
+                };
 
                 // Bind group for Solid Pipeline
                 var bgDesc = new BindGroupDescriptor
                 {
                     Layout = _solidBindGroupLayout,
-                    EntryCount = 2,
+                    EntryCount = 3,
                     Entries = bgEntries,
                     Label = (byte*)SilkMarshal.StringToPtr("Mesh3D 3D BindGroup")
                 };
@@ -1471,7 +1647,7 @@ namespace ProGPU.Scene.Extensions
                 var wireframeBgDesc = new BindGroupDescriptor
                 {
                     Layout = wireframeLayout,
-                    EntryCount = 2,
+                    EntryCount = 3,
                     Entries = bgEntries,
                     Label = (byte*)SilkMarshal.StringToPtr("Mesh3D Wireframe BindGroup")
                 };
@@ -1741,6 +1917,7 @@ namespace ProGPU.Scene.Extensions
         public Vector3 AmbientColor { get; set; } = new Vector3(1f, 1f, 1f);
         public float AmbientIntensity { get; set; } = 0.2f;
         public List<MeshCompilationEntry> Meshes { get; } = new();
+        public List<Light3DCompilationEntry> Lights { get; } = new();
 
         public GpuTexture? ColorTexture { get; set; }
         public GpuTexture? MsaaColorTexture { get; set; }
@@ -1749,6 +1926,24 @@ namespace ProGPU.Scene.Extensions
         
         public RenderMode3D RenderMode { get; set; } = RenderMode3D.Solid;
         public ShadingMode3D ShadingMode { get; set; } = ShadingMode3D.Realistic;
+    }
+
+    public struct Light3DCompilationEntry
+    {
+        public Light3DCompilationEntry()
+        {
+        }
+
+        public LightKind3D Kind { get; set; }
+        public Vector4 Color { get; set; } = Vector4.One;
+        public Vector3 Position { get; set; }
+        public Vector3 Direction { get; set; } = -Vector3.UnitZ;
+        public float Range { get; set; } = float.MaxValue;
+        public float ConstantAttenuation { get; set; } = 1.0f;
+        public float LinearAttenuation { get; set; }
+        public float QuadraticAttenuation { get; set; }
+        public float InnerConeCosine { get; set; }
+        public float OuterConeCosine { get; set; }
     }
 
     public class MeshCompilationEntry

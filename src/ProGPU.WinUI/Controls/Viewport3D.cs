@@ -512,6 +512,7 @@ namespace Microsoft.UI.Xaml.Controls
         public float LightIntensity { get; set; } = 1.0f;
         public Vector3 AmbientColor { get; set; } = new Vector3(1f, 1f, 1f);
         public float AmbientIntensity { get; set; } = 0.25f;
+        public List<Light3DCompilationEntry> Lights { get; } = new();
 
         public RenderMode3D RenderMode { get; set; } = RenderMode3D.Solid;
         public ShadingMode3D ShadingMode { get; set; } = ShadingMode3D.Realistic;
@@ -701,6 +702,7 @@ namespace Microsoft.UI.Xaml.Controls
                 RenderMode = RenderMode,
                 ShadingMode = ShadingMode
             };
+            payload.Lights.AddRange(Lights);
 
             foreach (var visual in Children)
             {

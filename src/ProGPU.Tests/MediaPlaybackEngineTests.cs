@@ -3144,8 +3144,10 @@ public sealed class MediaPlaybackEngineTests
             typeof(Mesh3DExtensionPipeline),
             "Mesh3DWireframe.wgsl");
 
-        Assert.Equal(448, System.Runtime.InteropServices.Marshal
+        Assert.Equal(464, System.Runtime.InteropServices.Marshal
             .SizeOf<GpuMesh3DRecord>());
+        Assert.Equal(80, System.Runtime.InteropServices.Marshal
+            .SizeOf<GpuLight3DRecord>());
         Assert.Equal(
             GetRecordDeclaration(solid),
             GetRecordDeclaration(wireframe));
@@ -3156,6 +3158,30 @@ public sealed class MediaPlaybackEngineTests
         Assert.Contains(
             "TransformMaterialCoordinate",
             solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "@group(0) @binding(2) var<storage, read> lightRecords",
+            solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "if (record.lightCount != 0u)",
+            solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "distance <= 0.000001 || distance > source.positionRange.w",
+            solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "let H = normalize(V + L);",
+            solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "source.directionInnerCos.w - outerCos",
+            solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "@group(0) @binding(2) var<storage, read> lightRecords",
+            wireframe,
             StringComparison.Ordinal);
 
         static string GetRecordDeclaration(string shader)
@@ -3232,6 +3258,87 @@ public sealed class MediaPlaybackEngineTests
         Assert.Equal(
             (byte)1,
             scratch.UnfilterableMaterials[0]);
+    }
+
+    [Fact]
+    public void WinUiMesh3DExecutesPointAndSpotLightBufferOnGpu()
+    {
+        byte[] point = RenderWithLight(new Light3DCompilationEntry
+        {
+            Kind = LightKind3D.Point,
+            Color = new Vector4(1f, 0f, 0f, 1f),
+            Position = new Vector3(0f, 0f, 2f),
+            Range = 20f
+        });
+        byte[] spot = RenderWithLight(new Light3DCompilationEntry
+        {
+            Kind = LightKind3D.Spot,
+            Color = new Vector4(0f, 0f, 1f, 1f),
+            Position = new Vector3(0f, 0f, 2f),
+            Direction = -Vector3.UnitZ,
+            Range = 20f,
+            InnerConeCosine = MathF.Cos(15f * MathF.PI / 180f),
+            OuterConeCosine = MathF.Cos(30f * MathF.PI / 180f)
+        });
+
+        Assert.True(point[0] > point[2] + 40,
+            $"Expected point-light red dominance, got {string.Join('/', point)}.");
+        Assert.True(spot[2] > spot[0] + 40,
+            $"Expected spot-light blue dominance, got {string.Join('/', spot)}.");
+
+        static byte[] RenderWithLight(Light3DCompilationEntry light)
+        {
+            using var window = new HeadlessWindow(160, 90);
+            var mesh = new MeshGeometry3D
+            {
+                Positions =
+                [
+                    new Vector3(-1.5f, -0.8f, 0f),
+                    new Vector3(1.5f, -0.8f, 0f),
+                    new Vector3(1.5f, 0.8f, 0f),
+                    new Vector3(-1.5f, 0.8f, 0f)
+                ],
+                Normals =
+                [
+                    -Vector3.UnitZ,
+                    -Vector3.UnitZ,
+                    -Vector3.UnitZ,
+                    -Vector3.UnitZ
+                ],
+                TriangleIndices = [0, 1, 2, 0, 2, 3]
+            };
+            var material = new DiffuseMaterial
+            {
+                Brush = new ProGPU.Vector.SolidColorBrush(Vector4.One),
+                SpecularColor = Vector3.Zero,
+                AmbientColor = Vector3.One
+            };
+            var viewport = new Viewport3D
+            {
+                Camera = new OrthographicCamera { Width = 4f }
+            };
+            viewport.Lights.Add(light);
+            viewport.Children.Add(new ModelVisual3D
+            {
+                Content = new GeometryModel3D
+                {
+                    Geometry = mesh,
+                    BackMaterial = material
+                }
+            });
+            window.Content = viewport;
+            try
+            {
+                window.Render();
+                byte[] pixels = window.ReadPixels();
+                int offset = (45 * 160 + 80) * 4;
+                return pixels.AsSpan(offset, 4).ToArray();
+            }
+            finally
+            {
+                window.Content = null;
+            }
+        }
     }
 
     [Fact]
