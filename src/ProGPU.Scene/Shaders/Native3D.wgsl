@@ -86,10 +86,13 @@ fn vs_line_3d(
     @builtin(instance_index) instance_index: u32) -> LineOutput {
     let line = lines[instance_index];
     let camera = cameras[line.camera_index];
-    let corner = array<vec2<f32>, 6>(
-        vec2<f32>(0.0, -1.0), vec2<f32>(0.0, 1.0),
-        vec2<f32>(1.0, -1.0), vec2<f32>(1.0, -1.0),
-        vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 1.0))[vertex_index];
+    let is_end = vertex_index == 2u || vertex_index == 3u ||
+        vertex_index == 5u;
+    let is_positive_side = vertex_index == 1u || vertex_index == 4u ||
+        vertex_index == 5u;
+    let corner = vec2<f32>(
+        select(0.0, 1.0, is_end),
+        select(-1.0, 1.0, is_positive_side));
     let local = select(line.start, line.end, corner.x > 0.5);
     var start_clip = camera.projection * camera.view * line.transform * line.start;
     var end_clip = camera.projection * camera.view * line.transform * line.end;
@@ -135,7 +138,8 @@ fn vs_mesh_3d(
     let camera = cameras[mesh.camera_index];
     let source_index = indices[mesh.index_offset + vertex_index];
     let vertex = vertices[mesh.vertex_offset + source_index];
-    let world = mesh.model_transform * vertex.position;
+    let world = mesh.model_transform *
+        vec4<f32>(vertex.position.xyz, 1.0);
     var output: MeshOutput;
     output.position = map_clip_to_viewport(
         camera.projection * camera.view * world,

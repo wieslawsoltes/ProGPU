@@ -637,6 +637,19 @@ masks, and guideline resources also fail closed until the shared 3D compositor
 can apply them exactly; they are never silently dropped. No reflection, WPF
 object pointer, CPU projection, or bridge-local mesh renderer is introduced.
 
+`--semantic-viewport3d` is the live cross-backend gate for this path. It sends
+a canonical type-40 retained viewport through the MIL sideband, compiles the
+resulting semantic mesh, renders it into a strict sub-viewport, reads the GPU
+target back, and rejects any colored pixel outside that rectangle. The first
+Metal run exposed three previously dormant 3D-pipeline defects: temporary
+WGSL-array dynamic indexing rejected by wgpu-native, zero-valued default
+stencil compare modes, and treating the ABI position's reserved fourth float
+as homogeneous `w`. The shared shader now derives line corners without dynamic
+array indexing and constructs mesh positions as `vec4(position.xyz, 1)`; the
+pipeline initializes both unused stencil faces explicitly. Apple M3 Pro Metal
+qualifies one draw at extent `[41,22]-[86,66]` inside viewport
+`[32,20]-[96,68]`, with 1,058 colored pixels and no CPU projection.
+
 - Implement the remaining 2D/3D resource execution, curve dashes, exact
   translated-equivalent EvenOdd overlap execution, remaining pen/image/media
   paths, dynamic guidelines, caches, effects, and render-data commands.

@@ -5971,9 +5971,13 @@ public class NativeRendererInteropTests
             StringComparison.Ordinal);
         Assert.Contains("--semantic-layer-effects", unixBuild,
             StringComparison.Ordinal);
+        Assert.Contains("--semantic-viewport3d", unixBuild,
+            StringComparison.Ordinal);
         Assert.Contains("progpu_native_sample.exe", windowsBuild,
             StringComparison.Ordinal);
         Assert.Contains("--semantic-layer-effects", windowsBuild,
+            StringComparison.Ordinal);
+        Assert.Contains("--semantic-viewport3d", windowsBuild,
             StringComparison.Ordinal);
         Assert.Contains("The D3D12 native renderer backend sample failed.",
             windowsBuild,
@@ -5981,6 +5985,33 @@ public class NativeRendererInteropTests
         Assert.Contains("Upload native backend execution evidence", buildWorkflow,
             StringComparison.Ordinal);
         Assert.Contains("Upload native backend execution evidence", releaseWorkflow,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Native3DShaderUsesCanonicalHomogeneousPositions()
+    {
+        string shader = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Scene", "Shaders", "Native3D.wgsl"));
+        string execution = File.ReadAllText(FindRepoFile(
+            "src", "ProGPU.Native", "src", "Backend",
+            "progpu_native_3d_execution.cpp"));
+
+        Assert.Contains(
+            "vec4<f32>(vertex.position.xyz, 1.0)",
+            shader,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "array<vec2<f32>, 6>",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "depth.stencilFront.compare = WGPUCompareFunction_Always;",
+            execution,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "depth.stencilBack.compare = WGPUCompareFunction_Always;",
+            execution,
             StringComparison.Ordinal);
     }
 

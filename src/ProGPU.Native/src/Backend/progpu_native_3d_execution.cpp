@@ -117,6 +117,8 @@ WGPURenderPipeline create_pipeline(
     depth.depthWriteEnabled = true;
 #endif
     depth.depthCompare = WGPUCompareFunction_LessEqual;
+    depth.stencilFront.compare = WGPUCompareFunction_Always;
+    depth.stencilBack.compare = WGPUCompareFunction_Always;
     depth.stencilReadMask = 0xFFFFFFFFU;
     depth.stencilWriteMask = 0xFFFFFFFFU;
 

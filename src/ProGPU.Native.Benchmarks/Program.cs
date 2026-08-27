@@ -49,6 +49,17 @@ if (Array.Exists(
         args,
         static value => string.Equals(
             value,
+            "--semantic-viewport3d",
+            StringComparison.OrdinalIgnoreCase)))
+{
+    RetainedViewport3DQualification.Run();
+    return;
+}
+
+if (Array.Exists(
+        args,
+        static value => string.Equals(
+            value,
             "--semantic-local-cache-fant",
             StringComparison.OrdinalIgnoreCase)))
 {
