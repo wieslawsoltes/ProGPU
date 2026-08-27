@@ -2,6 +2,7 @@ using ProGPU.Backend;
 using ProGPU.Scene;
 using System;
 using System.Drawing.Imaging;
+using System.Drawing.Imaging.Effects;
 using System.Runtime.InteropServices;
 using Silk.NET.WebGPU;
 
@@ -295,6 +296,45 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
             _cpuAlphaMode = alphaMode;
             _hasDefinedPixels = true;
         }
+    }
+
+    /// <summary>Alters the bitmap by applying the given <paramref name="effect"/>.</summary>
+    /// <param name="effect">The effect to apply.</param>
+    /// <param name="area">The area to apply to, or <see cref="Rectangle.Empty"/> for the entire image.</param>
+    public void ApplyEffect(Effect effect, Rectangle area = default)
+    {
+        ArgumentNullException.ThrowIfNull(effect);
+
+        lock (_textureLifetimeLock)
+        {
+            ThrowIfDisposed();
+            Rectangle clippedArea = area.IsEmpty
+                ? new Rectangle(0, 0, Width, Height)
+                : ClipToBitmap(area, Width, Height);
+            if (clippedArea.IsEmpty)
+            {
+                return;
+            }
+
+            byte[] pixels = ReadPixelsCore(out GpuTextureAlphaMode alphaMode);
+            effect.Apply(
+                pixels,
+                Width,
+                clippedArea,
+                premultiplied: alphaMode == GpuTextureAlphaMode.Premultiplied);
+            WritePixelsCore(pixels, alphaMode);
+        }
+    }
+
+    private static Rectangle ClipToBitmap(Rectangle area, int width, int height)
+    {
+        long left = Math.Max(0L, area.X);
+        long top = Math.Max(0L, area.Y);
+        long right = Math.Min(width, (long)area.X + area.Width);
+        long bottom = Math.Min(height, (long)area.Y + area.Height);
+        return right <= left || bottom <= top
+            ? Rectangle.Empty
+            : Rectangle.FromLTRB((int)left, (int)top, (int)right, (int)bottom);
     }
 
     public IntPtr GetHbitmap() => GetHbitmap(Color.Transparent);
