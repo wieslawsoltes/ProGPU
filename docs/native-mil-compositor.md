@@ -3339,6 +3339,16 @@ synchronized-frame p50 changed `5.5365 -> 5.2648` and
 traffic therefore outweigh any saved view arithmetic, and the source retains
 the compiler-optimized offset array with inline `subspan` construction.
 
+Follow-up offset-width and paired-accumulation experiments were exact but also
+rejected. Checked 32-bit scanline offsets improved all 2x medians, yet regressed
+1x synchronized-frame p50 by 2.0% across eight alternating 120-frame runs per
+variant. A base-span-only source rewrite produced a byte-identical dylib,
+confirming Clang already hoists that view. Keeping both pixel totals in one
+NEON `uint32x2_t` improved submission p50 by 3.0% at 1x and 5.3% at 2x, but
+regressed 1x frame p50 by 3.8% and 2x frame p95 by 2.2%. Every report retained
+zero channel difference at `5B6EF4F70536C862`/`706B261418EC5C3B`; both
+source candidates were reverted under the cross-profile no-regression rule.
+
 The accepted NEON follow-up instead folds exact integer lane reduction. It
 adds the low/high 0-or-1 coverage vectors before reducing their halves, saving
 one vector add per pixel without a new branch, metadata read, or floating-point
