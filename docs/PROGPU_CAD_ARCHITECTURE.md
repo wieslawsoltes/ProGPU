@@ -112,7 +112,7 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   substitution is an explicit diagnostic. Overline, underline, and strike-
   through toggles retain bounded filled decoration rectangles in the same
   affine basis. SHX/Big Font, extrusion, and MTEXT remain diagnosed fidelity
-  gates. Documented degree, plus/minus, diameter, percent, and DXF
+  gates. Documented decimal-character, degree, plus/minus, diameter, percent, and DXF
   Unicode escapes are decoded before shaping.
 - Model-space lineweights are recorded as fixed device-space strokes; explicit
   zero-width lineweights use the ProGPU hairline sentinel. Non-continuous CAD
@@ -361,8 +361,9 @@ non-uniform block transforms, or backward generation; backward text anchors at
 the second point and traverses the same segment in reverse. Non-baseline or
 non-coplanar two-point combinations fail explicitly.
 
-The bounded content decoder maps Autodesk's `%%d`, `%%p`, `%%c`, `%%%`, and
-four-hex-digit `\U+XXXX` sequences before shaping. It also records the visual
+The bounded content decoder maps Autodesk's three-digit decimal `%%nnn`,
+`%%d`, `%%p`, `%%c`, `%%%`, and four-hex-digit `\U+XXXX` sequences before
+shaping. Numeric sequences must contain exactly three decimal digits. It also records the visual
 ranges toggled by `%%o`, `%%u`, and `%%k`; toggles still active at end of TEXT
 close automatically. Underline geometry uses the resolved OpenType `post`
 position/thickness, strike-through uses the `OS/2` position/thickness, and
@@ -372,7 +373,7 @@ Fit, OCS, and ancestor transforms apply exactly once. Visual cluster runs merge
 in one pass; a toggle boundary that splits one shaped cluster fails explicitly
 instead of changing shaping or partially painting a ligature/combining cluster.
 Decoration rectangles participate in conservative WCS bounds. Invalid UTF-16,
-numeric controls, unknown font-specific controls, and missing required metrics
+malformed numeric controls, unknown font-specific controls, and missing required metrics
 remain explicit gates; control syntax is never painted literally.
 
 The decoration-specific engine audit preserves the same layout/render split:
@@ -597,8 +598,8 @@ Sources consulted on 2026-08-27:
   and [STYLE contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-EF68AF7C-13EF-45A1-8175-ED6CE66C8FC9.htm):
   adopted OCS/WCS point distinctions, the second-point justification rule,
   effective entity transform values and style creation defaults, two-point
-  Align/Fit scaling, generation flags, decoration toggles, OpenType decoration
-  metrics, font metadata, and MTEXT attachment/flow/column scope; adapted
+  Align/Fit scaling, generation flags, decimal/symbol/decoration controls,
+  OpenType decoration metrics, font metadata, and MTEXT attachment/flow/column scope; adapted
   supported TrueType TEXT into normalized retained font and decoration runs with
   conservative affine bounds; rejected guessed text
   rectangles, stripped MTEXT formatting, silent SHX substitution, and claiming

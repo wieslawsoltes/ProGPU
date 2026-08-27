@@ -1701,14 +1701,31 @@ public sealed class CadSnapshotCompiler
                     continue;
                 }
 
+                if (code is >= '0' and <= '9')
+                {
+                    if (i + 4 >= source.Length ||
+                        source[i + 3] is < '0' or > '9' ||
+                        source[i + 4] is < '0' or > '9')
+                    {
+                        throw new CadUnsupportedEntityException(
+                            "TEXT numeric control codes require exactly three decimal digits.");
+                    }
+
+                    int scalar = ((source[i + 2] - '0') * 100) +
+                        ((source[i + 3] - '0') * 10) +
+                        (source[i + 4] - '0');
+                    decoded[written] = (char)scalar;
+                    decorations[written++] = activeDecorations;
+                    i += 4;
+                    continue;
+                }
+
                 decoded[written] = code switch
                 {
                     'd' => '\u00B0',
                     'p' => '\u00B1',
                     'c' => '\u2205',
                     '%' => '%',
-                    >= '0' and <= '9' => throw new CadUnsupportedEntityException(
-                        "Numeric AutoCAD TEXT control codes require font-specific character mapping."),
                     _ => throw new CadUnsupportedEntityException(
                         $"TEXT contains unsupported AutoCAD control code '%%{source[i + 2]}'."),
                 };

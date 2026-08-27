@@ -924,7 +924,7 @@ public sealed class CadSnapshotAndSceneTests
         {
             var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
             document.TextStyles.Add(textStyle);
-            document.Entities.Add(new TextEntity(@"45%%d \U+00B1 %%%") { Style = textStyle });
+            document.Entities.Add(new TextEntity(@"45%%d \U+00B1 %%% %%065%%066%%067") { Style = textStyle });
         });
 
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
@@ -933,11 +933,37 @@ public sealed class CadSnapshotAndSceneTests
             {
                 TextFontResolver = new FixedTextFontResolver(font),
             });
-        var expected = new TextLayout("45° ± %", font, 1.0f, float.PositiveInfinity);
+        var expected = new TextLayout("45° ± % ABC", font, 1.0f, float.PositiveInfinity);
 
         Assert.Equal(
             expected.Glyphs.Select(glyph => glyph.GlyphIndex),
             snapshot.TextGlyphIndices.ToArray());
+    }
+
+    [Fact]
+    public void MalformedNumericTextControlsAreExplicitFidelityGates()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add malformed numeric controls", document =>
+        {
+            var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            document.Entities.Add(new TextEntity("%%12") { Style = textStyle });
+            document.Entities.Add(new TextEntity("%%1A3") { Style = textStyle });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(InterFontFamily.Regular),
+            });
+
+        Assert.Empty(snapshot.Entities.ToArray());
+        Assert.Equal(2, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.All(
+            snapshot.Diagnostics.ToArray(),
+            diagnostic => Assert.Contains("three decimal digits", diagnostic.Message));
     }
 
     [Fact]
