@@ -657,6 +657,21 @@ red-dominant and 3,300 blue-dominant pixels with maximum channel deltas of 134
 in both directions. The ordinary managed gradient execution test remains in
 the same gate to protect the zero/default target.
 
+Exact implementation commit `ed98df5d` is also qualified in the Windows 11
+ARM64 Parallels guest from source archive SHA-256
+`0EAA66E17840D35DE955854F31C0D9398115D4D7473D451218B363071B68AC50`.
+The archive's pinned `microsoft-ui-xaml` gitlink is `25d2cb1c`; its only
+required hydrated `generic.xaml` file matched the current submodule at
+SHA-256 `4C4085838721C0AFCB1A9EE17591C0655CDDDADB26D330788E08BCD7F1AF8285`.
+.NET SDK 10.0.400 rebuilt the complete managed test graph with zero warnings
+and errors. All eight focused ordinary/specular compilation, validation, ABI,
+and live tests passed. Both live contexts selected
+`Parallels Display Adapter (WDDM)`, backend `D3D12`, device type
+`DiscreteGpu`; the new specular readback contained 3,304 red-dominant and
+3,304 blue-dominant pixels with maximum channel deltas of 134 and no WebGPU
+validation/device error. The native C++ sources are unchanged from their prior
+strict MSVC/D3D12 qualification.
+
 Exact pushed implementation `8eee2170` is also qualified on Windows ARM64
 from an isolated source archive plus the repository's exact pinned
 `microsoft-ui-xaml` submodule file at `25d2cb1c`. .NET SDK 10.0.400 built the
