@@ -1,4 +1,5 @@
 using System.Drawing.Imaging;
+using ProGPU.SystemDrawing;
 using System.Reflection;
 using System.Runtime.Serialization;
 using System.Text;
@@ -93,8 +94,7 @@ public sealed partial class Icon : MarshalByRefObject, IDisposable, ICloneable, 
 
     private Icon(IntPtr handle)
     {
-        throw new PlatformNotSupportedException(
-            "HICON import requires the explicit Windows GDI image adapter.");
+        _bitmap = NativeImageImportServices.ImportIcon(handle);
     }
 
     public int Width => _bitmap?.Width ?? 0;

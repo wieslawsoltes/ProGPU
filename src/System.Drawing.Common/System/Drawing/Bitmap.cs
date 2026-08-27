@@ -1,5 +1,6 @@
 using ProGPU.Backend;
 using ProGPU.Scene;
+using ProGPU.SystemDrawing;
 using System;
 using System.Drawing.Imaging;
 using System.Drawing.Imaging.Effects;
@@ -183,6 +184,12 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         : this(stream)
     {
     }
+
+    public static Bitmap FromHicon(IntPtr hicon)
+        => NativeImageImportServices.ImportIcon(hicon);
+
+    public static Bitmap FromResource(IntPtr hinstance, string bitmapName)
+        => NativeImageImportServices.ImportBitmapResource(hinstance, bitmapName);
 
 #pragma warning disable SYSLIB0050
     private Bitmap(SerializationInfo info, StreamingContext context)
