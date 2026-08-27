@@ -7,7 +7,7 @@ namespace System.Drawing;
 /// Associates a small and optional large toolbox image with a component type.
 /// </summary>
 [AttributeUsage(AttributeTargets.Class)]
-public sealed class ToolboxBitmapAttribute : Attribute
+public class ToolboxBitmapAttribute : Attribute
 {
     private static readonly Size s_smallSize = new(16, 16);
     private static readonly Size s_largeSize = new(32, 32);
